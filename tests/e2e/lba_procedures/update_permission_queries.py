@@ -10,11 +10,10 @@
 # licenses/APL.txt.
 
 import sys
+
 import pytest
-
-from mgclient import DatabaseError
-
 from common import connect, execute_and_fetch_all, reset_update_permissions
+from mgclient import DatabaseError
 
 update_property_query = "MATCH (n:update_label) SET n.prop = 2 RETURN n.prop;"
 update_properties_query = "MATCH (n:update_label) SET n = {prop: 2, prop2: 3} RETURN n.prop;"
@@ -24,6 +23,7 @@ remove_property_query = "MATCH (n:update_label) REMOVE n.prop RETURN n.prop;"
 def test_can_read_node_when_given_update_grant():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label TO user;")
     execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -35,6 +35,7 @@ def test_can_read_node_when_given_update_grant():
 def test_can_update_node_when_given_update_grant():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label TO user;")
     execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -102,6 +103,7 @@ def test_can_not_update_node_when_given_read_globally():
 def test_can_update_node_when_given_update_globally():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS * TO user;")
     execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -117,7 +119,10 @@ def test_can_update_node_when_given_update_globally():
 def test_can_update_node_when_given_create_delete_globally():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT CREATE ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT DELETE ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     update_property_actual = execute_and_fetch_all(test_cursor, update_property_query)
@@ -132,7 +137,10 @@ def test_can_update_node_when_given_create_delete_globally():
 def test_can_update_node_when_given_create_delete():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT CREATE ON LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT DELETE ON LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
 

@@ -48,17 +48,13 @@ BASIC_PRIVILEGES = [
 
 def test_lba_procedures_show_privileges_first_user():
     expected_assertions_josip = [
-        ("ALL LABELS", "CREATE_DELETE", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
-        (
-            "ALL EDGE_TYPES",
-            "CREATE_DELETE",
-            "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER",
-        ),
+        ("ALL LABELS", "CREATE, READ, UPDATE, DELETE", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
+        ("ALL EDGE_TYPES", "CREATE, READ, UPDATE, DELETE", "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER"),
         ("LABEL :Label1", "READ", "LABEL PERMISSION GRANTED TO USER"),
         ("LABEL :Label2", "NOTHING", "LABEL PERMISSION DENIED TO USER"),
         ("LABEL :Label3", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
         ("LABEL :Label4", "READ", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label5", "CREATE_DELETE", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label5", "CREATE, DELETE", "LABEL PERMISSION GRANTED TO USER"),
         ("LABEL :Label6", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
         ("LABEL :Label7", "NOTHING", "LABEL PERMISSION DENIED TO USER"),
     ]
@@ -81,7 +77,7 @@ def test_lba_procedures_show_privileges_second_user():
         ("LABEL :Label2", "NOTHING", "LABEL PERMISSION DENIED TO USER"),
         ("LABEL :Label3", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
         ("LABEL :Label4", "READ", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label5", "CREATE_DELETE", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label5", "CREATE, DELETE", "LABEL PERMISSION GRANTED TO USER"),
         ("LABEL :Label6", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
         ("LABEL :Label7", "NOTHING", "LABEL PERMISSION DENIED TO USER"),
     ]
@@ -96,7 +92,7 @@ def test_lba_procedures_show_privileges_second_user():
 def test_lba_procedures_show_privileges_third_user():
     expected_assertions_niko = [
         ("AUTH", "GRANT", "GRANTED TO USER"),
-        ("ALL LABELS", "READ", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
+        ("ALL LABELS", "CREATE, READ, DELETE", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
     ]
 
     cursor = connect(username="Niko", password="").cursor()

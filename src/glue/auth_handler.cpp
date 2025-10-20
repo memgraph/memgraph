@@ -909,9 +909,14 @@ void AuthQueryHandler::RevokePrivilege(
       ,
       [](auto &fine_grained_permissions, const auto &privilege_collection) {
         for (const auto &[privilege, entities] : privilege_collection) {
-          const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
           for (const auto &entity : entities) {
-            fine_grained_permissions.Revoke(entity, permission);
+            if (entity == "*") {
+              // REVOKE on * means clear all permissions
+              fine_grained_permissions.Revoke(entity);
+            } else {
+              const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
+              fine_grained_permissions.Revoke(entity, permission);
+            }
           }
         }
       }

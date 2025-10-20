@@ -40,14 +40,14 @@ def test_can_not_create_vertex_when_given_nothing(switch):
 
 
 @pytest.mark.parametrize("switch", [False, True])
-def test_can_create_vertex_when_given_global_create_delete(switch):
+def test_can_create_vertex_when_given_global_create(switch):
     admin_cursor = connect(username="admin", password="test").cursor()
     create_multi_db(admin_cursor)
     if switch:
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT CREATE ON LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -95,7 +95,7 @@ def test_can_not_create_vertex_when_given_global_update(switch):
 
 
 @pytest.mark.parametrize("switch", [False, True])
-def test_can_add_vertex_label_when_given_create_delete(switch):
+def test_can_add_vertex_label_when_given_create(switch):
     admin_cursor = connect(username="admin", password="test").cursor()
     create_multi_db(admin_cursor)
     if switch:
@@ -104,7 +104,7 @@ def test_can_add_vertex_label_when_given_create_delete(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT CREATE_DELETE ON LABELS :new_create_delete_label, UPDATE ON LABELS :create_delete_label TO user;",
+        "GRANT CREATE ON LABELS :new_create_delete_label, READ ON LABELS: create_delete_label, UPDATE ON LABELS :create_delete_label TO user;",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -155,14 +155,17 @@ def test_can_not_add_vertex_label_when_given_read(switch):
 
 
 @pytest.mark.parametrize("switch", [False, True])
-def test_can_remove_vertex_label_when_given_create_delete(switch):
+def test_can_remove_vertex_label_when_given_delete(switch):
     admin_cursor = connect(username="admin", password="test").cursor()
     create_multi_db(admin_cursor)
     if switch:
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS :create_delete_label TO user;")
+    execute_and_fetch_all(
+        admin_cursor,
+        "GRANT READ ON LABELS :create_delete_label, UPDATE ON LABELS :create_delete_label, DELETE ON LABELS :create_delete_label TO user;",
+    )
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -173,14 +176,14 @@ def test_can_remove_vertex_label_when_given_create_delete(switch):
 
 
 @pytest.mark.parametrize("switch", [False, True])
-def test_can_remove_vertex_label_when_given_global_create_delete(switch):
+def test_can_remove_vertex_label_when_given_global_delete(switch):
     admin_cursor = connect(username="admin", password="test").cursor()
     create_multi_db(admin_cursor)
     if switch:
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS *, UPDATE ON LABELS *, DELETE ON LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -198,7 +201,9 @@ def test_can_not_remove_vertex_label_when_given_update(switch):
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS :create_delete_label TO user;")
+    execute_and_fetch_all(
+        admin_cursor, "GRANT READ ON LABELS :create_delete_label, UPDATE ON LABELS :create_delete_label TO user;"
+    )
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -216,7 +221,7 @@ def test_can_not_remove_vertex_label_when_given_global_update(switch):
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS *, UPDATE ON LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -315,7 +320,7 @@ def test_can_not_create_edge_when_given_update(switch):
 
 
 @pytest.mark.parametrize("switch", [False, True])
-def test_can_create_edge_when_given_create_delete(switch):
+def test_can_create_edge_when_given_create(switch):
     admin_cursor = connect(username="admin", password="test").cursor()
     create_multi_db(admin_cursor)
     if switch:
@@ -324,7 +329,7 @@ def test_can_create_edge_when_given_create_delete(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT CREATE_DELETE ON EDGE_TYPES :new_create_delete_edge_type TO user",
+        "GRANT READ ON LABELS :create_delete_label_1, :create_delete_label_2, CREATE ON EDGE_TYPES :new_create_delete_edge_type, READ ON EDGE_TYPES :new_create_delete_edge_type TO user",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -383,7 +388,7 @@ def test_can_not_delete_edge_when_given_update(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT UPDATE ON EDGE_TYPES :create_delete_edge_type TO user",
+        "GRANT READ ON EDGE_TYPES :create_delete_edge_type, UPDATE ON EDGE_TYPES :create_delete_edge_type TO user",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -395,7 +400,7 @@ def test_can_not_delete_edge_when_given_update(switch):
 
 
 @pytest.mark.parametrize("switch", [False, True])
-def test_can_delete_edge_when_given_create_delete(switch):
+def test_can_delete_edge_when_given_delete(switch):
     admin_cursor = connect(username="admin", password="test").cursor()
     create_multi_db(admin_cursor)
     if switch:
@@ -404,7 +409,7 @@ def test_can_delete_edge_when_given_create_delete(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT CREATE_DELETE ON EDGE_TYPES :create_delete_edge_type TO user",
+        "GRANT DELETE ON EDGE_TYPES :create_delete_edge_type TO user",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
