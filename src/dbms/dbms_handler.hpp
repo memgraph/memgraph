@@ -535,13 +535,7 @@ class DbmsHandler {
     // Force link on-disk directories
     const auto conf = db_handler_.GetConfig(kDefaultDB);
     MG_ASSERT(conf, "No configuration for the default database.");
-    const auto &tmp_conf = conf->disk;
-    std::vector<std::filesystem::path> to_link{
-        tmp_conf.main_storage_directory,         tmp_conf.label_index_directory,
-        tmp_conf.label_property_index_directory, tmp_conf.unique_constraints_directory,
-        tmp_conf.name_id_mapper_directory,       tmp_conf.id_name_mapper_directory,
-        tmp_conf.durability_directory,           tmp_conf.wal_directory,
-    };
+    std::vector<std::filesystem::path> to_link{conf->disk.wal_directory};
 
     // Add in-memory paths
     // Some directories are redundant (skip those)
