@@ -563,3 +563,12 @@ Feature: List operators
         Then the result should be:
             | n                                                                       |
             | (:Node {prop: ['string', [1, 2], [1, 2.5], [1.3, 1.4], ['string', 1]]}) |
+
+    Scenario: Numeric list equality between int and double lists
+        When executing query:
+            """
+            RETURN [1, 2, 3, 4] = [1.0, 2.0, 3.0, 4.0] AND [1.0, 2.0, 3.0, 4.0] = [1, 2, 3, 4.0] AND [1, 2, 3, 4] = [1, 2, 3, 4.0] AS x
+            """
+        Then the result should be:
+            | x    |
+            | true |

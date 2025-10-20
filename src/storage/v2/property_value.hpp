@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <compare>
 #include <iosfwd>
 #include <string>
 #include <vector>
@@ -948,7 +949,9 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
       if (second.type() == PropertyValueType::NumericList) {
         auto const &l1 = first.ValueNumericList();
         auto const &l2 = second.ValueNumericList();
-        return to_weak_order(std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end()));
+        auto const numeric_three_way_cmp = [](auto const &v1, auto const &v2) { return CompareNumericValues(v1, v2); };
+        return to_weak_order(
+            std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end(), numeric_three_way_cmp));
       }
       return CompareLists(first, second);
     }

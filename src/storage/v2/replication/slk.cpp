@@ -11,8 +11,6 @@
 
 #include "storage/v2/replication/slk.hpp"
 
-#include <math.h>
-
 #include <chrono>
 #include <cstdint>
 #include <string>
