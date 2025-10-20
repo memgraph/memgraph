@@ -56,8 +56,8 @@ auto User2Role(auto json) {
 constexpr auto full_json_str = R"({
   "databases":{"allow_all":true,"default":"db1","denies":["db2","db3"],"grants":["db1", "memgraph"]},
   "fine_grained_access_handler":{
-    "edge_type_permissions":{"global_permission":27,"permissions":{"E":1},"deny_permissions":{},"global_deny_permission":-1},
-    "label_permissions":{"global_permission":27,"permissions":{"A":1,"B":1,"C":3,"D":0},"deny_permissions":{},"global_deny_permission":-1}
+    "edge_type_permissions":{"global_permission":27,"permissions":{"E":1}},
+    "label_permissions":{"global_permission":27,"permissions":{"A":1,"B":1,"C":3,"D":0}}
   },
   "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
   "permissions":{"denies":0,"grants":134217727},
@@ -94,8 +94,8 @@ constexpr auto community_json_str = R"({
 constexpr auto community_saved_with_license_json_str = R"({
           "databases":{"allow_all":false,"default":"memgraph","denies":[],"grants":["memgraph"]},
           "fine_grained_access_handler":{
-            "edge_type_permissions":{"global_permission":-1,"permissions":{},"deny_permissions":{},"global_deny_permission":-1},
-            "label_permissions":{"global_permission":-1,"permissions":{},"deny_permissions":{},"global_deny_permission":-1}
+            "edge_type_permissions":{"global_permission":-1,"permissions":{}},
+            "label_permissions":{"global_permission":-1,"permissions":{}}
           },
           "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
           "permissions":{"denies":0,"grants":134217727},
@@ -915,8 +915,8 @@ TEST(AuthModule, UserSerialization) {
   auto json = nlohmann::json::parse(R"({
           "databases":{"allow_all":false,"default":"memgraph","denies":[],"grants":["memgraph"]},
           "fine_grained_access_handler":{
-            "edge_type_permissions":{"global_permission":-1,"permissions":{},"deny_permissions":{},"global_deny_permission":-1},
-            "label_permissions":{"global_permission":-1,"permissions":{},"deny_permissions":{},"global_deny_permission":-1}
+            "edge_type_permissions":{"global_permission":-1,"permissions":{}},
+            "label_permissions":{"global_permission":-1,"permissions":{}}
           },
           "password_hash":null,
           "permissions":{"denies":0,"grants":0},
@@ -1014,8 +1014,8 @@ TEST(AuthModule, RoleSerialization) {
   auto json = nlohmann::json::parse(R"({
           "databases":{"allow_all":false,"default":"memgraph","denies":[],"grants":["memgraph"]},
           "fine_grained_access_handler":{
-            "edge_type_permissions":{"global_permission":-1,"permissions":{},"deny_permissions":{},"global_deny_permission":-1},
-            "label_permissions":{"global_permission":-1,"permissions":{},"deny_permissions":{},"global_deny_permission":-1}
+            "edge_type_permissions":{"global_permission":-1,"permissions":{}},
+            "label_permissions":{"global_permission":-1,"permissions":{}}
           },
           "permissions":{"denies":0,"grants":0},
           "rolename":"",
