@@ -72,206 +72,211 @@ auto ArrowTimeToUs(auto const arrow_val, auto const arrow_time_unit) -> int64_t 
 
 std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<arrow::Array> &column,
                                                          MemoryResource *resource) {
-  TypedValue::allocator_type alloc(resource);
   switch (column->type()->id()) {
     case arrow::Type::BOOL: {
       auto bool_array = std::static_pointer_cast<arrow::BooleanArray>(column);
-      return [bool_array, alloc](int64_t const i) -> TypedValue {
-        return bool_array->IsNull(i) ? TypedValue(alloc) : TypedValue(bool_array->Value(i), alloc);
+      return [bool_array, resource](int64_t const i) -> TypedValue {
+        return bool_array->IsNull(i) ? TypedValue(resource) : TypedValue(bool_array->Value(i), resource);
       };
     }
     case arrow::Type::INT8: {
       auto int_array = std::static_pointer_cast<arrow::Int8Array>(column);
-      return [int_array, alloc](int64_t const i) -> TypedValue {
-        return int_array->IsNull(i) ? TypedValue(alloc) : TypedValue(static_cast<int64_t>(int_array->Value(i)), alloc);
+      return [int_array, resource](int64_t const i) -> TypedValue {
+        return int_array->IsNull(i) ? TypedValue(resource)
+                                    : TypedValue(static_cast<int64_t>(int_array->Value(i)), resource);
       };
     }
     case arrow::Type::INT16: {
       auto int_array = std::static_pointer_cast<arrow::Int16Array>(column);
-      return [int_array, alloc](int64_t const i) -> TypedValue {
-        return int_array->IsNull(i) ? TypedValue(alloc) : TypedValue(static_cast<int64_t>(int_array->Value(i)), alloc);
+      return [int_array, resource](int64_t const i) -> TypedValue {
+        return int_array->IsNull(i) ? TypedValue(resource)
+                                    : TypedValue(static_cast<int64_t>(int_array->Value(i)), resource);
       };
     }
     case arrow::Type::INT32: {
       auto int_array = std::static_pointer_cast<arrow::Int32Array>(column);
-      return [int_array, alloc](int64_t const i) -> TypedValue {
-        return int_array->IsNull(i) ? TypedValue(alloc) : TypedValue(int_array->Value(i), alloc);
+      return [int_array, resource](int64_t const i) -> TypedValue {
+        return int_array->IsNull(i) ? TypedValue(resource) : TypedValue(int_array->Value(i), resource);
       };
     }
     case arrow::Type::INT64: {
       auto int_array = std::static_pointer_cast<arrow::Int64Array>(column);
-      return [int_array, alloc](int64_t const i) -> TypedValue {
-        return int_array->IsNull(i) ? TypedValue(alloc) : TypedValue(int_array->Value(i), alloc);
+      return [int_array, resource](int64_t const i) -> TypedValue {
+        return int_array->IsNull(i) ? TypedValue(resource) : TypedValue(int_array->Value(i), resource);
       };
     }
     case arrow::Type::UINT8: {
       auto int_array = std::static_pointer_cast<arrow::UInt8Array>(column);
-      return [int_array, alloc](int64_t const i) -> TypedValue {
-        return int_array->IsNull(i) ? TypedValue(alloc) : TypedValue(static_cast<int64_t>(int_array->Value(i)), alloc);
+      return [int_array, resource](int64_t const i) -> TypedValue {
+        return int_array->IsNull(i) ? TypedValue(resource)
+                                    : TypedValue(static_cast<int64_t>(int_array->Value(i)), resource);
       };
     }
     case arrow::Type::UINT16: {
       auto int_array = std::static_pointer_cast<arrow::UInt16Array>(column);
-      return [int_array, alloc](int64_t const i) -> TypedValue {
-        return int_array->IsNull(i) ? TypedValue(alloc) : TypedValue(static_cast<int64_t>(int_array->Value(i)), alloc);
+      return [int_array, resource](int64_t const i) -> TypedValue {
+        return int_array->IsNull(i) ? TypedValue(resource)
+                                    : TypedValue(static_cast<int64_t>(int_array->Value(i)), resource);
       };
     }
     case arrow::Type::UINT32: {
       auto int_array = std::static_pointer_cast<arrow::UInt32Array>(column);
-      return [int_array, alloc](int64_t const i) -> TypedValue {
-        return int_array->IsNull(i) ? TypedValue(alloc) : TypedValue(static_cast<int64_t>(int_array->Value(i)), alloc);
+      return [int_array, resource](int64_t const i) -> TypedValue {
+        return int_array->IsNull(i) ? TypedValue(resource)
+                                    : TypedValue(static_cast<int64_t>(int_array->Value(i)), resource);
       };
     }
     case arrow::Type::UINT64: {
       auto int_array = std::static_pointer_cast<arrow::UInt64Array>(column);
-      return [int_array, alloc](int64_t const i) -> TypedValue {
-        return int_array->IsNull(i) ? TypedValue(alloc) : TypedValue(static_cast<int64_t>(int_array->Value(i)), alloc);
+      return [int_array, resource](int64_t const i) -> TypedValue {
+        return int_array->IsNull(i) ? TypedValue(resource)
+                                    : TypedValue(static_cast<int64_t>(int_array->Value(i)), resource);
       };
     }
     case arrow::Type::HALF_FLOAT: {
       auto half_float_array = std::static_pointer_cast<arrow::HalfFloatArray>(column);
-      return [half_float_array, alloc](int64_t const i) -> TypedValue {
-        if (half_float_array->IsNull(i)) return TypedValue(alloc);
+      return [half_float_array, resource](int64_t const i) -> TypedValue {
+        if (half_float_array->IsNull(i)) return TypedValue(resource);
         auto scalar = half_float_array->Value(i);
-        return TypedValue(arrow::util::Float16::FromBits(scalar).ToFloat(), alloc);
+        return TypedValue(arrow::util::Float16::FromBits(scalar).ToFloat(), resource);
       };
     }
     case arrow::Type::FLOAT: {
       auto float_array = std::static_pointer_cast<arrow::FloatArray>(column);
-      return [float_array, alloc](int64_t const i) -> TypedValue {
-        return float_array->IsNull(i) ? TypedValue(alloc) : TypedValue(float_array->Value(i), alloc);
+      return [float_array, resource](int64_t const i) -> TypedValue {
+        return float_array->IsNull(i) ? TypedValue(resource) : TypedValue(float_array->Value(i), resource);
       };
     }
     case arrow::Type::DOUBLE: {
       auto double_array = std::static_pointer_cast<arrow::DoubleArray>(column);
-      return [double_array, alloc](int64_t const i) -> TypedValue {
-        return double_array->IsNull(i) ? TypedValue(alloc) : TypedValue(double_array->Value(i), alloc);
+      return [double_array, resource](int64_t const i) -> TypedValue {
+        return double_array->IsNull(i) ? TypedValue(resource) : TypedValue(double_array->Value(i), resource);
       };
     }
     case arrow::Type::STRING: {
       auto string_array = std::static_pointer_cast<arrow::StringArray>(column);
-      return [string_array, alloc](int64_t const i) -> TypedValue {
-        if (string_array->IsNull(i)) return TypedValue(alloc);
+      return [string_array, resource](int64_t const i) -> TypedValue {
+        if (string_array->IsNull(i)) return TypedValue(resource);
         auto str = string_array->GetString(i);
-        return TypedValue(TypedValue::TString{str, alloc}, alloc);
+        return {TypedValue::TString{str, resource}, resource};
       };
     }
     case arrow::Type::LARGE_STRING: {
       auto large_string_array = std::static_pointer_cast<arrow::LargeStringArray>(column);
-      return [large_string_array, alloc](int64_t const i) -> TypedValue {
-        if (large_string_array->IsNull(i)) return TypedValue(alloc);
+      return [large_string_array, resource](int64_t const i) -> TypedValue {
+        if (large_string_array->IsNull(i)) return TypedValue(resource);
         auto view = large_string_array->GetView(i);
-        return TypedValue(TypedValue::TString{view, alloc}, alloc);
+        return {TypedValue::TString{view, resource}, resource};
       };
     }
     case arrow::Type::STRING_VIEW: {
       auto string_view_array = std::static_pointer_cast<arrow::StringViewArray>(column);
-      return [string_view_array, alloc](int64_t const i) -> TypedValue {
-        if (string_view_array->IsNull(i)) return TypedValue(alloc);
+      return [string_view_array, resource](int64_t const i) -> TypedValue {
+        if (string_view_array->IsNull(i)) return TypedValue(resource);
         auto view = string_view_array->GetView(i);
-        return TypedValue(TypedValue::TString{view, alloc}, alloc);
+        return {TypedValue::TString{view, resource}, resource};
       };
     }
     case arrow::Type::DATE32: {
       auto date_array = std::static_pointer_cast<arrow::Date32Array>(column);
-      return [date_array, alloc](int64_t const i) -> TypedValue {
-        return date_array->IsNull(i) ? TypedValue(alloc) : TypedValue(Date{date_array->Value(i)}, alloc);
+      return [date_array, resource](int64_t const i) -> TypedValue {
+        return date_array->IsNull(i) ? TypedValue(resource) : TypedValue(Date{date_array->Value(i)}, resource);
       };
     }
     case arrow::Type::DATE64: {
       auto date_array = std::static_pointer_cast<arrow::Date64Array>(column);
-      return [date_array, alloc](int64_t const i) -> TypedValue {
-        if (date_array->IsNull(i)) return TypedValue(alloc);
+      return [date_array, resource](int64_t const i) -> TypedValue {
+        if (date_array->IsNull(i)) return TypedValue(resource);
         auto const ms = std::chrono::milliseconds(date_array->Value(i));
         auto const us = std::chrono::duration_cast<std::chrono::microseconds>(ms);
-        return TypedValue(Date{us.count()}, alloc);
+        return TypedValue(Date{us.count()}, resource);
       };
     }
     case arrow::Type::TIME32: {
       auto time_array = std::static_pointer_cast<arrow::Time32Array>(column);
       auto time_type = std::static_pointer_cast<arrow::Time32Type>(column->type());
-      return [time_array, unit = time_type->unit(), alloc](int64_t const i) -> TypedValue {
-        if (time_array->IsNull(i)) return TypedValue(alloc);
+      return [time_array, unit = time_type->unit(), resource](int64_t const i) -> TypedValue {
+        if (time_array->IsNull(i)) return TypedValue(resource);
         auto const arrow_val = time_array->Value(i);
         auto const us_val = ArrowTimeToUs(arrow_val, unit);
-        return TypedValue(LocalTime{us_val}, alloc);
+        return TypedValue(LocalTime{us_val}, resource);
       };
     }
     case arrow::Type::TIME64: {
       auto time_array = std::static_pointer_cast<arrow::Time64Array>(column);
       auto time_type = std::static_pointer_cast<arrow::Time64Type>(column->type());
-      return [time_array, unit = time_type->unit(), alloc](int64_t const i) -> TypedValue {
-        if (time_array->IsNull(i)) return TypedValue(alloc);
+      return [time_array, unit = time_type->unit(), resource](int64_t const i) -> TypedValue {
+        if (time_array->IsNull(i)) return TypedValue(resource);
         auto const arrow_val = time_array->Value(i);
         auto const us_val = ArrowTimeToUs(arrow_val, unit);
-        return TypedValue(LocalTime{us_val}, alloc);
+        return TypedValue(LocalTime{us_val}, resource);
       };
     }
     case arrow::Type::TIMESTAMP: {
       auto timestamp_array = std::static_pointer_cast<arrow::TimestampArray>(column);
       auto timestamp_type = std::static_pointer_cast<arrow::TimestampType>(column->type());
-      return [timestamp_array, unit = timestamp_type->unit(), alloc](int64_t const i) -> TypedValue {
-        if (timestamp_array->IsNull(i)) return TypedValue(alloc);
+      return [timestamp_array, unit = timestamp_type->unit(), resource](int64_t const i) -> TypedValue {
+        if (timestamp_array->IsNull(i)) return TypedValue(resource);
         auto const arrow_val = timestamp_array->Value(i);
         auto const us_val = ArrowTimeToUs(arrow_val, unit);
-        return TypedValue(LocalDateTime{us_val}, alloc);
+        return TypedValue(LocalDateTime{us_val}, resource);
       };
     }
     case arrow::Type::DURATION: {
       auto duration_array = std::static_pointer_cast<arrow::DurationArray>(column);
       auto duration_type = std::static_pointer_cast<arrow::DurationType>(column->type());
-      return [duration_array, unit = duration_type->unit(), alloc](int64_t const i) -> TypedValue {
-        if (duration_array->IsNull(i)) return TypedValue(alloc);
+      return [duration_array, unit = duration_type->unit(), resource](int64_t const i) -> TypedValue {
+        if (duration_array->IsNull(i)) return TypedValue(resource);
         auto const arrow_val = duration_array->Value(i);
         auto const us_val = ArrowTimeToUs(arrow_val, unit);
-        return TypedValue(Duration{us_val}, alloc);
+        return TypedValue(Duration{us_val}, resource);
       };
     }
     case arrow::Type::DECIMAL128: {
       auto decimal_array = std::static_pointer_cast<arrow::Decimal128Array>(column);
       auto decimal_type = std::static_pointer_cast<arrow::Decimal128Type>(column->type());
       int32_t const scale = decimal_type->scale();
-      return [decimal_array, scale, alloc](int64_t const i) -> TypedValue {
-        if (decimal_array->IsNull(i)) return TypedValue(alloc);
+      return [decimal_array, scale, resource](int64_t const i) -> TypedValue {
+        if (decimal_array->IsNull(i)) return TypedValue(resource);
         uint8_t const *bytes = decimal_array->GetValue(i);
         arrow::Decimal128 const value(bytes);
-        return TypedValue(value.ToDouble(scale), alloc);
+        return TypedValue(value.ToDouble(scale), resource);
       };
     }
     case arrow::Type::DECIMAL256: {
       auto decimal_array = std::static_pointer_cast<arrow::Decimal256Array>(column);
       auto decimal_type = std::static_pointer_cast<arrow::Decimal256Type>(column->type());
       int32_t const scale = decimal_type->scale();
-      return [decimal_array, scale, alloc](int64_t const i) -> TypedValue {
-        if (decimal_array->IsNull(i)) return TypedValue(alloc);
+      return [decimal_array, scale, resource](int64_t const i) -> TypedValue {
+        if (decimal_array->IsNull(i)) return TypedValue(resource);
         uint8_t const *bytes = decimal_array->GetValue(i);
         arrow::Decimal256 const value(bytes);
-        return TypedValue(value.ToDouble(scale), alloc);
+        return TypedValue(value.ToDouble(scale), resource);
       };
     }
     case arrow::Type::BINARY: {
       auto binary_array = std::static_pointer_cast<arrow::BinaryArray>(column);
-      return [binary_array, alloc](int64_t const i) -> TypedValue {
-        if (binary_array->IsNull(i)) return TypedValue(alloc);
+      return [binary_array, resource](int64_t const i) -> TypedValue {
+        if (binary_array->IsNull(i)) return TypedValue(resource);
         auto const view = binary_array->GetView(i);
-        return TypedValue(ToHexString(reinterpret_cast<const uint8_t *>(view.data()), view.size()), alloc);
+        return TypedValue(ToHexString(reinterpret_cast<const uint8_t *>(view.data()), view.size()), resource);
       };
     }
     case arrow::Type::LARGE_BINARY: {
       auto large_binary_array = std::static_pointer_cast<arrow::LargeBinaryArray>(column);
-      return [large_binary_array, alloc](int64_t const i) -> TypedValue {
-        if (large_binary_array->IsNull(i)) return TypedValue(alloc);
+      return [large_binary_array, resource](int64_t const i) -> TypedValue {
+        if (large_binary_array->IsNull(i)) return TypedValue(resource);
         auto const view = large_binary_array->GetView(i);
-        return TypedValue(ToHexString(reinterpret_cast<const uint8_t *>(view.data()), view.size()), alloc);
+        return TypedValue(ToHexString(reinterpret_cast<const uint8_t *>(view.data()), view.size()), resource);
       };
     }
     case arrow::Type::FIXED_SIZE_BINARY: {
       auto fixed_binary = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(column);
       int32_t const width = fixed_binary->byte_width();
-      return [fixed_binary, width, alloc](int64_t const i) -> TypedValue {
-        if (fixed_binary->IsNull(i)) return TypedValue(alloc);
+      return [fixed_binary, width, resource](int64_t const i) -> TypedValue {
+        if (fixed_binary->IsNull(i)) return TypedValue(resource);
         const uint8_t *data = fixed_binary->GetValue(i);
-        return TypedValue(ToHexString(data, width), alloc);
+        return TypedValue(ToHexString(data, width), resource);
       };
     }
     case arrow::Type::LIST: {
@@ -290,7 +295,7 @@ std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<a
           list_values.emplace_back(elem_converter(k));
         }
 
-        return TypedValue(std::move(list_values), resource);
+        return {std::move(list_values), resource};
       };
     }
     case arrow::Type::MAP: {
@@ -313,15 +318,15 @@ std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<a
           map_values.emplace(TypedValue::TString{key, resource}, val_converter(k));
         }
 
-        return TypedValue(std::move(map_values), resource);
+        return {std::move(map_values), resource};
       };
     }
     default: {
       // Fallback to string conversion
-      return [column, alloc](int64_t const i) -> TypedValue {
-        if (column->IsNull(i)) return TypedValue(alloc);
+      return [column, resource](int64_t const i) -> TypedValue {
+        if (column->IsNull(i)) return TypedValue(resource);
         if (auto scalar = column->GetScalar(i); scalar.ok() && scalar.ValueOrDie()) {
-          return TypedValue(scalar.ValueOrDie()->ToString(), alloc);
+          return TypedValue(scalar.ValueOrDie()->ToString(), resource);
         }
         return {};
       };
@@ -387,7 +392,7 @@ struct ParquetReader::impl {
   int num_columns_;
   BatchIterator row_it_;
   utils::MemoryResource *resource_;
-  utils::pmr::vector<Row> rows_;  // cached, pre-allocated rows
+  utils::pmr::vector<Row> rows_;
   utils::DataQueue<utils::pmr::vector<Row>> work_queue_;
   Header header_;
   std::jthread prefetcher_thread_;  // should get destroyed before all other variables that it uses as a reference
@@ -418,7 +423,9 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
           utils::pmr::vector<Row> queued_batch(resource_);
           queued_batch.reserve(num_rows);
           for (auto i = 0; i < num_rows; ++i) {
-            queued_batch.push_back(Row{resource_});
+            // temporary needs to be created
+            // NOLINTNEXTLINE
+            queued_batch.emplace_back(Row{resource_});
           }
 
           std::vector<std::function<TypedValue(int64_t)>> converters;
@@ -438,10 +445,11 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
       }}
 
 {
-  // Preallocate
   rows_.reserve(batch_rows);
   for (auto i = 0U; i < batch_rows; i++) {
-    rows_.push_back(Row{resource_});
+    // temporary needs to be created
+    // NOLINTNEXTLINE
+    rows_.emplace_back(Row{resource_});
   }
 }
 
@@ -457,7 +465,6 @@ auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
     current_batch_size_ = rows_.size();
   }
   std::swap(out, rows_[row_in_batch_++]);
-  // out = std::move(rows_[row_in_batch_++]);
   return true;
 }
 
@@ -498,6 +505,8 @@ ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *res
     Header header(resource);
     header.reserve(schema->num_fields());
     for (auto const &field : schema->fields()) {
+      // temporary needs to be created
+      // NOLINTNEXTLINE
       header.push_back(TypedValue::TString{field->name(), resource});
     }
 
@@ -514,6 +523,8 @@ ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *res
 
 ParquetReader::~ParquetReader() = default;
 
+// keep logical constness
+// NOLINTNEXTLINE
 auto ParquetReader::GetNextRow(Row &out) -> bool { return pimpl_->GetNextRow(out); }
 
 }  // namespace memgraph::query
