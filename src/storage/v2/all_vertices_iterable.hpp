@@ -42,46 +42,6 @@ class AllVerticesIterable final {
     bool operator!=(const Iterator &other) const { return !(*this == other); }
   };
 
-  /// Iterator that iterates over chunks of vertices for parallel processing.
-  /// Each chunk can be processed in parallel by different threads.
-  class ChunkIterator final {
-    Storage *storage_;
-    Transaction *transaction_;
-    View view_;
-    utils::SkipList<Vertex>::ChunkIterator it_;
-    std::optional<VertexAccessor> vertex_;
-
-   public:
-    ChunkIterator(Storage *storage, Transaction *transaction, View view, utils::SkipList<Vertex>::ChunkIterator it);
-
-    VertexAccessor const &operator*() const;
-
-    ChunkIterator &operator++();
-
-    bool operator==(const ChunkIterator &other) const { return it_ == other.it_; }
-
-    bool operator!=(const ChunkIterator &other) const { return !(*this == other); }
-  };
-
-  /// Represents a chunk of vertices that can be processed in parallel.
-  class Chunk final {
-    Storage *storage_;
-    Transaction *transaction_;
-    View view_;
-    utils::SkipList<Vertex>::ChunkIterator begin_it_;
-    utils::SkipList<Vertex>::ChunkIterator end_it_;
-
-   public:
-    Chunk(Storage *storage, Transaction *transaction, View view, utils::SkipList<Vertex>::ChunkIterator begin,
-          utils::SkipList<Vertex>::ChunkIterator end);
-
-    ChunkIterator begin() const;
-    ChunkIterator end() const;
-  };
-
-  /// Collection of chunks for parallel processing.
-  using ChunkCollection = std::vector<Chunk>;
-
   AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Storage *storage, Transaction *transaction,
                       View view)
       : vertices_accessor_(std::move(vertices_accessor)), storage_(storage), transaction_(transaction), view_(view) {}
@@ -89,13 +49,15 @@ class AllVerticesIterable final {
   Iterator begin() { return {this, vertices_accessor_.begin()}; }
   Iterator end() { return {this, vertices_accessor_.end()}; }
 
-  /// Creates chunks for parallel processing of vertices.
-  /// Each chunk contains approximately equal number of elements.
-  /// This method is thread-safe and can be called concurrently.
-  ///
-  /// @param num_chunks The number of chunks to create
-  /// @return ChunkCollection containing the chunks
-  ChunkCollection create_chunks(size_t num_chunks) const;
+  auto create_chunks(size_t num_chunks) -> std::vector<Iterator> {
+    std::vector<Iterator> res;
+    res.reserve(num_chunks);
+    auto chunks = vertices_accessor_.create_chunks(num_chunks);
+    for (auto &chunk : chunks) {
+      res.emplace_back(this, chunk.begin());
+    }
+    return res;
+  }
 };
 
 }  // namespace memgraph::storage

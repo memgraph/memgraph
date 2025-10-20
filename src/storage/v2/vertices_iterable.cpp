@@ -104,14 +104,25 @@ VerticesIterable::Iterator VerticesIterable::end() {
   }
 }
 
-AllVerticesIterable::ChunkCollection VerticesIterable::create_chunks(size_t num_chunks) const {
+std::vector<VerticesIterable::Iterator> VerticesIterable::create_chunks(size_t num_chunks) {
+  std::vector<VerticesIterable::Iterator> res;
+  res.reserve(num_chunks);
   switch (type_) {
     case Type::ALL:
-      return all_vertices_.create_chunks(num_chunks);
+      for (auto &chunk : all_vertices_.create_chunks(num_chunks)) {
+        res.emplace_back(Iterator(chunk));
+      }
+      return res;
     case Type::BY_LABEL_IN_MEMORY:
+      for (auto &chunk : in_memory_vertices_by_label_.create_chunks(num_chunks)) {
+        res.emplace_back(Iterator(chunk));
+      }
+      return res;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
-      // Currently only support chunking for AllVerticesIterable
-      return AllVerticesIterable::ChunkCollection{};
+      for (auto &chunk : in_memory_vertices_by_label_property_.create_chunks(num_chunks)) {
+        res.emplace_back(Iterator(chunk));
+      }
+      return res;
   }
 }
 

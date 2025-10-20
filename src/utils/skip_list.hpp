@@ -597,7 +597,8 @@ class SkipList final : detail::SkipListNode_base {
     friend class SkipList;
     friend class ConstIterator;
 
-    explicit Iterator(TNode *node) : node_(node) {}
+    explicit Iterator(TNode *node) : node_(node), node_end_(nullptr) {}
+    Iterator(TNode *node, TNode *node_end) : node_(node), node_end_(node_end) {}  // Chunked version
 
    public:
     using value_type = TObj;
@@ -616,15 +617,22 @@ class SkipList final : detail::SkipListNode_base {
     friend bool operator==(Iterator const &lhs, Iterator const &rhs) { return lhs.node_ == rhs.node_; }
 
     Iterator &operator++() {
-      auto current = node_;
+      if (node_ == nullptr || node_ == node_end_) {
+        return *this;  // Already at end or null
+      }
+
+      TNode *next = nullptr;
       while (true) {
-        current = current->nexts[0].load(std::memory_order_acquire);
-        if (current != nullptr && current->marked.load(std::memory_order_acquire)) [[unlikely]] {
-          continue;
-        } else {
-          node_ = current;
+        next = node_->nexts[0].load(std::memory_order_acquire);
+        if (next == nullptr || next == node_end_) [[unlikely]] {
+          node_ = next;
           return *this;
         }
+        if (!next->marked.load(std::memory_order_acquire)) {
+          node_ = next;
+          return *this;
+        }
+        // Skip invalid nodes (marked or not fully linked)
       }
     }
 
@@ -634,8 +642,11 @@ class SkipList final : detail::SkipListNode_base {
       return old;
     }
 
+    explicit operator bool() const { return node_ != node_end_; }
+
    private:
     TNode *node_{nullptr};
+    TNode *node_end_{nullptr};  // End node is needed, because the end node could become marked and skipped otherwise
   };
 
   class ConstIterator final {
@@ -727,87 +738,19 @@ class SkipList final : detail::SkipListNode_base {
     uint32_t level_{};
   };
 
-  struct Chunk;
-
-  /// Iterator for parallel chunk-based reading of the skip list.
-  /// This iterator provides a way to iterate over a specific chunk of the list
-  /// defined by start and end positions, allowing multiple threads to process
-  /// different sections concurrently.
-  class ChunkIterator final {
-   private:
-    friend class SkipList;
-
-    explicit ChunkIterator(TNode *node, TNode *node_end) : node_(node), node_end_(node_end) {}
-
-   public:
-    using value_type = TObj const;
-    using difference_type = std::ptrdiff_t;
-
-    ChunkIterator() = default;
-    ChunkIterator(ChunkIterator const &) = default;
-    ChunkIterator(ChunkIterator &&) = default;
-    ChunkIterator &operator=(ChunkIterator const &) = default;
-    ChunkIterator &operator=(ChunkIterator &&) = default;
-
-    value_type &operator*() const {
-      if (node_ == nullptr) {
-        throw std::runtime_error("Dereferencing null ChunkIterator");
-      }
-      return node_->obj;
-    }
-
-    value_type *operator->() const {
-      if (node_ == nullptr) {
-        throw std::runtime_error("Dereferencing null ChunkIterator");
-      }
-      return &node_->obj;
-    }
-
-    friend bool operator==(ChunkIterator const &lhs, ChunkIterator const &rhs) { return lhs.node_ == rhs.node_; }
-
-    ChunkIterator &operator++() {
-      if (node_ == nullptr || node_ == node_end_) {
-        return *this;  // Already at end or null
-      }
-
-      TNode *next = nullptr;
-      while (true) {
-        next = node_->nexts[0].load(std::memory_order_acquire);
-        if (next == nullptr || next == node_end_) {
-          node_ = next;
-          return *this;
-        }
-        if (!next->marked.load(std::memory_order_acquire)) {
-          node_ = next;
-          return *this;
-        }
-        // Skip invalid nodes (marked or not fully linked)
-      }
-    }
-
-    ChunkIterator operator++(int) {
-      ChunkIterator old = *this;
-      ++(*this);
-      return old;
-    }
-
-   private:
-    friend struct Chunk;
-
-    TNode *node_{nullptr};
-    TNode *node_end_{nullptr};  // End node is needed, because the end node could become marked and skipped otherwise
-  };
-
   /// Represents a chunk of the skip list for parallel processing.
   /// Contains iterators to the beginning and end of a specific section.
   struct Chunk {
     Chunk(TNode *node, TNode *node_end) : begin_(node, node_end), end_(node_end, nullptr) {}
-    auto begin() const -> ChunkIterator { return begin_; }
-    auto end() const -> ChunkIterator { return end_; }
+    auto begin() const -> Iterator { return begin_; }
+    auto end() const -> Iterator { return end_; }
+
+    bool operator==(const Chunk &other) const { return begin_ == other.begin_ && end_ == other.end_; }
+    bool operator!=(const Chunk &other) const { return !(*this == other); }
 
    private:
-    ChunkIterator begin_;
-    ChunkIterator end_;
+    Iterator begin_;
+    Iterator end_;
   };
 
   /// Collection of chunks for parallel processing.

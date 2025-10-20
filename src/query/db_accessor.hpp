@@ -267,68 +267,13 @@ using PointIterable = query_iterable<storage::PointIterable>;
 /// Query-layer chunk collection that wraps storage layer chunk collection.
 /// This follows the same pattern as other query layer iterables.
 class VerticesChunkCollection final {
-  storage::AllVerticesIterable::ChunkCollection chunks_;
+  std::vector<VerticesIterable::Iterator> chunks_;
 
  public:
-  class ChunkIterator final {
-    storage::AllVerticesIterable::ChunkIterator it_;
-
-   public:
-    explicit ChunkIterator(storage::AllVerticesIterable::ChunkIterator it) : it_(std::move(it)) {}
-
-    VertexAccessor operator*() const { return VertexAccessor(*it_); }
-
-    ChunkIterator &operator++() {
-      ++it_;
-      return *this;
-    }
-
-    bool operator==(const ChunkIterator &other) const { return it_ == other.it_; }
-
-    bool operator!=(const ChunkIterator &other) const { return !(*this == other); }
-  };
-
-  class Chunk final {
-    storage::AllVerticesIterable::Chunk chunk_;
-
-   public:
-    explicit Chunk(storage::AllVerticesIterable::Chunk chunk) : chunk_(std::move(chunk)) {}
-
-    ChunkIterator begin() const { return ChunkIterator(chunk_.begin()); }
-
-    ChunkIterator end() const { return ChunkIterator(chunk_.end()); }
-  };
-
-  class Iterator final {
-    storage::AllVerticesIterable::ChunkCollection::iterator it_;
-
-   public:
-    explicit Iterator(storage::AllVerticesIterable::ChunkCollection::iterator it) : it_(it) {}
-
-    Chunk operator*() const { return Chunk(*it_); }
-
-    Iterator &operator++() {
-      ++it_;
-      return *this;
-    }
-
-    bool operator==(const Iterator &other) const { return it_ == other.it_; }
-
-    bool operator!=(const Iterator &other) const { return !(*this == other); }
-  };
-
-  explicit VerticesChunkCollection(storage::AllVerticesIterable::ChunkCollection chunks) : chunks_(std::move(chunks)) {}
-
-  Iterator begin() { return Iterator(chunks_.begin()); }
-
-  Iterator end() { return Iterator(chunks_.end()); }
-
+  explicit VerticesChunkCollection(std::vector<VerticesIterable::Iterator> &&chunks) : chunks_(std::move(chunks)) {}
   size_t size() const { return chunks_.size(); }
-
   bool empty() const { return chunks_.empty(); }
-
-  // Random access support for chunk indexing
-  Chunk operator[](size_t index) const { return Chunk(chunks_[index]); }
+  VerticesIterable::Iterator operator[](size_t index) const { return chunks_[index]; }
 };
 
 class DbAccessor final {
@@ -396,7 +341,13 @@ class DbAccessor final {
   /// @param num_chunks The number of chunks to create
   /// @return Collection of chunks for parallel processing
   VerticesChunkCollection VerticesChunks(storage::View view, size_t num_chunks) {
-    return VerticesChunkCollection(accessor_->Vertices(view).create_chunks(num_chunks));
+    auto storage_chunks = accessor_->Vertices(view).create_chunks(num_chunks);
+    std::vector<VerticesIterable::Iterator> query_chunks;
+    query_chunks.reserve(storage_chunks.size());
+    for (auto &chunk : storage_chunks) {
+      query_chunks.emplace_back(VerticesIterable::Iterator(chunk));
+    }
+    return VerticesChunkCollection{std::move(query_chunks)};
   }
 
   /// Creates chunks for parallel processing of vertices with a specific label.
@@ -409,7 +360,26 @@ class DbAccessor final {
   /// @param num_chunks The number of chunks to create
   /// @return Collection of chunks for parallel processing
   VerticesChunkCollection VerticesChunks(storage::View view, storage::LabelId label, size_t num_chunks) {
-    return VerticesChunkCollection(accessor_->Vertices(label, view).create_chunks(num_chunks));
+    auto storage_chunks = accessor_->Vertices(label, view).create_chunks(num_chunks);
+    std::vector<VerticesIterable::Iterator> query_chunks;
+    query_chunks.reserve(storage_chunks.size());
+    for (auto &chunk : storage_chunks) {
+      query_chunks.emplace_back(VerticesIterable::Iterator(chunk));
+    }
+    return VerticesChunkCollection{std::move(query_chunks)};
+  }
+
+  VerticesChunkCollection VerticesChunks(storage::View view, storage::LabelId label,
+                                         std::span<storage::PropertyPath const> properties,
+                                         std::span<storage::PropertyValueRange const> property_ranges,
+                                         size_t num_chunks) {
+    auto storage_chunks = accessor_->Vertices(label, properties, property_ranges, view).create_chunks(num_chunks);
+    std::vector<VerticesIterable::Iterator> query_chunks;
+    query_chunks.reserve(storage_chunks.size());
+    for (auto &chunk : storage_chunks) {
+      query_chunks.emplace_back(VerticesIterable::Iterator(chunk));
+    }
+    return VerticesChunkCollection{std::move(query_chunks)};
   }
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,

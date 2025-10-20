@@ -93,6 +93,16 @@ class InMemoryLabelIndex : public LabelIndex {
     Iterator begin() { return {this, index_accessor_.begin()}; }
     Iterator end() { return {this, index_accessor_.end()}; }
 
+    auto create_chunks(size_t num_chunks) -> std::vector<Iterator> {
+      std::vector<Iterator> res;
+      res.reserve(num_chunks);
+      auto index_chunks = index_accessor_.create_chunks(num_chunks);
+      for (auto &index_chunk : index_chunks) {
+        res.emplace_back(this, index_chunk.begin());
+      }
+      return res;
+    }
+
    private:
     utils::SkipList<Vertex>::ConstAccessor pin_accessor_;
     utils::SkipList<Entry>::Accessor index_accessor_;

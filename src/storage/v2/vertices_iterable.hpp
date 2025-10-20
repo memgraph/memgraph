@@ -83,7 +83,7 @@ class VerticesIterable final {
   ///
   /// @param num_chunks The number of chunks to create
   /// @return Collection of chunks for parallel processing
-  AllVerticesIterable::ChunkCollection create_chunks(size_t num_chunks) const;
+  std::vector<Iterator> create_chunks(size_t num_chunks);
 };
 
 }  // namespace memgraph::storage

@@ -691,7 +691,7 @@ InMemoryLabelPropertyIndex::Iterable::Iterator &InMemoryLabelPropertyIndex::Iter
 }
 
 void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
-  for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
+  for (; index_iterator_; ++index_iterator_) {
     if (index_iterator_->vertex == current_vertex_) {
       continue;
     }
