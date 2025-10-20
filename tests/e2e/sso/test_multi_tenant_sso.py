@@ -893,7 +893,7 @@ def test_no_main_database_user(multi_tenant_setup):
 
 
 def test_label_based_authorization_hierarchy(multi_tenant_setup):
-    """Test the hierarchical label-based authorization levels: NOTHING, READ, UPDATE, CREATE_DELETE."""
+    """Test the label-based authorization levels."""
 
     response = base64.b64encode(b"multi_role_admin").decode("utf-8")
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
@@ -918,7 +918,7 @@ def test_label_based_authorization_hierarchy(multi_tenant_setup):
                 session.run("CREATE (a:Audit {action: 'test'})").consume()
                 session.run("CREATE (admin:Admin {role: 'test'})").consume()
 
-                # Test READ operations (should work for all except NOTHING)
+                # Test READ operations
                 person_result = list(session.run("MATCH (p:Person) RETURN p.name"))
                 company_result = list(session.run("MATCH (c:Company) RETURN c.name"))
                 product_result = list(session.run("MATCH (prod:Product) RETURN prod.name"))
@@ -934,7 +934,7 @@ def test_label_based_authorization_hierarchy(multi_tenant_setup):
                 assert len(audit_result) == 1
                 assert len(admin_result) == 1
 
-                # Test UPDATE operations (should work for CREATE_DELETE and UPDATE)
+                # Test UPDATE operations
                 session.run("MATCH (p:Person) SET p.name = 'UpdatedPerson'").consume()
                 session.run("MATCH (c:Company) SET c.name = 'UpdatedCompany'").consume()
                 session.run("MATCH (prod:Product) SET prod.name = 'UpdatedProduct'").consume()
@@ -942,7 +942,7 @@ def test_label_based_authorization_hierarchy(multi_tenant_setup):
                 session.run("MATCH (a:Audit) SET a.action = 'updated'").consume()
                 session.run("MATCH (admin:Admin) SET admin.role = 'updated'").consume()
 
-                # Test DELETE operations (should work for CREATE_DELETE only)
+                # Test DELETE operations
                 session.run("MATCH (p:Person) DELETE p").consume()
                 session.run("MATCH (c:Company) DELETE c").consume()
                 session.run("MATCH (prod:Product) DELETE prod").consume()
@@ -991,7 +991,7 @@ def test_label_permission_denial(multi_tenant_setup):
 
 
 def test_edge_type_authorization_hierarchy(multi_tenant_setup):
-    """Test the hierarchical edge type authorization levels: NOTHING, READ, UPDATE, CREATE_DELETE."""
+    """Test the edge type authorization levels"""
 
     response = base64.b64encode(b"multi_role_admin").decode("utf-8")
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
@@ -1043,14 +1043,14 @@ def test_edge_type_authorization_hierarchy(multi_tenant_setup):
                 assert len(audits_result) == 1
                 assert len(admin_access_result) == 1
 
-                # Test UPDATE operations (should work for CREATE_DELETE and UPDATE)
+                # Test UPDATE operations
                 session.run("MATCH (p:Person)-[r:WORKS_FOR]->(c:Company) SET r.since = '2023'").consume()
                 session.run("MATCH (p:Person)-[r:OWNS]->(c:Company) SET r.percentage = 100").consume()
                 session.run("MATCH (p:Person)-[r:REVIEWS]->(prod:Product) SET r.rating = 5").consume()
                 session.run("MATCH (p:Person)-[r:AUDITS]->(c:Company) SET r.action = 'updated'").consume()
                 session.run("MATCH (admin:Admin)-[r:ADMIN_ACCESS]->(c:Company) SET r.level = 'high'").consume()
 
-                # Test DELETE operations (should work for CREATE_DELETE only)
+                # Test DELETE operations
                 session.run("MATCH (p:Person)-[r:WORKS_FOR]->(c:Company) DELETE r").consume()
                 session.run("MATCH (p:Person)-[r:OWNS]->(c:Company) DELETE r").consume()
                 session.run("MATCH (p:Person)-[r:REVIEWS]->(prod:Product) DELETE r").consume()
