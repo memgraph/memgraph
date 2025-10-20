@@ -937,22 +937,23 @@ bool SkipList(Reader *reader, ListType list_type, uint32_t size) {
   }
 }
 
-bool CompareListTypes(ListType list_type, PropertyValueType value_type) {
-  switch (list_type) {
-    case ListType::PROPERTY_VALUE:
-      return value_type == PropertyValueType::List;
-    case ListType::INT:
-      return value_type == PropertyValueType::IntList;
-    case ListType::DOUBLE:
-      return value_type == PropertyValueType::DoubleList;
-    case ListType::NUMERIC:
-      return value_type == PropertyValueType::NumericList;
-    default:
-      throw PropertyValueException("Invalid list type");
-  }
-}
-
 bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const PropertyValue &value) {
+  auto compare_list_types = [](ListType lt, PropertyValueType vt) -> bool {
+    switch (lt) {
+      case ListType::PROPERTY_VALUE:
+        return vt == PropertyValueType::List;
+      case ListType::INT:
+        return vt == PropertyValueType::IntList;
+      case ListType::DOUBLE:
+        return vt == PropertyValueType::DoubleList;
+      case ListType::NUMERIC:
+        return vt == PropertyValueType::NumericList;
+      default:
+        throw PropertyValueException("Invalid list type");
+    }
+  };
+
+  if (!compare_list_types(list_type, value.type())) return false;
   switch (list_type) {
     case ListType::PROPERTY_VALUE: {
       const auto &list = value.ValueList();
@@ -1459,9 +1460,7 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       if (!list_type) return false;
       const auto size = reader->ReadUint(payload_size);
       if (!size || *size != value.ListSize()) return false;
-      if (!CompareListTypes(static_cast<ListType>(*list_type), value.type()) ||
-          !CompareLists(reader, static_cast<ListType>(*list_type), *size, value))
-        return false;
+      if (!CompareLists(reader, static_cast<ListType>(*list_type), *size, value)) return false;
       return true;
     }
     case Type::MAP: {
