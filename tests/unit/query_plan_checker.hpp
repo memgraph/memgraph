@@ -190,6 +190,7 @@ class OpChecker : public BaseOpChecker {
   virtual void ExpectOp(TOp &, const SymbolTable &) {}
 };
 
+using ExpectOnce = OpChecker<Once>;
 using ExpectCreateNode = OpChecker<CreateNode>;
 using ExpectCreateExpand = OpChecker<CreateExpand>;
 using ExpectDelete = OpChecker<Delete>;
