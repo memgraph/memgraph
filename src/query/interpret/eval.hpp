@@ -349,18 +349,16 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
     if (frame_change_collector_) {
       const auto cached_id = memgraph::utils::GetFrameChangeId(in_list);
-      const auto do_cache{cached_id && frame_change_collector_->IsKeyTracked(*cached_id)};
-      if (do_cache) {
-        auto cached_value_ref = frame_change_collector_->TryGetCachedValue(*cached_id);
+      if (frame_change_collector_->IsKeyTracked(cached_id)) {
+        auto cached_value_ref = frame_change_collector_->TryGetCachedValue(cached_id);
         if (!cached_value_ref) {
           // Check only first time if everything is okay, later when we use
           // cache there is no need to check again as we did check first time
-          auto list = get_list_literal();
-          auto preoperational_checks = do_list_literal_checks(list);
-          if (preoperational_checks) {
+          const auto list = get_list_literal();
+          if (auto preoperational_checks = do_list_literal_checks(list)) {
             return std::move(*preoperational_checks);
           }
-          auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
+          auto &cached_value = frame_change_collector_->GetCachedValue(cached_id);
           // Don't move here because we don't want to remove the element from the frame
           cached_value.CacheValue(list);
           cached_value_ref = std::cref(cached_value);
