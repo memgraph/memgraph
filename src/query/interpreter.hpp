@@ -92,6 +92,8 @@ struct QueryAllocator {
 
 struct ThreadSafeQueryAllocator {
   ThreadSafeQueryAllocator() = default;
+  ~ThreadSafeQueryAllocator() = default;
+
   ThreadSafeQueryAllocator(ThreadSafeQueryAllocator const &) = delete;
   ThreadSafeQueryAllocator &operator=(ThreadSafeQueryAllocator const &) = delete;
 

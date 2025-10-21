@@ -193,9 +193,10 @@ ThreadSafeMonotonicBufferResource::try_lock_free_allocation(size_t bytes, size_t
 
   const auto old_size = block->size.fetch_add(size_to_reserve, std::memory_order_acq_rel);
   if (old_size + size_to_reserve > block->capacity) {
-    // Failure: remove the reserved space and return nullptr
-    // NOTE: Small optimization: don't pay the penalty of another atomic operation, block is full (move on to the next)
-    // block->size.fetch_sub(size_to_reserve, std::memory_order_acq_rel);
+    // Failure: return nullptr
+    // NOTE: Small optimization: don't pay the penalty of another atomic operation (fetch_sub), block is full (move on
+    // to the next)
+    // Adding a new block also alows us to not scan over the blocks and just rely on the head_
     return {block, nullptr};
   }
   // Success: return the aligned pointer
@@ -227,9 +228,7 @@ void *ThreadSafeMonotonicBufferResource::allocate_with_lock(Block *last_block, s
 
   // Allocate new block with enough space for alignment
   auto *const new_block = allocate_new_block(current_block, bytes + alignment - 1);
-  if (!new_block) {
-    throw BadAlloc("Failed to allocate new block");
-  }
+  DMG_ASSERT(new_block, "Failed to throw on new block allocation error");
 
   // Try to align the pointer
   void *aligned_ptr = new_block->begin();

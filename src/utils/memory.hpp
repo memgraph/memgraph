@@ -189,8 +189,8 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
   explicit ThreadSafeMonotonicBufferResource(void *buffer, size_t size, MemoryResource *memory = NewDeleteResource())
       : memory_(memory) {
     // Need to align to Block alignment
-    size_t alignment = alignof(Block);
-    void *aligned_buffer = reinterpret_cast<char *>(buffer);
+    const size_t alignment = alignof(Block);
+    void *aligned_buffer = buffer;
     size_t available = size;
     if (!std::align(alignment, sizeof(Block), aligned_buffer, available)) {
       throw BadAlloc("Buffer too small for initial block");
@@ -217,7 +217,7 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
   }
 
   /// Destructor - releases all allocated memory
-  ~ThreadSafeMonotonicBufferResource() { Release(); }
+  ~ThreadSafeMonotonicBufferResource() override { Release(); }
 
   // Non-copyable, non-movable
   ThreadSafeMonotonicBufferResource(const ThreadSafeMonotonicBufferResource &) = delete;
