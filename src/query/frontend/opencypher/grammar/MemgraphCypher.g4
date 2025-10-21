@@ -68,6 +68,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DURABILITY
                       | DURATION
                       | EDGE
+                      | EDGES
                       | EDGE_TYPES
                       | ENABLE
                       | ENUM
@@ -192,6 +193,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TRIGGER
                       | TRIGGERS
                       | TTL
+                      | TYPES
                       | UNCOMMITTED
                       | UNLOCK
                       | UNREGISTER
@@ -503,9 +505,7 @@ privilege : CREATE
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE ;
 
-entityType : LABELS | EDGE_TYPES ;
-
-privilegeOrEntityPrivileges : privilege | entityPrivileges=entityPrivilegeList | entityType entities=entitiesList ;
+privilegeOrEntityPrivileges : privilege | entityPrivileges=entityPrivilegeList ;
 
 fineGrainedPrivilegesList : privilegeOrEntityPrivileges ( ',' privilegeOrEntityPrivileges )* ;
 
@@ -514,21 +514,19 @@ entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
 entityPrivilege : granularPrivilege ON entityTypeSpec ;
 
 entityTypeSpec
-    : entityType entities=entitiesList
-    | NODES CONTAINING entityType listOfColonSymbolicNames matchingClause?
+    : NODES CONTAINING LABELS labelEntities=labelEntitiesList matchingClause?
+    | EDGES CONTAINING TYPES edgeType=edgeTypeEntity
     ;
+
+labelEntitiesList : ASTERISK | listOfColonSymbolicNames ;
+
+edgeTypeEntity : ASTERISK | colonSymbolicName ;
 
 matchingClause
     : MATCHING ( ANY | EXACTLY )
     ;
 
-privilegeOrEntities : privilege | entityType entities=entitiesList ;
-
-revokePrivilegesList : privilegeOrEntities ( ',' privilegeOrEntities )* ;
-
 privilegesList : privilege ( ',' privilege )* ;
-
-entitiesList : ASTERISK | listOfColonSymbolicNames ;
 
 listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 

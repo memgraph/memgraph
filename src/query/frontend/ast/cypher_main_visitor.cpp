@@ -48,8 +48,6 @@ namespace srv = std::ranges::views;
 const std::string CypherMainVisitor::kAnonPrefix = "anon";
 
 namespace {
-enum class EntityType : uint8_t { LABELS, EDGE_TYPES };
-
 template <typename TVisitor>
 std::optional<std::pair<memgraph::query::Expression *, size_t>> VisitMemoryLimit(
     MemgraphCypher::MemoryLimitContext *memory_limit_ctx, TVisitor *visitor) {
@@ -2109,20 +2107,6 @@ antlrcpp::Any CypherMainVisitor::visitFineGrainedPrivilegesList(MemgraphCypher::
       if (!result.second.empty()) {
         edge_type_privileges.emplace_back(result.second);
       }
-    } else if (it->entitiesList()) {
-      const auto entity_type = std::any_cast<EntityType>(it->entityType()->accept(this));
-      const auto entities = std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this));
-      if (entity_type == EntityType::LABELS) {
-        label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, entities},
-                                    {AuthQuery::FineGrainedPrivilege::READ, entities},
-                                    {AuthQuery::FineGrainedPrivilege::UPDATE, entities},
-                                    {AuthQuery::FineGrainedPrivilege::DELETE, entities}});
-      } else {
-        edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, entities},
-                                        {AuthQuery::FineGrainedPrivilege::READ, entities},
-                                        {AuthQuery::FineGrainedPrivilege::UPDATE, entities},
-                                        {AuthQuery::FineGrainedPrivilege::DELETE, entities}});
-      }
     } else {
       privileges.push_back(std::any_cast<AuthQuery::Privilege>(it->privilege()->accept(this)));
     }
@@ -2169,22 +2153,14 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
     const auto key = std::any_cast<AuthQuery::FineGrainedPrivilege>(it->granularPrivilege()->accept(this));
 
     auto *typeSpec = it->entityTypeSpec();
-    const auto entityType = std::any_cast<EntityType>(typeSpec->entityType()->accept(this));
 
-    if (typeSpec->entitiesList()) {
-      auto value = std::any_cast<std::vector<std::string>>(typeSpec->entitiesList()->accept(this));
-
-      switch (entityType) {
-        case EntityType::LABELS:
-          result.first[key] = std::move(value);
-          break;
-        case EntityType::EDGE_TYPES:
-          result.second[key] = std::move(value);
-          break;
-      }
-    } else {
-      // @TODO: Handle `NODES CONTAINING LABELS` syntax
-      throw NotImplementedException("NODES CONTAINING LABELS syntax not yet implemented");
+    if (typeSpec->labelEntitiesList()) {
+      auto value = std::any_cast<std::vector<std::string>>(typeSpec->labelEntitiesList()->accept(this));
+      result.first[key] = std::move(value);
+      // @TODO: Handle matchingClause() for ANY vs EXACTLY semantics
+    } else if (typeSpec->edgeTypeEntity()) {
+      auto value = std::any_cast<std::vector<std::string>>(typeSpec->edgeTypeEntity()->accept(this));
+      result.second[key] = std::move(value);
     }
   }
   return result;
@@ -2239,12 +2215,25 @@ antlrcpp::Any CypherMainVisitor::visitDenyImpersonateUser(MemgraphCypher::DenyIm
 /**
  * @return std::vector<std::string>
  */
-antlrcpp::Any CypherMainVisitor::visitEntitiesList(MemgraphCypher::EntitiesListContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitLabelEntitiesList(MemgraphCypher::LabelEntitiesListContext *ctx) {
   std::vector<std::string> entities;
   if (ctx->listOfColonSymbolicNames()) {
     return ctx->listOfColonSymbolicNames()->accept(this);
   }
   entities.emplace_back("*");
+  return entities;
+}
+
+/**
+ * @return std::vector<std::string>
+ */
+antlrcpp::Any CypherMainVisitor::visitEdgeTypeEntity(MemgraphCypher::EdgeTypeEntityContext *ctx) {
+  std::vector<std::string> entities;
+  if (ctx->colonSymbolicName()) {
+    entities.push_back(std::any_cast<std::string>(ctx->colonSymbolicName()->symbolicName()->accept(this)));
+  } else {
+    entities.emplace_back("*");
+  }
   return entities;
 }
 
@@ -2303,15 +2292,6 @@ antlrcpp::Any CypherMainVisitor::visitGranularPrivilege(MemgraphCypher::Granular
   if (ctx->CREATE()) return AuthQuery::FineGrainedPrivilege::CREATE;
   if (ctx->DELETE()) return AuthQuery::FineGrainedPrivilege::DELETE;
   LOG_FATAL("Should not get here - unknown fine grained privilege!");
-}
-
-/**
- * @return EntityType
- */
-antlrcpp::Any CypherMainVisitor::visitEntityType(MemgraphCypher::EntityTypeContext *ctx) {
-  if (ctx->LABELS()) return EntityType::LABELS;
-  if (ctx->EDGE_TYPES()) return EntityType::EDGE_TYPES;
-  LOG_FATAL("Should not get here - unknown entity type!");
 }
 
 /**

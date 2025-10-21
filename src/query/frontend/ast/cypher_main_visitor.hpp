@@ -726,7 +726,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return std::vector<std::string>
    */
-  antlrcpp::Any visitEntitiesList(MemgraphCypher::EntitiesListContext *ctx) override;
+  antlrcpp::Any visitLabelEntitiesList(MemgraphCypher::LabelEntitiesListContext *ctx) override;
+
+  /**
+   * @return std::vector<std::string>
+   */
+  antlrcpp::Any visitEdgeTypeEntity(MemgraphCypher::EdgeTypeEntityContext *ctx) override;
 
   /**
    * @return std::string
@@ -737,11 +742,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return AuthQuery::FineGrainedPrivilege
    */
   antlrcpp::Any visitGranularPrivilege(MemgraphCypher::GranularPrivilegeContext *ctx) override;
-
-  /**
-   * @return std::string
-   */
-  antlrcpp::Any visitEntityType(MemgraphCypher::EntityTypeContext *ctx) override;
 
   /**
    * @return AuthQuery::Privilege
