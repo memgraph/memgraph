@@ -11,9 +11,12 @@
 
 #include "utils/memory.hpp"
 
+#include <pthread.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <exception>
 #include <limits>
 #include <type_traits>
 
@@ -147,6 +150,132 @@ void *MonotonicBufferResource::do_allocate(size_t bytes, size_t alignment) {
 
 // MonotonicBufferResource END
 
+// ThreadSafeMonotonicBufferResource implementation
+
+/// Release all allocated memory back to the upstream resource
+void ThreadSafeMonotonicBufferResource::Release() {
+  // Reset all memory
+  Block *current = head_.load(std::memory_order_acquire);
+  while (current) {
+    Block *next = current->next;
+    memory_->deallocate(current, current->total_size(), alignof(Block));
+    current = next;
+  }
+  head_.store(nullptr, std::memory_order_release);
+}
+
+void *ThreadSafeMonotonicBufferResource::do_allocate(size_t bytes, size_t alignment) {
+  // Try lock-free allocation first
+  const auto [block, ptr] = try_lock_free_allocation(bytes, alignment);
+  if (ptr) {
+    CheckAllocationSizeOverflow(ptr, bytes);
+    return ptr;
+  }
+
+  // Fallback to blocking allocation
+  return allocate_with_lock(block, bytes, alignment);
+}
+
+std::pair<ThreadSafeMonotonicBufferResource::Block *, void *>
+ThreadSafeMonotonicBufferResource::try_lock_free_allocation(size_t bytes, size_t alignment) {
+  // Get the head block
+  auto *block = head_.load(std::memory_order_acquire);
+  if (!block) {
+    return {nullptr, nullptr};  // No blocks available
+  }
+
+  // Try to reserve space in the block
+  // Since we can't know the exact current ptr, reserve for the worst case
+  auto size_to_reserve = bytes + alignment - 1;
+  if (size_to_reserve > block->capacity) {
+    return {block, nullptr};
+  }
+
+  const auto old_size = block->size.fetch_add(size_to_reserve, std::memory_order_acq_rel);
+  if (old_size + size_to_reserve > block->capacity) {
+    // Failure: return nullptr
+    // NOTE: Small optimization: don't pay the penalty of another atomic operation (fetch_sub), block is full (move on
+    // to the next)
+    // Adding a new block also alows us to not scan over the blocks and just rely on the head_
+    return {block, nullptr};
+  }
+  // Success: return the aligned pointer
+  void *aligned_void_ptr = block->begin() + old_size;
+  if (!std::align(alignment, bytes, aligned_void_ptr, size_to_reserve)) {
+    // Not enough space, return failure
+    return {block, nullptr};
+  }
+  return {block, aligned_void_ptr};
+}
+
+void *ThreadSafeMonotonicBufferResource::allocate_with_lock(Block *last_block, size_t bytes, size_t alignment) {
+  std::unique_lock<std::mutex> lock(alloc_mutex_);
+
+  // Double-check that we still need a new block
+  auto *current_block = head_.load(std::memory_order_acquire);
+  while (current_block && current_block != last_block) {
+    lock.unlock();
+    // Try lock-free allocation one more time
+    auto [block, ptr] = try_lock_free_allocation(bytes, alignment);
+    if (ptr) {
+      CheckAllocationSizeOverflow(ptr, bytes);
+      return ptr;
+    }
+    last_block = block;
+    lock.lock();  // Make sure to lock before loading head
+    current_block = head_.load(std::memory_order_acquire);
+  }
+
+  // Allocate new block with enough space for alignment
+  auto *const new_block = allocate_new_block(current_block, bytes + alignment - 1);
+  DMG_ASSERT(new_block, "Failed to throw on new block allocation error");
+
+  // Try to align the pointer
+  void *aligned_ptr = new_block->begin();
+  size_t available = new_block->capacity;
+  if (!std::align(alignment, bytes, aligned_ptr, available)) {
+    throw BadAlloc("Failed to align pointer in new block");
+  }
+
+  CheckAllocationSizeOverflow(aligned_ptr, bytes);
+
+  // Update new size
+  const size_t new_size = new_block->capacity - available + bytes;
+  new_block->size.store(new_size, std::memory_order_release);
+
+  // Update the head atomically
+  head_.store(new_block, std::memory_order_release);
+  return aligned_ptr;
+}
+
+ThreadSafeMonotonicBufferResource::Block *ThreadSafeMonotonicBufferResource::allocate_new_block(Block *current_head,
+                                                                                                size_t min_size) {
+  // Use the next_buffer_size_ for exponential growth, but ensure it's at least min_size
+  const size_t block_size = std::max(next_buffer_size_, min_size);
+
+  // Allocate memory for block header + data
+  size_t total_size = sizeof(Block) + block_size;
+  // Size must be a multiple of alignof(Block)
+  if (const auto maybe_total_size = RoundUint64ToMultiple(total_size, alignof(Block))) {
+    total_size = *maybe_total_size;
+  } else {
+    throw BadAlloc("Allocation size overflow");
+  }
+  void *new_buffer = memory_->allocate(total_size, alignof(Block));
+
+  if (!new_buffer) {
+    throw BadAlloc("Failed to allocate new block");
+  }
+
+  // Create new block at the beginning of the allocated memory
+  auto *new_block = new (new_buffer) Block(current_head, 0, total_size - sizeof(Block));
+
+  // Grow the next buffer size for future allocations
+  next_buffer_size_ = GrowMonotonicBuffer(next_buffer_size_, std::numeric_limits<size_t>::max() - sizeof(Block));
+
+  return new_block;
+}
+
 // PoolResource
 //
 // Implementation is partially based on "Small Object Allocation" implementation
@@ -197,6 +326,101 @@ void *Pool::Allocate() {
 
 void Pool::Deallocate(void *p) {
   *reinterpret_cast<std::byte **>(p) = std::exchange(free_list_, reinterpret_cast<std::byte *>(p));
+}
+
+ThreadSafePool::Node *&ThreadSafePool::thread_local_head() {
+  Node **head_ptr = static_cast<Node **>(pthread_getspecific(thread_local_head_key_));
+  if (!head_ptr) {
+    // Allocate space for the Node* pointer
+    // Use an allocator that just drops the memory (no need to destroy each pointer <- it just points to managed memory)
+    head_ptr = static_cast<Node **>(block_memory_resource_.allocate(sizeof(Node *)));
+    if (!head_ptr) {
+      throw BadAlloc("Failed to allocate thread-local head pointer");
+    }
+    *head_ptr = nullptr;
+    pthread_setspecific(thread_local_head_key_, reinterpret_cast<void *>(head_ptr));
+  }
+  return *head_ptr;
+}
+
+// carve a new block and link its nodes
+ThreadSafePool::Node *ThreadSafePool::carve_block() {
+  // Allocate a new chunk
+  void *raw = chunk_memory_->allocate(chunk_size(), chunk_alignment());
+  {
+    // Push back to the global list
+    const std::unique_lock lock(mtx_);
+    chunks_.emplace_front(raw);
+  }
+
+  // Link the blocks in the chunk
+  Node *prev = nullptr;
+  for (std::size_t i = 0; i < blocks_per_chunk_; ++i) {
+    Node *node = reinterpret_cast<Node *>(reinterpret_cast<char *>(raw) + (i * block_size_));
+    node->next = prev;
+    prev = node;
+  }
+
+  // Return the top node - caller will update their thread-local head
+  return prev;
+}
+
+void *ThreadSafePool::pop_head() {
+  Node *head = thread_local_head();
+  if (head) {
+    thread_local_head() = head->next;
+    head->next = nullptr;
+    return reinterpret_cast<void *>(head);
+  }
+  return nullptr;
+}
+
+void ThreadSafePool::push_head(void *p) {
+  Node *node = static_cast<Node *>(p);
+  node->next = thread_local_head();
+  thread_local_head() = node;
+}
+
+ThreadSafePool::ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks, MemoryResource *chunk_memory)
+    : block_size_(block_size), blocks_per_chunk_(blocks_per_chunks), chunk_memory_(chunk_memory) {
+  // Create instance-specific pthread key for thread-local storage
+  if (pthread_key_create(&thread_local_head_key_, nullptr) != 0) {
+    throw BadAlloc("Failed to create pthread key for thread-local storage");
+  }
+}
+
+ThreadSafePool::~ThreadSafePool() {
+  if (!chunks_.empty()) {
+    for (auto &chunk : chunks_) {
+      chunk_memory_->deallocate(chunk, chunk_size(), chunk_alignment());
+    }
+    chunks_.clear();
+  }
+  // Clean up the pthread key
+  pthread_key_delete(thread_local_head_key_);
+}
+
+void *ThreadSafePool::Allocate() {
+  if (thread_local_head()) {
+    auto *head = thread_local_head();
+    thread_local_head() = head->next;
+    return head;
+  }
+  auto *head = carve_block();
+  thread_local_head() = head->next;
+  return head;
+}
+
+void ThreadSafePool::Deallocate(void *p) noexcept {
+  try {
+    Node *node = static_cast<Node *>(p);
+    node->next = thread_local_head();
+    thread_local_head() = node;
+  } catch (...) {
+    // If thread_local_head() throws, we can't do much in a noexcept function
+    // This should not happen in normal operation
+    std::terminate();
+  }
 }
 
 }  // namespace impl
@@ -278,7 +502,12 @@ static_assert(bin_index<2>(24U) == 2);
 
 }  // namespace impl
 
-void *PoolResource::do_allocate(size_t bytes, size_t alignment) {
+// Explicit template instantiations for PoolResource with default template parameter
+template class PoolResource<impl::Pool>;
+template class PoolResource<impl::ThreadSafePool>;
+
+template <typename P>
+void *PoolResource<P>::do_allocate(size_t bytes, size_t alignment) {
   // Take the max of `bytes` and `alignment` so that we simplify handling
   // alignment requests.
   size_t block_size = std::max({bytes, alignment, 1UL});
@@ -304,7 +533,8 @@ void *PoolResource::do_allocate(size_t bytes, size_t alignment) {
   }
   return unpooled_memory_->allocate(bytes, alignment);
 }
-void PoolResource::do_deallocate(void *p, size_t bytes, size_t alignment) {
+template <typename P>
+void PoolResource<P>::do_deallocate(void *p, size_t bytes, size_t alignment) {
   size_t block_size = std::max({bytes, alignment, 1UL});
   DMG_ASSERT(block_size % alignment == 0);
 
@@ -320,5 +550,8 @@ void PoolResource::do_deallocate(void *p, size_t bytes, size_t alignment) {
     unpooled_memory_->deallocate(p, bytes, alignment);
   }
 }
-bool PoolResource::do_is_equal(const std::pmr::memory_resource &other) const noexcept { return this == &other; }
+template <typename P>
+bool PoolResource<P>::do_is_equal(const std::pmr::memory_resource &other) const noexcept {
+  return this == &other;
+}
 }  // namespace memgraph::utils
