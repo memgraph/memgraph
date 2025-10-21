@@ -19,23 +19,14 @@ on:
         default: 'ubuntu-24.04'
         options:
           - all
-          - amzn-2
-          - centos-7
           - centos-9
-          - debian-11
+          - centos-10
           - debian-12
-          - fedora-38
-          - fedora-39
-          - rocky-9.3
-          - ubuntu-20.04
+          - debian-13
+          - fedora-42
+          - rocky-10
           - ubuntu-22.04
           - ubuntu-24.04
-      toolchain:
-        type: choice
-        description: "Toolchain version with which memgraph will be packaged."
-        default: 'v6'
-        options:
-          - v6
   push:
     tags:
       - "v*.*.*-rc*"
@@ -47,7 +38,6 @@ jobs:
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ github.event.inputs.os || 'ubuntu-24.04' }}
-      toolchain: ${{ github.event.inputs.toolchain || 'v6' }}
       arch: "amd"
       threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
@@ -59,11 +49,10 @@ jobs:
     if: ${{ github.event.inputs.os == 'all' }}
     strategy:
       matrix:
-        os: [amzn-2, centos-7, centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04]
+        os: [centos-9, centos-10, debian-12, debian-13, fedora-42, rocky-10, ubuntu-22.04, ubuntu-24.04]
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ matrix.os }}
-      toolchain: ${{ github.event.inputs.toolchain || 'v6' }}
       arch: "amd"
       threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}

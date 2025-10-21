@@ -27,6 +27,7 @@
 #include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
+#include "utils/join_vector.hpp"
 #include "utils/observer.hpp"
 #include "utils/skip_list.hpp"
 

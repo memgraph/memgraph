@@ -15,12 +15,12 @@ else
 fi
 
 TOOLCHAIN_BUILD_DEPS=(
-    coreutils-common gcc gcc-c++ make # generic build tools
+    coreutils-common gcc gcc-c++ make binutils-gold # generic build tools
     wget2-wget # used for archive download
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
     # NOTE: https://discussion.fedoraproject.org/t/f40-change-proposal-transitioning-to-zlib-ng-as-a-compatible-replacement-for-zlib-system-wide/95807
-    zlib-ng-compat-devel # zlib library used for all builds
+    zlib-ng-compat-devel zlib-ng-compat-static # zlib library used for all builds
     expat-devel xz-devel python3-devel texinfo libbabeltrace-devel # for gdb
     curl libcurl-devel # for cmake
     readline-devel # for cmake and llvm
@@ -39,6 +39,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libtool # for protobuf
     pkgconf-pkg-config # for pulsar
     cyrus-sasl-devel # for librdkafka
+    python3-pip # for conan
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -54,8 +55,8 @@ TOOLCHAIN_RUN_DEPS=(
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make cmake pkgconf-pkg-config # build system
-    wget # for downloading libs
-    libuuid-devel java-11-openjdk java-11-openjdk-devel # required by antlr
+    wget2-wget # for downloading libs
+    libuuid-devel java-25-openjdk java-25-openjdk-devel # required by antlr
     readline-devel # for memgraph console
     python3-devel # for query modules
     openssl-devel
@@ -70,12 +71,13 @@ MEMGRAPH_BUILD_DEPS=(
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
     which nodejs golang custom-golang # for driver tests
-    zip unzip java-17-openjdk java-17-openjdk-devel custom-maven # for driver tests
+    zip unzip custom-maven # for driver tests
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     cyrus-sasl-devel
     ninja-build
+    perl
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
@@ -112,6 +114,12 @@ check() {
                 ;;
         esac
     done
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        echo "python3 is not installed"
+        exit 1
+    fi
 
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
@@ -164,6 +172,10 @@ install() {
         echo "NOTE: export LANG=en_US.utf8"
     fi
 
+    # enable rpm fusion
+    dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-42.noarch.rpm
+
+    dnf update -y
     dnf install -y wget git python3 python3-pip
 
     # Separate standard and custom packages
