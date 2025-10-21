@@ -30,7 +30,6 @@
 #include <span>
 
 namespace r = ranges;
-namespace rv = r::views;
 
 #ifdef MG_ENTERPRISE
 namespace {
