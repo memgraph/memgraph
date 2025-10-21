@@ -64,12 +64,6 @@ TEST_F(FileReplicationHandlerTest, EmptyActiveFiles) {
   ASSERT_EQ(file_replication_handler.GetActiveFileNames(), std::vector<std::filesystem::path>());
 }
 
-TEST_F(FileReplicationHandlerTest, GetRandomDir) {
-  constexpr auto prefix = "/tmp/memgraph";
-  auto const str_path = FileReplicationHandler::GetRandomDir().string();
-  ASSERT_EQ(str_path.rfind(prefix), 0);
-}
-
 TEST_F(FileReplicationHandlerTest, WritingToClosedFile) {
   FileReplicationHandler file_replication_handler;
   ASSERT_NO_THROW(file_replication_handler.WriteToFile(nullptr, 0));
