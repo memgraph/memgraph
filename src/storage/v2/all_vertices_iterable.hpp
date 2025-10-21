@@ -48,16 +48,6 @@ class AllVerticesIterable final {
 
   Iterator begin() { return {this, vertices_accessor_.begin()}; }
   Iterator end() { return {this, vertices_accessor_.end()}; }
-
-  auto create_chunks(size_t num_chunks) -> std::vector<Iterator> {
-    std::vector<Iterator> res;
-    res.reserve(num_chunks);
-    auto chunks = vertices_accessor_.create_chunks(num_chunks);
-    for (auto &chunk : chunks) {
-      res.emplace_back(this, chunk.begin());
-    }
-    return res;
-  }
 };
 
 }  // namespace memgraph::storage

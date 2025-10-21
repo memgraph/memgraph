@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "storage/v2/all_vertices_chunked_iterable.hpp"
 #include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
@@ -18,19 +19,32 @@
 namespace memgraph::storage {
 
 class VerticesIterable final {
-  enum class Type { ALL, BY_LABEL_IN_MEMORY, BY_LABEL_PROPERTY_IN_MEMORY };
+  enum class Type {
+    ALL,
+    BY_LABEL_IN_MEMORY,
+    BY_LABEL_PROPERTY_IN_MEMORY,
+    ALL_CHUNKED,
+    BY_LABEL_IN_MEMORY_CHUNKED,
+    BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED
+  };
 
   Type type_;
   union {
     AllVerticesIterable all_vertices_;
+    AllVerticesChunkedIterable all_chunked_vertices_;
     InMemoryLabelIndex::Iterable in_memory_vertices_by_label_;
+    InMemoryLabelIndex::ChunkedIterable in_memory_chunked_vertices_by_label_;
     InMemoryLabelPropertyIndex::Iterable in_memory_vertices_by_label_property_;
+    InMemoryLabelPropertyIndex::ChunkedIterable in_memory_chunked_vertices_by_label_property_;
   };
 
  public:
   explicit VerticesIterable(AllVerticesIterable);
+  explicit VerticesIterable(AllVerticesChunkedIterable);
   explicit VerticesIterable(InMemoryLabelIndex::Iterable);
+  explicit VerticesIterable(InMemoryLabelIndex::ChunkedIterable);
   explicit VerticesIterable(InMemoryLabelPropertyIndex::Iterable);
+  explicit VerticesIterable(InMemoryLabelPropertyIndex::ChunkedIterable);
 
   VerticesIterable(const VerticesIterable &) = delete;
   VerticesIterable &operator=(const VerticesIterable &) = delete;
@@ -44,8 +58,11 @@ class VerticesIterable final {
     Type type_;
     union {
       AllVerticesIterable::Iterator all_it_;
+      AllVerticesChunkedIterable::Iterator all_chunked_it_;
       InMemoryLabelIndex::Iterable::Iterator in_memory_by_label_it_;
+      InMemoryLabelIndex::ChunkedIterable::Iterator in_memory_chunked_by_label_it_;
       InMemoryLabelPropertyIndex::Iterable::Iterator in_memory_by_label_property_it_;
+      InMemoryLabelPropertyIndex::ChunkedIterable::Iterator in_memory_chunked_by_label_property_it_;
     };
 
     void Destroy() noexcept;
@@ -55,8 +72,11 @@ class VerticesIterable final {
     using value_type = VertexAccessor;
 
     explicit Iterator(AllVerticesIterable::Iterator);
+    explicit Iterator(AllVerticesChunkedIterable::Iterator);
     explicit Iterator(InMemoryLabelIndex::Iterable::Iterator);
+    explicit Iterator(InMemoryLabelIndex::ChunkedIterable::Iterator);
     explicit Iterator(InMemoryLabelPropertyIndex::Iterable::Iterator);
+    explicit Iterator(InMemoryLabelPropertyIndex::ChunkedIterable::Iterator);
 
     Iterator(const Iterator &);
     Iterator &operator=(const Iterator &);
@@ -75,15 +95,9 @@ class VerticesIterable final {
 
   Iterator begin();
   Iterator end();
-
-  /// Creates chunks for parallel processing of vertices.
-  /// Currently only supports chunking for AllVerticesIterable.
-  /// For other types, returns an empty collection.
-  /// This method is thread-safe and can be called concurrently.
-  ///
-  /// @param num_chunks The number of chunks to create
-  /// @return Collection of chunks for parallel processing
-  std::vector<Iterator> create_chunks(size_t num_chunks);
+  Iterator begin(size_t);
+  Iterator end(size_t);
+  size_t size() const;
 };
 
 }  // namespace memgraph::storage

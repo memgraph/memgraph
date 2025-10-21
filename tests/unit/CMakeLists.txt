@@ -434,6 +434,16 @@ add_unit_test(skip_list_parallel_chunks
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(skip_list_range_chunking
+    SOURCES skip_list_range_chunking.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(skip_list_chunk_iterator_storage_query
+    SOURCES skip_list_chunk_iterator_storage_query.cpp
+    LINK_TARGETS mg-query storage_test_utils
+)
+
 add_unit_test(utils_mask_sensitive_information
     SOURCES utils_mask_sensitive_information.cpp
     LINK_TARGETS mg-utils fmt::fmt

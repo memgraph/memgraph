@@ -267,13 +267,18 @@ using PointIterable = query_iterable<storage::PointIterable>;
 /// Query-layer chunk collection that wraps storage layer chunk collection.
 /// This follows the same pattern as other query layer iterables.
 class VerticesChunkCollection final {
-  std::vector<VerticesIterable::Iterator> chunks_;
+  std::vector<std::pair<VerticesIterable::Iterator, VerticesIterable::Iterator>> chunks_;
 
  public:
-  explicit VerticesChunkCollection(std::vector<VerticesIterable::Iterator> &&chunks) : chunks_(std::move(chunks)) {}
+  explicit VerticesChunkCollection(
+      std::vector<std::pair<VerticesIterable::Iterator, VerticesIterable::Iterator>> &&chunks)
+      : chunks_(std::move(chunks)) {}
   size_t size() const { return chunks_.size(); }
   bool empty() const { return chunks_.empty(); }
-  VerticesIterable::Iterator operator[](size_t index) const { return chunks_[index]; }
+  auto begin() { return chunks_.begin(); }
+  auto end() { return chunks_.end(); }
+  const auto &operator[](size_t index) const { return chunks_[index]; }
+  auto &operator[](size_t index) { return chunks_[index]; }
 };
 
 class DbAccessor final {
@@ -341,11 +346,11 @@ class DbAccessor final {
   /// @param num_chunks The number of chunks to create
   /// @return Collection of chunks for parallel processing
   VerticesChunkCollection VerticesChunks(storage::View view, size_t num_chunks) {
-    auto storage_chunks = accessor_->Vertices(view).create_chunks(num_chunks);
-    std::vector<VerticesIterable::Iterator> query_chunks;
-    query_chunks.reserve(storage_chunks.size());
-    for (auto &chunk : storage_chunks) {
-      query_chunks.emplace_back(VerticesIterable::Iterator(chunk));
+    auto storage_chunks = accessor_->ChunkedVertices(view, num_chunks);
+    std::vector<std::pair<VerticesIterable::Iterator, VerticesIterable::Iterator>> query_chunks;
+    query_chunks.reserve(num_chunks);
+    for (size_t i = 0; i < num_chunks; ++i) {
+      query_chunks.emplace_back(storage_chunks.begin(i), storage_chunks.end(i));
     }
     return VerticesChunkCollection{std::move(query_chunks)};
   }
@@ -360,11 +365,11 @@ class DbAccessor final {
   /// @param num_chunks The number of chunks to create
   /// @return Collection of chunks for parallel processing
   VerticesChunkCollection VerticesChunks(storage::View view, storage::LabelId label, size_t num_chunks) {
-    auto storage_chunks = accessor_->Vertices(label, view).create_chunks(num_chunks);
-    std::vector<VerticesIterable::Iterator> query_chunks;
-    query_chunks.reserve(storage_chunks.size());
-    for (auto &chunk : storage_chunks) {
-      query_chunks.emplace_back(VerticesIterable::Iterator(chunk));
+    auto storage_chunks = accessor_->ChunkedVertices(label, view, num_chunks);
+    std::vector<std::pair<VerticesIterable::Iterator, VerticesIterable::Iterator>> query_chunks;
+    query_chunks.reserve(num_chunks);
+    for (size_t i = 0; i < num_chunks; ++i) {
+      query_chunks.emplace_back(storage_chunks.begin(i), storage_chunks.end(i));
     }
     return VerticesChunkCollection{std::move(query_chunks)};
   }
@@ -373,13 +378,7 @@ class DbAccessor final {
                                          std::span<storage::PropertyPath const> properties,
                                          std::span<storage::PropertyValueRange const> property_ranges,
                                          size_t num_chunks) {
-    auto storage_chunks = accessor_->Vertices(label, properties, property_ranges, view).create_chunks(num_chunks);
-    std::vector<VerticesIterable::Iterator> query_chunks;
-    query_chunks.reserve(storage_chunks.size());
-    for (auto &chunk : storage_chunks) {
-      query_chunks.emplace_back(VerticesIterable::Iterator(chunk));
-    }
-    return VerticesChunkCollection{std::move(query_chunks)};
+    return VerticesChunkCollection{std::vector<std::pair<VerticesIterable::Iterator, VerticesIterable::Iterator>>{}};
   }
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
@@ -387,8 +386,8 @@ class DbAccessor final {
                      plan::PointDistanceCondition condition) -> PointIterable;
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
-                     TypedValue const &bottom_left, TypedValue const &top_right, plan::WithinBBoxCondition condition)
-      -> PointIterable;
+                     TypedValue const &bottom_left, TypedValue const &top_right,
+                     plan::WithinBBoxCondition condition) -> PointIterable;
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     return EdgesIterable(accessor_->Edges(edge_type, view));
@@ -859,8 +858,8 @@ class DbAccessor final {
 
   auto ShowEnums() { return accessor_->ShowEnums(); }
 
-  auto GetEnumValue(std::string_view name, std::string_view value) const
-      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto GetEnumValue(std::string_view name,
+                    std::string_view value) const -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->GetEnumValue(name, value);
   }
   auto GetEnumValue(std::string_view enum_str) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
@@ -871,13 +870,13 @@ class DbAccessor final {
     return accessor_->GetEnumStoreShared().ToString(value);
   }
 
-  auto EnumAlterAdd(std::string_view name, std::string_view value)
-      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto EnumAlterAdd(std::string_view name,
+                    std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterAdd(name, value);
   }
 
-  auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
-      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto EnumAlterUpdate(std::string_view name, std::string_view old_value,
+                       std::string_view new_value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterUpdate(name, old_value, new_value);
   }
 

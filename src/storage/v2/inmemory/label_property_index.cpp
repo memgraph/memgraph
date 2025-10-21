@@ -311,8 +311,8 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
 auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx, CheckCancelFunction cancel_check)
-    -> utils::BasicResult<IndexPopulateError> {
+    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx,
+    CheckCancelFunction cancel_check) -> utils::BasicResult<IndexPopulateError> {
   auto index = GetIndividualIndex(label, properties);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -558,8 +558,8 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label,
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
-    std::span<LabelId const> labels, std::span<PropertyPath const> properties) const
-    -> std::vector<LabelPropertiesIndicesInfo> {
+    std::span<LabelId const> labels,
+    std::span<PropertyPath const> properties) const -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to<std::vector>();
   auto properties_vec = properties | ranges::to_vector;
@@ -691,7 +691,7 @@ InMemoryLabelPropertyIndex::Iterable::Iterator &InMemoryLabelPropertyIndex::Iter
 }
 
 void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
-  for (; index_iterator_; ++index_iterator_) {
+  for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
     if (index_iterator_->vertex == current_vertex_) {
       continue;
     }
@@ -1105,6 +1105,29 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::
           transaction};
 }
 
+InMemoryLabelPropertyIndex::ChunkedIterable InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices(
+    LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
+    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
+    Transaction *transaction, size_t num_chunks) {
+  auto it = index_container_->indices_.find(label);
+  DMG_ASSERT(it != index_container_->indices_.end(), "Index for label {} and properties {} doesn't exist",
+             label.AsUint(), JoinPropertiesAsString(properties));
+  auto it2 = it->second.find(properties);
+  DMG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+             JoinPropertiesAsString(properties));
+
+  return {it2->second->skiplist.access(),
+          std::move(vertices_acc),
+          label,
+          &it2->first,
+          &it2->second->permutations_helper,
+          std::move(range),
+          view,
+          storage,
+          transaction,
+          num_chunks};
+}
+
 void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
   index_.WithLock([](auto &idx) { idx = std::make_shared<IndexContainer>(); });
   stats_->clear();
@@ -1166,6 +1189,86 @@ void InMemoryLabelPropertyIndex::CleanupAllIndices() {
           std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to<std::vector>());
     }
   });
+}
+
+void InMemoryLabelPropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
+  if (!cache_) return;
+  for (; index_iterator_; ++index_iterator_) {
+    if (index_iterator_->vertex == current_vertex_) continue;
+    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_, self_->view_)) continue;
+
+    if (CurrentVersionHasLabelProperties(*index_iterator_->vertex, self_->label_, *self_->permutation_helper_,
+                                         index_iterator_->values, self_->transaction_, self_->view_)) {
+      cache_->emplace(index_iterator_->vertex, self_->storage_, self_->transaction_);
+      current_vertex_ = cache_->value().vertex_;
+      break;
+    }
+  }
+}
+
+InMemoryLabelPropertyIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
+                                                             utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
+                                                             LabelId label, PropertiesPaths const *properties,
+                                                             PropertiesPermutationHelper const *permutation_helper,
+                                                             std::span<PropertyValueRange const> ranges, View view,
+                                                             Storage *storage, Transaction *transaction,
+                                                             size_t num_chunks)
+    : pin_accessor_(std::move(vertices_accessor)),
+      index_accessor_(std::move(index_accessor)),
+      label_(label),
+      properties_(properties),
+      permutation_helper_(permutation_helper),
+      lower_bound_(ranges.size()),
+      upper_bound_(ranges.size()),
+      view_(view),
+      storage_(storage),
+      transaction_(transaction),
+      chunks_{index_accessor_.create_chunks(num_chunks)},
+      chunk_cache_(chunks_.size(), std::nullopt) {
+  // Initialize bounds from ranges (simplified - not used in this implementation)
+  for (size_t i = 0; i < ranges.size(); ++i) {
+    lower_bound_[i] = ranges[i].lower_;
+    upper_bound_[i] = ranges[i].upper_;
+  }
+  bounds_valid_ = true;
+
+  // Index can have duplicate vertex entries, we need to make sure each unique vertex is inside a single chunk.
+  // Chunks are divided at the skiplist level, we need to move each adjacent chunk's star/end to valid entries
+  for (int i = 1; i < chunks_.size(); ++i) {
+    // Special case where whole chunk is invalid
+    if (chunks_[i].begin_.node_ && chunks_[i].end_.node_ &&
+        chunks_[i].begin_.node_->obj.vertex == chunks_[i].end_.node_->obj.vertex) [[unlikely]] {
+      chunks_[i - 1].begin_.node_end_ = chunks_[i].end_.node_;
+      chunks_[i - 1].end_.node_ = chunks_[i].end_.node_;
+      chunks_[i - 1].end_.node_end_ = chunks_[i].end_.node_;
+      if (i + 1 < chunks_.size()) [[likely]] {
+        chunks_[i + 1].begin_.node_ = chunks_[i].end_.node_;
+      }
+      chunks_.erase(chunks_.begin() + i);
+      --i;
+      continue;
+    }
+    // Since skiplist has only forward links, we cannot check if the previous vertex is the same as the current one.
+    // We need to iterate through the chunk to find the first valid vertex.
+    auto start_itr = chunks_[i].begin();
+    Vertex *prev_v = start_itr->vertex;
+    while (true) {
+      ++start_itr;
+      if (start_itr == decltype(start_itr){}) break;
+      if (prev_v != start_itr->vertex) break;
+      prev_v = start_itr->vertex;
+    }
+    // Update
+    auto &prev = chunks_[i - 1];
+    prev.begin_.node_end_ = start_itr.node_;
+    prev.end_.node_ = start_itr.node_;
+    prev.end_.node_end_ = start_itr.node_;
+    auto &curr = chunks_[i];
+    curr.begin_.node_ = start_itr.node_;
+  }
+
+  (void)label_;
+  (void)properties_;
 }
 
 }  // namespace memgraph::storage

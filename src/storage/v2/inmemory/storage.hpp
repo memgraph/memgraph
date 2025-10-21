@@ -188,6 +188,13 @@ class InMemoryStorage final : public Storage {
     VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                               std::span<storage::PropertyValueRange const> property_ranges, View view) override;
 
+    VerticesIterable ChunkedVertices(View view, size_t num_chunks) override;
+    VerticesIterable ChunkedVertices(LabelId label, View view, size_t num_chunks) override;
+
+    VerticesIterable ChunkedVertices(LabelId label, std::span<storage::PropertyPath const> properties,
+                                     std::span<storage::PropertyValueRange const> property_ranges, View view,
+                                     size_t num_chunks) override;
+
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) override;
@@ -544,8 +551,8 @@ class InMemoryStorage final : public Storage {
     /// View is not needed because a new rtree gets created for each transaction and it is always
     /// using the latest version
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
-        -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right,
+                       WithinBBoxCondition condition) -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;

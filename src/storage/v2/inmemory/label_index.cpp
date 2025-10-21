@@ -127,8 +127,8 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_acce
 auto InMemoryLabelIndex::PopulateIndex(
     LabelId label, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx, CheckCancelFunction cancel_check)
-    -> utils::BasicResult<IndexPopulateError> {
+    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx,
+    CheckCancelFunction cancel_check) -> utils::BasicResult<IndexPopulateError> {
   auto index = GetIndividualIndex(label);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -349,6 +349,14 @@ InMemoryLabelIndex::Iterable InMemoryLabelIndex::ActiveIndices::Vertices(
   return {it->second->skiplist.access(), std::move(vertices_acc), label, view, storage, transaction};
 }
 
+InMemoryLabelIndex::ChunkedIterable InMemoryLabelIndex::ActiveIndices::ChunkedVertices(
+    LabelId label, memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
+    Storage *storage, Transaction *transaction, size_t num_chunks) {
+  const auto it = index_container_->find(label);
+  MG_ASSERT(it != index_container_->end(), "Index for label {} doesn't exist", label.AsUint());
+  return {it->second->skiplist.access(), std::move(vertices_acc), label, view, storage, transaction, num_chunks};
+}
+
 void InMemoryLabelIndex::SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
   auto locked_stats = stats_.Lock();
   locked_stats->insert_or_assign(label, stats);
@@ -410,6 +418,54 @@ void InMemoryLabelIndex::CleanupAllIndices() {
       indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
     }
   });
+}
+
+InMemoryLabelIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
+                                                     utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
+                                                     LabelId label, View view, Storage *storage,
+                                                     Transaction *transaction, size_t num_chunks)
+    : pin_accessor_(std::move(vertices_accessor)),
+      index_accessor_(std::move(index_accessor)),
+      label_(label),
+      view_(view),
+      storage_(storage),
+      transaction_(transaction),
+      chunks_{index_accessor_.create_chunks(num_chunks)},
+      chunk_cache_(chunks_.size(), std::nullopt) {
+  // Index can have duplicate vertex entries, we need to make sure each unique vertex is inside a single chunk.
+  // Chunks are divided at the skiplist level, we need to move each adjacent chunk's star/end to valid entries
+  for (int i = 1; i < chunks_.size(); ++i) {
+    // Special case where whole chunk is invalid
+    if (chunks_[i].begin_.node_ && chunks_[i].end_.node_ &&
+        chunks_[i].begin_.node_->obj.vertex == chunks_[i].end_.node_->obj.vertex) [[unlikely]] {
+      chunks_[i - 1].begin_.node_end_ = chunks_[i].end_.node_;
+      chunks_[i - 1].end_.node_ = chunks_[i].end_.node_;
+      chunks_[i - 1].end_.node_end_ = chunks_[i].end_.node_;
+      if (i + 1 < chunks_.size()) [[likely]] {
+        chunks_[i + 1].begin_.node_ = chunks_[i].end_.node_;
+      }
+      chunks_.erase(chunks_.begin() + i);
+      --i;
+      continue;
+    }
+    // Since skiplist has only forward links, we cannot check if the previous vertex is the same as the current one.
+    // We need to iterate through the chunk to find the first valid vertex.
+    auto start_itr = chunks_[i].begin();
+    Vertex *prev_v = start_itr->vertex;
+    while (true) {
+      ++start_itr;
+      if (start_itr == decltype(start_itr){}) break;
+      if (prev_v != start_itr->vertex) break;
+      prev_v = start_itr->vertex;
+    }
+    // Update
+    auto &prev = chunks_[i - 1];
+    prev.begin_.node_end_ = start_itr.node_;
+    prev.end_.node_ = start_itr.node_;
+    prev.end_.node_end_ = start_itr.node_;
+    auto &curr = chunks_[i];
+    curr.begin_.node_ = start_itr.node_;
+  }
 }
 
 }  // namespace memgraph::storage

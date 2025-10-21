@@ -78,6 +78,7 @@ target_sources(mg-storage-v2
         config.cpp
         id_types.cpp
         ttl.cpp
+        all_vertices_chunked_iterable.cpp
 
         PUBLIC
         FILE_SET HEADERS
@@ -128,6 +129,7 @@ target_sources(mg-storage-v2
         vertex_info_cache.hpp
         vertex_info_cache_fwd.hpp
         delta_action.hpp
+        all_vertices_chunked_iterable.hpp
 )
 
 find_package(gflags REQUIRED)

@@ -93,16 +93,6 @@ class InMemoryLabelIndex : public LabelIndex {
     Iterator begin() { return {this, index_accessor_.begin()}; }
     Iterator end() { return {this, index_accessor_.end()}; }
 
-    auto create_chunks(size_t num_chunks) -> std::vector<Iterator> {
-      std::vector<Iterator> res;
-      res.reserve(num_chunks);
-      auto index_chunks = index_accessor_.create_chunks(num_chunks);
-      for (auto &index_chunk : index_chunks) {
-        res.emplace_back(this, index_chunk.begin());
-      }
-      return res;
-    }
-
    private:
     utils::SkipList<Vertex>::ConstAccessor pin_accessor_;
     utils::SkipList<Entry>::Accessor index_accessor_;
@@ -112,6 +102,68 @@ class InMemoryLabelIndex : public LabelIndex {
     Transaction *transaction_;
   };
 
+  class ChunkedIterable {
+   public:
+    ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
+                    utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view,
+                    Storage *storage, Transaction *transaction, size_t num_chunks);
+
+    class Iterator {
+     public:
+      Iterator(ChunkedIterable *self, std::optional<VertexAccessor> *cache,
+               utils::SkipList<Entry>::ChunkedIterator index_iterator)
+          : self_(self), cache_(cache), index_iterator_(index_iterator), current_vertex_(nullptr) {
+        AdvanceUntilValid();
+      }
+
+      VertexAccessor const &operator*() const { return cache_->value(); }
+      bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+      bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
+
+      Iterator &operator++() {
+        ++index_iterator_;
+        AdvanceUntilValid();
+        return *this;
+      }
+
+     private:
+      void AdvanceUntilValid() {
+        if (!cache_) return;
+        for (; index_iterator_; ++index_iterator_) {
+          if (index_iterator_->vertex == current_vertex_) continue;
+          if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_, self_->view_)) continue;
+
+          auto accessor = VertexAccessor{index_iterator_->vertex, self_->storage_, self_->transaction_};
+          auto res = accessor.HasLabel(self_->label_, self_->view_);
+          if (!res.HasError() and res.GetValue()) {
+            cache_->emplace(index_iterator_->vertex, self_->storage_, self_->transaction_);
+            current_vertex_ = cache_->value().vertex_;
+            break;
+          }
+        }
+      }
+
+      ChunkedIterable *self_;
+      std::optional<VertexAccessor> *cache_;
+      utils::SkipList<Entry>::ChunkedIterator index_iterator_;
+      Vertex *current_vertex_;
+    };
+
+    Iterator begin(size_t id) { return Iterator(this, &chunk_cache_[id], chunks_[id].begin()); }
+    Iterator end(size_t id) { return Iterator(this, nullptr, chunks_[id].end()); }
+    size_t size() const { return chunks_.size(); }
+
+   private:
+    utils::SkipList<Vertex>::ConstAccessor pin_accessor_;
+    utils::SkipList<Entry>::Accessor index_accessor_;
+    LabelId label_;
+    View view_;
+    Storage *storage_;
+    Transaction *transaction_;
+    utils::SkipList<Entry>::ChunkCollection chunks_;
+    std::vector<std::optional<VertexAccessor>> chunk_cache_;
+  };
+
   struct ActiveIndices : LabelIndex::ActiveIndices {
     ActiveIndices(std::shared_ptr<const IndexContainer> index_container = std::make_shared<IndexContainer>())
         : index_container_{std::move(index_container)} {}
@@ -119,7 +171,7 @@ class InMemoryLabelIndex : public LabelIndex {
     void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
     // Not used for in-memory
-    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override{};
+    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override {};
 
     bool IndexRegistered(LabelId label) const override;
 
@@ -137,6 +189,10 @@ class InMemoryLabelIndex : public LabelIndex {
     Iterable Vertices(LabelId label, memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
                       View view, Storage *storage, Transaction *transaction);
 
+    ChunkedIterable ChunkedVertices(LabelId label,
+                                    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
+                                    View view, Storage *storage, Transaction *transaction, size_t num_chunks);
+
     auto GetAbortProcessor() const -> AbortProcessor override;
 
    private:
@@ -149,8 +205,8 @@ class InMemoryLabelIndex : public LabelIndex {
   auto PopulateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
-                     Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
-      -> utils::BasicResult<IndexPopulateError>;
+                     Transaction const *tx = nullptr,
+                     CheckCancelFunction cancel_check = neverCancel) -> utils::BasicResult<IndexPopulateError>;
   bool PublishIndex(LabelId label, uint64_t commit_timestamp);
 
   void RunGC();
