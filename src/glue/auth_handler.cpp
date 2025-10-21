@@ -869,11 +869,16 @@ void AuthQueryHandler::GrantPrivilege(
       [](auto &fine_grained_permissions, const auto &privilege_collection, const auto &matching_mode) {
         for (const auto &[privilege, entities] : privilege_collection) {
           const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
-          std::unordered_set<std::string> entity_set(entities.begin(), entities.end());
-          auto mode = (matching_mode == memgraph::query::AuthQuery::LabelMatchingMode::EXACTLY)
-                          ? memgraph::auth::MatchingMode::EXACTLY
-                          : memgraph::auth::MatchingMode::ANY;
-          fine_grained_permissions.Grant(entity_set, permission, mode);
+
+          if (entities.size() == 1 && entities[0] == "*") {
+            fine_grained_permissions.GrantGlobal(permission);
+          } else {
+            std::unordered_set<std::string> entity_set(entities.begin(), entities.end());
+            auto mode = (matching_mode == memgraph::query::AuthQuery::LabelMatchingMode::EXACTLY)
+                            ? memgraph::auth::MatchingMode::EXACTLY
+                            : memgraph::auth::MatchingMode::ANY;
+            fine_grained_permissions.Grant(entity_set, permission, mode);
+          }
         }
       }
 #endif
@@ -930,10 +935,11 @@ void AuthQueryHandler::RevokePrivilege(
       ,
       [](auto &fine_grained_permissions, const auto &privilege_collection, const auto &matching_mode) {
         for (const auto &[privilege, entities] : privilege_collection) {
+          const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
+
           if (entities.size() == 1 && entities[0] == "*") {
-            fine_grained_permissions = memgraph::auth::FineGrainedAccessPermissions{};
+            fine_grained_permissions.RevokeGlobal(permission);
           } else {
-            const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
             std::unordered_set<std::string> entity_set(entities.cbegin(), entities.cend());
             auto mode = (matching_mode == memgraph::query::AuthQuery::LabelMatchingMode::EXACTLY)
                             ? memgraph::auth::MatchingMode::EXACTLY

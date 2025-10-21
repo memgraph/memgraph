@@ -432,6 +432,10 @@ void FineGrainedAccessPermissions::Grant(const std::unordered_set<std::string> &
   rules_.push_back({symbols, fine_grained_permission, matching_mode});
 }
 
+void FineGrainedAccessPermissions::GrantGlobal(const FineGrainedPermission fine_grained_permission) {
+  global_permission_ = global_permission_.value_or(0) | static_cast<uint64_t>(fine_grained_permission);
+}
+
 void FineGrainedAccessPermissions::Revoke(const std::unordered_set<std::string> &symbols,
                                           const FineGrainedPermission fine_grained_permission,
                                           const MatchingMode matching_mode) {
@@ -451,6 +455,20 @@ void FineGrainedAccessPermissions::Revoke(const std::unordered_set<std::string> 
       ++it;
     }
   }
+}
+
+void FineGrainedAccessPermissions::RevokeGlobal(const FineGrainedPermission fine_grained_permission) {
+  if (global_permission_.has_value()) {
+    global_permission_ = global_permission_.value() & ~static_cast<uint64_t>(fine_grained_permission);
+    if (global_permission_.value() == 0) {
+      global_permission_ = std::nullopt;
+    }
+  }
+}
+
+void FineGrainedAccessPermissions::RevokeAll() {
+  global_permission_ = std::nullopt;
+  rules_.clear();
 }
 
 nlohmann::json FineGrainedAccessPermissions::Serialize() const {

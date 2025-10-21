@@ -2164,9 +2164,13 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
 
     if (typeSpec->labelEntitiesList()) {
       auto value = std::any_cast<std::vector<std::string>>(typeSpec->labelEntitiesList()->accept(this));
+
+      if (value.size() == 1 && value[0] == "*" && typeSpec->matchingClause()) {
+        throw SemanticException("Cannot use MATCHING clause with wildcard '*'");
+      }
+
       label_privileges[key] = std::move(value);
 
-      // Extract matching mode from matchingClause (defaults to ANY if not specified)
       if (typeSpec->matchingClause()) {
         if (typeSpec->matchingClause()->EXACTLY()) {
           matching_mode = AuthQuery::LabelMatchingMode::EXACTLY;
