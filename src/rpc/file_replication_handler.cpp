@@ -39,18 +39,8 @@ std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size
 
   auto const save_dir = std::filesystem::path{FLAGS_data_directory} / gp_path / "tmp" / file_type;
 
-  // We are cleaning WAL files in dbms/replication_handlers.cpp also but this is additional attempt so that durability
-  // files don't pile up
-  if (std::filesystem::exists(save_dir)) {
-    std::filesystem::remove_all(save_dir);
-  }
-
-  if (std::error_code error_code; !std::filesystem::create_directories(save_dir, error_code)) {
-    spdlog::error("Failed to create dir {} for saving received durability files", save_dir);
-    return std::nullopt;
-  }
-
   if (!utils::EnsureDir(save_dir)) {
+    spdlog::error("Failed to create directory {}", save_dir.string());
     return std::nullopt;
   }
 
