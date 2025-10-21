@@ -116,7 +116,7 @@ TEST_F(FileReplicationHandlerTest, OpenFileWithParentPath) {
   builder.FlushInternal(total_size, false);
 
   // We don't send first 4B because they are reserved for size which we don't test here§
-  ASSERT_FALSE(
+  ASSERT_TRUE(
       file_replication_handler.OpenFile(buffer.data() + sizeof(SegmentSize), buffer.size() - sizeof(SegmentSize))
           .has_value());
 }

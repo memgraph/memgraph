@@ -79,7 +79,9 @@ class ReplicationTest : public ::testing::Test {
     Config config{
         .durability =
             {
+                .root_data_directory = storage_directory,
                 .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+
             },
         .salient.items = {.properties_on_edges = true},
     };
@@ -90,7 +92,9 @@ class ReplicationTest : public ::testing::Test {
     Config config{
         .durability =
             {
+                .root_data_directory = repl_storage_directory,
                 .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+
             },
         .salient.items = {.properties_on_edges = true},
     };
@@ -101,7 +105,9 @@ class ReplicationTest : public ::testing::Test {
     Config config{
         .durability =
             {
+                .root_data_directory = repl2_storage_directory,
                 .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+
             },
         .salient.items = {.properties_on_edges = true},
     };
@@ -636,6 +642,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   {
     memgraph::storage::Config conf{
         .durability = {
+            .root_data_directory = storage_directory,
             .recover_on_startup = true,
             .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
             .snapshot_on_exit = true,
@@ -655,7 +662,8 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   {
     // Create second WAL
     memgraph::storage::Config conf{
-        .durability = {.recover_on_startup = true,
+        .durability = {.root_data_directory = storage_directory,
+                       .recover_on_startup = true,
                        .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}};
     UpdatePaths(conf, storage_directory);
     MinMemgraph main(conf);
@@ -676,6 +684,8 @@ TEST_F(ReplicationTest, RecoveryProcess) {
 
   memgraph::storage::Config conf{
       .durability = {
+          .root_data_directory = storage_directory,
+
           .recover_on_startup = true,
           .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
       }};
@@ -744,7 +754,8 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   }
   {
     memgraph::storage::Config repl_conf{
-        .durability = {.recover_on_startup = true,
+        .durability = {.root_data_directory = storage_directory,
+                       .recover_on_startup = true,
                        .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}};
     UpdatePaths(repl_conf, repl_storage_directory);
     MinMemgraph replica(repl_conf);
@@ -1440,6 +1451,8 @@ TEST_F(ReplicationTest, SchemaReplication) {
   memgraph::storage::Config conf{
       .durability =
           {
+              .root_data_directory = storage_directory,
+
               .recover_on_startup = true,
               .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
               .snapshot_retention_count = 1,
