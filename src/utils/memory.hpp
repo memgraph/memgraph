@@ -347,6 +347,7 @@ class ThreadSafePool {
     Node *next;
   };
 
+  ThreadSafeMonotonicBufferResource block_memory_resource_{1024};  // Used for thread-local head pointers
   std::mutex mtx_;
   AList<void *> chunks_;  // store allocated blocks for destruction
 

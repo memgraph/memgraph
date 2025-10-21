@@ -328,22 +328,17 @@ void Pool::Deallocate(void *p) {
   *reinterpret_cast<std::byte **>(p) = std::exchange(free_list_, reinterpret_cast<std::byte *>(p));
 }
 
-namespace {
-// TODO Think about a better solution
-ThreadSafeMonotonicBufferResource thread_local_resource;
-}  // namespace
-
 ThreadSafePool::Node *&ThreadSafePool::thread_local_head() {
   Node **head_ptr = static_cast<Node **>(pthread_getspecific(thread_local_head_key_));
   if (!head_ptr) {
     // Allocate space for the Node* pointer
     // Use an allocator that just drops the memory (no need to destroy each pointer <- it just points to managed memory)
-    head_ptr = static_cast<Node **>(thread_local_resource.allocate(sizeof(Node *)));
+    head_ptr = static_cast<Node **>(block_memory_resource_.allocate(sizeof(Node *)));
     if (!head_ptr) {
       throw BadAlloc("Failed to allocate thread-local head pointer");
     }
     *head_ptr = nullptr;
-    pthread_setspecific(thread_local_head_key_, head_ptr);
+    pthread_setspecific(thread_local_head_key_, reinterpret_cast<void *>(head_ptr));
   }
   return *head_ptr;
 }
@@ -354,14 +349,14 @@ ThreadSafePool::Node *ThreadSafePool::carve_block() {
   void *raw = chunk_memory_->allocate(chunk_size(), chunk_alignment());
   {
     // Push back to the global list
-    std::unique_lock lock(mtx_);
+    const std::unique_lock lock(mtx_);
     chunks_.emplace_front(raw);
   }
 
   // Link the blocks in the chunk
   Node *prev = nullptr;
   for (std::size_t i = 0; i < blocks_per_chunk_; ++i) {
-    Node *node = reinterpret_cast<Node *>(reinterpret_cast<char *>(raw) + i * block_size_);
+    Node *node = reinterpret_cast<Node *>(reinterpret_cast<char *>(raw) + (i * block_size_));
     node->next = prev;
     prev = node;
   }
