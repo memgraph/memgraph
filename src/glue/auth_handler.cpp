@@ -219,12 +219,6 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     add_permission(fmt::format("ALL {}S", permission_type), global_permission.value(), level, true);
   }
 
-  // Handle per-label/edge grants (legacy) @TODO remove once old storage is removed
-  for (const auto &[label, permission] : permissions.GetPermissions()) {
-    const auto level = permission == 0 ? memgraph::auth::PermissionLevel::DENY : memgraph::auth::PermissionLevel::GRANT;
-    add_permission(fmt::format("{} :{}", permission_type, label), permission, level, false);
-  }
-
   for (const auto &rule : permissions.GetRules()) {
     std::string entity_name;
     if (rule.symbols.size() == 1 && rule.symbols.contains("*")) {
@@ -936,18 +930,15 @@ void AuthQueryHandler::RevokePrivilege(
       ,
       [](auto &fine_grained_permissions, const auto &privilege_collection, const auto &matching_mode) {
         for (const auto &[privilege, entities] : privilege_collection) {
-          for (const auto &entity : entities) {
-            if (entity == "*") {
-              // REVOKE on * means clear all permissions
-              fine_grained_permissions.Revoke(entity);
-            } else {
-              const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
-              std::unordered_set<std::string> entity_set{entity};
-              auto mode = (matching_mode == memgraph::query::AuthQuery::LabelMatchingMode::EXACTLY)
-                              ? memgraph::auth::MatchingMode::EXACTLY
-                              : memgraph::auth::MatchingMode::ANY;
-              fine_grained_permissions.Revoke(entity_set, permission, mode);
-            }
+          if (entities.size() == 1 && entities[0] == "*") {
+            fine_grained_permissions = memgraph::auth::FineGrainedAccessPermissions{};
+          } else {
+            const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
+            std::unordered_set<std::string> entity_set(entities.cbegin(), entities.cend());
+            auto mode = (matching_mode == memgraph::query::AuthQuery::LabelMatchingMode::EXACTLY)
+                            ? memgraph::auth::MatchingMode::EXACTLY
+                            : memgraph::auth::MatchingMode::ANY;
+            fine_grained_permissions.Revoke(entity_set, permission, mode);
           }
         }
       }

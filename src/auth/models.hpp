@@ -250,8 +250,8 @@ struct FineGrainedAccessRule {
 
 class FineGrainedAccessPermissions final {
  public:
-  explicit FineGrainedAccessPermissions(std::unordered_map<std::string, uint64_t> permissions = {},
-                                        std::optional<uint64_t> global_permission = std::nullopt);
+  explicit FineGrainedAccessPermissions(std::optional<uint64_t> global_permission = std::nullopt,
+                                        std::vector<FineGrainedAccessRule> rules = {});
   FineGrainedAccessPermissions(const FineGrainedAccessPermissions &) = default;
   FineGrainedAccessPermissions &operator=(const FineGrainedAccessPermissions &) = default;
   FineGrainedAccessPermissions(FineGrainedAccessPermissions &&) = default;
@@ -262,15 +262,8 @@ class FineGrainedAccessPermissions final {
 
   PermissionLevel HasGlobal(FineGrainedPermission fine_grained_permission) const;
 
-  // @TODO remove old methods
-  void Grant(const std::string &permission, FineGrainedPermission fine_grained_permission);
-
   void Grant(const std::unordered_set<std::string> &symbols, FineGrainedPermission fine_grained_permission,
              MatchingMode matching_mode);
-
-  void Revoke(const std::string &permission);
-
-  void Revoke(const std::string &permission, FineGrainedPermission fine_grained_permission);
 
   void Revoke(const std::unordered_set<std::string> &symbols, FineGrainedPermission fine_grained_permission,
               MatchingMode matching_mode);
@@ -280,16 +273,12 @@ class FineGrainedAccessPermissions final {
   /// @throw AuthException if unable to deserialize.
   static FineGrainedAccessPermissions Deserialize(const nlohmann::json &data);
 
-  const std::unordered_map<std::string, uint64_t> &GetPermissions() const;
   const std::optional<uint64_t> &GetGlobalPermission() const;
   const std::vector<FineGrainedAccessRule> &GetRules() const;
 
  private:
-  std::unordered_map<std::string, uint64_t> permissions_{};  //@TODO remove old storage
   std::optional<uint64_t> global_permission_;
   std::vector<FineGrainedAccessRule> rules_;
-
-  static uint64_t MigratePermission(uint64_t permission);
 };
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);

@@ -207,19 +207,29 @@ std::string FineGrainedPermissionToString(uint64_t const permission) {
 
 FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
                                    const FineGrainedAccessPermissions &second) {
-  std::unordered_map<std::string, uint64_t> permissions{first.GetPermissions()};
-
   std::optional<uint64_t> global_permission;
   uint64_t combined_global = first.GetGlobalPermission().value_or(0) | second.GetGlobalPermission().value_or(0);
   if (combined_global != 0) {
     global_permission = combined_global;
   }
 
-  for (const auto &[label_name, permission] : second.GetPermissions()) {
-    permissions[label_name] |= permission;
+  auto merged_rules = first.GetRules();
+  for (const auto &rule2 : second.GetRules()) {
+    bool found = false;
+    for (auto &rule1 : merged_rules) {
+      // @TODO think we need special logic for NOTHING. Deal with that later.
+      if (rule1.symbols == rule2.symbols && rule1.matching_mode == rule2.matching_mode) {
+        rule1.permissions = rule1.permissions | rule2.permissions;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      merged_rules.push_back(rule2);
+    }
   }
 
-  return FineGrainedAccessPermissions(std::move(permissions), global_permission);
+  return FineGrainedAccessPermissions(global_permission, std::move(merged_rules));
 }
 #endif
 
@@ -315,9 +325,9 @@ bool operator==(const Permissions &first, const Permissions &second) {
 bool operator!=(const Permissions &first, const Permissions &second) { return !(first == second); }
 
 #ifdef MG_ENTERPRISE
-FineGrainedAccessPermissions::FineGrainedAccessPermissions(std::unordered_map<std::string, uint64_t> permissions,
-                                                           std::optional<uint64_t> global_permission)
-    : permissions_{std::move(permissions)}, global_permission_(global_permission) {}
+FineGrainedAccessPermissions::FineGrainedAccessPermissions(std::optional<uint64_t> global_permission,
+                                                           std::vector<FineGrainedAccessRule> rules)
+    : global_permission_(global_permission), rules_{std::move(rules)} {}
 
 PermissionLevel FineGrainedAccessPermissions::Has(std::span<const std::string> symbols,
                                                   const FineGrainedPermission fine_grained_permission) const {
@@ -379,21 +389,6 @@ PermissionLevel FineGrainedAccessPermissions::HasGlobal(const FineGrainedPermiss
   return PermissionLevel::DENY;
 }
 
-void FineGrainedAccessPermissions::Grant(const std::string &permission,
-                                         const FineGrainedPermission fine_grained_permission) {
-  if (fine_grained_permission == FineGrainedPermission::NOTHING) {
-    if (permission == query::kAsterisk) {
-      global_permission_ = 0;
-    } else {
-      permissions_[permission] = 0;
-    }
-  } else if (permission == query::kAsterisk) {
-    global_permission_ = global_permission_.value_or(0) | static_cast<uint64_t>(fine_grained_permission);
-  } else {
-    permissions_[permission] |= static_cast<uint64_t>(fine_grained_permission);
-  }
-}
-
 void FineGrainedAccessPermissions::Grant(const std::unordered_set<std::string> &symbols,
                                          const FineGrainedPermission fine_grained_permission,
                                          const MatchingMode matching_mode) {
@@ -405,35 +400,6 @@ void FineGrainedAccessPermissions::Grant(const std::unordered_set<std::string> &
   }
 
   rules_.push_back({symbols, fine_grained_permission, matching_mode});
-}
-
-void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
-  if (permission == query::kAsterisk) {
-    permissions_.clear();
-    global_permission_ = std::nullopt;
-  } else {
-    permissions_.erase(permission);
-  }
-}
-
-void FineGrainedAccessPermissions::Revoke(const std::string &permission,
-                                          const FineGrainedPermission fine_grained_permission) {
-  if (permission == query::kAsterisk) {
-    if (global_permission_.has_value()) {
-      global_permission_ = global_permission_.value() & ~static_cast<uint64_t>(fine_grained_permission);
-      if (global_permission_.value() == 0) {
-        global_permission_ = std::nullopt;
-      }
-    }
-  } else {
-    auto it = permissions_.find(permission);
-    if (it != permissions_.end()) {
-      it->second &= ~static_cast<uint64_t>(fine_grained_permission);
-      if (it->second == 0) {
-        permissions_.erase(it);
-      }
-    }
-  }
 }
 
 void FineGrainedAccessPermissions::Revoke(const std::unordered_set<std::string> &symbols,
@@ -462,7 +428,6 @@ nlohmann::json FineGrainedAccessPermissions::Serialize() const {
     return {};
   }
   nlohmann::json data = nlohmann::json::object();
-  data[kPermissions] = permissions_;
   data[kGlobalPermission] = global_permission_.has_value() ? global_permission_.value() : -1;
 
   nlohmann::json rules_json = nlohmann::json::array();
@@ -486,22 +451,13 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
     return FineGrainedAccessPermissions{};
   }
 
-  std::unordered_map<std::string, uint64_t> permissions;
-  auto permissions_json = data.find(kPermissions);
-  if (permissions_json != data.end() && permissions_json->is_object()) {
-    for (auto &&[key, value] : permissions_json->items()) {
-      permissions[key] = MigratePermission(value);
-    }
-  }
-
   std::optional<uint64_t> global_permission = std::nullopt;
   auto global_permissions = data.find(kGlobalPermission);
   if (global_permissions != data.end() && global_permissions->is_number_integer() && *global_permissions != -1) {
-    global_permission = MigratePermission(*global_permissions);
+    global_permission = *global_permissions;
   }
 
-  FineGrainedAccessPermissions result(std::move(permissions), global_permission);
-
+  std::vector<FineGrainedAccessRule> rules;
   auto rules_json = data.find("rules");
   if (rules_json != data.end() && rules_json->is_array()) {
     for (const auto &rule_json : *rules_json) {
@@ -529,37 +485,19 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
         }
       }
 
-      result.rules_.push_back({symbols, permissions, matching_mode});
+      rules.push_back({symbols, permissions, matching_mode});
     }
   }
 
-  return result;
+  return FineGrainedAccessPermissions(global_permission, std::move(rules));
 }
 
-const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::GetPermissions() const {
-  return permissions_;
-}
 const std::optional<uint64_t> &FineGrainedAccessPermissions::GetGlobalPermission() const { return global_permission_; };
 
 const std::vector<FineGrainedAccessRule> &FineGrainedAccessPermissions::GetRules() const { return rules_; }
 
-uint64_t FineGrainedAccessPermissions::MigratePermission(uint64_t permission) {
-  // Memgraph 3.6 and earlier used bit 2 to indicate CREATE_DELETE. We now
-  // use bits 3 and 4 to indicate separate CREATE and DELETE privileges. If
-  // bit 2 is set, we know this is an "old" user, and migrate by clearing the
-  // unused CREATE_DELETE bit and setting CREATE and DELETE.
-  constexpr uint64_t kOldCreateDeleteBit = 1U << 2U;
-  if (permission & kOldCreateDeleteBit) {
-    permission &= ~kOldCreateDeleteBit;
-    permission |= static_cast<uint64_t>(FineGrainedPermission::CREATE);
-    permission |= static_cast<uint64_t>(FineGrainedPermission::DELETE);
-  }
-  return permission;
-}
-
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
-  return first.GetPermissions() == second.GetPermissions() &&
-         first.GetGlobalPermission() == second.GetGlobalPermission() && first.GetRules() == second.GetRules();
+  return first.GetGlobalPermission() == second.GetGlobalPermission() && first.GetRules() == second.GetRules();
 }
 
 bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
