@@ -74,6 +74,22 @@ class Memgraph(ConanFile):
         self.requires("asio/1.34.2")
         self.requires("openssl/3.5.1")
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
+        # TODO: (andi) This may require additional libs like s3-crt, s3-encryption, s3control, s3outposts, s3table
+        self.requires(
+            "aws-sdk-cpp/1.11.619",
+            options={
+                "s3": True,
+                "monitoring": False,
+                "text-to-speech": False,
+                "queues": False,
+                "sqs": False,
+                "access-management": False,
+                "cognito-identity": False,
+                "iam": False,
+                "identity-management": False,
+                "transfer": False,
+            },
+        )
 
     def package(self):
         cmake = CMake(self)
