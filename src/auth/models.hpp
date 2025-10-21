@@ -258,13 +258,11 @@ class FineGrainedAccessPermissions final {
   FineGrainedAccessPermissions &operator=(FineGrainedAccessPermissions &&) = default;
   ~FineGrainedAccessPermissions() = default;
 
-  // @TODO remove old method
-  PermissionLevel Has(const std::string &permission, FineGrainedPermission fine_grained_permission) const;
+  PermissionLevel Has(std::span<const std::string> symbols, FineGrainedPermission fine_grained_permission) const;
 
-  PermissionLevel Has(const std::unordered_set<std::string> &symbols,
-                      FineGrainedPermission fine_grained_permission) const;
+  PermissionLevel HasGlobal(FineGrainedPermission fine_grained_permission) const;
 
-  // @TODO remove old method
+  // @TODO remove old methods
   void Grant(const std::string &permission, FineGrainedPermission fine_grained_permission);
 
   void Grant(const std::unordered_set<std::string> &symbols, FineGrainedPermission fine_grained_permission,

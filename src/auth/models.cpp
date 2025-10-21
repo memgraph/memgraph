@@ -319,55 +319,61 @@ FineGrainedAccessPermissions::FineGrainedAccessPermissions(std::unordered_map<st
                                                            std::optional<uint64_t> global_permission)
     : permissions_{std::move(permissions)}, global_permission_(global_permission) {}
 
-PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
+PermissionLevel FineGrainedAccessPermissions::Has(std::span<const std::string> symbols,
                                                   const FineGrainedPermission fine_grained_permission) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return PermissionLevel::GRANT;
   }
 
-  const auto concrete_permission = std::invoke([&]() -> uint64_t {
-    if (permissions_.contains(permission)) {
-      return permissions_.at(permission);
+  // @TODO(colinbarry) definitely optimise + clean this up!
+  for (const auto &rule : rules_) {
+    if (rule.matching_mode == MatchingMode::EXACTLY) {
+      if ((rule.permissions & fine_grained_permission) == FineGrainedPermission::NOTHING) {
+        continue;
+      }
+
+      if (rule.symbols.size() != symbols.size()) {
+        continue;
+      }
+
+      bool all_match = true;
+      for (const auto &symbol : symbols) {
+        if (!rule.symbols.contains(symbol)) {
+          all_match = false;
+          break;
+        }
+      }
+
+      if (all_match) {
+        return PermissionLevel::GRANT;
+      }
     }
-    return global_permission_.value_or(0);
-  });
+  }
 
-  const auto temp_permission = concrete_permission & fine_grained_permission;
+  for (const auto &rule : rules_) {
+    if (rule.matching_mode == MatchingMode::ANY) {
+      if ((rule.permissions & fine_grained_permission) == FineGrainedPermission::NOTHING) {
+        continue;
+      }
 
-  return temp_permission > 0 ? PermissionLevel::GRANT : PermissionLevel::DENY;
+      for (const auto &symbol : symbols) {
+        if (rule.symbols.contains(symbol)) {
+          return PermissionLevel::GRANT;
+        }
+      }
+    }
+  }
+
+  return HasGlobal(fine_grained_permission);
 }
 
-// @TODO is unordered_set the best data structure here?
-// @TODO handle denies here
-PermissionLevel FineGrainedAccessPermissions::Has(const std::unordered_set<std::string> &symbols,
-                                                  const FineGrainedPermission fine_grained_permission) const {
+PermissionLevel FineGrainedAccessPermissions::HasGlobal(const FineGrainedPermission fine_grained_permission) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return PermissionLevel::GRANT;
   }
 
   if (global_permission_.has_value() && (global_permission_.value() & fine_grained_permission)) {
     return PermissionLevel::GRANT;
-  }
-
-  // Check rules with MATCHING EXACTLY
-  for (const auto &rule : rules_) {
-    if (rule.matching_mode == MatchingMode::EXACTLY) {
-      if (rule.symbols == symbols && (rule.permissions & fine_grained_permission) != FineGrainedPermission::NOTHING) {
-        return PermissionLevel::GRANT;
-      }
-    }
-  }
-
-  // Check rules with MATCHING ANY
-  for (const auto &rule : rules_) {
-    if (rule.matching_mode == MatchingMode::ANY) {
-      for (const auto &symbol : symbols) {
-        if (rule.symbols.contains(symbol) &&
-            (rule.permissions & fine_grained_permission) != FineGrainedPermission::NOTHING) {
-          return PermissionLevel::GRANT;
-        }
-      }
-    }
   }
 
   return PermissionLevel::DENY;
