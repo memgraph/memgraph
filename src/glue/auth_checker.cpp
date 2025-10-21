@@ -29,11 +29,15 @@
 #include <algorithm>
 #include <span>
 
+#ifdef MG_ENTERPRISE
+
+// Not ideal defining aliases inside an ifdef, but clang-tidy complains about
+// these being unused when MG_ENTERPRISE is not defined if outside.
 namespace r = ranges;
 namespace rv = r::views;
 
-#ifdef MG_ENTERPRISE
 namespace {
+
 bool IsAuthorizedLabels(const memgraph::auth::UserOrRole &user_or_role, const memgraph::query::DbAccessor *dba,
                         std::span<memgraph::storage::LabelId const> labels,
                         const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
