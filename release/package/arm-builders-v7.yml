@@ -1,0 +1,47 @@
+version: "3"
+services:
+  # NOTE: build > context > args are injected via mgbuild.sh script.
+
+  mgbuild_v7_debian-12-arm:
+    image: "memgraph/mgbuild:v7_debian-12-arm"
+    build:
+      context: debian-12-arm
+      args:
+        TOOLCHAIN_VERSION: "v7"
+    extra_hosts:
+      - "mgdeps-cache:host-gateway"
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v7_debian-12-arm"
+
+  mgbuild_v7_debian-13-arm:
+    image: "memgraph/mgbuild:v7_debian-13-arm"
+    build:
+      context: debian-13-arm
+      args:
+        TOOLCHAIN_VERSION: "v7"
+    extra_hosts:
+      - "mgdeps-cache:host-gateway"
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v7_debian-13-arm"
+
+  mgbuild_v7_ubuntu-24.04-arm:
+    image: "memgraph/mgbuild:v7_ubuntu-24.04-arm"
+    build:
+      context: ubuntu-24.04-arm
+      args:
+        TOOLCHAIN_VERSION: "v7"
+    extra_hosts:
+      - "mgdeps-cache:host-gateway"
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v7_ubuntu-24.04-arm"
+
+  mgbuild_v7_fedora-42-arm:
+    image: "memgraph/mgbuild:v7_fedora-42-arm"
+    build:
+      context: fedora-42-arm
+      args:
+        TOOLCHAIN_VERSION: "v7"
+    extra_hosts:
+      - "mgdeps-cache:host-gateway"
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v7_fedora-42-arm"

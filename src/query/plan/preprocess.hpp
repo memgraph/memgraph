@@ -312,8 +312,8 @@ class PatternVisitor : public ExpressionVisitor<void> {
   }
 
   void Visit(RangeOperator &op) override {
-    op.expr1_->Accept(*this);
-    op.expr2_->Accept(*this);
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
   }
 
   void Visit(SubscriptOperator &op) override {

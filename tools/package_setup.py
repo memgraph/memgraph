@@ -45,14 +45,15 @@ class PackageSetup:
         self._package_suite = {
             "centos-9": value,
             "centos-10": value,
-            "debian-11": value,
-            "debian-11-arm": value,
             "debian-12": value,
             "debian-12-arm": value,
+            "debian-13": value,
+            "debian-13-arm": value,
             "docker": value,
             "docker-arm": value,
-            "fedora-41": value,
-            "rocky-9.3": value,
+            "fedora-42": value,
+            "fedora-42-arm": value,
+            "rocky-10": value,
             "ubuntu-22.04": value,
             "ubuntu-24.04": value,
             "ubuntu-24.04-arm": value,
@@ -118,7 +119,7 @@ def print_package_suite(packages: dict, workflow_inputs: dict, set_env_vars: boo
         print(f"run_package_{output_name}={run}")
         if set_env_vars:
             os.popen(f"echo run_package_{output_name}={run} >> $GITHUB_OUTPUT")
-    
+
     # Also output workflow inputs
     for key, value in workflow_inputs.items():
         print(f"workflow_input_{key}={value}")
@@ -143,4 +144,4 @@ if __name__ == "__main__":
     package_setup.setup_package_workflow()
     package_suite = package_setup.get_package_suite()
     workflow_inputs = package_setup.get_workflow_inputs()
-    print_package_suite(packages=package_suite, workflow_inputs=workflow_inputs, set_env_vars=True) 
+    print_package_suite(packages=package_suite, workflow_inputs=workflow_inputs, set_env_vars=True)

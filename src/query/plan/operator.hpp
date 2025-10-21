@@ -480,8 +480,9 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
     const UniqueCursorPtr input_cursor_;
 
     // Get the existing node (if existing_node_ == true), or create a new node
-    VertexAccessor &OtherVertex(Frame &frame, ExecutionContext &context,
-                                std::vector<memgraph::storage::LabelId> &labels, ExpressionEvaluator &evaluator);
+    VertexAccessor const &OtherVertex(Frame &frame, ExecutionContext &context,
+                                      std::vector<memgraph::storage::LabelId> &labels,
+                                      ExpressionEvaluator &evaluator) const;
   };
 };
 
@@ -2377,7 +2378,7 @@ class Apply : public memgraph::query::plan::LogicalOperator {
     void Reset() override;
 
    private:
-    const Apply &self_;
+    [[maybe_unused]] const Apply &self_;
     UniqueCursorPtr input_;
     UniqueCursorPtr subquery_;
     bool pull_input_{true};
@@ -2416,7 +2417,7 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
     void Reset() override;
 
    private:
-    const IndexedJoin &self_;
+    [[maybe_unused]] const IndexedJoin &self_;
     UniqueCursorPtr main_branch_;
     UniqueCursorPtr sub_branch_;
     bool pull_input_{true};
