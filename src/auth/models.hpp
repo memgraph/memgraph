@@ -74,16 +74,28 @@ enum class FineGrainedPermission : uint64_t {
 };
 // clang-format on
 
-constexpr inline uint64_t operator|(FineGrainedPermission lhs, FineGrainedPermission rhs) {
-  return static_cast<uint64_t>(lhs) | static_cast<uint64_t>(rhs);
+constexpr inline FineGrainedPermission operator|(FineGrainedPermission lhs, FineGrainedPermission rhs) {
+  return static_cast<FineGrainedPermission>(std::underlying_type_t<FineGrainedPermission>(lhs) |
+                                            std::underlying_type_t<FineGrainedPermission>(rhs));
 }
 
+// @TODO consider removing these
 constexpr inline uint64_t operator|(uint64_t lhs, FineGrainedPermission rhs) {
   return lhs | static_cast<uint64_t>(rhs);
 }
 
 constexpr inline uint64_t operator&(uint64_t lhs, FineGrainedPermission rhs) {
   return (lhs & static_cast<uint64_t>(rhs)) != 0;
+}
+
+constexpr inline FineGrainedPermission operator&(FineGrainedPermission lhs, FineGrainedPermission rhs) {
+  return static_cast<FineGrainedPermission>(std::underlying_type_t<FineGrainedPermission>(lhs) &
+                                            std::underlying_type_t<FineGrainedPermission>(rhs));
+}
+
+constexpr inline FineGrainedPermission &operator|=(FineGrainedPermission &lhs, FineGrainedPermission rhs) {
+  lhs = lhs | rhs;
+  return lhs;
 }
 
 constexpr FineGrainedPermission kLabelPermissionAll = static_cast<FineGrainedPermission>(
@@ -226,6 +238,16 @@ class UserImpersonation {
 #endif
 
 #ifdef MG_ENTERPRISE
+enum class MatchingMode : uint8_t { ANY, EXACTLY };
+
+struct FineGrainedAccessRule {
+  std::unordered_set<std::string> symbols;
+  FineGrainedPermission permissions;
+  MatchingMode matching_mode;
+
+  bool operator==(const FineGrainedAccessRule &other) const = default;
+};
+
 class FineGrainedAccessPermissions final {
  public:
   explicit FineGrainedAccessPermissions(std::unordered_map<std::string, uint64_t> permissions = {},
@@ -235,9 +257,18 @@ class FineGrainedAccessPermissions final {
   FineGrainedAccessPermissions(FineGrainedAccessPermissions &&) = default;
   FineGrainedAccessPermissions &operator=(FineGrainedAccessPermissions &&) = default;
   ~FineGrainedAccessPermissions() = default;
+
+  // @TODO remove old method
   PermissionLevel Has(const std::string &permission, FineGrainedPermission fine_grained_permission) const;
 
+  PermissionLevel Has(const std::unordered_set<std::string> &symbols,
+                      FineGrainedPermission fine_grained_permission) const;
+
+  // @TODO remove old method
   void Grant(const std::string &permission, FineGrainedPermission fine_grained_permission);
+
+  void Grant(const std::unordered_set<std::string> &symbols, FineGrainedPermission fine_grained_permission,
+             MatchingMode matching_mode);
 
   void Revoke(const std::string &permission);
 
@@ -250,10 +281,12 @@ class FineGrainedAccessPermissions final {
 
   const std::unordered_map<std::string, uint64_t> &GetPermissions() const;
   const std::optional<uint64_t> &GetGlobalPermission() const;
+  const std::vector<FineGrainedAccessRule> &GetRules() const;
 
  private:
-  std::unordered_map<std::string, uint64_t> permissions_{};
+  std::unordered_map<std::string, uint64_t> permissions_{};  //@TODO remove old storage
   std::optional<uint64_t> global_permission_;
+  std::vector<FineGrainedAccessRule> rules_;
 
   static uint64_t MigratePermission(uint64_t permission);
 };

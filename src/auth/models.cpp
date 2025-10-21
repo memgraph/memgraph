@@ -337,6 +337,42 @@ PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
   return temp_permission > 0 ? PermissionLevel::GRANT : PermissionLevel::DENY;
 }
 
+// @TODO is unordered_set the best data structure here?
+// @TODO handle denies here
+PermissionLevel FineGrainedAccessPermissions::Has(const std::unordered_set<std::string> &symbols,
+                                                  const FineGrainedPermission fine_grained_permission) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return PermissionLevel::GRANT;
+  }
+
+  if (global_permission_.has_value() && (global_permission_.value() & fine_grained_permission)) {
+    return PermissionLevel::GRANT;
+  }
+
+  // Check rules with MATCHING EXACTLY
+  for (const auto &rule : rules_) {
+    if (rule.matching_mode == MatchingMode::EXACTLY) {
+      if (rule.symbols == symbols && (rule.permissions & fine_grained_permission) != FineGrainedPermission::NOTHING) {
+        return PermissionLevel::GRANT;
+      }
+    }
+  }
+
+  // Check rules with MATCHING ANY
+  for (const auto &rule : rules_) {
+    if (rule.matching_mode == MatchingMode::ANY) {
+      for (const auto &symbol : symbols) {
+        if (rule.symbols.contains(symbol) &&
+            (rule.permissions & fine_grained_permission) != FineGrainedPermission::NOTHING) {
+          return PermissionLevel::GRANT;
+        }
+      }
+    }
+  }
+
+  return PermissionLevel::DENY;
+}
+
 void FineGrainedAccessPermissions::Grant(const std::string &permission,
                                          const FineGrainedPermission fine_grained_permission) {
   if (fine_grained_permission == FineGrainedPermission::NOTHING) {
@@ -350,6 +386,19 @@ void FineGrainedAccessPermissions::Grant(const std::string &permission,
   } else {
     permissions_[permission] |= static_cast<uint64_t>(fine_grained_permission);
   }
+}
+
+void FineGrainedAccessPermissions::Grant(const std::unordered_set<std::string> &symbols,
+                                         const FineGrainedPermission fine_grained_permission,
+                                         const MatchingMode matching_mode) {
+  for (auto &rule : rules_) {
+    if (rule.symbols == symbols && rule.matching_mode == matching_mode) {
+      rule.permissions |= fine_grained_permission;
+      return;
+    }
+  }
+
+  rules_.push_back({symbols, fine_grained_permission, matching_mode});
 }
 
 void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
@@ -421,6 +470,8 @@ const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::G
 }
 const std::optional<uint64_t> &FineGrainedAccessPermissions::GetGlobalPermission() const { return global_permission_; };
 
+const std::vector<FineGrainedAccessRule> &FineGrainedAccessPermissions::GetRules() const { return rules_; }
+
 uint64_t FineGrainedAccessPermissions::MigratePermission(uint64_t permission) {
   // Memgraph 3.6 and earlier used bit 2 to indicate CREATE_DELETE. We now
   // use bits 3 and 4 to indicate separate CREATE and DELETE privileges. If
@@ -437,7 +488,7 @@ uint64_t FineGrainedAccessPermissions::MigratePermission(uint64_t permission) {
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
   return first.GetPermissions() == second.GetPermissions() &&
-         first.GetGlobalPermission() == second.GetGlobalPermission();
+         first.GetGlobalPermission() == second.GetGlobalPermission() && first.GetRules() == second.GetRules();
 }
 
 bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
