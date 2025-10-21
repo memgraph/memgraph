@@ -430,6 +430,27 @@ void FineGrainedAccessPermissions::Revoke(const std::string &permission,
   }
 }
 
+void FineGrainedAccessPermissions::Revoke(const std::unordered_set<std::string> &symbols,
+                                          const FineGrainedPermission fine_grained_permission,
+                                          const MatchingMode matching_mode) {
+  for (auto it = rules_.begin(); it != rules_.end();) {
+    if (it->symbols == symbols && it->matching_mode == matching_mode) {
+      it->permissions = static_cast<FineGrainedPermission>(
+          static_cast<std::underlying_type_t<FineGrainedPermission>>(it->permissions) &
+          ~static_cast<std::underlying_type_t<FineGrainedPermission>>(fine_grained_permission));
+
+      // When all permissions for a rule are removed, the rule can be removed
+      if (it->permissions == FineGrainedPermission::NOTHING) {
+        it = rules_.erase(it);
+      } else {
+        ++it;
+      }
+    } else {
+      ++it;
+    }
+  }
+}
+
 nlohmann::json FineGrainedAccessPermissions::Serialize() const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return {};
@@ -437,6 +458,17 @@ nlohmann::json FineGrainedAccessPermissions::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data[kPermissions] = permissions_;
   data[kGlobalPermission] = global_permission_.has_value() ? global_permission_.value() : -1;
+
+  nlohmann::json rules_json = nlohmann::json::array();
+  for (const auto &rule : rules_) {
+    nlohmann::json rule_json;
+    rule_json["symbols"] = std::vector<std::string>(rule.symbols.begin(), rule.symbols.end());
+    rule_json["permissions"] = static_cast<uint64_t>(rule.permissions);
+    rule_json["matching_mode"] = (rule.matching_mode == MatchingMode::EXACTLY) ? "EXACTLY" : "ANY";
+    rules_json.push_back(rule_json);
+  }
+  data["rules"] = rules_json;
+
   return data;
 }
 
@@ -462,7 +494,40 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
     global_permission = MigratePermission(*global_permissions);
   }
 
-  return FineGrainedAccessPermissions(std::move(permissions), global_permission);
+  FineGrainedAccessPermissions result(std::move(permissions), global_permission);
+
+  auto rules_json = data.find("rules");
+  if (rules_json != data.end() && rules_json->is_array()) {
+    for (const auto &rule_json : *rules_json) {
+      if (!rule_json.is_object()) continue;
+
+      std::unordered_set<std::string> symbols;
+      if (rule_json.contains("symbols") && rule_json["symbols"].is_array()) {
+        for (const auto &symbol : rule_json["symbols"]) {
+          if (symbol.is_string()) {
+            symbols.insert(symbol.get<std::string>());
+          }
+        }
+      }
+
+      auto permissions = FineGrainedPermission::NOTHING;
+      if (rule_json.contains("permissions") && rule_json["permissions"].is_number()) {
+        permissions = static_cast<FineGrainedPermission>(rule_json["permissions"].get<uint64_t>());
+      }
+
+      auto matching_mode = MatchingMode::ANY;
+      if (rule_json.contains("matching_mode") && rule_json["matching_mode"].is_string()) {
+        std::string mode_str = rule_json["matching_mode"].get<std::string>();
+        if (mode_str == "EXACTLY") {
+          matching_mode = MatchingMode::EXACTLY;
+        }
+      }
+
+      result.rules_.push_back({symbols, permissions, matching_mode});
+    }
+  }
+
+  return result;
 }
 
 const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::GetPermissions() const {

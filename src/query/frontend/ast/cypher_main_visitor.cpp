@@ -2116,7 +2116,7 @@ antlrcpp::Any CypherMainVisitor::visitFineGrainedPrivilegesList(MemgraphCypher::
         edge_type_privileges.emplace_back(edge_type_priv);
       }
     } else {
-      privileges.push_back(std::any_cast<AuthQuery::Privilege>(it->privilege()->accept(this)));
+      privileges.push_back(std::any_cast<AuthQuery::Privilege>(it->privilege()->accept(this)));  // @TODO remove!
     }
   }
 

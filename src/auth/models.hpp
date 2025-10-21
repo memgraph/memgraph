@@ -274,6 +274,9 @@ class FineGrainedAccessPermissions final {
 
   void Revoke(const std::string &permission, FineGrainedPermission fine_grained_permission);
 
+  void Revoke(const std::unordered_set<std::string> &symbols, FineGrainedPermission fine_grained_permission,
+              MatchingMode matching_mode);
+
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.

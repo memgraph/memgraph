@@ -37,15 +37,18 @@ bool IsAuthorizedLabels(const memgraph::auth::UserOrRole &user_or_role, const me
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return std::ranges::all_of(labels, [dba, &user_or_role, fine_grained_privilege](const auto &label) {
-    return std::visit(memgraph::utils::Overloaded{[&](auto &user_or_role) {
-                        return user_or_role.GetFineGrainedAccessLabelPermissions().Has(
-                                   dba->LabelToName(label), memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
-                                                                fine_grained_privilege)) ==
-                               memgraph::auth::PermissionLevel::GRANT;
-                      }},
-                      user_or_role);
-  });
+
+  std::unordered_set<std::string> label_names;
+  for (const auto &label : labels) {
+    label_names.insert(dba->LabelToName(label));
+  }
+
+  return std::visit(memgraph::utils::Overloaded{[&](auto &user_or_role) {
+                      return user_or_role.GetFineGrainedAccessLabelPermissions().Has(
+                                 label_names, memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
+                                                  fine_grained_privilege)) == memgraph::auth::PermissionLevel::GRANT;
+                    }},
+                    user_or_role);
 }
 
 bool IsAuthorizedGloballyLabels(const memgraph::auth::UserOrRole &user_or_role,
