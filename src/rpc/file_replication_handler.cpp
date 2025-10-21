@@ -21,12 +21,6 @@ namespace memgraph::rpc {
 
 FileReplicationHandler::~FileReplicationHandler() { ResetCurrentFile(); }
 
-std::filesystem::path FileReplicationHandler::GetRandomDir() {
-  auto const random_str = utils::GenerateUUID();
-  return std::filesystem::temp_directory_path() / "memgraph" / random_str /
-         storage::durability::kReplicaDurabilityDirectory;
-}
-
 // The assumption is that the header, request, file name and file size will always fit into the buffer size = 64KiB
 // Currently, they are taking few hundred bytes at most so this should be a valid assumption. Also, we aren't expecting
 // big growth in message size/
@@ -34,14 +28,37 @@ std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size
   slk::Reader req_reader(data, size, size);
   storage::replication::Decoder decoder(&req_reader);
 
-  auto const maybe_filename = decoder.ReadString();
-  if (!ValidateFilename(maybe_filename)) return std::nullopt;
+  auto const maybe_rel_path_str = decoder.ReadString();
+  if (!ValidateFilename(maybe_rel_path_str)) return std::nullopt;
+
+  auto const rel_path = std::filesystem::path{*maybe_rel_path_str};
+  auto const filename = rel_path.filename();
+  auto const file_type = rel_path.parent_path().filename();  // will be wal or snapshots
+  auto const gp_path =
+      rel_path.parent_path().parent_path();  // grandparent path. Will be either databases/uuid or . for default db
+
+  auto const save_dir = std::filesystem::path{FLAGS_data_directory} / gp_path / "tmp" / file_type;
+
+  // We are cleaning WAL files in dbms/replication_handlers.cpp also but this is additional attempt so that durability
+  // files don't pile up
+  if (std::filesystem::exists(save_dir)) {
+    std::filesystem::remove_all(save_dir);
+  }
+
+  if (std::error_code error_code; !std::filesystem::create_directories(save_dir, error_code)) {
+    spdlog::error("Failed to create dir {} for saving received durability files", save_dir);
+    return std::nullopt;
+  }
+
+  if (!utils::EnsureDir(save_dir)) {
+    return std::nullopt;
+  }
 
   const auto maybe_file_size = decoder.ReadUint();
   if (!ValidateFileSize(maybe_file_size)) return std::nullopt;
 
   file_size_ = *maybe_file_size;
-  auto const path = std::filesystem::path{FLAGS_data_directory} / *maybe_filename;
+  auto const path = save_dir / filename;
   paths_.emplace_back(path);
 
   spdlog::info("Replica will be using file {} with size {}", path, file_size_);

@@ -81,7 +81,6 @@ bool Encoder::WriteFile(const std::filesystem::path &path, std::filesystem::path
     spdlog::error("Path {} does not have a filename.", path);
     return false;
   }
-  spdlog::trace("File: {}. Path to write: {}", path, path_to_write);
   WriteString(path_to_write.string());
   auto const file_size = file.GetSize();
   WriteUint(file_size);
