@@ -44,7 +44,7 @@ safe_docker_cmd() {
     local cmd="$1"
     local description="$2"
     local continue_on_error="${3:-true}"
-    
+
     if eval "$cmd" 2>/dev/null; then
         return 0
     else
@@ -71,23 +71,24 @@ remove_unwanted_images() {
     local preserved_images=(
         "memgraph/mgbuild:v6_ubuntu-24.04"
         "memgraph/mgbuild:v7_ubuntu-24.04"
+        "memgraph/mgbuild:v7_ubuntu-24.04-arm"
         "memgraph/mgbuild:v6_debian-12"
         "memgraph/mgbuild:v7_debian-12"
     )
-    
+
     print_status "Removing unwanted images (preserving specific ones)..."
-    
+
     # Get all image IDs
     local all_images=$(docker images -q 2>/dev/null || true)
-    
+
     if [ -z "$all_images" ]; then
         print_status "No images to remove"
         return
     fi
-    
+
     # Create a list of images to preserve
     local preserve_ids=()
-    
+
     # Add specific images to preserve list
     for image in "${preserved_images[@]}"; do
         local image_id=$(docker images --format "{{.ID}}" "$image" 2>/dev/null)
@@ -96,7 +97,7 @@ remove_unwanted_images() {
             print_status "Will preserve: $image"
         fi
     done
-    
+
     # Add mgdeps-cache images to preserve list
     local mgdeps_images=$(docker images --format "{{.Repository}}:{{.Tag}} {{.ID}}" 2>/dev/null | grep "mgdeps-cache" | awk '{print $2}' || true)
     for image_id in $mgdeps_images; do
@@ -106,7 +107,7 @@ remove_unwanted_images() {
             print_status "Will preserve: $image_name"
         fi
     done
-    
+
     # Remove images that are not in the preserve list
     local removed_count=0
     for image_id in $all_images; do
@@ -117,7 +118,7 @@ remove_unwanted_images() {
                 break
             fi
         done
-        
+
         if [ "$should_preserve" = false ]; then
             local image_name=$(docker images --format "{{.Repository}}:{{.Tag}}" "$image_id" 2>/dev/null || echo "unknown")
             print_status "Removing: $image_name"
@@ -128,27 +129,27 @@ remove_unwanted_images() {
             fi
         fi
     done
-    
+
     print_success "Removed $removed_count unwanted images"
 }
 
 # Function to perform Docker cleanup
 perform_cleanup() {
     print_status "Starting Docker cleanup..."
-    
+
     # Stop and remove containers (except those using mgdeps-cache images)
     print_status "Processing containers (preserving mgdeps-cache containers)..."
-    
+
     # Get all containers (including stopped ones) with mgdeps-cache in the name
     local mgdeps_containers=$(docker ps -a --format "{{.ID}}" --filter "name=mgdeps-cache" 2>/dev/null || true)
-    
+
     # Process all containers
     local all_containers=$(docker ps -aq 2>/dev/null || true)
     if [ -n "$all_containers" ]; then
         local stopped_count=0
         local removed_count=0
         local preserved_count=0
-        
+
         for container_id in $all_containers; do
             local is_mgdeps=false
             for mgdeps_container in $mgdeps_containers; do
@@ -157,10 +158,10 @@ perform_cleanup() {
                     break
                 fi
             done
-            
+
             local container_name=$(docker ps -a --format "{{.Names}}" --filter "id=$container_id" 2>/dev/null || echo "unknown")
             local container_status=$(docker ps -a --format "{{.Status}}" --filter "id=$container_id" 2>/dev/null || echo "unknown")
-            
+
             if [ "$is_mgdeps" = false ]; then
                 # Stop if running, then remove
                 if [[ "$container_status" == Up* ]]; then
@@ -180,13 +181,13 @@ perform_cleanup() {
                 preserved_count=$((preserved_count + 1))
             fi
         done
-        
+
         print_success "Container processing complete: $stopped_count stopped, $removed_count removed, $preserved_count preserved"
     else
         print_status "No containers to process"
     fi
-    
-    
+
+
     # Remove all volumes
     print_status "Removing all volumes..."
     local volumes_to_remove=$(docker volume ls -q 2>/dev/null || true)
@@ -208,7 +209,7 @@ perform_cleanup() {
     else
         print_status "No volumes to remove"
     fi
-    
+
     # Remove all networks (except default ones)
     print_status "Removing custom networks..."
     local custom_networks=$(docker network ls --format "{{.Name}}" 2>/dev/null | grep -v -E "^(bridge|host|none)$" || true)
@@ -232,7 +233,7 @@ perform_cleanup() {
     else
         print_status "No custom networks to remove"
     fi
-    
+
     # Clean up build cache
     print_status "Cleaning up build cache..."
     if safe_docker_cmd "docker builder prune -af" "Clean up build cache"; then
@@ -240,7 +241,7 @@ perform_cleanup() {
     else
         print_warning "Build cache cleanup had issues but continuing..."
     fi
-    
+
     # System prune (without removing images, since we handle that separately)
     print_status "Running docker system prune..."
     if safe_docker_cmd "docker system prune -f --volumes" "System prune"; then
@@ -253,11 +254,11 @@ perform_cleanup() {
 # Function to get disk usage information
 get_disk_usage() {
     print_status "Disk usage information:"
-    
+
     # Check if /var/lib/docker has its own partition
     local docker_partition=$(df -h /var/lib/docker 2>/dev/null | tail -n 1 | awk '{print $1}')
     local root_partition=$(df -h / 2>/dev/null | tail -n 1 | awk '{print $1}')
-    
+
     if [ "$docker_partition" != "$root_partition" ]; then
         print_status "/var/lib/docker has its own partition:"
         df -h /var/lib/docker
@@ -272,30 +273,30 @@ get_disk_usage() {
 main() {
     print_status "Starting Docker cleanup process..."
     echo
-    
+
     # Check Docker availability
     check_docker
     echo
-    
+
     # Show initial Docker usage
     print_status "Initial Docker system usage:"
     show_docker_usage
-    
+
     # Perform cleanup (containers, volumes, networks, system prune)
     perform_cleanup
     echo
-    
+
     # Remove unwanted images (preserving specific ones)
     remove_unwanted_images
     echo
-    
+
     # Show final Docker usage
     print_status "Final Docker system usage:"
     show_docker_usage
-    
+
     # Show disk usage
     get_disk_usage
-    
+
     print_success "Docker cleanup completed successfully!"
     print_status "Preserved images:"
     docker images --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}" 2>/dev/null || print_warning "Could not list final images"

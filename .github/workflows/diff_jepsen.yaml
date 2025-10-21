@@ -23,7 +23,7 @@ env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: 'debian-12'
-  TOOLCHAIN: 'v6'
+  TOOLCHAIN: 'v7'
 
 jobs:
   core:
@@ -55,6 +55,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-conan-cache \
           run
 
       - name: Build release binary
@@ -64,6 +65,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --no-conan-cache \
           build-memgraph
 
       - name: Copy memgraph binary
@@ -133,6 +135,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-conan-cache \
           stop --remove
 
       - name: Clean up Docker

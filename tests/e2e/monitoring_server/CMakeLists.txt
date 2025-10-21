@@ -1,9 +1,10 @@
 find_package(gflags REQUIRED)
-find_package(Boost REQUIRED CONFIG)
+find_package(Boost REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 add_library(monitoring_common common.cpp)
 target_link_libraries(monitoring_common PUBLIC
-    mgclient mg-utils nlohmann_json::nlohmann_json gflags Boost::headers
+    mgclient::mgclient mg-utils nlohmann_json::nlohmann_json gflags Boost::headers openssl::openssl
 )
 
 add_executable(memgraph__e2e__monitoring_server monitoring.cpp)

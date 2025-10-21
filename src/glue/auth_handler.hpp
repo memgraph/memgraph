@@ -16,6 +16,7 @@
 #include "glue/auth.hpp"
 #include "license/license.hpp"
 #include "query/auth_query_handler.hpp"
+#include "utils/join_vector.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::glue {

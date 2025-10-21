@@ -15,6 +15,7 @@
 #include <condition_variable>
 #include <functional>
 #include <thread>
+#include <variant>
 
 #include "utils/synchronized.hpp"
 #include "utils/variant_helpers.hpp"
