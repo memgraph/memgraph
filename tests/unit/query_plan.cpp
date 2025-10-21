@@ -2538,6 +2538,18 @@ TYPED_TEST(TestPlanner, PatternComprehensionInWith) {
                        ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, PatternComprehensionStandalonePattern) {
+  // Test RETURN [(n)-[r]->(m) | 1]
+  auto *query = QUERY(SINGLE_QUERY(RETURN(
+      NEXPR("alias", PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("n"), EDGE("r"), NODE("m")), nullptr, LITERAL(1))))));
+
+  // Specify operations in natural top-down order (how you think about execution)
+  auto input_ops = PlanFromTopDown<ExpectOnce>();
+  auto list_collection_branch_ops = PlanFromTopDown<ExpectProduce, ExpectExpand, ExpectScanAll, ExpectOnce>();
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, list_collection_branch_ops), ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, RangeFilterNoIndex1) {
   // Test MATCH (n:Label) WHERE 1 < n.prop < 10 RETURN n
   FakeDbAccessor dba;

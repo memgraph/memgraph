@@ -666,6 +666,21 @@ std::list<std::unique_ptr<BaseOpChecker>> MakeCheckers(T arg, Rest &&...rest) {
   return std::move(l);
 }
 
+// Helper to build checker lists in natural top-down order (instead of reverse bottom-up order).
+// Example:
+//   Instead of:  list.push_back(make_unique<Once>()); list.push_back(make_unique<ScanAll>());
+//   You can use: auto list = PlanFromTopDown<Produce, Expand, ScanAll, Once>();
+//
+// This makes test expectations more intuitive by specifying operations in the order you think about them.
+template <typename... Checkers>
+std::list<std::unique_ptr<BaseOpChecker>> PlanFromTopDown() {
+  std::list<std::unique_ptr<BaseOpChecker>> result;
+  // Fold expression that creates each checker and adds it at the front of the list
+  // This reverses the parameter order, converting top-down to bottom-up
+  (result.push_front(std::make_unique<Checkers>()), ...);
+  return result;
+}
+
 template <class TPlanner, class TDbAccessor>
 TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage, SymbolTable &symbol_table, CypherQuery *query,
                      const std::vector<IndexHint> &index_hints = {}) {
