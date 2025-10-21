@@ -1,4 +1,5 @@
-#!/bin/bash -eou pipefail
+#!/bin/bash
+set -euo pipefail
 
 # helpers
 pushd () { command pushd "$@" > /dev/null; }
