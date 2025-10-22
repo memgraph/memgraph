@@ -424,7 +424,11 @@ void FineGrainedAccessPermissions::Grant(const std::unordered_set<std::string> &
                                          const MatchingMode matching_mode) {
   for (auto &rule : rules_) {
     if (rule.symbols == symbols && rule.matching_mode == matching_mode) {
-      rule.permissions |= fine_grained_permission;
+      if (fine_grained_permission == FineGrainedPermission::NOTHING) {
+        rule.permissions = fine_grained_permission;
+      } else {
+        rule.permissions |= fine_grained_permission;
+      }
       return;
     }
   }
