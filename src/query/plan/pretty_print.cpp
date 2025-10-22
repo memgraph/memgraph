@@ -301,6 +301,7 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Foreach & /*unused*/) override;
   bool PreVisit(CallProcedure & /*unused*/) override;
   bool PreVisit(LoadCsv & /*unused*/) override;
+  bool PreVisit(LoadParquet &) override;
   bool PreVisit(RollUpApply & /*unused*/) override;
   bool PreVisit(PeriodicCommit & /*unused*/) override;
   bool PreVisit(PeriodicSubquery & /*unused*/) override;
@@ -525,6 +526,11 @@ bool PlanPrinter::PreVisit(query::plan::CallProcedure &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::LoadCsv &op) {
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::LoadParquet &op) {
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
@@ -1223,6 +1229,23 @@ bool PlanToJsonVisitor::PreVisit(query::plan::LoadCsv &op) {
 
   if (op.nullif_) {
     self["nullif"] = ToJson(op.nullif_, *dba_);
+  }
+
+  self["row_variable"] = ToJson(op.row_var_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(query::plan::LoadParquet &op) {
+  json self;
+  self["name"] = "LoadParquet";
+
+  if (op.file_) {
+    self["file"] = ToJson(op.file_, *dba_);
   }
 
   self["row_variable"] = ToJson(op.row_var_);
