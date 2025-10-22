@@ -29,7 +29,9 @@ int main(int argc, char *argv[]) {
   }
 
   auto data_directory = std::filesystem::temp_directory_path() / "single_query_test";
-  memgraph::utils::OnScopeExit([&data_directory] { std::filesystem::remove_all(data_directory); });
+  std::filesystem::remove_all(data_directory);
+  auto cleanup_on_exit =
+      memgraph::utils::OnScopeExit([&data_directory] { std::filesystem::remove_all(data_directory); });
   memgraph::storage::Config db_config{.durability.storage_directory = data_directory,
                                       .disk.main_storage_directory = data_directory / "disk"};
 

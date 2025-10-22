@@ -21,7 +21,6 @@
 #include "storage/v2/property_value_utils.hpp"
 #include "utils/bound.hpp"
 #include "utils/counter.hpp"
-#include "utils/fnv.hpp"
 #include "utils/logging.hpp"
 
 namespace r = ranges;
@@ -312,8 +311,8 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
 auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx,
-    CheckCancelFunction cancel_check) -> utils::BasicResult<IndexPopulateError> {
+    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx, CheckCancelFunction cancel_check)
+    -> utils::BasicResult<IndexPopulateError> {
   auto index = GetIndividualIndex(label, properties);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -559,10 +558,10 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label,
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
-    std::span<LabelId const> labels,
-    std::span<PropertyPath const> properties) const -> std::vector<LabelPropertiesIndicesInfo> {
+    std::span<LabelId const> labels, std::span<PropertyPath const> properties) const
+    -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
-  auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to_vector;
+  auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to<std::vector>();
   auto properties_vec = properties | ranges::to_vector;
 
   // For each index with a matching label, this computes the position of the
@@ -624,8 +623,8 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_times
     -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> {
   std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ret;
 
-  auto const num_indexes = r::accumulate(index_container_->indices_, size_t{},
-                                         [](auto sum, auto const &label_map) { return sum + label_map.second.size(); });
+  auto const num_indexes = r::fold_left(index_container_->indices_, size_t{},
+                                        [](auto sum, auto const &label_map) { return sum + label_map.second.size(); });
 
   ret.reserve(num_indexes);
   for (auto const &[label, indices] : index_container_->indices_) {
@@ -986,9 +985,9 @@ uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
       return bounds.IsValueInRange(value);
     };
     auto value_within_bounds = [&](auto &&p) { return std::apply(within_bounds, p); };
-    return ranges::all_of(ranges::views::zip(entry.values.values_, bounds), value_within_bounds);
+    return std::ranges::all_of(std::ranges::views::zip(entry.values.values_, bounds), value_within_bounds);
   };
-  return ranges::count_if(acc.sampling_range(), in_bounds_for_all_prefix);
+  return std::ranges::count_if(acc.sampling_range(), in_bounds_for_all_prefix);
 }
 
 std::vector<std::pair<LabelId, std::vector<PropertyPath>>> InMemoryLabelPropertyIndex::ClearIndexStats() {
@@ -1123,9 +1122,9 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::GetAbortProcessor() const -> Lab
       // an abort processor for a single `a`.
       auto const unique_props = std::invoke(
           [](auto props) {
-            auto root_props = props | rv::transform([](auto &&el) { return el[0]; }) | r::to_vector;
+            auto root_props = props | rv::transform([](auto &&el) { return el[0]; }) | r::to<std::vector>();
             r::sort(root_props);
-            return rv::unique(root_props) | r::to_vector;
+            return rv::unique(root_props) | r::to<std::vector>();
           },
           props);
 
@@ -1163,7 +1162,8 @@ void InMemoryLabelPropertyIndex::CleanupAllIndices() {
   all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
     auto keep_condition = [](AllIndicesEntry const &entry) { return entry.index_.use_count() != 1; };
     if (!r::all_of(*indices, keep_condition)) {
-      indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
+      indices =
+          std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to<std::vector>());
     }
   });
 }

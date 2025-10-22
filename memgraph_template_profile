@@ -12,7 +12,7 @@
 arch = {{ target_arch }}
 build_type = {{ os.getenv("BUILD_TYPE") }}
 compiler=clang
-compiler.cppstd=gnu20
+compiler.cppstd=gnu23
 compiler.libcxx=libstdc++11
 compiler.version=20
 os=Linux
