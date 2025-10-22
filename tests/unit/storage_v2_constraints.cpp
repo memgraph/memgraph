@@ -1406,7 +1406,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsAddLabelLast) {
     auto vertex1 = acc1->CreateVertex();
 
     ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, PropertyValue("problem")));
-    ASSERT_THROW(vertex1.AddLabel(this->label1), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.AddLabel(this->label1), memgraph::query::QueryException);
   }
 }
 
@@ -1515,7 +1515,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsSubtypeCheckForTemporalDataAddLabelLa
     auto vertex1 = acc1->CreateVertex();
 
     ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, PropertyValue(TemporalData{TemporalType::LocalDateTime, 0})));
-    ASSERT_THROW(vertex1.AddLabel(this->label1), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.AddLabel(this->label1), memgraph::query::QueryException);
   }
 
   {
