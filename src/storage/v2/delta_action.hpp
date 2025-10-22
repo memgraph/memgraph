@@ -13,15 +13,22 @@
 
 #include <cstdint>
 
-#include <nlohmann/json_fwd.hpp>
+namespace memgraph::storage {
+enum class DeltaAction : std::uint8_t {
+  /// Use for Vertex and Edge
+  /// Used for disk storage for modifying MVCC logic and storing old key. Storing old key is necessary for
+  /// deleting old-data (compaction).
+  DELETE_DESERIALIZED_OBJECT,
+  DELETE_OBJECT,
+  RECREATE_OBJECT,
+  SET_PROPERTY,
 
-using namespace std::string_view_literals;
-
-namespace memgraph::replication_coordination_glue {
-
-enum class ReplicationMode : std::uint8_t { SYNC, ASYNC, STRICT_SYNC };
-
-void to_json(nlohmann::json &j, const ReplicationMode &e);
-void from_json(const nlohmann::json &j, ReplicationMode &e);
-
-}  // namespace memgraph::replication_coordination_glue
+  // Used only for Vertex
+  ADD_LABEL,
+  REMOVE_LABEL,
+  ADD_IN_EDGE,
+  ADD_OUT_EDGE,
+  REMOVE_IN_EDGE,
+  REMOVE_OUT_EDGE,
+};
+}

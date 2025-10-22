@@ -20,6 +20,7 @@
 #include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"
 
+#include <nlohmann/json.hpp>
 #include <regex>
 
 using nuraft::cluster_config;

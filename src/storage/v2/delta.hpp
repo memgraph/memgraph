@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 
+#include "storage/v2/delta_action.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
@@ -36,7 +37,6 @@ struct Delta;
 // will always be 0. We can use those 3 bits to store information about the type
 // of the pointer stored (2 bits).
 class PreviousPtr {
- private:
   static constexpr uintptr_t kDelta = 0b01UL;
   static constexpr uintptr_t kVertex = 0b10UL;
   static constexpr uintptr_t kEdge = 0b11UL;
@@ -154,23 +154,7 @@ static_assert(std::is_trivially_destructible_v<opt_str>,
               "uses PageSlabMemoryResource, lifetime linked to that, dtr should be trivial");
 
 struct Delta {
-  enum class Action : std::uint8_t {
-    /// Use for Vertex and Edge
-    /// Used for disk storage for modifying MVCC logic and storing old key. Storing old key is necessary for
-    /// deleting old-data (compaction).
-    DELETE_DESERIALIZED_OBJECT,
-    DELETE_OBJECT,
-    RECREATE_OBJECT,
-    SET_PROPERTY,
-
-    // Used only for Vertex
-    ADD_LABEL,
-    REMOVE_LABEL,
-    ADD_IN_EDGE,
-    ADD_OUT_EDGE,
-    REMOVE_IN_EDGE,
-    REMOVE_OUT_EDGE,
-  };
+  using Action = DeltaAction;
 
   // Used for both Vertex and Edge
   struct DeleteDeserializedObjectTag {};
