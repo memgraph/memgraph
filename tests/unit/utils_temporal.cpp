@@ -99,7 +99,7 @@ TEST(TemporalTest, DateMicrosecondsSinceEpochConversion) {
   const auto check_microseconds = [](const auto date_parameters) {
     memgraph::utils::Date initial_date{date_parameters};
     const auto microseconds = initial_date.MicrosecondsSinceEpoch();
-    memgraph::utils::Date new_date{microseconds};
+    memgraph::utils::Date new_date{std::chrono::microseconds{microseconds}};
     ASSERT_EQ(initial_date, new_date);
   };
 
@@ -127,7 +127,7 @@ TEST(TemporalTest, DateMicrosecondsSinceEpochConversion) {
 TEST(TemporalTest, DateDaysSinceEpochConstructor) {
   const auto verify_date = [](int32_t days_since_epoch, int expected_year, unsigned expected_month,
                               unsigned expected_day) {
-    memgraph::utils::Date date(days_since_epoch);
+    memgraph::utils::Date date(std::chrono::days{days_since_epoch});
     EXPECT_EQ(date.year, expected_year);
     EXPECT_EQ(date.month, expected_month);
     EXPECT_EQ(date.day, expected_day);
