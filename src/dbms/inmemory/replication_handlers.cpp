@@ -655,20 +655,21 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
   uint32_t local_batch_counter{0};
   uint64_t num_committed_txns{0};
   for (auto i = 0; i < wal_file_number; ++i) {
-    auto const load_wal_res = LoadWal(active_files[i], storage, res_builder, local_batch_counter);
+    const auto [success, current_batch_counter, num_txns_committed] =
+        LoadWal(active_files[i], storage, res_builder, local_batch_counter);
     // Failure to delete the received WAL file isn't fatal since it is saved in the tmp directory so it will eventually
     // get deleted
     utils::DeleteFile(active_files[i]);
 
-    if (!load_wal_res.success) {
+    if (!success) {
       spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files for db {}.",
                     storage->name());
       const storage::replication::WalFilesRes res{std::nullopt, 0};
       rpc::SendFinalResponse(res, request_version, res_builder);
       return;
     }
-    local_batch_counter = load_wal_res.current_batch_counter;
-    num_committed_txns += load_wal_res.num_txns_committed;
+    local_batch_counter = current_batch_counter;
+    num_committed_txns += num_txns_committed;
   }
 
   spdlog::debug("Replication recovery from WAL files succeeded for db {}.", storage->name());
