@@ -736,12 +736,6 @@ void User::UpdatePassword(const std::optional<std::string> &password,
 
 void User::UpdateHash(HashedPassword hashed_password) { password_hash_ = std::move(hashed_password); }
 
-void User::SetRole(const Role &role) {
-  // Clear all roles and add the new one
-  ClearAllRoles();
-  roles_.AddRole(role);
-}
-
 void User::ClearAllRoles() {
   // Clear all roles by creating a new empty Roles object
   roles_ = Roles{};
