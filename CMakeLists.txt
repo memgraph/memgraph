@@ -286,8 +286,8 @@ include(CheckIPOSupported)
 message(STATUS "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS: ${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
 check_ipo_supported(RESULT ipo_supported OUTPUT output) # fatal error if IPO is not supported
 if (NOT ipo_supported)
-    message(WARNING "IPO test failed")
-    message(WARNING "${output}")
+    message(SEND_ERROR "IPO test failed")
+    message(FATAL_ERROR "${output}")
 endif()
 
 
