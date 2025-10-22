@@ -263,7 +263,7 @@ class FineGrainedAccessPermissions final {
   PermissionLevel HasGlobal(FineGrainedPermission fine_grained_permission) const;
 
   void Grant(const std::unordered_set<std::string> &symbols, FineGrainedPermission fine_grained_permission,
-             MatchingMode matching_mode);
+             MatchingMode matching_mode = MatchingMode::ANY);
 
   void GrantGlobal(FineGrainedPermission fine_grained_permission);
 
