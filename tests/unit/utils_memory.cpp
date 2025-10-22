@@ -143,7 +143,7 @@ TEST(MonotonicBufferResource, AllocationOverCapacity) {
 
 TEST(MonotonicBufferResource, AllocationWithSize0) {
   memgraph::utils::MonotonicBufferResource mem(1024);
-  EXPECT_THROW(mem.allocate(0), std::bad_alloc);
+  EXPECT_THROW((void)mem.allocate(0), std::bad_alloc);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -157,8 +157,8 @@ TEST(MonotonicBufferResource, AllocationWithSizeOverflow) {
   size_t max_size = std::numeric_limits<size_t>::max();
   memgraph::utils::MonotonicBufferResource mem(1024);
   // Setup so that the next allocation aligning max_size causes overflow.
-  mem.allocate(1, 1);
-  EXPECT_THROW(mem.allocate(max_size, 4), std::bad_alloc);
+  (void)mem.allocate(1, 1);
+  EXPECT_THROW((void)mem.allocate(max_size, 4), std::bad_alloc);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -222,9 +222,9 @@ TEST(MonotonicBufferResource, ResetGrowthFactor) {
   static constexpr size_t stack_data_size = 1024;
   char stack_data[stack_data_size];
   memgraph::utils::MonotonicBufferResource mem(&stack_data[0], stack_data_size, &test_mem);
-  mem.allocate(stack_data_size + 1);
+  (void)mem.allocate(stack_data_size + 1);
   mem.Release();
-  mem.allocate(stack_data_size + 1);
+  (void)mem.allocate(stack_data_size + 1);
   ASSERT_EQ(test_mem.allocated_sizes_.size(), 2);
   ASSERT_EQ(test_mem.allocated_sizes_.front(), test_mem.allocated_sizes_.back());
 }

@@ -1287,7 +1287,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraints) {
     auto vertex1 = acc1->CreateVertex();
 
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
-    ASSERT_THROW(vertex1.SetProperty(this->prop1, PropertyValue("problem")), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue("problem")), memgraph::query::QueryException);
     ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, PropertyValue(1)));
   }
 }
@@ -1309,7 +1309,8 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsInitProperties) {
     auto vertex1 = acc1->CreateVertex();
 
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
-    ASSERT_THROW(vertex1.InitProperties({{this->prop1, PropertyValue("problem")}}), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.InitProperties({{this->prop1, PropertyValue("problem")}}),
+                 memgraph::query::QueryException);
     ASSERT_NO_ERROR(vertex1.InitProperties({{this->prop1, PropertyValue(1)}}));
   }
 }
@@ -1332,7 +1333,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsUpdateProperties) {
 
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
     auto properties1 = std::map<PropertyId, PropertyValue>{{this->prop1, PropertyValue("problem")}};
-    ASSERT_THROW(vertex1.UpdateProperties(properties1), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.UpdateProperties(properties1), memgraph::query::QueryException);
     auto properties2 = std::map<PropertyId, PropertyValue>{{this->prop1, PropertyValue(1)}};
     ASSERT_NO_ERROR(vertex1.UpdateProperties(properties2));
   }
@@ -1362,9 +1363,9 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsMultiplePropertiesSameLabel) {
     auto vertex1 = acc1->CreateVertex();
 
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
-    ASSERT_THROW(vertex1.SetProperty(this->prop1, PropertyValue("problem")), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue("problem")), memgraph::query::QueryException);
     ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, PropertyValue(1)));
-    ASSERT_THROW(vertex1.SetProperty(this->prop2, PropertyValue("problem")), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.SetProperty(this->prop2, PropertyValue("problem")), memgraph::query::QueryException);
     ASSERT_NO_ERROR(vertex1.SetProperty(this->prop2, PropertyValue(1)));
   }
 }
@@ -1490,8 +1491,8 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsSubtypeCheckForTemporalData) {
     auto vertex1 = acc1->CreateVertex();
 
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
-    ASSERT_THROW(vertex1.SetProperty(this->prop1, PropertyValue("problem")), memgraph::query::QueryException);
-    ASSERT_THROW(vertex1.SetProperty(this->prop1, PropertyValue(TemporalData{TemporalType::LocalDateTime, 0})),
+    ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue("problem")), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue(TemporalData{TemporalType::LocalDateTime, 0})),
                  memgraph::query::QueryException);
     ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, PropertyValue(TemporalData{TemporalType::Date, 0})));
   }

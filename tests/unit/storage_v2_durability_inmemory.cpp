@@ -4356,7 +4356,7 @@ TEST_P(DurabilityTest, CreateSnapshotReturnsPath) {
   // Create some data to ensure snapshot has content
   {
     auto acc = mem_storage->Access();
-    auto vertex = acc->CreateVertex();
+    (void)acc->CreateVertex();
     ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
