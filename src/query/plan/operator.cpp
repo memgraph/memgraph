@@ -7733,6 +7733,8 @@ public:
     SCOPED_PROFILE_OP_BY_REF(*self_);
     AbortCheck(context);
 
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
     auto *mem = context.evaluation_context.memory;
     if (UNLIKELY(!reader_.has_value())) {
       Frame local_frame(0);
@@ -7763,11 +7765,11 @@ public:
     if (frame[self_->row_var_].IsMap()) {
       std::swap(frame[self_->row_var_].ValueMap(), row_);
     } else {
-      frame[self_->row_var_] = TypedValue(std::move(row_), mem);
+      frame_writer.Write(self_->row_var_, TypedValue(std::move(row_), mem));
     }
 
-    if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_->row_var_.name())) {
-      context.frame_change_collector->ResetTrackingValue(self_->row_var_.name());
+    if (context.frame_change_collector) {
+      context.frame_change_collector->ResetInListCache(self_->row_var_);
     }
 
     return true;

@@ -41,8 +41,8 @@ struct FrameWriter {
     return WriteAt(symbol, TypedValue(std::forward<T>(value), res_));
   }
 
-  auto Write(const Symbol &symbol, TypedValue value) -> TypedValue &;
-  auto WriteAt(const Symbol &symbol, TypedValue value) -> TypedValue &;
+  auto Write(const Symbol &symbol, TypedValue &&value) -> TypedValue &;
+  auto WriteAt(const Symbol &symbol, TypedValue &&value) -> TypedValue &;
 
   template <typename Func>
   auto Modify(const Symbol &symbol, Func f) -> std::invoke_result_t<Func, TypedValue &>;
@@ -64,6 +64,7 @@ class Frame {
 
   Frame(int64_t size, allocator_type alloc) : elems_(size, alloc) { MG_ASSERT(size >= 0); }
 
+  TypedValue &operator[](const Symbol &symbol) { return elems_[symbol.position()]; }
   const TypedValue &operator[](const Symbol &symbol) const { return elems_[symbol.position()]; }
   const TypedValue &at(const Symbol &symbol) const { return elems_.at(symbol.position()); }
 
