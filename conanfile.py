@@ -74,6 +74,7 @@ class Memgraph(ConanFile):
         self.requires("asio/1.34.2")
         self.requires("openssl/3.5.1")
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
+        self.requires("snappy/1.2.1")
         # TODO: (andi) This may require additional libs like s3-crt, s3-encryption, s3control, s3outposts, s3table
         self.requires(
             "aws-sdk-cpp/1.11.619",

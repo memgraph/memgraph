@@ -293,7 +293,7 @@ mg_build_if_needed(build_protobuf "protobuf")
 
 macro(build_pulsar)
     import_external_library(pulsar STATIC
-      ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/pulsar-client-cpp/lib/libpulsarwithdeps.a
+      ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/pulsar-client-cpp/lib/libpulsar.a
       ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/install/include
       BUILD_IN_SOURCE 1
       CONFIGURE_COMMAND cmake pulsar-client-cpp
@@ -311,11 +311,18 @@ macro(build_pulsar)
       -DBUILD_PYTHON_WRAPPER=OFF
       -DBUILD_PERF_TOOLS=OFF
       -DUSE_LOG4CXX=OFF
-      BUILD_COMMAND $(MAKE) pulsarStaticWithDeps)
+      BUILD_COMMAND $(MAKE))
     add_dependencies(pulsar-proj protobuf)
 endmacro()
-mg_build_if_needed(build_pulsar "pulsar")
-mg_create_linkable_if_no_cmake(pulsar STATIC "${MG_TOOLCHAIN_ROOT}/lib/libpulsarwithdeps.a" "${MG_TOOLCHAIN_ROOT}/include")
+
+find_library(protobuf
+        NAMES protobuf
+        PATHS /opt/toolchain-v7/lib/libprotobuf.a
+        NO_DEFAULT_PATH
+)
+
+# mg_build_if_needed(build_pulsar "pulsar")
+mg_create_linkable_if_no_cmake(pulsar STATIC "${MG_TOOLCHAIN_ROOT}/lib/libpulsar.a" "${MG_TOOLCHAIN_ROOT}/include")
 
 macro(build_librdtsc)
   if(${MG_ARCH} STREQUAL "ARM64")
