@@ -180,7 +180,8 @@ std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<a
     case arrow::Type::DATE32: {
       auto date_array = std::static_pointer_cast<arrow::Date32Array>(column);
       return [date_array, resource](int64_t const i) -> TypedValue {
-        return date_array->IsNull(i) ? TypedValue(resource) : TypedValue(Date{date_array->Value(i)}, resource);
+        return date_array->IsNull(i) ? TypedValue(resource)
+                                     : TypedValue(Date{std::chrono::days{date_array->Value(i)}}, resource);
       };
     }
     case arrow::Type::DATE64: {
@@ -189,7 +190,7 @@ std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<a
         if (date_array->IsNull(i)) return TypedValue(resource);
         auto const ms = std::chrono::milliseconds(date_array->Value(i));
         auto const us = std::chrono::duration_cast<std::chrono::microseconds>(ms);
-        return TypedValue(Date{us.count()}, resource);
+        return TypedValue(Date{us}, resource);
       };
     }
     case arrow::Type::TIME32: {

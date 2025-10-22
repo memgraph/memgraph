@@ -83,7 +83,7 @@ void DumpPreciseDouble(std::ostream *os, double value) {
 
 namespace {
 void DumpDate(std::ostream &os, const storage::TemporalData &value) {
-  utils::Date date(value.microseconds);
+  utils::Date date(std::chrono::microseconds{value.microseconds});
   os << "DATE(\"" << date << "\")";
 }
 

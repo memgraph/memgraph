@@ -7306,7 +7306,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         fmt::format("Query [{}] associated with transaction [{}]", parsed_query.query_string, *current_transaction_));
   }
 
-  auto const cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+  auto *const cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
   bool has_load_parquet{false};
 
   if (cypher_query) {

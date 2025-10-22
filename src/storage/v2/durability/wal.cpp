@@ -1526,10 +1526,13 @@ WalFile::WalFile(std::filesystem::path current_wal_path, SalientConfig::Items it
 void WalFile::FinalizeWal() {
   if (count_ != 0) {
     wal_.Finalize();
-    wal_.Close();
     // Rename file.
-    std::filesystem::path new_path(RemakeWalName(path_.filename(), from_timestamp_, to_timestamp_));
-    file_retainer_->RenameFile(path_, new_path);
+    std::filesystem::path new_path(path_);
+    new_path.replace_filename(RemakeWalName(path_.filename(), from_timestamp_, to_timestamp_));
+
+    utils::CopyFile(path_, new_path);
+    wal_.Close();
+    file_retainer_->DeleteFile(path_);
     path_ = std::move(new_path);
   }
 }
