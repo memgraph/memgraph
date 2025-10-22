@@ -64,7 +64,6 @@ class Frame {
 
   Frame(int64_t size, allocator_type alloc) : elems_(size, alloc) { MG_ASSERT(size >= 0); }
 
-  TypedValue &operator[](const Symbol &symbol) { return elems_[symbol.position()]; }
   const TypedValue &operator[](const Symbol &symbol) const { return elems_[symbol.position()]; }
   const TypedValue &at(const Symbol &symbol) const { return elems_.at(symbol.position()); }
 
