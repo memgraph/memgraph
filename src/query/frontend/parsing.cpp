@@ -42,19 +42,19 @@ std::string ParseStringLiteral(const std::string &s) {
       result += static_cast<char>(cp);
     } else if (cp <= 0x7FF) {
       // 2-byte sequence: 110xxxxx 10xxxxxx
-      result += static_cast<char>(0xC0 | ((cp >> 6) & 0x1F));
-      result += static_cast<char>(0x80 | (cp & 0x3F));
+      result += static_cast<char>(0xC0U | ((cp >> 6) & 0x1FU));
+      result += static_cast<char>(0x80U | (cp & 0x3FU));
     } else if (cp <= 0xFFFF) {
       // 3-byte sequence: 1110xxxx 10xxxxxx 10xxxxxx
-      result += static_cast<char>(0xE0 | ((cp >> 12) & 0x0F));
-      result += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-      result += static_cast<char>(0x80 | (cp & 0x3F));
+      result += static_cast<char>(0xE0U | ((cp >> 12) & 0x0FU));
+      result += static_cast<char>(0x80U | ((cp >> 6) & 0x3FU));
+      result += static_cast<char>(0x80U | (cp & 0x3FU));
     } else if (cp <= 0x10FFFF) {
       // 4-byte sequence: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
-      result += static_cast<char>(0xF0 | ((cp >> 18) & 0x07));
-      result += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
-      result += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-      result += static_cast<char>(0x80 | (cp & 0x3F));
+      result += static_cast<char>(0xF0U | ((cp >> 18) & 0x07U));
+      result += static_cast<char>(0x80U | ((cp >> 12) & 0x3FU));
+      result += static_cast<char>(0x80U | ((cp >> 6) & 0x3FU));
+      result += static_cast<char>(0x80U | (cp & 0x3FU));
     }
     return result;
   };
@@ -131,17 +131,17 @@ std::string ParseStringLiteral(const std::string &s) {
 
         // Convert UTF-16 surrogate pair to Unicode codepoint
         // Formula: 0x10000 + ((high & 0x3FF) << 10) | (low & 0x3FF)
-        const uint32_t codepoint = 0x10000 + (((first_unit & 0x3FF) << 10) | (second_unit & 0x3FF));
+        const uint32_t codepoint = 0x10000U + (((first_unit & 0x3FFU) << 10) | (second_unit & 0x3FFU));
         i += kShortUnicodeLength + 2 + kShortUnicodeLength;
         return EncodeCodepointToUtf8(codepoint);
-      } else if (IsLowSurrogate(first_unit)) {
+      }
+      if (IsLowSurrogate(first_unit)) {
         // Low surrogate appearing alone - invalid
         throw SemanticException("Invalid UTF codepoint.");
-      } else {
-        // Single UTF-16 code unit (not a surrogate), encode directly to UTF-8
-        i += kShortUnicodeLength;
-        return EncodeCodepointToUtf8(first_unit);
       }
+      // Single UTF-16 code unit (not a surrogate), encode directly to UTF-8
+      i += kShortUnicodeLength;
+      return EncodeCodepointToUtf8(first_unit);
     }
     throw SyntaxException(
         "Expected 4 hex digits as unicode codepoint started with \\u. "
