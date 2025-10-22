@@ -297,7 +297,7 @@ class Once : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<LogicalOperator> input() const override;
   void set_input(std::shared_ptr<LogicalOperator>) override;
 
-  std::vector<Symbol> symbols_;
+  std::vector<Symbol> symbols_;  // here as semantic propergation (eg. merge match/create branches)
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -1250,7 +1250,7 @@ class Delete : public memgraph::query::plan::LogicalOperator {
 
   Delete() = default;
 
-  Delete(const std::shared_ptr<LogicalOperator> &input_, const std::vector<Expression *> &expressions, bool detach_);
+  Delete(const std::shared_ptr<LogicalOperator> &input, const std::vector<Expression *> &expressions, bool detach);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;

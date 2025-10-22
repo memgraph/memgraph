@@ -1,73 +1,36 @@
-# MemGraph CMake configuration
-
-
 cmake_minimum_required(VERSION 3.23)
 cmake_policy(SET CMP0076 NEW)
 cmake_policy(SET CMP0135 NEW)
 
 # !! IMPORTANT !! run ./project_root/init.sh before cmake command
 # to download dependencies
+project(memgraph LANGUAGES C CXX)
 
-if(NOT UNIX)
-  message(FATAL_ERROR "Unsupported operating system.")
+# Enable ccache
+find_program(CCACHE_PROGRAM ccache)
+
+if(CCACHE_PROGRAM)
+    message(STATUS "Using ccache: ${CCACHE_PROGRAM}")
+    set(CMAKE_C_COMPILER_LAUNCHER   ${CCACHE_PROGRAM} CACHE STRING "" FORCE)
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM} CACHE STRING "" FORCE)
 endif()
 
 # Set `make clean` to ignore outputs of add_custom_command. If generated files
 # need to be cleaned, set ADDITIONAL_MAKE_CLEAN_FILES property.
 set_directory_properties(PROPERTIES CLEAN_NO_CUSTOM TRUE)
 
-# ccache setup
-# ccache isn't enabled all the time because it makes some problem
-# during the code coverage process
-find_program(CCACHE_FOUND ccache)
-option(USE_CCACHE "ccache:" ON)
-if(CCACHE_FOUND AND USE_CCACHE)
-  set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
-  set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
-  message(STATUS "CCache: Used")
-else ()
-  message(STATUS "CCache: Not used")
-endif(CCACHE_FOUND AND USE_CCACHE)
-
+if(NOT UNIX)
+    message(FATAL_ERROR "Unsupported operating system.")
+endif()
 
 # This is used to so that 3rd party libs can find the
 # correct libraries from our toolchain
-set(MG_TOOLCHAIN_ROOT "$ENV{MG_TOOLCHAIN_ROOT}")
-
-if(NOT DEFINED ENV{MG_TOOLCHAIN_ROOT} OR "$ENV{MG_TOOLCHAIN_ROOT}" STREQUAL "")
-    message(FATAL_ERROR "MG_TOOLCHAIN_ROOT environment variable is required but not set. Please set it to the toolchain directory.")
-endif()
-
 message(STATUS "MG_TOOLCHAIN_ROOT: ${MG_TOOLCHAIN_ROOT}")
-
-# This needs to appear before project() in order for the IPO check to pass
-set(CMAKE_CXX_COMPILER_AR "${MG_TOOLCHAIN_ROOT}/bin/llvm-ar" CACHE FILEPATH "C++ compiler archiver" FORCE)
-set(CMAKE_CXX_COMPILER_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/llvm-ranlib" CACHE FILEPATH "C++ compiler ranlib" FORCE)
-set(CMAKE_C_COMPILER_AR "${MG_TOOLCHAIN_ROOT}/bin/llvm-ar" CACHE FILEPATH "C compiler archiver" FORCE)
-set(CMAKE_C_COMPILER_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/llvm-ranlib" CACHE FILEPATH "C compiler ranlib" FORCE)
-set(CMAKE_AR "${MG_TOOLCHAIN_ROOT}/bin/llvm-ar" CACHE FILEPATH "Archiver" FORCE)
-set(CMAKE_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/llvm-ranlib" CACHE FILEPATH "Ranlib" FORCE)
-message(STATUS "Set toolchain tools using MG_TOOLCHAIN_ROOT: ${MG_TOOLCHAIN_ROOT}")
-
-# -----------------------------------------------------------------------------
-
-# Capture MG_TOOLCHAIN_ROOT from environment variable if not already set
-if (NOT MG_TOOLCHAIN_ROOT)
-    if (DEFINED ENV{MG_TOOLCHAIN_ROOT})
-        set(MG_TOOLCHAIN_ROOT $ENV{MG_TOOLCHAIN_ROOT})
-    endif()
-endif()
-
-if (NOT MG_TOOLCHAIN_ROOT)
+if (NOT MG_TOOLCHAIN_ROOT OR "${MG_TOOLCHAIN_ROOT}" STREQUAL "")
     # This is used to so that 3rd party libs can find the
     # correct libraries from our toolchain
     message(FATAL "Need toolchain")
 endif ()
-
-# Add toolchain to CMAKE_PREFIX_PATH so that find_package can locate libraries
-# list(APPEND CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
-
-project(memgraph LANGUAGES C CXX)
 
 # this reduces issues in build folders from inside containers
 # which are different locations than the host

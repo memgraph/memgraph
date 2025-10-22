@@ -4270,7 +4270,7 @@ void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
 
 EvaluatePatternFilter::EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol)
-    : input_(input), output_symbol_(std::move(output_symbol)) {}
+    : input_(input ? input : std::make_shared<Once>()), output_symbol_(std::move(output_symbol)) {}
 
 ACCEPT_WITH_INPUT(EvaluatePatternFilter);
 
@@ -4381,9 +4381,8 @@ void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Produce::ProduceCursor::Reset() { input_cursor_->Reset(); }
 
-Delete::Delete(const std::shared_ptr<LogicalOperator> &input_, const std::vector<Expression *> &expressions,
-               bool detach_)
-    : input_(input_), expressions_(expressions), detach_(detach_) {}
+Delete::Delete(const std::shared_ptr<LogicalOperator> &input, const std::vector<Expression *> &expressions, bool detach)
+    : input_(input ? input : std::make_shared<Once>()), expressions_(expressions), detach_(detach) {}
 
 ACCEPT_WITH_INPUT(Delete)
 
@@ -4574,7 +4573,7 @@ void Delete::DeleteCursor::Reset() {
 
 SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property,
                          PropertyLookup *lhs, Expression *rhs)
-    : input_(input), property_(property), lhs_(lhs), rhs_(rhs) {}
+    : input_(input ? input : std::make_shared<Once>()), property_(property), lhs_(lhs), rhs_(rhs) {}
 
 ACCEPT_WITH_INPUT(SetProperty)
 
@@ -4680,7 +4679,10 @@ void SetProperty::SetPropertyCursor::Reset() { input_cursor_->Reset(); }
 SetNestedProperty::SetNestedProperty(const std::shared_ptr<LogicalOperator> &input,
                                      std::vector<storage::PropertyId> property_path, PropertyLookup *lhs,
                                      Expression *rhs)
-    : input_(input), property_path_(std::move(property_path)), lhs_(lhs), rhs_(rhs) {}
+    : input_(input ? input : std::make_shared<Once>()),
+      property_path_(std::move(property_path)),
+      lhs_(lhs),
+      rhs_(rhs) {}
 
 ACCEPT_WITH_INPUT(SetNestedProperty)
 
@@ -4849,7 +4851,7 @@ void SetNestedProperty::SetNestedPropertyCursor::Shutdown() { input_cursor_->Shu
 void SetNestedProperty::SetNestedPropertyCursor::Reset() { input_cursor_->Reset(); }
 
 SetProperties::SetProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Expression *rhs, Op op)
-    : input_(input), input_symbol_(std::move(input_symbol)), rhs_(rhs), op_(op) {}
+    : input_(input ? input : std::make_shared<Once>()), input_symbol_(std::move(input_symbol)), rhs_(rhs), op_(op) {}
 
 ACCEPT_WITH_INPUT(SetProperties)
 
@@ -5084,7 +5086,9 @@ void SetProperties::SetPropertiesCursor::Reset() { input_cursor_->Reset(); }
 
 SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                      std::vector<StorageLabelType> labels)
-    : input_(input), input_symbol_(std::move(input_symbol)), labels_(std::move(labels)) {}
+    : input_(input ? input : std::make_shared<Once>()),
+      input_symbol_(std::move(input_symbol)),
+      labels_(std::move(labels)) {}
 
 ACCEPT_WITH_INPUT(SetLabels)
 
@@ -5182,7 +5186,7 @@ void SetLabels::SetLabelsCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property,
                                PropertyLookup *lhs)
-    : input_(input), property_(property), lhs_(lhs) {}
+    : input_(input ? input : std::make_shared<Once>()), property_(property), lhs_(lhs) {}
 
 ACCEPT_WITH_INPUT(RemoveProperty)
 
@@ -5289,7 +5293,7 @@ void RemoveProperty::RemovePropertyCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveNestedProperty::RemoveNestedProperty(const std::shared_ptr<LogicalOperator> &input,
                                            std::vector<storage::PropertyId> property_path, PropertyLookup *lhs)
-    : input_(input), property_path_(std::move(property_path)), lhs_(lhs) {}
+    : input_(input ? input : std::make_shared<Once>()), property_path_(std::move(property_path)), lhs_(lhs) {}
 
 ACCEPT_WITH_INPUT(RemoveNestedProperty)
 
@@ -5416,7 +5420,9 @@ void RemoveNestedProperty::RemoveNestedPropertyCursor::Reset() { input_cursor_->
 
 RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                            std::vector<StorageLabelType> labels)
-    : input_(input), input_symbol_(std::move(input_symbol)), labels_(std::move(labels)) {}
+    : input_(input ? input : std::make_shared<Once>()),
+      input_symbol_(std::move(input_symbol)),
+      labels_(std::move(labels)) {}
 
 ACCEPT_WITH_INPUT(RemoveLabels)
 
@@ -5516,7 +5522,9 @@ void RemoveLabels::RemoveLabelsCursor::Reset() { input_cursor_->Reset(); }
 
 EdgeUniquenessFilter::EdgeUniquenessFilter(const std::shared_ptr<LogicalOperator> &input, Symbol expand_symbol,
                                            const std::vector<Symbol> &previous_symbols)
-    : input_(input), expand_symbol_(std::move(expand_symbol)), previous_symbols_(previous_symbols) {}
+    : input_(input ? input : std::make_shared<Once>()),
+      expand_symbol_(std::move(expand_symbol)),
+      previous_symbols_(previous_symbols) {}
 
 ACCEPT_WITH_INPUT(EdgeUniquenessFilter)
 
@@ -5651,7 +5659,7 @@ std::unique_ptr<LogicalOperator> EmptyResult::Clone(AstStorage *storage) const {
 
 Accumulate::Accumulate(const std::shared_ptr<LogicalOperator> &input, const std::vector<Symbol> &symbols,
                        bool advance_command)
-    : input_(input), symbols_(symbols), advance_command_(advance_command) {}
+    : input_(input ? input : std::make_shared<Once>()), symbols_(symbols), advance_command_(advance_command) {}
 
 ACCEPT_WITH_INPUT(Accumulate)
 
@@ -6199,7 +6207,7 @@ std::string Aggregate::ToString() const {
 }
 
 Skip::Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
-    : input_(input), expression_(expression) {}
+    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
 
 ACCEPT_WITH_INPUT(Skip)
 
@@ -6262,7 +6270,7 @@ void Skip::SkipCursor::Reset() {
 }
 
 Limit::Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
-    : input_(input), expression_(expression) {}
+    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
 
 ACCEPT_WITH_INPUT(Limit)
 
@@ -6328,7 +6336,7 @@ void Limit::LimitCursor::Reset() {
 
 OrderBy::OrderBy(const std::shared_ptr<LogicalOperator> &input, const std::vector<SortItem> &order_by,
                  const std::vector<Symbol> &output_symbols)
-    : input_(input), output_symbols_(output_symbols) {
+    : input_(input ? input : std::make_shared<Once>()), output_symbols_(output_symbols) {
   // split the order_by vector into two vectors of orderings and expressions
   std::vector<OrderedTypedValueCompare> ordering;
   ordering.reserve(order_by.size());
@@ -8091,7 +8099,7 @@ std::string HashJoin::ToString() const {
 RollUpApply::RollUpApply(std::shared_ptr<LogicalOperator> &&input,
                          std::shared_ptr<LogicalOperator> &&list_collection_branch,
                          const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol, bool pass_input)
-    : input_(std::move(input)),
+    : input_(input ? std::move(input) : std::make_shared<Once>()),
       list_collection_branch_(std::move(list_collection_branch)),
       result_symbol_(std::move(result_symbol)),
       pass_input_(pass_input) {
@@ -8192,7 +8200,7 @@ std::unique_ptr<LogicalOperator> RollUpApply::Clone(AstStorage *storage) const {
 }
 
 PeriodicCommit::PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency)
-    : input_(std::move(input)), commit_frequency_(commit_frequency) {}
+    : input_(input ? std::move(input) : std::make_shared<Once>()), commit_frequency_(commit_frequency) {}
 
 std::vector<Symbol> PeriodicCommit::ModifiedSymbols(const SymbolTable &table) const {
   return input_->ModifiedSymbols(table);
