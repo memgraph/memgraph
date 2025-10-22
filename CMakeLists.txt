@@ -240,6 +240,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Enable C++23 module scanning for all targets
+# This allows any target to import C++23 modules from dependencies
+set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+
 add_compile_definitions(BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
 
 # c99-designator is disabled because of required mixture of designated and
