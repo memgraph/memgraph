@@ -230,7 +230,7 @@ template <class T, class... Args>
 nlohmann::json ToJson(const std::vector<T> &items, Args &&...args) {
   nlohmann::json json;
   for (const auto &item : items) {
-    json.emplace_back(ToJson(item, std::forward<Args>(args)...));
+    json.emplace_back(ToJson(item, args...));
   }
   return json;
 }
