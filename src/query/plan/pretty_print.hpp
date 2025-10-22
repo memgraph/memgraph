@@ -43,70 +43,70 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
 
   bool DefaultPreVisit() override;
 
-  bool PreVisit(CreateNode &) override;
-  bool PreVisit(CreateExpand &) override;
-  bool PreVisit(Delete &) override;
+  bool PreVisit(CreateNode & /*unused*/) override;
+  bool PreVisit(CreateExpand & /*unused*/) override;
+  bool PreVisit(Delete & /*unused*/) override;
 
-  bool PreVisit(SetProperty &) override;
-  bool PreVisit(SetProperties &) override;
-  bool PreVisit(SetLabels &) override;
+  bool PreVisit(SetProperty & /*unused*/) override;
+  bool PreVisit(SetProperties & /*unused*/) override;
+  bool PreVisit(SetLabels & /*unused*/) override;
 
-  bool PreVisit(RemoveProperty &) override;
-  bool PreVisit(RemoveLabels &) override;
+  bool PreVisit(RemoveProperty & /*unused*/) override;
+  bool PreVisit(RemoveLabels & /*unused*/) override;
 
-  bool PreVisit(ScanAll &) override;
-  bool PreVisit(ScanAllByLabel &) override;
-  bool PreVisit(ScanAllByLabelProperties &) override;
-  bool PreVisit(ScanAllById &) override;
-  bool PreVisit(ScanAllByEdge &) override;
-  bool PreVisit(ScanAllByEdgeType &) override;
-  bool PreVisit(ScanAllByEdgeTypeProperty &) override;
-  bool PreVisit(ScanAllByEdgeTypePropertyValue &) override;
-  bool PreVisit(ScanAllByEdgeTypePropertyRange &) override;
-  bool PreVisit(ScanAllByEdgeProperty &) override;
-  bool PreVisit(ScanAllByEdgePropertyValue &) override;
-  bool PreVisit(ScanAllByEdgePropertyRange &) override;
-  bool PreVisit(ScanAllByPointDistance &) override;
-  bool PreVisit(ScanAllByPointWithinbbox &) override;
-  bool PreVisit(ScanAllByEdgeId &) override;
+  bool PreVisit(ScanAll & /*unused*/) override;
+  bool PreVisit(ScanAllByLabel & /*unused*/) override;
+  bool PreVisit(ScanAllByLabelProperties & /*unused*/) override;
+  bool PreVisit(ScanAllById & /*unused*/) override;
+  bool PreVisit(ScanAllByEdge & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgeType & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgeTypeProperty & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgeTypePropertyValue & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgeTypePropertyRange & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgeProperty & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgePropertyValue & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgePropertyRange & /*unused*/) override;
+  bool PreVisit(ScanAllByPointDistance & /*unused*/) override;
+  bool PreVisit(ScanAllByPointWithinbbox & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgeId & /*unused*/) override;
 
-  bool PreVisit(Expand &) override;
-  bool PreVisit(ExpandVariable &) override;
+  bool PreVisit(Expand & /*unused*/) override;
+  bool PreVisit(ExpandVariable & /*unused*/) override;
 
-  bool PreVisit(ConstructNamedPath &) override;
+  bool PreVisit(ConstructNamedPath & /*unused*/) override;
 
-  bool PreVisit(Filter &) override;
+  bool PreVisit(Filter & /*unused*/) override;
   bool PreVisit(EvaluatePatternFilter & /*unused*/) override;
-  bool PreVisit(EdgeUniquenessFilter &) override;
+  bool PreVisit(EdgeUniquenessFilter & /*unused*/) override;
 
-  bool PreVisit(Merge &) override;
-  bool PreVisit(Optional &) override;
-  bool PreVisit(Cartesian &) override;
-  bool PreVisit(HashJoin &) override;
+  bool PreVisit(Merge & /*unused*/) override;
+  bool PreVisit(Optional & /*unused*/) override;
+  bool PreVisit(Cartesian & /*unused*/) override;
+  bool PreVisit(HashJoin & /*unused*/) override;
 
-  bool PreVisit(EmptyResult &) override;
-  bool PreVisit(Produce &) override;
-  bool PreVisit(Accumulate &) override;
-  bool PreVisit(Aggregate &) override;
-  bool PreVisit(Skip &) override;
-  bool PreVisit(Limit &) override;
-  bool PreVisit(OrderBy &) override;
-  bool PreVisit(Distinct &) override;
-  bool PreVisit(Union &) override;
-  bool PreVisit(RollUpApply &) override;
-  bool PreVisit(PeriodicCommit &) override;
-  bool PreVisit(PeriodicSubquery &) override;
-  bool PreVisit(SetNestedProperty &) override;
-  bool PreVisit(RemoveNestedProperty &) override;
+  bool PreVisit(EmptyResult & /*unused*/) override;
+  bool PreVisit(Produce & /*unused*/) override;
+  bool PreVisit(Accumulate & /*unused*/) override;
+  bool PreVisit(Aggregate & /*unused*/) override;
+  bool PreVisit(Skip & /*unused*/) override;
+  bool PreVisit(Limit & /*unused*/) override;
+  bool PreVisit(OrderBy & /*unused*/) override;
+  bool PreVisit(Distinct & /*unused*/) override;
+  bool PreVisit(Union & /*unused*/) override;
+  bool PreVisit(RollUpApply & /*unused*/) override;
+  bool PreVisit(PeriodicCommit & /*unused*/) override;
+  bool PreVisit(PeriodicSubquery & /*unused*/) override;
+  bool PreVisit(SetNestedProperty & /*unused*/) override;
+  bool PreVisit(RemoveNestedProperty & /*unused*/) override;
 
-  bool PreVisit(Unwind &) override;
-  bool PreVisit(CallProcedure &) override;
-  bool PreVisit(LoadCsv &) override;
-  bool PreVisit(Foreach &) override;
+  bool PreVisit(Unwind & /*unused*/) override;
+  bool PreVisit(CallProcedure & /*unused*/) override;
+  bool PreVisit(LoadCsv & /*unused*/) override;
+  bool PreVisit(Foreach & /*unused*/) override;
   bool PreVisit(Apply & /*unused*/) override;
   bool PreVisit(IndexedJoin & /*unused*/) override;
 
-  bool Visit(Once &) override;
+  bool Visit(Once & /*unused*/) override;
 
   /// Call fun with output stream. The stream is prefixed with amount of spaces
   /// corresponding to the current depth_.
