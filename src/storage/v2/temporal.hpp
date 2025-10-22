@@ -15,7 +15,6 @@
 #include <string_view>
 
 #include <boost/functional/hash_fwd.hpp>
-import memgraph.utils.fnv;
 #include "utils/temporal.hpp"
 
 namespace memgraph::storage {

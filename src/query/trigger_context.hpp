@@ -25,7 +25,6 @@
 #include "storage/v2/view.hpp"
 #include "utils/compile_time.hpp"
 #include "utils/concepts.hpp"
-import memgraph.utils.fnv;
 
 namespace memgraph::query {
 namespace detail {
