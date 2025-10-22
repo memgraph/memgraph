@@ -100,16 +100,6 @@ create_delete_filtering_in_memory_cluster: &create_delete_filtering_in_memory_cl
       setup_queries: *create_delete_filtering_setup_queries
       validation_queries: []
 
-create_delete_filtering_disk_cluster: &create_delete_filtering_disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "disk_fine_grained_access.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *create_delete_filtering_setup_queries
-      validation_queries: []
-
 edge_type_filtering_in_memory_cluster: &edge_type_filtering_in_memory_cluster
   cluster:
     main:
@@ -118,31 +108,12 @@ edge_type_filtering_in_memory_cluster: &edge_type_filtering_in_memory_cluster
       setup_queries: *edge_type_filtering_setup_queries
       validation_queries: []
 
-edge_type_filtering_disk_cluster: &edge_type_filtering_disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "disk_fine_grained_access.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *edge_type_filtering_setup_queries
-      validation_queries: []
-
 path_filtering_in_memory_cluster: &path_filtering_in_memory_cluster
   cluster:
     main:
       args: *args
       log_file: "fine_grained_access.log"
       setup_queries: *path_filtering_setup_queries
-
-path_filtering_disk_cluster: &path_filtering_disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "disk_fine_grained_access.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *path_filtering_setup_queries
 
 show_databases_w_user: &show_databases_w_user
   cluster:

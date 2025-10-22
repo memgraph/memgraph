@@ -14,16 +14,6 @@ in_memory_cluster: &in_memory_cluster
       setup_queries: []
       validation_queries: []
 
-disk_cluster: &disk_cluster
-  cluster:
-    main:
-      args: *stream_args
-      log_file: "streams-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-      validation_queries: []
-
-
 workloads:
   - name: "Kafka streams start, stop and show"
     binary: "tests/e2e/pytest_runner.sh"

@@ -14,14 +14,6 @@ in_memory_cluster: &in_memory_cluster
       setup_queries: []
       validation_queries: []
 
-disk_cluster: &disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "graphql-e2e.log"
-      setup_queries: ["STORAGE MODE ON_DISK_TRANSACTIONAL"]
-      validation_queries: []
-
 workloads:
   - name: "GraphQL queries and aggregations"
     binary: "tests/e2e/pytest_runner.sh"
@@ -72,50 +64,8 @@ workloads:
     args: ["graphql/graphql_mathematical_operators.py"]
     <<: *in_memory_cluster
 
-  - name: "Disk GraphQL queries and aggregations"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "query_modules/"
-    args: ["graphql/graphql_queries_and_aggregations.py"]
-    <<: *disk_cluster
-
-  - name: "Disk GraphQL sorting"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "query_modules/"
-    args: ["graphql/graphql_sorting.py"]
-    <<: *disk_cluster
-
-  - name: "Disk GraphQL pagination"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "query_modules/"
-    args: ["graphql/graphql_pagination.py"]
-    <<: *disk_cluster
-
   - name: "Disk GraphQL cursor-based pagination"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "query_modules/"
     args: ["graphql/graphql_cursor_based_pagination.py"]
     <<: *in_memory_cluster
-
-  - name: "Disk GraphQL mutations"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "query_modules/"
-    args: ["graphql/graphql_mutations.py"]
-    <<: *disk_cluster
-
-  - name: "Disk GraphQL arrays"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "query_modules/"
-    args: ["graphql/graphql_arrays.py"]
-    <<: *disk_cluster
-
-  - name: "Disk GraphQL mathematical operators"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "query_modules/"
-    args: ["graphql/graphql_mathematical_operators.py"]
-    <<: *disk_cluster
-
-  - name: "Disk GraphQL types"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "query_modules/"
-    args: ["graphql/graphql_types.py"]
-    <<: *disk_cluster

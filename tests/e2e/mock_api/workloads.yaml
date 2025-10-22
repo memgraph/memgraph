@@ -75,23 +75,12 @@ mock_setup_queries: &mock_setup_queries
   - "MATCH (u) SET u.permanent_id = u.__mg_id__;"
   - "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;"
 
-
 compare_mock_in_memory_cluster: &compare_mock_in_memory_cluster
   cluster:
     main:
       args: *args
       log_file: "test-compare-mock-e2e.log"
       setup_queries: *mock_setup_queries
-      validation_queries: []
-
-compare_mock_disk_cluster: &compare_mock_disk_cluster
-  cluster:
-    main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr"]
-      log_file: "test-compare-mock-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *mock_setup_queries
       validation_queries: []
 
 workloads:

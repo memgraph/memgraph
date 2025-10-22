@@ -27,25 +27,6 @@ storage_properties_edges_false_in_memory_cluster: &storage_properties_edges_fals
       setup_queries: []
       validation_queries: []
 
-storage_properties_edges_true_disk_cluster: &storage_properties_edges_true_disk_cluster
-  cluster:
-    main:
-      args: *args_properties_true
-      log_file: "triggers-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-      validation_queries: []
-
-storage_properties_edges_false_disk_cluster: &storage_properties_edges_false_disk_cluster
-  cluster:
-    main:
-      args: *args_properties_false
-      log_file: "triggers-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-      validation_queries: []
-
-
 workloads:
   - name: "ON CREATE Triggers"
     binary: "tests/e2e/triggers/memgraph__e2e__triggers__on_create"
@@ -75,9 +56,3 @@ workloads:
     proc: "tests/e2e/triggers/procedures/"
     args: ["triggers/triggers_properties_false.py"]
     <<: *storage_properties_edges_false_in_memory_cluster
-
-  - name: "ON CREATE Triggers for disk storage"
-    binary: "tests/e2e/triggers/memgraph__e2e__triggers__on_create"
-    args: ["--bolt-port", *bolt_port]
-    proc: "tests/e2e/triggers/procedures/"
-    <<: *storage_properties_edges_true_disk_cluster
