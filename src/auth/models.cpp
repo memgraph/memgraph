@@ -52,6 +52,9 @@ constexpr auto kUserImpGranted = "user_imp_granted";
 constexpr auto kUserImpDenied = "user_imp_denied";
 constexpr auto kUserImpId = "user_imp_id";
 constexpr auto kUserImpName = "user_imp_name";
+constexpr auto kSymbols = "symbols";
+constexpr auto kGranted = "granted";
+constexpr auto kMatching = "matching";
 #endif
 
 // Constant list of all available permissions.
@@ -213,8 +216,8 @@ FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
     global_permission = combined_global;
   }
 
-  auto merged_rules = first.GetRules();
-  for (const auto &rule2 : second.GetRules()) {
+  auto merged_rules = first.GetPermissions();
+  for (const auto &rule2 : second.GetPermissions()) {
     bool found = false;
     for (auto &rule1 : merged_rules) {
       // @TODO think we need special logic for NOTHING. Deal with that later.
@@ -480,17 +483,21 @@ nlohmann::json FineGrainedAccessPermissions::Serialize() const {
     return {};
   }
   nlohmann::json data = nlohmann::json::object();
-  data[kGlobalPermission] = global_permission_.has_value() ? global_permission_.value() : -1;
+  if (global_permission_.has_value()) {
+    data[kGlobalPermission] = global_permission_.value();
+  } else {
+    data[kGlobalPermission] = -1;
+  }
 
   nlohmann::json rules_json = nlohmann::json::array();
   for (const auto &rule : rules_) {
     nlohmann::json rule_json;
-    rule_json["symbols"] = std::vector<std::string>(rule.symbols.begin(), rule.symbols.end());
-    rule_json["permissions"] = static_cast<uint64_t>(rule.permissions);
-    rule_json["matching_mode"] = (rule.matching_mode == MatchingMode::EXACTLY) ? "EXACTLY" : "ANY";
+    rule_json[kSymbols] = std::vector<std::string>(rule.symbols.begin(), rule.symbols.end());
+    rule_json[kGranted] = static_cast<uint64_t>(rule.permissions);
+    rule_json[kMatching] = (rule.matching_mode == MatchingMode::EXACTLY) ? "EXACTLY" : "ANY";
     rules_json.push_back(rule_json);
   }
-  data["rules"] = rules_json;
+  data[kPermissions] = rules_json;
 
   return data;
 }
@@ -510,7 +517,7 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
   }
 
   std::vector<FineGrainedAccessRule> rules;
-  auto rules_json = data.find("rules");
+  auto rules_json = data.find(kPermissions);
   if (rules_json != data.end() && rules_json->is_array()) {
     for (const auto &rule_json : *rules_json) {
       if (!rule_json.is_object()) continue;
@@ -525,8 +532,8 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
       }
 
       auto permissions = FineGrainedPermission::NOTHING;
-      if (rule_json.contains("permissions") && rule_json["permissions"].is_number()) {
-        permissions = static_cast<FineGrainedPermission>(rule_json["permissions"].get<uint64_t>());
+      if (rule_json.contains("granted") && rule_json["granted"].is_number()) {
+        permissions = static_cast<FineGrainedPermission>(rule_json["granted"].get<uint64_t>());
       }
 
       auto matching_mode = MatchingMode::ANY;
@@ -546,10 +553,11 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
 
 const std::optional<uint64_t> &FineGrainedAccessPermissions::GetGlobalPermission() const { return global_permission_; };
 
-const std::vector<FineGrainedAccessRule> &FineGrainedAccessPermissions::GetRules() const { return rules_; }
+const std::vector<FineGrainedAccessRule> &FineGrainedAccessPermissions::GetPermissions() const { return rules_; }
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
-  return first.GetGlobalPermission() == second.GetGlobalPermission() && first.GetRules() == second.GetRules();
+  return first.GetGlobalPermission() == second.GetGlobalPermission() &&
+         first.GetPermissions() == second.GetPermissions();
 }
 
 bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {

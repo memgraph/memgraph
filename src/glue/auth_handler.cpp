@@ -219,7 +219,7 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     add_permission(fmt::format("ALL {}S", permission_type), global_permission.value(), level, true);
   }
 
-  for (const auto &rule : permissions.GetRules()) {
+  for (const auto &rule : permissions.GetPermissions()) {
     std::string entity_name;
     if (rule.symbols.size() == 1 && rule.symbols.contains("*")) {
       entity_name = fmt::format("ALL {}S", permission_type);

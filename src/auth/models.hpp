@@ -280,7 +280,7 @@ class FineGrainedAccessPermissions final {
   static FineGrainedAccessPermissions Deserialize(const nlohmann::json &data);
 
   const std::optional<uint64_t> &GetGlobalPermission() const;
-  const std::vector<FineGrainedAccessRule> &GetRules() const;
+  const std::vector<FineGrainedAccessRule> &GetPermissions() const;
 
  private:
   std::optional<uint64_t> global_permission_;
