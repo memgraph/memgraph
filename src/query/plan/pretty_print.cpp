@@ -227,7 +227,7 @@ nlohmann::json ToJson(const ExpressionRange &expression_range, const DbAccessor 
 }
 
 template <class T, class... Args>
-nlohmann::json ToJson(const std::vector<T> &items, Args &&...args) {
+nlohmann::json ToJson(const std::vector<T> &items, const Args &...args) {
   nlohmann::json json;
   for (const auto &item : items) {
     json.emplace_back(ToJson(item, args...));
