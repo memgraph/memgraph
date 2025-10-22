@@ -361,6 +361,7 @@ int main(int argc, char **argv) {
              .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
 
       .durability = {.storage_directory = FLAGS_data_directory,
+                     .root_data_directory = FLAGS_data_directory,
                      .recover_on_startup = FLAGS_data_recovery_on_startup,
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
