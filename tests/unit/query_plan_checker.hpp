@@ -452,7 +452,10 @@ class ExpectScanAllByLabelProperties : public OpChecker<ScanAllByLabelProperties
       // In keeping with the other tests, we are comparing expressions by
       // hash code of their types, rather than performing a full expression
       // comparison.
-      if (typeid(*lhs->value()).hash_code() != typeid(*rhs->value()).hash_code()) return false;
+      // Note: value() is a const method returning const ref, so no side effects
+      auto const &lhs_expr = *lhs->value();
+      auto const &rhs_expr = *rhs->value();
+      if (typeid(lhs_expr).hash_code() != typeid(rhs_expr).hash_code()) return false;
       return true;
     };
 
