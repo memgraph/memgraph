@@ -19,7 +19,6 @@
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/delta.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"

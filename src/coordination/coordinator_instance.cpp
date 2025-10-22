@@ -49,6 +49,7 @@
 
 #include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
+#include <nlohmann/json.hpp>
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/transform.hpp>
