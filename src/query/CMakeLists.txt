@@ -26,6 +26,8 @@ find_package(antlr4-runtime REQUIRED)
 find_package(antlr4 REQUIRED)
 find_package(cppitertools REQUIRED)
 find_package(range-v3 REQUIRED)
+find_package(Arrow REQUIRED)
+
 
 add_library(mg-query STATIC)
 target_sources(mg-query
@@ -113,8 +115,6 @@ target_sources(mg-query
     vertex_accessor.hpp
 )
 
-find_package(Arrow)
-
 target_link_libraries(mg-query
     PUBLIC
     dl
@@ -129,7 +129,6 @@ target_link_libraries(mg-query
     mg-utils
     mg-kvstore
     mg-memory-utils
-    mg::arrow
     mg::csv
     mg::system
     mg-flags
