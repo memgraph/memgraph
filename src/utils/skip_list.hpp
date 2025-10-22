@@ -727,19 +727,15 @@ class SkipList final : detail::SkipListNode_base {
 
       TNode *next = node_->nexts[0].load(std::memory_order_acquire);
       while (true) {
-        // At the end of the skiplist
-        if (next == nullptr) [[unlikely]] {
-          valid_ = false;
-          return *this;
-        }
-        // At the end of the chunk
-        if (next == node_end_) [[unlikely]] {
-          valid_ = false;
-          return *this;
-        }
-        // Went past the end of the chunk
-        if (node_end_ && next->obj > node_end_->obj) [[unlikely]] {
+        if (
+            // At the end of the skiplist
+            next == nullptr ||
+            // At the end of the chunk
+            next == node_end_ ||
+            // Went past the end of the chunk
+            (node_end_ && node_end_->obj < next->obj)) [[unlikely]] {
           // Do not advance the iterator, but return the current node
+          node_ = next;
           valid_ = false;
           return *this;
         }
@@ -1268,7 +1264,8 @@ class SkipList final : detail::SkipListNode_base {
       if (layer_found != -1) {
         TNode *node_found = succs[layer_found];
         if (!node_found->marked.load(std::memory_order_acquire)) {
-          while (!node_found->fully_linked.load(std::memory_order_acquire));
+          while (!node_found->fully_linked.load(std::memory_order_acquire))
+            ;
           return {Iterator{node_found}, false};
         }
         continue;
@@ -1678,19 +1675,10 @@ class SkipList final : detail::SkipListNode_base {
     std::array<TNode *, kSkipListMaxHeight> end{};
 
     if (lower_bound) {
-      auto found_layer = find_node<GCPolicy::DoNotRun>(lower_bound.value(), preds, succs);
+      auto found_layer = find_node<GCPolicy::DoNotRun>(lower_bound.value(), preds, start);
       // Lower bound not found
-      if (found_layer == -1 && succs[0] == nullptr) {
+      if (found_layer == -1 && start[0] == nullptr) {
         return ChunkCollection{std::vector<ChunkedIterator>{ChunkedIterator{nullptr, nullptr}}};
-      }
-      // Creating inclusive start array (this is a best effort, so use this node or a node before)
-      for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
-        if (layer <= found_layer) {
-          start[layer] = succs[layer];
-        } else {
-          // head_ is not a valid node, so we need to use the next node
-          start[layer] = preds[layer] == head_ ? head_->nexts[layer].load(std::memory_order_acquire) : preds[layer];
-        }
       }
     } else {
       for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
@@ -1699,20 +1687,19 @@ class SkipList final : detail::SkipListNode_base {
     }
 
     if (upper_bound) {
-      auto found_layer = find_node<GCPolicy::DoNotRun>(upper_bound.value(), preds, succs);
+      find_node<GCPolicy::DoNotRun>(upper_bound.value(), end, succs);
       for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
-        if (layer > found_layer) {
-          end[layer] = succs[layer];  // Next element (key greater than upper_bound)
-        } else {                      // Found element, we need to find the next element from this layer
-          auto *current = succs[layer];
-          while (current != nullptr && current->obj <= upper_bound.value()) {
-            if (!current->marked.load(std::memory_order_acquire)) {
-              while (!current->fully_linked.load(std::memory_order_acquire));
-            }
-            current = current->nexts[layer].load(std::memory_order_acquire);
+        // head_ is not a valid node (use next)
+        auto *current = end[layer] == head_ ? head_->nexts[layer].load(std::memory_order_acquire) : end[layer];
+        // Find the first element over the bound
+        while (current != nullptr && (current->obj < upper_bound.value() || current->obj == upper_bound.value())) {
+          if (!current->marked.load(std::memory_order_acquire)) {
+            while (!current->fully_linked.load(std::memory_order_acquire))
+              ;
           }
-          end[layer] = current;
+          current = current->nexts[layer].load(std::memory_order_acquire);
         }
+        end[layer] = current;
       }
     } else {
       for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
@@ -1743,7 +1730,8 @@ class SkipList final : detail::SkipListNode_base {
         // Only count nodes that are both fully_linked and not marked
         if (!current->marked.load(std::memory_order_acquire)) {
           cached_layer_nodes.push_back(current);
-          while (!current->fully_linked.load(std::memory_order_acquire));
+          while (!current->fully_linked.load(std::memory_order_acquire))
+            ;
         }
         current = current->nexts[layer].load(std::memory_order_acquire);
       }

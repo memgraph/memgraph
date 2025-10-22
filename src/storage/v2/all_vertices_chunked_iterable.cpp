@@ -14,12 +14,9 @@
 namespace memgraph::storage {
 
 namespace {
-auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
-                            std::optional<VertexAccessor> *vertex, Storage *storage, Transaction *tx, View view) {
-  if (!vertex) {
-    return it;
-  }
-  while (it != end) {
+auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::ChunkedIterator it, std::optional<VertexAccessor> *vertex,
+                            Storage *storage, Transaction *tx, View view) {
+  while (it) {
     if (VertexAccessor::IsVisible(&*it, tx, view)) [[likely]] {
       vertex->emplace(&*it, storage, tx);
       break;
@@ -31,17 +28,15 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipLis
 }  // namespace
 
 AllVerticesChunkedIterable::Iterator::Iterator(AllVerticesChunkedIterable *self, std::optional<VertexAccessor> *cache,
-                                               utils::SkipList<Vertex>::Iterator it)
+                                               utils::SkipList<Vertex>::ChunkedIterator it)
     : self_(self),
       cache_{cache},
-      it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), cache_, self->storage_, self->transaction_,
-                                 self->view_)) {}
+      it_(AdvanceToVisibleVertex(it, cache_, self->storage_, self->transaction_, self->view_)) {}
 
 VertexAccessor const &AllVerticesChunkedIterable::Iterator::operator*() const { return cache_->value(); }
 
 AllVerticesChunkedIterable::Iterator &AllVerticesChunkedIterable::Iterator::operator++() {
-  it_ = AdvanceToVisibleVertex(std::next(it_), self_->vertices_accessor_.end(), cache_, self_->storage_,
-                               self_->transaction_, self_->view_);
+  it_ = AdvanceToVisibleVertex(it_ ? ++it_ : it_, cache_, self_->storage_, self_->transaction_, self_->view_);
   return *this;
 }
 

@@ -50,7 +50,7 @@ TEST(SkipListRangeChunking, BasicRangeChunking) {
         local_elements.push_back(*it);
         // Verify element is within range
         ASSERT_GE(*it, 10);
-        ASSERT_LE(*it, 161);  // Range is inclusive, so 160 + 1
+        ASSERT_LE(*it, 160);  // Range is inclusive, so 160 + 1
         EXPECT_GT(local_count, 0);
         EXPECT_LT(local_count, 151 / 10 * 3);
       }
@@ -102,7 +102,7 @@ TEST(SkipListRangeChunking, LowerRangeChunking) {
         local_elements.push_back(*it);
         // Verify element is within range
         ASSERT_GE(*it, 71);
-        ASSERT_LE(*it, 200);
+        ASSERT_LE(*it, 199);
         EXPECT_GT(local_count, 0);
         EXPECT_LT(local_count, 129 / 10 * 3);
       }
@@ -618,8 +618,8 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentDeletionsAndInsertions) {
         local_count++;
         local_elements.push_back(*it);
         // Verify element is within the specified range
-        ASSERT_GE(*it, 10000 * 0.8);  // Best effort approach
-        ASSERT_LE(*it, 40000 * 1.2);  // Best effort approach
+        ASSERT_GE(*it, 10000);
+        ASSERT_LE(*it, 40000);
         if (local_count % 500 == 0) {
           // Make sure the iterator and operations are interleaved
           std::this_thread::sleep_for(std::chrono::microseconds(10));

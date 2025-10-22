@@ -20,9 +20,11 @@
 
 #include "query/db_accessor.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/bound.hpp"
 
 using memgraph::query::DbAccessor;
 using memgraph::storage::Config;
@@ -99,11 +101,9 @@ TEST_F(SkipListChunkIteratorStorageTest, AllVerticesChunkIteratorBasic) {
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.begin(i);
-      while (it != vertices.end(i)) {
+      for (auto it = vertices.get_iterator(i); it; ++it) {
         local_count++;
         gids.push_back((*it).Gid());
-        ++it;
       }
       ASSERT_GT(local_count, 0);
       ASSERT_LT(local_count, 150 / 4 * 2);
@@ -163,8 +163,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelIndexChunkIteratorBasic) {
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.begin(i);
-      while (it != vertices.end(i)) {
+      auto it = vertices.get_iterator(i);
+      while (it) {
         local_count++;
         gids.push_back((*it).Gid());
         ++it;
@@ -247,8 +247,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelIndexChunkIteratorMultipleEntries)
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.begin(i);
-      while (it != vertices.end(i)) {
+      auto it = vertices.get_iterator(i);
+      while (it) {
         local_count++;
         gids.push_back((*it).Gid());
         ++it;
@@ -336,8 +336,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelIndexChunkIteratorDynamic) {
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.begin(i);
-      while (it != vertices.end(i)) {
+      auto it = vertices.get_iterator(i);
+      while (it) {
         local_count++;
         gids.push_back((*it).Gid());
         ++it;
@@ -420,8 +420,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelIndexChunkIteratorManyEntries) {
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.begin(i);
-      while (it != vertices.end(i)) {
+      auto it = vertices.get_iterator(i);
+      while (it) {
         local_count++;
         gids.push_back((*it).Gid());
         ++it;
@@ -460,7 +460,7 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelIndexChunkIteratorEdgeCases) {
     auto acc = storage_->Access();
     auto vertices = acc->ChunkedVertices(label_id_, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 1);
-    ASSERT_EQ(vertices.begin(0), vertices.end(0));
+    ASSERT_FALSE(vertices.get_iterator(0));
   }
 
   // Non existing label (Cannot be tested because we just assert at the index level)
@@ -501,8 +501,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelIndexChunkIteratorEdgeCases) {
     for (size_t i = 0; i < vertices.size(); ++i) {
       threads.emplace_back([&vertices, i, &read_gids]() {
         std::vector<Gid> gids;
-        auto it = vertices.begin(i);
-        while (it != vertices.end(i)) {
+        auto it = vertices.get_iterator(i);
+        while (it) {
           gids.push_back((*it).Gid());
           ++it;
         }
@@ -540,8 +540,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelIndexChunkIteratorEdgeCases) {
     for (size_t i = 0; i < vertices.size(); ++i) {
       threads.emplace_back([&vertices, i, &read_gids]() {
         std::vector<Gid> gids;
-        auto it = vertices.begin(i);
-        while (it != vertices.end(i)) {
+        auto it = vertices.get_iterator(i);
+        while (it) {
           gids.push_back((*it).Gid());
           ++it;
         }
@@ -579,8 +579,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelIndexChunkIteratorEdgeCases) {
     for (size_t i = 0; i < vertices.size(); ++i) {
       threads.emplace_back([&vertices, i, &read_gids]() {
         std::vector<Gid> gids;
-        auto it = vertices.begin(i);
-        while (it != vertices.end(i)) {
+        auto it = vertices.get_iterator(i);
+        while (it) {
           gids.push_back((*it).Gid());
           ++it;
         }
@@ -642,8 +642,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasic) {
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.begin(i);
-      while (it != vertices.end(i)) {
+      auto it = vertices.get_iterator(i);
+      while (it) {
         local_count++;
         gids.push_back((*it).Gid());
         ++it;
@@ -729,8 +729,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorMultiple
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.begin(i);
-      while (it != vertices.end(i)) {
+      auto it = vertices.get_iterator(i);
+      while (it) {
         local_count++;
         gids.push_back((*it).Gid());
         ++it;
@@ -822,8 +822,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorDynamic)
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.begin(i);
-      while (it != vertices.end(i)) {
+      auto it = vertices.get_iterator(i);
+      while (it) {
         local_count++;
         gids.push_back((*it).Gid());
         ++it;
@@ -909,8 +909,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorManyEntr
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.begin(i);
-      while (it != vertices.end(i)) {
+      auto it = vertices.get_iterator(i);
+      while (it) {
         local_count++;
         gids.push_back((*it).Gid());
         ++it;
@@ -951,7 +951,7 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorEdgeCase
     std::vector<PropertyValueRange> property_ranges = {};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 1);
-    ASSERT_EQ(vertices.begin(0), vertices.end(0));
+    ASSERT_FALSE(vertices.get_iterator(0));
   }
 
   // Non existing label (Cannot be tested because we just assert at the index level)
@@ -998,8 +998,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorEdgeCase
     for (size_t i = 0; i < vertices.size(); ++i) {
       threads.emplace_back([&vertices, i, &read_gids]() {
         std::vector<Gid> gids;
-        auto it = vertices.begin(i);
-        while (it != vertices.end(i)) {
+        auto it = vertices.get_iterator(i);
+        while (it) {
           gids.push_back((*it).Gid());
           ++it;
         }
@@ -1049,8 +1049,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorEdgeCase
     for (size_t i = 0; i < vertices.size(); ++i) {
       threads.emplace_back([&vertices, i, &read_gids]() {
         std::vector<Gid> gids;
-        auto it = vertices.begin(i);
-        while (it != vertices.end(i)) {
+        auto it = vertices.get_iterator(i);
+        while (it) {
           gids.push_back((*it).Gid());
           ++it;
         }
@@ -1100,8 +1100,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorEdgeCase
     for (size_t i = 0; i < vertices.size(); ++i) {
       threads.emplace_back([&vertices, i, &read_gids]() {
         std::vector<Gid> gids;
-        auto it = vertices.begin(i);
-        while (it != vertices.end(i)) {
+        auto it = vertices.get_iterator(i);
+        while (it) {
           gids.push_back((*it).Gid());
           ++it;
         }
@@ -1117,5 +1117,281 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorEdgeCase
     for (size_t i = 0; i < locked_gids->size(); ++i) {
       ASSERT_EQ((*locked_gids)[i], labeled_property_vertex_gids[i]);
     }
+  }
+}
+
+TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRange) {
+  // Create vertices with specific label and property
+  std::vector<Gid> vertex_gids;
+  std::vector<Gid> labeled_property_vertex_gids;
+
+  // Create 200 vertices with the test label and property
+  {
+    auto acc = storage_->Access();
+    for (int i = 0; i < 200; ++i) {
+      auto vertex = acc->CreateVertex();
+      if (i % 3 == 0) {
+        ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
+        ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue(i)).HasValue());
+        labeled_property_vertex_gids.push_back(vertex.Gid());
+      }
+      vertex_gids.push_back(vertex.Gid());
+    }
+
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  // Checking lower bound
+  {
+    auto acc = storage_->Access();
+    std::vector<PropertyPath> properties = {{property_id_}};
+    std::vector<PropertyValueRange> property_ranges = {
+        PropertyValueRange::Bounded(memgraph::utils::MakeBoundExclusive(PropertyValue(131)), std::nullopt)};
+    auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
+    ASSERT_GT(vertices.size(), 0);
+    ASSERT_EQ((*vertices.get_iterator(0)).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    auto it = vertices.get_iterator(vertices.size() - 1);
+    PropertyValue last_pv;
+    for (; it; ++it) {
+      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+    }
+    ASSERT_EQ(last_pv.ValueInt(), 198);
+  }
+  {
+    auto acc = storage_->Access();
+    std::vector<PropertyPath> properties = {{property_id_}};
+    std::vector<PropertyValueRange> property_ranges = {
+        PropertyValueRange::Bounded(memgraph::utils::MakeBoundExclusive(PropertyValue(132)), std::nullopt)};
+    auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
+    ASSERT_GT(vertices.size(), 0);
+    ASSERT_EQ((*vertices.get_iterator(0)).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 135);
+    auto it = vertices.get_iterator(vertices.size() - 1);
+    PropertyValue last_pv;
+    for (; it; ++it) {
+      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+    }
+    ASSERT_EQ(last_pv.ValueInt(), 198);
+  }
+  {
+    auto acc = storage_->Access();
+    std::vector<PropertyPath> properties = {{property_id_}};
+    std::vector<PropertyValueRange> property_ranges = {
+        PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(132)), std::nullopt)};
+    auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
+    ASSERT_GT(vertices.size(), 0);
+    ASSERT_EQ((*vertices.get_iterator(0)).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    auto it = vertices.get_iterator(vertices.size() - 1);
+    PropertyValue last_pv;
+    for (; it; ++it) {
+      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+    }
+    ASSERT_EQ(last_pv.ValueInt(), 198);
+  }
+  {
+    auto acc = storage_->Access();
+    std::vector<PropertyPath> properties = {{property_id_}};
+    std::vector<PropertyValueRange> property_ranges = {
+        PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(-1)), std::nullopt)};
+    auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
+    ASSERT_EQ(vertices.size(), 4);
+    ASSERT_EQ((*vertices.get_iterator(0)).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
+    auto it = vertices.get_iterator(vertices.size() - 1);
+    PropertyValue last_pv;
+    for (; it; ++it) {
+      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+    }
+    ASSERT_EQ(last_pv.ValueInt(), 198);
+  }
+  {
+    auto acc = storage_->Access();
+    std::vector<PropertyPath> properties = {{property_id_}};
+    std::vector<PropertyValueRange> property_ranges = {
+        PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(210)), std::nullopt)};
+    auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
+    ASSERT_EQ(vertices.size(), 1);
+    ASSERT_FALSE(vertices.get_iterator(0));
+  }
+
+  // Checking upper bound
+  {
+    auto acc = storage_->Access();
+    std::vector<PropertyPath> properties = {{property_id_}};
+    std::vector<PropertyValueRange> property_ranges = {
+        PropertyValueRange::Bounded(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(143)))};
+    auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
+    ASSERT_EQ(vertices.size(), 4);
+    ASSERT_EQ((*vertices.get_iterator(0)).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
+    auto it = vertices.get_iterator(vertices.size() - 1);
+    PropertyValue last_pv;
+    for (; it; ++it) {
+      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+    }
+    ASSERT_EQ(last_pv.ValueInt(), 141);
+  }
+  {
+    auto acc = storage_->Access();
+    std::vector<PropertyPath> properties = {{property_id_}};
+    std::vector<PropertyValueRange> property_ranges = {
+        PropertyValueRange::Bounded(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(141)))};
+    auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
+    ASSERT_GT(vertices.size(), 0);
+    auto it = vertices.get_iterator(vertices.size() - 1);
+    PropertyValue last_pv;
+    for (; it; ++it) {
+      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+    }
+    ASSERT_EQ(last_pv.ValueInt(), 138);
+  }
+  {
+    auto acc = storage_->Access();
+    std::vector<PropertyPath> properties = {{property_id_}};
+    std::vector<PropertyValueRange> property_ranges = {
+        PropertyValueRange::Bounded(std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(141)))};
+    auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
+    ASSERT_GT(vertices.size(), 0);
+    auto it = vertices.get_iterator(vertices.size() - 1);
+    PropertyValue last_pv;
+    for (; it; ++it) {
+      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+    }
+    ASSERT_EQ(last_pv.ValueInt(), 141);
+  }
+  {
+    auto acc = storage_->Access();
+    std::vector<PropertyPath> properties = {{property_id_}};
+    std::vector<PropertyValueRange> property_ranges = {
+        PropertyValueRange::Bounded(std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(210)))};
+    auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
+    ASSERT_EQ(vertices.size(), 4);
+    ASSERT_EQ((*vertices.get_iterator(0)).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
+    auto it = vertices.get_iterator(vertices.size() - 1);
+    PropertyValue last_pv;
+    for (; it; ++it) {
+      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+    }
+    ASSERT_EQ(last_pv.ValueInt(), 198);
+  }
+  {
+    auto acc = storage_->Access();
+    std::vector<PropertyPath> properties = {{property_id_}};
+    std::vector<PropertyValueRange> property_ranges = {
+        PropertyValueRange::Bounded(std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(-10)))};
+    auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
+    ASSERT_EQ(vertices.size(), 1);
+    ASSERT_FALSE(vertices.get_iterator(0));
+  }
+
+  // Test chunking for labeled vertices with property range
+  auto acc = storage_->Access();
+  std::vector<PropertyPath> properties = {{property_id_}};
+  std::vector<PropertyValueRange> property_ranges = {PropertyValueRange::Bounded(
+      memgraph::utils::MakeBoundExclusive(PropertyValue(10)), memgraph::utils::MakeBoundExclusive(PropertyValue(160)))};
+  auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
+
+  ASSERT_GT(vertices.size(), 0);
+
+  // Count total vertices across all chunks
+  std::atomic<int> total_count{0};
+  std::vector<std::jthread> threads;
+
+  memgraph::utils::Synchronized<std::vector<PropertyValue>> read_props;
+
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    threads.emplace_back([&vertices, i, &total_count, &read_props, this]() {
+      std::vector<PropertyValue> props;
+      int local_count = 0;
+      auto it = vertices.get_iterator(i);
+      while (it) {
+        local_count++;
+        const auto prop = (*it).GetProperty(property_id_, View::OLD);
+        ASSERT_TRUE(prop.HasValue());
+        ASSERT_TRUE(prop->IsInt());
+        props.push_back(prop.GetValue());
+        ++it;
+      }
+      ASSERT_GT(local_count, 0);
+      ASSERT_LT(local_count, 50 / 4 * 2);
+      total_count.fetch_add(local_count, std::memory_order_relaxed);
+      auto locked_gids = read_props.Lock();
+      locked_gids->insert(locked_gids->end(), std::make_move_iterator(props.begin()),
+                          std::make_move_iterator(props.end()));
+    });
+  }
+
+  threads.clear();
+
+  {
+    auto locked_props = read_props.Lock();
+    ASSERT_EQ(locked_props->size(), 50);  // Every 3rd has the label+property
+    std::sort(locked_props->begin(), locked_props->end());
+    for (int i = 0; i < locked_props->size(); ++i) {
+      ASSERT_EQ((*locked_props)[i],
+                PropertyValue{i * 3 + 12});  // i*3 + 12 just because of the way we create the dataset
+    }
+  }
+
+  // Edges cases where both bounds are set
+  {
+    // Non existing value
+    auto acc = storage_->Access();
+    std::vector<PropertyPath> properties = {{property_id_}};
+    std::vector<PropertyValueRange> property_ranges = {
+        PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
+                                    memgraph::utils::MakeBoundInclusive(PropertyValue(130)))};
+    auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
+    ASSERT_EQ(vertices.size(), 1);
+    ASSERT_FALSE(vertices.get_iterator(0));
+  }
+  {
+    // Exact match
+    auto acc = storage_->Access();
+    std::vector<PropertyPath> properties = {{property_id_}};
+    std::vector<PropertyValueRange> property_ranges = {
+        PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
+                                    memgraph::utils::MakeBoundInclusive(PropertyValue(132)))};
+    auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
+    ASSERT_EQ(vertices.size(), 1);
+    auto it = vertices.get_iterator(0);
+    ASSERT_TRUE(it);
+    ASSERT_EQ((*it).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    ++it;
+    ASSERT_FALSE(it);
+  }
+  {
+    // Missed match
+    auto acc = storage_->Access();
+    std::vector<PropertyPath> properties = {{property_id_}};
+    std::vector<PropertyValueRange> property_ranges = {
+        PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
+                                    memgraph::utils::MakeBoundExclusive(PropertyValue(132)))};
+    auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
+    ASSERT_EQ(vertices.size(), 1);
+    ASSERT_FALSE(vertices.get_iterator(0));
+  }
+  {
+    // One match
+    auto acc = storage_->Access();
+    std::vector<PropertyPath> properties = {{property_id_}};
+    std::vector<PropertyValueRange> property_ranges = {
+        PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(131)),
+                                    memgraph::utils::MakeBoundInclusive(PropertyValue(133)))};
+    auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
+    ASSERT_EQ(vertices.size(), 1);
+    auto it = vertices.get_iterator(0);
+    ASSERT_TRUE(it);
+    ASSERT_EQ((*it).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    ++it;
+    ASSERT_FALSE(it);
+  }
+  {
+    // Upper bound lower than lower bound
+    auto acc = storage_->Access();
+    std::vector<PropertyPath> properties = {{property_id_}};
+    std::vector<PropertyValueRange> property_ranges = {
+        PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
+                                    memgraph::utils::MakeBoundInclusive(PropertyValue(120)))};
+    auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
+    ASSERT_EQ(vertices.size(), 1);
+    ASSERT_FALSE(vertices.get_iterator(0));
   }
 }

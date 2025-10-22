@@ -112,13 +112,12 @@ class InMemoryLabelIndex : public LabelIndex {
      public:
       Iterator(ChunkedIterable *self, std::optional<VertexAccessor> *cache,
                utils::SkipList<Entry>::ChunkedIterator index_iterator)
-          : self_(self), cache_(cache), index_iterator_(index_iterator), current_vertex_(nullptr) {
+          : self_(self), cache_(cache), index_iterator_(index_iterator) {
         AdvanceUntilValid();
       }
 
       VertexAccessor const &operator*() const { return cache_->value(); }
-      bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
-      bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
+      explicit operator bool() const { return bool(index_iterator_); }
 
       Iterator &operator++() {
         ++index_iterator_;
@@ -127,30 +126,15 @@ class InMemoryLabelIndex : public LabelIndex {
       }
 
      private:
-      void AdvanceUntilValid() {
-        if (!cache_) return;
-        for (; index_iterator_; ++index_iterator_) {
-          if (index_iterator_->vertex == current_vertex_) continue;
-          if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_, self_->view_)) continue;
-
-          auto accessor = VertexAccessor{index_iterator_->vertex, self_->storage_, self_->transaction_};
-          auto res = accessor.HasLabel(self_->label_, self_->view_);
-          if (!res.HasError() and res.GetValue()) {
-            cache_->emplace(index_iterator_->vertex, self_->storage_, self_->transaction_);
-            current_vertex_ = cache_->value().vertex_;
-            break;
-          }
-        }
-      }
+      void AdvanceUntilValid();
 
       ChunkedIterable *self_;
       std::optional<VertexAccessor> *cache_;
       utils::SkipList<Entry>::ChunkedIterator index_iterator_;
-      Vertex *current_vertex_;
+      Vertex *current_vertex_{nullptr};
     };
 
-    Iterator begin(size_t id) { return Iterator(this, &chunk_cache_[id], chunks_[id].begin()); }
-    Iterator end(size_t id) { return Iterator(this, nullptr, chunks_[id].end()); }
+    Iterator get_iterator(size_t id) { return Iterator(this, &chunk_cache_[id], chunks_[id]); }
     size_t size() const { return chunks_.size(); }
 
    private:
@@ -171,7 +155,7 @@ class InMemoryLabelIndex : public LabelIndex {
     void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
     // Not used for in-memory
-    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override {};
+    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override{};
 
     bool IndexRegistered(LabelId label) const override;
 
@@ -205,8 +189,8 @@ class InMemoryLabelIndex : public LabelIndex {
   auto PopulateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
-                     Transaction const *tx = nullptr,
-                     CheckCancelFunction cancel_check = neverCancel) -> utils::BasicResult<IndexPopulateError>;
+                     Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
+      -> utils::BasicResult<IndexPopulateError>;
   bool PublishIndex(LabelId label, uint64_t commit_timestamp);
 
   void RunGC();

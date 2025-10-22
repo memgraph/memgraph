@@ -78,17 +78,17 @@ class DiskStorage final : public Storage {
     VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                               std::span<storage::PropertyValueRange const> property_ranges, View view) override;
 
-    VerticesIterable ChunkedVertices(View /*view*/, size_t /*num_chunks*/) override {
+    VerticesChunkedIterable ChunkedVertices(View /*view*/, size_t /*num_chunks*/) override {
       throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
     }
 
-    VerticesIterable ChunkedVertices(LabelId label, View view, size_t num_chunks) override {
+    VerticesChunkedIterable ChunkedVertices(LabelId label, View view, size_t num_chunks) override {
       throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
     }
 
-    VerticesIterable ChunkedVertices(LabelId label, std::span<PropertyPath const> properties,
-                                     std::span<storage::PropertyValueRange const> property_ranges, View view,
-                                     size_t num_chunks) override {
+    VerticesChunkedIterable ChunkedVertices(LabelId label, std::span<PropertyPath const> properties,
+                                            std::span<storage::PropertyValueRange const> property_ranges, View view,
+                                            size_t num_chunks) override {
       throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
     }
 
@@ -325,8 +325,8 @@ class DiskStorage final : public Storage {
                        PointDistanceCondition condition) -> PointIterable override;
 
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right,
-                       WithinBBoxCondition condition) -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
+        -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;

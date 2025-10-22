@@ -206,6 +206,23 @@ struct query_iterable final {
   storage_iterable iterable_;
 };
 
+class VerticesChunkedIterable {
+ public:
+  storage::VerticesChunkedIterable chunks_;
+  class Iterator {
+   public:
+    storage::VerticesChunkedIterable::Iterator it_;
+    VertexAccessor operator*() const { return VertexAccessor(*it_); }
+    explicit operator bool() const { return bool(it_); }
+    Iterator &operator++() {
+      if (it_) ++it_;
+      return *this;
+    }
+  };
+  Iterator get_iterator(size_t id) { return Iterator{chunks_.get_iterator(id)}; }
+  size_t size() const { return chunks_.size(); }
+};
+
 class EdgesIterable final {
   std::variant<storage::EdgesIterable, std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
                                                           utils::Allocator<EdgeAccessor>> *>
@@ -337,48 +354,19 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view));
   }
 
-  /// Creates chunks for parallel processing of vertices.
-  /// This method creates chunks from the underlying storage layer's vertices iterable.
-  /// Each chunk can be processed in parallel by different threads.
-  /// This method is thread-safe and can be called concurrently.
-  ///
-  /// @param view The view to use for vertex visibility
-  /// @param num_chunks The number of chunks to create
-  /// @return Collection of chunks for parallel processing
-  VerticesChunkCollection VerticesChunks(storage::View view, size_t num_chunks) {
-    auto storage_chunks = accessor_->ChunkedVertices(view, num_chunks);
-    std::vector<std::pair<VerticesIterable::Iterator, VerticesIterable::Iterator>> query_chunks;
-    query_chunks.reserve(num_chunks);
-    for (size_t i = 0; i < num_chunks; ++i) {
-      query_chunks.emplace_back(storage_chunks.begin(i), storage_chunks.end(i));
-    }
-    return VerticesChunkCollection{std::move(query_chunks)};
+  VerticesChunkedIterable ChunkedVertices(storage::View view, size_t num_chunks) {
+    return VerticesChunkedIterable{accessor_->ChunkedVertices(view, num_chunks)};
   }
 
-  /// Creates chunks for parallel processing of vertices with a specific label.
-  /// This method creates chunks from the underlying storage layer's vertices iterable.
-  /// Each chunk can be processed in parallel by different threads.
-  /// This method is thread-safe and can be called concurrently.
-  ///
-  /// @param view The view to use for vertex visibility
-  /// @param label The label to filter vertices by
-  /// @param num_chunks The number of chunks to create
-  /// @return Collection of chunks for parallel processing
-  VerticesChunkCollection VerticesChunks(storage::View view, storage::LabelId label, size_t num_chunks) {
-    auto storage_chunks = accessor_->ChunkedVertices(label, view, num_chunks);
-    std::vector<std::pair<VerticesIterable::Iterator, VerticesIterable::Iterator>> query_chunks;
-    query_chunks.reserve(num_chunks);
-    for (size_t i = 0; i < num_chunks; ++i) {
-      query_chunks.emplace_back(storage_chunks.begin(i), storage_chunks.end(i));
-    }
-    return VerticesChunkCollection{std::move(query_chunks)};
+  VerticesChunkedIterable ChunkedVertices(storage::View view, storage::LabelId label, size_t num_chunks) {
+    return VerticesChunkedIterable{accessor_->ChunkedVertices(label, view, num_chunks)};
   }
 
-  VerticesChunkCollection VerticesChunks(storage::View view, storage::LabelId label,
-                                         std::span<storage::PropertyPath const> properties,
-                                         std::span<storage::PropertyValueRange const> property_ranges,
-                                         size_t num_chunks) {
-    return VerticesChunkCollection{std::vector<std::pair<VerticesIterable::Iterator, VerticesIterable::Iterator>>{}};
+  VerticesChunkedIterable ChunkedVertices(storage::View view, storage::LabelId label,
+                                          std::span<storage::PropertyPath const> properties,
+                                          std::span<storage::PropertyValueRange const> property_ranges,
+                                          size_t num_chunks) {
+    return VerticesChunkedIterable{accessor_->ChunkedVertices(label, properties, property_ranges, view, num_chunks)};
   }
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
@@ -386,8 +374,8 @@ class DbAccessor final {
                      plan::PointDistanceCondition condition) -> PointIterable;
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
-                     TypedValue const &bottom_left, TypedValue const &top_right,
-                     plan::WithinBBoxCondition condition) -> PointIterable;
+                     TypedValue const &bottom_left, TypedValue const &top_right, plan::WithinBBoxCondition condition)
+      -> PointIterable;
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     return EdgesIterable(accessor_->Edges(edge_type, view));
@@ -858,8 +846,8 @@ class DbAccessor final {
 
   auto ShowEnums() { return accessor_->ShowEnums(); }
 
-  auto GetEnumValue(std::string_view name,
-                    std::string_view value) const -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto GetEnumValue(std::string_view name, std::string_view value) const
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->GetEnumValue(name, value);
   }
   auto GetEnumValue(std::string_view enum_str) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
@@ -870,13 +858,13 @@ class DbAccessor final {
     return accessor_->GetEnumStoreShared().ToString(value);
   }
 
-  auto EnumAlterAdd(std::string_view name,
-                    std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto EnumAlterAdd(std::string_view name, std::string_view value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterAdd(name, value);
   }
 
-  auto EnumAlterUpdate(std::string_view name, std::string_view old_value,
-                       std::string_view new_value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterUpdate(name, old_value, new_value);
   }
 

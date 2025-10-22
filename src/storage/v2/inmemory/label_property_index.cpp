@@ -63,7 +63,8 @@ auto JoinPropertiesAsString(std::span<PropertyPath const> properties) -> std::st
 // this transaction can see the given vertex, and the visible version has the
 // given label and properties.
 bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, PropertiesPermutationHelper const &helper,
-                                      IndexOrderedPropertyValues const &values, Transaction *transaction, View view) {
+                                      IndexOrderedPropertyValues const &values, Transaction *transaction, View view,
+                                      bool use_cache = true) {
   bool exists = true;
   bool deleted = false;
   bool has_label = false;
@@ -84,7 +85,7 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
   if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    auto const useCache = use_cache && transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction->manyDeltasCache;
       if (auto resError = HasError(view, cache, &vertex, false); resError) return false;
@@ -188,6 +189,191 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
   });
 }
 
+enum ValidRes { INVALID, USE, SKIP };
+ValidRes IsValid(auto &index_iterator, auto *current_vertex, const auto &lower_bound, const auto &upper_bound,
+                 bool &skip_lower_bound_check, LabelId label, auto &permutation_helper, auto *transaction, auto view,
+                 bool use_cache = true) {
+  if (index_iterator->vertex == current_vertex) {
+    return SKIP;
+  }
+
+  if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view)) {
+    return SKIP;
+  }
+
+  // Check the prefix has at least one non-null value
+  if (!lower_bound.empty()) {
+    auto const prefix_values_only = index_iterator->values.values_ | ranges::views::take(lower_bound.size());
+    auto const all_null = ranges::all_of(prefix_values_only, [](PropertyValue const &pv) { return pv.IsNull(); });
+    if (all_null) return SKIP;
+  }
+
+  enum class InBoundResult { UNDER, IN_BOUNDS, IN_BOUNDS_AT_UB, OVER };
+
+  auto const value_within_upper_bounds = [](std::optional<utils::Bound<PropertyValue>> const &ub,
+                                            PropertyValue const &cmp_value) -> InBoundResult {
+    if (ub) {
+      auto ub_cmp_res = cmp_value <=> ub->value();
+      if (is_gt(ub_cmp_res)) {
+        return InBoundResult::OVER;
+      }
+      if (is_eq(ub_cmp_res)) {
+        return ub->IsExclusive() ? InBoundResult::OVER : InBoundResult::IN_BOUNDS_AT_UB;
+      }
+    }
+    return InBoundResult::IN_BOUNDS;
+  };
+
+  auto const value_within_bounds = [&](std::optional<utils::Bound<PropertyValue>> const &lb,
+                                       std::optional<utils::Bound<PropertyValue>> const &ub,
+                                       PropertyValue const &cmp_value) -> InBoundResult {
+    if (lb) {
+      auto lb_cmp_res = cmp_value <=> lb->value();
+      if (is_lt(lb_cmp_res) || (lb->IsExclusive() && is_eq(lb_cmp_res))) {
+        return InBoundResult::UNDER;
+      }
+    }
+    return value_within_upper_bounds(ub, cmp_value);
+  };
+
+  enum class Result { Skip, NoMoreValidEntries, WithAllBounds };
+
+  auto bounds_checker = [&]() {
+    auto at_boundary_counter = 0;
+    // level 0
+    if (skip_lower_bound_check) {
+      switch (value_within_upper_bounds(upper_bound[0], index_iterator->values.values_[0])) {
+        case InBoundResult::UNDER:
+          DMG_ASSERT(false, "this can't happen");
+          break;
+        case InBoundResult::IN_BOUNDS:
+          // This property value is within the boundary, proceed onto the next member of the prefix level
+          break;
+        case InBoundResult::IN_BOUNDS_AT_UB: {
+          // This property value is within the boundary, proceed onto the next member of the prefix level
+          // But also this is the boundary of this given prefix level
+          // We must track if all preceeding prefix levels of are at the boundary to be able to exit scan as
+          // early as possible
+          ++at_boundary_counter;
+          break;
+        }
+        case InBoundResult::OVER: {
+          // This property value is over the boundary
+          // We are at level 0, hence no preceeding prefix levels, we can safely know that there are no more
+          // entries that would be within any of the preceeding boundaries.
+          return Result::NoMoreValidEntries;
+        }
+      };
+    }
+    // rest of the levels
+    for (auto level = skip_lower_bound_check ? 1 : 0; level < lower_bound.size(); ++level) {
+      auto res = value_within_bounds(lower_bound[level], upper_bound[level], index_iterator->values.values_[level]);
+      switch (res) {
+        case InBoundResult::UNDER: {
+          // This property value is under the boundary, hence we need to skip
+          return Result::Skip;
+        }
+        case InBoundResult::IN_BOUNDS: {
+          // This property value is within the boundary, proceed onto the next member of the prefix level
+          break;
+        }
+        case InBoundResult::IN_BOUNDS_AT_UB: {
+          // This property value is within the boundary, proceed onto the next member of the prefix level
+          // But also this is the boundary of this given prefix level
+          // We must track if all preceeding prefix levels of are at the boundary to be able to exit scan as
+          // early as possible
+          ++at_boundary_counter;
+          break;
+        }
+        case InBoundResult::OVER: {
+          // This property value is over the boundary
+          // If all preceeding prefix levels are at the boundary, we can safely know that there are no more
+          // entries that would be within any of the preceeding boundaries.
+          // otherwise we skip
+          auto const all_preceeding_levels_at_boundary = at_boundary_counter == level;
+          return all_preceeding_levels_at_boundary ? Result::NoMoreValidEntries : Result::Skip;
+        }
+      }
+    }
+    return Result::WithAllBounds;
+  };
+
+  auto const res = bounds_checker();
+  skip_lower_bound_check = false;
+  if (res == Result::Skip) {
+    return SKIP;
+  }
+  if (res == Result::NoMoreValidEntries) {
+    return INVALID;
+  }
+
+  if (CurrentVersionHasLabelProperties(*index_iterator->vertex, label, *permutation_helper, index_iterator->values,
+                                       transaction, view, use_cache)) {
+    return USE;
+  }
+  return SKIP;
+}
+
+using LowerAndUpperBounds =
+    std::tuple<std::optional<utils::Bound<PropertyValue>>, std::optional<utils::Bound<PropertyValue>>, bool>;
+auto MakeBoundsFromRange(PropertyValueRange const &range) -> LowerAndUpperBounds {
+  std::optional<utils::Bound<PropertyValue>> lower_bound;
+  std::optional<utils::Bound<PropertyValue>> upper_bound;
+
+  if (range.type_ == PropertyRangeType::INVALID) {
+    return {std::nullopt, std::nullopt, false};
+  } else if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
+    lower_bound = LowerBoundForType(PropertyValueType::Bool);
+  } else if (range.type_ == PropertyRangeType::BOUNDED) {
+    // We have to fix the bounds that the user provided to us. If the user
+    // provided only one bound we should make sure that only values of that type
+    // are returned by the iterator. We ensure this by supplying either an
+    // inclusive lower bound of the same type, or an exclusive upper bound of the
+    // following type. If neither bound is set we yield all items in the index.
+    lower_bound = std::move(range.lower_);
+    upper_bound = std::move(range.upper_);
+
+    // Remove any bounds that are set to `Null` because that isn't a valid value.
+    if (lower_bound && lower_bound->value().IsNull()) {
+      lower_bound = std::nullopt;
+    }
+    if (upper_bound && upper_bound->value().IsNull()) {
+      upper_bound = std::nullopt;
+    }
+
+    auto const are_comparable_ranges = [](auto const &lower_bound, auto const &upper_bound) {
+      if (AreComparableTypes(lower_bound.value().type(), upper_bound.value().type())) {
+        return true;
+      } else if (upper_bound.IsInclusive()) {
+        return false;
+      } else {
+        auto const upper_bound_for_lower_bound_type = storage::UpperBoundForType(lower_bound.value().type());
+        return upper_bound_for_lower_bound_type && upper_bound.value() == upper_bound_for_lower_bound_type->value();
+      };
+    };
+
+    // If both bounds are set, but are incomparable types, then this is an
+    // invalid range and will yield an empty result set.
+    if (lower_bound && upper_bound && !are_comparable_ranges(*lower_bound, *upper_bound)) {
+      return {std::nullopt, std::nullopt, false};
+    }
+
+    // Set missing bounds.
+    if (lower_bound && !upper_bound) {
+      // Here we need to supply an upper bound. The upper bound is set to an
+      // exclusive lower bound of the following type.
+      upper_bound = UpperBoundForType(lower_bound->value().type());
+    }
+
+    if (upper_bound && !lower_bound) {
+      // Here we need to supply a lower bound. The lower bound is set to an
+      // inclusive lower bound of the current type.
+      lower_bound = LowerBoundForType(upper_bound->value().type());
+    }
+  }
+
+  return {std::move(lower_bound), std::move(upper_bound), true};
+}
 }  // namespace
 
 bool InMemoryLabelPropertyIndex::Entry::operator<(std::vector<PropertyValue> const &rhs) const {
@@ -311,8 +497,8 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
 auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx,
-    CheckCancelFunction cancel_check) -> utils::BasicResult<IndexPopulateError> {
+    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx, CheckCancelFunction cancel_check)
+    -> utils::BasicResult<IndexPopulateError> {
   auto index = GetIndividualIndex(label, properties);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -558,8 +744,8 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label,
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
-    std::span<LabelId const> labels,
-    std::span<PropertyPath const> properties) const -> std::vector<LabelPropertiesIndicesInfo> {
+    std::span<LabelId const> labels, std::span<PropertyPath const> properties) const
+    -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to<std::vector>();
   auto properties_vec = properties | ranges::to_vector;
@@ -692,125 +878,19 @@ InMemoryLabelPropertyIndex::Iterable::Iterator &InMemoryLabelPropertyIndex::Iter
 
 void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
   for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
-    if (index_iterator_->vertex == current_vertex_) {
-      continue;
-    }
-
-    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_, self_->view_)) {
-      continue;
-    }
-
-    // Check the prefix has at least one non-null value
-    if (!self_->lower_bound_.empty()) {
-      auto const prefix_values_only = index_iterator_->values.values_ | ranges::views::take(self_->lower_bound_.size());
-      auto const all_null = ranges::all_of(prefix_values_only, [](PropertyValue const &pv) { return pv.IsNull(); });
-      if (all_null) continue;
-    }
-
-    enum class InBoundResult { UNDER, IN_BOUNDS, IN_BOUNDS_AT_UB, OVER };
-
-    auto const value_within_upper_bounds = [](std::optional<utils::Bound<PropertyValue>> const &ub,
-                                              PropertyValue const &cmp_value) -> InBoundResult {
-      if (ub) {
-        auto ub_cmp_res = cmp_value <=> ub->value();
-        if (is_gt(ub_cmp_res)) {
-          return InBoundResult::OVER;
-        }
-        if (is_eq(ub_cmp_res)) {
-          return ub->IsExclusive() ? InBoundResult::OVER : InBoundResult::IN_BOUNDS_AT_UB;
-        }
-      }
-      return InBoundResult::IN_BOUNDS;
-    };
-
-    auto const value_within_bounds = [&](std::optional<utils::Bound<PropertyValue>> const &lb,
-                                         std::optional<utils::Bound<PropertyValue>> const &ub,
-                                         PropertyValue const &cmp_value) -> InBoundResult {
-      if (lb) {
-        auto lb_cmp_res = cmp_value <=> lb->value();
-        if (is_lt(lb_cmp_res) || (lb->IsExclusive() && is_eq(lb_cmp_res))) {
-          return InBoundResult::UNDER;
-        }
-      }
-      return value_within_upper_bounds(ub, cmp_value);
-    };
-
-    enum class Result { Skip, NoMoreValidEntries, WithAllBounds };
-
-    auto bounds_checker = [&]() {
-      auto at_boundary_counter = 0;
-      // level 0
-      if (skip_lower_bound_check_) {
-        switch (value_within_upper_bounds(self_->upper_bound_[0], index_iterator_->values.values_[0])) {
-          case InBoundResult::UNDER:
-            DMG_ASSERT(false, "this can't happen");
-            break;
-          case InBoundResult::IN_BOUNDS:
-            // This property value is within the boundary, proceed onto the next member of the prefix level
-            break;
-          case InBoundResult::IN_BOUNDS_AT_UB: {
-            // This property value is within the boundary, proceed onto the next member of the prefix level
-            // But also this is the boundary of this given prefix level
-            // We must track if all preceeding prefix levels of are at the boundary to be able to exit scan as
-            // early as possible
-            ++at_boundary_counter;
-            break;
-          }
-          case InBoundResult::OVER: {
-            // This property value is over the boundary
-            // We are at level 0, hence no preceeding prefix levels, we can safely know that there are no more
-            // entries that would be within any of the preceeding boundaries.
-            return Result::NoMoreValidEntries;
-          }
-        };
-      }
-      // rest of the levels
-      for (auto level = skip_lower_bound_check_ ? 1 : 0; level < self_->lower_bound_.size(); ++level) {
-        switch (value_within_bounds(self_->lower_bound_[level], self_->upper_bound_[level],
-                                    index_iterator_->values.values_[level])) {
-          case InBoundResult::UNDER: {
-            // This property value is under the boundary, hence we need to skip
-            return Result::Skip;
-          }
-          case InBoundResult::IN_BOUNDS: {
-            // This property value is within the boundary, proceed onto the next member of the prefix level
-            break;
-          }
-          case InBoundResult::IN_BOUNDS_AT_UB: {
-            // This property value is within the boundary, proceed onto the next member of the prefix level
-            // But also this is the boundary of this given prefix level
-            // We must track if all preceeding prefix levels of are at the boundary to be able to exit scan as
-            // early as possible
-            ++at_boundary_counter;
-            break;
-          }
-          case InBoundResult::OVER: {
-            // This property value is over the boundary
-            // If all preceeding prefix levels are at the boundary, we can safely know that there are no more
-            // entries that would be within any of the preceeding boundaries.
-            // otherwise we skip
-            auto const all_preceeding_levels_at_boundary = at_boundary_counter == level;
-            return all_preceeding_levels_at_boundary ? Result::NoMoreValidEntries : Result::Skip;
-          }
-        }
-      }
-      return Result::WithAllBounds;
-    };
-
-    auto const res = bounds_checker();
-    skip_lower_bound_check_ = false;
-    if (res == Result::Skip) {
-      continue;
-    } else if (res == Result::NoMoreValidEntries) {
-      index_iterator_ = self_->index_accessor_.end();
-      break;
-    }
-
-    if (CurrentVersionHasLabelProperties(*index_iterator_->vertex, self_->label_, *self_->permutation_helper_,
-                                         index_iterator_->values, self_->transaction_, self_->view_)) {
-      current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->storage_, self_->transaction_);
-      break;
+    auto res =
+        IsValid(index_iterator_, current_vertex_, self_->lower_bound_, self_->upper_bound_, skip_lower_bound_check_,
+                self_->label_, self_->permutation_helper_, self_->transaction_, self_->view_);
+    switch (res) {
+      case ValidRes::INVALID:
+        index_iterator_ = self_->index_accessor_.end();
+        break;
+      case ValidRes::SKIP:
+        continue;
+      case ValidRes::USE:
+        current_vertex_ = index_iterator_->vertex;
+        current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->storage_, self_->transaction_);
+        return;
     }
   }
 }
@@ -829,73 +909,11 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
       view_(view),
       storage_(storage),
       transaction_(transaction) {
-  using LowerAndUpperBounds =
-      std::tuple<std::optional<utils::Bound<PropertyValue>>, std::optional<utils::Bound<PropertyValue>>, bool>;
-
-  auto make_bounds_for_range = [](PropertyValueRange const &range) -> LowerAndUpperBounds {
-    std::optional<utils::Bound<PropertyValue>> lower_bound;
-    std::optional<utils::Bound<PropertyValue>> upper_bound;
-
-    if (range.type_ == PropertyRangeType::INVALID) {
-      return {std::nullopt, std::nullopt, false};
-    } else if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
-      lower_bound = LowerBoundForType(PropertyValueType::Bool);
-    } else if (range.type_ == PropertyRangeType::BOUNDED) {
-      // We have to fix the bounds that the user provided to us. If the user
-      // provided only one bound we should make sure that only values of that type
-      // are returned by the iterator. We ensure this by supplying either an
-      // inclusive lower bound of the same type, or an exclusive upper bound of the
-      // following type. If neither bound is set we yield all items in the index.
-      lower_bound = std::move(range.lower_);
-      upper_bound = std::move(range.upper_);
-
-      // Remove any bounds that are set to `Null` because that isn't a valid value.
-      if (lower_bound && lower_bound->value().IsNull()) {
-        lower_bound = std::nullopt;
-      }
-      if (upper_bound && upper_bound->value().IsNull()) {
-        upper_bound = std::nullopt;
-      }
-
-      auto const are_comparable_ranges = [](auto const &lower_bound, auto const &upper_bound) {
-        if (AreComparableTypes(lower_bound.value().type(), upper_bound.value().type())) {
-          return true;
-        } else if (upper_bound.IsInclusive()) {
-          return false;
-        } else {
-          auto const upper_bound_for_lower_bound_type = storage::UpperBoundForType(lower_bound.value().type());
-          return upper_bound_for_lower_bound_type && upper_bound.value() == upper_bound_for_lower_bound_type->value();
-        };
-      };
-
-      // If both bounds are set, but are incomparable types, then this is an
-      // invalid range and will yield an empty result set.
-      if (lower_bound && upper_bound && !are_comparable_ranges(*lower_bound, *upper_bound)) {
-        return {std::nullopt, std::nullopt, false};
-      }
-
-      // Set missing bounds.
-      if (lower_bound && !upper_bound) {
-        // Here we need to supply an upper bound. The upper bound is set to an
-        // exclusive lower bound of the following type.
-        upper_bound = UpperBoundForType(lower_bound->value().type());
-      }
-
-      if (upper_bound && !lower_bound) {
-        // Here we need to supply a lower bound. The lower bound is set to an
-        // inclusive lower bound of the current type.
-        lower_bound = LowerBoundForType(upper_bound->value().type());
-      }
-    }
-
-    return {std::move(lower_bound), std::move(upper_bound), true};
-  };
-
   lower_bound_.reserve(ranges.size());
   upper_bound_.reserve(ranges.size());
 
   for (auto &&range : ranges) {
-    auto [lb, ub, valid] = make_bounds_for_range(range);
+    auto [lb, ub, valid] = MakeBoundsFromRange(range);
     if (!valid) {
       bounds_valid_ = false;
       lower_bound_.clear();
@@ -1192,16 +1210,20 @@ void InMemoryLabelPropertyIndex::CleanupAllIndices() {
 }
 
 void InMemoryLabelPropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
-  if (!cache_) return;
   for (; index_iterator_; ++index_iterator_) {
-    if (index_iterator_->vertex == current_vertex_) continue;
-    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_, self_->view_)) continue;
-
-    if (CurrentVersionHasLabelProperties(*index_iterator_->vertex, self_->label_, *self_->permutation_helper_,
-                                         index_iterator_->values, self_->transaction_, self_->view_)) {
-      cache_->emplace(index_iterator_->vertex, self_->storage_, self_->transaction_);
-      current_vertex_ = cache_->value().vertex_;
-      break;
+    auto res = IsValid(index_iterator_, current_vertex_, self_->lower_bound_, self_->upper_bound_,
+                       skip_lower_bound_check_, self_->label_, self_->permutation_helper_, self_->transaction_,
+                       self_->view_, false);  // TODO Make delta cache work
+    switch (res) {
+      case ValidRes::INVALID:
+        index_iterator_.valid_ = false;
+        break;
+      case ValidRes::SKIP:
+        continue;
+      case ValidRes::USE:
+        current_vertex_ = index_iterator_->vertex;
+        cache_->emplace(current_vertex_, self_->storage_, self_->transaction_);
+        return;
     }
   }
 }
@@ -1218,31 +1240,66 @@ InMemoryLabelPropertyIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Ent
       label_(label),
       properties_(properties),
       permutation_helper_(permutation_helper),
-      lower_bound_(ranges.size()),
-      upper_bound_(ranges.size()),
       view_(view),
       storage_(storage),
       transaction_(transaction),
-      chunks_{index_accessor_.create_chunks(num_chunks)},
-      chunk_cache_(chunks_.size(), std::nullopt) {
-  // Initialize bounds from ranges (simplified - not used in this implementation)
-  for (size_t i = 0; i < ranges.size(); ++i) {
-    lower_bound_[i] = ranges[i].lower_;
-    upper_bound_[i] = ranges[i].upper_;
+      chunk_cache_(num_chunks, std::nullopt) {
+  // Handle the range to bounds conversion
+  lower_bound_.reserve(ranges.size());
+  upper_bound_.reserve(ranges.size());
+
+  for (auto &&range : ranges) {
+    auto [lb, ub, valid] = MakeBoundsFromRange(range);
+    if (!valid) {
+      bounds_valid_ = false;
+      lower_bound_.clear();
+      upper_bound_.clear();
+      break;
+    }
+    lower_bound_.emplace_back(std::move(lb));
+    upper_bound_.emplace_back(std::move(ub));
   }
-  bounds_valid_ = true;
+
+  // Generate bounds if valid, and create chunks with bounds
+  if (bounds_valid_) {
+    auto lower_bound = std::invoke([&]() -> std::optional<std::vector<PropertyValue>> {
+      if (ranges::any_of(lower_bound_, [](auto &&lb) { return lb.has_value(); })) {
+        return lower_bound_ | ranges::views::transform([](auto &&range) -> storage::PropertyValue {
+                 if (range.has_value()) {
+                   return range.value().value();
+                 }
+                 return kSmallestProperty;
+               }) |
+               ranges::to_vector;
+      }
+      return std::nullopt;
+    });
+
+    auto upper_bound = std::invoke([&]() -> std::optional<std::vector<PropertyValue>> {
+      if (ranges::any_of(upper_bound_, [](auto &&ub) { return ub.has_value(); })) {
+        return upper_bound_ | ranges::views::transform([](auto &&range) -> storage::PropertyValue {
+                 if (range.has_value()) {
+                   return range.value().value();
+                 }
+                 return kLargestPropertyValue;
+               }) |
+               ranges::to_vector;
+      }
+      return std::nullopt;
+    });
+
+    chunks_ = index_accessor_.create_chunks(num_chunks, lower_bound, upper_bound);
+  }
 
   // Index can have duplicate vertex entries, we need to make sure each unique vertex is inside a single chunk.
   // Chunks are divided at the skiplist level, we need to move each adjacent chunk's star/end to valid entries
   for (int i = 1; i < chunks_.size(); ++i) {
     // Special case where whole chunk is invalid
-    if (chunks_[i].begin_.node_ && chunks_[i].end_.node_ &&
-        chunks_[i].begin_.node_->obj.vertex == chunks_[i].end_.node_->obj.vertex) [[unlikely]] {
-      chunks_[i - 1].begin_.node_end_ = chunks_[i].end_.node_;
-      chunks_[i - 1].end_.node_ = chunks_[i].end_.node_;
-      chunks_[i - 1].end_.node_end_ = chunks_[i].end_.node_;
+    if (chunks_[i].node_ && chunks_[i].node_end_ && chunks_[i].node_->obj.vertex == chunks_[i].node_end_->obj.vertex)
+        [[unlikely]] {
+      chunks_[i - 1].node_end_ = chunks_[i].node_end_;
       if (i + 1 < chunks_.size()) [[likely]] {
-        chunks_[i + 1].begin_.node_ = chunks_[i].end_.node_;
+        chunks_[i + 1].node_ = chunks_[i].node_end_;
       }
       chunks_.erase(chunks_.begin() + i);
       --i;
@@ -1250,25 +1307,20 @@ InMemoryLabelPropertyIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Ent
     }
     // Since skiplist has only forward links, we cannot check if the previous vertex is the same as the current one.
     // We need to iterate through the chunk to find the first valid vertex.
-    auto start_itr = chunks_[i].begin();
+    auto start_itr = chunks_[i];
     Vertex *prev_v = start_itr->vertex;
     while (true) {
       ++start_itr;
-      if (start_itr == decltype(start_itr){}) break;
+      if (!start_itr) break;
       if (prev_v != start_itr->vertex) break;
       prev_v = start_itr->vertex;
     }
     // Update
     auto &prev = chunks_[i - 1];
-    prev.begin_.node_end_ = start_itr.node_;
-    prev.end_.node_ = start_itr.node_;
-    prev.end_.node_end_ = start_itr.node_;
+    prev.node_end_ = start_itr.node_;
     auto &curr = chunks_[i];
-    curr.begin_.node_ = start_itr.node_;
+    curr.node_ = start_itr.node_;
   }
-
-  (void)label_;
-  (void)properties_;
 }
 
 }  // namespace memgraph::storage
