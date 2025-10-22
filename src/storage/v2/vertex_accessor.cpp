@@ -155,15 +155,18 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
 
   utils::AtomicMemoryBlock([transaction = transaction_, vertex = vertex_, &label, this]() {
+    // Handle potential vector index changes -> here we are checking if we need to transfer properties from property
+    // store to vector index
     if (auto properties = storage_->indices_.vector_index_.GetProperties(label); !properties.empty()) {
       auto vertex_properties = vertex->properties.ExtractPropertyIds();
-      for (const auto &property_id : vertex_properties) {
+      for (auto property_id : vertex_properties) {
         if (auto index_name = properties.find(property_id); index_name != properties.end()) {
-          auto property_value = vertex->properties.GetProperty(property_id);
-          auto vec = storage_->indices_.vector_index_.UpdateIndex(property_value, vertex, index_name->second);
-          auto new_property_value = PropertyValue({storage_->name_id_mapper_->NameToId(index_name->second)}, vec);
-          vertex->properties.SetProperty(property_id, new_property_value);
-          CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property_id, new_property_value);
+          auto old_property_value = vertex->properties.GetProperty(property_id);
+          auto vec = storage_->indices_.vector_index_.UpdateIndex(old_property_value, vertex, index_name->second);
+          auto vector_index_id = PropertyValue({storage_->name_id_mapper_->NameToId(index_name->second)}, vec);
+          vertex->properties.SetProperty(property_id, vector_index_id);
+          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property_id, old_property_value);
+          CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property_id, PropertyValue());
         }
       }
     }
@@ -239,15 +242,19 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   if (it == vertex_->labels.end()) return false;
 
   utils::AtomicMemoryBlock([transaction = transaction_, vertex = vertex_, &label, &it, this]() {
+    // Handle potential vector index changes -> here we are checking if we need to transfer properties from vector index
+    // to property store
     if (auto properties = storage_->indices_.vector_index_.GetProperties(label); !properties.empty()) {
       auto vertex_properties = vertex->properties.ExtractPropertyIds();
-      for (const auto &property_id : vertex_properties) {
+      for (auto property_id : vertex_properties) {
         if (auto index_name = properties.find(property_id); index_name != properties.end()) {
-          auto property_value = storage_->indices_.vector_index_.GetProperty(vertex, index_name->second);
-          auto vec = storage_->indices_.vector_index_.UpdateIndex(property_value, vertex, index_name->second);
-          auto new_property_value = PropertyValue({storage_->name_id_mapper_->NameToId(index_name->second)}, vec);
-          vertex->properties.SetProperty(property_id, property_value);
-          CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property_id, new_property_value);
+          auto old_vertex_property_value = vertex->properties.GetProperty(property_id);
+          auto old_vector_property_value = storage_->indices_.vector_index_.GetProperty(vertex, index_name->second);
+          storage_->indices_.vector_index_.UpdateIndex(PropertyValue(), vertex, index_name->second);
+          vertex->properties.SetProperty(property_id, old_vector_property_value);
+          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property_id, old_vertex_property_value);
+          CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property_id,
+                             old_vector_property_value);
         }
       }
     }
@@ -387,15 +394,25 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   auto const set_property_impl = [this, transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
                                   skip_duplicate_write, &schema_acc]() {
     if (new_value.IsVectorIndexId()) {
-      CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, new_value);
+      old_value = storage_->indices_.vector_index_.GetProperty(
+          vertex, storage_->name_id_mapper_->IdToName(new_value.ValueVectorIndexIds().front()));
+      if (skip_duplicate_write && old_value == new_value) {
+        return true;
+      }
+      CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, old_value);
+      if (new_value.ValueVectorIndexList().empty()) {
+        vertex->properties.SetProperty(property, PropertyValue());
+      } else {
+        vertex->properties.SetProperty(property, new_value);
+      }
     } else {
       old_value = vertex->properties.GetProperty(property);
       if (skip_duplicate_write && old_value == new_value) {
         return true;
       }
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+      vertex->properties.SetProperty(property, new_value);
     }
-    vertex->properties.SetProperty(property, new_value);
     if (schema_acc) {
       std::visit(
           utils::Overloaded{[vertex, property, new_type = ExtendedPropertyType{new_value},
@@ -457,7 +474,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
       if (new_value.IsVectorIndexId()) {
         // Vector index doesn't have transactional guarantees, so we don't need to retrieve the old value, we just need
         // delta for durability
-        CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, new_value);
+        CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, PropertyValue());
       } else {
         CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
       }
@@ -611,7 +628,8 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
 
     auto prop_value = vertex_->properties.GetProperty(property);
     if (prop_value.IsVectorIndexId()) [[unlikely]] {
-      value = storage_->indices_.vector_index_.GetProperty(vertex_, property);
+      value = storage_->indices_.vector_index_.GetProperty(
+          vertex_, storage_->name_id_mapper_->IdToName(prop_value.ValueVectorIndexIds().front()));
       is_in_vector_index = true;
     } else {
       value = std::move(prop_value);

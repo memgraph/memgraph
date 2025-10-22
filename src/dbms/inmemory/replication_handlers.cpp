@@ -1032,6 +1032,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             throw utils::BasicException("Failed to set property label from vertex {}.", gid);
           }
         },
+        [&](WalVertexSetVectorProperty const &data) {
+          // TODO: implement replication for vertex set vector property
+        },
         [&](WalEdgeCreate const &data) {
           auto const edge_gid = data.gid.AsUint();
           auto const from_vertex_gid = data.from_vertex.AsUint();

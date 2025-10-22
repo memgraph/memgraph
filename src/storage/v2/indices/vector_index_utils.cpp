@@ -196,7 +196,7 @@ PropertyValue GetVectorAsPropertyValue(const std::shared_ptr<utils::Synchronized
   std::vector<unum::usearch::f64_t> vector(dimension);
   const auto retrieved_count = locked_index->get(key, vector.data(), 1);
   if (retrieved_count == 0) {
-    throw query::VectorSearchException("Key not found in the vector index.");
+    return {};
   }
   std::vector<PropertyValue> double_values;
   double_values.reserve(dimension);

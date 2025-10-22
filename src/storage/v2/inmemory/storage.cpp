@@ -2690,7 +2690,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   auto append_deltas = [&](auto callback) {
     // Helper lambda that traverses the delta chain on order to find the first
     // delta that should be processed and then appends all discovered deltas.
-    auto find_and_apply_deltas = [&](const auto *delta, const auto &parent, auto filter) {
+    auto find_and_apply_deltas = [&](const auto *delta, auto *parent, auto filter) {
       while (true) {
         auto *older = delta->next.load(std::memory_order_acquire);
         if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
@@ -2726,7 +2726,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT:
@@ -2752,7 +2752,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::REMOVE_OUT_EDGE:
             return true;
@@ -2777,7 +2777,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::EDGE) continue;
-      find_and_apply_deltas(&delta, *prev.edge, [](auto action) {
+      find_and_apply_deltas(&delta, prev.edge, [](auto action) {
         switch (action) {
           case Delta::Action::SET_PROPERTY:
             return true;
@@ -2802,7 +2802,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::ADD_OUT_EDGE:
             return true;
@@ -2827,7 +2827,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::RECREATE_OBJECT:
             return true;
@@ -2851,9 +2851,9 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // Handle MVCC deltas
   if (!transaction_.deltas.empty()) {
-    append_deltas([&](const Delta &delta, const auto &parent, uint64_t durability_commit_timestamp_arg) {
-      mem_storage->wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg);
-      replicating_txn.AppendDelta(delta, parent, durability_commit_timestamp_arg);
+    append_deltas([&](const Delta &delta, auto *parent, uint64_t durability_commit_timestamp_arg) {
+      mem_storage->wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
+      replicating_txn.AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
     });
   }
 

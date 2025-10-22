@@ -251,9 +251,6 @@ void VectorIndex::UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex
 }
 
 std::vector<float> VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *vertex, std::string_view index_name) {
-  if (!value.IsVectorIndexId() || !value.IsNull()) {
-    return {};
-  }
   auto label_prop = pimpl->index_name_to_label_prop_.at(index_name.data());
   auto &[mg_index, spec] = pimpl->index_.at(label_prop);
   bool is_index_full = false;
@@ -276,21 +273,36 @@ std::vector<float> VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *
     // updates
     return {};
   }
-  auto vector_property = value.ValueList();
-  std::vector<float> vector;
-  vector.reserve(vector_property.size());
-  std::transform(vector_property.begin(), vector_property.end(), std::back_inserter(vector), [](const auto &value) {
-    if (value.IsDouble()) {
-      return static_cast<float>(value.ValueDouble());
+  auto vector_property = std::invoke([&]() {
+    if (value.IsVectorIndexId()) {
+      return value.ValueVectorIndexList();
     }
-    if (value.IsInt()) {
-      return static_cast<float>(value.ValueInt());
+    if (value.IsList()) {
+      auto vector_property = value.ValueList();
+      std::vector<float> vector;
+      vector.reserve(vector_property.size());
+      std::transform(vector_property.begin(), vector_property.end(), std::back_inserter(vector), [](const auto &value) {
+        if (value.IsDouble()) {
+          return static_cast<float>(value.ValueDouble());
+        }
+        if (value.IsInt()) {
+          return static_cast<float>(value.ValueInt());
+        }
+        throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+      });
+      return vector;
     }
     throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
   });
+  if (vector_property.empty()) {
+    return {};
+  }
+  if (spec.dimension != vector_property.size()) {
+    throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
+  }
   auto locked_index = mg_index->MutableSharedLock();
-  locked_index->add(vertex, vector.data());
-  return vector;
+  locked_index->add(vertex, vector_property.data());
+  return vector_property;
 }
 
 PropertyValue VectorIndex::GetProperty(Vertex *vertex, std::string_view index_name) const {
@@ -299,16 +311,6 @@ PropertyValue VectorIndex::GetProperty(Vertex *vertex, std::string_view index_na
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
   auto &[mg_index, _] = pimpl->index_.at(it->second);
-  return GetVectorAsPropertyValue(mg_index, vertex);
-}
-
-PropertyValue VectorIndex::GetProperty(Vertex *vertex, PropertyId property) const {
-  auto matching_label_props = GetMatchingLabelProps(vertex->labels, std::array{property});
-  if (matching_label_props.empty()) {
-    return {};
-  }
-  const auto &label_prop = *matching_label_props.begin();
-  auto &[mg_index, _] = pimpl->index_.at(label_prop);
   return GetVectorAsPropertyValue(mg_index, vertex);
 }
 

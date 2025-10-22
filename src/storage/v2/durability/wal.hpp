@@ -173,6 +173,13 @@ struct WalVertexSetProperty {
   std::string property;
   ExternalPropertyValue value;
 };
+struct WalVertexSetVectorProperty {
+  friend bool operator==(const WalVertexSetVectorProperty &, const WalVertexSetVectorProperty &) = default;
+  using ctr_types = std::tuple<Gid, std::string, ExternalPropertyValue>;
+  Gid gid;
+  std::string property;
+  ExternalPropertyValue value;
+};
 struct WalEdgeSetProperty {
   friend bool operator==(const WalEdgeSetProperty &lhs, const WalEdgeSetProperty &rhs) {
     // Since kEdgeSetDeltaWithVertexInfo version delta holds from vertex gid; this is an extra information (no need to
@@ -346,15 +353,16 @@ struct WalDeltaData {
   }
 
   std::variant<WalVertexCreate, WalVertexDelete, WalVertexAddLabel, WalVertexRemoveLabel, WalVertexSetProperty,
-               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionStart, WalTransactionEnd,
-               WalLabelIndexCreate, WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear,
-               WalEdgeTypeIndexCreate, WalEdgeTypeIndexDrop, WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop,
-               WalLabelIndexStatsSet, WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop, WalPointIndexCreate,
-               WalPointIndexDrop, WalExistenceConstraintCreate, WalExistenceConstraintDrop,
-               WalLabelPropertyIndexStatsSet, WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop,
-               WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
-               WalTextIndexCreate, WalTextIndexDrop, WalTextEdgeIndexCreate, WalEnumCreate, WalEnumAlterAdd,
-               WalEnumAlterUpdate, WalVectorIndexCreate, WalVectorIndexDrop, WalVectorEdgeIndexCreate, WalTtlOperation>
+               WalVertexSetVectorProperty, WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionStart,
+               WalTransactionEnd, WalLabelIndexCreate, WalLabelIndexDrop, WalLabelIndexStatsClear,
+               WalLabelPropertyIndexStatsClear, WalEdgeTypeIndexCreate, WalEdgeTypeIndexDrop,
+               WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop, WalLabelIndexStatsSet, WalLabelPropertyIndexCreate,
+               WalLabelPropertyIndexDrop, WalPointIndexCreate, WalPointIndexDrop, WalExistenceConstraintCreate,
+               WalExistenceConstraintDrop, WalLabelPropertyIndexStatsSet, WalEdgeTypePropertyIndexCreate,
+               WalEdgeTypePropertyIndexDrop, WalUniqueConstraintCreate, WalUniqueConstraintDrop,
+               WalTypeConstraintCreate, WalTypeConstraintDrop, WalTextIndexCreate, WalTextIndexDrop,
+               WalTextEdgeIndexCreate, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate, WalVectorIndexCreate,
+               WalVectorIndexDrop, WalVectorEdgeIndexCreate, WalTtlOperation>
       data_ = WalTransactionEnd{};
 };
 
@@ -367,6 +375,7 @@ constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData 
                         [](WalVertexAddLabel const &) { return false; },
                         [](WalVertexRemoveLabel const &) { return false; },
                         [](WalVertexSetProperty const &) { return false; },
+                        [](WalVertexSetVectorProperty const &) { return false; },
                         [](WalEdgeCreate const &) { return false; },
                         [](WalEdgeDelete const &) { return false; },
                         [](WalEdgeSetProperty const &) { return false; },
@@ -445,12 +454,11 @@ WalDeltaData ReadWalDeltaData(BaseDecoder *decoder, uint64_t version = kVersion)
 bool SkipWalDeltaData(BaseDecoder *decoder, uint64_t version = kVersion);
 
 /// Function used to encode a `Delta` that originated from a `Vertex`.
-void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConfig::Items items, const Delta &delta,
-                 const Vertex &vertex, uint64_t timestamp);
+void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items items, const Delta &delta, Vertex *vertex,
+                 uint64_t timestamp);
 
 /// Function used to encode a `Delta` that originated from an `Edge`.
-void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta &delta, const Edge &edge,
-                 uint64_t timestamp);
+void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp);
 
 /// Function used to encode the transaction start
 /// Returns the position in the WAL where the flag 'commit' is about to be written
@@ -526,8 +534,8 @@ class WalFile {
 
   ~WalFile();
 
-  void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp);
-  void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
+  void AppendDelta(const Delta &delta, Vertex *vertex, uint64_t timestamp, Storage *storage);
+  void AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, Storage *storage);
 
   // True means storage should use deltas associated with this txn, false means skip until
   // you find the next txn.

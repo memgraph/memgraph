@@ -117,12 +117,6 @@ class VectorIndex {
 
   /// @brief Retrieves the vector of a vertex as a PropertyValue.
   /// @param vertex The vertex to retrieve the vector from.
-  /// @param property The property of the vertex.
-  /// @return The vector of the vertex as a PropertyValue.
-  PropertyValue GetProperty(Vertex *vertex, PropertyId property) const;
-
-  /// @brief Retrieves the vector of a vertex as a PropertyValue.
-  /// @param vertex The vertex to retrieve the vector from.
   /// @param index_name The name of the index to retrieve the vector from.
   /// @return The vector of the vertex as a PropertyValue.
   PropertyValue GetProperty(Vertex *vertex, std::string_view index_name) const;
