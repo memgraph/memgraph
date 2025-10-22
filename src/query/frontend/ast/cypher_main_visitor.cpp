@@ -2181,11 +2181,30 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
         }
       }
 
-      label_privileges.emplace_back(key, std::move(value));
-      label_matching_modes.emplace_back(matching_mode);
+      if (key == AuthQuery::FineGrainedPrivilege::ALL) {
+        label_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::CREATE, value);
+        label_matching_modes.emplace_back(matching_mode);
+        label_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::DELETE, value);
+        label_matching_modes.emplace_back(matching_mode);
+        label_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::UPDATE, value);
+        label_matching_modes.emplace_back(matching_mode);
+        label_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::READ, value);
+        label_matching_modes.emplace_back(matching_mode);
+      } else {
+        label_privileges.emplace_back(key, std::move(value));
+        label_matching_modes.emplace_back(matching_mode);
+      }
     } else if (typeSpec->edgeTypeEntity()) {
       auto value = std::any_cast<std::vector<std::string>>(typeSpec->edgeTypeEntity()->accept(this));
-      edge_type_privileges.emplace_back(key, std::move(value));
+
+      if (key == AuthQuery::FineGrainedPrivilege::ALL) {
+        edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::CREATE, value);
+        edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::DELETE, value);
+        edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::UPDATE, value);
+        edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::READ, value);
+      } else {
+        edge_type_privileges.emplace_back(key, std::move(value));
+      }
     }
   }
   return std::make_tuple(label_privileges, label_matching_modes, edge_type_privileges);
@@ -2316,6 +2335,7 @@ antlrcpp::Any CypherMainVisitor::visitGranularPrivilege(MemgraphCypher::Granular
   if (ctx->UPDATE()) return AuthQuery::FineGrainedPrivilege::UPDATE;
   if (ctx->CREATE()) return AuthQuery::FineGrainedPrivilege::CREATE;
   if (ctx->DELETE()) return AuthQuery::FineGrainedPrivilege::DELETE;
+  if (ctx->ASTERISK()) return AuthQuery::FineGrainedPrivilege::ALL;
   LOG_FATAL("Should not get here - unknown fine grained privilege!");
 }
 

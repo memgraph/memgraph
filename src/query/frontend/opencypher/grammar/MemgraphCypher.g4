@@ -503,7 +503,7 @@ privilege : CREATE
           | PROFILE_RESTRICTION
           ;
 
-granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE ;
+granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE | ASTERISK ;
 
 privilegeOrEntityPrivileges : privilege | entityPrivileges=entityPrivilegeList ;
 
