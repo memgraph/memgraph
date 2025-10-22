@@ -68,18 +68,17 @@ auto Params2Time(const DateParameters &date_parameters, const LocalTimeParameter
 
 }  // namespace
 
-Date::Date(const int64_t microseconds) {
+Date::Date(std::chrono::microseconds const microseconds) {
   namespace chrono = std::chrono;
-  const auto chrono_micros = chrono::microseconds(microseconds);
-  const auto s_days = chrono::sys_days(chrono::duration_cast<chrono::days>(chrono_micros));
+  const auto s_days = chrono::sys_days(chrono::duration_cast<chrono::days>(microseconds));
   const auto date = chrono::year_month_day(s_days);
   year = static_cast<int>(date.year());
   month = static_cast<unsigned>(date.month());
   day = static_cast<unsigned>(date.day());
 }
 
-Date::Date(int32_t const days_since_epoch) {
-  auto const days = std::chrono::sys_days(std::chrono::days(days_since_epoch));
+Date::Date(std::chrono::days const days_since_epoch) {
+  auto const days = std::chrono::sys_days(days_since_epoch);
   auto const date = std::chrono::year_month_day{days};
   year = static_cast<int>(date.year());
   month = static_cast<unsigned>(date.month());
@@ -565,7 +564,7 @@ std::string LocalDateTime::ToStringWTZ() const { return std::format("{:%Y-%m-%dT
 
 Date LocalDateTime::date() const {
   // Date does not support timezones; use calendar time offset
-  return Date{MicrosecondsSinceEpoch()};
+  return Date{std::chrono::microseconds(MicrosecondsSinceEpoch())};
 }
 
 LocalTime LocalDateTime::local_time() const {

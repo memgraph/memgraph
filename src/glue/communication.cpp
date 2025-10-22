@@ -397,7 +397,7 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
       const auto &type = value.ValueTemporalData();
       switch (type.type) {
         case storage::TemporalType::Date:
-          return Value(utils::Date(type.microseconds));
+          return Value(utils::Date(std::chrono::microseconds{type.microseconds}));
         case storage::TemporalType::LocalTime:
           return Value(utils::LocalTime(type.microseconds));
         case storage::TemporalType::LocalDateTime:
