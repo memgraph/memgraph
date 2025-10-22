@@ -63,7 +63,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsPathOnSuccess) {
   // Create some data to ensure snapshot has content
   {
     auto acc = mem_storage->Access();
-    auto vertex = acc->CreateVertex();
+    [[maybe_unused]] auto vertex = acc->CreateVertex();
     ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
@@ -112,7 +112,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
   // Create some data and take a snapshot
   {
     auto acc = mem_storage->Access();
-    auto vertex = acc->CreateVertex();
+    [[maybe_unused]] auto vertex = acc->CreateVertex();
     ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
@@ -141,7 +141,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotPathFormat) {
   // Create some data
   {
     auto acc = mem_storage->Access();
-    auto vertex = acc->CreateVertex();
+    [[maybe_unused]] auto vertex = acc->CreateVertex();
     ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
@@ -198,7 +198,7 @@ TEST_F(CreateSnapshotTest, SuccessCaseWithPathRetrieval) {
   // Create some data
   {
     auto acc = mem_storage->Access();
-    auto vertex = acc->CreateVertex();
+    [[maybe_unused]] auto vertex = acc->CreateVertex();
     ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 

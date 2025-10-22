@@ -289,12 +289,12 @@ TYPED_TEST(TTLFixture, Periodic) {
   auto newer_ts = std::chrono::duration_cast<std::chrono::microseconds>(newer.time_since_epoch()).count();
   {
     auto acc = this->db_->Access();
-    auto v1 = acc->CreateVertex();  // No label no property
-    auto v2 = acc->CreateVertex();  // A label a property
-    auto v3 = acc->CreateVertex();  // TTL label no ttl property
-    auto v4 = acc->CreateVertex();  // No TTL label, with ttl property
-    auto v5 = acc->CreateVertex();  // TTL label and ttl property (older)
-    auto v6 = acc->CreateVertex();  // TTL label and ttl property (newer)
+    [[maybe_unused]] auto v1 = acc->CreateVertex();  // No label no property
+    auto v2 = acc->CreateVertex();                   // A label a property
+    auto v3 = acc->CreateVertex();                   // TTL label no ttl property
+    auto v4 = acc->CreateVertex();                   // No TTL label, with ttl property
+    auto v5 = acc->CreateVertex();                   // TTL label and ttl property (older)
+    auto v6 = acc->CreateVertex();                   // TTL label and ttl property (newer)
     ASSERT_FALSE(v2.AddLabel(lbl).HasError());
     ASSERT_FALSE(v2.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasError());
     ASSERT_FALSE(v3.AddLabel(ttl_lbl).HasError());
@@ -309,7 +309,7 @@ TYPED_TEST(TTLFixture, Periodic) {
     auto acc = this->db_->Access();
     auto all_v = acc->Vertices(memgraph::storage::View::NEW);
     size_t size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) ++size;
+    for (const auto _ : acc->Vertices(memgraph::storage::View::NEW)) ++size;
     EXPECT_EQ(size, 6);
   }
   this->ttl_->Enable();
@@ -341,12 +341,12 @@ TYPED_TEST(TTLFixture, StartTime) {
   auto newer_ts = std::chrono::duration_cast<std::chrono::microseconds>(newer.time_since_epoch()).count();
   {
     auto acc = this->db_->Access();
-    auto v1 = acc->CreateVertex();  // No label no property
-    auto v2 = acc->CreateVertex();  // A label a property
-    auto v3 = acc->CreateVertex();  // TTL label no ttl property
-    auto v4 = acc->CreateVertex();  // No TTL label, with ttl property
-    auto v5 = acc->CreateVertex();  // TTL label and ttl property (older)
-    auto v6 = acc->CreateVertex();  // TTL label and ttl property (newer)
+    [[maybe_unused]] auto v1 = acc->CreateVertex();  // No label no property
+    auto v2 = acc->CreateVertex();                   // A label a property
+    auto v3 = acc->CreateVertex();                   // TTL label no ttl property
+    auto v4 = acc->CreateVertex();                   // No TTL label, with ttl property
+    auto v5 = acc->CreateVertex();                   // TTL label and ttl property (older)
+    auto v6 = acc->CreateVertex();                   // TTL label and ttl property (newer)
     ASSERT_FALSE(v2.AddLabel(lbl).HasError());
     ASSERT_FALSE(v2.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasError());
     ASSERT_FALSE(v3.AddLabel(ttl_lbl).HasError());
@@ -361,7 +361,7 @@ TYPED_TEST(TTLFixture, StartTime) {
     auto acc = this->db_->Access();
     auto all_v = acc->Vertices(memgraph::storage::View::NEW);
     size_t size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) ++size;
+    for (const auto _ : acc->Vertices(memgraph::storage::View::NEW)) ++size;
     EXPECT_EQ(size, 6);
   }
   this->ttl_->Enable();
@@ -399,12 +399,12 @@ TYPED_TEST(TTLFixture, Edge) {
   auto newer_ts = std::chrono::duration_cast<std::chrono::microseconds>(newer.time_since_epoch()).count();
   {
     auto acc = this->db_->Access();
-    auto v1 = acc->CreateVertex();  // No label no property
-    auto v2 = acc->CreateVertex();  // A label a property
-    auto v3 = acc->CreateVertex();  // TTL label no ttl property
-    auto v4 = acc->CreateVertex();  // No TTL label, with ttl property
-    auto v5 = acc->CreateVertex();  // TTL label and ttl property (older)
-    auto v6 = acc->CreateVertex();  // TTL label and ttl property (newer)
+    [[maybe_unused]] auto v1 = acc->CreateVertex();  // No label no property
+    auto v2 = acc->CreateVertex();                   // A label a property
+    auto v3 = acc->CreateVertex();                   // TTL label no ttl property
+    auto v4 = acc->CreateVertex();                   // No TTL label, with ttl property
+    auto v5 = acc->CreateVertex();                   // TTL label and ttl property (older)
+    auto v6 = acc->CreateVertex();                   // TTL label and ttl property (newer)
     ASSERT_FALSE(v2.AddLabel(lbl).HasError());
     ASSERT_FALSE(v2.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasError());
     ASSERT_FALSE(v3.AddLabel(ttl_lbl).HasError());
@@ -436,7 +436,7 @@ TYPED_TEST(TTLFixture, Edge) {
   {
     auto acc = this->db_->Access();
     size_t size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) ++size;
+    for (const auto _ : acc->Vertices(memgraph::storage::View::NEW)) ++size;
     EXPECT_EQ(size, 6);
   }
   this->ttl_->Enable();

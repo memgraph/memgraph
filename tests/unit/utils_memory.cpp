@@ -330,7 +330,7 @@ TEST(ThreadSafeMonotonicBufferResource, MultiThreadedAllocation) {
 
   // Launch threads that allocate memory concurrently
   for (size_t i = 0; i < num_threads; ++i) {
-    threads.emplace_back([&resource, &allocations, &allocations_mutex, i]() {
+    threads.emplace_back([&resource, &allocations, &allocations_mutex] {
       for (size_t j = 0; j < allocations_per_thread; ++j) {
         size_t size = 8 + (j % 64);       // Varying sizes
         size_t alignment = 8 << (j % 4);  // Varying alignments: 8, 16, 32, 64
@@ -369,7 +369,7 @@ TEST(ThreadSafeMonotonicBufferResource, BufferExpansion) {
 
   // Launch threads that will trigger buffer expansion
   for (size_t i = 0; i < num_threads; ++i) {
-    threads.emplace_back([&resource, &allocations, &allocations_mutex, i]() {
+    threads.emplace_back([&resource, &allocations, &allocations_mutex] {
       for (size_t j = 0; j < allocations_per_thread; ++j) {
         size_t size = 32 + (j % 128);  // Larger sizes to trigger expansion
         void *ptr = resource.allocate(size, 8);

@@ -2980,7 +2980,6 @@ TYPED_TEST(TestPlanner, PeriodicSubqueryWithDeleteCantCombine) {
   // Test MATCH (n) CALL { WITH n DETACH DELETE n } IN TRANSACTIONS OF 1 ROWS;
   FakeDbAccessor dba;
 
-  auto *ast_call = this->storage.template Create<memgraph::query::CallProcedure>();
   auto *query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_PERIODIC_SUBQUERY(SINGLE_QUERY(WITH("n"), DELETE(IDENT("n"))),
                                                                            COMMIT_FREQUENCY(LITERAL(1)))));
@@ -2993,7 +2992,6 @@ TYPED_TEST(TestPlanner, PeriodicCommitWithDelete) {
   // Test USING PERIODIC COMMIT 1 MATCH (n) DETACH DELETE n;
   FakeDbAccessor dba;
 
-  auto *ast_call = this->storage.template Create<memgraph::query::CallProcedure>();
   auto *query =
       PERIODIC_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n"))), COMMIT_FREQUENCY(LITERAL(1)));
 
@@ -3210,7 +3208,6 @@ TYPED_TEST(TestPlanner, ORLabelExpressionUsingIndexCombination) {
   dba.SetIndexCount(label2_id, 1);
   dba.SetIndexCount(label1_id, property.second, 1);
 
-  auto node_identifier = IDENT("n");
   auto lit_1 = LITERAL(1);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))),
                                    WHERE(EQ(PROPERTY_LOOKUP(dba, "n", property.second), lit_1)), RETURN("n")));
@@ -3239,7 +3236,6 @@ TYPED_TEST(TestPlanner, ORLabelExpressionUsingOnlyPropertyIndex) {
   dba.SetIndexCount(label2_id, property.second, 1);
   dba.SetIndexCount(label1_id, property.second, 1);
 
-  auto node_identifier = IDENT("n");
   auto lit_1 = LITERAL(1);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))),
                                    WHERE(EQ(PROPERTY_LOOKUP(dba, "n", property.second), lit_1)), RETURN("n")));
@@ -3269,7 +3265,6 @@ TYPED_TEST(TestPlanner, ORLabelExpressionUsingPropertyIndexNoLabelIndex) {
   dba.SetIndexCount(label1_id, property.second, 1);
   dba.SetIndexCount(label2_id, property.second, 1);
 
-  auto node_identifier = IDENT("n");
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
@@ -3292,7 +3287,6 @@ TYPED_TEST(TestPlanner, ORLabelExpressionMultipleMatchStatementsPropertyIndex) {
   dba.SetIndexCount(label4_id, property.second, 1);
   // Plan should use label property index on Label3 and Label4 because of smaller count
 
-  auto node_identifier = IDENT("n");
   auto lit_1 = LITERAL(1);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))),
                                    MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label3", "Label4"}))),
@@ -3329,7 +3323,6 @@ TYPED_TEST(TestPlanner, ORLabelsExpressionIndexHints) {
 
   auto index_hint = memgraph::query::IndexHint{.index_type_ = memgraph::query::IndexHint::IndexType::LABEL,
                                                .label_ix_ = this->storage.GetLabelIx("Label1")};
-  auto node_identifier = IDENT("n");
   auto lit_2 = LITERAL(2);
   Bound upper_bound(lit_2, Bound::Type::EXCLUSIVE);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))),
@@ -3449,7 +3442,6 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithMatchWhereOnVertexPropety) {
 TYPED_TEST(TestPlanner, ExistsSubqueryNested) {
   FakeDbAccessor dba;
 
-  auto name = dba.Property("name");
   auto *nested_exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("o")))));
   auto *exists_subquery = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), WHERE(EXISTS_SUBQUERY(nested_exists_subquery))));
@@ -3473,7 +3465,6 @@ TYPED_TEST(TestPlanner, ExistsSubqueryNested) {
 TYPED_TEST(TestPlanner, ExistsSubqueryWithUnion) {
   FakeDbAccessor dba;
 
-  auto name = dba.Property("name");
   auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r1"), NODE("m1")))),
                                 UNION(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r2"), NODE("m2"))))));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(exists_subquery)), RETURN("n")));
