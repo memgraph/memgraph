@@ -26,7 +26,7 @@
 
 #include "flags/run_time_configurable.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/fnv.hpp"
+import memgraph.utils.fnv;
 
 #include <fmt/core.h>
 

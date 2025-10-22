@@ -25,12 +25,11 @@ endif()
 
 # This is used to so that 3rd party libs can find the
 # correct libraries from our toolchain
-message(STATUS "MG_TOOLCHAIN_ROOT: ${MG_TOOLCHAIN_ROOT}")
-if (NOT MG_TOOLCHAIN_ROOT OR "${MG_TOOLCHAIN_ROOT}" STREQUAL "")
-    # This is used to so that 3rd party libs can find the
-    # correct libraries from our toolchain
-    message(FATAL "Need toolchain")
+if (NOT MG_TOOLCHAIN_ROOT OR NOT IS_DIRECTORY "${MG_TOOLCHAIN_ROOT}")
+    message(FATAL_ERROR "MG_TOOLCHAIN_ROOT must be set to a valid toolchain directory. Current value: '${MG_TOOLCHAIN_ROOT}'")
 endif ()
+message(STATUS "MG_TOOLCHAIN_ROOT: ${MG_TOOLCHAIN_ROOT}")
+
 
 # this reduces issues in build folders from inside containers
 # which are different locations than the host
@@ -157,16 +156,7 @@ endif()
 
 # -----------------------------------------------------------------------------
 
-# This is used to so that 3rd party libs can find the
-# correct libraries from our toolchain
-# Check MG_TOOLCHAIN_ROOT so it's available for custom libstdc++ configuration
 # Custom libstdc++ configuration - REQUIRED
-if(NOT EXISTS "${MG_TOOLCHAIN_ROOT}" OR NOT IS_DIRECTORY "${MG_TOOLCHAIN_ROOT}")
-    message(FATAL_ERROR "MG_TOOLCHAIN_ROOT must be set to a valid toolchain directory. Current value: '${MG_TOOLCHAIN_ROOT}'")
-endif()
-
-message(STATUS "MG_TOOLCHAIN_ROOT: ${MG_TOOLCHAIN_ROOT}")
-
 set(CUSTOM_LIBSTDCXX_DIR "${MG_TOOLCHAIN_ROOT}/lib64" CACHE PATH "Directory containing custom libstdc++.so.6")
 set(CUSTOM_LIBSTDCXX "${CUSTOM_LIBSTDCXX_DIR}/libstdc++.so.6")
 
@@ -247,8 +237,12 @@ add_custom_target(clean_all
 # is easier debugging of compilation and linker flags.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Enable C++23 module scanning for all targets
+# This allows any target to import C++23 modules from dependencies
+set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 add_compile_definitions(BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
 

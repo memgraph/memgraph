@@ -15,7 +15,7 @@
 #include <unordered_map>
 
 #include "query/parameters.hpp"
-#include "utils/fnv.hpp"
+import memgraph.utils.fnv;
 
 namespace memgraph::query::frontend {
 

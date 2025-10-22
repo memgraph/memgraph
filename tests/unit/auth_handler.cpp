@@ -222,7 +222,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherGrantedThe
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
   auth.value()->SaveRole(role);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
-  user.SetRole(role);
+  user.ClearAllRoles();
+  user.AddRole(role);
   auth.value()->SaveUser(user);
 
   auto privileges =
@@ -247,7 +248,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherDeniedThenB
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
   auth.value()->SaveRole(role);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
-  user.SetRole(role);
+  user.ClearAllRoles();
+  user.AddRole(role);
   auth.value()->SaveUser(user);
 
   auto privileges =
@@ -280,7 +282,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherDeniedThen
       std::nullopt,
       user_perms,
   };
-  user.SetRole(role);
+  user.ClearAllRoles();
+  user.AddRole(role);
   auth.value()->SaveUser(user);
 
   auto privileges =
@@ -309,7 +312,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherGrantedThen
   memgraph::auth::Permissions user_perms{};
   user_perms.Deny(memgraph::auth::Permission::MATCH);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, user_perms};
-  user.SetRole(role);
+  user.ClearAllRoles();
+  user.AddRole(role);
   auth.value()->SaveUser(user);
 
   auto privileges =
@@ -1830,7 +1834,8 @@ TEST_F(AuthQueryHandlerFixture, SetMultiTenantRole_GlobalRoleAlreadySet_Throws) 
 
   // Create a user and set the role globally
   memgraph::auth::User user("test_user");
-  user.SetRole(role);
+  user.ClearAllRoles();
+  user.AddRole(role);
   auth.value()->SaveUser(user);
 
   // Try to set the same role as multi-tenant role

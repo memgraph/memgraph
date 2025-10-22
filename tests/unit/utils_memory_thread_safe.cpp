@@ -100,7 +100,7 @@ TEST(ThreadSafeMonotonicBufferResourceTest, ConcurrentAllocationsAndReleases) {
 
   // Start threads that allocate and release memory
   for (int i = 0; i < num_threads; ++i) {
-    threads.emplace_back([&resource, &total_allocations, operations_per_thread]() {
+    threads.emplace_back([&resource, &total_allocations] {
       for (int j = 0; j < operations_per_thread; ++j) {
         // Allocate some memory
         void *ptr = resource.allocate(64, 8);
@@ -205,7 +205,10 @@ TEST(ThreadSafeMonotonicBufferResourceTest, MoveAssignment) {
   EXPECT_LT(ptr5, reinterpret_cast<char *>(ptr1) + 1024);
 
   // Self-assignment should work
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wself-move"
   resource2 = std::move(resource2);
+#pragma clang diagnostic pop
 
   void *ptr6 = resource2.allocate(64, 8);
   EXPECT_NE(ptr6, nullptr);
@@ -269,7 +272,7 @@ TEST(ThreadSafeMonotonicBufferResourceTest, StressTest) {
 
   // Start threads that perform many allocations
   for (int i = 0; i < num_threads; ++i) {
-    threads.emplace_back([&resource, &successful_allocations, operations_per_thread]() {
+    threads.emplace_back([&resource, &successful_allocations] {
       for (int j = 0; j < operations_per_thread; ++j) {
         size_t size = 1 + (j % 128);      // Sizes from 1 to 128 bytes
         size_t alignment = 1 << (j % 7);  // Alignments: 1, 2, 4, 8, 16, 32, 64

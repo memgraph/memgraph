@@ -162,7 +162,7 @@ TEST(String, Substr) {
   const std::string string("memgraph");
   EXPECT_EQ(Substr(string), string.substr());
   EXPECT_EQ(Substr(string, string.size()), string.substr(string.size()));
-  EXPECT_THROW(string.substr(string.size() + 1), std::out_of_range);
+  EXPECT_THROW((void)string.substr(string.size() + 1), std::out_of_range);
   EXPECT_TRUE(Substr(string, string.size() + 1).empty());
   EXPECT_EQ(Substr(string, 1, string.size()), string.substr(1, string.size()));
   EXPECT_EQ(Substr(string, 0, string.size()), string.substr(0, string.size()));

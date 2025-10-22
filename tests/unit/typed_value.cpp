@@ -247,13 +247,13 @@ TEST(TypedValue, Comparison) {
   run_comparison_cases(local_date_time_1, local_date_time_2);
 
   auto enum_val = TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}};
-  EXPECT_THROW(enum_val < enum_val, memgraph::query::TypedValueException);
+  EXPECT_THROW((void)(enum_val < enum_val), memgraph::query::TypedValueException);
 
   auto point_1 = TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}};
   auto point_2 = TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}};
 
-  EXPECT_THROW(point_1 < point_1, memgraph::query::TypedValueException);
-  EXPECT_THROW(point_2 < point_2, memgraph::query::TypedValueException);
+  EXPECT_THROW((void)(point_1 < point_1), memgraph::query::TypedValueException);
+  EXPECT_THROW((void)(point_2 < point_2), memgraph::query::TypedValueException);
 }
 
 TEST(TypedValue, BoolEquals) {
