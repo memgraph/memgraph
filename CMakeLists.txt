@@ -278,7 +278,6 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 add_link_options(-fuse-ld=lld)
 add_link_options(LINKER:--build-id)
 link_directories("${MG_TOOLCHAIN_ROOT}/lib")
-# link_directories("${MG_TOOLCHAIN_ROOT}/lib64")
 
 # After linker is set, check we can use link-time optimization
 cmake_policy(SET CMP0138 NEW)
