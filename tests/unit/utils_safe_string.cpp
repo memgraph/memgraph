@@ -78,7 +78,10 @@ TEST_F(SafeStringTest, CopyAssignment) {
 
 TEST_F(SafeStringTest, CopyAssignmentSelf) {
   SafeString str("test");
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wself-assign-overloaded"
   str = str;  // Self-assignment
+#pragma clang diagnostic pop
   EXPECT_EQ(str.str(), "test");
 }
 
@@ -92,7 +95,10 @@ TEST_F(SafeStringTest, MoveAssignment) {
 
 TEST_F(SafeStringTest, MoveAssignmentSelf) {
   SafeString str("test");
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wself-move"
   str = std::move(str);  // Self-move assignment
+#pragma clang diagnostic pop
   EXPECT_EQ(str.str(), "test");
 }
 

@@ -400,7 +400,6 @@ struct small_vector {
         // make into small buffer
         capacity_ = kSmallCapacity;
         auto dst_b = begin();
-        auto dst_e = end();
         // move, destroy, delete
         std::uninitialized_move(src_b, src_e, dst_b);
         std::destroy(src_b, src_e);

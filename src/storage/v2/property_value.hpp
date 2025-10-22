@@ -22,7 +22,7 @@
 #include "storage/v2/temporal.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/fnv.hpp"
+import memgraph.utils.fnv;
 
 #include <boost/container/flat_map.hpp>
 #include "range/v3/all.hpp"
@@ -175,9 +175,9 @@ class PropertyValueImpl {
 
   /// Copy accross allocators
   template <typename AllocOther, typename KeyTypeOther>
-    requires(!std::same_as<allocator_type, AllocOther> && std::same_as<KeyType, KeyTypeOther>)
-  PropertyValueImpl(PropertyValueImpl<AllocOther, KeyTypeOther> const &other,
-                    allocator_type const &alloc = allocator_type{})
+  requires(!std::same_as<allocator_type, AllocOther> && std::same_as<KeyType, KeyTypeOther>)
+      PropertyValueImpl(PropertyValueImpl<AllocOther, KeyTypeOther> const &other,
+                        allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, type_{other.type_} {
     switch (other.type_) {
       case Type::Null:
@@ -682,8 +682,8 @@ inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl const
 
 template <typename Alloc, typename KeyType>
 inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl &&other) noexcept(
-    alloc_trait::is_always_equal::value ||
-    alloc_trait::propagate_on_container_move_assignment::value) -> PropertyValueImpl<Alloc, KeyType> & {
+    alloc_trait::is_always_equal::value || alloc_trait::propagate_on_container_move_assignment::value)
+    -> PropertyValueImpl<Alloc, KeyType> & {
   auto do_move = [&]() -> PropertyValueImpl<Alloc, KeyType> & {
     if (type_ == other.type_) {
       // maybe the same object, check if no work is required
@@ -963,8 +963,8 @@ static_assert(sizeof(pmr::PropertyValue) == 72 /*56*/);
  * is valid, returns a positional pointer to the `PropertyValue` within the
  * top-most value. Otherwise, return `nullptr`.
  */
-inline auto ReadNestedPropertyValue(PropertyValue const &value,
-                                    std::span<PropertyId const> path_to_property) -> PropertyValue const * {
+inline auto ReadNestedPropertyValue(PropertyValue const &value, std::span<PropertyId const> path_to_property)
+    -> PropertyValue const * {
   auto const *current = &value;
   // Follow the path down into the nested maps
   for (auto &&property_id : path_to_property) {

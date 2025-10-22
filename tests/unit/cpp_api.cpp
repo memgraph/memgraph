@@ -795,9 +795,9 @@ TYPED_TEST(CppApiTestFixture, TestValueOperatorLessThan) {
   const std::string string1 = "string";
   const mgp::Value string_test1 = mgp::Value(string1);
 
-  ASSERT_THROW(int_test1 < string_test1, mgp::ValueException);
-  ASSERT_THROW(list_test < map_test, mgp::ValueException);
-  ASSERT_THROW(list_test < list_test, mgp::ValueException);
+  ASSERT_THROW((void)(int_test1 < string_test1), mgp::ValueException);
+  ASSERT_THROW((void)(list_test < map_test), mgp::ValueException);
+  ASSERT_THROW((void)(list_test < list_test), mgp::ValueException);
 }
 
 TYPED_TEST(CppApiTestFixture, TestNumberEquality) {

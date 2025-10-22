@@ -9,21 +9,29 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
+#include <cstdint>
 #include <cstdlib>
+#include <functional>
 #include <string_view>
 
-namespace memgraph::utils {
+export module memgraph.utils.fnv;
+
+namespace memgraph::utils::detail {
+// FNV-1a constants
+constexpr uint64_t FNV_OFFSET_BASIS = 14695981039346656037UL;
+constexpr uint64_t FNV_PRIME = 1099511628211UL;
+}  // namespace memgraph::utils::detail
+
+export namespace memgraph::utils {
 
 inline uint64_t Fnv(const std::string_view s) {
   // fnv1a is recommended so use it as the default implementation.
-  uint64_t hash = 14695981039346656037UL;
-
+  uint64_t hash = detail::FNV_OFFSET_BASIS;
   for (const auto &ch : s) {
-    hash = (hash ^ (uint64_t)ch) * 1099511628211UL;
+    hash = (hash ^ static_cast<uint64_t>(ch)) * detail::FNV_PRIME;
   }
-
   return hash;
 }
 
@@ -47,17 +55,14 @@ inline uint64_t Fnv(const std::string_view s) {
 template <typename TIterable, typename TElement, typename THash = std::hash<TElement>>
 struct FnvCollection {
   size_t operator()(const TIterable &iterable) const {
-    uint64_t hash = 14695981039346656037u;
+    uint64_t hash = detail::FNV_OFFSET_BASIS;
     THash element_hash;
     for (const TElement &element : iterable) {
-      hash *= fnv_prime;
+      hash *= detail::FNV_PRIME;
       hash ^= element_hash(element);
     }
     return hash;
   }
-
- private:
-  static const uint64_t fnv_prime = 1099511628211u;
 };
 
 /**
@@ -67,11 +72,9 @@ struct FnvCollection {
 template <typename TA, typename TB, typename TAHash = std::hash<TA>, typename TBHash = std::hash<TB>>
 struct HashCombine {
   size_t operator()(const TA &a, const TB &b) const {
-    static constexpr size_t fnv_prime = 1099511628211UL;
-    static constexpr size_t fnv_offset = 14695981039346656037UL;
-    size_t ret = fnv_offset;
+    size_t ret = detail::FNV_OFFSET_BASIS;
     ret ^= TAHash()(a);
-    ret *= fnv_prime;
+    ret *= detail::FNV_PRIME;
     ret ^= TBHash()(b);
     return ret;
   }

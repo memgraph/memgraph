@@ -18,7 +18,7 @@
 #include <limits>
 
 #include "utils/exceptions.hpp"
-#include "utils/fnv.hpp"
+import memgraph.utils.fnv;
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 

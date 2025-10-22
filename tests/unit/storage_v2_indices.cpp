@@ -63,9 +63,7 @@ using KVPair = std::tuple<PropertyId, PropertyValue>;
 /** Creates a map from a (possibly nested) list of `KVPair`s.
  */
 template <typename... Ts>
-auto MakeMap(Ts &&...values) -> PropertyValue
-  requires(std::is_same_v<std::decay_t<Ts>, KVPair> && ...)
-{
+auto MakeMap(Ts &&...values) -> PropertyValue requires(std::is_same_v<std::decay_t<Ts>, KVPair> &&...) {
   return PropertyValue{PropertyValue::map_t{
       {std::get<0>(values),
        std::forward<std::tuple_element_t<1, std::decay_t<Ts>>>(std::get<1>(std::forward<Ts>(values)))}...}};
@@ -3684,10 +3682,10 @@ TYPED_TEST(IndexTest, DeltaDoesNotLeak) {
   {
     auto acc = this->storage->Access();
     auto vertex = this->CreateVertex(acc.get());
-    vertex.SetProperty(this->prop_a, make_map(this->prop_b, make_map(this->prop_c, PropertyValue("hello"))));
+    (void)vertex.SetProperty(this->prop_a, make_map(this->prop_b, make_map(this->prop_c, PropertyValue("hello"))));
     // vvv This create a `Delta` containing the above `PropertyValue` map,
     // which ASAN reports as a leak.
-    vertex.SetProperty(this->prop_a, PropertyValue("goodbye"));
+    (void)vertex.SetProperty(this->prop_a, PropertyValue("goodbye"));
   }
   this->storage->FreeMemory();
 }
