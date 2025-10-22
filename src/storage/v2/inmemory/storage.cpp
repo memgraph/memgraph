@@ -170,8 +170,6 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       snapshot_periodic_observer_(std::make_shared<PeriodicSnapshotObserver>(snapshot_runner_)),
       global_locker_(file_retainer_.AddLocker()) {
-  MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
-            "Invalid storage mode sent to InMemoryStorage constructor!");
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
     // Create the directory initially to crash the database in case of

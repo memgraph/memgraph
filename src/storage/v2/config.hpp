@@ -104,20 +104,11 @@ struct Config {
   } transaction;  // PER DATABASE
 
   struct DiskConfig {
-    std::filesystem::path main_storage_directory{"storage/rocksdb_main_storage"};
-    std::filesystem::path label_index_directory{"storage/rocksdb_label_index"};
-    std::filesystem::path label_property_index_directory{"storage/rocksdb_label_property_index"};
-    std::filesystem::path unique_constraints_directory{"storage/rocksdb_unique_constraints"};
-    std::filesystem::path name_id_mapper_directory{"storage/rocksdb_name_id_mapper"};
-    std::filesystem::path id_name_mapper_directory{"storage/rocksdb_id_name_mapper"};
-    std::filesystem::path durability_directory{"storage/rocksdb_durability"};
     std::filesystem::path wal_directory{"storage/rocksdb_wal"};
     friend bool operator==(const DiskConfig &lrh, const DiskConfig &rhs) = default;
   } disk;
 
   SalientConfig salient;
-
-  bool force_on_disk{false};  // TODO: cleanup.... remove + make the default storage_mode ON_DISK_TRANSACTIONAL if true
 
   friend bool operator==(const Config &lrh, const Config &rhs) = default;
 };
@@ -159,13 +150,6 @@ static inline void UpdatePaths(Config &config, const std::filesystem::path &stor
     to_update(config.disk) = config.durability.storage_directory / *contained_path;
   };
 
-  UPDATE_PATH(std::mem_fn(&Config::DiskConfig::main_storage_directory));
-  UPDATE_PATH(std::mem_fn(&Config::DiskConfig::label_index_directory));
-  UPDATE_PATH(std::mem_fn(&Config::DiskConfig::label_property_index_directory));
-  UPDATE_PATH(std::mem_fn(&Config::DiskConfig::unique_constraints_directory));
-  UPDATE_PATH(std::mem_fn(&Config::DiskConfig::name_id_mapper_directory));
-  UPDATE_PATH(std::mem_fn(&Config::DiskConfig::id_name_mapper_directory));
-  UPDATE_PATH(std::mem_fn(&Config::DiskConfig::durability_directory));
   UPDATE_PATH(std::mem_fn(&Config::DiskConfig::wal_directory));
 }
 

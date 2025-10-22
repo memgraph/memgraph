@@ -199,11 +199,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitReplicationQuery(MemgraphCypher::ReplicationQueryContext *ctx) override;
 
   /**
-   * @return EdgeImportMode*
-   */
-  antlrcpp::Any visitEdgeImportModeQuery(MemgraphCypher::EdgeImportModeQueryContext *ctx) override;
-
-  /**
    * @return ReplicationQuery*
    */
   antlrcpp::Any visitSetReplicationRole(MemgraphCypher::SetReplicationRoleContext *ctx) override;

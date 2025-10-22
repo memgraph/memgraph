@@ -19,12 +19,10 @@
 #include "gmock/gmock.h"
 #include "spdlog/spdlog.h"
 
-#include "disk_test_utils.hpp"
 #include "interpreter_faker.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter_context.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 constexpr int NUM_INTERPRETERS = 4, INSERTIONS = 4000;
@@ -40,18 +38,11 @@ class TransactionQueueMultipleTest : public ::testing::Test {
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() /
                                        "MG_tests_unit_transaction_queue_multiple_intr"};
 
-  memgraph::storage::Config config{
-      [&]() {
-        memgraph::storage::Config config{};
-        config.durability.storage_directory = data_directory;
-        config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
-          config.force_on_disk = true;
-        }
-        return config;
-      }()  // iile
-  };
+  memgraph::storage::Config config{[&]() {
+    memgraph::storage::Config config{};
+    config.durability.storage_directory = data_directory;
+    return config;
+  }()};
 
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
@@ -61,9 +52,7 @@ class TransactionQueueMultipleTest : public ::testing::Test {
         auto db_acc_opt = db_gk.access();
         MG_ASSERT(db_acc_opt, "Failed to access db");
         auto &db_acc = *db_acc_opt;
-        MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                                   ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                                   : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+        MG_ASSERT(db_acc->GetStorageMode() == (memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
                   "Wrong storage mode!");
         return db_acc;
       }()  // iile
@@ -94,12 +83,11 @@ class TransactionQueueMultipleTest : public ::testing::Test {
     for (int i = 0; i < NUM_INTERPRETERS; ++i) {
       delete running_interpreters[i];
     }
-    disk_test_utils::RemoveRocksDbDirs(testSuite);
     std::filesystem::remove_all(data_directory);
   }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(TransactionQueueMultipleTest, StorageTypes);
 
 // Tests whether admin can see transaction of superadmin

@@ -17,10 +17,8 @@
 #include <type_traits>
 
 #include "dbms/database.hpp"
-#include "disk_test_utils.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "query/interpreter_context.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
@@ -135,25 +133,18 @@ class TTLFixture : public ::testing::Test {
 
   bool RunEdgeTTL() const {
     return db_->config().salient.items.properties_on_edges &&
-           db_->GetStorageMode() != memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+           db_->GetStorageMode() == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
   }
 
  protected:
   const std::string testSuite = "ttl";
   std::filesystem::path data_directory_{GetCleanDataDirectory()};
-  memgraph::storage::Config config{
-      [&]() {
-        memgraph::storage::Config config{};
-        config.durability.storage_directory = data_directory_;
-        config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-        config.salient.items.properties_on_edges = PropOnEdge::value;
-        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
-          config.force_on_disk = true;
-        }
-        return config;
-      }()  // iile
-  };
+  memgraph::storage::Config config{[&]() {
+    memgraph::storage::Config config{};
+    config.durability.storage_directory = data_directory_;
+    config.salient.items.properties_on_edges = PropOnEdge::value;
+    return config;
+  }()};
 
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
@@ -163,9 +154,7 @@ class TTLFixture : public ::testing::Test {
         auto db_acc_opt = db_gk.access();
         MG_ASSERT(db_acc_opt, "Failed to access db");
         auto &db_acc = *db_acc_opt;
-        MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                                   ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                                   : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+        MG_ASSERT(db_acc->GetStorageMode() == (memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
                   "Wrong storage mode!");
         return db_acc;
       }()  // iile
@@ -241,9 +230,6 @@ class TTLFixture : public ::testing::Test {
 
   void TearDown() override {
     db_->StopAllBackgroundTasks();
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
     std::filesystem::remove_all(data_directory_);
   }
 };
@@ -251,8 +237,6 @@ class TTLFixture : public ::testing::Test {
 using TestTypes = ::testing::Types<std::tuple<memgraph::storage::InMemoryStorage, std::true_type>,
                                    std::tuple<memgraph::storage::InMemoryStorage, std::false_type>>;
 
-// std::tuple<memgraph::storage::DiskStorage, std::true_type>,
-// std::tuple<memgraph::storage::DiskStorage, std::false_type>>;
 TYPED_TEST_SUITE(TTLFixture, TestTypes);
 
 TYPED_TEST(TTLFixture, EnableTest) {

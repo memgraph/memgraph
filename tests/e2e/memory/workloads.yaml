@@ -30,15 +30,6 @@ in_memory_1024_MiB_limit_cluster: &in_memory_1024_MiB_limit_cluster
       setup_queries: []
       validation_queries: []
 
-disk_cluster: &disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "memory-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-      validation_queries: []
-
 args_query_limit: &args_query_limit
   - "--bolt-port"
   - *bolt_port
@@ -150,18 +141,6 @@ workloads:
     args: ["--bolt-port", *bolt_port, "--timeout", "180", "--multi-db", "true"]
     proc: "tests/e2e/memory/procedures/"
     <<: *in_memory_1024_MiB_limit_cluster
-
-  - name: "Memory limit for modules upon loading for on-disk storage"
-    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc"
-    args: ["--bolt-port", *bolt_port, "--timeout", "180"]
-    proc: "tests/e2e/memory/procedures/"
-    <<: *disk_cluster
-
-  - name: "Memory limit for modules inside a procedure for on-disk storage"
-    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc_proc"
-    args: ["--bolt-port", *bolt_port, "--timeout", "180"]
-    proc: "tests/e2e/memory/procedures/"
-    <<: *disk_cluster
 
   - name: "Memory control query limit proc"
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_query_alloc_proc"

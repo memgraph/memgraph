@@ -13,8 +13,6 @@
 
 #include <memory>
 
-#include "disk_test_utils.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -35,16 +33,12 @@ class ReadWriteTypeCheckTest : public ::testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
 
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config = {};
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
   std::unique_ptr<memgraph::storage::Storage::Accessor> dba_storage{db->Access()};
   memgraph::query::DbAccessor dba{dba_storage.get()};
 
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
+  void TearDown() override {}
 
   const Symbol &GetSymbol(std::string name) { return symbol_table.CreateSymbol(name, true); }
 
@@ -55,7 +49,7 @@ class ReadWriteTypeCheckTest : public ::testing::Test {
   }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(ReadWriteTypeCheckTest, StorageTypes);
 
 TYPED_TEST(ReadWriteTypeCheckTest, NONEOps) {

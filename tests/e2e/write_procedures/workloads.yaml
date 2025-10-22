@@ -12,15 +12,6 @@ in_memory_cluster: &in_memory_cluster
       setup_queries: []
       validation_queries: []
 
-disk_cluster: &disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "write-procedures-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-      validation_queries: []
-
 workloads:
   - name: "Write procedures simple"
     binary: "tests/e2e/pytest_runner.sh"

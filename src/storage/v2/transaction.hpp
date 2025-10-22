@@ -109,12 +109,6 @@ struct Transaction {
         edge_import_mode_active(edge_import_mode_active),
         constraint_verification_info{(has_constraints) ? std::optional<ConstraintVerificationInfo>{std::in_place}
                                                        : std::nullopt},
-        vertices_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
-                      ? std::optional<utils::SkipList<Vertex>>{std::in_place}
-                      : std::nullopt},
-        edges_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
-                   ? std::optional<utils::SkipList<Edge>>{std::in_place}
-                   : std::nullopt},
         point_index_ctx_{std::move(point_index_ctx)},
         point_index_change_collector_{point_index_ctx_},
         last_durable_ts_{last_durable_ts},
@@ -129,19 +123,11 @@ struct Transaction {
 
   ~Transaction() = default;
 
-  bool IsDiskStorage() const { return storage_mode == StorageMode::ON_DISK_TRANSACTIONAL; }
-
   /// @throw std::bad_alloc if failed to create the `commit_timestamp`
   void EnsureCommitTimestampExists() {
     if (commit_timestamp != nullptr) return;
     commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id);
   }
-
-  bool AddModifiedEdge(Gid gid, ModifiedEdgeInfo modified_edge) {
-    return modified_edges_.emplace(gid, modified_edge).second;
-  }
-
-  bool RemoveModifiedEdge(const Gid &gid) { return modified_edges_.erase(gid) > 0U; }
 
   void UpdateOnChangeLabel(LabelId label, Vertex *vertex) {
     point_index_change_collector_.UpdateOnChangeLabel(label, vertex);
@@ -182,21 +168,6 @@ struct Transaction {
   mutable VertexInfoCache manyDeltasCache{};
   mutable std::optional<ConstraintVerificationInfo> constraint_verification_info{};
 
-  // Store modified edges GID mapped to changed Delta and serialized edge key
-  // Only for disk storage
-  ModifiedEdgesMap modified_edges_{};
-  rocksdb::Transaction *disk_transaction_{};
-  /// Main storage
-  std::optional<utils::SkipList<Vertex>> vertices_{};
-  std::vector<std::unique_ptr<utils::SkipList<Vertex>>> index_storage_{};
-
-  /// We need them because query context for indexed reading is cleared after the query is done not after the
-  /// transaction is done
-  std::vector<delta_container> index_deltas_storage_{};
-  std::optional<utils::SkipList<Edge>> edges_{};
-  std::map<std::string, std::pair<std::string, std::string>, std::less<>> edges_to_delete_{};
-  std::map<std::string, std::string, std::less<>> vertices_to_delete_{};
-  bool scanned_all_vertices_ = false;
   /// Hold point index relevant to this txn+command
   PointIndexContext point_index_ctx_;
   /// Tracks changes relevant to point index (used during Commit/AdvanceCommand)

@@ -19,14 +19,12 @@
 #include <memory>
 #include <vector>
 
-#include "disk_test_utils.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 #include "query_plan_common.hpp"
@@ -38,19 +36,12 @@ using namespace memgraph::query::plan;
 template <typename StorageType>
 class QueryPlanTest : public testing::Test {
  public:
-  const std::string testSuite = "query_plan_bag_semantics";
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config;
   std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>(config);
   AstStorage storage;
-
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(QueryPlanTest, StorageTypes);
 
 TYPED_TEST(QueryPlanTest, Skip) {

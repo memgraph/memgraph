@@ -370,9 +370,6 @@ constexpr utils::TypeInfo query::ShowDatabaseQuery::kType{utils::TypeId::AST_SHO
 constexpr utils::TypeInfo query::ShowDatabasesQuery::kType{utils::TypeId::AST_SHOW_DATABASES, "ShowDatabasesQuery",
                                                            &query::Query::kType};
 
-constexpr utils::TypeInfo query::EdgeImportModeQuery::kType{utils::TypeId::AST_EDGE_IMPORT_MODE_QUERY,
-                                                            "EdgeImportModeQuery", &query::Query::kType};
-
 constexpr utils::TypeInfo query::PatternComprehension::kType{utils::TypeId::AST_PATTERN_COMPREHENSION,
                                                              "PatternComprehension", &query::Expression::kType};
 

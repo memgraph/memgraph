@@ -429,12 +429,6 @@ class ShowSnapshotsDisabledOnDiskStorage final : public DisabledForOnDisk {
   SPECIALIZE_GET_EXCEPTION_NAME(ShowSnapshotsDisabledOnDiskStorage)
 };
 
-class EdgeImportModeQueryDisabledOnDiskStorage final : public DisabledForOnDisk {
- public:
-  EdgeImportModeQueryDisabledOnDiskStorage() : DisabledForOnDisk("Edge import mode") {}
-  SPECIALIZE_GET_EXCEPTION_NAME(EdgeImportModeQueryDisabledOnDiskStorage)
-};
-
 class DropAllIndexesDisabledOnDiskStorage final : public DisabledForOnDisk {
  public:
   DropAllIndexesDisabledOnDiskStorage() : DisabledForOnDisk("DROP ALL INDEXES") {}

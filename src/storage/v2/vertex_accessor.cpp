@@ -21,7 +21,6 @@
 #include "query/hops_limit.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
@@ -758,58 +757,12 @@ auto VertexAccessor::BuildResultInEdges(edge_store const &out_edges) const {
   return ret;
 };
 
-auto VertexAccessor::BuildResultWithDisk(edge_store const &in_memory_edges, std::vector<EdgeAccessor> const &disk_edges,
-                                         View view, const std::string &mode) const {
-  /// TODO: (andi) Better mode handling
-  auto ret = std::invoke([this, &mode, &in_memory_edges]() {
-    if (mode == "OUT") {
-      return BuildResultOutEdges(in_memory_edges);
-    }
-    return BuildResultInEdges(in_memory_edges);
-  });
-  /// TODO: (andi) Maybe this check can be done in build_result without damaging anything else.
-  std::erase_if(ret, [transaction = this->transaction_, view](const EdgeAccessor &edge_acc) {
-    return !edge_acc.IsVisible(view) || !edge_acc.FromVertex().IsVisible(view) ||
-           !edge_acc.ToVertex().IsVisible(view) || transaction->edges_to_delete_.contains(edge_acc.Gid().ToString());
-  });
-  std::unordered_set<storage::Gid> in_mem_edges_set;
-  in_mem_edges_set.reserve(ret.size());
-  for (const auto &in_mem_edge_acc : ret) {
-    in_mem_edges_set.insert(in_mem_edge_acc.Gid());
-  }
-
-  for (const auto &disk_edge_acc : disk_edges) {
-    auto const edge_gid_str = disk_edge_acc.Gid().ToString();
-    if (in_mem_edges_set.contains(disk_edge_acc.Gid()) ||
-        (view == View::NEW && transaction_->edges_to_delete_.contains(edge_gid_str))) {
-      continue;
-    }
-    ret.emplace_back(disk_edge_acc);
-  }
-  return ret;
-};
-
 Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                           const VertexAccessor *destination,
                                                           query::HopsLimit *hops_limit) const {
   DMG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   std::vector<EdgeAccessor> disk_edges{};
-
-  /// TODO: (andi) I think that here should be another check:
-  /// in memory storage should be checked only if something exists before loading from the disk.
-  if (transaction_->IsDiskStorage()) [[unlikely]] {
-    auto *disk_storage = static_cast<DiskStorage *>(storage_);
-    const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
-    if (!exists) return Error::NONEXISTENT_OBJECT;
-    if (deleted) return Error::DELETED_OBJECT;
-    bool edges_modified_in_tx = !vertex_->in_edges.empty();
-
-    disk_edges = disk_storage->InEdges(this, edge_types, destination, transaction_, view, hops_limit);
-    if (view == View::OLD && !edges_modified_in_tx) {
-      return EdgesVertexAccessorResult{.edges = disk_edges, .expanded_count = static_cast<int64_t>(disk_edges.size())};
-    }
-  }
 
   auto const *destination_vertex = destination ? destination->vertex_ : nullptr;
 
@@ -867,11 +820,6 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   if (deleted) [[unlikely]]
     return Error::DELETED_OBJECT;
 
-  if (transaction_->IsDiskStorage()) [[unlikely]] {
-    return EdgesVertexAccessorResult{.edges = BuildResultWithDisk(in_edges, disk_edges, view, "IN"),
-                                     .expanded_count = expanded_count};
-  }
-
   return EdgesVertexAccessorResult{.edges = BuildResultInEdges(in_edges), .expanded_count = expanded_count};
 }
 
@@ -879,23 +827,6 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
                                                            const VertexAccessor *destination,
                                                            query::HopsLimit *hops_limit) const {
   DMG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
-
-  /// TODO: (andi) I think that here should be another check:
-  /// in memory storage should be checked only if something exists before loading from the disk.
-  std::vector<EdgeAccessor> disk_edges{};
-  if (transaction_->IsDiskStorage()) [[unlikely]] {
-    auto *disk_storage = static_cast<DiskStorage *>(storage_);
-    const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
-    if (!exists) return Error::NONEXISTENT_OBJECT;
-    if (deleted) return Error::DELETED_OBJECT;
-    bool edges_modified_in_tx = !vertex_->out_edges.empty();
-
-    disk_edges = disk_storage->OutEdges(this, edge_types, destination, transaction_, view, hops_limit);
-
-    if (view == View::OLD && !edges_modified_in_tx) {
-      return EdgesVertexAccessorResult{.edges = disk_edges, .expanded_count = static_cast<int64_t>(disk_edges.size())};
-    }
-  }
 
   auto const *dst_vertex = destination ? destination->vertex_ : nullptr;
 
@@ -953,24 +884,11 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   if (deleted) [[unlikely]]
     return Error::DELETED_OBJECT;
 
-  if (transaction_->IsDiskStorage()) [[unlikely]] {
-    return EdgesVertexAccessorResult{.edges = BuildResultWithDisk(out_edges, disk_edges, view, "OUT"),
-                                     .expanded_count = expanded_count};
-  }
   /// InMemoryStorage
   return EdgesVertexAccessorResult{.edges = BuildResultOutEdges(out_edges), .expanded_count = expanded_count};
 }
 
 Result<size_t> VertexAccessor::InDegree(View view) const {
-  std::vector<EdgeAccessor> disk_edges{};
-  if (transaction_->IsDiskStorage()) {
-    auto res = InEdges(view);
-    if (res.HasValue()) {
-      return res->edges.size();
-    }
-    return res.GetError();
-  }
-
   bool exists = true;
   bool deleted = false;
   size_t degree = 0;
@@ -1019,14 +937,6 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
 }
 
 Result<size_t> VertexAccessor::OutDegree(View view) const {
-  if (transaction_->IsDiskStorage()) {
-    auto res = OutEdges(view);
-    if (res.HasValue()) {
-      return res->edges.size();
-    }
-    return res.GetError();
-  }
-
   bool exists = true;
   bool deleted = false;
   size_t degree = 0;

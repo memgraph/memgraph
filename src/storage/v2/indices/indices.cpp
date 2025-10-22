@@ -11,11 +11,6 @@
 
 #include "storage/v2/indices/indices.hpp"
 #include "flags/experimental.hpp"
-#include "storage/v2/disk/edge_property_index.hpp"
-#include "storage/v2/disk/edge_type_index.hpp"
-#include "storage/v2/disk/edge_type_property_index.hpp"
-#include "storage/v2/disk/label_index.hpp"
-#include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
@@ -92,23 +87,13 @@ void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, E
   tx.active_indices_.edge_type_->UpdateOnEdgeCreation(from, to, edge_ref, edge_type, tx);
 }
 
-Indices::Indices(const Config &config, StorageMode storage_mode)
+Indices::Indices(const Config &config)
     : text_index_(config.durability.storage_directory), text_edge_index_(config.durability.storage_directory) {
-  std::invoke([this, config, storage_mode]() {
-    if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-      label_index_ = std::make_unique<InMemoryLabelIndex>();
-      label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>();
-      edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>();
-      edge_type_property_index_ = std::make_unique<InMemoryEdgeTypePropertyIndex>();
-      edge_property_index_ = std::make_unique<InMemoryEdgePropertyIndex>();
-    } else {
-      label_index_ = std::make_unique<DiskLabelIndex>(config);
-      label_property_index_ = std::make_unique<DiskLabelPropertyIndex>(config);
-      edge_type_index_ = std::make_unique<DiskEdgeTypeIndex>();
-      edge_type_property_index_ = std::make_unique<DiskEdgeTypePropertyIndex>();
-      edge_property_index_ = std::make_unique<DiskEdgePropertyIndex>();
-    }
-  });
+  label_index_ = std::make_unique<InMemoryLabelIndex>();
+  label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>();
+  edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>();
+  edge_type_property_index_ = std::make_unique<InMemoryEdgeTypePropertyIndex>();
+  edge_property_index_ = std::make_unique<InMemoryEdgePropertyIndex>();
 }
 
 Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_indices) const {

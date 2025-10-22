@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,12 +17,11 @@
 #include "storage/v2/constraints/existence_constraints.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/constraints/unique_constraints.hpp"
-#include "storage/v2/storage_mode.hpp"
 
 namespace memgraph::storage {
 
 struct Constraints {
-  Constraints(const Config &config, StorageMode storage_mode);
+  explicit Constraints(const Config &config);
 
   Constraints(const Constraints &) = delete;
   Constraints(Constraints &&) = delete;

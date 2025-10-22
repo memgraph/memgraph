@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,10 +17,8 @@
 
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
-#include "disk_test_utils.hpp"
 #include "test_utils.hpp"
 
 using memgraph::replication_coordination_glue::ReplicationRole;
@@ -28,18 +26,11 @@ using memgraph::replication_coordination_glue::ReplicationRole;
 template <typename StorageType>
 class CypherType : public testing::Test {
  public:
-  const std::string testSuite = "query_procedure_mgp_type";
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config;
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(CypherType, StorageTypes);
 
 TYPED_TEST(CypherType, PresentableNameSimpleTypes) {

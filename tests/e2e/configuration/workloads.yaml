@@ -44,14 +44,6 @@ in_memory_cluster: &in_memory_cluster
       setup_queries: []
       validation_queries: []
 
-disk_cluster: &disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "configuration-check-disk-e2e.log"
-      setup_queries: ["STORAGE MODE ON_DISK_TRANSACTIONAL"]
-      validation_queries: []
-
 workloads:
   - name: "Check WAL enabled"
     binary: "tests/e2e/pytest_runner.sh"
@@ -72,8 +64,3 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["configuration/storage_info.py"]
     <<: *in_memory_cluster
-
-  - name: "Disk configuration check"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["configuration/configuration_check.py"]
-    <<: *disk_cluster

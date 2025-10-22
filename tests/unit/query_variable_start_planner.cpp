@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <variant>
 
-#include "disk_test_utils.hpp"
 #include "gtest/gtest.h"
 
 // Has to be before the rest of includes because of TRUE redefinition. Antlr
@@ -22,7 +21,6 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/planner.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "typed_value.hpp"
 #include "utils/algorithm.hpp"
@@ -99,19 +97,12 @@ void CheckPlansProduce(size_t expected_plan_count, memgraph::query::CypherQuery 
 template <typename StorageType>
 class TestVariableStartPlanner : public testing::Test {
  public:
-  const std::string testSuite = "query_variable_start_planner";
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config;
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
   AstStorage storage;
-
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(TestVariableStartPlanner, StorageTypes);
 
 TYPED_TEST(TestVariableStartPlanner, MatchReturn) {

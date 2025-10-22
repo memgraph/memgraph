@@ -119,7 +119,6 @@ class MultiDatabaseQuery;
 class UseDatabaseQuery;
 class ShowDatabaseQuery;
 class ShowDatabasesQuery;
-class EdgeImportModeQuery;
 class PatternComprehension;
 class CoordinatorQuery;
 class DropAllIndexesQuery;
@@ -179,9 +178,9 @@ class QueryVisitor
           FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery, RecoverSnapshotQuery,
           ShowSnapshotsQuery, ShowNextSnapshotQuery, StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery,
           TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery, UseDatabaseQuery,
-          ShowDatabaseQuery, ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery, DropAllIndexesQuery,
-          DropAllConstraintsQuery, DropGraphQuery, CreateEnumQuery, ShowEnumsQuery, AlterEnumAddValueQuery,
-          AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery, ShowSchemaInfoQuery, TtlQuery,
-          SessionTraceQuery, UserProfileQuery> {};
+          ShowDatabaseQuery, ShowDatabasesQuery, CoordinatorQuery, DropAllIndexesQuery, DropAllConstraintsQuery,
+          DropGraphQuery, CreateEnumQuery, ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery,
+          AlterEnumRemoveValueQuery, DropEnumQuery, ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery,
+          UserProfileQuery> {};
 
 }  // namespace memgraph::query

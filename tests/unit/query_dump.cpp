@@ -23,7 +23,6 @@
 #include "communication/result_stream_faker.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/database.hpp"
-#include "disk_test_utils.hpp"
 #include "flags/experimental.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
@@ -35,7 +34,6 @@
 #include "query/trigger_context.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
@@ -407,12 +405,6 @@ class DumpTest : public ::testing::Test {
       [&]() {
         memgraph::storage::Config config{};
         config.durability.storage_directory = data_directory;
-        config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
-          config.force_on_disk = true;
-          config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
-        }
         return config;
       }()  // iile
   };
@@ -425,9 +417,7 @@ class DumpTest : public ::testing::Test {
         auto db_acc_opt = db_gk.access();
         MG_ASSERT(db_acc_opt, "Failed to access db");
         auto &db_acc = *db_acc_opt;
-        MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                                   ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                                   : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+        MG_ASSERT(db_acc->GetStorageMode() == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
                   "Wrong storage mode!");
         return db_acc;
       }()  // iile
@@ -444,15 +434,10 @@ class DumpTest : public ::testing::Test {
 #endif
   };
 
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-    std::filesystem::remove_all(data_directory);
-  }
+  void TearDown() override { std::filesystem::remove_all(data_directory); }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(DumpTest, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -769,10 +754,6 @@ TYPED_TEST(DumpTest, IndicesKeys) {
 }
 
 TYPED_TEST(DumpTest, CompositeIndicesKeys) {
-  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Composite indices not implemented for disk storage";
-  }
-
   {
     auto dba = this->db->Access();
     auto prop_id = dba->NameToProperty("p");
@@ -806,10 +787,6 @@ TYPED_TEST(DumpTest, CompositeIndicesKeys) {
 }
 
 TYPED_TEST(DumpTest, CompositeNestedIndicesKeys) {
-  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Composite/nested indices not implemented for disk storage";
-  }
-
   {
     auto dba = this->db->Access();
     auto prop_id = dba->NameToProperty("p");
@@ -845,10 +822,6 @@ TYPED_TEST(DumpTest, CompositeNestedIndicesKeys) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, EdgeIndicesKeys) {
-  if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    GTEST_SKIP() << "Edge index not implemented for on-disk storage mode";
-  }
-
   {
     auto dba = this->db->Access();
     auto u = CreateVertex(dba.get(), {}, {}, false);
@@ -896,10 +869,6 @@ TYPED_TEST(DumpTest, EdgeIndicesKeys) {
 }
 
 TYPED_TEST(DumpTest, PointIndices) {
-  if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    GTEST_SKIP() << "Point index not implemented for ondisk";
-  }
-
   {
     auto dba = this->db->Access();
     auto prop_id = dba->NameToProperty("p");
@@ -948,10 +917,6 @@ TYPED_TEST(DumpTest, VectorIndices) {
   static constexpr std::size_t capacity = 10;
   static constexpr uint16_t resize_coefficient = 2;
   static constexpr unum::usearch::scalar_kind_t scalar_kind = unum::usearch::scalar_kind_t::f32_k;
-
-  if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    GTEST_SKIP() << "Vector index not implemented for ondisk";
-  }
 
   {
     auto dba = this->db->Access();
@@ -1014,10 +979,6 @@ TYPED_TEST(DumpTest, VectorEdgeIndices) {
   static constexpr std::size_t capacity = 10;
   static constexpr uint16_t resize_coefficient = 2;
   static constexpr unum::usearch::scalar_kind_t scalar_kind = unum::usearch::scalar_kind_t::f32_k;
-
-  if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    GTEST_SKIP() << "Vector index not implemented for ondisk";
-  }
 
   {
     auto dba = this->db->Access();
@@ -1155,17 +1116,8 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
 
   memgraph::storage::Config config{};
   config.durability.storage_directory = this->data_directory / "s1";
-  config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    config.disk = disk_test_utils::GenerateOnDiskConfig("query-dump-s1").disk;
-    config.force_on_disk = true;
-  }
-  auto clean_up_s1 = memgraph::utils::OnScopeExit{[&] {
-    if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs("query-dump-s1");
-    }
-    std::filesystem::remove_all(config.durability.storage_directory);
-  }};
+  auto clean_up_s1 =
+      memgraph::utils::OnScopeExit{[&] { std::filesystem::remove_all(config.durability.storage_directory); }};
 
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state(
       ReplicationStateRootPath(config));
@@ -1174,9 +1126,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt) << "Failed to access db";
   auto &db_acc = *db_acc_opt;
-  ASSERT_TRUE(db_acc->GetStorageMode() == (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>
-                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
+  ASSERT_TRUE(db_acc->GetStorageMode() == (memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
       << "Wrong storage mode!";
 
   memgraph::system::System system_state;
@@ -1310,43 +1260,32 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                      .HasError());
     ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
-  // At the moment, text index on edges isn't supported for on-disk storage
-  if constexpr (std::is_same_v<StorageTypes, memgraph::storage::InMemoryStorage>) {
-    {
-      auto unique_acc = this->db->UniqueAccess();
-      ASSERT_FALSE(unique_acc
-                       ->CreateTextEdgeIndex(memgraph::storage::TextEdgeIndexSpec{
-                           "text_edge_index_without_properties", this->db->storage()->NameToEdgeType("RELATES_TO"), {}})
-                       .HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-    }
-    {
-      auto unique_acc = this->db->UniqueAccess();
-      ASSERT_FALSE(
-          unique_acc
-              ->CreateTextEdgeIndex(memgraph::storage::TextEdgeIndexSpec{
-                  "text_edge_index_with_properties",
-                  this->db->storage()->NameToEdgeType("RELATES_TO"),
-                  {this->db->storage()->NameToProperty("title"), this->db->storage()->NameToProperty("content")}})
-              .HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-    }
+
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc
+                     ->CreateTextEdgeIndex(memgraph::storage::TextEdgeIndexSpec{
+                         "text_edge_index_without_properties", this->db->storage()->NameToEdgeType("RELATES_TO"), {}})
+                     .HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(
+        unique_acc
+            ->CreateTextEdgeIndex(memgraph::storage::TextEdgeIndexSpec{
+                "text_edge_index_with_properties",
+                this->db->storage()->NameToEdgeType("RELATES_TO"),
+                {this->db->storage()->NameToProperty("title"), this->db->storage()->NameToProperty("content")}})
+            .HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   const auto &db_initial_state = GetState(this->db->storage());
   memgraph::storage::Config config{};
   config.durability.storage_directory = this->data_directory / "s2";
-  config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    config.disk = disk_test_utils::GenerateOnDiskConfig("query-dump-s2").disk;
-    config.force_on_disk = true;
-  }
-  auto clean_up_s2 = memgraph::utils::OnScopeExit{[&] {
-    if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs("query-dump-s2");
-    }
-    std::filesystem::remove_all(config.durability.storage_directory);
-  }};
+  auto clean_up_s2 =
+      memgraph::utils::OnScopeExit{[&] { std::filesystem::remove_all(config.durability.storage_directory); }};
 
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       ReplicationStateRootPath(config)};
@@ -1354,9 +1293,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt) << "Failed to access db";
   auto &db_acc = *db_acc_opt;
-  ASSERT_TRUE(db_acc->GetStorageMode() == (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>
-                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
+  ASSERT_TRUE(db_acc->GetStorageMode() == (memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
       << "Wrong storage mode!";
 
   memgraph::system::System system_state;
@@ -1741,10 +1678,6 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
 }
 
 TYPED_TEST(DumpTest, DumpTypeConstraints) {
-  if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    GTEST_SKIP() << "Type constraints are not implemented for on-disk";
-  }
-
   {
     auto unique_acc = this->db->UniqueAccess();
     auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),

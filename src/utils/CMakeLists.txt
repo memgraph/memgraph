@@ -29,7 +29,6 @@ target_sources(mg-utils
     priority_thread_pool.cpp
     resource_monitoring.cpp
     safe_string.cpp
-    disk_utils.cpp
 
     PUBLIC
     FILE_SET HEADERS

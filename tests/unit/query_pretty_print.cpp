@@ -15,11 +15,9 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "disk_test_utils.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
 #include "query_common.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/string.hpp"
 
@@ -34,20 +32,14 @@ template <typename StorageType>
 class ExpressionPrettyPrinterTest : public ::testing::Test {
  public:
   const std::string testSuite = "query_pretty_print";
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config = {};
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
-
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(ExpressionPrettyPrinterTest, StorageTypes);
 
 TYPED_TEST(ExpressionPrettyPrinterTest, Literals) {

@@ -17,11 +17,8 @@
 
 #include "dbms/database.hpp"
 #include "storage/v2/constraints/constraints.hpp"
-#include "storage/v2/disk/storage.hpp"
-#include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
-#include "disk_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
 using memgraph::replication_coordination_glue::ReplicationRole;
@@ -42,8 +39,7 @@ class ConstraintsTest : public testing::Test {
 
   ConstraintsTest() {
     /// TODO: andi How to make this better? Because currentlly for every test changed you need to create a configuration
-    config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
-    config_.force_on_disk = std::is_same_v<StorageType, memgraph::storage::DiskStorage>;
+    config_ = {};
     repl_state_.emplace(memgraph::storage::ReplicationStateRootPath(config_));
     db_gk_.emplace(config_, *repl_state_);
     auto db_acc_opt = db_gk_->access();
@@ -61,10 +57,6 @@ class ConstraintsTest : public testing::Test {
     db_acc_.reset();
     db_gk_.reset();
     repl_state_.reset();
-
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
   }
 
   Storage *storage;
@@ -79,7 +71,7 @@ class ConstraintsTest : public testing::Test {
   LabelId label2;
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(ConstraintsTest, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -1229,52 +1221,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsComparePropertyValues) {
   }
 }
 
-TYPED_TEST(ConstraintsTest, UniqueConstraintsClearOldData) {
-  // Purpose of this test is to make sure that extracted property values
-  // are correctly compared.
-
-  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
-    auto *disk_constraints =
-        static_cast<memgraph::storage::DiskUniqueConstraints *>(this->storage->constraints_.unique_constraints_.get());
-    auto *tx_db = disk_constraints->GetRocksDBStorage()->db_;
-
-    {
-      auto unique_acc = this->db_acc_->get()->UniqueAccess();
-      auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
-      ASSERT_TRUE(res.HasValue());
-      ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
-      ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    }
-
-    auto acc = this->storage->Access();
-    auto vertex = acc->CreateVertex();
-    ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
-    ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue(2)));
-    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-
-    ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
-
-    auto acc2 = this->storage->Access();
-    auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
-    ASSERT_TRUE(vertex2.SetProperty(this->prop1, memgraph::storage::PropertyValue(2)).HasValue());
-    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-
-    ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
-
-    auto acc3 = this->storage->Access();
-    auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
-    ASSERT_TRUE(vertex3.SetProperty(this->prop1, memgraph::storage::PropertyValue(10)).HasValue());
-    ASSERT_FALSE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-
-    ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
-  }
-}
-
 TYPED_TEST(ConstraintsTest, TypeConstraints) {
-  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Type constraints not implemented for on-disk";
-  }
-
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
@@ -1293,10 +1240,6 @@ TYPED_TEST(ConstraintsTest, TypeConstraints) {
 }
 
 TYPED_TEST(ConstraintsTest, TypeConstraintsInitProperties) {
-  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Type constraints not implemented for on-disk";
-  }
-
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
@@ -1315,10 +1258,6 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsInitProperties) {
 }
 
 TYPED_TEST(ConstraintsTest, TypeConstraintsUpdateProperties) {
-  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Type constraints not implemented for on-disk";
-  }
-
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
@@ -1339,10 +1278,6 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsUpdateProperties) {
 }
 
 TYPED_TEST(ConstraintsTest, TypeConstraintsMultiplePropertiesSameLabel) {
-  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Type constraints not implemented for on-disk";
-  }
-
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
@@ -1370,10 +1305,6 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsMultiplePropertiesSameLabel) {
 }
 
 TYPED_TEST(ConstraintsTest, TypeConstraintsDuplicate) {
-  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Type constraints not implemented for on-disk";
-  }
-
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
@@ -1389,10 +1320,6 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsDuplicate) {
 }
 
 TYPED_TEST(ConstraintsTest, TypeConstraintsAddLabelLast) {
-  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Type constraints not implemented for on-disk";
-  }
-
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
@@ -1410,10 +1337,6 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsAddLabelLast) {
 }
 
 TYPED_TEST(ConstraintsTest, TypeConstraintsAddConstraintLastWithViolation) {
-  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Type constraints not implemented for on-disk";
-  }
-
   {
     auto acc1 = this->storage->Access();
     auto vertex1 = acc1->CreateVertex();
@@ -1431,10 +1354,6 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsAddConstraintLastWithViolation) {
 }
 
 TYPED_TEST(ConstraintsTest, TypeConstraintsAddConstraintLastWithoutViolation) {
-  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Type constraints not implemented for on-disk";
-  }
-
   {
     auto acc1 = this->storage->Access();
     auto vertex1 = acc1->CreateVertex();
@@ -1452,10 +1371,6 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsAddConstraintLastWithoutViolation) {
 }
 
 TYPED_TEST(ConstraintsTest, TypeConstraintsWhenItDoesNotApply) {
-  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Type constraints not implemented for on-disk";
-  }
-
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
@@ -1474,10 +1389,6 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsWhenItDoesNotApply) {
 }
 
 TYPED_TEST(ConstraintsTest, TypeConstraintsSubtypeCheckForTemporalData) {
-  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Type constraints not implemented for on-disk";
-  }
-
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::DATE);
@@ -1498,10 +1409,6 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsSubtypeCheckForTemporalData) {
 }
 
 TYPED_TEST(ConstraintsTest, TypeConstraintsSubtypeCheckForTemporalDataAddLabelLast) {
-  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Type constraints not implemented for on-disk";
-  }
-
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::DATE);
@@ -1527,10 +1434,6 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsSubtypeCheckForTemporalDataAddLabelLa
 }
 
 TYPED_TEST(ConstraintsTest, TypeConstraintsDrop) {
-  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Type constraints not implemented for on-disk";
-  }
-
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->DropTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);

@@ -11,7 +11,6 @@
 
 #include "dbms/database.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 
 #include <memory>
@@ -59,24 +58,8 @@ Database::Database(storage::Config config,
       plan_cache_{FLAGS_query_plan_cache_max_size} {
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
-  if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
-      utils::DirExists(config.disk.main_storage_directory)) {
-    config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
-    storage_ =
-        std::make_unique<storage::DiskStorage>(std::move(config), std::move(invalidator), database_protector_factory);
-  } else {
-    storage_ =
-        dbms::CreateInMemoryStorage(std::move(config), repl_state, std::move(invalidator), database_protector_factory);
-  }
-}
-
-void Database::SwitchToOnDisk() {
-  // Preserve the database protector factory from the previous storage
-  // This ensures consistent behavior for async operations (indexer, TTL) across storage transitions
-  auto preserved_factory = storage_->get_database_protector_factory();
-
-  storage_ = std::make_unique<memgraph::storage::DiskStorage>(
-      std::move(storage_->config_), std::make_unique<storage::PlanInvalidatorDefault>(), preserved_factory);
+  storage_ =
+      dbms::CreateInMemoryStorage(std::move(config), repl_state, std::move(invalidator), database_protector_factory);
 }
 
 }  // namespace memgraph::dbms

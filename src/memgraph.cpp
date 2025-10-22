@@ -374,14 +374,7 @@ int main(int argc, char **argv) {
                      .allow_parallel_snapshot_creation = FLAGS_storage_parallel_snapshot_creation,
                      .allow_parallel_schema_creation = FLAGS_storage_parallel_schema_recovery},
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},
-      .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
-               .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",
-               .label_property_index_directory = FLAGS_data_directory + "/rocksdb_label_property_index",
-               .unique_constraints_directory = FLAGS_data_directory + "/rocksdb_unique_constraints",
-               .name_id_mapper_directory = FLAGS_data_directory + "/rocksdb_name_id_mapper",
-               .id_name_mapper_directory = FLAGS_data_directory + "/rocksdb_id_name_mapper",
-               .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
-               .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
+      .disk = {.wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
       .salient.items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
                         .enable_edges_metadata =
                             FLAGS_storage_properties_on_edges ? FLAGS_storage_enable_edges_metadata : false,
@@ -432,7 +425,7 @@ int main(int argc, char **argv) {
       }
     }
   } else {
-    // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL do not support periodic snapshots
+    // IN_MEMORY_ANALYTICAL does not support periodic snapshots
     db_config.durability.snapshot_wal_mode = DISABLED;
   }
 

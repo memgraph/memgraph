@@ -16,7 +16,6 @@
 
 #include <gtest/gtest.h>
 
-#include "disk_test_utils.hpp"
 #include "integrations/constants.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "kafka_mock.hpp"
@@ -27,7 +26,6 @@
 #include "query/query_user.hpp"
 #include "query/stream/streams.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "test_utils.hpp"
 
@@ -96,18 +94,11 @@ class StreamsTestFixture : public ::testing::Test {
   // InterpreterContext::auth_checker_ is used in the Streams object, but only in the message processing part. Because
   // these tests don't send any messages, the auth_checker_ pointer can be left as nullptr.
 
-  memgraph::storage::Config config{
-      [&]() {
-        memgraph::storage::Config config{};
-        config.durability.storage_directory = data_directory_;
-        config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
-          config.force_on_disk = true;
-        }
-        return config;
-      }()  // iile
-  };
+  memgraph::storage::Config config{[&]() {
+    memgraph::storage::Config config{};
+    config.durability.storage_directory = data_directory_;
+    return config;
+  }()};
 
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
@@ -117,9 +108,7 @@ class StreamsTestFixture : public ::testing::Test {
         auto db_acc_opt = db_gk.access();
         MG_ASSERT(db_acc_opt, "Failed to access db");
         auto &db_acc = *db_acc_opt;
-        MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                                   ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                                   : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+        MG_ASSERT(db_acc->GetStorageMode() == (memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
                   "Wrong storage mode!");
         return db_acc;
       }()  // iile
@@ -141,9 +130,6 @@ class StreamsTestFixture : public ::testing::Test {
 
   void TearDown() override {
     db_->StopAllBackgroundTasks();
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
     std::filesystem::remove_all(data_directory_);
   }
 
@@ -207,7 +193,7 @@ class StreamsTestFixture : public ::testing::Test {
   }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(StreamsTestFixture, StorageTypes);
 
 TYPED_TEST(StreamsTestFixture, SimpleStreamManagement) {

@@ -623,17 +623,6 @@ antlrcpp::Any CypherMainVisitor::visitCoordinatorQuery(MemgraphCypher::Coordinat
   return coordinator_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitEdgeImportModeQuery(MemgraphCypher::EdgeImportModeQueryContext *ctx) {
-  auto *edge_import_mode_query = storage_->Create<EdgeImportModeQuery>();
-  if (ctx->ACTIVE()) {
-    edge_import_mode_query->status_ = EdgeImportModeQuery::Status::ACTIVE;
-  } else {
-    edge_import_mode_query->status_ = EdgeImportModeQuery::Status::INACTIVE;
-  }
-  query_ = edge_import_mode_query;
-  return edge_import_mode_query;
-}
-
 antlrcpp::Any CypherMainVisitor::visitDropAllIndexesQuery(MemgraphCypher::DropAllIndexesQueryContext * /*ctx*/) {
   auto *drop_all_indexes_query = storage_->Create<DropAllIndexesQuery>();
   query_ = drop_all_indexes_query;
@@ -1024,13 +1013,10 @@ antlrcpp::Any CypherMainVisitor::visitStorageModeQuery(MemgraphCypher::StorageMo
   auto *storage_mode_query = storage_->Create<StorageModeQuery>();
 
   storage_mode_query->storage_mode_ = std::invoke([mode = ctx->storageMode()]() {
-    if (mode->IN_MEMORY_ANALYTICAL()) {
-      return StorageModeQuery::StorageMode::IN_MEMORY_ANALYTICAL;
-    }
     if (mode->IN_MEMORY_TRANSACTIONAL()) {
       return StorageModeQuery::StorageMode::IN_MEMORY_TRANSACTIONAL;
     }
-    return StorageModeQuery::StorageMode::ON_DISK_TRANSACTIONAL;
+    return StorageModeQuery::StorageMode::IN_MEMORY_ANALYTICAL;
   });
 
   query_ = storage_mode_query;

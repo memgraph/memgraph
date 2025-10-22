@@ -15,7 +15,6 @@
 
 #include "dbms/constants.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
@@ -70,19 +69,16 @@ class InfoTest : public testing::Test {
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state_{
       storage_directory};
   std::unique_ptr<memgraph::storage::Storage> storage;
-  StorageMode mode{std::is_same_v<StorageType, DiskStorage> ? StorageMode::ON_DISK_TRANSACTIONAL
-                                                            : StorageMode::IN_MEMORY_TRANSACTIONAL};
+  StorageMode mode{StorageMode::IN_MEMORY_TRANSACTIONAL};
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 
 TYPED_TEST_SUITE(InfoTest, StorageTypes);
 // TYPED_TEST_SUITE(IndexTest, InMemoryStorageType);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(InfoTest, InfoCheck) {
-  constexpr bool is_using_disk_storage = std::is_same_v<TypeParam, memgraph::storage::DiskStorage>;
-
   auto lbl = this->storage->NameToLabel("label");
   auto lbl2 = this->storage->NameToLabel("abc");
   auto lbl3 = this->storage->NameToLabel("3");
@@ -135,24 +131,23 @@ TYPED_TEST(InfoTest, InfoCheck) {
     ASSERT_FALSE(acc->CreateIndex(lbl, {prop2}).HasError());
     ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
-  if constexpr (!is_using_disk_storage) {
-    {
-      auto acc = this->CreateIndexAccessor();
-      ASSERT_FALSE(acc->CreateIndex(lbl, {prop, prop2}).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-    }
-    {
-      auto acc = this->CreateIndexAccessor();
-      ASSERT_FALSE(acc->CreateIndex(lbl, {prop2, prop}).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-    }
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_FALSE(acc->CreateIndex(lbl, {prop, prop2}).HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
+  {
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_FALSE(acc->CreateIndex(lbl, {prop2, prop}).HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
   {
     auto acc = this->DropIndexAccessor();
     ASSERT_FALSE(acc->DropIndex(lbl, {prop}).HasError());
     ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
-  if constexpr (!is_using_disk_storage) {
+  {
     auto acc = this->DropIndexAccessor();
     ASSERT_FALSE(acc->DropIndex(lbl, {prop, prop2}).HasError());
     ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
@@ -190,7 +185,6 @@ TYPED_TEST(InfoTest, InfoCheck) {
   ASSERT_GT(info.disk_usage, 100);  // 1MB < > 100B
   ASSERT_LT(info.disk_usage, 1000'000);
   ASSERT_EQ(info.label_indices, 1);
-  ASSERT_EQ(info.label_property_indices, is_using_disk_storage ? 1 : 2);
   ASSERT_EQ(info.text_indices, 0);
   ASSERT_EQ(info.existence_constraints, 0);
   ASSERT_EQ(info.unique_constraints, 2);

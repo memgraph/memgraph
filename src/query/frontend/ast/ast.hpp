@@ -3143,29 +3143,6 @@ class DropGraphQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
-class EdgeImportModeQuery : public memgraph::query::Query {
- public:
-  static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
-
-  enum class Status { ACTIVE, INACTIVE };
-
-  EdgeImportModeQuery() = default;
-
-  DEFVISITABLE(QueryVisitor<void>);
-
-  memgraph::query::EdgeImportModeQuery::Status status_;
-
-  EdgeImportModeQuery *Clone(AstStorage *storage) const override {
-    auto *object = storage->Create<EdgeImportModeQuery>();
-    object->status_ = status_;
-    return object;
-  }
-
- private:
-  friend class AstStorage;
-};
-
 class LockPathQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
@@ -3329,7 +3306,7 @@ class StorageModeQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class StorageMode { IN_MEMORY_TRANSACTIONAL, IN_MEMORY_ANALYTICAL, ON_DISK_TRANSACTIONAL };
+  enum class StorageMode { IN_MEMORY_TRANSACTIONAL, IN_MEMORY_ANALYTICAL };
 
   StorageModeQuery() = default;
 

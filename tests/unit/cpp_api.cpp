@@ -12,12 +12,10 @@
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 
-#include "disk_test_utils.hpp"
 #include "flags/experimental.hpp"
 #include "mg_procedure.h"
 #include "mgp.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -28,12 +26,7 @@ struct CppApiTestFixture : public ::testing::Test {
  protected:
   void SetUp() override { mgp::MemoryDispatcher::Register(&memory); }
 
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-    mgp::MemoryDispatcher::UnRegister(nullptr);
-  }
+  void TearDown() override { mgp::MemoryDispatcher::UnRegister(nullptr); }
 
   mgp_graph CreateGraph(memgraph::query::DbAccessor *db_acc) {
     // the execution context can be null as it shouldn't be used in these tests
@@ -59,7 +52,7 @@ struct CppApiTestFixture : public ::testing::Test {
 
   const std::string testSuite = "cpp_api";
 
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config = {};
   std::unique_ptr<memgraph::storage::Storage> storage{new StorageType(config)};
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
 
@@ -67,7 +60,7 @@ struct CppApiTestFixture : public ::testing::Test {
   std::unique_ptr<memgraph::query::ExecutionContext> ctx_ = std::make_unique<memgraph::query::ExecutionContext>();
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 using AccessorType = memgraph::storage::StorageAccessType;
 TYPED_TEST_SUITE(CppApiTestFixture, StorageTypes);
 

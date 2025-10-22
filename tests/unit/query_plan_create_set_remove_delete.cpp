@@ -16,7 +16,6 @@
 #include <vector>
 
 #include "auth/models.hpp"
-#include "disk_test_utils.hpp"
 #include "glue/auth_checker.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -29,7 +28,6 @@
 #include "query/plan/operator.hpp"
 
 #include "query_plan_common.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
@@ -44,18 +42,14 @@ template <typename StorageType>
 class QueryPlanTest : public testing::Test {
  public:
   const std::string testSuite = "query_plan_create_set_remove_delete";
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config = {};
   std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>(config);
   AstStorage storage;
 
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
+  void TearDown() override {}
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(QueryPlanTest, StorageTypes);
 
 TYPED_TEST(QueryPlanTest, CreateNodeWithAttributes) {
@@ -2599,7 +2593,7 @@ template <typename StorageType>
 class DynamicExpandFixture : public testing::Test {
  protected:
   const std::string testSuite = "query_plan_create_set_remove_delete_dynamic_expand";
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config = {};
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
@@ -2632,14 +2626,10 @@ class DynamicExpandFixture : public testing::Test {
     dba.AdvanceCommand();
   }
 
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
+  void TearDown() override {}
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(DynamicExpandFixture, StorageTypes);
 
 TYPED_TEST(DynamicExpandFixture, Expand) {

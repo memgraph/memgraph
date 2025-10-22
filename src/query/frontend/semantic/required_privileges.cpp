@@ -134,8 +134,6 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(TransactionQueueQuery & /*transaction_queue_query*/) override {}
 
-  void Visit(EdgeImportModeQuery & /*edge_import_mode_query*/) override {}
-
   void Visit(DropAllIndexesQuery & /*drop_all_indexes_query*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
   void Visit(DropAllConstraintsQuery & /*drop_all_constraints_query*/) override {

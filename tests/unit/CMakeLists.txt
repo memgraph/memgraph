@@ -565,28 +565,8 @@ add_unit_test(storage_v2_retention.
         LINK_TARGETS mg::storage
 )
 
-add_unit_test(storage_rocks
-    SOURCES storage_rocks.cpp
-    LINK_TARGETS mg::storage
-)
-
-add_unit_test(storage_v2_disk
-    SOURCES storage_v2_disk.cpp
-    LINK_TARGETS mg::storage
-)
-
-add_unit_test(clearing_old_disk_data
-    SOURCES clearing_old_disk_data.cpp
-    LINK_TARGETS mg::storage
-)
-
 add_unit_test(storage_v2_edge_inmemory
     SOURCES storage_v2_edge_inmemory.cpp
-    LINK_TARGETS mg::storage
-)
-
-add_unit_test(storage_v2_edge_ondisk
-    SOURCES storage_v2_edge_ondisk.cpp
     LINK_TARGETS mg::storage
 )
 
@@ -623,11 +603,6 @@ add_unit_test(storage_v2_replication
 
 add_unit_test(storage_v2_isolation_level
     SOURCES storage_v2_isolation_level.cpp
-    LINK_TARGETS mg::storage
-)
-
-add_unit_test(storage_v2_show_storage_info
-    SOURCES storage_v2_show_storage_info.cpp
     LINK_TARGETS mg::storage
 )
 
