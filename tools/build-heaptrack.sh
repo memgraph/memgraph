@@ -36,6 +36,7 @@ cmake .. \
     -DCMAKE_INCLUDE_PATH="/usr/include" \
     -DLIBDW_LIBRARIES="/usr/lib/x86_64-linux-gnu/libdw.so" \
     -DLIBDW_INCLUDE_DIR="/usr/include" \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -Wno-dev
 
 # Build
