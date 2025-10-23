@@ -97,7 +97,7 @@ def run_tidy(task_queue, lock, timeout, exit_status, running_processes):
                 if proc is not None:
                     running_processes.remove(proc)
             task_queue.task_done()
-    print("exit_status: " + str(exit_status["status"]))
+
 
 def start_workers(max_tasks, tidy_caller, task_queue, lock, timeout, exit_status, running_processes):
     for _ in range(max_tasks):
