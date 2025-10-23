@@ -26,8 +26,6 @@ find_package(antlr4-runtime REQUIRED)
 find_package(antlr4 REQUIRED)
 find_package(cppitertools REQUIRED)
 find_package(range-v3 REQUIRED)
-find_package(Arrow REQUIRED)
-
 
 add_library(mg-query STATIC)
 target_sources(mg-query
@@ -121,7 +119,7 @@ target_link_libraries(mg-query
     cppitertools::cppitertools
     range-v3::range-v3
     Python3::Python
-    arrow::arrow
+    arrow
     mg-integrations-pulsar
     mg-integrations-kafka
     mg::storage
