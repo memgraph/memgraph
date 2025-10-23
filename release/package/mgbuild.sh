@@ -523,7 +523,7 @@ build_memgraph () {
 
   # hack for fedora on arm
   if [[ "$os" == "fedora-42-arm" ]]; then
-    docker exec -u mg "$build_container" bash -c "$CMD_START && export BUILD_TYPE=$build_type && MG_TOOLCHAIN_ROOT=/opt/toolchain-v7 && conan install --requires m4/1.4.19 --build=* -pr ./memgraph_template_profile"
+    docker exec -u mg "$build_container" bash -c "$CMD_START && export BUILD_TYPE=$build_type && MG_TOOLCHAIN_ROOT=/opt/toolchain-v7 conan install --requires m4/1.4.19 --build=* -pr ./memgraph_template_profile"
   fi
 
   # Install Conan dependencies
