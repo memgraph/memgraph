@@ -17,12 +17,13 @@
 namespace {
 struct symbol {
   friend bool operator==(const symbol &, const symbol &) = default;
+  int val = 42;
 };
 }  // namespace
 namespace std {
 template <>
 struct hash<symbol> {
-  size_t operator()(symbol const &value) const noexcept { return 1; }
+  size_t operator()(symbol const &value) const noexcept { return value.val; }
 };
 }  // namespace std
 
@@ -40,6 +41,7 @@ struct egraph::impl {
   impl() = default;
   impl(impl &&) = default;
   impl &operator=(impl &&) = default;
+  ~impl() = default;
   EGraph<symbol, analysis> egraph_;
 };
 
