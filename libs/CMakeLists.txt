@@ -397,11 +397,13 @@ set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
 
 macro(build_arrow)
   set(ARROW_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/arrow)
-  set(ARROW_LIBDIR "${ARROW_ROOT}/${CMAKE_INSTALL_LIBDIR}")
+  set(ARROW_LIBDIR "${ARROW_ROOT}/lib")
+
   add_external_project(arrow
     SOURCE_DIR ${ARROW_ROOT}/cpp
     CMAKE_ARGS
       -DCMAKE_INSTALL_PREFIX=${ARROW_ROOT}
+      -DCMAKE_INSTALL_LIBDIR=lib
       -DARROW_PARQUET=ON
       -DARROW_WITH_SNAPPY=ON
       -DARROW_FILESYSTEM=ON
@@ -411,10 +413,10 @@ macro(build_arrow)
       -DARROW_WITH_RE2=OFF
       -DARROW_WITH_UTF8PROC=OFF
       -DARROW_DEPENDENCY_SOURCE=BUNDLED
-      BUILD_BYPRODUCTS
-        "${ARROW_LIBDIR}/libarrow.a"
-        "${ARROW_LIBDIR}/libparquet.a"
-        "${ARROW_LIBDIR}/libarrow_bundled_dependencies.a"
+    BUILD_BYPRODUCTS
+      "${ARROW_LIBDIR}/libarrow.a"
+      "${ARROW_LIBDIR}/libparquet.a"
+      "${ARROW_LIBDIR}/libarrow_bundled_dependencies.a"
   )
 
   add_library(arrow INTERFACE IMPORTED GLOBAL)
