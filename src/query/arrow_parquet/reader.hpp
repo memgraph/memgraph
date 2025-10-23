@@ -11,8 +11,6 @@
 
 #pragma once
 
-#include "parquet/arrow/reader.h"
-
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/vector.hpp"
