@@ -417,7 +417,6 @@ macro(build_arrow)
       "${ARROW_LIBDIR}/libarrow.a" "${ARROW_LIBDIR}/libarrowd.a"
       "${ARROW_LIBDIR}/libparquet.a" "${ARROW_LIBDIR}/libparquetd.a"
       "${ARROW_LIBDIR}/libarrow_bundled_dependencies.a"
-      "${ARROW_LIBDIR}/libarrow_bundled_dependenciesd.a"
   )
 
   # handle debug build with `d` suffix
