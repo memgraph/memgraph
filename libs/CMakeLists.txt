@@ -412,13 +412,16 @@ macro(build_arrow)
       -DARROW_DEPENDENCY_SOURCE=BUNDLED
     BUILD_BYPRODUCTS
       ${ARROW_ROOT}/lib/libarrow.a
-      ${ARROW_ROOT}/lib/libparquet.a)
+      ${ARROW_ROOT}/lib/libparquet.a
+      ${ARROW_ROOT}/lib/libarrow_bundled_dependencies.a
+  )
 
-  add_library(arrow STATIC IMPORTED GLOBAL)
+  add_library(arrow INTERFACE IMPORTED GLOBAL)
   set_target_properties(arrow PROPERTIES
-          IMPORTED_LOCATION ${ARROW_ROOT}/lib/libarrow.a
-          INTERFACE_LINK_LIBRARIES "${ARROW_ROOT}/lib/libparquet.a;${ARROW_ROOT}/lib/libarrow_bundled_dependencies.a"
-          INTERFACE_INCLUDE_DIRECTORIES ${ARROW_ROOT}/include)
+          INTERFACE_INCLUDE_DIRECTORIES ${ARROW_ROOT}/include
+          INTERFACE_LINK_LIBRARIES "${ARROW_ROOT}/lib/libparquet.a;${ARROW_ROOT}/lib/libarrow.a;${ARROW_ROOT}/lib/libarrow_bundled_dependencies.a"
+  )
   add_dependencies(arrow arrow-proj)
+  file(MAKE_DIRECTORY ${ARROW_ROOT}/include)
 endmacro()
 build_arrow()
