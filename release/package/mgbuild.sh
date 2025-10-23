@@ -521,6 +521,11 @@ build_memgraph () {
   # Check if a conan profile exists and create one if needed
   docker exec -u mg "$build_container" bash -c "$CMD_START && if [ ! -f \"\$HOME/.conan2/profiles/default\" ]; then conan profile detect; fi"
 
+  # hack for fedora on arm
+  if [[ "$os" == "fedora-42-arm" ]]; then
+    docker exec -u mg "$build_container" bash -c "$CMD_START && MG_TOOLCHAIN_ROOT=/opt/toolchain-v7 conan install --requires m4/1.4.19 --build=* -pr ./memgraph_template_profile"
+  fi
+
   # Install Conan dependencies
   echo "Installing Conan dependencies..."
   local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version}"
