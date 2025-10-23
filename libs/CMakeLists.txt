@@ -414,16 +414,20 @@ macro(build_arrow)
       -DARROW_WITH_UTF8PROC=OFF
       -DARROW_DEPENDENCY_SOURCE=BUNDLED
     BUILD_BYPRODUCTS
-      "${ARROW_LIBDIR}/libarrow.a"
-      "${ARROW_LIBDIR}/libparquet.a"
+      "${ARROW_LIBDIR}/libarrow.a" "${ARROW_LIBDIR}/libarrowd.a"
+      "${ARROW_LIBDIR}/libparquet.a" "${ARROW_LIBDIR}/libparquetd.a"
       "${ARROW_LIBDIR}/libarrow_bundled_dependencies.a"
+      "${ARROW_LIBDIR}/libarrow_bundled_dependenciesd.a"
   )
+
+  # handle debug build with `d` suffix
+  set(_d "$<$<CONFIG:Debug>:d>")
+  set(_arrow_libs "${ARROW_LIBDIR}/libparquet${_d}.a;${ARROW_LIBDIR}/libarrow${_d}.a;${ARROW_LIBDIR}/libarrow_bundled_dependencies.a")
 
   add_library(arrow INTERFACE IMPORTED GLOBAL)
   set_target_properties(arrow PROPERTIES
-          INTERFACE_INCLUDE_DIRECTORIES "${ARROW_ROOT}/include"
-          INTERFACE_LINK_LIBRARIES
-          "${ARROW_LIBDIR}/libparquet.a;${ARROW_LIBDIR}/libarrow.a;${ARROW_LIBDIR}/libarrow_bundled_dependencies.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${ARROW_ROOT}/include"
+    INTERFACE_LINK_LIBRARIES "${_arrow_libs}"
   )
   add_dependencies(arrow arrow-proj)
   file(MAKE_DIRECTORY ${ARROW_ROOT}/include)
