@@ -56,7 +56,6 @@ class Symbol {
   bool user_declared() const { return user_declared_; }
   int64_t token_position() const { return token_position_; }
 
- private:
   std::string name_;
   Position_t position_;
   bool user_declared_{true};
