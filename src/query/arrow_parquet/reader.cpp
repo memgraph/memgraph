@@ -519,7 +519,6 @@ ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *res
 
   auto const duration =
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start);
-  spdlog::trace("Time spent on initializing parquet reader: {}ms", duration.count());
 }
 
 ParquetReader::~ParquetReader() = default;
