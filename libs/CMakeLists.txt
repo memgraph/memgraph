@@ -394,3 +394,31 @@ set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/fp16/include
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/stringzilla/include)
+
+macro(build_arrow)
+  set(ARROW_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/arrow)
+  add_external_project(arrow
+    SOURCE_DIR ${ARROW_ROOT}/cpp
+    CMAKE_ARGS
+      -DCMAKE_INSTALL_PREFIX=${ARROW_ROOT}
+      -DARROW_PARQUET=ON
+      -DARROW_WITH_SNAPPY=ON
+      -DARROW_FILESYSTEM=ON
+      -DARROW_BUILD_STATIC=ON
+      -DARROW_BUILD_SHARED=OFF
+      -DARROW_MIMALLOC=OFF
+      -DARROW_WITH_RE2=OFF
+      -DARROW_WITH_UTF8PROC=OFF
+      -DARROW_DEPENDENCY_SOURCE=BUNDLED
+    BUILD_BYPRODUCTS
+      ${ARROW_ROOT}/lib/libarrow.a
+      ${ARROW_ROOT}/lib/libparquet.a)
+
+  add_library(arrow STATIC IMPORTED GLOBAL)
+  set_target_properties(arrow PROPERTIES
+          IMPORTED_LOCATION ${ARROW_ROOT}/lib/libarrow.a
+          INTERFACE_LINK_LIBRARIES "${ARROW_ROOT}/lib/libparquet.a;${ARROW_ROOT}/lib/libarrow_bundled_dependencies.a"
+          INTERFACE_INCLUDE_DIRECTORIES ${ARROW_ROOT}/include)
+  add_dependencies(arrow arrow-proj)
+endmacro()
+build_arrow()

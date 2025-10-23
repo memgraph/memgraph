@@ -63,7 +63,7 @@ class Memgraph(ConanFile):
         self.requires("gtest/1.16.0")
         self.requires("spdlog/1.15.3")
         self.requires("strong_type/v15")
-        self.requires("boost/1.85.0")
+        self.requires("boost/1.86.0")
         self.requires("antlr4-cppruntime/4.13.2")
         self.requires("antlr4/4.13.1")
         self.requires("cppitertools/2.2")
@@ -74,11 +74,6 @@ class Memgraph(ConanFile):
         self.requires("asio/1.34.2")
         self.requires("openssl/3.5.1")
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
-        # 21.0.0 doesn't work because of rapidjson's bug in 1.1.0
-        self.requires(
-            "arrow/20.0.0",
-            options={"parquet": True, "with_snappy": True, "dataset_modules": True, "filesystem_layer": True},
-        )
 
     def package(self):
         cmake = CMake(self)
