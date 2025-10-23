@@ -305,13 +305,22 @@ std::vector<float> VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *
   return vector_property;
 }
 
-PropertyValue VectorIndex::GetProperty(Vertex *vertex, std::string_view index_name) const {
+PropertyValue VectorIndex::GetPropertyValue(Vertex *vertex, std::string_view index_name) const {
   auto it = pimpl->index_name_to_label_prop_.find(index_name);
   if (it == pimpl->index_name_to_label_prop_.end()) {
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
   auto &[mg_index, _] = pimpl->index_.at(it->second);
   return GetVectorAsPropertyValue(mg_index, vertex);
+}
+
+std::vector<float> VectorIndex::GetVectorProperty(Vertex *vertex, std::string_view index_name) const {
+  auto it = pimpl->index_name_to_label_prop_.find(index_name);
+  if (it == pimpl->index_name_to_label_prop_.end()) {
+    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
+  }
+  auto &[mg_index, _] = pimpl->index_.at(it->second);
+  return GetVector(mg_index, vertex);
 }
 
 std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {

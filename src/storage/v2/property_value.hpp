@@ -122,6 +122,9 @@ class PropertyValueImpl {
   explicit PropertyValueImpl(vector_index_id_t const &vector_index_ids, std::vector<float> const &vector,
                              allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, vector_index_id_v{.vector_index_ids_ = vector_index_ids, .vector_ = vector} {}
+  explicit PropertyValueImpl(vector_index_id_t const &vector_index_ids, std::vector<float> &&vector,
+                             allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, vector_index_id_v{.vector_index_ids_ = vector_index_ids, .vector_ = std::move(vector)} {}
   explicit PropertyValueImpl(vector_index_id_t &&vector_index_ids, std::vector<float> &&vector,
                              allocator_type const &alloc = allocator_type{})
       : alloc_{alloc},

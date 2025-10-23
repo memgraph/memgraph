@@ -119,7 +119,13 @@ class VectorIndex {
   /// @param vertex The vertex to retrieve the vector from.
   /// @param index_name The name of the index to retrieve the vector from.
   /// @return The vector of the vertex as a PropertyValue.
-  PropertyValue GetProperty(Vertex *vertex, std::string_view index_name) const;
+  PropertyValue GetPropertyValue(Vertex *vertex, std::string_view index_name) const;
+
+  /// @brief Retrieves the vector of a vertex as a list of float values.
+  /// @param vertex The vertex to retrieve the vector from.
+  /// @param index_name The name of the index to retrieve the vector from.
+  /// @return The vector of the vertex as a list of float values.
+  std::vector<float> GetVectorProperty(Vertex *vertex, std::string_view index_name) const;
 
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.

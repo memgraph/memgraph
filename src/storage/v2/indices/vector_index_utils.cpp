@@ -206,11 +206,27 @@ PropertyValue GetVectorAsPropertyValue(const std::shared_ptr<utils::Synchronized
   return PropertyValue(std::move(double_values));
 }
 
+template <typename IndexType, typename KeyType>
+std::vector<float> GetVector(const std::shared_ptr<utils::Synchronized<IndexType, std::shared_mutex>> &index,
+                             KeyType key) {
+  auto locked_index = index->ReadLock();
+  const auto dimension = locked_index->dimensions();
+  std::vector<unum::usearch::f32_t> vector(dimension);
+  const auto retrieved_count = locked_index->get(key, vector.data(), 1);
+  if (retrieved_count == 0) {
+    return {};
+  }
+  return vector;
+}
+
 using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
 // using mg_vector_edge_index_t = unum::usearch::index_dense_gt<VectorEdgeIndex::EdgeIndexEntry,
 // unum::usearch::uint40_t>;
 
 template PropertyValue GetVectorAsPropertyValue<mg_vector_index_t, Vertex *>(
+    const std::shared_ptr<utils::Synchronized<mg_vector_index_t, std::shared_mutex>> &index, Vertex *key);
+
+template std::vector<float> GetVector<mg_vector_index_t, Vertex *>(
     const std::shared_ptr<utils::Synchronized<mg_vector_index_t, std::shared_mutex>> &index, Vertex *key);
 // template PropertyValue GetVectorAsPropertyValue<mg_vector_edge_index_t, VectorEdgeIndex::EdgeIndexEntry>(const
 // std::shared_ptr<utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>> &index,

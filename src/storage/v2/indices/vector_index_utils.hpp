@@ -99,4 +99,14 @@ template <typename IndexType, typename KeyType>
 PropertyValue GetVectorAsPropertyValue(const std::shared_ptr<utils::Synchronized<IndexType, std::shared_mutex>> &index,
                                        KeyType key);
 
+/// @brief Retrieves a vector from a USearch index using the get method and returns it as a list of float values.
+/// @tparam IndexType The type of the USearch index (e.g., mg_vector_index_t or mg_vector_edge_index_t).
+/// @tparam KeyType The type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
+/// @param index The USearch index to retrieve the vector from.
+/// @param key The key to look up in the index.
+/// @return A list of float values representing the vector.
+/// @throws query::VectorSearchException if the key is not found in the index or if retrieval fails.
+template <typename IndexType, typename KeyType>
+std::vector<float> GetVector(const std::shared_ptr<utils::Synchronized<IndexType, std::shared_mutex>> &index,
+                             KeyType key);
 }  // namespace memgraph::storage

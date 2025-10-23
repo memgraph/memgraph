@@ -249,7 +249,8 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
       for (auto property_id : vertex_properties) {
         if (auto index_name = properties.find(property_id); index_name != properties.end()) {
           auto old_vertex_property_value = vertex->properties.GetProperty(property_id);
-          auto old_vector_property_value = storage_->indices_.vector_index_.GetProperty(vertex, index_name->second);
+          auto old_vector_property_value =
+              storage_->indices_.vector_index_.GetPropertyValue(vertex, index_name->second);
           storage_->indices_.vector_index_.UpdateIndex(PropertyValue(), vertex, index_name->second);
           vertex->properties.SetProperty(property_id, old_vector_property_value);
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property_id, old_vertex_property_value);
@@ -394,7 +395,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   auto const set_property_impl = [this, transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
                                   skip_duplicate_write, &schema_acc]() {
     if (new_value.IsVectorIndexId()) {
-      old_value = storage_->indices_.vector_index_.GetProperty(
+      old_value = storage_->indices_.vector_index_.GetPropertyValue(
           vertex, storage_->name_id_mapper_->IdToName(new_value.ValueVectorIndexIds().front()));
       if (skip_duplicate_write && old_value == new_value) {
         return true;
@@ -628,7 +629,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
 
     auto prop_value = vertex_->properties.GetProperty(property);
     if (prop_value.IsVectorIndexId()) [[unlikely]] {
-      value = storage_->indices_.vector_index_.GetProperty(
+      value = storage_->indices_.vector_index_.GetPropertyValue(
           vertex_, storage_->name_id_mapper_->IdToName(prop_value.ValueVectorIndexIds().front()));
       is_in_vector_index = true;
     } else {
