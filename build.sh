@@ -1,12 +1,64 @@
 #!/bin/bash
 set -euo pipefail
 
+# Help function
+show_help() {
+    cat << EOF
+Usage: ./build.sh [OPTIONS] [CMAKE_ARGS...]
+
+Build script for Memgraph using Conan 2 and CMake.
+
+OPTIONS:
+    --build-type TYPE       Build type: Release, RelWithDebInfo, or Debug (default: Release)
+    --target TARGET         Specific CMake target to build (default: all targets)
+    --skip-init             Skip running ./init to fetch non-Conan dependencies
+    --skip-os-deps          Skip OS dependency checks
+    --keep-build            Keep existing build directory for incremental builds
+    --config-only           Only configure CMake, don't build
+    --dev                   Developer mode: enables --skip-init --skip-os-deps --keep-build
+    --help                  Show this help message
+
+ENVIRONMENT VARIABLES:
+    VENV_DIR                Path to Python virtual environment (default: env)
+
+CMAKE_ARGS:
+    Any additional arguments are passed directly to CMake configuration.
+    Common examples:
+        -DASAN=ON               Enable Address Sanitizer
+        -DUBSAN=ON              Enable Undefined Behavior Sanitizer
+        -DCMAKE_CXX_FLAGS=...   Additional compiler flags
+
+EXAMPLES:
+    # Standard release build
+    ./build.sh
+
+    # Fast developer rebuild (incremental)
+    ./build.sh --dev
+
+    # Debug build with sanitizers
+    ./build.sh --build-type Debug -DASAN=ON -DUBSAN=ON
+
+    # Build specific target
+    ./build.sh --target memgraph
+
+    # Configure only, don't build
+    ./build.sh --config-only
+
+    # Keep build directory for faster rebuilds
+    ./build.sh --keep-build --skip-os-deps
+
+EOF
+    exit 0
+}
+
 # Default values
 BUILD_TYPE="Release"
 TARGET=""
 CMAKE_ARGS=""
 skip_init=false
 config_only=false
+keep_build=false
+skip_os_deps=false
 VENV_DIR="${VENV_DIR:-env}"
 
 # Parse command line arguments
@@ -28,6 +80,24 @@ while [[ $# -gt 0 ]]; do
             config_only=true
             shift
             ;;
+        --keep-build)
+            keep_build=true
+            shift
+            ;;
+        --skip-os-deps)
+            skip_os_deps=true
+            shift
+            ;;
+        --dev)
+            # Developer mode: skip init, os deps checks, and keep build directory
+            skip_init=true
+            skip_os_deps=true
+            keep_build=true
+            shift
+            ;;
+        --help|-h)
+            show_help
+            ;;
         *)
             # Capture any other arguments to pass to cmake
             CMAKE_ARGS="$CMAKE_ARGS $1"
@@ -43,26 +113,40 @@ if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" && "$BUILD
 fi
 
 # delete existing build directory
-if [ -d "build" ]; then
-    echo "Deleting existing build directory"
-    rm -rf build
+if [ "$keep_build" = false ]; then
+    if [ -d "build" ]; then
+        echo "Deleting existing build directory"
+        rm -rf build
+    fi
+else
+    echo "Keeping existing build directory"
 fi
 
 # run check for operating system dependencies
-if ! ./environment/os/install_deps.sh check TOOLCHAIN_RUN_DEPS; then
-    echo "Error: Dependency check failed for TOOLCHAIN_RUN_DEPS"
-    exit 1
-fi
-if ! ./environment/os/install_deps.sh check MEMGRAPH_BUILD_DEPS; then
-    echo "Error: Dependency check failed for MEMGRAPH_BUILD_DEPS"
-    exit 1
+if [ "$skip_os_deps" = false ]; then
+    if ! ./environment/os/install_deps.sh check TOOLCHAIN_RUN_DEPS; then
+        echo "Error: Dependency check failed for TOOLCHAIN_RUN_DEPS"
+        exit 1
+    fi
+    if ! ./environment/os/install_deps.sh check MEMGRAPH_BUILD_DEPS; then
+        echo "Error: Dependency check failed for MEMGRAPH_BUILD_DEPS"
+        exit 1
+    fi
+else
+    echo "Skipping OS dependency checks"
 fi
 
-echo "Creating virtual environment and installing conan"
-python3 -m venv "$VENV_DIR"
-source "$VENV_DIR/bin/activate"
-trap 'deactivate 2>/dev/null' EXIT ERR
-pip install conan
+if [[ -f "$VENV_DIR/bin/activate" ]]; then
+    echo "Using existing virtual environment at $VENV_DIR"
+    source "$VENV_DIR/bin/activate"
+    trap 'deactivate 2>/dev/null' EXIT ERR
+else
+    echo "Creating virtual environment and installing conan"
+    python3 -m venv "$VENV_DIR"
+    source "$VENV_DIR/bin/activate"
+    trap 'deactivate 2>/dev/null' EXIT ERR
+    pip install conan
+fi
 
 # check if a conan profile exists
 if [ ! -f "$HOME/.conan2/profiles/default" ]; then
@@ -75,24 +159,36 @@ if [ "$skip_init" = false ]; then
     ./init
 fi
 
+# Function to check if a CMake boolean variable is enabled
+# Handles various CMake boolean formats: ON, TRUE, YES, 1 (case insensitive)
+# Supports both -DVAR=VALUE and -D VAR=VALUE formats
+cmake_var_enabled() {
+    local var_name="$1"
+    local args="$2"
+    # Match patterns like -DVAR=ON, -D VAR=ON, -DVAR:BOOL=TRUE, etc.
+    # Accepts ON, TRUE, YES, 1 as true values (case insensitive)
+    if [[ "$args" =~ -D[[:space:]]*${var_name}([[:space:]]*:[[:alnum:]]+)?[[:space:]]*=[[:space:]]*(ON|TRUE|YES|1) ]]; then
+        return 0
+    fi
+    return 1
+}
+
 # Use the new combined profile template
 PROFILE_TEMPLATE="./memgraph_template_profile"
+
+# Build sanitizer list from CMAKE_ARGS
 MG_SANITIZERS=""
+declare -A sanitizer_map=(
+    ["ASAN"]="address"
+    ["UBSAN"]="undefined"
+    ["TSAN"]="thread"
+)
 
-# Check if DASAN=ON is in CMAKE_ARGS
-if [[ "$CMAKE_ARGS" == *"DASAN=ON"* ]]; then
-    MG_SANITIZERS="address"
-fi
-
-# Check if DUBSAN=ON is in CMAKE_ARGS
-if [[ "$CMAKE_ARGS" == *"DUBSAN=ON"* ]]; then
-    if [[ -n "$MG_SANITIZERS" ]]; then
-        # If we already have address sanitizer, add undefined to the list
-        MG_SANITIZERS="address,undefined"
-    else
-        MG_SANITIZERS="undefined"
+for cmake_var in "${!sanitizer_map[@]}"; do
+    if cmake_var_enabled "$cmake_var" "$CMAKE_ARGS"; then
+        MG_SANITIZERS="${MG_SANITIZERS:+$MG_SANITIZERS,}${sanitizer_map[$cmake_var]}"
     fi
-fi
+done
 
 echo "Using profile template: $PROFILE_TEMPLATE"
 if [[ -n "$MG_SANITIZERS" ]]; then
@@ -103,38 +199,27 @@ else
 fi
 
 # install conan dependencies
-export MG_TOOLCHAIN_ROOT="/opt/toolchain-v7"
-conan install . --build=missing -pr "$PROFILE_TEMPLATE" -s build_type="$BUILD_TYPE"
+MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install \
+  . \
+  --build=missing \
+  -pr "$PROFILE_TEMPLATE" \
+  -s build_type="$BUILD_TYPE"
 source build/generators/conanbuild.sh
 
 # Determine preset name based on build type (Conan generates this automatically)
-if [[ "$BUILD_TYPE" == "Release" ]]; then
-    PRESET="conan-release"
-elif [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
-    PRESET="conan-relwithdebinfo"
-elif [[ "$BUILD_TYPE" == "Debug" ]]; then
-    PRESET="conan-debug"
-else
-    echo "Error: Unsupported build type: $BUILD_TYPE"
-    exit 1
-fi
+# Convert to lowercase for preset name: Release -> conan-release
+PRESET="conan-$(echo "$BUILD_TYPE" | tr '[:upper:]' '[:lower:]')"
 
 # Configure cmake with additional arguments
-if [[ -n "$CMAKE_ARGS" ]]; then
-    # If we have additional CMake arguments, we need to configure manually with Conan toolchain
-    cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=build/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE $CMAKE_ARGS
-else
-    # Use preset if no additional arguments
-    cmake --preset $PRESET
-fi
+cmake --preset $PRESET $CMAKE_ARGS
 
 if [[ "$config_only" = true ]]; then
     exit 0
 fi
 
 # Build command with optional target
-if [[ -n "$TARGET" ]]; then
-    cmake --build build --preset $PRESET --target $TARGET -j $(nproc)
-else
-    cmake --build build --preset $PRESET -j $(nproc)
-fi
+cmake \
+  --build build \
+  --preset $PRESET \
+  ${TARGET:+--target $TARGET} \
+  -j $(nproc)
