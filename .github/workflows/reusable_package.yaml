@@ -152,7 +152,7 @@ jobs:
         if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
         run: |
           ./release/package/mgbuild.sh \
-          --toolchain ${{ inputs.toolchain }} \
+          --toolchain $TOOLCHAIN \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
           build-heaptrack
@@ -162,7 +162,7 @@ jobs:
         run: |
           mkdir -p release/docker
           ./release/package/mgbuild.sh \
-          --toolchain ${{ inputs.toolchain }} \
+          --toolchain $TOOLCHAIN \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
           copy-heaptrack \
