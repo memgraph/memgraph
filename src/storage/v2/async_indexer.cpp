@@ -15,6 +15,8 @@
 #include "storage/v2/storage.hpp"
 #include "utils/variant_helpers.hpp"
 
+import memgraph.utils.fnv;
+
 namespace memgraph::storage {
 
 AsyncIndexer::~AsyncIndexer() { cv_.notify_all(); }
