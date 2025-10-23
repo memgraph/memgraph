@@ -119,6 +119,73 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
     Transaction *transaction_;
   };
 
+  class ChunkedIterable {
+   public:
+    ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
+                    utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
+                    utils::SkipList<Edge>::ConstAccessor edge_accessor, PropertyId property,
+                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+                    Transaction *transaction, size_t num_chunks);
+
+    class Iterator {
+     public:
+      Iterator(ChunkedIterable *self, utils::SkipList<Entry>::ChunkedIterator index_iterator)
+          : self_(self),
+            index_iterator_(index_iterator),
+            current_edge_accessor_(EdgeRef{nullptr}, EdgeTypeId{}, nullptr, nullptr, self_->storage_,
+                                   self_->transaction_) {
+        AdvanceUntilValid();
+      }
+
+      EdgeAccessor const &operator*() const { return current_edge_accessor_; }
+      bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+      bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
+
+      Iterator &operator++() {
+        ++index_iterator_;
+        AdvanceUntilValid();
+        return *this;
+      }
+
+     private:
+      void AdvanceUntilValid();
+
+      ChunkedIterable *self_;
+      utils::SkipList<Entry>::ChunkedIterator index_iterator_;
+      EdgeAccessor current_edge_accessor_;
+      Edge *current_edge_{nullptr};
+    };
+
+    class Chunk {
+      Iterator begin_;
+      Iterator end_;
+
+     public:
+      Chunk(ChunkedIterable *self, utils::SkipList<Entry>::Chunk &chunk)
+          : begin_{self, chunk.begin()}, end_{self, chunk.end()} {}
+
+      Iterator begin() { return begin_; }
+      Iterator end() { return end_; }
+    };
+
+    Chunk get_chunk(size_t id) { return {this, chunks_[id]}; }
+    size_t size() const { return chunks_.size(); }
+
+   private:
+    utils::SkipList<Edge>::ConstAccessor pin_accessor_edge_;
+    utils::SkipList<Vertex>::ConstAccessor pin_accessor_vertex_;
+    utils::SkipList<Entry>::Accessor index_accessor_;
+    PropertyId property_;
+    std::optional<utils::Bound<PropertyValue>> lower_bound_;
+    std::optional<utils::Bound<PropertyValue>> upper_bound_;
+    bool bounds_valid_{true};
+    View view_;
+    Storage *storage_;
+    Transaction *transaction_;
+    utils::SkipList<Entry>::ChunkCollection chunks_;
+  };
+
   struct ActiveIndices : EdgePropertyIndex::ActiveIndices {
     explicit ActiveIndices(std::shared_ptr<IndicesContainer const> indices = std::make_shared<IndicesContainer>())
         : index_container_{std::move(indices)} {}
@@ -143,6 +210,12 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                    Transaction *transaction);
 
+    ChunkedIterable ChunkedEdges(PropertyId property, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
+                                 utils::SkipList<Edge>::ConstAccessor edge_accessor,
+                                 const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                 const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
+                                 Storage *storage, Transaction *transaction, size_t num_chunks);
+
     auto GetAbortProcessor() const -> AbortProcessor override;
     void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
 
@@ -159,8 +232,8 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   bool RegisterIndex(PropertyId property);
   auto PopulateIndex(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
-                     Transaction const *tx = nullptr,
-                     CheckCancelFunction cancel_check = neverCancel) -> utils::BasicResult<IndexPopulateError>;
+                     Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
+      -> utils::BasicResult<IndexPopulateError>;
   bool PublishIndex(PropertyId property, uint64_t commit_timestamp);
 
   /// Returns false if there was no index to drop

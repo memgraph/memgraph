@@ -367,6 +367,22 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(Edge
           transaction};
 }
 
+InMemoryEdgeTypeIndex::ChunkedIterable InMemoryEdgeTypeIndex::ActiveIndices::ChunkedEdges(
+    EdgeTypeId edge_type, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
+    utils::SkipList<Edge>::ConstAccessor edge_accessor, View view, Storage *storage, Transaction *transaction,
+    size_t num_chunks) {
+  const auto it = index_container_->indices_.find(edge_type);
+  MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
+  return {it->second->skip_list_.access(),
+          std::move(vertex_accessor),
+          std::move(edge_accessor),
+          edge_type,
+          view,
+          storage,
+          transaction,
+          num_chunks};
+}
+
 EdgeTypeIndex::AbortProcessor InMemoryEdgeTypeIndex::ActiveIndices::GetAbortProcessor() const {
   auto edge_type_filter = index_container_->indices_ | std::views::keys | ranges::to_vector;
   return AbortProcessor{edge_type_filter};
@@ -393,6 +409,66 @@ void InMemoryEdgeTypeIndex::CleanupAllIndices() {
       indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
     }
   });
+}
+
+InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
+                                                        utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
+                                                        utils::SkipList<Edge>::ConstAccessor edge_accessor,
+                                                        EdgeTypeId edge_type, View view, Storage *storage,
+                                                        Transaction *transaction, size_t num_chunks)
+    : pin_accessor_edge_(std::move(edge_accessor)),
+      pin_accessor_vertex_(std::move(vertex_accessor)),
+      index_accessor_(std::move(index_accessor)),
+      edge_type_(edge_type),
+      view_(view),
+      storage_(storage),
+      transaction_(transaction),
+      chunks_{index_accessor_.create_chunks(num_chunks)} {
+  // Index can have duplicate edge entries, we need to make sure each unique edge is inside a single chunk.
+  // Chunks are divided at the skiplist level, we need to move each adjacent chunk's start/end to valid entries
+  for (int i = 1; i < chunks_.size(); ++i) {
+    // Special case where whole chunk is invalid
+    auto &chunk = chunks_[i];
+    auto begin = chunk.begin();
+    auto end = chunk.end();
+    auto null = utils::SkipList<Entry>::ChunkedIterator{};
+    if (begin != null && end != null && begin->edge == end->edge) [[unlikely]] {
+      auto &prev_chunk = chunks_[i - 1];
+      prev_chunk = utils::SkipList<Entry>::Chunk{prev_chunk.begin(), end};
+      chunks_.erase(chunks_.begin() + i);
+      --i;
+      continue;
+    }
+    // Since skiplist has only forward links, we cannot check if the previous edge is the same as the current one.
+    // We need to iterate through the chunk to find the first valid edge.
+    Edge *prev_e = begin->edge;
+    while (begin != end) {
+      if (prev_e != begin->edge) break;
+      prev_e = begin->edge;
+      ++begin;
+    }
+    // Update
+    auto &prev = chunks_[i - 1];
+    prev = utils::SkipList<Entry>::Chunk{prev.begin(), begin};
+    chunk = utils::SkipList<Entry>::Chunk{begin, end};
+  }
+}
+
+void InMemoryEdgeTypeIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
+  while (index_iterator_ != utils::SkipList<Entry>::ChunkedIterator{}) {
+    current_edge_ = index_iterator_->edge;
+    auto edge_ref = EdgeRef(current_edge_);
+    auto accessor =
+        EdgeAccessor{edge_ref,        self_->edge_type_,  index_iterator_->from_vertex, index_iterator_->to_vertex,
+                     self_->storage_, self_->transaction_};
+    if (accessor.IsVisible(self_->view_)) {
+      current_edge_accessor_ = accessor;
+      return;
+    }
+    ++index_iterator_;
+  }
+  current_edge_accessor_ =
+      EdgeAccessor{EdgeRef{nullptr}, EdgeTypeId{}, nullptr, nullptr, self_->storage_, self_->transaction_};
 }
 
 }  // namespace memgraph::storage
