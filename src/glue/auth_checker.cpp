@@ -89,7 +89,7 @@ bool IsAuthorizedEdgeType(const memgraph::auth::UserOrRole &user_or_role, const 
     return true;
   }
 
-  const auto edge_type_name = dba->EdgeTypeToName(edgeType);
+  auto const &edge_type_name = dba->EdgeTypeToName(edgeType);
   return std::visit(memgraph::utils::Overloaded{[&](auto &user_or_role) {
                       return user_or_role.GetFineGrainedAccessEdgeTypePermissions().Has(
                                  std::span{&edge_type_name, 1},

@@ -568,7 +568,7 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
 
       auto matching_mode = MatchingMode::ANY;
       if (rule_json.contains("matching_mode") && rule_json["matching_mode"].is_string()) {
-        std::string mode_str = rule_json["matching_mode"].get<std::string>();
+        std::string const mode_str = rule_json["matching_mode"].get<std::string>();
         if (mode_str == "EXACTLY") {
           matching_mode = MatchingMode::EXACTLY;
         }

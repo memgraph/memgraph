@@ -207,8 +207,8 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
       permission_description = fmt::format("{0} PERMISSION {1} TO {2}", permission_type, level_str, user_or_role);
     }
 
-    fine_grained_permissions.push_back(
-        FineGrainedPermissionForPrivilegeResult{entity_name, permission_bitmask, permission_description});
+    fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
+        .permission = entity_name, .permission_level = permission_bitmask, .description = permission_description});
   };
 
   // Handle global grants
@@ -873,7 +873,7 @@ void AuthQueryHandler::GrantPrivilege(
           if (entities.size() == 1 && entities[0] == "*") {
             fine_grained_permissions.GrantGlobal(permission);
           } else {
-            std::unordered_set<std::string> entity_set(entities.begin(), entities.end());
+            std::unordered_set<std::string> const entity_set(entities.begin(), entities.end());
             auto mode = (matching_mode == memgraph::query::AuthQuery::LabelMatchingMode::EXACTLY)
                             ? memgraph::auth::MatchingMode::EXACTLY
                             : memgraph::auth::MatchingMode::ANY;
