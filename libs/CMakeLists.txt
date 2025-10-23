@@ -397,6 +397,7 @@ set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
 
 macro(build_arrow)
   set(ARROW_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/arrow)
+  set(ARROW_LIBDIR "${ARROW_ROOT}/${CMAKE_INSTALL_LIBDIR}")
   add_external_project(arrow
     SOURCE_DIR ${ARROW_ROOT}/cpp
     CMAKE_ARGS
@@ -410,16 +411,17 @@ macro(build_arrow)
       -DARROW_WITH_RE2=OFF
       -DARROW_WITH_UTF8PROC=OFF
       -DARROW_DEPENDENCY_SOURCE=BUNDLED
-    BUILD_BYPRODUCTS
-      ${ARROW_ROOT}/lib/libarrow.a
-      ${ARROW_ROOT}/lib/libparquet.a
-      ${ARROW_ROOT}/lib/libarrow_bundled_dependencies.a
+      BUILD_BYPRODUCTS
+        "${ARROW_LIBDIR}/libarrow.a"
+        "${ARROW_LIBDIR}/libparquet.a"
+        "${ARROW_LIBDIR}/libarrow_bundled_dependencies.a"
   )
 
   add_library(arrow INTERFACE IMPORTED GLOBAL)
   set_target_properties(arrow PROPERTIES
-          INTERFACE_INCLUDE_DIRECTORIES ${ARROW_ROOT}/include
-          INTERFACE_LINK_LIBRARIES "${ARROW_ROOT}/lib/libparquet.a;${ARROW_ROOT}/lib/libarrow.a;${ARROW_ROOT}/lib/libarrow_bundled_dependencies.a"
+          INTERFACE_INCLUDE_DIRECTORIES "${ARROW_ROOT}/include"
+          INTERFACE_LINK_LIBRARIES
+          "${ARROW_LIBDIR}/libparquet.a;${ARROW_LIBDIR}/libarrow.a;${ARROW_LIBDIR}/libarrow_bundled_dependencies.a"
   )
   add_dependencies(arrow arrow-proj)
   file(MAKE_DIRECTORY ${ARROW_ROOT}/include)
