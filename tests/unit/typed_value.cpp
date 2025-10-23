@@ -503,9 +503,13 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
   // Duration
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::Duration(1)));
   // Date
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(1)) + TypedValue(memgraph::utils::Duration(1)));
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::Date(1)));
-  EXPECT_THROW(TypedValue(memgraph::utils::Date(1)) + TypedValue(memgraph::utils::Date(1)), TypedValueException);
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})) +
+                  TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) +
+                  TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})));
+  EXPECT_THROW(TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})) +
+                   TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})),
+               TypedValueException);
   // LocalTime
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalTime(1)) + TypedValue(memgraph::utils::Duration(1)));
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::LocalTime(1)));
@@ -551,9 +555,13 @@ TYPED_TEST(TypedValueArithmeticTest, Difference) {
   // Duration
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::Duration(1)));
   // Date
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(1)) - TypedValue(memgraph::utils::Duration(1)));
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(1)) - TypedValue(memgraph::utils::Date(1)));
-  EXPECT_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::Date(1)), TypedValueException);
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})) -
+                  TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})) -
+                  TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})));
+  EXPECT_THROW(
+      TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})),
+      TypedValueException);
   // LocalTime
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalTime(1)) - TypedValue(memgraph::utils::Duration(1)));
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalTime(1)) - TypedValue(memgraph::utils::LocalTime(1)));

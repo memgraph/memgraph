@@ -301,7 +301,7 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Foreach & /*unused*/) override;
   bool PreVisit(CallProcedure & /*unused*/) override;
   bool PreVisit(LoadCsv & /*unused*/) override;
-  bool PreVisit(LoadParquet &) override;
+  bool PreVisit(LoadParquet & /*unused*/) override;
   bool PreVisit(RollUpApply & /*unused*/) override;
   bool PreVisit(PeriodicCommit & /*unused*/) override;
   bool PreVisit(PeriodicSubquery & /*unused*/) override;
