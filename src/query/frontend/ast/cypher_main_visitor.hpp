@@ -731,6 +731,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return std::vector<std::string>
    */
+  antlrcpp::Any visitEdgeTypeEntitiesList(MemgraphCypher::EdgeTypeEntitiesListContext *ctx) override;
+
+  /**
+   * @return std::vector<std::string>
+   */
   antlrcpp::Any visitEdgeTypeEntity(MemgraphCypher::EdgeTypeEntityContext *ctx) override;
 
   /**

@@ -515,10 +515,12 @@ entityPrivilege : granularPrivilege ON entityTypeSpec ;
 
 entityTypeSpec
     : NODES CONTAINING LABELS labelEntities=labelEntitiesList matchingClause?
-    | EDGES CONTAINING TYPES edgeType=edgeTypeEntity
+    | EDGES CONTAINING TYPES edgeTypes=edgeTypeEntitiesList
     ;
 
 labelEntitiesList : ASTERISK | listOfColonSymbolicNames ;
+
+edgeTypeEntitiesList : ASTERISK | listOfColonSymbolicNames ;
 
 edgeTypeEntity : ASTERISK | colonSymbolicName ;
 
