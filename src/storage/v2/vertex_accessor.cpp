@@ -166,7 +166,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
           auto vector_index_id = PropertyValue({storage_->name_id_mapper_->NameToId(index_name->second)}, vec);
           vertex->properties.SetProperty(property_id, vector_index_id);
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property_id, old_property_value);
-          CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property_id, PropertyValue());
+          auto restore_property_value = PropertyValue(vector_index_id.ValueVectorIndexIds(), std::vector<float>());
+          CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property_id, restore_property_value);
         }
       }
     }
@@ -254,6 +255,9 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
           storage_->indices_.vector_index_.UpdateIndex(PropertyValue(), vertex, index_name->second);
           vertex->properties.SetProperty(property_id, old_vector_property_value);
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property_id, old_vertex_property_value);
+          // TODO: this is not correct probably?
+          auto restore_property_value =
+              PropertyValue(old_vector_property_value.ValueVectorIndexIds(), std::vector<float>());
           CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property_id,
                              old_vector_property_value);
         }
@@ -400,12 +404,10 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
       if (skip_duplicate_write && old_value == new_value) {
         return true;
       }
-      CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, old_value);
-      if (new_value.ValueVectorIndexList().empty()) {
-        vertex->properties.SetProperty(property, PropertyValue());
-      } else {
-        vertex->properties.SetProperty(property, new_value);
-      }
+      CreateAndLinkDelta(
+          transaction, vertex, Delta::SetVectorPropertyTag(), property,
+          old_value.IsNull() ? PropertyValue(new_value.ValueVectorIndexIds(), std::vector<float>()) : old_value);
+      vertex->properties.SetProperty(property, new_value);
     } else {
       old_value = vertex->properties.GetProperty(property);
       if (skip_duplicate_write && old_value == new_value) {
@@ -475,7 +477,8 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
       if (new_value.IsVectorIndexId()) {
         // Vector index doesn't have transactional guarantees, so we don't need to retrieve the old value, we just need
         // delta for durability
-        CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, PropertyValue());
+        auto old_value = PropertyValue(new_value.ValueVectorIndexIds(), std::vector<float>());
+        CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, old_value);
       } else {
         CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
       }
@@ -540,7 +543,9 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
       if (skip_duplicate_update && old_value == new_value) continue;
       if (new_value.IsVectorIndexId()) {
-        CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), id, new_value);
+        CreateAndLinkDelta(
+            transaction, vertex, Delta::SetVectorPropertyTag(), id,
+            old_value.IsNull() ? PropertyValue(new_value.ValueVectorIndexIds(), std::vector<float>()) : old_value);
       } else {
         CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
       }

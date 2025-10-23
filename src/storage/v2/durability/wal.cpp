@@ -1428,9 +1428,11 @@ std::optional<RecoveryInfo> LoadWal(
         const auto unum_metric_kind = MetricFromName(data.metric_kind);
         const auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
                                                   : unum::usearch::scalar_kind_t::f32_k;
-        indices->vector_index_.CreateIndex(VectorIndexSpec{data.index_name, label_id, property_id, unum_metric_kind,
-                                                           data.dimension, data.resize_coefficient, data.capacity,
-                                                           scalar_kind});
+        auto vertices_acc = vertices->access();
+        indices->vector_index_.CreateIndex(
+            VectorIndexSpec{data.index_name, label_id, property_id, unum_metric_kind, data.dimension,
+                            data.resize_coefficient, data.capacity, scalar_kind},
+            vertices_acc);
       },
       [&](WalVectorEdgeIndexCreate const &data) {
         const auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
@@ -1442,8 +1444,9 @@ std::optional<RecoveryInfo> LoadWal(
             data.capacity, scalar_kind);
       },
       [&](WalVectorIndexDrop const &data) {
-        if (!indices->vector_index_.DropIndex(data.index_name)) {
-          // TODO(@DavIvek): delete from edge index...
+        auto vertices_acc = vertices->access();
+        if (!indices->vector_index_.DropIndex(data.index_name, vertices_acc)) {
+          // TODO: drop from vector edge index if it exists
         }
       },
       [&](WalTtlOperation const &data) {

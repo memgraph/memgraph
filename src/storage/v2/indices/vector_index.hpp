@@ -92,12 +92,10 @@ class VectorIndex {
   bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-  void CreateIndex(const VectorIndexSpec &spec);
-
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
   /// @return true if the index was dropped successfully, false otherwise.
-  bool DropIndex(std::string_view index_name);
+  bool DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices);
 
   /// @brief Drops all existing indexes.
   void Clear();
@@ -148,17 +146,6 @@ class VectorIndex {
   /// @return A vector of tuples containing the vertex, distance, and similarity of the search results.
   VectorSearchNodeResults SearchNodes(std::string_view index_name, uint64_t result_set_size,
                                       const std::vector<float> &query_vector) const;
-
-  /// @brief Aborts the entries that were inserted in the specified transaction.
-  /// @param label_prop The label of the vertices to be removed.
-  /// @param vertices The vertices to be removed.
-  void AbortEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices);
-
-  /// @brief Restores the entries that were removed in the specified transaction.
-  /// @param label_prop The label and property of the vertices to be restored.
-  /// @param prop_vertices The vertices to be restored.
-  void RestoreEntries(const LabelPropKey &label_prop,
-                      std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices);
 
   /// @brief Removes obsolete entries from the index.
   /// @param token A stop token to allow for cancellation of the operation.

@@ -1033,7 +1033,22 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalVertexSetVectorProperty const &data) {
-          // TODO: implement replication for vertex set vector property
+          auto const gid = data.gid.AsUint();
+          spdlog::trace("   Delta {}. Vertex {} set vector property", current_delta_idx, gid);
+          // NOLINTNEXTLINE
+          auto *transaction = get_replication_accessor(delta_timestamp);
+          // NOLINTNEXTLINE
+          auto vertex = transaction->FindVertex(data.gid, View::NEW);
+          if (!vertex) {
+            throw utils::BasicException("Failed to find vertex {} when setting vector property.", gid);
+          }
+          auto ret =
+              vertex->SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
+          if (ret.HasError()) {
+            throw utils::BasicException("Failed to set vector property on vertex {}.", gid);
+          }
+          storage->indices_.vector_index_.UpdateOnSetProperty(ToPropertyValue(data.value, mapper), &*vertex->vertex_,
+                                                              mapper);
         },
         [&](WalEdgeCreate const &data) {
           auto const edge_gid = data.gid.AsUint();
