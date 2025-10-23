@@ -407,6 +407,36 @@ PermissionLevel FineGrainedAccessPermissions::Has(std::span<const std::string> s
     }
   }
 
+  for (const auto &rule : rules_) {
+    if (rule.matching_mode == MatchingMode::EXACTLY) {
+      if (rule.symbols.size() != symbols.size()) {
+        continue;
+      }
+
+      bool all_match = true;
+      for (const auto &symbol : symbols) {
+        if (!rule.symbols.contains(symbol)) {
+          all_match = false;
+          break;
+        }
+      }
+
+      if (all_match) {
+        return PermissionLevel::DENY;
+      }
+    }
+  }
+
+  for (const auto &rule : rules_) {
+    if (rule.matching_mode == MatchingMode::ANY) {
+      for (const auto &symbol : symbols) {
+        if (rule.symbols.contains(symbol)) {
+          return PermissionLevel::DENY;
+        }
+      }
+    }
+  }
+
   return HasGlobal(fine_grained_permission);
 }
 

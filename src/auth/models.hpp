@@ -268,7 +268,7 @@ class FineGrainedAccessPermissions final {
   void GrantGlobal(FineGrainedPermission fine_grained_permission);
 
   void Revoke(const std::unordered_set<std::string> &symbols, FineGrainedPermission fine_grained_permission,
-              MatchingMode matching_mode);
+              MatchingMode matching_mode = MatchingMode::ANY);
 
   void RevokeGlobal(FineGrainedPermission fine_grained_permission);
 
