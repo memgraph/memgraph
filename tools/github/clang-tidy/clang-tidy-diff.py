@@ -79,13 +79,14 @@ def run_tidy(task_queue, lock, timeout, exit_status, running_processes):
                     sys.stderr.write(stderr.decode("utf-8") + "\n")
                     sys.stderr.flush()
                 if return_code != 0:
+                    sys.stdout.write(f"{os.path.abspath(__file__)}: error: clang-tidy crashed with return_code: {return_code}\n")
                     exit_status["status"] = 1
                     for p in running_processes:
                         if p != proc:
                             p.terminate()
         except Exception as e:
             with lock:
-                sys.stderr.write("Failed: " + str(e) + ": ".join(command) + "\n")
+                sys.stdout.write(f"{os.path.abspath(__file__)}: error: Failed: {e}: {' '.join(command)}\n")
                 exit_status["status"] = 1
         finally:
             with lock:
