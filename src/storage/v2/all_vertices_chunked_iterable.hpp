@@ -29,16 +29,20 @@ class AllVerticesChunkedIterable final {
 
  public:
   class Iterator final {
-    AllVerticesChunkedIterable *self_;
-    std::optional<VertexAccessor> *cache_;
+    AllVerticesChunkedIterable *self_{nullptr};
+    std::optional<VertexAccessor> *cache_{nullptr};
     utils::SkipList<Vertex>::ChunkedIterator it_;
 
    public:
     Iterator(AllVerticesChunkedIterable *self, std::optional<VertexAccessor> *cache,
-             utils::SkipList<Vertex>::ChunkedIterator it);
+             utils::SkipList<Vertex>::Chunk &chunk);
+    explicit Iterator(utils::SkipList<Vertex>::ChunkedIterator end);
+
     VertexAccessor const &operator*() const;
     Iterator &operator++();
-    explicit operator bool() const { return bool(it_); }
+
+    bool operator==(const Iterator &other) const { return it_ == other.it_; }
+    bool operator!=(const Iterator &other) const { return it_ != other.it_; }
   };
 
   AllVerticesChunkedIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, size_t num_chunks, Storage *storage,
@@ -50,7 +54,19 @@ class AllVerticesChunkedIterable final {
         chunks_{vertices_accessor_.create_chunks(num_chunks)},
         chunk_cache_(chunks_.size(), std::nullopt) {}
 
-  Iterator get_iterator(size_t id) { return {this, &chunk_cache_[id], chunks_[id]}; }
+  class Chunk {
+    Iterator begin_;
+    Iterator end_;
+
+   public:
+    Chunk(AllVerticesChunkedIterable *self, std::optional<VertexAccessor> *cache, utils::SkipList<Vertex>::Chunk &chunk)
+        : begin_{self, cache, chunk}, end_{chunk.end()} {}
+
+    Iterator begin() { return begin_; }
+    Iterator end() { return end_; }
+  };
+
+  Chunk get_chunk(size_t id) { return {this, &chunk_cache_[id], chunks_[id]}; }
   size_t size() const { return chunks_.size(); }
 };
 

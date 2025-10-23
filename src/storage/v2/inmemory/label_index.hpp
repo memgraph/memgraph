@@ -110,14 +110,14 @@ class InMemoryLabelIndex : public LabelIndex {
 
     class Iterator {
      public:
-      Iterator(ChunkedIterable *self, std::optional<VertexAccessor> *cache,
-               utils::SkipList<Entry>::ChunkedIterator index_iterator)
-          : self_(self), cache_(cache), index_iterator_(index_iterator) {
+      Iterator(ChunkedIterable *self, utils::SkipList<Entry>::ChunkedIterator index_iterator)
+          : self_(self), index_iterator_(index_iterator), current_vertex_accessor_(nullptr, self_->storage_, nullptr) {
         AdvanceUntilValid();
       }
 
-      VertexAccessor const &operator*() const { return cache_->value(); }
-      explicit operator bool() const { return bool(index_iterator_); }
+      VertexAccessor const &operator*() const { return current_vertex_accessor_; }
+      bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+      bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
 
       Iterator &operator++() {
         ++index_iterator_;
@@ -129,12 +129,24 @@ class InMemoryLabelIndex : public LabelIndex {
       void AdvanceUntilValid();
 
       ChunkedIterable *self_;
-      std::optional<VertexAccessor> *cache_;
       utils::SkipList<Entry>::ChunkedIterator index_iterator_;
+      VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_{nullptr};
     };
 
-    Iterator get_iterator(size_t id) { return Iterator(this, &chunk_cache_[id], chunks_[id]); }
+    class Chunk {
+      Iterator begin_;
+      Iterator end_;
+
+     public:
+      Chunk(ChunkedIterable *self, utils::SkipList<Entry>::Chunk &chunk)
+          : begin_{self, chunk.begin()}, end_{self, chunk.end()} {}
+
+      Iterator begin() { return begin_; }
+      Iterator end() { return end_; }
+    };
+
+    Chunk get_chunk(size_t id) { return {this, chunks_[id]}; }
     size_t size() const { return chunks_.size(); }
 
    private:
@@ -145,7 +157,6 @@ class InMemoryLabelIndex : public LabelIndex {
     Storage *storage_;
     Transaction *transaction_;
     utils::SkipList<Entry>::ChunkCollection chunks_;
-    std::vector<std::optional<VertexAccessor>> chunk_cache_;
   };
 
   struct ActiveIndices : LabelIndex::ActiveIndices {

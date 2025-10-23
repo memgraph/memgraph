@@ -101,7 +101,8 @@ TEST_F(SkipListChunkIteratorStorageTest, AllVerticesChunkIteratorBasic) {
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      for (auto it = vertices.get_iterator(i); it; ++it) {
+      auto chunk = vertices.get_chunk(i);
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         gids.push_back((*it).Gid());
       }
@@ -163,11 +164,10 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelIndexChunkIteratorBasic) {
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.get_iterator(i);
-      while (it) {
+      auto chunk = vertices.get_chunk(i);
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         gids.push_back((*it).Gid());
-        ++it;
       }
       ASSERT_GT(local_count, 0);
       ASSERT_LT(local_count, 67 / 4 * 2);
@@ -247,11 +247,10 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelIndexChunkIteratorMultipleEntries)
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.get_iterator(i);
-      while (it) {
+      auto chunk = vertices.get_chunk(i);
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         gids.push_back((*it).Gid());
-        ++it;
       }
       ASSERT_GT(local_count, 0);
       ASSERT_LT(local_count, 67 / 4 * 2);
@@ -336,11 +335,10 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelIndexChunkIteratorDynamic) {
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.get_iterator(i);
-      while (it) {
+      auto chunk = vertices.get_chunk(i);
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         gids.push_back((*it).Gid());
-        ++it;
       }
       ASSERT_GT(local_count, 0);
       ASSERT_LT(local_count, 67 / 4 * 2);
@@ -420,11 +418,10 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelIndexChunkIteratorManyEntries) {
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.get_iterator(i);
-      while (it) {
+      auto chunk = vertices.get_chunk(i);
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         gids.push_back((*it).Gid());
-        ++it;
       }
       // NOTE: We don't assert on the count here because we don't know how many same vertices are in the chunk.
       // ASSERT_GT(local_count, 0);
@@ -460,7 +457,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelIndexChunkIteratorEdgeCases) {
     auto acc = storage_->Access();
     auto vertices = acc->ChunkedVertices(label_id_, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 1);
-    ASSERT_FALSE(vertices.get_iterator(0));
+    auto chunk = vertices.get_chunk(0);
+    ASSERT_TRUE(chunk.begin() == chunk.end());
   }
 
   // Non existing label (Cannot be tested because we just assert at the index level)
@@ -501,10 +499,9 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelIndexChunkIteratorEdgeCases) {
     for (size_t i = 0; i < vertices.size(); ++i) {
       threads.emplace_back([&vertices, i, &read_gids]() {
         std::vector<Gid> gids;
-        auto it = vertices.get_iterator(i);
-        while (it) {
+        auto chunk = vertices.get_chunk(i);
+        for (auto it = chunk.begin(); it != chunk.end(); ++it) {
           gids.push_back((*it).Gid());
-          ++it;
         }
         auto locked_gids = read_gids.Lock();
         locked_gids->insert(locked_gids->end(), std::make_move_iterator(gids.begin()),
@@ -540,10 +537,9 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelIndexChunkIteratorEdgeCases) {
     for (size_t i = 0; i < vertices.size(); ++i) {
       threads.emplace_back([&vertices, i, &read_gids]() {
         std::vector<Gid> gids;
-        auto it = vertices.get_iterator(i);
-        while (it) {
+        auto chunk = vertices.get_chunk(i);
+        for (auto it = chunk.begin(); it != chunk.end(); ++it) {
           gids.push_back((*it).Gid());
-          ++it;
         }
         auto locked_gids = read_gids.Lock();
         locked_gids->insert(locked_gids->end(), std::make_move_iterator(gids.begin()),
@@ -579,10 +575,9 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelIndexChunkIteratorEdgeCases) {
     for (size_t i = 0; i < vertices.size(); ++i) {
       threads.emplace_back([&vertices, i, &read_gids]() {
         std::vector<Gid> gids;
-        auto it = vertices.get_iterator(i);
-        while (it) {
+        auto chunk = vertices.get_chunk(i);
+        for (auto it = chunk.begin(); it != chunk.end(); ++it) {
           gids.push_back((*it).Gid());
-          ++it;
         }
         auto locked_gids = read_gids.Lock();
         locked_gids->insert(locked_gids->end(), std::make_move_iterator(gids.begin()),
@@ -642,11 +637,10 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasic) {
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.get_iterator(i);
-      while (it) {
+      auto chunk = vertices.get_chunk(i);
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         gids.push_back((*it).Gid());
-        ++it;
       }
       ASSERT_GT(local_count, 0);
       ASSERT_LT(local_count, 67 / 4 * 2);
@@ -729,11 +723,10 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorMultiple
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.get_iterator(i);
-      while (it) {
+      auto chunk = vertices.get_chunk(i);
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         gids.push_back((*it).Gid());
-        ++it;
       }
       ASSERT_GT(local_count, 0);
       ASSERT_LT(local_count, 67 / 4 * 2);
@@ -822,11 +815,10 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorDynamic)
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.get_iterator(i);
-      while (it) {
+      auto chunk = vertices.get_chunk(i);
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         gids.push_back((*it).Gid());
-        ++it;
       }
       ASSERT_GT(local_count, 0);
       ASSERT_LT(local_count, 67 / 4 * 2);
@@ -909,11 +901,10 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorManyEntr
     threads.emplace_back([&vertices, i, &total_count, &read_gids]() {
       std::vector<Gid> gids;
       int local_count = 0;
-      auto it = vertices.get_iterator(i);
-      while (it) {
+      auto chunk = vertices.get_chunk(i);
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         gids.push_back((*it).Gid());
-        ++it;
       }
       // NOTE: We don't assert on the count here because we don't know how many same vertices are in the chunk.
       // ASSERT_GT(local_count, 0);
@@ -951,7 +942,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorEdgeCase
     std::vector<PropertyValueRange> property_ranges = {};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 1);
-    ASSERT_FALSE(vertices.get_iterator(0));
+    auto chunk = vertices.get_chunk(0);
+    ASSERT_TRUE(chunk.begin() == chunk.end());
   }
 
   // Non existing label (Cannot be tested because we just assert at the index level)
@@ -998,10 +990,9 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorEdgeCase
     for (size_t i = 0; i < vertices.size(); ++i) {
       threads.emplace_back([&vertices, i, &read_gids]() {
         std::vector<Gid> gids;
-        auto it = vertices.get_iterator(i);
-        while (it) {
+        auto chunk = vertices.get_chunk(i);
+        for (auto it = chunk.begin(); it != chunk.end(); ++it) {
           gids.push_back((*it).Gid());
-          ++it;
         }
         auto locked_gids = read_gids.Lock();
         locked_gids->insert(locked_gids->end(), std::make_move_iterator(gids.begin()),
@@ -1049,10 +1040,9 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorEdgeCase
     for (size_t i = 0; i < vertices.size(); ++i) {
       threads.emplace_back([&vertices, i, &read_gids]() {
         std::vector<Gid> gids;
-        auto it = vertices.get_iterator(i);
-        while (it) {
+        auto chunk = vertices.get_chunk(i);
+        for (auto it = chunk.begin(); it != chunk.end(); ++it) {
           gids.push_back((*it).Gid());
-          ++it;
         }
         auto locked_gids = read_gids.Lock();
         locked_gids->insert(locked_gids->end(), std::make_move_iterator(gids.begin()),
@@ -1100,10 +1090,9 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorEdgeCase
     for (size_t i = 0; i < vertices.size(); ++i) {
       threads.emplace_back([&vertices, i, &read_gids]() {
         std::vector<Gid> gids;
-        auto it = vertices.get_iterator(i);
-        while (it) {
+        auto chunk = vertices.get_chunk(i);
+        for (auto it = chunk.begin(); it != chunk.end(); ++it) {
           gids.push_back((*it).Gid());
-          ++it;
         }
         auto locked_gids = read_gids.Lock();
         locked_gids->insert(locked_gids->end(), std::make_move_iterator(gids.begin()),
@@ -1149,10 +1138,11 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRan
         PropertyValueRange::Bounded(memgraph::utils::MakeBoundExclusive(PropertyValue(131)), std::nullopt)};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_GT(vertices.size(), 0);
-    ASSERT_EQ((*vertices.get_iterator(0)).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
-    auto it = vertices.get_iterator(vertices.size() - 1);
+    auto first_chunk = vertices.get_chunk(0);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    auto last_chunk = vertices.get_chunk(vertices.size() - 1);
     PropertyValue last_pv;
-    for (; it; ++it) {
+    for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
       last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
@@ -1164,10 +1154,11 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRan
         PropertyValueRange::Bounded(memgraph::utils::MakeBoundExclusive(PropertyValue(132)), std::nullopt)};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_GT(vertices.size(), 0);
-    ASSERT_EQ((*vertices.get_iterator(0)).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 135);
-    auto it = vertices.get_iterator(vertices.size() - 1);
+    auto first_chunk = vertices.get_chunk(0);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 135);
+    auto last_chunk = vertices.get_chunk(vertices.size() - 1);
     PropertyValue last_pv;
-    for (; it; ++it) {
+    for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
       last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
@@ -1179,10 +1170,11 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRan
         PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(132)), std::nullopt)};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_GT(vertices.size(), 0);
-    ASSERT_EQ((*vertices.get_iterator(0)).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
-    auto it = vertices.get_iterator(vertices.size() - 1);
+    auto first_chunk = vertices.get_chunk(0);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    auto last_chunk = vertices.get_chunk(vertices.size() - 1);
     PropertyValue last_pv;
-    for (; it; ++it) {
+    for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
       last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
@@ -1194,10 +1186,11 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRan
         PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(-1)), std::nullopt)};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 4);
-    ASSERT_EQ((*vertices.get_iterator(0)).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
-    auto it = vertices.get_iterator(vertices.size() - 1);
+    auto first_chunk = vertices.get_chunk(0);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
+    auto last_chunk = vertices.get_chunk(vertices.size() - 1);
     PropertyValue last_pv;
-    for (; it; ++it) {
+    for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
       last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
@@ -1209,7 +1202,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRan
         PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(210)), std::nullopt)};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 1);
-    ASSERT_FALSE(vertices.get_iterator(0));
+    auto chunk = vertices.get_chunk(0);
+    ASSERT_TRUE(chunk.begin() == chunk.end());
   }
 
   // Checking upper bound
@@ -1220,10 +1214,11 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRan
         PropertyValueRange::Bounded(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(143)))};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 4);
-    ASSERT_EQ((*vertices.get_iterator(0)).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
-    auto it = vertices.get_iterator(vertices.size() - 1);
+    auto first_chunk = vertices.get_chunk(0);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
+    auto last_chunk = vertices.get_chunk(vertices.size() - 1);
     PropertyValue last_pv;
-    for (; it; ++it) {
+    for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
       last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
     }
     ASSERT_EQ(last_pv.ValueInt(), 141);
@@ -1235,9 +1230,9 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRan
         PropertyValueRange::Bounded(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(141)))};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_GT(vertices.size(), 0);
-    auto it = vertices.get_iterator(vertices.size() - 1);
+    auto last_chunk = vertices.get_chunk(vertices.size() - 1);
     PropertyValue last_pv;
-    for (; it; ++it) {
+    for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
       last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
     }
     ASSERT_EQ(last_pv.ValueInt(), 138);
@@ -1249,9 +1244,9 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRan
         PropertyValueRange::Bounded(std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(141)))};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_GT(vertices.size(), 0);
-    auto it = vertices.get_iterator(vertices.size() - 1);
+    auto last_chunk = vertices.get_chunk(vertices.size() - 1);
     PropertyValue last_pv;
-    for (; it; ++it) {
+    for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
       last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
     }
     ASSERT_EQ(last_pv.ValueInt(), 141);
@@ -1263,10 +1258,11 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRan
         PropertyValueRange::Bounded(std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(210)))};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 4);
-    ASSERT_EQ((*vertices.get_iterator(0)).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
-    auto it = vertices.get_iterator(vertices.size() - 1);
+    auto first_chunk = vertices.get_chunk(0);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
+    auto last_chunk = vertices.get_chunk(vertices.size() - 1);
     PropertyValue last_pv;
-    for (; it; ++it) {
+    for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
       last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
@@ -1278,7 +1274,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRan
         PropertyValueRange::Bounded(std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(-10)))};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 1);
-    ASSERT_FALSE(vertices.get_iterator(0));
+    auto chunk = vertices.get_chunk(0);
+    ASSERT_TRUE(chunk.begin() == chunk.end());
   }
 
   // Test chunking for labeled vertices with property range
@@ -1300,14 +1297,13 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRan
     threads.emplace_back([&vertices, i, &total_count, &read_props, this]() {
       std::vector<PropertyValue> props;
       int local_count = 0;
-      auto it = vertices.get_iterator(i);
-      while (it) {
+      auto chunk = vertices.get_chunk(i);
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         const auto prop = (*it).GetProperty(property_id_, View::OLD);
         ASSERT_TRUE(prop.HasValue());
         ASSERT_TRUE(prop->IsInt());
         props.push_back(prop.GetValue());
-        ++it;
       }
       ASSERT_GT(local_count, 0);
       ASSERT_LT(local_count, 50 / 4 * 2);
@@ -1340,7 +1336,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRan
                                     memgraph::utils::MakeBoundInclusive(PropertyValue(130)))};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 1);
-    ASSERT_FALSE(vertices.get_iterator(0));
+    auto chunk = vertices.get_chunk(0);
+    ASSERT_TRUE(chunk.begin() == chunk.end());
   }
   {
     // Exact match
@@ -1351,11 +1348,12 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRan
                                     memgraph::utils::MakeBoundInclusive(PropertyValue(132)))};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 1);
-    auto it = vertices.get_iterator(0);
-    ASSERT_TRUE(it);
+    auto chunk = vertices.get_chunk(0);
+    auto it = chunk.begin();
+    ASSERT_TRUE(it != chunk.end());
     ASSERT_EQ((*it).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
     ++it;
-    ASSERT_FALSE(it);
+    ASSERT_TRUE(it == chunk.end());
   }
   {
     // Missed match
@@ -1366,7 +1364,8 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRan
                                     memgraph::utils::MakeBoundExclusive(PropertyValue(132)))};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 1);
-    ASSERT_FALSE(vertices.get_iterator(0));
+    auto chunk = vertices.get_chunk(0);
+    ASSERT_TRUE(chunk.begin() == chunk.end());
   }
   {
     // One match
@@ -1377,11 +1376,12 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRan
                                     memgraph::utils::MakeBoundInclusive(PropertyValue(133)))};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 1);
-    auto it = vertices.get_iterator(0);
-    ASSERT_TRUE(it);
+    auto chunk = vertices.get_chunk(0);
+    auto it = chunk.begin();
+    ASSERT_TRUE(it != chunk.end());
     ASSERT_EQ((*it).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
     ++it;
-    ASSERT_FALSE(it);
+    ASSERT_TRUE(it == chunk.end());
   }
   {
     // Upper bound lower than lower bound
@@ -1392,6 +1392,7 @@ TEST_F(SkipListChunkIteratorStorageTest, LabelPropertyIndexChunkIteratorBasicRan
                                     memgraph::utils::MakeBoundInclusive(PropertyValue(120)))};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 1);
-    ASSERT_FALSE(vertices.get_iterator(0));
+    auto chunk = vertices.get_chunk(0);
+    ASSERT_TRUE(chunk.begin() == chunk.end());
   }
 }

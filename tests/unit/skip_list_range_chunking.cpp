@@ -45,7 +45,8 @@ TEST(SkipListRangeChunking, BasicRangeChunking) {
     threads.emplace_back([&chunks, i, &collected_elements]() {
       int local_count = 0;
       std::vector<int> local_elements;
-      for (auto it = chunks[i]; it; ++it) {
+      auto chunk = chunks[i];
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         local_elements.push_back(*it);
         // Verify element is within range
@@ -97,7 +98,8 @@ TEST(SkipListRangeChunking, LowerRangeChunking) {
     threads.emplace_back([&chunks, i, &collected_elements]() {
       int local_count = 0;
       std::vector<int> local_elements;
-      for (auto it = chunks[i]; it; ++it) {
+      auto chunk = chunks[i];
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         local_elements.push_back(*it);
         // Verify element is within range
@@ -149,7 +151,8 @@ TEST(SkipListRangeChunking, UpperRangeChunking) {
     threads.emplace_back([&chunks, i, &collected_elements]() {
       int local_count = 0;
       std::vector<int> local_elements;
-      for (auto it = chunks[i]; it; ++it) {
+      auto chunk = chunks[i];
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         local_elements.push_back(*it);
         // Verify element is within range
@@ -199,8 +202,8 @@ TEST(SkipListRangeChunking, EdgeCases) {
   ASSERT_GT(empty_chunks.size(), 0);
 
   int empty_count = 0;
-  for (const auto &chunk : empty_chunks) {
-    for (auto it = chunk; it; ++it) {
+  for (auto &chunk : empty_chunks) {
+    for (auto it = chunk.begin(); it != chunk.end(); ++it) {
       std::cout << "val: " << *it << std::endl;
       empty_count++;
     }
@@ -212,8 +215,8 @@ TEST(SkipListRangeChunking, EdgeCases) {
   ASSERT_GT(single_chunks.size(), 0);
 
   int single_count = 0;
-  for (const auto &chunk : single_chunks) {
-    for (auto it = chunk; it; ++it) {
+  for (auto &chunk : single_chunks) {
+    for (auto it = chunk.begin(); it != chunk.end(); ++it) {
       single_count++;
       ASSERT_EQ(*it, 50);
     }
@@ -225,8 +228,8 @@ TEST(SkipListRangeChunking, EdgeCases) {
   ASSERT_GT(no_elements_chunks.size(), 0);
 
   int no_elements_count = 0;
-  for (const auto &chunk : no_elements_chunks) {
-    for (auto it = chunk; it; ++it) {
+  for (auto &chunk : no_elements_chunks) {
+    for (auto it = chunk.begin(); it != chunk.end(); ++it) {
       std::cout << "val: " << *it << std::endl;
       no_elements_count++;
     }
@@ -238,8 +241,8 @@ TEST(SkipListRangeChunking, EdgeCases) {
   ASSERT_GT(beginning_chunks.size(), 0);
 
   int beginning_count = 0;
-  for (const auto &chunk : beginning_chunks) {
-    for (auto it = chunk; it; ++it) {
+  for (auto &chunk : beginning_chunks) {
+    for (auto it = chunk.begin(); it != chunk.end(); ++it) {
       beginning_count++;
       ASSERT_GE(*it, 0);
       ASSERT_LE(*it, 10);
@@ -252,8 +255,8 @@ TEST(SkipListRangeChunking, EdgeCases) {
   ASSERT_GT(end_chunks.size(), 0);
 
   int end_count = 0;
-  for (const auto &chunk : end_chunks) {
-    for (auto it = chunk; it; ++it) {
+  for (auto &chunk : end_chunks) {
+    for (auto it = chunk.begin(); it != chunk.end(); ++it) {
       end_count++;
       ASSERT_GE(*it, 90);
       ASSERT_LE(*it, 99);
@@ -266,8 +269,8 @@ TEST(SkipListRangeChunking, EdgeCases) {
   ASSERT_GT(end_out_of_range.size(), 0);
 
   int out_of_range_count = 0;
-  for (const auto &chunk : end_out_of_range) {
-    for (auto it = chunk; it; ++it) {
+  for (auto &chunk : end_out_of_range) {
+    for (auto it = chunk.begin(); it != chunk.end(); ++it) {
       out_of_range_count++;
       ASSERT_GE(*it, 90);
       ASSERT_LE(*it, 99);
@@ -301,7 +304,8 @@ TEST(SkipListRangeChunking, BigDatasetRangeChunking) {
     threads.emplace_back([&chunks, i, &collected_elements, &total_processed]() {
       int local_count = 0;
       std::vector<int> local_elements;
-      for (auto it = chunks[i]; it; ++it) {
+      auto chunk = chunks[i];
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         local_elements.push_back(*it);
         // Verify element is within range
@@ -356,7 +360,8 @@ TEST(SkipListRangeChunking, BigDatasetLowerBoundOnly) {
     threads.emplace_back([&chunks, i, &collected_elements, &total_processed]() {
       int local_count = 0;
       std::vector<int> local_elements;
-      for (auto it = chunks[i]; it; ++it) {
+      auto chunk = chunks[i];
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         local_elements.push_back(*it);
         // Verify element is >= lower bound
@@ -412,7 +417,8 @@ TEST(SkipListRangeChunking, BigDatasetUpperBoundOnly) {
     threads.emplace_back([&chunks, i, &collected_elements, &total_processed]() {
       int local_count = 0;
       std::vector<int> local_elements;
-      for (auto it = chunks[i]; it; ++it) {
+      auto chunk = chunks[i];
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         local_elements.push_back(*it);
         // Verify element is <= upper bound
@@ -488,7 +494,8 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentOperations) {
   for (size_t i = 0; i < chunks.size(); ++i) {
     processing_threads.emplace_back([&chunks, i, &total_processed]() {
       int local_count = 0;
-      for (auto it = chunks[i]; it; ++it) {
+      auto chunk = chunks[i];
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         // Verify element is within the specified range
         ASSERT_GE(*it, 10000);
@@ -613,8 +620,8 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentDeletionsAndInsertions) {
     processing_threads.emplace_back([&chunks, i, &total_processed, &collected_elements]() {
       int local_count = 0;
       std::vector<int> local_elements;
-      auto &chunk = chunks[i];
-      for (auto it = chunk; it; ++it) {
+      auto chunk = chunks[i];
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         local_elements.push_back(*it);
         // Verify element is within the specified range

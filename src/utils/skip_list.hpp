@@ -707,7 +707,7 @@ class SkipList final : detail::SkipListNode_base {
    private:
     friend class SkipList;
 
-    ChunkedIterator(TNode *node, TNode *node_end) : node_(node), node_end_(node_end) {}  // Chunked version
+    ChunkedIterator(TNode *node) : node_(node) {}
 
    public:
     using value_type = TObj;
@@ -721,22 +721,14 @@ class SkipList final : detail::SkipListNode_base {
 
     // Chunked version needs to use the order of nodes to avoid skipping nodes that are marked or not fully linked.
     ChunkedIterator &operator++() {
-      if (!valid_) {
+      if (node_ == nullptr) {
         return *this;  // Already at end
       }
 
       TNode *next = node_->nexts[0].load(std::memory_order_acquire);
       while (true) {
-        if (
-            // At the end of the skiplist
-            next == nullptr ||
-            // At the end of the chunk
-            next == node_end_ ||
-            // Went past the end of the chunk
-            (node_end_ && node_end_->obj < next->obj)) [[unlikely]] {
-          // Do not advance the iterator, but return the current node
-          node_ = next;
-          valid_ = false;
+        if (next == nullptr) [[unlikely]] {
+          node_ = nullptr;
           return *this;
         }
 
@@ -757,18 +749,34 @@ class SkipList final : detail::SkipListNode_base {
       return old;
     }
 
-    // Since the end is part of the iterator, no need to check for equality
-    explicit operator bool() const { return node_ && valid_; }
+    bool operator==(const ChunkedIterator &other) const { return node_ == other.node_; }
+    // More complex because the end node can be removed from the skiplist, we check the order and stop if past end node
+    bool operator!=(const ChunkedIterator &other) const {
+      if (!node_) return false;       // end of skiplist (stop)
+      if (!other.node_) return true;  // continue till the end of the skiplist
+      return node_ != other.node_ &&
+             (node_->obj < other.node_->obj);  // run until we hit the other node OR our node is greater than the other
+    }
 
-    //  private:
-    bool valid_{true};
+   private:
     TNode *node_{nullptr};
-    TNode *node_end_{nullptr};  // End node is needed, because the end node could become marked and skipped otherwise
+  };
+
+  class Chunk {
+    ChunkedIterator begin_;
+    ChunkedIterator end_;
+
+   public:
+    Chunk(TNode *begin, TNode *end) : begin_{begin}, end_{end} {}
+    Chunk(ChunkedIterator begin, ChunkedIterator end) : begin_{begin}, end_{end} {}
+
+    ChunkedIterator begin() { return begin_; }
+    ChunkedIterator end() { return end_; }
   };
 
   /// Collection of chunks for parallel processing.
   /// Provides access to all chunks and allows iteration over them.
-  using ChunkCollection = std::vector<ChunkedIterator>;
+  using ChunkCollection = std::vector<Chunk>;
 
   class SamplingIterator final {
    private:
@@ -1644,7 +1652,7 @@ class SkipList final : detail::SkipListNode_base {
   ChunkCollection create_chunks(size_t num_chunks) const {
     if (head_ == nullptr) {
       // Return one empty chunk for empty list
-      return ChunkCollection{std::vector<ChunkedIterator>{ChunkedIterator{nullptr, nullptr}}};
+      return {{Chunk{nullptr, nullptr}}};
     }
 
     std::array<TNode *, kSkipListMaxHeight> start{};
@@ -1661,12 +1669,12 @@ class SkipList final : detail::SkipListNode_base {
                                 const std::optional<TKey> &upper_bound) const {
     if (head_ == nullptr) {
       // Return one empty chunk for empty list
-      return ChunkCollection{std::vector<ChunkedIterator>{ChunkedIterator{nullptr, nullptr}}};
+      return {{Chunk{nullptr, nullptr}}};
     }
 
     if (lower_bound && upper_bound && lower_bound.value() > upper_bound.value()) {
       // Invalid range
-      return ChunkCollection{std::vector<ChunkedIterator>{ChunkedIterator{nullptr, nullptr}}};
+      return {{Chunk{nullptr, nullptr}}};
     }
 
     std::array<TNode *, kSkipListMaxHeight> preds{};
@@ -1678,7 +1686,7 @@ class SkipList final : detail::SkipListNode_base {
       auto found_layer = find_node<GCPolicy::DoNotRun>(lower_bound.value(), preds, start);
       // Lower bound not found
       if (found_layer == -1 && start[0] == nullptr) {
-        return ChunkCollection{std::vector<ChunkedIterator>{ChunkedIterator{nullptr, nullptr}}};
+        return {{Chunk{nullptr, nullptr}}};
       }
     } else {
       for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
@@ -1743,7 +1751,7 @@ class SkipList final : detail::SkipListNode_base {
 
     if (cached_layer_nodes.empty()) {
       // If there are no max-height elements, return the complete list as one chunk
-      return ChunkCollection{std::vector<ChunkedIterator>{ChunkedIterator{start[0], end[0]}}};
+      return {{Chunk{start[0], end[0]}}};
     }
 
     // If we have fewer max-height elements than chunks, adjust
@@ -1752,7 +1760,7 @@ class SkipList final : detail::SkipListNode_base {
       num_chunks = cached_layer_nodes.size();
     }
 
-    std::vector<ChunkedIterator> chunks(num_chunks, ChunkedIterator{nullptr, nullptr});
+    std::vector<Chunk> chunks(num_chunks, Chunk{nullptr, nullptr});
 
     uint64_t elements_per_chunk = cached_layer_nodes.size() / num_chunks;
     uint64_t remainder = cached_layer_nodes.size() % num_chunks;
@@ -1767,7 +1775,7 @@ class SkipList final : detail::SkipListNode_base {
       if (end_pos < cached_layer_nodes.size()) {
         range_end = cached_layer_nodes[end_pos];
       }
-      chunks[i] = ChunkedIterator{current_start, range_end};
+      chunks[i] = Chunk{current_start, range_end};
       current_start = range_end;
     }
 

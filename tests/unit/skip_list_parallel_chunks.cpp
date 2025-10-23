@@ -64,7 +64,8 @@ TEST(SkipListParallelChunks, BasicCompleteCoverage) {
   for (size_t i = 0; i < chunks.size(); ++i) {
     threads.emplace_back([&chunks, i, &total_processed]() {
       int local_count = 0;
-      for (auto it = chunks[i]; it; ++it) {
+      auto chunk = chunks[i];
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         (void)*it;  // Suppress unused variable warning
       }
@@ -114,7 +115,8 @@ TEST(SkipListParallelChunks, PerformanceComparison) {
     threads.emplace_back([&chunks, i, &total_processed, &processing_duration]() {
       int local_count = 0;
       auto start_time = std::chrono::high_resolution_clock::now();
-      for (auto it = chunks[i]; it; ++it) {
+      auto chunk = chunks[i];
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         (void)*it;  // Suppress unused variable warning
       }
@@ -210,7 +212,8 @@ TEST(SkipListParallelChunks, ConcurrentOperations) {
   for (size_t i = 0; i < chunks.size(); ++i) {
     processing_threads.emplace_back([&chunks, i, &total_processed]() {
       int local_count = 0;
-      for (auto it = chunks[i]; it; ++it) {
+      auto chunk = chunks[i];
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         (void)*it;  // Suppress unused variable warning
         if (local_count % 1000 == 0) {
@@ -324,7 +327,7 @@ TEST(SkipListParallelChunks, StressTest) {
 
       while (!stop_operations.load(std::memory_order_acquire)) {
         auto iterator = thread_accessor.find(dis(gen));
-        if (iterator) {
+        if (iterator != thread_accessor.end()) {
           ++found_count;
         }
       }
@@ -359,7 +362,7 @@ TEST(SkipListParallelChunks, StressTest) {
           }
           case 2: {
             auto iterator = thread_accessor.find(value);
-            if (iterator) ++mixed_operations_count;
+            if (iterator != thread_accessor.end()) ++mixed_operations_count;
             break;
           }
           default:
@@ -376,7 +379,8 @@ TEST(SkipListParallelChunks, StressTest) {
   for (size_t chunk_idx = 0; chunk_idx < chunks.size(); ++chunk_idx) {
     processing_threads.emplace_back([&chunks, chunk_idx, &processed_count]() {
       int local_count = 0;
-      for (auto it = chunks[chunk_idx]; it; ++it) {
+      auto chunk = chunks[chunk_idx];
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         (void)*it;  // Suppress unused variable warning
         // More intensive processing simulation
@@ -439,7 +443,8 @@ TEST(SkipListParallelChunks, EdgeCases) {
     auto empty_chunks = accessor.create_chunks(4);
     ASSERT_EQ(empty_chunks.size(), 1);
     // Empty chunk should not be valid
-    ASSERT_FALSE(static_cast<bool>(empty_chunks[0]));
+    auto empty_chunk = empty_chunks[0];
+    ASSERT_TRUE(empty_chunk.begin() == empty_chunk.end());
 
     // Test with single element
     auto res = accessor.insert(42);
@@ -460,8 +465,8 @@ TEST(SkipListParallelChunks, EdgeCases) {
     ASSERT_GT(few_chunks.size(), 0);  // Should have at least one chunk
     // Loop and check if the elements are in the chunks
     int idx = 0;
-    for (const auto &chunk : few_chunks) {
-      for (auto it = chunk; it; ++it) {
+    for (auto &chunk : few_chunks) {
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         ASSERT_EQ(*it, idx);
         idx++;
       }
@@ -472,7 +477,8 @@ TEST(SkipListParallelChunks, EdgeCases) {
     auto one_chunk = accessor.create_chunks(1);
     ASSERT_EQ(one_chunk.size(), 1);
     idx = 0;
-    for (auto it = one_chunk[0]; it; ++it) {
+    auto chunk = one_chunk[0];
+    for (auto it = chunk.begin(); it != chunk.end(); ++it) {
       ASSERT_EQ(*it, idx);
       idx++;
     }
@@ -511,7 +517,8 @@ TEST(SkipListParallelChunks, LargeDataset) {
   for (size_t i = 0; i < chunks.size(); ++i) {
     threads.emplace_back([&chunks, i, &total_processed]() {
       int local_count = 0;
-      for (auto it = chunks[i]; it; ++it) {
+      auto chunk = chunks[i];
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         (void)*it;  // Suppress unused variable warning
       }

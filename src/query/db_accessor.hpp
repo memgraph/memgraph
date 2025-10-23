@@ -213,13 +213,27 @@ class VerticesChunkedIterable {
    public:
     storage::VerticesChunkedIterable::Iterator it_;
     VertexAccessor operator*() const { return VertexAccessor(*it_); }
-    explicit operator bool() const { return bool(it_); }
+    bool operator==(const Iterator &other) const { return it_ == other.it_; }
+    bool operator!=(const Iterator &other) const { return it_ != other.it_; }
+
     Iterator &operator++() {
-      if (it_) ++it_;
+      ++it_;
       return *this;
     }
   };
-  Iterator get_iterator(size_t id) { return Iterator{chunks_.get_iterator(id)}; }
+
+  class Chunk {
+    Iterator begin_;
+    Iterator end_;
+
+   public:
+    explicit Chunk(auto &&chunk) : begin_{chunk.begin()}, end_{chunk.end()} {}
+
+    Iterator begin() { return begin_; }
+    Iterator end() { return end_; }
+  };
+
+  Chunk get_chunk(size_t id) { return Chunk{chunks_.get_chunk(id)}; }
   size_t size() const { return chunks_.size(); }
 };
 

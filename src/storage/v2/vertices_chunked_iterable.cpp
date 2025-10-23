@@ -86,6 +86,17 @@ VerticesChunkedIterable::~VerticesChunkedIterable() {
   }
 }
 
+VerticesChunkedIterable::Chunk VerticesChunkedIterable::get_chunk(size_t id) {
+  switch (type_) {
+    case Type::ALL_CHUNKED:
+      return Chunk{all_chunked_vertices_.get_chunk(id)};
+    case Type::BY_LABEL_IN_MEMORY_CHUNKED:
+      return Chunk(in_memory_chunked_vertices_by_label_.get_chunk(id));
+    case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
+      return Chunk(in_memory_chunked_vertices_by_label_property_.get_chunk(id));
+  }
+}
+
 size_t VerticesChunkedIterable::size() const {
   switch (type_) {
     case Type::ALL_CHUNKED:
@@ -232,6 +243,30 @@ VerticesChunkedIterable::Iterator &VerticesChunkedIterable::Iterator::operator++
       break;
   }
   return *this;
+}
+
+bool VerticesChunkedIterable::Iterator::operator==(const Iterator &other) const {
+  DMG_ASSERT(type_ == other.type_, "Trying to compare different types of chunked iterators.");
+  switch (type_) {
+    case Type::ALL_CHUNKED:
+      return all_chunked_it_ == other.all_chunked_it_;
+    case Type::BY_LABEL_IN_MEMORY_CHUNKED:
+      return in_memory_chunked_by_label_it_ == other.in_memory_chunked_by_label_it_;
+    case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
+      return in_memory_chunked_by_label_property_it_ == other.in_memory_chunked_by_label_property_it_;
+  }
+}
+
+bool VerticesChunkedIterable::Iterator::operator!=(const Iterator &other) const {
+  DMG_ASSERT(type_ == other.type_, "Trying to compare different types of chunked iterators.");
+  switch (type_) {
+    case Type::ALL_CHUNKED:
+      return all_chunked_it_ != other.all_chunked_it_;
+    case Type::BY_LABEL_IN_MEMORY_CHUNKED:
+      return in_memory_chunked_by_label_it_ != other.in_memory_chunked_by_label_it_;
+    case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
+      return in_memory_chunked_by_label_property_it_ != other.in_memory_chunked_by_label_property_it_;
+  }
 }
 
 }  // namespace memgraph::storage

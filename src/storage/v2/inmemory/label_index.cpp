@@ -17,6 +17,31 @@
 
 namespace r = ranges;
 namespace rv = r::views;
+
+namespace {
+void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex,
+                        memgraph::storage::VertexAccessor &current_vertex_accessor, auto *storage, auto *transaction,
+                        auto view, auto label) {
+  for (; index_iterator != end; ++index_iterator) {
+    if (index_iterator->vertex == current_vertex) {
+      continue;
+    }
+
+    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view)) {
+      continue;
+    }
+
+    auto accessor = memgraph::storage::VertexAccessor{index_iterator->vertex, storage, transaction};
+    auto res = accessor.HasLabel(label, view);
+    if (!res.HasError() and res.GetValue()) {
+      current_vertex = accessor.vertex_;
+      current_vertex_accessor = accessor;
+      break;
+    }
+  }
+}
+}  // namespace
+
 namespace memgraph::storage {
 
 bool InMemoryLabelIndex::RegisterIndex(LabelId label) {
@@ -297,23 +322,8 @@ InMemoryLabelIndex::Iterable::Iterator &InMemoryLabelIndex::Iterable::Iterator::
 }
 
 void InMemoryLabelIndex::Iterable::Iterator::AdvanceUntilValid() {
-  for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
-    if (index_iterator_->vertex == current_vertex_) {
-      continue;
-    }
-
-    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_, self_->view_)) {
-      continue;
-    }
-
-    auto accessor = VertexAccessor{index_iterator_->vertex, self_->storage_, self_->transaction_};
-    auto res = accessor.HasLabel(self_->label_, self_->view_);
-    if (!res.HasError() and res.GetValue()) {
-      current_vertex_ = accessor.vertex_;
-      current_vertex_accessor_ = accessor;
-      break;
-    }
-  }
+  AdvanceUntilValid_(index_iterator_, self_->index_accessor_.end(), current_vertex_, current_vertex_accessor_,
+                     self_->storage_, self_->transaction_, self_->view_, self_->label_);
 }
 
 uint64_t InMemoryLabelIndex::ActiveIndices::ApproximateVertexCount(LabelId label) const {
@@ -421,18 +431,10 @@ void InMemoryLabelIndex::CleanupAllIndices() {
 }
 
 void InMemoryLabelIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
-  for (; index_iterator_; ++index_iterator_) {
-    if (index_iterator_->vertex == current_vertex_) continue;
-    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_, self_->view_)) continue;
-
-    auto accessor = VertexAccessor{index_iterator_->vertex, self_->storage_, self_->transaction_};
-    auto res = accessor.HasLabel(self_->label_, self_->view_);
-    if (!res.HasError() and res.GetValue()) {
-      cache_->emplace(index_iterator_->vertex, self_->storage_, self_->transaction_);
-      current_vertex_ = cache_->value().vertex_;
-      break;
-    }
-  }
+  // NOTE: Using the skiplist end here to not store the end iterator in the class
+  // The higher level != end will still be correct
+  AdvanceUntilValid_(index_iterator_, utils::SkipList<Entry>::ChunkedIterator{}, current_vertex_,
+                     current_vertex_accessor_, self_->storage_, self_->transaction_, self_->view_, self_->label_);
 }
 
 InMemoryLabelIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
@@ -445,35 +447,34 @@ InMemoryLabelIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::Acc
       view_(view),
       storage_(storage),
       transaction_(transaction),
-      chunks_{index_accessor_.create_chunks(num_chunks)},
-      chunk_cache_(chunks_.size(), std::nullopt) {
+      chunks_{index_accessor_.create_chunks(num_chunks)} {
   // Index can have duplicate vertex entries, we need to make sure each unique vertex is inside a single chunk.
   // Chunks are divided at the skiplist level, we need to move each adjacent chunk's star/end to valid entries
   for (int i = 1; i < chunks_.size(); ++i) {
     // Special case where whole chunk is invalid
-    if (chunks_[i].node_ && chunks_[i].node_end_ && chunks_[i].node_->obj.vertex == chunks_[i].node_end_->obj.vertex)
-        [[unlikely]] {
-      chunks_[i - 1].node_end_ = chunks_[i].node_end_;
+    auto &chunk = chunks_[i];
+    auto begin = chunk.begin();
+    auto end = chunk.end();
+    auto null = utils::SkipList<Entry>::ChunkedIterator{};
+    if (begin != null && end != null && begin->vertex == end->vertex) [[unlikely]] {
+      auto &prev_chunk = chunks_[i - 1];
+      prev_chunk = utils::SkipList<Entry>::Chunk{prev_chunk.begin(), end};
       chunks_.erase(chunks_.begin() + i);
       --i;
       continue;
     }
     // Since skiplist has only forward links, we cannot check if the previous vertex is the same as the current one.
     // We need to iterate through the chunk to find the first valid vertex.
-    auto start_itr = chunks_[i];
-    Vertex *prev_v = start_itr->vertex;
-    while (true) {
-      ++start_itr;
-      if (!start_itr)
-        break;  // We are here if: 1) end of skiplist, 2) end of chunk 3) end of chunk but also deleted vertex
-      if (prev_v != start_itr->vertex) break;
-      prev_v = start_itr->vertex;
+    Vertex *prev_v = begin->vertex;
+    while (begin != end) {
+      if (prev_v != begin->vertex) break;
+      prev_v = begin->vertex;
+      ++begin;
     }
     // Update
     auto &prev = chunks_[i - 1];
-    prev.node_end_ = start_itr.node_;
-    auto &curr = chunks_[i];
-    curr.node_ = start_itr.node_;
+    prev = utils::SkipList<Entry>::Chunk{prev.begin(), begin};
+    chunk = utils::SkipList<Entry>::Chunk{begin, end};
   }
 }
 

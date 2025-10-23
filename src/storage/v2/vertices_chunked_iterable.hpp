@@ -64,32 +64,23 @@ class VerticesChunkedIterable final {
     ~Iterator();
 
     VertexAccessor const &operator*() const;
-
     Iterator &operator++();
-
-    explicit operator bool() const {
-      switch (type_) {
-        case Type::ALL_CHUNKED:
-          return bool(all_chunked_it_);
-        case Type::BY_LABEL_IN_MEMORY_CHUNKED:
-          return bool(in_memory_chunked_by_label_it_);
-        case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
-          return bool(in_memory_chunked_by_label_property_it_);
-      }
-    }
+    bool operator==(const Iterator &other) const;
+    bool operator!=(const Iterator &other) const;
   };
 
-  Iterator get_iterator(size_t id) {
-    switch (type_) {
-      case Type::ALL_CHUNKED:
-        return Iterator(all_chunked_vertices_.get_iterator(id));
-      case Type::BY_LABEL_IN_MEMORY_CHUNKED:
-        return Iterator(in_memory_chunked_vertices_by_label_.get_iterator(id));
-      case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
-        return Iterator(in_memory_chunked_vertices_by_label_property_.get_iterator(id));
-    }
-  }
+  class Chunk {
+    Iterator begin_;
+    Iterator end_;
 
+   public:
+    explicit Chunk(auto &&chunk) : begin_{chunk.begin()}, end_{chunk.end()} {}
+
+    Iterator begin() { return begin_; }
+    Iterator end() { return end_; }
+  };
+
+  Chunk get_chunk(size_t id);
   size_t size() const;
 };
 
