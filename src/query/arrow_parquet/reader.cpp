@@ -17,11 +17,11 @@
 #include <chrono>
 #include <thread>
 
-#include "arrow/acero/exec_plan.h"
 #include "arrow/api.h"
 #include "arrow/io/file.h"
 #include "arrow/util/decimal.h"
 #include "arrow/util/float16.h"
+#include "parquet/arrow/reader.h"
 #include "parquet/properties.h"
 #include "spdlog/spdlog.h"
 
@@ -470,7 +470,6 @@ auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
 }
 
 ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *resource) {
-  auto const start = std::chrono::high_resolution_clock::now();
   arrow::MemoryPool *pool = arrow::default_memory_pool();
 
   try {
@@ -516,9 +515,6 @@ ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *res
     spdlog::error("Failed to open parquet file '{}': {}", file, e.what());
     throw;
   }
-
-  auto const duration =
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start);
 }
 
 ParquetReader::~ParquetReader() = default;
