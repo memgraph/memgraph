@@ -227,13 +227,21 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
       // @TODO why sort?
       std::vector<std::string> sorted_symbols(rule.symbols.begin(), rule.symbols.end());
       ranges::sort(sorted_symbols);
-      entity_name = permission_type;
+
+      const auto *entity_type = (permission_type == "LABEL") ? "NODES CONTAINING LABELS" : "EDGES CONTAINING TYPES";
+      entity_name = entity_type;
+
+      bool first = true;
       for (const auto &symbol : sorted_symbols) {
+        if (!first) {
+          entity_name += ",";
+        }
         entity_name += fmt::format(" :{}", symbol);
+        first = false;
       }
 
-      const auto *matching_str = (rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY) ? " EXACTLY" : " ANY";
-      entity_name += fmt::format(" MATCHING{}", matching_str);
+      const auto *matching_str = (rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY) ? "EXACTLY" : "ANY";
+      entity_name += fmt::format(" MATCHING {}", matching_str);
     }
 
     const auto level = (rule.permissions == memgraph::auth::FineGrainedPermission::NOTHING)
