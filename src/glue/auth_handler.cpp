@@ -224,8 +224,11 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     if (rule.symbols.size() == 1 && rule.symbols.contains("*")) {
       entity_name = fmt::format("ALL {}S", permission_type);
     } else {
-      // @TODO why sort?
-      std::vector<std::string> sorted_symbols(rule.symbols.begin(), rule.symbols.end());
+      // Sorting the labels and edge-types lexicographically just makes it
+      // easier in tests to check for exact text. This beats having to deal with
+      // the n! permutations that a rule description on n labels may take due to
+      // them being stored in an unordered_container.
+      std::vector<std::string> sorted_symbols = rule.symbols | ranges::to_vector;
       ranges::sort(sorted_symbols);
 
       const auto *entity_type = (permission_type == "LABEL") ? "NODES CONTAINING LABELS" : "EDGES CONTAINING TYPES";
