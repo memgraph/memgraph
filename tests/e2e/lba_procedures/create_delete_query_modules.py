@@ -47,7 +47,7 @@ def test_can_create_vertex_when_given_global_create(switch):
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT CREATE ON NODES CONTAINING LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -66,7 +66,7 @@ def test_can_not_create_vertex_when_given_global_read(switch):
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -84,7 +84,7 @@ def test_can_not_create_vertex_when_given_global_update(switch):
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS :create_delete_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON NODES CONTAINING LABELS :create_delete_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -104,7 +104,7 @@ def test_can_add_vertex_label_when_given_create(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT CREATE ON LABELS :new_create_delete_label, READ ON LABELS: create_delete_label, UPDATE ON LABELS :create_delete_label TO user;",
+        "GRANT CREATE ON NODES CONTAINING LABELS :new_create_delete_label, READ ON NODES CONTAINING LABELS: create_delete_label, UPDATE ON NODES CONTAINING LABELS :create_delete_label TO user;",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -125,7 +125,7 @@ def test_can_not_add_vertex_label_when_given_update(switch):
     reset_create_delete_permissions(admin_cursor)
 
     execute_and_fetch_all(
-        admin_cursor, "GRANT UPDATE ON LABELS :new_create_delete_label, :create_delete_label TO user;"
+        admin_cursor, "GRANT UPDATE ON NODES CONTAINING LABELS :new_create_delete_label, :create_delete_label TO user;"
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -144,7 +144,8 @@ def test_can_not_add_vertex_label_when_given_read(switch):
     reset_create_delete_permissions(admin_cursor)
 
     execute_and_fetch_all(
-        admin_cursor, "GRANT READ ON LABELS :new_create_delete_label, UPDATE ON LABELS :create_delete_label TO user;"
+        admin_cursor,
+        "GRANT READ ON NODES CONTAINING LABELS :new_create_delete_label, UPDATE ON NODES CONTAINING LABELS :create_delete_label TO user;",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -164,7 +165,7 @@ def test_can_remove_vertex_label_when_given_delete(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT READ ON LABELS :create_delete_label, UPDATE ON LABELS :create_delete_label, DELETE ON LABELS :create_delete_label TO user;",
+        "GRANT READ ON NODES CONTAINING LABELS :create_delete_label, UPDATE ON NODES CONTAINING LABELS :create_delete_label, DELETE ON NODES CONTAINING LABELS :create_delete_label TO user;",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -183,7 +184,10 @@ def test_can_remove_vertex_label_when_given_global_delete(switch):
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS *, UPDATE ON LABELS *, DELETE ON LABELS * TO user;")
+    execute_and_fetch_all(
+        admin_cursor,
+        "GRANT READ ON NODES CONTAINING LABELS *, UPDATE ON NODES CONTAINING LABELS *, DELETE ON NODES CONTAINING LABELS * TO user;",
+    )
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -202,7 +206,8 @@ def test_can_not_remove_vertex_label_when_given_update(switch):
     reset_create_delete_permissions(admin_cursor)
 
     execute_and_fetch_all(
-        admin_cursor, "GRANT READ ON LABELS :create_delete_label, UPDATE ON LABELS :create_delete_label TO user;"
+        admin_cursor,
+        "GRANT READ ON NODES CONTAINING LABELS :create_delete_label, UPDATE ON NODES CONTAINING LABELS :create_delete_label TO user;",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -221,7 +226,9 @@ def test_can_not_remove_vertex_label_when_given_global_update(switch):
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS *, UPDATE ON LABELS * TO user;")
+    execute_and_fetch_all(
+        admin_cursor, "GRANT READ ON NODES CONTAINING LABELS *, UPDATE ON NODES CONTAINING LABELS * TO user;"
+    )
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -239,7 +246,7 @@ def test_can_not_remove_vertex_label_when_given_read(switch):
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :create_delete_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :create_delete_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -257,7 +264,7 @@ def test_can_not_remove_vertex_label_when_given_global_read(switch):
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -291,7 +298,7 @@ def test_can_not_create_edge_when_given_read(switch):
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGE_TYPES :new_create_delete_edge_type TO user")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGES CONTAINING TYPES :new_create_delete_edge_type TO user")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -309,7 +316,7 @@ def test_can_not_create_edge_when_given_update(switch):
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON EDGE_TYPES :new_create_delete_edge_type TO user")
+    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON EDGES CONTAINING TYPES :new_create_delete_edge_type TO user")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -329,7 +336,7 @@ def test_can_create_edge_when_given_create(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT READ ON LABELS :create_delete_label_1, :create_delete_label_2, CREATE ON EDGE_TYPES :new_create_delete_edge_type, READ ON EDGE_TYPES :new_create_delete_edge_type TO user",
+        "GRANT READ ON NODES CONTAINING LABELS :create_delete_label_1, :create_delete_label_2, CREATE ON EDGES CONTAINING TYPES :new_create_delete_edge_type, READ ON EDGES CONTAINING TYPES :new_create_delete_edge_type TO user",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -367,7 +374,7 @@ def test_can_not_delete_edge_when_given_read(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT READ ON EDGE_TYPES :create_delete_edge_type TO user",
+        "GRANT READ ON EDGES CONTAINING TYPES :create_delete_edge_type TO user",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -388,7 +395,7 @@ def test_can_not_delete_edge_when_given_update(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT READ ON EDGE_TYPES :create_delete_edge_type, UPDATE ON EDGE_TYPES :create_delete_edge_type TO user",
+        "GRANT READ ON EDGES CONTAINING TYPES :create_delete_edge_type, UPDATE ON EDGES CONTAINING TYPES :create_delete_edge_type TO user",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -409,7 +416,7 @@ def test_can_delete_edge_when_given_delete(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT DELETE ON EDGE_TYPES :create_delete_edge_type TO user",
+        "GRANT DELETE ON EDGES CONTAINING TYPES :create_delete_edge_type TO user",
     )
 
     test_cursor = connect(username="user", password="test").cursor()

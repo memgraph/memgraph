@@ -274,6 +274,8 @@ class FineGrainedAccessPermissions final {
 
   void RevokeAll();
 
+  void RevokeAll(FineGrainedPermission fine_grained_permission);
+
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.

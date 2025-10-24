@@ -224,8 +224,9 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     if (rule.symbols.size() == 1 && rule.symbols.contains("*")) {
       entity_name = fmt::format("ALL {}S", permission_type);
     } else {
+      // @TODO why sort?
       std::vector<std::string> sorted_symbols(rule.symbols.begin(), rule.symbols.end());
-      std::sort(sorted_symbols.begin(), sorted_symbols.end());
+      ranges::sort(sorted_symbols);
       entity_name = permission_type;
       for (const auto &symbol : sorted_symbols) {
         entity_name += fmt::format(" :{}", symbol);
@@ -938,7 +939,7 @@ void AuthQueryHandler::RevokePrivilege(
           const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
 
           if (entities.size() == 1 && entities[0] == "*") {
-            fine_grained_permissions.RevokeGlobal(permission);
+            fine_grained_permissions.RevokeAll(permission);
           } else {
             std::unordered_set<std::string> const entity_set(entities.cbegin(), entities.cend());
             auto mode = (matching_mode == memgraph::query::AuthQuery::LabelMatchingMode::EXACTLY)

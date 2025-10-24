@@ -508,6 +508,25 @@ void FineGrainedAccessPermissions::RevokeAll() {
   rules_.clear();
 }
 
+void FineGrainedAccessPermissions::RevokeAll(const FineGrainedPermission fine_grained_permission) {
+  if (global_permission_.has_value()) {
+    global_permission_ = global_permission_.value() & ~static_cast<uint64_t>(fine_grained_permission);
+    if (global_permission_.value() == 0) {
+      global_permission_ = std::nullopt;
+    }
+  }
+  for (auto it = rules_.begin(); it != rules_.end();) {
+    it->permissions = static_cast<FineGrainedPermission>(
+        static_cast<std::underlying_type_t<FineGrainedPermission>>(it->permissions) &
+        ~static_cast<std::underlying_type_t<FineGrainedPermission>>(fine_grained_permission));
+    if (it->permissions == FineGrainedPermission::NOTHING) {
+      it = rules_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
 nlohmann::json FineGrainedAccessPermissions::Serialize() const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return {};

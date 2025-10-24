@@ -23,8 +23,8 @@ remove_property_query = "MATCH (n:update_label) REMOVE n.prop RETURN n.prop;"
 def test_can_read_node_when_given_update_grant():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON NODES CONTAINING LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     results = execute_and_fetch_all(test_cursor, "MATCH (n:update_label) RETURN n;")
@@ -35,8 +35,8 @@ def test_can_read_node_when_given_update_grant():
 def test_can_update_node_when_given_update_grant():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON NODES CONTAINING LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
 
@@ -52,7 +52,7 @@ def test_can_update_node_when_given_update_grant():
 def test_can_not_update_node_when_given_deny():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
 
@@ -69,7 +69,7 @@ def test_can_not_update_node_when_given_deny():
 def test_can_not_update_node_when_given_read():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
 
@@ -86,7 +86,7 @@ def test_can_not_update_node_when_given_read():
 def test_can_not_update_node_when_given_read_globally():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
 
@@ -103,8 +103,8 @@ def test_can_not_update_node_when_given_read_globally():
 def test_can_update_node_when_given_update_globally():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS * TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON NODES CONTAINING LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     update_property_actual = execute_and_fetch_all(test_cursor, update_property_query)
@@ -119,10 +119,10 @@ def test_can_update_node_when_given_update_globally():
 def test_can_update_node_when_given_create_delete_globally():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS * TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE ON LABELS * TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT DELETE ON LABELS * TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT CREATE ON NODES CONTAINING LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT DELETE ON NODES CONTAINING LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON NODES CONTAINING LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     update_property_actual = execute_and_fetch_all(test_cursor, update_property_query)
@@ -137,10 +137,10 @@ def test_can_update_node_when_given_create_delete_globally():
 def test_can_update_node_when_given_create_delete():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE ON LABELS :update_label TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT DELETE ON LABELS :update_label TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT CREATE ON NODES CONTAINING LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT DELETE ON NODES CONTAINING LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON NODES CONTAINING LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
 

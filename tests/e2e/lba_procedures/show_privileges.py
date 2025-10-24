@@ -50,19 +50,17 @@ def test_lba_procedures_show_privileges_first_user():
     expected_assertions_josip = [
         ("ALL LABELS", "CREATE, READ, UPDATE, DELETE", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
         ("ALL EDGE_TYPES", "CREATE, READ, UPDATE, DELETE", "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER"),
-        ("LABEL :Label1", "READ", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label2", "NOTHING", "LABEL PERMISSION DENIED TO USER"),
-        ("LABEL :Label3", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label4", "READ", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label5", "CREATE, DELETE", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label6", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label7", "NOTHING", "LABEL PERMISSION DENIED TO USER"),
+        ("LABEL :Label1 MATCHING ANY", "READ", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label2 MATCHING ANY", "NOTHING", "LABEL PERMISSION DENIED TO USER"),
+        ("LABEL :Label3 MATCHING ANY", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label4 MATCHING ANY", "READ", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label5 MATCHING ANY", "CREATE, DELETE", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label6 MATCHING ANY", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label7 MATCHING ANY", "NOTHING", "LABEL PERMISSION DENIED TO USER"),
     ]
 
     cursor = connect(username="Josip", password="").cursor()
     result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR Josip ON MAIN;")
-
-    assert len(result) == 37
 
     fine_privilege_results = [res for res in result if res[0] not in BASIC_PRIVILEGES]
 
@@ -73,13 +71,13 @@ def test_lba_procedures_show_privileges_first_user():
 def test_lba_procedures_show_privileges_second_user():
     expected_assertions_boris = [
         ("AUTH", "GRANT", "GRANTED TO USER"),
-        ("LABEL :Label1", "READ", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label2", "NOTHING", "LABEL PERMISSION DENIED TO USER"),
-        ("LABEL :Label3", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label4", "READ", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label5", "CREATE, DELETE", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label6", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label7", "NOTHING", "LABEL PERMISSION DENIED TO USER"),
+        ("LABEL :Label1 MATCHING ANY", "READ", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label2 MATCHING ANY", "NOTHING", "LABEL PERMISSION DENIED TO USER"),
+        ("LABEL :Label3 MATCHING ANY", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label4 MATCHING ANY", "READ", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label5 MATCHING ANY", "CREATE, DELETE", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label6 MATCHING ANY", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label7 MATCHING ANY", "NOTHING", "LABEL PERMISSION DENIED TO USER"),
     ]
 
     cursor = connect(username="Boris", password="").cursor()

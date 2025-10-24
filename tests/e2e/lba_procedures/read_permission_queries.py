@@ -25,59 +25,73 @@ match_by_label_property_query = "MATCH (n) WHERE n.prop IS NOT NULL RETURN n;"
 
 
 read_node_without_index_operation_cases = [
-    ["GRANT READ ON LABELS :read_label TO user;"],
-    ["GRANT READ ON LABELS * TO user;"],
-    ["GRANT READ ON LABELS :read_label TO user;", "GRANT UPDATE ON LABELS :read_label TO user;"],
-    ["GRANT READ ON LABELS * TO user;", "GRANT UPDATE ON LABELS * TO user;"],
+    ["GRANT READ ON NODES CONTAINING LABELS :read_label TO user;"],
+    ["GRANT READ ON NODES CONTAINING LABELS * TO user;"],
     [
-        "GRANT READ ON LABELS :read_label TO user;",
-        "GRANT CREATE ON LABELS :read_label TO user;",
-        "GRANT DELETE ON LABELS :read_label TO user;",
+        "GRANT READ ON NODES CONTAINING LABELS :read_label TO user;",
+        "GRANT UPDATE ON NODES CONTAINING LABELS :read_label TO user;",
     ],
-    ["GRANT READ ON LABELS * TO user;", "GRANT CREATE ON LABELS * TO user;", "GRANT DELETE ON LABELS * TO user;"],
+    ["GRANT READ ON NODES CONTAINING LABELS * TO user;", "GRANT UPDATE ON NODES CONTAINING LABELS * TO user;"],
+    [
+        "GRANT READ ON NODES CONTAINING LABELS :read_label TO user;",
+        "GRANT CREATE ON NODES CONTAINING LABELS :read_label TO user;",
+        "GRANT DELETE ON NODES CONTAINING LABELS :read_label TO user;",
+    ],
+    [
+        "GRANT READ ON NODES CONTAINING LABELS * TO user;",
+        "GRANT CREATE ON NODES CONTAINING LABELS * TO user;",
+        "GRANT DELETE ON NODES CONTAINING LABELS * TO user;",
+    ],
 ]
 
 read_node_without_index_operation_cases_expected_size = [1, 3, 1, 3, 1, 3]
 
 read_node_with_index_operation_cases = [
-    ["GRANT READ ON LABELS :read_label TO user;"],
-    ["GRANT READ ON LABELS * TO user;"],
-    ["GRANT READ ON LABELS :read_label TO user;", "GRANT UPDATE ON LABELS :read_label TO user;"],
-    ["GRANT READ ON LABELS * TO user;", "GRANT UPDATE ON LABELS * TO user;"],
+    ["GRANT READ ON NODES CONTAINING LABELS :read_label TO user;"],
+    ["GRANT READ ON NODES CONTAINING LABELS * TO user;"],
     [
-        "GRANT READ ON LABELS :read_label TO user;",
-        "GRANT CREATE ON LABELS :read_label TO user;",
-        "GRANT DELETE ON LABELS :read_label TO user;",
+        "GRANT READ ON NODES CONTAINING LABELS :read_label TO user;",
+        "GRANT UPDATE ON NODES CONTAINING LABELS :read_label TO user;",
     ],
-    ["GRANT READ ON LABELS * TO user;", "GRANT CREATE ON LABELS * TO user;", "GRANT DELETE ON LABELS * TO user;"],
+    ["GRANT READ ON NODES CONTAINING LABELS * TO user;", "GRANT UPDATE ON NODES CONTAINING LABELS * TO user;"],
+    [
+        "GRANT READ ON NODES CONTAINING LABELS :read_label TO user;",
+        "GRANT CREATE ON NODES CONTAINING LABELS :read_label TO user;",
+        "GRANT DELETE ON NODES CONTAINING LABELS :read_label TO user;",
+    ],
+    [
+        "GRANT READ ON NODES CONTAINING LABELS * TO user;",
+        "GRANT CREATE ON NODES CONTAINING LABELS * TO user;",
+        "GRANT DELETE ON NODES CONTAINING LABELS * TO user;",
+    ],
 ]
 
 read_node_with_index_operation_cases_expected_sizes = [1, 3, 1, 3, 1, 3]
 
 not_read_node_without_index_operation_cases = [
     [],
-    ["GRANT NOTHING ON LABELS :read_label TO user;"],
-    ["GRANT NOTHING ON LABELS * TO user;"],
+    ["GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user;"],
+    ["GRANT NOTHING ON NODES CONTAINING LABELS * TO user;"],
     [
-        "GRANT UPDATE ON LABELS :read_label TO user;",
-        "GRANT NOTHING ON LABELS :read_label TO user",
+        "GRANT UPDATE ON NODES CONTAINING LABELS :read_label TO user;",
+        "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user",
     ],
     [
-        "GRANT READ ON LABELS * TO user;",
-        "GRANT UPDATE ON LABELS * TO user;",
-        "GRANT NOTHING ON LABELS :read_label TO user",
+        "GRANT READ ON NODES CONTAINING LABELS * TO user;",
+        "GRANT UPDATE ON NODES CONTAINING LABELS * TO user;",
+        "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user",
     ],
     [
-        "GRANT READ ON LABELS :read_label TO user;",
-        "GRANT CREATE ON LABELS :read_label TO user;",
-        "GRANT DELETE ON LABELS :read_label TO user;",
-        "GRANT NOTHING ON LABELS :read_label TO user",
+        "GRANT READ ON NODES CONTAINING LABELS :read_label TO user;",
+        "GRANT CREATE ON NODES CONTAINING LABELS :read_label TO user;",
+        "GRANT DELETE ON NODES CONTAINING LABELS :read_label TO user;",
+        "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user",
     ],
     [
-        "GRANT READ ON LABELS * TO user;",
-        "GRANT CREATE ON LABELS * TO user;",
-        "GRANT DELETE ON LABELS * TO user;",
-        "GRANT NOTHING ON LABELS :read_label TO user",
+        "GRANT READ ON NODES CONTAINING LABELS * TO user;",
+        "GRANT CREATE ON NODES CONTAINING LABELS * TO user;",
+        "GRANT DELETE ON NODES CONTAINING LABELS * TO user;",
+        "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user",
     ],
 ]
 
@@ -85,28 +99,28 @@ not_read_node_without_index_operation_cases_expected_sizes = [0, 0, 0, 0, 2, 0, 
 
 not_read_node_with_index_operation_cases = [
     [],
-    ["GRANT NOTHING ON LABELS :read_label TO user;"],
-    ["GRANT NOTHING ON LABELS * TO user;"],
+    ["GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user;"],
+    ["GRANT NOTHING ON NODES CONTAINING LABELS * TO user;"],
     [
-        "GRANT UPDATE ON LABELS :read_label TO user;",
-        "GRANT NOTHING ON LABELS :read_label TO user",
+        "GRANT UPDATE ON NODES CONTAINING LABELS :read_label TO user;",
+        "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user",
     ],
     [
-        "GRANT READ ON LABELS * TO user;",
-        "GRANT UPDATE ON LABELS * TO user;",
-        "GRANT NOTHING ON LABELS :read_label TO user",
+        "GRANT READ ON NODES CONTAINING LABELS * TO user;",
+        "GRANT UPDATE ON NODES CONTAINING LABELS * TO user;",
+        "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user",
     ],
     [
-        "GRANT READ ON LABELS :read_label TO user;",
-        "GRANT CREATE ON LABELS :read_label TO user;",
-        "GRANT DELETE ON LABELS :read_label TO user;",
-        "GRANT NOTHING ON LABELS :read_label TO user",
+        "GRANT READ ON NODES CONTAINING LABELS :read_label TO user;",
+        "GRANT CREATE ON NODES CONTAINING LABELS :read_label TO user;",
+        "GRANT DELETE ON NODES CONTAINING LABELS :read_label TO user;",
+        "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user",
     ],
     [
-        "GRANT READ ON LABELS * TO user;",
-        "GRANT CREATE ON LABELS * TO user;",
-        "GRANT DELETE ON LABELS * TO user;",
-        "GRANT NOTHING ON LABELS :read_label TO user",
+        "GRANT READ ON NODES CONTAINING LABELS * TO user;",
+        "GRANT CREATE ON NODES CONTAINING LABELS * TO user;",
+        "GRANT DELETE ON NODES CONTAINING LABELS * TO user;",
+        "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user",
     ],
 ]
 
