@@ -130,6 +130,26 @@ class PropertyValueImpl {
       : alloc_{alloc},
         vector_index_id_v{.vector_index_ids_ = std::move(vector_index_ids), .vector_ = std::move(vector)} {}
 
+  explicit PropertyValueImpl(const vector_index_id_t &vector_index_ids, list_t const &list,
+                             allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc},
+        vector_index_id_v{
+            .vector_index_ids_ = vector_index_ids,
+            .vector_ = std::invoke([&]() {
+              std::vector<float> vec;
+              vec.reserve(list.size());
+              std::transform(list.begin(), list.end(), std::back_inserter(vec), [](const auto &value) {
+                if (value.IsDouble()) {
+                  return static_cast<float>(value.ValueDouble());
+                }
+                if (value.IsInt()) {
+                  return static_cast<float>(value.ValueInt());
+                }
+                throw PropertyValueException("Vector index property must be a list of floats or integers.");
+              });
+              return vec;
+            })} {}
+
   // copy constructors for non-primitive types
   /// @throw std::bad_alloc
   explicit PropertyValueImpl(string_t const &value) : alloc_{value.get_allocator()}, string_v{.val_ = value} {}
@@ -358,7 +378,25 @@ class PropertyValueImpl {
     return vector_index_id_v.vector_index_ids_;
   }
 
+  // TODO: move this to proper place
+  auto ValueVectorIndexIds() -> vector_index_id_t & {
+    if (type_ != Type::VectorIndexId) [[unlikely]] {
+      throw PropertyValueException("The value isn't a vector index ID!");
+    }
+
+    return vector_index_id_v.vector_index_ids_;
+  }
+
   auto ValueVectorIndexList() const -> std::vector<float> const & {
+    if (type_ != Type::VectorIndexId) [[unlikely]] {
+      throw PropertyValueException("The value isn't a vector index list!");
+    }
+
+    return vector_index_id_v.vector_;
+  }
+
+  // TODO: move this to proper place
+  auto ValueVectorIndexList() -> std::vector<float> & {
     if (type_ != Type::VectorIndexId) [[unlikely]] {
       throw PropertyValueException("The value isn't a vector index list!");
     }

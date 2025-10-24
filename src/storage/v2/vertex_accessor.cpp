@@ -163,7 +163,14 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
         if (auto index_name = properties.find(property_id); index_name != properties.end()) {
           auto old_property_value = vertex->properties.GetProperty(property_id);
           auto vec = storage_->indices_.vector_index_.UpdateIndex(old_property_value, vertex, index_name->second);
-          auto vector_index_id = PropertyValue({storage_->name_id_mapper_->NameToId(index_name->second)}, vec);
+          auto vector_index_id = std::invoke([&]() {
+            if (old_property_value.IsVectorIndexId()) {
+              auto ids = old_property_value.ValueVectorIndexIds();
+              ids.push_back(storage_->name_id_mapper_->NameToId(index_name->second));
+              return PropertyValue(ids, std::move(vec));
+            }
+            return PropertyValue({storage_->name_id_mapper_->NameToId(index_name->second)}, std::move(vec));
+          });
           vertex->properties.SetProperty(property_id, vector_index_id);
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property_id, old_property_value);
           auto restore_property_value = PropertyValue(vector_index_id.ValueVectorIndexIds(), std::vector<float>());
@@ -250,16 +257,23 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
       for (auto property_id : vertex_properties) {
         if (auto index_name = properties.find(property_id); index_name != properties.end()) {
           auto old_vertex_property_value = vertex->properties.GetProperty(property_id);
+          auto &ids = old_vertex_property_value.ValueVectorIndexIds();
+          ids.erase(std::remove(ids.begin(), ids.end(), storage_->name_id_mapper_->NameToId(index_name->second)),
+                    ids.end());
           auto old_vector_property_value =
               storage_->indices_.vector_index_.GetPropertyValue(vertex, index_name->second);
-          storage_->indices_.vector_index_.UpdateIndex(PropertyValue(), vertex, index_name->second);
-          vertex->properties.SetProperty(property_id, old_vector_property_value);
+          storage_->indices_.vector_index_.UpdateIndex(PropertyValue(), vertex,
+                                                       index_name->second);  // we are removing property from index
+          vertex->properties.SetProperty(
+              property_id, ids.empty() ? old_vector_property_value
+                                       : old_vertex_property_value);  // we transfer list to property store only if it's
+                                                                      // not in any index anymore
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property_id, old_vertex_property_value);
-          // TODO: this is not correct probably?
-          auto restore_property_value =
-              PropertyValue(old_vector_property_value.ValueVectorIndexIds(), std::vector<float>());
-          CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property_id,
-                             old_vector_property_value);
+
+          // we need to restore the vector property value in case it was in any index
+          auto restore_property_value = PropertyValue({storage_->name_id_mapper_->NameToId(index_name->second)},
+                                                      old_vector_property_value.ValueList());
+          CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property_id, restore_property_value);
         }
       }
     }
@@ -399,15 +413,20 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   auto const set_property_impl = [this, transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
                                   skip_duplicate_write, &schema_acc]() {
     if (new_value.IsVectorIndexId()) {
+      // TODO: if it's null -> empty vector
       old_value = storage_->indices_.vector_index_.GetPropertyValue(
           vertex, storage_->name_id_mapper_->IdToName(new_value.ValueVectorIndexIds().front()));
       if (skip_duplicate_write && old_value == new_value) {
         return true;
       }
-      CreateAndLinkDelta(
-          transaction, vertex, Delta::SetVectorPropertyTag(), property,
-          old_value.IsNull() ? PropertyValue(new_value.ValueVectorIndexIds(), std::vector<float>()) : old_value);
       vertex->properties.SetProperty(property, new_value);
+      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+      storage_->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction,
+                                             storage_->name_id_mapper_.get());
+
+      // we need to restore the vector property value in case it was in any index
+      auto restore_property_value = PropertyValue(new_value.ValueVectorIndexIds(), old_value.ValueList());
+      CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, restore_property_value);
     } else {
       old_value = vertex->properties.GetProperty(property);
       if (skip_duplicate_write && old_value == new_value) {
@@ -477,11 +496,11 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
       if (new_value.IsVectorIndexId()) {
         // Vector index doesn't have transactional guarantees, so we don't need to retrieve the old value, we just need
         // delta for durability
-        auto old_value = PropertyValue(new_value.ValueVectorIndexIds(), std::vector<float>());
-        CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, old_value);
-      } else {
-        CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
+        auto restore_property_value = PropertyValue(new_value.ValueVectorIndexIds(), std::vector<float>());
+        storage->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, storage->name_id_mapper_.get());
+        CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, restore_property_value);
       }
+      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
       // TODO: defer until once all properties have been set, to make fewer entries ?
       storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction, storage->name_id_mapper_.get());
       transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
@@ -542,6 +561,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     }
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
       if (skip_duplicate_update && old_value == new_value) continue;
+      // TODO: fix this also as everything above
       if (new_value.IsVectorIndexId()) {
         CreateAndLinkDelta(
             transaction, vertex, Delta::SetVectorPropertyTag(), id,

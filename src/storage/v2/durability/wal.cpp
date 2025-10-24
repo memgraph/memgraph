@@ -844,16 +844,20 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
       encoder->WriteMarker(Marker::DELTA_VERTEX_SET_VECTOR_PROPERTY);
       encoder->WriteUint(vertex->gid.AsUint());
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
-      auto vector_ids = vertex->properties.GetProperty(delta.property.key);
-      if (vector_ids.IsVectorIndexId()) {
-        auto vector_list = storage->indices_.vector_index_.GetVectorProperty(
-            vertex, storage->name_id_mapper_->IdToName(vector_ids.ValueVectorIndexIds().front()));
-        auto property_value = PropertyValue(vector_ids.ValueVectorIndexIds(), std::move(vector_list));
-        encoder->WriteExternalPropertyValue(ToExternalPropertyValue(property_value, storage->name_id_mapper_.get()));
-      } else {
-        // This means that the property is not in a vector index anymore
-        encoder->WriteExternalPropertyValue(ToExternalPropertyValue(vector_ids, storage->name_id_mapper_.get()));
+      auto property_value = vertex->properties.GetProperty(delta.property.key);
+      if (!property_value.IsVectorIndexId()) {
+        auto ids_to_remove_from =
+            PropertyValue(std::move(delta.property.value->ValueVectorIndexIds()), std::vector<float>{});
+        encoder->WriteExternalPropertyValue(
+            ToExternalPropertyValue(ids_to_remove_from, storage->name_id_mapper_.get()));
+        break;
       }
+      auto vector_index_id = property_value.ValueVectorIndexIds().front();
+      auto vector_value = storage->indices_.vector_index_.GetVectorProperty(
+          vertex, storage->name_id_mapper_->IdToName(vector_index_id));
+      auto property_value_with_vector = PropertyValue(property_value.ValueVectorIndexIds(), std::move(vector_value));
+      encoder->WriteExternalPropertyValue(
+          ToExternalPropertyValue(property_value_with_vector, storage->name_id_mapper_.get()));
       break;
     }
     case Delta::Action::ADD_LABEL:
@@ -1076,13 +1080,7 @@ std::optional<RecoveryInfo> LoadWal(
         if (vertex == vertex_acc.end())
           throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto property_value = ToPropertyValue(data.value, name_id_mapper);
-        auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        if (schema_info) {
-          // TODO: Is this schema info stuff correct?
-          const auto old_type = vertex->properties.GetExtendedPropertyType(property_id);
-          schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(property_value)}, old_type);
-        }
-        vertex->properties.SetProperty(property_id, property_value);
+        MG_ASSERT(property_value.IsVectorIndexId(), "Property value must be a vector index id");
         indices->vector_index_.UpdateOnSetProperty(property_value, &*vertex, name_id_mapper);
       },
       [&](WalEdgeCreate const &data) {

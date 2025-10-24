@@ -1042,11 +1042,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           if (!vertex) {
             throw utils::BasicException("Failed to find vertex {} when setting vector property.", gid);
           }
-          auto ret =
-              vertex->SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
-          if (ret.HasError()) {
-            throw utils::BasicException("Failed to set vector property on vertex {}.", gid);
-          }
           storage->indices_.vector_index_.UpdateOnSetProperty(ToPropertyValue(data.value, mapper), &*vertex->vertex_,
                                                               mapper);
         },

@@ -1082,9 +1082,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::vector<Gid> my_deleted_vertices;
     std::vector<Gid> my_deleted_edges;
 
-    // std::map<LabelPropKey, std::vector<Vertex *>> vector_label_property_cleanup;
-    // std::map<LabelPropKey, std::vector<std::pair<PropertyValue, Vertex *>>> vector_label_property_restore;
-    // std::vector<std::pair<PropertyValue, Vertex *>> vector_label_property_cleanup;
     std::map<EdgeTypePropKey,
              std::vector<std::pair<PropertyValue, std::tuple<Vertex *const, Vertex *const, Edge *const>>>>
         vector_edge_type_property_restore;  // No need to cleanup, because edge type can't be removed and when null
@@ -1256,22 +1253,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 //  check if we care about the property, this will return all the labels and then get current property
                 //  value
                 index_abort_processor.CollectOnPropertyChange(current->property.key, vertex);
-
-                // const auto &vector_index_labels = index_abort_processor.vector_.p2l.find(current->property.key);
-                // const auto has_vector_index = vector_index_labels != index_abort_processor.vector_.p2l.end();
-                // if (has_vector_index) {
-                //   auto has_indexed_label = [&vector_index_labels](auto label) {
-                //     return std::binary_search(vector_index_labels->second.begin(), vector_index_labels->second.end(),
-                //                               label);
-                //   };
-                //   auto indexed_labels_on_vertex =
-                //       vertex->labels | rv::filter(has_indexed_label) | r::to<std::vector<LabelId>>();
-
-                //   for (const auto &label : indexed_labels_on_vertex) {
-                //     vector_label_property_restore[LabelPropKey{label, current->property.key}].emplace_back(
-                //         *current->property.value, vertex);
-                //   }
-                // }
                 // Setting the correct value
                 vertex->properties.SetProperty(current->property.key, *current->property.value);
                 break;
@@ -1333,10 +1314,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 break;
               }
               case Delta::Action::SET_VECTOR_PROPERTY: {
-                vertex->properties.SetProperty(current->property.key,
-                                               current->property.value->ValueVectorIndexList().empty()
-                                                   ? storage::pmr::PropertyValue()
-                                                   : *current->property.value);
                 storage_->indices_.vector_index_.UpdateOnSetProperty(*current->property.value, vertex,
                                                                      storage_->name_id_mapper_.get());
                 break;

@@ -72,6 +72,7 @@ struct VectorIndex::Impl {
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
 VectorIndex::~VectorIndex() = default;
 
+// TODO: add name_id_mapper here in order to set correct property to property store
 bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
