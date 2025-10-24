@@ -35,9 +35,6 @@ namespace fs = std::filesystem;
 // @TODO extend fine-grained permission tests with multi-label and
 // MATCHING ANY / MATCHING EXACTLY logic.
 
-// @TODO maybe if API took string_view, we wouldn't need literals operators
-// and could pass bind an initializer list to span<char const*>?
-
 DECLARE_string(password_encryption_algorithm);
 
 class AuthWithStorage : public ::testing::Test {
@@ -1195,7 +1192,6 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    // @TODO why does Grant not need std::array??
     fga_permissions.Grant({check_label}, FineGrainedPermission::READ);
     fga_permissions.Grant({check_label}, FineGrainedPermission::UPDATE);
     fga_permissions.Grant({check_label}, FineGrainedPermission::DELETE);
