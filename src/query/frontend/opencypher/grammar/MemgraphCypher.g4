@@ -447,11 +447,11 @@ setRole : SET ( ROLE | ROLES ) FOR user=userOrRoleName TO roles=listOfSymbolicNa
 
 clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=fineGrainedPrivilegesList ) TO userOrRole=userOrRoleName ;
+grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | privileges=fineGrainedPrivilegesList ) TO userOrRole=userOrRoleName ;
+denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList ) TO userOrRole=userOrRoleName ;
 
-revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=fineGrainedPrivilegesList ) FROM userOrRole=userOrRoleName ;
+revokePrivilege : REVOKE ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) FROM userOrRole=userOrRoleName ;
 
 listOfSymbolicNames : symbolicName ( ',' symbolicName )* ;
 
@@ -504,10 +504,6 @@ privilege : CREATE
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE | ASTERISK ;
-
-privilegeOrEntityPrivileges : privilege | entityPrivileges=entityPrivilegeList ;
-
-fineGrainedPrivilegesList : privilegeOrEntityPrivileges ( ',' privilegeOrEntityPrivileges )* ;
 
 entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
 

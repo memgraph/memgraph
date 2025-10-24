@@ -695,11 +695,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return AuthQuery*
    */
-  antlrcpp::Any visitFineGrainedPrivilegesList(MemgraphCypher::FineGrainedPrivilegesListContext *ctx) override;
-
-  /**
-   * @return AuthQuery*
-   */
   antlrcpp::Any visitPrivilegesList(MemgraphCypher::PrivilegesListContext *ctx) override;
 
   /**
