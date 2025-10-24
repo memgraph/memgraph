@@ -211,18 +211,31 @@ std::string FineGrainedPermissionToString(uint64_t const permission) {
 FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
                                    const FineGrainedAccessPermissions &second) {
   std::optional<uint64_t> global_permission;
-  uint64_t combined_global = first.GetGlobalPermission().value_or(0) | second.GetGlobalPermission().value_or(0);
-  if (combined_global != 0) {
-    global_permission = combined_global;
+
+  auto first_global = first.GetGlobalPermission();
+  auto second_global = second.GetGlobalPermission();
+
+  if ((first_global.has_value() && first_global.value() == 0) ||
+      (second_global.has_value() && second_global.value() == 0)) {
+    global_permission = 0;
+  } else {
+    uint64_t combined_global = first_global.value_or(0) | second_global.value_or(0);
+    if (combined_global != 0) {
+      global_permission = combined_global;
+    }
   }
 
   auto merged_rules = first.GetPermissions();
   for (const auto &rule2 : second.GetPermissions()) {
     bool found = false;
     for (auto &rule1 : merged_rules) {
-      // @TODO think we need special logic for NOTHING. Deal with that later.
       if (rule1.symbols == rule2.symbols && rule1.matching_mode == rule2.matching_mode) {
-        rule1.permissions = rule1.permissions | rule2.permissions;
+        if (rule1.permissions == FineGrainedPermission::NOTHING ||
+            rule2.permissions == FineGrainedPermission::NOTHING) {
+          rule1.permissions = FineGrainedPermission::NOTHING;
+        } else {
+          rule1.permissions = rule1.permissions | rule2.permissions;
+        }
         found = true;
         break;
       }

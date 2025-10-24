@@ -1327,6 +1327,32 @@ TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
     ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
     ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
   }
+
+  {
+    FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
+    fga_permissions1.Grant({check_label}, FineGrainedPermission::READ);
+    fga_permissions2.Grant({check_label}, FineGrainedPermission::NOTHING);
+
+    auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
+
+    ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
+    fga_permissions1.GrantGlobal(FineGrainedPermission::READ);
+    fga_permissions2.GrantGlobal(FineGrainedPermission::NOTHING);
+
+    auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
+
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
+  }
 }
 #endif  // MG_ENTERPRISE
 

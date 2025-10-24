@@ -79,7 +79,6 @@ constexpr inline FineGrainedPermission operator|(FineGrainedPermission lhs, Fine
                                             std::underlying_type_t<FineGrainedPermission>(rhs));
 }
 
-// @TODO consider removing these
 constexpr inline uint64_t operator|(uint64_t lhs, FineGrainedPermission rhs) {
   return lhs | static_cast<uint64_t>(rhs);
 }
