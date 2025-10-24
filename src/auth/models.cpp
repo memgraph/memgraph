@@ -338,6 +338,10 @@ PermissionLevel FineGrainedAccessPermissions::Has(std::span<const std::string> s
     return PermissionLevel::GRANT;
   }
 
+  if (symbols.empty()) {
+    return PermissionLevel::GRANT;
+  }
+
   // @TODO(colinbarry) definitely optimise + clean this up!
   for (const auto &rule : rules_) {
     if (rule.matching_mode == MatchingMode::EXACTLY && rule.permissions == FineGrainedPermission::NOTHING) {
