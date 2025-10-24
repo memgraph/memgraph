@@ -940,7 +940,7 @@ void AuthQueryHandler::RevokePrivilege(
           if (entities.size() == 1 && entities[0] == "*") {
             fine_grained_permissions.RevokeGlobal(permission);
           } else {
-            std::unordered_set<std::string> entity_set(entities.cbegin(), entities.cend());
+            std::unordered_set<std::string> const entity_set(entities.cbegin(), entities.cend());
             auto mode = (matching_mode == memgraph::query::AuthQuery::LabelMatchingMode::EXACTLY)
                             ? memgraph::auth::MatchingMode::EXACTLY
                             : memgraph::auth::MatchingMode::ANY;
