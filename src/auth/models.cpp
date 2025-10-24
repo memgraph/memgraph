@@ -474,7 +474,11 @@ void FineGrainedAccessPermissions::Grant(const std::unordered_set<std::string> &
 }
 
 void FineGrainedAccessPermissions::GrantGlobal(const FineGrainedPermission fine_grained_permission) {
-  global_permission_ = global_permission_.value_or(0) | static_cast<uint64_t>(fine_grained_permission);
+  if (fine_grained_permission == FineGrainedPermission::NOTHING) {
+    global_permission_ = static_cast<uint64_t>(fine_grained_permission);
+  } else {
+    global_permission_ = global_permission_.value_or(0) | static_cast<uint64_t>(fine_grained_permission);
+  }
 }
 
 void FineGrainedAccessPermissions::Revoke(const std::unordered_set<std::string> &symbols,

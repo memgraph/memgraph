@@ -31,6 +31,8 @@ def create_multi_db(cursor, switch):
 
 
 def reset_and_prepare(admin_cursor):
+    execute_and_fetch_all(admin_cursor, "REVOKE * ON NODES CONTAINING LABELS * FROM user;")
+    execute_and_fetch_all(admin_cursor, "REVOKE * ON EDGES CONTAINING TYPES * FROM user;")
     execute_and_fetch_all(admin_cursor, "MATCH(n) DETACH DELETE n;")
     execute_and_fetch_all(admin_cursor, "CREATE (n:test_delete {name: 'test1'});")
     execute_and_fetch_all(admin_cursor, "CREATE (n:test_delete_1)-[r:edge_type_delete]->(m:test_delete_2);")
