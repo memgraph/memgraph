@@ -556,6 +556,35 @@ def test_merge_nodes_pass_when_having_read(switch):
     assert len(results) == 3
 
 
+@pytest.mark.parametrize("switch", [False, True])
+def test_unlabeled_nodes_with_system_create_only(switch):
+    admin_connection = common.connect(username="admin", password="test")
+    admin_cursor = admin_connection.cursor()
+    common.reset_and_prepare(admin_cursor)
+    common.create_multi_db(admin_cursor, switch)
+
+    common.execute_and_fetch_all(admin_cursor, "REVOKE * ON NODES CONTAINING LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_cursor, "REVOKE * ON EDGES CONTAINING TYPES * FROM user;")
+
+    user_connection = common.connect(username="user", password="test")
+    user_cursor = user_connection.cursor()
+
+    if switch:
+        common.switch_db(user_cursor)
+
+    results = common.execute_and_fetch_all(user_cursor, "CREATE (n) RETURN n;")
+    assert len(results) == 1
+
+    results = common.execute_and_fetch_all(user_cursor, "CREATE (a), (b), (c) RETURN a, b, c;")
+    assert len(results) == 1
+
+    with pytest.raises(DatabaseError):
+        common.execute_and_fetch_all(user_cursor, "CREATE (n:Person) RETURN n;")
+
+    with pytest.raises(DatabaseError):
+        common.execute_and_fetch_all(user_cursor, "CREATE (a)-[r:KNOWS]->(b) RETURN a, r, b;")
+
+
 if __name__ == "__main__":
     common.setup_db()
     sys.exit(pytest.main([__file__, "-rA"]))

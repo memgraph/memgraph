@@ -1350,6 +1350,14 @@ TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
     ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
   }
 }
+
+TEST(AuthWithFineGrainedTest, NoPermissionsNeededForUnlabelledNodes) {
+  FineGrainedAccessPermissions label_perms, edge_perms;
+
+  label_perms.Grant({"Person"}, FineGrainedPermission::CREATE);
+
+  ASSERT_EQ(label_perms.Has(std::span<const std::string>{}, FineGrainedPermission::CREATE), PermissionLevel::GRANT);
+}
 #endif  // MG_ENTERPRISE
 
 TEST(AuthWithoutStorage, UserSerializeDeserialize) {
