@@ -15,6 +15,7 @@ target_sources(mg-utils
     memory_tracker.cpp
     readable_size.cpp
     signals.cpp
+    sysinfo/cpuinfo.cpp
     sysinfo/memory.cpp
     temporal.cpp
     thread.cpp
