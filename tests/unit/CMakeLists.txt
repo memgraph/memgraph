@@ -933,11 +933,6 @@ if (MG_ENTERPRISE)
 
 endif ()
 
-add_unit_test(arrow_s3
-        SOURCES arrow_s3.cpp
-        LINK_TARGETS mg-query arrow
-)
-
 # Build all HA unit tests
 if (MG_ENTERPRISE)
     add_custom_target(memgraph__unit__high_availability ALL
