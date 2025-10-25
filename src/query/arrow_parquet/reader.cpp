@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/arrow_parquet/reader.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "query/typed_value.hpp"
 #include "utils/data_queue.hpp"
 #include "utils/exceptions.hpp"
@@ -557,7 +558,10 @@ auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
 ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *resource) {
   auto file_reader = std::invoke([&]() -> std::unique_ptr<parquet::arrow::FileReader> {
     if (file.starts_with(s3_prefix)) {
-      S3Config const s3_config{.uri = file, .region = "eu-west-1", .access_key = "a", .secret_key = "b"};
+      S3Config const s3_config{.uri = file,
+                               .region = flags::run_time::GetAwsRegion(),
+                               .access_key = flags::run_time::GetAwsAccessKey(),
+                               .secret_key = flags::run_time::GetAwsSecretKey()};
       return LoadFileFromS3(s3_config);
     }
     return LoadFileFromDisk(file);

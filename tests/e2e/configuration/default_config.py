@@ -34,6 +34,9 @@ startup_config_dict = {
         "The regular expression that should be used to match the entire entered password to ensure its strength.",
     ),
     "allow_load_csv": ("true", "true", "Controls whether LOAD CSV clause is allowed in queries."),
+    "aws_access_key": ("", "", "Define AWS access key for the AWS integration."),
+    "aws_region": ("", "", "Define AWS region which is used for the AWS integration."),
+    "aws_secret_key": ("", "", "Define AWS secret key for the AWS integration."),
     "audit_buffer_flush_interval_ms": (
         "200",
         "200",

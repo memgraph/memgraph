@@ -93,6 +93,15 @@ DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 300,
                         "to 0 to disable periodic snapshot creation.",
                         FLAG_IN_RANGE(0, 7LU * 24 * 3600));
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_string(aws_region, "", "Define AWS region which is used for the AWS integration.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_string(aws_access_key, "", "Define AWS access key for the AWS integration.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_string(aws_secret_key, "", "Define AWS secret key for the AWS integration.");
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -128,6 +137,15 @@ constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 
 constexpr auto kSnapshotPeriodicSettingKey = "storage.snapshot.interval";
 constexpr auto kSnapshotPeriodicGFlagsKey = "storage-snapshot-interval";
+
+constexpr auto kAwsRegionSettingKey = "aws.region";
+constexpr auto kAwsRegionGFlagsKey = "aws_region";
+
+constexpr auto kAwsSecretSettingKey = "aws.secret_key";
+constexpr auto kAwsSecretGFlagsKey = "aws_secret_key";
+
+constexpr auto kAwsAccessSettingKey = "aws.access_key";
+constexpr auto kAwsAccessGFlagsKey = "aws_access_key";
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
@@ -414,6 +432,10 @@ void Initialize() {
         }
         return {};
       });
+
+  register_flag(kAwsRegionGFlagsKey, kAwsRegionSettingKey, kRestore);
+  register_flag(kAwsAccessGFlagsKey, kAwsAccessSettingKey, kRestore);
+  register_flag(kAwsSecretGFlagsKey, kAwsSecretSettingKey, kRestore);
 }
 
 std::string GetServerName() {
@@ -438,6 +460,24 @@ std::string GetQueryLogDirectory() {
   // Thread safe read of gflag
   gflags::GetCommandLineOption(kQueryLogDirectoryGFlagsKey, &s);
   return s;
+}
+
+auto GetAwsAccessKey() -> std::string {
+  std::string access_key;
+  gflags::GetCommandLineOption(kAwsAccessGFlagsKey, &access_key);
+  return access_key;
+}
+
+auto GetAwsSecretKey() -> std::string {
+  std::string secret_key;
+  gflags::GetCommandLineOption(kAwsSecretGFlagsKey, &secret_key);
+  return secret_key;
+}
+
+auto GetAwsRegion() -> std::string {
+  std::string region;
+  gflags::GetCommandLineOption(kAwsRegionGFlagsKey, &region);
+  return region;
 }
 
 void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {

@@ -15,6 +15,27 @@ import pytest
 from common import connect, execute_and_fetch_all, get_file_path
 
 
+def test_aws_settings():
+    cursor = connect(host="localhost", port=7687).cursor()
+    aws_region_key = "aws.region"
+    aws_access_key = "aws.access_key"
+    aws_secret_key = "aws.secret_key"
+
+    settings = dict(execute_and_fetch_all(cursor, "show database settings"))
+    assert aws_region_key in settings
+    assert aws_access_key in settings
+    assert aws_secret_key in settings
+
+    execute_and_fetch_all(cursor, f"set database setting '{aws_region_key}' to 'eu-west-1'")
+    execute_and_fetch_all(cursor, f"set database setting '{aws_access_key}' to 'acc_key'")
+    execute_and_fetch_all(cursor, f"set database setting '{aws_secret_key}' to 'secret_key'")
+
+    settings = dict(execute_and_fetch_all(cursor, "show database settings"))
+    assert settings[aws_region_key] == "eu-west-1"
+    assert settings[aws_access_key] == "acc_key"
+    assert settings[aws_secret_key] == "secret_key"
+
+
 def test_small_file_nodes():
     cursor = connect(host="localhost", port=7687).cursor()
     load_query = f"LOAD PARQUET FROM '{get_file_path('nodes_100.parquet')}' AS row CREATE (n:N {{id: row.id, name: row.name, age: row.age, city: row.city}})"
@@ -149,7 +170,6 @@ def test_complex_collection_types():
         f"matrix: row.matrix_2d, settings: row.settings, metadata: row.metadata, "
         f"preferences: row.preferences}})"
     )
-    print(f"Query: {load_query}")
     execute_and_fetch_all(cursor, load_query)
     assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
 
