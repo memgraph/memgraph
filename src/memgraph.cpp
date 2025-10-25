@@ -71,6 +71,7 @@
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
 
+#include <arrow/filesystem/s3fs.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
 
@@ -817,6 +818,11 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   metrics_server.AwaitShutdown();
 #endif
+  if (arrow::fs::IsS3Initialized()) {
+    if (auto const finalize_status = arrow::fs::FinalizeS3(); !finalize_status.ok()) {
+      spdlog::error("Failed to finalize S3 file system");
+    }
+  }
   try {
     memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
   } catch (memgraph::query::QueryException &) {

@@ -12,12 +12,14 @@
 #include "query/arrow_parquet/reader.hpp"
 #include "query/typed_value.hpp"
 #include "utils/data_queue.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/temporal.hpp"
 
 #include <chrono>
 #include <thread>
 
 #include "arrow/api.h"
+#include "arrow/filesystem/s3fs.h"
 #include "arrow/io/file.h"
 #include "arrow/util/decimal.h"
 #include "arrow/util/float16.h"
@@ -34,7 +36,103 @@ using memgraph::utils::LocalDateTime;
 using memgraph::utils::LocalTime;
 using memgraph::utils::MemoryResource;
 
+// Maybe you need different struct for query parsing
+struct S3Config {
+  std::string uri;
+  std::string region;
+  std::string access_key;
+  std::string secret_key;
+};
+
 namespace {
+
+constexpr std::string_view s3_prefix = "s3://";
+
+auto BuildHeader(std::shared_ptr<arrow::Schema> const &schema, memgraph::utils::MemoryResource *resource)
+    -> memgraph::query::Header {
+  memgraph::query::Header header(resource);
+  header.reserve(schema->num_fields());
+  for (auto const &field : schema->fields()) {
+    // temporary needs to be created
+    // NOLINTNEXTLINE
+    header.push_back(TypedValue::TString{field->name(), resource});
+  }
+  return header;
+}
+
+// nullptr for error
+auto LoadFileFromS3(S3Config const &s3_config) -> std::unique_ptr<parquet::arrow::FileReader> {
+  if (auto const status = arrow::fs::EnsureS3Initialized(); !status.ok()) {
+    spdlog::error(status.message());
+    return nullptr;
+  }
+
+  auto s3_options = arrow::fs::S3Options::FromAccessKey(s3_config.access_key, s3_config.secret_key);
+  s3_options.region = s3_config.region;
+
+  auto maybe_s3_fs = arrow::fs::S3FileSystem::Make(s3_options);
+  if (!maybe_s3_fs.ok()) {
+    spdlog::error(maybe_s3_fs.status().message());
+    return nullptr;
+  }
+
+  auto const &s3_fs = *maybe_s3_fs;
+
+  // TODO: (andi) This is worth experimenting, maybe there are better ways to open a file through buffered streams
+
+  auto const uri_wo_prefix = s3_config.uri.substr(s3_prefix.size());
+  auto rnd_acc_file = s3_fs->OpenInputFile(uri_wo_prefix);
+  if (!rnd_acc_file.ok()) {
+    spdlog::error(rnd_acc_file.status().message());
+    return nullptr;
+  }
+
+  auto maybe_parquet_reader = parquet::arrow::OpenFile(*rnd_acc_file, arrow::default_memory_pool());
+
+  if (!maybe_parquet_reader.ok()) {
+    spdlog::error(maybe_parquet_reader.status().message());
+    return nullptr;
+  }
+
+  return std::move(*maybe_parquet_reader);
+}
+
+// nullptr for error
+auto LoadFileFromDisk(std::string const &file_path) -> std::unique_ptr<parquet::arrow::FileReader> {
+  arrow::MemoryPool *pool = arrow::default_memory_pool();
+
+  auto maybe_file = arrow::io::ReadableFile::Open(file_path, pool);
+  if (!maybe_file.ok()) {
+    spdlog::error(maybe_file.status().message());
+    return nullptr;
+  }
+
+  auto const &file = *maybe_file;
+
+  auto reader_properties = parquet::ReaderProperties(pool);
+  reader_properties.enable_buffered_stream();
+
+  auto arrow_reader_props = parquet::ArrowReaderProperties();
+  arrow_reader_props.set_batch_size(batch_rows);
+  arrow_reader_props.set_use_threads(true);
+
+  parquet::arrow::FileReaderBuilder reader_builder;
+  if (auto const status = reader_builder.Open(file, reader_properties); !status.ok()) {
+    spdlog::error(status.message());
+    return nullptr;
+  }
+
+  reader_builder.memory_pool(pool);
+  reader_builder.properties(arrow_reader_props);
+
+  std::unique_ptr<parquet::arrow::FileReader> file_reader;
+  if (auto const status = reader_builder.Build(&file_reader); !status.ok()) {
+    spdlog::error(status.message());
+    return nullptr;
+  }
+
+  return file_reader;
+}
 
 // Return to microseconds
 auto ArrowTimeToUs(auto const arrow_val, auto const arrow_time_unit) -> int64_t {
@@ -457,51 +555,28 @@ auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
 }
 
 ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *resource) {
-  arrow::MemoryPool *pool = arrow::default_memory_pool();
-
-  try {
-    // Open the file
-    std::shared_ptr<arrow::io::ReadableFile> infile;
-    PARQUET_ASSIGN_OR_THROW(infile, arrow::io::ReadableFile::Open(file, pool));
-
-    // Configure general Parquet reader settings
-    auto reader_properties = parquet::ReaderProperties(pool);
-    reader_properties.enable_buffered_stream();
-
-    // Configure Arrow-specific Parquet reader settings
-    auto arrow_reader_props = parquet::ArrowReaderProperties();
-    arrow_reader_props.set_batch_size(batch_rows);
-    arrow_reader_props.set_use_threads(true);
-
-    // Build the reader
-    parquet::arrow::FileReaderBuilder reader_builder;
-    PARQUET_THROW_NOT_OK(reader_builder.Open(infile, reader_properties));
-    reader_builder.memory_pool(pool);
-    reader_builder.properties(arrow_reader_props);
-
-    std::unique_ptr<parquet::arrow::FileReader> arrow_reader;
-    PARQUET_THROW_NOT_OK(reader_builder.Build(&arrow_reader));
-
-    // Get the RecordBatchReader
-    auto res = arrow_reader->GetRecordBatchReader();
-    if (!res.ok()) {
-      throw std::runtime_error(res.status().message());
+  auto file_reader = std::invoke([&]() -> std::unique_ptr<parquet::arrow::FileReader> {
+    if (file.starts_with(s3_prefix)) {
+      S3Config const s3_config{.uri = file, .region = "eu-west-1", .access_key = "a", .secret_key = "b"};
+      return LoadFileFromS3(s3_config);
     }
+    return LoadFileFromDisk(file);
+  });
 
-    auto const schema = (*res)->schema();
-    Header header(resource);
-    header.reserve(schema->num_fields());
-    for (auto const &field : schema->fields()) {
-      // temporary needs to be created
-      // NOLINTNEXTLINE
-      header.push_back(TypedValue::TString{field->name(), resource});
-    }
-
-    pimpl_ = std::make_unique<impl>(std::move(arrow_reader), std::move(*res), std::move(header), resource);
-  } catch (const std::exception &e) {
-    spdlog::error("Failed to open parquet file '{}': {}", file, e.what());
-    throw;
+  if (!file_reader) {
+    throw utils::BasicException("Failed to load file {}.", file);
   }
+
+  auto maybe_batch_reader = file_reader->GetRecordBatchReader();
+  if (!maybe_batch_reader.ok()) {
+    throw utils::BasicException("Couldn't create RecordBatchReader because of {}",
+                                maybe_batch_reader.status().message());
+  }
+
+  auto batch_reader = std::move(*maybe_batch_reader);
+  auto header = BuildHeader(batch_reader->schema(), resource);
+
+  pimpl_ = std::make_unique<impl>(std::move(file_reader), std::move(batch_reader), std::move(header), resource);
 }
 
 ParquetReader::~ParquetReader() = default;
