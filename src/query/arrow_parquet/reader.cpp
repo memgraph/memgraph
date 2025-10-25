@@ -35,16 +35,6 @@ using memgraph::utils::LocalTime;
 using memgraph::utils::MemoryResource;
 
 namespace {
-auto ToHexString(const uint8_t *data, size_t const size) -> std::string {
-  std::string hex;
-  hex.reserve(size * 2);
-  for (size_t i = 0; i < size; i++) {
-    constexpr auto *hex_chars = "0123456789abcdef";
-    hex.push_back(hex_chars[data[i] >> 4U]);
-    hex.push_back(hex_chars[data[i] & 0x0FU]);
-  }
-  return hex;
-}
 
 // Return to microseconds
 auto ArrowTimeToUs(auto const arrow_val, auto const arrow_time_unit) -> int64_t {
@@ -82,15 +72,13 @@ std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<a
     case arrow::Type::INT8: {
       auto int_array = std::static_pointer_cast<arrow::Int8Array>(column);
       return [int_array, resource](int64_t const i) -> TypedValue {
-        return int_array->IsNull(i) ? TypedValue(resource)
-                                    : TypedValue(static_cast<int64_t>(int_array->Value(i)), resource);
+        return int_array->IsNull(i) ? TypedValue(resource) : TypedValue(int_array->Value(i), resource);
       };
     }
     case arrow::Type::INT16: {
       auto int_array = std::static_pointer_cast<arrow::Int16Array>(column);
       return [int_array, resource](int64_t const i) -> TypedValue {
-        return int_array->IsNull(i) ? TypedValue(resource)
-                                    : TypedValue(static_cast<int64_t>(int_array->Value(i)), resource);
+        return int_array->IsNull(i) ? TypedValue(resource) : TypedValue(int_array->Value(i), resource);
       };
     }
     case arrow::Type::INT32: {
@@ -108,15 +96,13 @@ std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<a
     case arrow::Type::UINT8: {
       auto int_array = std::static_pointer_cast<arrow::UInt8Array>(column);
       return [int_array, resource](int64_t const i) -> TypedValue {
-        return int_array->IsNull(i) ? TypedValue(resource)
-                                    : TypedValue(static_cast<int64_t>(int_array->Value(i)), resource);
+        return int_array->IsNull(i) ? TypedValue(resource) : TypedValue(int_array->Value(i), resource);
       };
     }
     case arrow::Type::UINT16: {
       auto int_array = std::static_pointer_cast<arrow::UInt16Array>(column);
       return [int_array, resource](int64_t const i) -> TypedValue {
-        return int_array->IsNull(i) ? TypedValue(resource)
-                                    : TypedValue(static_cast<int64_t>(int_array->Value(i)), resource);
+        return int_array->IsNull(i) ? TypedValue(resource) : TypedValue(int_array->Value(i), resource);
       };
     }
     case arrow::Type::UINT32: {
@@ -260,7 +246,7 @@ std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<a
       return [binary_array, resource](int64_t const i) -> TypedValue {
         if (binary_array->IsNull(i)) return TypedValue(resource);
         auto const view = binary_array->GetView(i);
-        return TypedValue(ToHexString(reinterpret_cast<const uint8_t *>(view.data()), view.size()), resource);
+        return TypedValue(view, resource);
       };
     }
     case arrow::Type::LARGE_BINARY: {
@@ -268,16 +254,15 @@ std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<a
       return [large_binary_array, resource](int64_t const i) -> TypedValue {
         if (large_binary_array->IsNull(i)) return TypedValue(resource);
         auto const view = large_binary_array->GetView(i);
-        return TypedValue(ToHexString(reinterpret_cast<const uint8_t *>(view.data()), view.size()), resource);
+        return TypedValue(view.data(), resource);
       };
     }
     case arrow::Type::FIXED_SIZE_BINARY: {
       auto fixed_binary = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(column);
-      int32_t const width = fixed_binary->byte_width();
-      return [fixed_binary, width, resource](int64_t const i) -> TypedValue {
+      return [fixed_binary, resource](int64_t const i) -> TypedValue {
         if (fixed_binary->IsNull(i)) return TypedValue(resource);
         const uint8_t *data = fixed_binary->GetValue(i);
-        return TypedValue(ToHexString(data, width), resource);
+        return TypedValue(data, resource);
       };
     }
     case arrow::Type::LIST: {
@@ -286,13 +271,13 @@ std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<a
         if (list_array->IsNull(i)) return TypedValue(resource);
 
         auto const slice = list_array->value_slice(i);
-        int64_t const list_length = slice->length();
+        auto const elem_converter = CreateColumnConverter(slice, resource);
 
         TypedValue::TVector list_values(resource);
+        int64_t const list_length = slice->length();
         list_values.reserve(list_length);
 
         for (int64_t k = 0; k < list_length; k++) {
-          auto const elem_converter = CreateColumnConverter(slice, resource);
           list_values.emplace_back(elem_converter(k));
         }
 
@@ -308,6 +293,8 @@ std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<a
       return [map_array, key_strings, values_array, resource](int64_t const i) -> TypedValue {
         if (map_array->IsNull(i)) return TypedValue(resource);
 
+        auto const val_converter = CreateColumnConverter(values_array, resource);
+
         int64_t const offset_start = map_array->value_offset(i);
         int64_t const offset_end = map_array->value_offset(i + 1);
 
@@ -315,7 +302,6 @@ std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<a
 
         for (int64_t k = offset_start; k < offset_end; k++) {
           auto key = key_strings->GetString(k);
-          auto const val_converter = CreateColumnConverter(values_array, resource);
           map_values.emplace(TypedValue::TString{key, resource}, val_converter(k));
         }
 
@@ -454,7 +440,9 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
   }
 }
 
-ParquetReader::impl::~impl() {}
+ParquetReader::impl::~impl() {
+  // prefetcher_thread_.request_stop();
+}
 
 auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   if (row_in_batch_ >= current_batch_size_) {

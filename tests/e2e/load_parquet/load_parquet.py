@@ -15,15 +15,6 @@ import pytest
 from common import connect, execute_and_fetch_all, get_file_path
 
 
-def is_hexadecimal(value):
-    try:
-        int(value, 16)
-        return True
-    except ValueError:
-        print(f"{value!r} is not a valid hexadecimal string")
-        return False
-
-
 def test_small_file_nodes():
     cursor = connect(host="localhost", port=7687).cursor()
     load_query = f"LOAD PARQUET FROM '{get_file_path('nodes_100.parquet')}' AS row CREATE (n:N {{id: row.id, name: row.name, age: row.age, city: row.city}})"
@@ -119,22 +110,6 @@ def test_temporal_types():
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 
-# All binary types are converted to hex string
-def test_binary_types():
-    cursor = connect(host="localhost", port=7687).cursor()
-    load_query = (
-        f"LOAD PARQUET FROM '{get_file_path('nodes_binary.parquet')}' AS x CREATE (p:Person {{id: x.id, name: x.name, uuid: x.uuid_bytes, "
-        f"sha256: x.sha256_hash, ipv4: x.ipv4_address, file_size: size(x.file_content)}});"
-    )
-    execute_and_fetch_all(cursor, load_query)
-    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
-
-    assert is_hexadecimal(execute_and_fetch_all(cursor, "match (n) return n.uuid")[0][0]) == True
-    assert is_hexadecimal(execute_and_fetch_all(cursor, "match (n) return n.sha256")[0][0]) == True
-    assert is_hexadecimal(execute_and_fetch_all(cursor, "match (n) return n.ipv4")[0][0]) == True
-    execute_and_fetch_all(cursor, "match (n) detach delete n")
-
-
 def test_collection_types():
     cursor = connect(host="localhost", port=7687).cursor()
     # Test simple collections first
@@ -143,7 +118,6 @@ def test_collection_types():
         f"CREATE (n:Collection {{id: row.id, name: row.name, numbers: row.numbers_list, "
         f"tags: row.tags_list, properties: row.properties_map}})"
     )
-    print(f"Query: {load_query}")
     execute_and_fetch_all(cursor, load_query)
     assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
 

@@ -26,14 +26,12 @@ class DataQueue {
   std::mutex mutex_;
   std::condition_variable readerCv_;
   std::condition_variable writerCv_;
-  std::condition_variable finishCv_;
-
   std::queue<T> queue_;
   bool done_{false};
   std::size_t maxSize_;
 
-  // Must have lock to call this function
   bool full() const {
+    DMG_ASSERT(!mutex_.try_lock(), "Lock should be taken before full() is invoked");
     if (maxSize_ == 0) {
       return false;
     }
@@ -62,9 +60,8 @@ class DataQueue {
   bool push(U &&item) {
     {
       std::unique_lock<std::mutex> lock(mutex_);
-      while (full() && !done_) {
-        writerCv_.wait(lock);
-      }
+      writerCv_.wait(lock, [&] { return !full() || done_; });
+
       if (done_) {
         return false;
       }
@@ -86,13 +83,13 @@ class DataQueue {
   bool pop(T &item) {
     {
       std::unique_lock<std::mutex> lock(mutex_);
-      while (queue_.empty() && !done_) {
-        readerCv_.wait(lock);
-      }
+      readerCv_.wait(lock, [&]() { return !queue_.empty() || done_; });
+
       if (queue_.empty()) {
-        assert(done_);
+        MG_ASSERT(done_, "Done is true but queue is not empty");
         return false;
       }
+
       std::swap(item, queue_.front());
       queue_.pop();
     }
@@ -120,20 +117,11 @@ class DataQueue {
   void finish() {
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      assert(!done_);
+      MG_ASSERT(!done_, "Queue already finished");
       done_ = true;
     }
     readerCv_.notify_all();
     writerCv_.notify_all();
-    finishCv_.notify_all();
-  }
-
-  /// Blocks until `finish()` has been called (but the queue may not be empty).
-  void waitUntilFinished() {
-    std::unique_lock<std::mutex> lock(mutex_);
-    while (!done_) {
-      finishCv_.wait(lock);
-    }
   }
 };
 

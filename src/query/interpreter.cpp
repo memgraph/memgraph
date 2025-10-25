@@ -7307,6 +7307,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   }
 
   auto *const cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+
+  // Load parquet uses thread safe allocator that's why it is being checked here
   bool has_load_parquet{false};
 
   if (cypher_query) {
@@ -7320,10 +7322,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     // Setup QueryExecution
     // TODO: Use CreateThreadSafe for multi-threaded queries
     if (has_load_parquet) {
-      spdlog::trace("Creating thread safe query allocator");
       query_executions_.emplace_back(QueryExecution::CreateThreadSafe());
     } else {
-      spdlog::trace("Creating regular allocator");
       query_executions_.emplace_back(QueryExecution::Create());
     }
     auto &query_execution = query_executions_.back();
