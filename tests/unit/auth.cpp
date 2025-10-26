@@ -1404,6 +1404,50 @@ TEST(AuthWithFineGrainedTest, UniversalRevokeRemovesNothingRules) {
   perms.Grant({"Label2"}, FineGrainedPermission::READ);
   ASSERT_EQ(perms.Has(std::array{"Label2"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
 }
+
+TEST(AuthWithFineGrainedTest, FineGrainedAccessPermissionsSerializeDeserialize) {
+  FineGrainedAccessPermissions label_perms;
+  FineGrainedAccessPermissions edge_perms;
+
+  label_perms.Grant({"Person"}, FineGrainedPermission::READ, MatchingMode::ANY);
+  label_perms.Grant({"Employee", "Manager"}, FineGrainedPermission::UPDATE, MatchingMode::ANY);
+  label_perms.Grant({"Admin"}, FineGrainedPermission::CREATE, MatchingMode::EXACTLY);
+  label_perms.Grant({"User", "Active"}, FineGrainedPermission::DELETE, MatchingMode::EXACTLY);
+
+  edge_perms.Grant({"KNOWS"}, FineGrainedPermission::READ);
+  edge_perms.Grant({"MANAGES", "SUPERVISES"}, FineGrainedPermission::UPDATE);
+
+  auto label_data = label_perms.Serialize();
+  auto edge_data = edge_perms.Serialize();
+
+  auto label_output = FineGrainedAccessPermissions::Deserialize(label_data);
+  auto edge_output = FineGrainedAccessPermissions::Deserialize(edge_data);
+
+  ASSERT_EQ(label_perms, label_output);
+  ASSERT_EQ(edge_perms, edge_output);
+
+  ASSERT_EQ(label_output.Has(std::array{"Person"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  ASSERT_EQ(label_output.Has(std::array{"Person"s, "Employee"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+
+  ASSERT_EQ(label_output.Has(std::array{"Employee"s}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+  ASSERT_EQ(label_output.Has(std::array{"Manager"s}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+  ASSERT_EQ(label_output.Has(std::array{"Employee"s, "Manager"s}, FineGrainedPermission::UPDATE),
+            PermissionLevel::GRANT);
+
+  ASSERT_EQ(label_output.Has(std::array{"Admin"s}, FineGrainedPermission::CREATE), PermissionLevel::GRANT);
+  ASSERT_EQ(label_output.Has(std::array{"Admin"s, "SuperAdmin"s}, FineGrainedPermission::CREATE),
+            PermissionLevel::DENY);
+
+  ASSERT_EQ(label_output.Has(std::array{"User"s, "Active"s}, FineGrainedPermission::DELETE), PermissionLevel::GRANT);
+  ASSERT_EQ(label_output.Has(std::array{"User"s}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
+  ASSERT_EQ(label_output.Has(std::array{"User"s, "Active"s, "Premium"s}, FineGrainedPermission::DELETE),
+            PermissionLevel::DENY);
+
+  ASSERT_EQ(edge_output.Has(std::array{"KNOWS"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+
+  ASSERT_EQ(edge_output.Has(std::array{"MANAGES"s}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+  ASSERT_EQ(edge_output.Has(std::array{"SUPERVISES"s}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+}
 #endif  // MG_ENTERPRISE
 
 TEST(AuthWithoutStorage, UserSerializeDeserialize) {
