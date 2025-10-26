@@ -1374,6 +1374,18 @@ TEST(AuthWithFineGrainedTest, MultipleMatchingModesOnSameLabel) {
   ASSERT_EQ(perms.Has(std::array{"Employee"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
   ASSERT_EQ(perms.Has(std::array{"Employee"s}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
 }
+
+TEST(AuthWithFineGrainedTest, MultipleExactlyRulesForSamePermission) {
+  FineGrainedAccessPermissions perms;
+
+  perms.Grant({"Person", "Actor"}, FineGrainedPermission::READ, MatchingMode::EXACTLY);
+  perms.Grant({"Person", "Director"}, FineGrainedPermission::READ, MatchingMode::EXACTLY);
+
+  ASSERT_EQ(perms.Has(std::array{"Person"s, "Actor"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  ASSERT_EQ(perms.Has(std::array{"Person"s, "Director"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  ASSERT_EQ(perms.Has(std::array{"Person"s, "Actor"s, "Director"s}, FineGrainedPermission::READ),
+            PermissionLevel::DENY);
+}
 #endif  // MG_ENTERPRISE
 
 TEST(AuthWithoutStorage, UserSerializeDeserialize) {
