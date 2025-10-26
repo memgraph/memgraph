@@ -2877,12 +2877,12 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
   edge_type_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE}, {{"Label1"}, {"Label2"}}}});
-  edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Edge1"}}}});
+  edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Edge1"}, {"Edge2"}, {"Edge3"}}}});
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"Label3"}, {"Label4"}}}});
   edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::DELETE}, {{"Edge2"}}}});
   check_auth_query(&ast_generator,
                    R"(GRANT CREATE ON NODES CONTAINING LABELS :Label1, :Label2 MATCHING EXACTLY,
-                          READ ON EDGES CONTAINING TYPES :Edge1,
+                          READ ON EDGES CONTAINING TYPES :Edge1, :Edge2, :Edge3,
                           UPDATE ON NODES CONTAINING LABELS :Label3, :Label4  MATCHING ANY,
                           DELETE ON EDGES CONTAINING TYPES :Edge2 TO user)",
                    AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, edge_type_privileges,
@@ -2916,10 +2916,15 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
   ASSERT_THROW(ast_generator.ParseQuery("GRANT READ ON NODES CONTAINING LABELS * MATCHING EXACTLY TO user"),
                SemanticException);
 
-  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ ON EDGES CONTAINING TYPES :Edge1 MATCHING ANY TO user"),
-               SyntaxException);
+  edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Edge1"}, {"Edge2"}}}});
+  check_auth_query(&ast_generator, "GRANT READ ON EDGES CONTAINING TYPES :Edge1, :Edge2 MATCHING ANY TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, edge_type_privileges,
+                   {});
+  label_privileges.clear();
+  edge_type_privileges.clear();
+
   ASSERT_THROW(ast_generator.ParseQuery("GRANT READ ON EDGES CONTAINING TYPES :Edge1 MATCHING EXACTLY TO user"),
-               SyntaxException);
+               SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
@@ -3118,10 +3123,13 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
       {AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::EXACTLY, AuthQuery::LabelMatchingMode::ANY});
   label_privileges.clear();
 
-  ASSERT_THROW(ast_generator.ParseQuery("REVOKE CREATE ON EDGES CONTAINING TYPES :Edge1 MATCHING ANY FROM user"),
-               SyntaxException);
+  edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE}, {{"Edge1"}, {"Edge2"}}}});
+  check_auth_query(&ast_generator, "REVOKE CREATE ON EDGES CONTAINING TYPES :Edge1, :Edge2 MATCHING ANY FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, {}, edge_type_privileges);
+  edge_type_privileges.clear();
+
   ASSERT_THROW(ast_generator.ParseQuery("REVOKE CREATE ON EDGES CONTAINING TYPES :Edge1 MATCHING EXACTLY FROM user"),
-               SyntaxException);
+               SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, ShowPrivileges) {
