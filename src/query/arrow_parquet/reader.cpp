@@ -17,6 +17,7 @@
 #include "utils/temporal.hpp"
 
 #include <chrono>
+#include <string_view>
 #include <thread>
 
 #include "arrow/api.h"
@@ -36,6 +37,7 @@ using memgraph::utils::Duration;
 using memgraph::utils::LocalDateTime;
 using memgraph::utils::LocalTime;
 using memgraph::utils::MemoryResource;
+using namespace std::string_view_literals;
 
 // Maybe you need different struct for query parsing
 struct S3Config {
@@ -48,6 +50,41 @@ struct S3Config {
 namespace {
 
 constexpr std::string_view s3_prefix = "s3://";
+constexpr auto kAwsAccessKey = "AWS_ACCESS_KEY"sv;
+constexpr auto kAwsRegion = "AWS_REGION"sv;
+constexpr auto kAwsSecretKey = "AWS_SECRET_KEY"sv;
+
+// TODO: (andi) Here you can send query parameters you received
+auto BuildS3Config() -> S3Config {
+  S3Config config;
+  // Check runtime settings, they have higher priority over env variables
+  if (auto aws_access_key_setting = memgraph::flags::run_time::GetAwsAccessKey(); !aws_access_key_setting.empty()) {
+    config.access_key = std::move(aws_access_key_setting);
+  }
+
+  if (auto aws_region_setting = memgraph::flags::run_time::GetAwsRegion(); !aws_region_setting.empty()) {
+    config.region = std::move(aws_region_setting);
+  }
+
+  if (auto aws_secret_key_setting = memgraph::flags::run_time::GetAwsSecretKey(); !aws_secret_key_setting.empty()) {
+    config.secret_key = std::move(aws_secret_key_setting);
+  }
+
+  // Check ENV flags. They're of the smallest priority
+  if (auto const aws_access_key_env = std::getenv(kAwsAccessKey.data())) {
+    config.access_key = aws_access_key_env;
+  }
+
+  if (auto const aws_region_env = std::getenv(kAwsRegion.data())) {
+    config.region = aws_region_env;
+  }
+
+  if (auto const aws_secret_key_env = std::getenv(kAwsSecretKey.data())) {
+    config.secret_key = aws_secret_key_env;
+  }
+
+  return config;
+};
 
 auto BuildHeader(std::shared_ptr<arrow::Schema> const &schema, memgraph::utils::MemoryResource *resource)
     -> memgraph::query::Header {
@@ -558,11 +595,7 @@ auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
 ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *resource) {
   auto file_reader = std::invoke([&]() -> std::unique_ptr<parquet::arrow::FileReader> {
     if (file.starts_with(s3_prefix)) {
-      S3Config const s3_config{.uri = file,
-                               .region = flags::run_time::GetAwsRegion(),
-                               .access_key = flags::run_time::GetAwsAccessKey(),
-                               .secret_key = flags::run_time::GetAwsSecretKey()};
-      return LoadFileFromS3(s3_config);
+      return LoadFileFromS3(BuildS3Config());
     }
     return LoadFileFromDisk(file);
   });
