@@ -11,6 +11,7 @@
 
 #include "query/arrow_parquet/reader.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "query/arrow_parquet/parquet_file_config.hpp"
 #include "query/typed_value.hpp"
 #include "utils/data_queue.hpp"
 #include "utils/exceptions.hpp"
@@ -39,52 +40,44 @@ using memgraph::utils::LocalTime;
 using memgraph::utils::MemoryResource;
 using namespace std::string_view_literals;
 
-// Maybe you need different struct for query parsing
-struct S3Config {
-  std::string uri;
-  std::string region;
-  std::string access_key;
-  std::string secret_key;
-};
-
 namespace {
 
 constexpr std::string_view s3_prefix = "s3://";
-constexpr auto kAwsAccessKey = "AWS_ACCESS_KEY"sv;
-constexpr auto kAwsRegion = "AWS_REGION"sv;
-constexpr auto kAwsSecretKey = "AWS_SECRET_KEY"sv;
+constexpr auto kAwsAccessKeyEnv = "AWS_ACCESS_KEY";
+constexpr auto kAwsRegionEnv = "AWS_REGION";
+constexpr auto kAwsSecretKeyEnv = "AWS_SECRET_KEY";
 
-// TODO: (andi) Here you can send query parameters you received
-auto BuildS3Config() -> S3Config {
-  S3Config config;
-  // Check runtime settings, they have higher priority over env variables
-  if (auto aws_access_key_setting = memgraph::flags::run_time::GetAwsAccessKey(); !aws_access_key_setting.empty()) {
-    config.access_key = std::move(aws_access_key_setting);
-  }
+auto BuildS3Config(memgraph::query::ParquetFileConfig &config) -> memgraph::query::ParquetFileConfig {
+  auto get_env_or_empty = [](const char *env_name) -> std::optional<std::string> {
+    if (const auto *const env_val = std::getenv(env_name)) {
+      return std::string{env_val};
+    }
+    return std::nullopt;
+  };
 
-  if (auto aws_region_setting = memgraph::flags::run_time::GetAwsRegion(); !aws_region_setting.empty()) {
-    config.region = std::move(aws_region_setting);
-  }
+  config.aws_region = config.aws_region
+                          .or_else([&] {
+                            auto setting = memgraph::flags::run_time::GetAwsRegion();
+                            return setting.empty() ? std::nullopt : std::make_optional(std::move(setting));
+                          })
+                          .or_else([&] { return get_env_or_empty(kAwsRegionEnv); });
 
-  if (auto aws_secret_key_setting = memgraph::flags::run_time::GetAwsSecretKey(); !aws_secret_key_setting.empty()) {
-    config.secret_key = std::move(aws_secret_key_setting);
-  }
+  config.aws_access_key = config.aws_access_key
+                              .or_else([&] {
+                                auto setting = memgraph::flags::run_time::GetAwsAccessKey();
+                                return setting.empty() ? std::nullopt : std::make_optional(std::move(setting));
+                              })
+                              .or_else([&] { return get_env_or_empty(kAwsAccessKeyEnv); });
 
-  // Check ENV flags. They're of the smallest priority
-  if (auto const aws_access_key_env = std::getenv(kAwsAccessKey.data())) {
-    config.access_key = aws_access_key_env;
-  }
-
-  if (auto const aws_region_env = std::getenv(kAwsRegion.data())) {
-    config.region = aws_region_env;
-  }
-
-  if (auto const aws_secret_key_env = std::getenv(kAwsSecretKey.data())) {
-    config.secret_key = aws_secret_key_env;
-  }
+  config.aws_secret_key = config.aws_secret_key
+                              .or_else([&] {
+                                auto setting = memgraph::flags::run_time::GetAwsSecretKey();
+                                return setting.empty() ? std::nullopt : std::make_optional(std::move(setting));
+                              })
+                              .or_else([&] { return get_env_or_empty(kAwsSecretKeyEnv); });
 
   return config;
-};
+}
 
 auto BuildHeader(std::shared_ptr<arrow::Schema> const &schema, memgraph::utils::MemoryResource *resource)
     -> memgraph::query::Header {
@@ -99,14 +92,39 @@ auto BuildHeader(std::shared_ptr<arrow::Schema> const &schema, memgraph::utils::
 }
 
 // nullptr for error
-auto LoadFileFromS3(S3Config const &s3_config) -> std::unique_ptr<parquet::arrow::FileReader> {
+auto LoadFileFromS3(memgraph::query::ParquetFileConfig const &s3_config)
+    -> std::unique_ptr<parquet::arrow::FileReader> {
+  if (!s3_config.aws_region.has_value()) {
+    spdlog::error(
+        "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} or "
+        "env variable {}",
+        memgraph::query::kAwsRegionQuerySetting, kAwsRegionEnv);
+    return nullptr;
+  }
+
+  if (!s3_config.aws_access_key.has_value()) {
+    spdlog::error(
+        "AWS access key configuration parameter not provided. Please provide it through the query, run-time setting {} "
+        "or env variable {}",
+        memgraph::query::kAwsAccessKeyQuerySetting, kAwsAccessKeyEnv);
+    return nullptr;
+  }
+
+  if (!s3_config.aws_access_key.has_value()) {
+    spdlog::error(
+        "AWS secret key configuration parameter not provided. Please provide it through the query, run-time setting {} "
+        "or env variable {}",
+        memgraph::query::kAwsSecretKeyQuerySetting, kAwsSecretKeyEnv);
+    return nullptr;
+  }
+
   if (auto const status = arrow::fs::EnsureS3Initialized(); !status.ok()) {
     spdlog::error(status.message());
     return nullptr;
   }
 
-  auto s3_options = arrow::fs::S3Options::FromAccessKey(s3_config.access_key, s3_config.secret_key);
-  s3_options.region = s3_config.region;
+  auto s3_options = arrow::fs::S3Options::FromAccessKey(*s3_config.aws_access_key, *s3_config.aws_secret_key);
+  s3_options.region = *s3_config.aws_region;
 
   auto maybe_s3_fs = arrow::fs::S3FileSystem::Make(s3_options);
   if (!maybe_s3_fs.ok()) {
@@ -117,8 +135,7 @@ auto LoadFileFromS3(S3Config const &s3_config) -> std::unique_ptr<parquet::arrow
   auto const &s3_fs = *maybe_s3_fs;
 
   // TODO: (andi) This is worth experimenting, maybe there are better ways to open a file through buffered streams
-
-  auto const uri_wo_prefix = s3_config.uri.substr(s3_prefix.size());
+  auto const uri_wo_prefix = s3_config.file.substr(s3_prefix.size());
   auto rnd_acc_file = s3_fs->OpenInputFile(uri_wo_prefix);
   if (!rnd_acc_file.ok()) {
     spdlog::error(rnd_acc_file.status().message());
@@ -592,16 +609,16 @@ auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   return true;
 }
 
-ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *resource) {
+ParquetReader::ParquetReader(ParquetFileConfig parquet_file_config, utils::MemoryResource *resource) {
   auto file_reader = std::invoke([&]() -> std::unique_ptr<parquet::arrow::FileReader> {
-    if (file.starts_with(s3_prefix)) {
-      return LoadFileFromS3(BuildS3Config());
+    if (parquet_file_config.file.starts_with(s3_prefix)) {
+      return LoadFileFromS3(BuildS3Config(parquet_file_config));
     }
-    return LoadFileFromDisk(file);
+    return LoadFileFromDisk(parquet_file_config.file);
   });
 
   if (!file_reader) {
-    throw utils::BasicException("Failed to load file {}.", file);
+    throw utils::BasicException("Failed to load file {}.", parquet_file_config.file);
   }
 
   auto maybe_batch_reader = file_reader->GetRecordBatchReader();

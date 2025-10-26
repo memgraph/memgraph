@@ -276,7 +276,8 @@ class RuleBasedPlanner {
           } else if (auto *load_parquet = utils::Downcast<query::LoadParquet>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_parquet->row_var_);
             context.bound_symbols.insert(row_sym);
-            input_op = std::make_unique<plan::LoadParquet>(std::move(input_op), load_parquet->file_, row_sym);
+            input_op = std::make_unique<plan::LoadParquet>(std::move(input_op), load_parquet->file_,
+                                                           load_parquet->configs_, row_sym);
           } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
             context.is_write_query = true;
             input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,
