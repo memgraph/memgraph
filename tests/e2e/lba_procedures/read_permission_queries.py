@@ -199,5 +199,76 @@ def test_can_not_read_node_when_authorized(switch):
         execute_read_node_assertion(operation_case, match_queries_with_index, True, expected_size, switch)
 
 
+@pytest.mark.parametrize("switch", [False, True])
+def test_read_multiple_labels_matching_any(switch):
+    admin_connection = connect(username="admin", password="test")
+    admin_cursor = admin_connection.cursor()
+    reset_permissions(admin_cursor)
+    if switch:
+        create_multi_db(admin_cursor)
+        switch_db(admin_cursor)
+
+    execute_and_fetch_all(admin_cursor, "CREATE (:Person);")
+    execute_and_fetch_all(admin_cursor, "CREATE (:Employee);")
+    execute_and_fetch_all(admin_cursor, "CREATE (:Person:Employee);")
+    execute_and_fetch_all(admin_cursor, "CREATE (:Person:Manager);")
+    execute_and_fetch_all(admin_cursor, "CREATE (:Contractor);")
+
+    execute_and_fetch_all(
+        admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :Person, :Employee MATCHING ANY TO user;"
+    )
+
+    user_connection = connect(username="user", password="test")
+    user_cursor = user_connection.cursor()
+    if switch:
+        switch_db(user_cursor)
+
+    results = execute_and_fetch_all(user_cursor, "MATCH (n) RETURN n;")
+    assert len(results) == 4
+
+    results = execute_and_fetch_all(user_cursor, "MATCH (n:Person) RETURN n;")
+    assert len(results) == 3
+
+    results = execute_and_fetch_all(user_cursor, "MATCH (n:Employee) RETURN n;")
+    assert len(results) == 2
+
+    results = execute_and_fetch_all(user_cursor, "MATCH (n:Contractor) RETURN n;")
+    assert len(results) == 0
+
+
+@pytest.mark.parametrize("switch", [False, True])
+def test_read_multiple_edge_types(switch):
+    admin_connection = connect(username="admin", password="test")
+    admin_cursor = admin_connection.cursor()
+    reset_permissions(admin_cursor)
+    if switch:
+        create_multi_db(admin_cursor)
+        switch_db(admin_cursor)
+
+    execute_and_fetch_all(admin_cursor, "CREATE (:Person)-[:KNOWS]->(:Person);")
+    execute_and_fetch_all(admin_cursor, "CREATE (:Person)-[:MANAGES]->(:Person);")
+    execute_and_fetch_all(admin_cursor, "CREATE (:Person)-[:WORKS_WITH]->(:Person);")
+
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGES CONTAINING TYPES :KNOWS, :MANAGES TO user;")
+
+    user_connection = connect(username="user", password="test")
+    user_cursor = user_connection.cursor()
+    if switch:
+        switch_db(user_cursor)
+
+    results = execute_and_fetch_all(user_cursor, "MATCH ()-[r]->() RETURN r;")
+    assert len(results) == 2
+
+    results = execute_and_fetch_all(user_cursor, "MATCH ()-[r:KNOWS]->() RETURN r;")
+    assert len(results) == 1
+
+    results = execute_and_fetch_all(user_cursor, "MATCH ()-[r:MANAGES]->() RETURN r;")
+    assert len(results) == 1
+
+    results = execute_and_fetch_all(user_cursor, "MATCH ()-[r:WORKS_WITH]->() RETURN r;")
+    assert len(results) == 0
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

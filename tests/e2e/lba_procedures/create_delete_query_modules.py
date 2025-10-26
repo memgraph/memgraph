@@ -428,5 +428,36 @@ def test_can_delete_edge_when_given_delete(switch):
     assert no_of_edges[0][0] == 0
 
 
+@pytest.mark.parametrize("switch", [False, True])
+def test_create_multiple_labels_matching_exactly(switch):
+    from mgclient import DatabaseError
+
+    admin_cursor = connect(username="admin", password="test").cursor()
+    create_multi_db(admin_cursor)
+    if switch:
+        switch_db(admin_cursor)
+    reset_create_delete_permissions(admin_cursor)
+
+    execute_and_fetch_all(
+        admin_cursor, "GRANT CREATE ON NODES CONTAINING LABELS :Person, :Employee MATCHING EXACTLY TO user;"
+    )
+
+    test_cursor = connect(username="user", password="test").cursor()
+    if switch:
+        switch_db(test_cursor)
+
+    results = execute_and_fetch_all(test_cursor, "CREATE (n:Person:Employee) RETURN n;")
+    assert len(results) == 1
+
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(test_cursor, "CREATE (n:Person) RETURN n;")
+
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(test_cursor, "CREATE (n:Employee) RETURN n;")
+
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(test_cursor, "CREATE (n:Person:Employee:Manager) RETURN n;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

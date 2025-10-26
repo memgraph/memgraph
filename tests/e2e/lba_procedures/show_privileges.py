@@ -115,5 +115,41 @@ def test_lba_procedures_show_privileges_fourth_user():
     assert set(result) == set(expected_assertions_bruno)
 
 
+def test_show_privileges_multiple_labels_matching_any():
+    auth_cursor = connect(username="Boris", password="").cursor()
+
+    execute_and_fetch_all(auth_cursor, "CREATE USER test_user;")
+    execute_and_fetch_all(
+        auth_cursor, "GRANT READ ON NODES CONTAINING LABELS :Person, :Employee MATCHING ANY TO test_user;"
+    )
+    execute_and_fetch_all(
+        auth_cursor, "GRANT UPDATE ON EDGES CONTAINING TYPES :KNOWS, :MANAGES  MATCHING ANY TO test_user;"
+    )
+
+    results = execute_and_fetch_all(auth_cursor, "SHOW PRIVILEGES FOR test_user;")
+    privilege_strings = [r[0] for r in results]
+
+    assert "NODES CONTAINING LABELS :Employee, :Person MATCHING ANY" in privilege_strings
+    assert "EDGES CONTAINING TYPES :KNOWS, :MANAGES MATCHING ANY" in privilege_strings
+
+    execute_and_fetch_all(auth_cursor, "DROP USER test_user;")
+
+
+def test_show_privileges_multiple_labels_matching_exactly():
+    auth_cursor = connect(username="Niko", password="").cursor()
+
+    execute_and_fetch_all(auth_cursor, "CREATE USER test_user2;")
+    execute_and_fetch_all(
+        auth_cursor, "GRANT CREATE ON NODES CONTAINING LABELS :Admin, :SuperUser MATCHING EXACTLY TO test_user2;"
+    )
+
+    results = execute_and_fetch_all(auth_cursor, "SHOW PRIVILEGES FOR test_user2;")
+    privilege_strings = [r[0] for r in results]
+
+    assert "NODES CONTAINING LABELS :Admin, :SuperUser MATCHING EXACTLY" in privilege_strings
+
+    execute_and_fetch_all(auth_cursor, "DROP USER test_user2;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
