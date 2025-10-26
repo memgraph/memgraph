@@ -1358,6 +1358,22 @@ TEST(AuthWithFineGrainedTest, NoPermissionsNeededForUnlabelledNodes) {
 
   ASSERT_EQ(label_perms.Has(std::span<const std::string>{}, FineGrainedPermission::CREATE), PermissionLevel::GRANT);
 }
+
+TEST(AuthWithFineGrainedTest, MultipleMatchingModesOnSameLabel) {
+  FineGrainedAccessPermissions perms;
+
+  perms.Grant({"Person"}, FineGrainedPermission::READ, MatchingMode::EXACTLY);
+  perms.Grant({"Person", "Employee"}, FineGrainedPermission::UPDATE, MatchingMode::ANY);
+
+  ASSERT_EQ(perms.Has(std::array{"Person"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  ASSERT_EQ(perms.Has(std::array{"Person"s}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+
+  ASSERT_EQ(perms.Has(std::array{"Person"s, "Employee"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+  ASSERT_EQ(perms.Has(std::array{"Person"s, "Employee"s}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+
+  ASSERT_EQ(perms.Has(std::array{"Employee"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+  ASSERT_EQ(perms.Has(std::array{"Employee"s}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+}
 #endif  // MG_ENTERPRISE
 
 TEST(AuthWithoutStorage, UserSerializeDeserialize) {
