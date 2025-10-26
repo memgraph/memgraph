@@ -1386,6 +1386,24 @@ TEST(AuthWithFineGrainedTest, MultipleExactlyRulesForSamePermission) {
   ASSERT_EQ(perms.Has(std::array{"Person"s, "Actor"s, "Director"s}, FineGrainedPermission::READ),
             PermissionLevel::DENY);
 }
+
+TEST(AuthWithFineGrainedTest, UniversalRevokeRemovesNothingRules) {
+  FineGrainedAccessPermissions perms;
+
+  perms.Grant({"Label1"}, FineGrainedPermission::READ);
+  perms.Grant({"Label2"}, FineGrainedPermission::NOTHING);
+
+  ASSERT_EQ(perms.Has(std::array{"Label1"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  ASSERT_EQ(perms.Has(std::array{"Label2"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+
+  perms.RevokeAll();
+
+  ASSERT_EQ(perms.Has(std::array{"Label1"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+  ASSERT_EQ(perms.Has(std::array{"Label2"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+
+  perms.Grant({"Label2"}, FineGrainedPermission::READ);
+  ASSERT_EQ(perms.Has(std::array{"Label2"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+}
 #endif  // MG_ENTERPRISE
 
 TEST(AuthWithoutStorage, UserSerializeDeserialize) {
