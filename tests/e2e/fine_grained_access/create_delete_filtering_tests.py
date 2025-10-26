@@ -585,6 +585,41 @@ def test_unlabeled_nodes_with_system_create_only(switch):
         common.execute_and_fetch_all(user_cursor, "CREATE (a)-[r:KNOWS]->(b) RETURN a, r, b;")
 
 
+@pytest.mark.parametrize("switch", [False, True])
+def test_create_on_multiple_matching_with_same_label(switch):
+    admin_connection = common.connect(username="admin", password="test")
+    admin_cursor = admin_connection.cursor()
+    common.reset_and_prepare(admin_cursor)
+    common.create_multi_db(admin_cursor, switch)
+
+    common.execute_and_fetch_all(
+        admin_cursor, "GRANT CREATE ON NODES CONTAINING LABELS :Person, :Actor MATCHING EXACTLY TO user;"
+    )
+    common.execute_and_fetch_all(
+        admin_cursor, "GRANT CREATE ON NODES CONTAINING LABELS :Person, :Director MATCHING EXACTLY TO user;"
+    )
+
+    user_connection = common.connect(username="user", password="test")
+    user_cursor = user_connection.cursor()
+    if switch:
+        common.switch_db(user_cursor)
+
+    results = common.execute_and_fetch_all(user_cursor, "CREATE (n:Person:Actor) RETURN n;")
+    assert len(results) == 1
+
+    results = common.execute_and_fetch_all(user_cursor, "CREATE (n:Person:Director) RETURN n;")
+    assert len(results) == 1
+
+    with pytest.raises(DatabaseError):
+        common.execute_and_fetch_all(user_cursor, "CREATE (n:Person:Director:Actor) RETURN n;")
+
+    with pytest.raises(DatabaseError):
+        common.execute_and_fetch_all(user_cursor, "CREATE (n:Director:Actor) RETURN n;")
+
+    with pytest.raises(DatabaseError):
+        common.execute_and_fetch_all(user_cursor, "CREATE (n:Person) RETURN n;")
+
+
 if __name__ == "__main__":
     common.setup_db()
     sys.exit(pytest.main([__file__, "-rA"]))
