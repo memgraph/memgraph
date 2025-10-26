@@ -23,7 +23,7 @@ namespace memgraph::utils {
 
 template <typename T>
 class DataQueue {
-  std::mutex mutex_;
+  mutable std::mutex mutex_;
   std::condition_variable readerCv_;
   std::condition_variable writerCv_;
   std::queue<T> queue_;
@@ -32,6 +32,7 @@ class DataQueue {
 
   bool full() const {
     DMG_ASSERT(!mutex_.try_lock(), "Lock should be taken before full() is invoked");
+
     if (maxSize_ == 0) {
       return false;
     }

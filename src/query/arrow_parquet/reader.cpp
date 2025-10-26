@@ -253,8 +253,7 @@ std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<a
       auto large_binary_array = std::static_pointer_cast<arrow::LargeBinaryArray>(column);
       return [large_binary_array, resource](int64_t const i) -> TypedValue {
         if (large_binary_array->IsNull(i)) return TypedValue(resource);
-        auto const view = large_binary_array->GetView(i);
-        return TypedValue(view.data(), resource);
+        return TypedValue(large_binary_array->GetView(i), resource);
       };
     }
     case arrow::Type::FIXED_SIZE_BINARY: {
