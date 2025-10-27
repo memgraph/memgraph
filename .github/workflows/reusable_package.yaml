@@ -53,6 +53,7 @@ jobs:
     timeout-minutes: ${{ inputs.arch == 'arm' && 120 || 60 }}
     env:
       mgdeps_cache_host: "${{ inputs.arch == 'arm' && 'false' || 'mgdeps-cache' }}" # Required because strange is not connected to memgraph openVPN
+      INPUT_OS: "${{ inputs.os }}"
     steps:
       - name: "Validate S3 dest dir for official package"
         if: ${{ inputs.push_to_s3 == 'true' && inputs.s3_bucket == 'download.memgraph.com' }}
@@ -86,7 +87,7 @@ jobs:
 
       - name: "Set artifact name and dir"
         run: |
-          artifact_name=${{ inputs.os }}
+          artifact_name="$INPUT_OS"
           artifact_dir='build/output'
           if [[ "${{ inputs.additional_build_args }}" == *"--for-docker"* ]]; then
             artifact_name='docker'
@@ -115,7 +116,7 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os ${{ inputs.os }} \
+          --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
           run
 
@@ -123,7 +124,7 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os ${{ inputs.os }} \
+          --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
           --mgdeps-cache-host ${{ env.mgdeps_cache_host }} \
@@ -133,7 +134,7 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os ${{ inputs.os }} \
+          --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
           package-memgraph
@@ -142,7 +143,7 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os ${{ inputs.os }} \
+          --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
           copy \
           --package \
@@ -153,7 +154,7 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os ${{ inputs.os }} \
+          --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
           build-heaptrack
 
@@ -163,7 +164,7 @@ jobs:
           mkdir -p release/docker
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os ${{ inputs.os }} \
+          --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
           copy-heaptrack \
           --dest-dir "$(pwd)/release/docker"
@@ -173,7 +174,7 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os ${{ inputs.os }} \
+          --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
           stop --remove
 
@@ -182,7 +183,7 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os ${{ inputs.os }} \
+          --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
           package-docker \
@@ -222,9 +223,9 @@ jobs:
               new_name="${new_name}-relwithdebinfo"
             fi
             new_name="${new_name}-docker.tar.gz"
-          elif [[ "${{ inputs.os }}" == *"debian"* || "${{ inputs.os }}" == *"ubuntu"* ]]; then
+          elif [[ "$INPUT_OS" == *"debian"* || "$INPUT_OS" == *"ubuntu"* ]]; then
             new_name="memgraph_${tag}+pr${pr}~${commit}-1_${{ inputs.arch }}64.deb"
-          elif [[ "${{ inputs.os }}" == *"centos"* || "${{ inputs.os }}" == *"fedora"* ]]; then
+          elif [[ "$INPUT_OS" == *"centos"* || "$INPUT_OS" == *"fedora"* || "$INPUT_OS" == *"rocky"* ]]; then
             if [[ "${{ inputs.arch }}" == "amd" ]]; then
               arch_str="x86_64"
             else
