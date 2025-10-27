@@ -6,7 +6,7 @@ on:
 jobs:
   release_benchmarks:
     name: "Release benchmarks"
-    runs-on: [self-hosted, Linux, X64, x86-64-v3]
+    runs-on: [self-hosted, Linux, X64, benchmark]
     timeout-minutes: 2880
     env:
       ARCH: "amd"
@@ -16,7 +16,7 @@ jobs:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
-      LOOP_COUNT: 2
+      LOOP_COUNT: 100
 
     steps:
       - name: Set up repository
@@ -58,7 +58,7 @@ jobs:
       - name: Get branch name
         shell: bash
         run: |
-          echo "BRANCH_NAME=ignore-this-branch" >> $GITHUB_ENV
+          echo "BRANCH_NAME=dedicated-vcpu-test" >> $GITHUB_ENV
           # if [[ ${{ github.event_name }} == 'pull_request' ]]; then
           #   echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
           # else
