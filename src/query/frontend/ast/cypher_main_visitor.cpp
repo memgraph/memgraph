@@ -2133,7 +2133,8 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
   std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges;
 
   for (auto *it : ctx->entityPrivilege()) {
-    const auto key = std::any_cast<AuthQuery::FineGrainedPrivilege>(it->granularPrivilege()->accept(this));
+    const auto keys =
+        std::any_cast<std::vector<AuthQuery::FineGrainedPrivilege>>(it->granularPrivilegeList()->accept(this));
 
     auto *typeSpec = it->entityTypeSpec();
 
@@ -2153,29 +2154,33 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
         }
       }
 
-      if (key == AuthQuery::FineGrainedPrivilege::ALL) {
-        label_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::CREATE, value);
-        label_matching_modes.emplace_back(matching_mode);
-        label_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::DELETE, value);
-        label_matching_modes.emplace_back(matching_mode);
-        label_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::UPDATE, value);
-        label_matching_modes.emplace_back(matching_mode);
-        label_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::READ, value);
-        label_matching_modes.emplace_back(matching_mode);
-      } else {
-        label_privileges.emplace_back(key, std::move(value));
-        label_matching_modes.emplace_back(matching_mode);
+      for (const auto &key : keys) {
+        if (key == AuthQuery::FineGrainedPrivilege::ALL) {
+          label_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::CREATE, value);
+          label_matching_modes.emplace_back(matching_mode);
+          label_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::DELETE, value);
+          label_matching_modes.emplace_back(matching_mode);
+          label_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::UPDATE, value);
+          label_matching_modes.emplace_back(matching_mode);
+          label_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::READ, value);
+          label_matching_modes.emplace_back(matching_mode);
+        } else {
+          label_privileges.emplace_back(key, value);
+          label_matching_modes.emplace_back(matching_mode);
+        }
       }
     } else if (typeSpec->edgeTypes) {
       auto value = std::any_cast<std::vector<std::string>>(typeSpec->edgeTypes->accept(this));
 
-      if (key == AuthQuery::FineGrainedPrivilege::ALL) {
-        edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::CREATE, value);
-        edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::DELETE, value);
-        edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::UPDATE, value);
-        edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::READ, value);
-      } else {
-        edge_type_privileges.emplace_back(key, std::move(value));
+      for (const auto &key : keys) {
+        if (key == AuthQuery::FineGrainedPrivilege::ALL) {
+          edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::CREATE, value);
+          edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::DELETE, value);
+          edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::UPDATE, value);
+          edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::READ, value);
+        } else {
+          edge_type_privileges.emplace_back(key, value);
+        }
       }
     }
   }
@@ -2321,6 +2326,37 @@ antlrcpp::Any CypherMainVisitor::visitGranularPrivilege(MemgraphCypher::Granular
   if (ctx->DELETE()) return AuthQuery::FineGrainedPrivilege::DELETE;
   if (ctx->ASTERISK()) return AuthQuery::FineGrainedPrivilege::ALL;
   LOG_FATAL("Should not get here - unknown fine grained privilege!");
+}
+
+/**
+ * @return std::vector<AuthQuery::FineGrainedPrivilege>
+ */
+antlrcpp::Any CypherMainVisitor::visitGranularPrivilegeList(MemgraphCypher::GranularPrivilegeListContext *ctx) {
+  std::unordered_set<AuthQuery::FineGrainedPrivilege> seen;
+  std::vector<AuthQuery::FineGrainedPrivilege> privileges;
+
+  for (auto *privilege : ctx->granularPrivilege()) {
+    auto const priv = std::any_cast<AuthQuery::FineGrainedPrivilege>(privilege->accept(this));
+
+    if (seen.contains(priv)) {
+      throw SemanticException("Duplicate permission in permissions list");
+    }
+
+    if ((priv == AuthQuery::FineGrainedPrivilege::NOTHING && !seen.empty()) ||
+        (priv != AuthQuery::FineGrainedPrivilege::NOTHING && seen.contains(AuthQuery::FineGrainedPrivilege::NOTHING))) {
+      throw SemanticException("Cannot combine NOTHING with other permissions");
+    }
+
+    if ((priv == AuthQuery::FineGrainedPrivilege::ALL && !seen.empty()) ||
+        (priv != AuthQuery::FineGrainedPrivilege::ALL && seen.contains(AuthQuery::FineGrainedPrivilege::ALL))) {
+      throw SemanticException("Cannot combine * with other permissions");
+    }
+
+    seen.insert(priv);
+    privileges.push_back(priv);
+  }
+
+  return privileges;
 }
 
 /**

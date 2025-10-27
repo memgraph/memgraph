@@ -744,6 +744,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitGranularPrivilege(MemgraphCypher::GranularPrivilegeContext *ctx) override;
 
   /**
+   * @return std::vector<AuthQuery::FineGrainedPrivilege>
+   */
+  antlrcpp::Any visitGranularPrivilegeList(MemgraphCypher::GranularPrivilegeListContext *ctx) override;
+
+  /**
    * @return AuthQuery::Privilege
    */
   antlrcpp::Any visitPrivilege(MemgraphCypher::PrivilegeContext *ctx) override;

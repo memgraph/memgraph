@@ -505,9 +505,11 @@ privilege : CREATE
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE | ASTERISK ;
 
+granularPrivilegeList : granularPrivilege ( ',' granularPrivilege )* ;
+
 entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
 
-entityPrivilege : granularPrivilege ON entityTypeSpec ;
+entityPrivilege : granularPrivilegeList ON entityTypeSpec ;
 
 entityTypeSpec
     : NODES CONTAINING LABELS labelEntities=labelEntitiesList matchingClause?
