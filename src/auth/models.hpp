@@ -97,7 +97,7 @@ constexpr inline FineGrainedPermission &operator|=(FineGrainedPermission &lhs, F
   return lhs;
 }
 
-constexpr FineGrainedPermission kLabelPermissionAll = static_cast<FineGrainedPermission>(
+constexpr FineGrainedPermission kAllPermissions = static_cast<FineGrainedPermission>(
     memgraph::auth::FineGrainedPermission::CREATE | memgraph::auth::FineGrainedPermission::DELETE |
     memgraph::auth::FineGrainedPermission::UPDATE | memgraph::auth::FineGrainedPermission::READ);
 #endif

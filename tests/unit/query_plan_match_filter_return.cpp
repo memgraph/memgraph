@@ -215,7 +215,7 @@ TYPED_TEST(MatchReturnFixture, ScanAllWithAuthChecker) {
 
   {
     auto user = memgraph::auth::User{"global_create_delete_deny_label"};
-    user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kLabelPermissionAll);
+    user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllPermissions);
     user.fine_grained_access_handler().label_permissions().Grant({labelName},
                                                                  memgraph::auth::FineGrainedPermission::NOTHING);
 
@@ -571,10 +571,10 @@ TYPED_TEST(ExpandFixture, ExpandWithEdgeFiltering) {
 
   auto user = memgraph::auth::User("test");
 
-  user.fine_grained_access_handler().edge_type_permissions().Grant({"Edge"}, memgraph::auth::kLabelPermissionAll);
+  user.fine_grained_access_handler().edge_type_permissions().Grant({"Edge"}, memgraph::auth::kAllPermissions);
   user.fine_grained_access_handler().edge_type_permissions().Grant({"edge_type_test"},
                                                                    memgraph::auth::FineGrainedPermission::NOTHING);
-  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kLabelPermissionAll);
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllPermissions);
   memgraph::storage::EdgeTypeId edge_type_test{this->db->NameToEdgeType("edge_type_test")};
 
   ASSERT_TRUE(this->dba.InsertEdge(&this->v1, &this->v2, edge_type_test).HasValue());
@@ -593,8 +593,7 @@ TYPED_TEST(ExpandFixture, ExpandWithEdgeFiltering) {
   EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
   EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
 
-  user.fine_grained_access_handler().edge_type_permissions().Grant({"edge_type_test"},
-                                                                   memgraph::auth::kLabelPermissionAll);
+  user.fine_grained_access_handler().edge_type_permissions().Grant({"edge_type_test"}, memgraph::auth::kAllPermissions);
 
   EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
   EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));

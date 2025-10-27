@@ -32,9 +32,6 @@ using namespace memgraph::auth;
 using namespace std::literals;
 namespace fs = std::filesystem;
 
-// @TODO extend fine-grained permission tests with multi-label and
-// MATCHING ANY / MATCHING EXACTLY logic.
-
 DECLARE_string(password_encryption_algorithm);
 
 class AuthWithStorage : public ::testing::Test {
@@ -1117,7 +1114,7 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     fga_permissions.GrantGlobal(FineGrainedPermission::UPDATE);
     fga_permissions.GrantGlobal(FineGrainedPermission::DELETE);
 
-    ASSERT_EQ(fga_permissions.GetGlobalPermission(), static_cast<uint64_t>(kLabelPermissionAll));
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), static_cast<uint64_t>(kAllPermissions));
     ASSERT_TRUE(fga_permissions.GetPermissions().empty());
   }
 
@@ -1130,7 +1127,7 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     // Test that revoking a label-specific permission doesn't affect global permissions
     fga_permissions.Revoke({any_label}, FineGrainedPermission::CREATE, MatchingMode::ANY);
 
-    ASSERT_EQ(fga_permissions.GetGlobalPermission(), static_cast<uint64_t>(kLabelPermissionAll));
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), static_cast<uint64_t>(kAllPermissions));
     ASSERT_TRUE(fga_permissions.GetPermissions().empty());
   }
 

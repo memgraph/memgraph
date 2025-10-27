@@ -91,7 +91,7 @@ auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
     case query::AuthQuery::FineGrainedPrivilege::DELETE:
       return auth::FineGrainedPermission::DELETE;
     case query::AuthQuery::FineGrainedPrivilege::ALL:
-      return auth::kLabelPermissionAll;
+      return auth::kAllPermissions;
   }
 }
 #endif

@@ -35,9 +35,6 @@
 #include "utils/synchronized.hpp"
 
 #include <nlohmann/json.hpp>
-// @TODO update tests to include
-// - MATCHING EXACTLY
-// - multiple labels/edge_types in a single rule
 
 class AuthQueryHandlerFixture : public testing::Test {
  protected:
@@ -459,7 +456,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnLa
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelThenAllAreDisplayed) {
   auto label_permission = memgraph::auth::FineGrainedAccessPermissions();
-  label_permission.GrantGlobal(memgraph::auth::kLabelPermissionAll);
+  label_permission.GrantGlobal(memgraph::auth::kAllPermissions);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{label_permission},
@@ -548,7 +545,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnEdgeType
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenAllAreDisplayed) {
   auto edge_permission = memgraph::auth::FineGrainedAccessPermissions();
-  edge_permission.Grant({edge_type_repr}, memgraph::auth::kLabelPermissionAll);
+  edge_permission.Grant({edge_type_repr}, memgraph::auth::kAllPermissions);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
@@ -637,7 +634,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnEd
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTypeThenAllAreDisplayed) {
   auto edge_permission = memgraph::auth::FineGrainedAccessPermissions();
-  edge_permission.GrantGlobal(memgraph::auth::kLabelPermissionAll);
+  edge_permission.GrantGlobal(memgraph::auth::kAllPermissions);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
@@ -1620,7 +1617,7 @@ TEST_F(AuthQueryHandlerFixture,
   role.db_access().Grant("db2");
 
   // Add fine-grained permissions
-  role.fine_grained_access_handler().label_permissions().Grant({"Person"}, memgraph::auth::kLabelPermissionAll);
+  role.fine_grained_access_handler().label_permissions().Grant({"Person"}, memgraph::auth::kAllPermissions);
   role.fine_grained_access_handler().label_permissions().Grant({"Company"},
                                                                memgraph::auth::FineGrainedPermission::READ);
   role.fine_grained_access_handler().edge_type_permissions().Grant({"WORKS_FOR"},
