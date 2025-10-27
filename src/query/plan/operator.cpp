@@ -7774,9 +7774,10 @@ class LoadParquetCursor : public Cursor {
         throw QueryRuntimeException("Failed to parse config map for LOAD PARQUET clause!");
       }
 
-      if (maybe_config_map->size() > 3) {
-        throw QueryRuntimeException("Config map cannot contain > 3 entries: {}, {} and {}!", kAwsAccessKeyQuerySetting,
-                                    kAwsAccessKeyQuerySetting, kAwsSecretKeyQuerySetting);
+      if (maybe_config_map->size() > 4) {
+        throw QueryRuntimeException("Config map cannot contain > 4 entries: {}, {}, {} and {} can be provided",
+                                    kAwsAccessKeyQuerySetting, kAwsAccessKeyQuerySetting, kAwsSecretKeyQuerySetting,
+                                    kAwsEndpointUrlQuerySetting);
       }
 
       // No need to check if maybe_file is std::nullopt, as the parser makes sure

@@ -102,6 +102,9 @@ DEFINE_string(aws_access_key, "", "Define AWS access key for the AWS integration
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_string(aws_secret_key, "", "Define AWS secret key for the AWS integration.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_string(aws_endpoint_url, "", "Define AWS endpoint url for the AWS integration.");
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -146,6 +149,9 @@ constexpr auto kAwsSecretGFlagsKey = "aws_secret_key";
 
 constexpr auto kAwsAccessSettingKey = "aws.access_key";
 constexpr auto kAwsAccessGFlagsKey = "aws_access_key";
+
+constexpr auto kAwsEndpointUrlSettingKey = "aws.endpoint_url";
+constexpr auto kAwsEndpointUrlGFlagsKey = "aws_endpoint_url";
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
@@ -436,6 +442,7 @@ void Initialize() {
   register_flag(kAwsRegionGFlagsKey, kAwsRegionSettingKey, kRestore);
   register_flag(kAwsAccessGFlagsKey, kAwsAccessSettingKey, kRestore);
   register_flag(kAwsSecretGFlagsKey, kAwsSecretSettingKey, kRestore);
+  register_flag(kAwsEndpointUrlGFlagsKey, kAwsEndpointUrlSettingKey, kRestore);
 }
 
 std::string GetServerName() {
@@ -478,6 +485,12 @@ auto GetAwsRegion() -> std::string {
   std::string region;
   gflags::GetCommandLineOption(kAwsRegionGFlagsKey, &region);
   return region;
+}
+
+auto GetAwsEndpointUrl() -> std::string {
+  std::string endpoint_url;
+  gflags::GetCommandLineOption(kAwsEndpointUrlGFlagsKey, &endpoint_url);
+  return endpoint_url;
 }
 
 void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {

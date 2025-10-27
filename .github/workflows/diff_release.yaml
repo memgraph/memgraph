@@ -338,6 +338,11 @@ jobs:
           --arch $ARCH \
           init-tests
 
+      - name: Ensure localstack is up
+        run: |
+          cd tests/e2e/load_parquet/localstack
+          docker-compose up -d
+
       # This step will be skipped because the e2e stream tests have been disabled
       # We need to fix this as soon as possible
       - name: Ensure Kafka and Pulsar are up
@@ -357,6 +362,11 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph e2e
+
+      - name: Ensure localstack is down
+        run: |
+          cd tests/e2e/load_parquet/localstack
+          docker-compose down
 
       # Same as two steps prior
       - name: Ensure Kafka and Pulsar are down

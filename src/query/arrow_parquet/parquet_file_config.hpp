@@ -21,12 +21,14 @@ using namespace std::string_view_literals;
 constexpr auto kAwsRegionQuerySetting = "aws_region"sv;
 constexpr auto kAwsAccessKeyQuerySetting = "aws_access_key"sv;
 constexpr auto kAwsSecretKeyQuerySetting = "aws_secret_key"sv;
+constexpr auto kAwsEndpointUrlQuerySetting = "aws_endpoint_url"sv;
 
 struct ParquetFileConfig {
   std::string file;  // URI path for S3 or path on local disk
   std::optional<std::string> aws_region;
   std::optional<std::string> aws_access_key;
   std::optional<std::string> aws_secret_key;
+  std::optional<std::string> aws_endpoint_url;
 
   static auto FromQueryConfig(std::string file, std::map<std::string, std::string, std::less<>> query_config)
       -> ParquetFileConfig {
@@ -43,6 +45,10 @@ struct ParquetFileConfig {
 
     if (auto const secret_key_it = query_config.find(kAwsSecretKeyQuerySetting); secret_key_it != query_config.end()) {
       config.aws_secret_key = std::move(secret_key_it->second);
+    }
+
+    if (auto const endpoint_it = query_config.find(kAwsEndpointUrlQuerySetting); endpoint_it != query_config.end()) {
+      config.aws_endpoint_url = std::move(endpoint_it->second);
     }
 
     return config;

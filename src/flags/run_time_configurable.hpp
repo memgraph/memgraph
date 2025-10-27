@@ -91,6 +91,12 @@ auto GetAwsAccessKey() -> std::string;
 auto GetAwsSecretKey() -> std::string;
 
 /**
+ * @brief Get the AWS endpoint URL setting
+ * @return std::string
+ */
+auto GetAwsEndpointUrl() -> std::string;
+
+/**
  * @brief Attach observer to the global snapshor period variable
  */
 void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer);

@@ -23,7 +23,7 @@ using Header = utils::pmr::vector<TypedValue::TString>;
 
 class ParquetReader {
  public:
-  explicit ParquetReader(ParquetFileConfig s3_config, utils::MemoryResource *resource);
+  explicit ParquetReader(ParquetFileConfig parquet_file_config, utils::MemoryResource *resource);
   ~ParquetReader();
 
   ParquetReader(ParquetReader const &other) = delete;

@@ -46,6 +46,7 @@ constexpr std::string_view s3_prefix = "s3://";
 constexpr auto kAwsAccessKeyEnv = "AWS_ACCESS_KEY";
 constexpr auto kAwsRegionEnv = "AWS_REGION";
 constexpr auto kAwsSecretKeyEnv = "AWS_SECRET_KEY";
+constexpr auto kAwsEndpointUrlEnv = "AWS_ENDPOINT_URL";
 
 auto BuildS3Config(memgraph::query::ParquetFileConfig &config) -> memgraph::query::ParquetFileConfig {
   auto get_env_or_empty = [](const char *env_name) -> std::optional<std::string> {
@@ -76,6 +77,13 @@ auto BuildS3Config(memgraph::query::ParquetFileConfig &config) -> memgraph::quer
                               })
                               .or_else([&] { return get_env_or_empty(kAwsSecretKeyEnv); });
 
+  config.aws_endpoint_url = config.aws_endpoint_url
+                                .or_else([&] {
+                                  auto setting = memgraph::flags::run_time::GetAwsEndpointUrl();
+                                  return setting.empty() ? std::nullopt : std::make_optional(std::move(setting));
+                                })
+                                .or_else([&] { return get_env_or_empty(kAwsEndpointUrlEnv); });
+
   return config;
 }
 
@@ -94,6 +102,7 @@ auto BuildHeader(std::shared_ptr<arrow::Schema> const &schema, memgraph::utils::
 // nullptr for error
 auto LoadFileFromS3(memgraph::query::ParquetFileConfig const &s3_config)
     -> std::unique_ptr<parquet::arrow::FileReader> {
+  // Users needs to set aws_region, aws_access_key and aws_secret_key in some way. aws_endpoint_url is optional
   if (!s3_config.aws_region.has_value()) {
     spdlog::error(
         "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} or "
@@ -110,7 +119,7 @@ auto LoadFileFromS3(memgraph::query::ParquetFileConfig const &s3_config)
     return nullptr;
   }
 
-  if (!s3_config.aws_access_key.has_value()) {
+  if (!s3_config.aws_secret_key.has_value()) {
     spdlog::error(
         "AWS secret key configuration parameter not provided. Please provide it through the query, run-time setting {} "
         "or env variable {}",
@@ -125,6 +134,10 @@ auto LoadFileFromS3(memgraph::query::ParquetFileConfig const &s3_config)
 
   auto s3_options = arrow::fs::S3Options::FromAccessKey(*s3_config.aws_access_key, *s3_config.aws_secret_key);
   s3_options.region = *s3_config.aws_region;
+  // aws_endpoint_url is optional, by default it will try to pull from the real S3
+  if (s3_config.aws_endpoint_url.has_value()) {
+    s3_options.endpoint_override = *s3_config.aws_endpoint_url;
+  }
 
   auto maybe_s3_fs = arrow::fs::S3FileSystem::Make(s3_options);
   if (!maybe_s3_fs.ok()) {
@@ -592,16 +605,13 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
   }
 }
 
-ParquetReader::impl::~impl() {
-  // prefetcher_thread_.request_stop();
-}
+ParquetReader::impl::~impl() { prefetcher_thread_.request_stop(); }
 
 auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   if (row_in_batch_ >= current_batch_size_) {
     if (!work_queue_.pop(rows_)) {
       return false;
     }
-
     row_in_batch_ = 0;
     current_batch_size_ = rows_.size();
   }

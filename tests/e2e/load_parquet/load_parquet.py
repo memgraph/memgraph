@@ -16,24 +16,6 @@ import pytest
 from common import connect, execute_and_fetch_all, get_file_path
 
 
-def test_aws_config_builder():
-    cursor = connect(host="localhost", port=7687).cursor()
-    # Settings
-    aws_region_setting = "aws.region"
-    aws_access_setting = "aws.access_key"
-    aws_secret_setting = "aws.secret_key"
-    # Env vars
-    aws_region_env = "AWS_REGION"
-    aws_access_env = "AWS_ACCESS_KEY"
-    aws_secret_env = "AWS_SECRET_KEY"
-
-    # 1. Test that LOAD PARQUET will execute successfully with only env vars
-    # 2. Test that LOAD PARQUET will execute successfully with only run-time settings
-    # 3. Test that LOAD PARQUET will execute successfully with only query parameters
-    # 4. Test that all 3 configs can be combined. E.g. Set AWS_REGION through query, AWS_ACCESS_KEY through run-time
-    # setting and set AWS_SECRET_KEY through env variable
-
-
 def test_aws_settings():
     cursor = connect(host="localhost", port=7687).cursor()
     aws_region_key = "aws.region"

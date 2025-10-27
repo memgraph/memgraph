@@ -133,3 +133,4 @@ DECLARE_string(organization_name);
 DECLARE_string(aws_region);
 DECLARE_string(aws_access_key);
 DECLARE_string(aws_secret_key);
+DECLARE_string(aws_endpoint_url);
