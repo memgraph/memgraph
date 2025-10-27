@@ -44,8 +44,7 @@ def test_can_update_vertex_when_given_update_grant_on_label(switch):
         switch_db(admin_cursor)
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON NODES CONTAINING LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ, UPDATE ON NODES CONTAINING LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -63,8 +62,7 @@ def test_can_update_vertex_when_given_update_grant_on_label(switch):
         switch_db(admin_cursor)
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON NODES CONTAINING LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ, UPDATE ON NODES CONTAINING LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -82,8 +80,7 @@ def test_can_update_vertex_when_given_update_global_grant_on_label(switch):
         switch_db(admin_cursor)
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON NODES CONTAINING LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ, UPDATE ON NODES CONTAINING LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -101,8 +98,7 @@ def test_can_update_vertex_when_given_update_global_grant_on_label(switch):
         switch_db(admin_cursor)
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON NODES CONTAINING LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ, UPDATE ON NODES CONTAINING LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -160,8 +156,7 @@ def test_can_update_edge_when_given_update_grant_on_edge_type(switch):
 
     execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label_1 TO user;")
     execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label_2 TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON EDGES CONTAINING TYPES :update_edge_type TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGES CONTAINING TYPES :update_edge_type TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ, UPDATE ON EDGES CONTAINING TYPES :update_edge_type TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -201,8 +196,7 @@ def test_can_update_edge_when_given_update_on_edge_type(switch):
 
     execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label_1 TO user;")
     execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label_2 TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGES CONTAINING TYPES :update_edge_type TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON EDGES CONTAINING TYPES :update_edge_type TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ, UPDATE ON EDGES CONTAINING TYPES :update_edge_type TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:

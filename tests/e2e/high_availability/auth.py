@@ -377,9 +377,7 @@ def test_ha_mt_auth_scenario(test_name):
         # Create user for sales database
         session.run("CREATE USER sales_user IDENTIFIED BY 'sales123'")
         session.run("GRANT CREATE, MATCH, SET, DELETE TO sales_user")
-        session.run(
-            "GRANT CREATE ON NODES CONTAINING LABELS *, READ ON NODES CONTAINING LABELS *, UPDATE ON NODES CONTAINING LABELS *, DELETE ON NODES CONTAINING LABELS * TO sales_user"
-        )
+        session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO sales_user")
         session.run("GRANT DATABASE sales TO sales_user")
         session.run("REVOKE DATABASE memgraph FROM sales_user")
         session.run("SET MAIN DATABASE sales FOR sales_user")
@@ -388,9 +386,7 @@ def test_ha_mt_auth_scenario(test_name):
         # Create user for analytics database
         session.run("CREATE USER analytics_user IDENTIFIED BY 'analytics123'")
         session.run("GRANT CREATE, MATCH, SET, DELETE TO analytics_user")
-        session.run(
-            "GRANT CREATE ON NODES CONTAINING LABELS *, READ ON NODES CONTAINING LABELS *, UPDATE ON NODES CONTAINING LABELS *, DELETE ON NODES CONTAINING LABELS * TO analytics_user"
-        )
+        session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO analytics_user")
         session.run("GRANT DATABASE analytics TO analytics_user")
         session.run("REVOKE DATABASE memgraph FROM analytics_user")
         session.run("SET MAIN DATABASE analytics FOR analytics_user")

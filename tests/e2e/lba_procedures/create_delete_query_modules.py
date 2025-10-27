@@ -104,7 +104,7 @@ def test_can_add_vertex_label_when_given_create(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT CREATE ON NODES CONTAINING LABELS :new_create_delete_label, READ ON NODES CONTAINING LABELS: create_delete_label, UPDATE ON NODES CONTAINING LABELS :create_delete_label TO user;",
+        "GRANT CREATE ON NODES CONTAINING LABELS :new_create_delete_label, READ, UPDATE ON NODES CONTAINING LABELS: create_delete_label TO user;",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
