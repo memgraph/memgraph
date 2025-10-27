@@ -507,7 +507,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnEdgeTypeThenIsDis
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "EDGES CONTAINING TYPES :EdgeType1 MATCHING ANY");
+  ASSERT_EQ(result[0].ValueString(), "EDGES CONTAINING TYPES :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
   ASSERT_EQ(result[1].ValueString(), "READ");
@@ -537,7 +537,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnEdgeType
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "EDGES CONTAINING TYPES :EdgeType1 MATCHING ANY");
+  ASSERT_EQ(result[0].ValueString(), "EDGES CONTAINING TYPES :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
   ASSERT_EQ(result[1].ValueString(), "READ, UPDATE");
@@ -566,7 +566,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenA
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "EDGES CONTAINING TYPES :EdgeType1 MATCHING ANY");
+  ASSERT_EQ(result[0].ValueString(), "EDGES CONTAINING TYPES :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
   ASSERT_EQ(result[1].ValueString(), "CREATE, READ, UPDATE, DELETE");
@@ -715,7 +715,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPer
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "EDGES CONTAINING TYPES :EdgeType1 MATCHING ANY");
+  ASSERT_EQ(result[0].ValueString(), "EDGES CONTAINING TYPES :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
   ASSERT_EQ(result[1].ValueString(), "NOTHING");
@@ -745,7 +745,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedUpdateThenOneIs
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "EDGES CONTAINING TYPES :EdgeType1 MATCHING ANY");
+  ASSERT_EQ(result[0].ValueString(), "EDGES CONTAINING TYPES :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
   ASSERT_EQ(result[1].ValueString(), "READ");
@@ -1659,7 +1659,7 @@ TEST_F(AuthQueryHandlerFixture,
       found_label_company = true;
       ASSERT_EQ(privilege[1].ValueString(), "READ");
       ASSERT_EQ(privilege[2].ValueString(), "LABEL PERMISSION GRANTED TO ROLE");
-    } else if (privilege_name == "EDGES CONTAINING TYPES :WORKS_FOR MATCHING ANY") {
+    } else if (privilege_name == "EDGES CONTAINING TYPES :WORKS_FOR") {
       found_edge_works_for = true;
       ASSERT_EQ(privilege[1].ValueString(), "UPDATE");
       ASSERT_EQ(privilege[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO ROLE");

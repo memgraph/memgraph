@@ -243,8 +243,10 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
         first = false;
       }
 
-      const auto *matching_str = (rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY) ? "EXACTLY" : "ANY";
-      entity_name += fmt::format(" MATCHING {}", matching_str);
+      if (permission_type == "LABEL") {
+        const auto *matching_str = (rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY) ? "EXACTLY" : "ANY";
+        entity_name += fmt::format(" MATCHING {}", matching_str);
+      }
     }
 
     const auto level = (rule.permissions == memgraph::auth::FineGrainedPermission::NOTHING)
