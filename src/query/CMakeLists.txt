@@ -31,6 +31,7 @@ add_library(mg-query STATIC)
 target_sources(mg-query
     PRIVATE
     auth_query_handler.cpp
+    arrow_parquet/reader.cpp
     common.cpp
     context.cpp
     cypher_query_interpreter.cpp
@@ -86,6 +87,7 @@ target_sources(mg-query
     PUBLIC
     FILE_SET HEADERS
     FILES
+    arrow_parquet/reader.hpp
     dependant_symbol_visitor.hpp
     edge_accessor.hpp
     frontend/ast/ast.hpp
@@ -111,13 +113,13 @@ target_sources(mg-query
     vertex_accessor.hpp
 )
 
-
 target_link_libraries(mg-query
     PUBLIC
     dl
     cppitertools::cppitertools
     range-v3::range-v3
     Python3::Python
+    arrow
     mg-integrations-pulsar
     mg-integrations-kafka
     mg::storage

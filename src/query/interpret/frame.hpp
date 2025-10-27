@@ -41,8 +41,8 @@ struct FrameWriter {
     return WriteAt(symbol, TypedValue(std::forward<T>(value), res_));
   }
 
-  auto Write(const Symbol &symbol, TypedValue value) -> TypedValue &;
-  auto WriteAt(const Symbol &symbol, TypedValue value) -> TypedValue &;
+  auto Write(const Symbol &symbol, TypedValue &&value) -> TypedValue &;
+  auto WriteAt(const Symbol &symbol, TypedValue &&value) -> TypedValue &;
 
   template <typename Func>
   auto Modify(const Symbol &symbol, Func f) -> std::invoke_result_t<Func, TypedValue &>;

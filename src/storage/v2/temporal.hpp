@@ -55,7 +55,7 @@ struct TemporalData {
   friend std::ostream &operator<<(std::ostream &os, const TemporalData &t) {
     switch (t.type) {
       case TemporalType::Date:
-        return os << "DATE(\"" << utils::Date(t.microseconds) << "\")";
+        return os << "DATE(\"" << utils::Date(std::chrono::microseconds{t.microseconds}) << "\")";
       case TemporalType::LocalTime:
         return os << "LOCALTIME(\"" << utils::LocalTime(t.microseconds) << "\")";
       case TemporalType::LocalDateTime:

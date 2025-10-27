@@ -68,11 +68,18 @@ auto Params2Time(const DateParameters &date_parameters, const LocalTimeParameter
 
 }  // namespace
 
-Date::Date(const int64_t microseconds) {
+Date::Date(std::chrono::microseconds const microseconds) {
   namespace chrono = std::chrono;
-  const auto chrono_micros = chrono::microseconds(microseconds);
-  const auto s_days = chrono::sys_days(chrono::duration_cast<chrono::days>(chrono_micros));
+  const auto s_days = chrono::sys_days(chrono::duration_cast<chrono::days>(microseconds));
   const auto date = chrono::year_month_day(s_days);
+  year = static_cast<int>(date.year());
+  month = static_cast<unsigned>(date.month());
+  day = static_cast<unsigned>(date.day());
+}
+
+Date::Date(std::chrono::days const days_since_epoch) {
+  auto const days = std::chrono::sys_days(days_since_epoch);
+  auto const date = std::chrono::year_month_day{days};
   year = static_cast<int>(date.year());
   month = static_cast<unsigned>(date.month());
   day = static_cast<unsigned>(date.day());
@@ -557,7 +564,7 @@ std::string LocalDateTime::ToStringWTZ() const { return std::format("{:%Y-%m-%dT
 
 Date LocalDateTime::date() const {
   // Date does not support timezones; use calendar time offset
-  return Date{MicrosecondsSinceEpoch()};
+  return Date{std::chrono::microseconds(MicrosecondsSinceEpoch())};
 }
 
 LocalTime LocalDateTime::local_time() const {
@@ -1099,7 +1106,7 @@ constexpr To CastChronoDouble(const double value) {
 };
 }  // namespace
 
-Duration::Duration(int64_t microseconds) { this->microseconds = microseconds; }
+Duration::Duration(int64_t const microseconds) : microseconds(microseconds) {}
 
 Duration::Duration(const DurationParameters &parameters) {
   microseconds = (CastChronoDouble<std::chrono::days, std::chrono::microseconds>(parameters.day) +
@@ -1112,7 +1119,7 @@ Duration::Duration(const DurationParameters &parameters) {
 }
 
 int64_t Duration::Days() const {
-  std::chrono::microseconds ms(microseconds);
+  std::chrono::microseconds const ms(microseconds);
   return std::chrono::duration_cast<std::chrono::days>(ms).count();
 }
 

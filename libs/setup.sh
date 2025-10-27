@@ -156,6 +156,7 @@ declare -A primary_urls=(
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
   ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
   ["usearch"]="http://$local_cache_host/git/usearch.git"
+  ["arrow"]="http://$local_cache_host/git/arrow.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -175,6 +176,7 @@ declare -A secondary_urls=(
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
   ["mgcxx"]="https://github.com/memgraph/mgcxx.git"
   ["usearch"]="https://github.com/unum-cloud/usearch.git"
+  ["arrow"]="https://github.com/apache/arrow"
 )
 
 # Skip download if we are under the latest toolchains (>= 6).
@@ -268,3 +270,7 @@ repo_clone_try_double "${primary_urls[usearch]}" "${secondary_urls[usearch]}" "u
 pushd usearch
 git submodule update --init --recursive
 popd
+
+# arrow (load parquet)
+arrow_ref="apache-arrow-21.0.0"
+repo_clone_try_double "${primary_urls[arrow]}" "${secondary_urls[arrow]}" "arrow" "$arrow_ref" true
