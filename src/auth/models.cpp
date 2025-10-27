@@ -16,6 +16,8 @@
 #include <gflags/gflags.h>
 #include <nlohmann/json.hpp>
 
+#include <range/v3/algorithm/all_of.hpp>
+#include <range/v3/algorithm/find_if.hpp>
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "dbms/constants.hpp"
@@ -30,6 +32,8 @@
 
 namespace memgraph::auth {
 namespace {
+
+namespace r = ranges;
 
 constexpr auto kRoleName = "rolename";
 constexpr auto kPermissions = "permissions";
@@ -226,21 +230,18 @@ FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
   }
 
   auto merged_rules = first.GetPermissions();
-  for (const auto &rule2 : second.GetPermissions()) {
-    bool found = false;
-    for (auto &rule1 : merged_rules) {
-      if (rule1.symbols == rule2.symbols && rule1.matching_mode == rule2.matching_mode) {
-        if (rule1.permissions == FineGrainedPermission::NOTHING ||
-            rule2.permissions == FineGrainedPermission::NOTHING) {
-          rule1.permissions = FineGrainedPermission::NOTHING;
-        } else {
-          rule1.permissions = rule1.permissions | rule2.permissions;
-        }
-        found = true;
-        break;
+  for (auto &&rule2 : second.GetPermissions()) {
+    auto it = r::find_if(merged_rules, [&](auto const &rule1) {
+      return rule1.symbols == rule2.symbols && rule1.matching_mode == rule2.matching_mode;
+    });
+
+    if (it != merged_rules.end()) {
+      if (it->permissions == FineGrainedPermission::NOTHING || rule2.permissions == FineGrainedPermission::NOTHING) {
+        it->permissions = FineGrainedPermission::NOTHING;
+      } else {
+        it->permissions = it->permissions | rule2.permissions;
       }
-    }
-    if (!found) {
+    } else {
       merged_rules.push_back(rule2);
     }
   }
@@ -355,22 +356,13 @@ PermissionLevel FineGrainedAccessPermissions::Has(std::span<const std::string> s
     return PermissionLevel::GRANT;
   }
 
-  // @TODO(colinbarry) definitely optimise + clean this up!
   for (const auto &rule : rules_) {
     if (rule.matching_mode == MatchingMode::EXACTLY && rule.permissions == FineGrainedPermission::NOTHING) {
       if (rule.symbols.size() != symbols.size()) {
         continue;
       }
 
-      bool all_match = true;
-      for (const auto &symbol : symbols) {
-        if (!rule.symbols.contains(symbol)) {
-          all_match = false;
-          break;
-        }
-      }
-
-      if (all_match) {
+      if (r::all_of(symbols, [&](const auto &symbol) { return rule.symbols.contains(symbol); })) {
         return PermissionLevel::DENY;
       }
     }
@@ -396,15 +388,7 @@ PermissionLevel FineGrainedAccessPermissions::Has(std::span<const std::string> s
         continue;
       }
 
-      bool all_match = true;
-      for (const auto &symbol : symbols) {
-        if (!rule.symbols.contains(symbol)) {
-          all_match = false;
-          break;
-        }
-      }
-
-      if (all_match) {
+      if (r::all_of(symbols, [&](const auto &symbol) { return rule.symbols.contains(symbol); })) {
         return PermissionLevel::GRANT;
       }
     }
@@ -430,15 +414,7 @@ PermissionLevel FineGrainedAccessPermissions::Has(std::span<const std::string> s
         continue;
       }
 
-      bool all_match = true;
-      for (const auto &symbol : symbols) {
-        if (!rule.symbols.contains(symbol)) {
-          all_match = false;
-          break;
-        }
-      }
-
-      if (all_match) {
+      if (r::all_of(symbols, [&](const auto &symbol) { return rule.symbols.contains(symbol); })) {
         return PermissionLevel::DENY;
       }
     }
@@ -472,18 +448,18 @@ PermissionLevel FineGrainedAccessPermissions::HasGlobal(const FineGrainedPermiss
 void FineGrainedAccessPermissions::Grant(const std::unordered_set<std::string> &symbols,
                                          const FineGrainedPermission fine_grained_permission,
                                          const MatchingMode matching_mode) {
-  for (auto &rule : rules_) {
-    if (rule.symbols == symbols && rule.matching_mode == matching_mode) {
-      if (fine_grained_permission == FineGrainedPermission::NOTHING) {
-        rule.permissions = fine_grained_permission;
-      } else {
-        rule.permissions |= fine_grained_permission;
-      }
-      return;
-    }
-  }
+  auto it = r::find_if(
+      rules_, [&](auto const &rule) { return rule.symbols == symbols && rule.matching_mode == matching_mode; });
 
-  rules_.push_back({symbols, fine_grained_permission, matching_mode});
+  if (it != rules_.end()) {
+    if (fine_grained_permission == FineGrainedPermission::NOTHING) {
+      it->permissions = fine_grained_permission;
+    } else {
+      it->permissions |= fine_grained_permission;
+    }
+  } else {
+    rules_.push_back({symbols, fine_grained_permission, matching_mode});
+  }
 }
 
 void FineGrainedAccessPermissions::GrantGlobal(const FineGrainedPermission fine_grained_permission) {
