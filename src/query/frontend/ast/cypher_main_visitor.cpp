@@ -2140,7 +2140,6 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
     if (typeSpec->labelEntitiesList()) {
       auto value = std::any_cast<std::vector<std::string>>(typeSpec->labelEntitiesList()->accept(this));
 
-      // @TODO is this correct?
       if (value.size() == 1 && value[0] == "*" && typeSpec->matchingClause()) {
         throw SemanticException("Cannot use MATCHING clause with wildcard '*'");
       }
@@ -2169,10 +2168,6 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
       }
     } else if (typeSpec->edgeTypes) {
       auto value = std::any_cast<std::vector<std::string>>(typeSpec->edgeTypes->accept(this));
-
-      if (typeSpec->matchingClause() && typeSpec->matchingClause()->EXACTLY()) {
-        throw SemanticException("Cannot use MATCHING EXACTLY with edge types");
-      }
 
       if (key == AuthQuery::FineGrainedPrivilege::ALL) {
         edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::CREATE, value);
