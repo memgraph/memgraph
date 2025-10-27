@@ -224,7 +224,7 @@ jobs:
             new_name="${new_name}-docker.tar.gz"
           elif [[ "${{ inputs.os }}" == *"debian"* || "${{ inputs.os }}" == *"ubuntu"* ]]; then
             new_name="memgraph_${tag}+pr${pr}~${commit}-1_${{ inputs.arch }}64.deb"
-          elif [[ "${{ inputs.os }}" == *"centos"* || "${{ inputs.os }}" == *"fedora"* ]]; then
+          elif [[ "${{ inputs.os }}" == *"centos"* || "${{ inputs.os }}" == *"fedora"* || "${{ inputs.os }}" == *"rocky"* ]]; then
             if [[ "${{ inputs.arch }}" == "amd" ]]; then
               arch_str="x86_64"
             else
