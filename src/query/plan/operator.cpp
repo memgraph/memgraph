@@ -7737,10 +7737,6 @@ class LoadParquetCursor : public Cursor {
 
     auto *mem = context.evaluation_context.memory;
     if (UNLIKELY(!reader_.has_value())) {
-      Frame local_frame(0);
-      SymbolTable const symbol_table;
-      DbAccessor *dba = nullptr;
-
       auto evaluator = PrimitiveLiteralExpressionEvaluator{context.evaluation_context};
       auto maybe_file = self_->file_->Accept(evaluator).ValueString();
 
