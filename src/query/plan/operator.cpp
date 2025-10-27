@@ -7724,7 +7724,7 @@ class LoadParquetCursor : public Cursor {
   std::optional<ParquetReader> reader_;
   Row row_;
 
-public:
+ public:
   LoadParquetCursor(const LoadParquet *self, utils::MemoryResource *mem)
       : self_(self), input_cursor_(self_->input_->MakeCursor(mem)), row_(mem) {}
 
@@ -7740,12 +7740,13 @@ public:
       Frame local_frame(0);
       SymbolTable const symbol_table;
       DbAccessor *dba = nullptr;
-      auto evaluator =
-          ExpressionEvaluator(&local_frame, symbol_table, context.evaluation_context, dba, storage::View::OLD);
-      auto maybe_file = ToOptionalString(&evaluator, self_->file_);
+
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{context.evaluation_context};
+      auto maybe_file = self_->file_->Accept(evaluator).ValueString();
+
       // No need to check if maybe_file is std::nullopt, as the parser makes sure
       // we can't get a nullptr for the 'file_' member in the LoadParquet clause
-      reader_.emplace(std::string{*maybe_file}, mem);
+      reader_.emplace(std::string{maybe_file}, mem);
     }
 
     if (input_cursor_->Pull(frame, context)) {

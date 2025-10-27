@@ -86,6 +86,8 @@ class DataQueue {
       std::unique_lock<std::mutex> lock(mutex_);
       readerCv_.wait(lock, [&]() { return !queue_.empty() || done_; });
 
+      // We cannot check only for done_ here because the thread which pushes data to the queue may determine that the
+      // queue is finished and in that way effectively disable popping data from the queue in the another thread.
       if (queue_.empty()) {
         MG_ASSERT(done_, "Done is true but queue is not empty");
         return false;
