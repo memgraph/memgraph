@@ -1,13 +1,13 @@
 name: Loopy Benchmark
 
 on:
-  workflow_dispatch:
+  push:
 
 jobs:
   release_benchmarks:
     name: "Release benchmarks"
     runs-on: [self-hosted, Linux, X64, x86-64-v3]
-    timeout-minutes: 120
+    timeout-minutes: 2880
     env:
       ARCH: "amd"
       OS: "ubuntu-24.04"
