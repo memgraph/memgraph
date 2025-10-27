@@ -33,8 +33,6 @@
 namespace memgraph::auth {
 namespace {
 
-namespace r = ranges;
-
 constexpr auto kRoleName = "rolename";
 constexpr auto kPermissions = "permissions";
 constexpr auto kGrants = "grants";
@@ -44,6 +42,9 @@ constexpr auto kUUID = "uuid";
 constexpr auto kPasswordHash = "password_hash";
 
 #ifdef MG_ENTERPRISE
+
+namespace r = ranges;
+
 constexpr auto kGlobalPermission = "global_permission";
 constexpr auto kFineGrainedAccessHandler = "fine_grained_access_handler";
 constexpr auto kLabelPermissions = "label_permissions";
