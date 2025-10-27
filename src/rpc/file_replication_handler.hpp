@@ -39,8 +39,6 @@ class FileReplicationHandler final {
 
   const std::vector<std::filesystem::path> &GetActiveFileNames() const;
 
-  static std::filesystem::path GetRandomDir();
-
  private:
   static bool ValidateFilename(std::optional<std::string> const &maybe_filename);
   static bool ValidateFileSize(std::optional<uint64_t> const &maybe_filesize);

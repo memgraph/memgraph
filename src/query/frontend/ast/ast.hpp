@@ -3240,6 +3240,39 @@ class LoadCsv : public memgraph::query::Clause {
   friend class AstStorage;
 };
 
+class LoadParquet : public Clause {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  LoadParquet() = default;
+
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      row_var_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  Expression *file_;
+  Identifier *row_var_{nullptr};
+
+  LoadParquet *Clone(AstStorage *storage) const override {
+    LoadParquet *object = storage->Create<LoadParquet>();
+    object->file_ = file_ ? file_->Clone(storage) : nullptr;
+    object->row_var_ = row_var_ ? row_var_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ protected:
+  explicit LoadParquet(Expression *file, Identifier *row_var) : file_(file), row_var_(row_var) {
+    DMG_ASSERT(row_var, "LoadParquet cannot take nullptr for identifier");
+  }
+
+ private:
+  friend class AstStorage;
+};
+
 class FreeMemoryQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
@@ -3937,7 +3970,7 @@ class fmt::formatter<memgraph::query::PropertyIxPath> {
   constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
-  auto format(const memgraph::query::PropertyIxPath &wrapper, FormatContext &ctx) {
+  auto format(const memgraph::query::PropertyIxPath &wrapper, FormatContext &ctx) const {
     auto out = ctx.out();
 
     if (!wrapper.path.empty()) {

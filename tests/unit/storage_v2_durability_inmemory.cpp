@@ -893,7 +893,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_EQ(properties->size(), expected_size);
           if (i % 5 == 0) {
             // Re-create enum property value for this scope
-            const auto enum_value = memgraph::storage::PropertyValue(*store->enum_store_.ToEnum("enum1", "v2"));
+            const auto enum_value = memgraph::storage::PropertyValue(enum_val);
             ASSERT_EQ((*properties)[property_id], enum_value);
           } else {
             ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
@@ -4356,7 +4356,7 @@ TEST_P(DurabilityTest, CreateSnapshotReturnsPath) {
   // Create some data to ensure snapshot has content
   {
     auto acc = mem_storage->Access();
-    auto vertex = acc->CreateVertex();
+    (void)acc->CreateVertex();
     ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 

@@ -21,7 +21,7 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/frontend/stripped_lexer_constants.hpp"
-#include "utils/fnv.hpp"
+import memgraph.utils.fnv;
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 

@@ -11,10 +11,6 @@ on:
         type: string
         description: "Target architecture. Default value is amd."
         default: amd
-      toolchain:
-        type: string
-        description: "Toolchain version. Default value is v6."
-        default: v6
       build_type:
         type: string
         description: "Memgraph Build type. Default value is Release."
@@ -48,12 +44,16 @@ on:
         description: "Git ref to checkout. Default value is the current ref."
         default: ''
 
+env:
+  TOOLCHAIN: v7
+
 jobs:
   PackageAndUpload:
-    runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "DockerMgBuild", "ARM64"]') || fromJSON(inputs.os == 'centos-10' && '["self-hosted", "DockerMgBuild", "X64", "x86-64-v3"]' || '["self-hosted", "DockerMgBuild", "X64"]') }}
+    runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "DockerMgBuild", "ARM64"]') || fromJSON((inputs.os == 'centos-10' || inputs.os == 'rocky-10') && '["self-hosted", "DockerMgBuild", "X64", "x86-64-v3"]' || '["self-hosted", "DockerMgBuild", "X64"]') }}
     timeout-minutes: ${{ inputs.arch == 'arm' && 120 || 60 }}
     env:
       mgdeps_cache_host: "${{ inputs.arch == 'arm' && 'false' || 'mgdeps-cache' }}" # Required because strange is not connected to memgraph openVPN
+      INPUT_OS: "${{ inputs.os }}"
     steps:
       - name: "Validate S3 dest dir for official package"
         if: ${{ inputs.push_to_s3 == 'true' && inputs.s3_bucket == 'download.memgraph.com' }}
@@ -87,14 +87,14 @@ jobs:
 
       - name: "Set artifact name and dir"
         run: |
-          artifact_name=${{ inputs.os }}
+          artifact_name="$INPUT_OS"
           artifact_dir='build/output'
-          if [[ "${{ inputs.additional_build_args }}" == *"--for-docker" ]]; then
+          if [[ "${{ inputs.additional_build_args }}" == *"--for-docker"* ]]; then
             artifact_name='docker'
             echo "FOR_DOCKER=true" >> $GITHUB_ENV
             echo "DOCKER_ARTIFACT_DIR=${artifact_dir}/docker" >> $GITHUB_ENV
           fi
-          if [[ "${{ inputs.additional_build_args }}" == *"--disable-jemalloc" ]]; then
+          if [[ "${{ inputs.additional_build_args }}" == *"--disable-jemalloc"* ]]; then
             artifact_name="${artifact_name}-malloc"
           fi
           if [[ "${{ inputs.arch }}" == 'arm' ]]; then
@@ -115,16 +115,16 @@ jobs:
       - name: "Spin up mgbuild container"
         run: |
           ./release/package/mgbuild.sh \
-          --toolchain ${{ inputs.toolchain }} \
-          --os ${{ inputs.os }} \
+          --toolchain $TOOLCHAIN \
+          --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
           run
 
       - name: "Build Memgraph binaries"
         run: |
           ./release/package/mgbuild.sh \
-          --toolchain ${{ inputs.toolchain }} \
-          --os ${{ inputs.os }} \
+          --toolchain $TOOLCHAIN \
+          --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
           --mgdeps-cache-host ${{ env.mgdeps_cache_host }} \
@@ -133,8 +133,8 @@ jobs:
       - name: "Make package"
         run: |
           ./release/package/mgbuild.sh \
-          --toolchain ${{ inputs.toolchain }} \
-          --os ${{ inputs.os }} \
+          --toolchain $TOOLCHAIN \
+          --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
           package-memgraph
@@ -142,19 +142,39 @@ jobs:
       - name: "Copy package"
         run: |
           ./release/package/mgbuild.sh \
-          --toolchain ${{ inputs.toolchain }} \
-          --os ${{ inputs.os }} \
+          --toolchain $TOOLCHAIN \
+          --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
           copy \
           --package \
           --dest-dir ${{ env.PACKAGE_ARTIFACT_DIR }}
 
+      - name: "Build heaptrack"
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$INPUT_OS" \
+          --arch ${{ inputs.arch }} \
+          build-heaptrack
+
+      - name: "Copy heaptrack"
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
+        run: |
+          mkdir -p release/docker
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$INPUT_OS" \
+          --arch ${{ inputs.arch }} \
+          copy-heaptrack \
+          --dest-dir "$(pwd)/release/docker"
+
       - name: "Stop mgbuild container"
         if: always()
         run: |
           ./release/package/mgbuild.sh \
-          --toolchain ${{ inputs.toolchain }} \
-          --os ${{ inputs.os }} \
+          --toolchain $TOOLCHAIN \
+          --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
           stop --remove
 
@@ -162,8 +182,8 @@ jobs:
         if: ${{ env.FOR_DOCKER == 'true' }}
         run: |
           ./release/package/mgbuild.sh \
-          --toolchain ${{ inputs.toolchain }} \
-          --os ${{ inputs.os }} \
+          --toolchain $TOOLCHAIN \
+          --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
           package-docker \
@@ -203,9 +223,9 @@ jobs:
               new_name="${new_name}-relwithdebinfo"
             fi
             new_name="${new_name}-docker.tar.gz"
-          elif [[ "${{ inputs.os }}" == *"debian"* || "${{ inputs.os }}" == *"ubuntu"* ]]; then
+          elif [[ "$INPUT_OS" == *"debian"* || "$INPUT_OS" == *"ubuntu"* ]]; then
             new_name="memgraph_${tag}+pr${pr}~${commit}-1_${{ inputs.arch }}64.deb"
-          elif [[ "${{ inputs.os }}" == *"centos"* || "${{ inputs.os }}" == *"fedora"* ]]; then
+          elif [[ "$INPUT_OS" == *"centos"* || "$INPUT_OS" == *"fedora"* || "$INPUT_OS" == *"rocky"* ]]; then
             if [[ "${{ inputs.arch }}" == "amd" ]]; then
               arch_str="x86_64"
             else
@@ -234,6 +254,12 @@ jobs:
           AWS_REGION: ${{ inputs.s3_region }}
           SOURCE_DIR: ${{ env.FOR_DOCKER == 'true' && env.DOCKER_ARTIFACT_DIR || env.PACKAGE_ARTIFACT_DIR }}
           DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.ARTIFACT_NAME }}/"
+
+      - name: Clean up heaptrack
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
+        run: |
+          rm -rf release/docker/heaptrack
+
 
       - name: "Clean up Docker"
         if: always()

@@ -21,7 +21,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libcurl-devel # cmake build requires it
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
-    zlib-ng-compat-devel # zlib library used for all builds
+    zlib-ng-compat-devel zlib-ng-compat-static # zlib library used for all builds
     expat-devel xz-devel python3-devel texinfo libbabeltrace-devel # for gdb
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
@@ -33,6 +33,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libtool # for protobuf
     openssl-devel pkgconf-pkg-config # for pulsar
     cyrus-sasl-devel # for librdkafka
+    python3-pip # for conan
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -108,6 +109,12 @@ check() {
         esac
     done
 
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        echo "python3 is not installed"
+        exit 1
+    fi
+
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
         missing=$(python3 "$DIR/check-packages.py" "check" "centos-10" "${standard_packages[@]}")
@@ -160,7 +167,7 @@ install() {
     fi
 
     # enable EPEL repo for rpmlint
-    sudo dnf install -y epel-release
+    dnf install -y epel-release
 
     dnf install -y wget git python3 python3-pip
     # CRB repo is required for, e.g. texinfo, ninja-build
@@ -168,6 +175,9 @@ install() {
 
     # Enable EPEL for additional packages
     dnf install -y epel-release
+
+    # enable rpm fusion
+    dnf install --nogpgcheck -y https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-10.noarch.rpm
 
     # Separate standard and custom packages
     local standard_packages=()

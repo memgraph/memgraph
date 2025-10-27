@@ -20,6 +20,7 @@
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string_view>
 #include <variant>

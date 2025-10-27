@@ -187,7 +187,7 @@ TEST(JavaStringFormatter, ThrowOnNonExistentFormatSpecifier) {
   args.emplace_back(1);
   str = "\%x";
 
-  ASSERT_THROW(gFormatter.FormatString(str, args), memgraph::utils::JStringFormatException);
+  ASSERT_THROW((void)gFormatter.FormatString(str, args), memgraph::utils::JStringFormatException);
 }
 
 TEST(JavaStringFormatter, ThrowOnLessFormatSpecifiersThanSlots) {
@@ -199,7 +199,7 @@ TEST(JavaStringFormatter, ThrowOnLessFormatSpecifiersThanSlots) {
   args.emplace_back(replacement_str);
   str = "There is \%d \%s in this sentence but only \%d specified in the argument list";
 
-  ASSERT_THROW(gFormatter.FormatString(str, args), memgraph::utils::JStringFormatException);
+  ASSERT_THROW((void)gFormatter.FormatString(str, args), memgraph::utils::JStringFormatException);
 }
 
 TEST(JavaStringFormatter, DoNotThrowOnMoreFormatSpecifiersThanSlots) {

@@ -664,6 +664,15 @@ TYPED_TEST(OperatorToStringTest, LoadCsv) {
   EXPECT_EQ(last_op.ToString(), expected_string);
 }
 
+TYPED_TEST(OperatorToStringTest, LoadParquet) {
+  memgraph::query::plan::LoadParquet last_op;
+  last_op.input_ = std::make_shared<Once>();
+  last_op.row_var_ = this->GetSymbol("transaction");
+
+  std::string const expected_string{"LoadParquet {transaction}"};
+  EXPECT_EQ(last_op.ToString(), expected_string);
+}
+
 TYPED_TEST(OperatorToStringTest, Foreach) {
   Symbol x = this->GetSymbol("x");
   std::shared_ptr<LogicalOperator> create = std::make_shared<CreateNode>(

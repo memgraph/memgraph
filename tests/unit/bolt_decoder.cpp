@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -674,7 +674,7 @@ void test_LocalDateTime() {
   Value dv;
 
   const auto local_time = memgraph::utils::LocalTime(memgraph::utils::LocalTimeParameters({0, 0, 30, 1, 0}));
-  const auto date = memgraph::utils::Date(1);
+  const auto date = memgraph::utils::Date(std::chrono::microseconds{1});
   const auto value = Value(memgraph::utils::LocalDateTime(date, local_time));
   const auto local_date_time = value.ValueLocalDateTime();
   const auto secs = local_date_time.SecondsSinceEpoch();

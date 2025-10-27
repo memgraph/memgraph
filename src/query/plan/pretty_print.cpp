@@ -23,6 +23,304 @@ namespace rv = r::views;
 
 namespace memgraph::query::plan {
 
+namespace impl {
+
+namespace {
+
+//////////////////////////// HELPER FUNCTIONS /////////////////////////////////
+// TODO: It would be nice to have enum->string functions auto-generated.
+std::string ToString(EdgeAtom::Direction dir) {
+  switch (dir) {
+    case EdgeAtom::Direction::BOTH:
+      return "both";
+    case EdgeAtom::Direction::IN:
+      return "in";
+    case EdgeAtom::Direction::OUT:
+      return "out";
+  }
+}
+
+std::string ToString(EdgeAtom::Type type) {
+  switch (type) {
+    case EdgeAtom::Type::BREADTH_FIRST:
+      return "bfs";
+    case EdgeAtom::Type::DEPTH_FIRST:
+      return "dfs";
+    case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
+      return "wsp";
+    case EdgeAtom::Type::ALL_SHORTEST_PATHS:
+      return "asp";
+    case EdgeAtom::Type::KSHORTEST:
+      return "shortest_first";
+    case EdgeAtom::Type::SINGLE:
+      return "single";
+  }
+}
+
+std::string ToString(Ordering ord) {
+  switch (ord) {
+    case Ordering::ASC:
+      return "asc";
+    case Ordering::DESC:
+      return "desc";
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// PlanToJsonVisitor implementation
+//
+// The JSON formatted plan is consumed (or will be) by Memgraph Lab, and
+// therefore should not be changed before synchronizing with whoever is
+// maintaining Memgraph Lab. Hopefully, one day integration tests will exist and
+// there will be no need to be super careful.
+
+using json = nlohmann::json;
+
+json ToJson(Expression *expression, const DbAccessor &dba) {
+  std::stringstream sstr;
+  PrintExpression(expression, &sstr, dba);
+  return sstr.str();
+}
+
+json ToJson(const utils::Bound<Expression *> &bound, const DbAccessor &dba) {
+  json json;
+  switch (bound.type()) {
+    case utils::BoundType::INCLUSIVE:
+      json["type"] = "inclusive";
+      break;
+    case utils::BoundType::EXCLUSIVE:
+      json["type"] = "exclusive";
+      break;
+  }
+
+  json["value"] = ToJson(bound.value(), dba);
+
+  return json;
+}
+
+json ToJson(const Symbol &symbol) { return symbol.name(); }
+
+json ToJson(storage::EdgeTypeId edge_type, const DbAccessor &dba) { return dba.EdgeTypeToName(edge_type); }
+
+json ToJson(storage::LabelId label, const DbAccessor &dba) { return dba.LabelToName(label); }
+
+json ToJson(storage::PropertyId property, const DbAccessor &dba) { return dba.PropertyToName(property); }
+
+json ToJson(storage::PropertyPath path, const DbAccessor &dba) {
+  return path | rv::transform([&](auto &&property_id) { return dba.PropertyToName(property_id); }) | rv::join('.') |
+         r::to<std::string>;
+}
+
+json ToJson(NamedExpression *nexpr, const DbAccessor &dba) {
+  json json;
+  json["expression"] = ToJson(nexpr->expression_, dba);
+  json["name"] = nexpr->name_;
+  return json;
+}
+
+json ToJson(const PropertiesMapList &properties, const DbAccessor &dba) {
+  json json;
+  for (const auto &prop_pair : properties) {
+    json.emplace(ToJson(prop_pair.first, dba), ToJson(prop_pair.second, dba));
+  }
+  return json;
+}
+
+json ToJson(const std::vector<StorageLabelType> &labels, const DbAccessor &dba) {
+  json json;
+  for (const auto &label : labels) {
+    if (const auto *label_node = std::get_if<Expression *>(&label)) {
+      json.emplace_back(ToJson(*label_node, dba));
+    } else {
+      json.emplace_back(ToJson(std::get<storage::LabelId>(label), dba));
+    }
+  }
+  return json;
+}
+
+json ToJson(const StorageEdgeType &edge_type, const DbAccessor &dba) {
+  if (const auto *edge_type_expression = std::get_if<Expression *>(&edge_type)) {
+    return ToJson(*edge_type_expression, dba);
+  }
+
+  return ToJson(std::get<storage::EdgeTypeId>(edge_type), dba);
+}
+
+json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba) {
+  json self;
+  self["symbol"] = ToJson(node_info.symbol);
+  self["labels"] = ToJson(node_info.labels, dba);
+  const auto *props = std::get_if<PropertiesMapList>(&node_info.properties);
+  self["properties"] = ToJson(props ? *props : PropertiesMapList{}, dba);
+  return self;
+}
+
+json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba) {
+  json self;
+  self["symbol"] = ToJson(edge_info.symbol);
+  const auto *props = std::get_if<PropertiesMapList>(&edge_info.properties);
+  self["properties"] = ToJson(props ? *props : PropertiesMapList{}, dba);
+  self["edge_type"] = ToJson(edge_info.edge_type, dba);
+  self["direction"] = ToString(edge_info.direction);
+  return self;
+}
+
+json ToJson(const Aggregate::Element &elem, const DbAccessor &dba) {
+  json json;
+  if (elem.op == Aggregation::Op::PROJECT_LISTS) {
+    if (elem.arg1) {
+      json["nodes"] = ToJson(elem.arg1, dba);
+    }
+    if (elem.arg2) {
+      json["relationships"] = ToJson(elem.arg2, dba);
+    }
+  } else if (elem.op == Aggregation::Op::COLLECT_MAP) {
+    if (elem.arg1) {
+      json["value"] = ToJson(elem.arg1, dba);
+    }
+    if (elem.arg2) {
+      json["key"] = ToJson(elem.arg2, dba);
+    }
+  } else {
+    if (elem.arg1) {
+      json["value"] = ToJson(elem.arg1, dba);
+    }
+  }
+
+  json["op"] = utils::ToLowerCase(Aggregation::OpToString(elem.op));
+  json["output_symbol"] = ToJson(elem.output_sym);
+  json["distinct"] = elem.distinct;
+
+  return json;
+}
+
+nlohmann::json ToJson(const ExpressionRange &expression_range, const DbAccessor &dba) {
+  json result;
+  switch (expression_range.type_) {
+    case PropertyFilter::Type::EQUAL: {
+      result["type"] = "Equal";
+      result["expression"] = ToJson(expression_range.lower_->value(), dba);
+      break;
+    }
+    case PropertyFilter::Type::REGEX_MATCH: {
+      result["type"] = "Regex";
+      break;
+    }
+    case PropertyFilter::Type::RANGE: {
+      result["type"] = "Range";
+      result["lower_bound"] = expression_range.lower_ ? ToJson(*expression_range.lower_, dba) : json();
+      result["upper_bound"] = expression_range.upper_ ? ToJson(*expression_range.upper_, dba) : json();
+      break;
+    }
+    case PropertyFilter::Type::IN: {
+      result["type"] = "In";
+      result["expression"] = ToJson(expression_range.lower_->value(), dba);
+      break;
+    }
+    case PropertyFilter::Type::IS_NOT_NULL: {
+      result["type"] = "IsNotNull";
+      break;
+    }
+  }
+  return result;
+}
+
+template <class T, class... Args>
+nlohmann::json ToJson(const std::vector<T> &items, const Args &...args) {
+  nlohmann::json json;
+  for (const auto &item : items) {
+    json.emplace_back(ToJson(item, args...));
+  }
+  return json;
+}
+////////////////////////// END HELPER FUNCTIONS ////////////////////////////////
+
+}  // namespace
+
+struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
+  explicit PlanToJsonVisitor(const DbAccessor *dba) : dba_(dba) {}
+
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+
+  bool PreVisit(CreateNode & /*unused*/) override;
+  bool PreVisit(CreateExpand & /*unused*/) override;
+  bool PreVisit(Delete & /*unused*/) override;
+
+  bool PreVisit(SetProperty & /*unused*/) override;
+  bool PreVisit(SetProperties & /*unused*/) override;
+  bool PreVisit(SetLabels & /*unused*/) override;
+
+  bool PreVisit(RemoveProperty & /*unused*/) override;
+  bool PreVisit(RemoveLabels & /*unused*/) override;
+
+  bool PreVisit(Expand & /*unused*/) override;
+  bool PreVisit(ExpandVariable & /*unused*/) override;
+
+  bool PreVisit(ConstructNamedPath & /*unused*/) override;
+
+  bool PreVisit(Merge & /*unused*/) override;
+  bool PreVisit(Optional & /*unused*/) override;
+
+  bool PreVisit(Filter & /*unused*/) override;
+  bool PreVisit(EvaluatePatternFilter & /*op*/) override;
+  bool PreVisit(EdgeUniquenessFilter & /*unused*/) override;
+  bool PreVisit(Cartesian & /*unused*/) override;
+  bool PreVisit(Apply & /*unused*/) override;
+  bool PreVisit(HashJoin & /*unused*/) override;
+  bool PreVisit(IndexedJoin & /*unused*/) override;
+
+  bool PreVisit(ScanAll & /*unused*/) override;
+  bool PreVisit(ScanAllByLabel & /*unused*/) override;
+  bool PreVisit(ScanAllByLabelProperties & /*unused*/) override;
+  bool PreVisit(ScanAllById & /*unused*/) override;
+
+  bool PreVisit(ScanAllByEdge & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgeType & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgeTypeProperty & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgeTypePropertyValue & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgeTypePropertyRange & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgeProperty & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgePropertyValue & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgePropertyRange & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgeId & /*unused*/) override;
+
+  bool PreVisit(EmptyResult & /*unused*/) override;
+  bool PreVisit(Produce & /*unused*/) override;
+  bool PreVisit(Accumulate & /*unused*/) override;
+  bool PreVisit(Aggregate & /*unused*/) override;
+  bool PreVisit(Skip & /*unused*/) override;
+  bool PreVisit(Limit & /*unused*/) override;
+  bool PreVisit(OrderBy & /*unused*/) override;
+  bool PreVisit(Distinct & /*unused*/) override;
+  bool PreVisit(Union & /*unused*/) override;
+
+  bool PreVisit(Unwind & /*unused*/) override;
+  bool PreVisit(Foreach & /*unused*/) override;
+  bool PreVisit(CallProcedure & /*unused*/) override;
+  bool PreVisit(LoadCsv & /*unused*/) override;
+  bool PreVisit(LoadParquet & /*unused*/) override;
+  bool PreVisit(RollUpApply & /*unused*/) override;
+  bool PreVisit(PeriodicCommit & /*unused*/) override;
+  bool PreVisit(PeriodicSubquery & /*unused*/) override;
+  bool PreVisit(SetNestedProperty & /*unused*/) override;
+  bool PreVisit(RemoveNestedProperty & /*unused*/) override;
+
+  bool Visit(Once & /*unused*/) override;
+
+  nlohmann::json output() { return output_; }
+
+ protected:
+  nlohmann::json output_;
+  const DbAccessor *dba_;
+
+  nlohmann::json PopOutput();
+};
+
+}  // namespace impl
+
 PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out) : dba_(dba), out_(out) {}
 
 #define PRE_VISIT(TOp)                                   \
@@ -232,6 +530,11 @@ bool PlanPrinter::PreVisit(query::plan::LoadCsv &op) {
   return true;
 }
 
+bool PlanPrinter::PreVisit(query::plan::LoadParquet &op) {
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  return true;
+}
+
 bool PlanPrinter::Visit(query::plan::Once & /*op*/) {
   WithPrintLn([](auto &out) { out << "* Once"; });
   return true;
@@ -327,212 +630,18 @@ nlohmann::json PlanToJson(const DbAccessor &dba, const LogicalOperator *plan_roo
 
 namespace impl {
 
-///////////////////////////////////////////////////////////////////////////////
-//
-// PlanToJsonVisitor implementation
-//
-// The JSON formatted plan is consumed (or will be) by Memgraph Lab, and
-// therefore should not be changed before synchronizing with whoever is
-// maintaining Memgraph Lab. Hopefully, one day integration tests will exist and
-// there will be no need to be super careful.
-
-using nlohmann::json;
-
-//////////////////////////// HELPER FUNCTIONS /////////////////////////////////
-// TODO: It would be nice to have enum->string functions auto-generated.
-std::string ToString(EdgeAtom::Direction dir) {
-  switch (dir) {
-    case EdgeAtom::Direction::BOTH:
-      return "both";
-    case EdgeAtom::Direction::IN:
-      return "in";
-    case EdgeAtom::Direction::OUT:
-      return "out";
-  }
-}
-
-std::string ToString(EdgeAtom::Type type) {
-  switch (type) {
-    case EdgeAtom::Type::BREADTH_FIRST:
-      return "bfs";
-    case EdgeAtom::Type::DEPTH_FIRST:
-      return "dfs";
-    case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
-      return "wsp";
-    case EdgeAtom::Type::ALL_SHORTEST_PATHS:
-      return "asp";
-    case EdgeAtom::Type::KSHORTEST:
-      return "shortest_first";
-    case EdgeAtom::Type::SINGLE:
-      return "single";
-  }
-}
-
-std::string ToString(Ordering ord) {
-  switch (ord) {
-    case Ordering::ASC:
-      return "asc";
-    case Ordering::DESC:
-      return "desc";
-  }
-}
-
-json ToJson(Expression *expression, const DbAccessor &dba) {
-  std::stringstream sstr;
-  PrintExpression(expression, &sstr, dba);
-  return sstr.str();
-}
-
-json ToJson(const utils::Bound<Expression *> &bound, const DbAccessor &dba) {
-  json json;
-  switch (bound.type()) {
-    case utils::BoundType::INCLUSIVE:
-      json["type"] = "inclusive";
-      break;
-    case utils::BoundType::EXCLUSIVE:
-      json["type"] = "exclusive";
-      break;
-  }
-
-  json["value"] = ToJson(bound.value(), dba);
-
-  return json;
-}
-
-json ToJson(const Symbol &symbol) { return symbol.name(); }
-
-json ToJson(storage::EdgeTypeId edge_type, const DbAccessor &dba) { return dba.EdgeTypeToName(edge_type); }
-
-json ToJson(storage::LabelId label, const DbAccessor &dba) { return dba.LabelToName(label); }
-
-json ToJson(storage::PropertyId property, const DbAccessor &dba) { return dba.PropertyToName(property); }
-
-json ToJson(storage::PropertyPath path, const DbAccessor &dba) {
-  return path | rv::transform([&](auto &&property_id) { return dba.PropertyToName(property_id); }) | rv::join('.') |
-         r::to<std::string>;
-}
-
-json ToJson(NamedExpression *nexpr, const DbAccessor &dba) {
-  json json;
-  json["expression"] = ToJson(nexpr->expression_, dba);
-  json["name"] = nexpr->name_;
-  return json;
-}
-
-json ToJson(const PropertiesMapList &properties, const DbAccessor &dba) {
-  json json;
-  for (const auto &prop_pair : properties) {
-    json.emplace(ToJson(prop_pair.first, dba), ToJson(prop_pair.second, dba));
-  }
-  return json;
-}
-
-json ToJson(const std::vector<StorageLabelType> &labels, const DbAccessor &dba) {
-  json json;
-  for (const auto &label : labels) {
-    if (const auto *label_node = std::get_if<Expression *>(&label)) {
-      json.emplace_back(ToJson(*label_node, dba));
-    } else {
-      json.emplace_back(ToJson(std::get<storage::LabelId>(label), dba));
-    }
-  }
-  return json;
-}
-
-json ToJson(const StorageEdgeType &edge_type, const DbAccessor &dba) {
-  if (const auto *edge_type_expression = std::get_if<Expression *>(&edge_type)) {
-    return ToJson(*edge_type_expression, dba);
-  }
-
-  return ToJson(std::get<storage::EdgeTypeId>(edge_type), dba);
-}
-
-json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba) {
-  json self;
-  self["symbol"] = ToJson(node_info.symbol);
-  self["labels"] = ToJson(node_info.labels, dba);
-  const auto *props = std::get_if<PropertiesMapList>(&node_info.properties);
-  self["properties"] = ToJson(props ? *props : PropertiesMapList{}, dba);
-  return self;
-}
-
-json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba) {
-  json self;
-  self["symbol"] = ToJson(edge_info.symbol);
-  const auto *props = std::get_if<PropertiesMapList>(&edge_info.properties);
-  self["properties"] = ToJson(props ? *props : PropertiesMapList{}, dba);
-  self["edge_type"] = ToJson(edge_info.edge_type, dba);
-  self["direction"] = ToString(edge_info.direction);
-  return self;
-}
-
-json ToJson(const Aggregate::Element &elem, const DbAccessor &dba) {
-  json json;
-  if (elem.op == Aggregation::Op::PROJECT_LISTS) {
-    if (elem.arg1) {
-      json["nodes"] = ToJson(elem.arg1, dba);
-    }
-    if (elem.arg2) {
-      json["relationships"] = ToJson(elem.arg2, dba);
-    }
-  } else if (elem.op == Aggregation::Op::COLLECT_MAP) {
-    if (elem.arg1) {
-      json["value"] = ToJson(elem.arg1, dba);
-    }
-    if (elem.arg2) {
-      json["key"] = ToJson(elem.arg2, dba);
-    }
-  } else {
-    if (elem.arg1) {
-      json["value"] = ToJson(elem.arg1, dba);
-    }
-  }
-
-  json["op"] = utils::ToLowerCase(Aggregation::OpToString(elem.op));
-  json["output_symbol"] = ToJson(elem.output_sym);
-  json["distinct"] = elem.distinct;
-
-  return json;
-}
-
-nlohmann::json ToJson(const ExpressionRange &expression_range, const DbAccessor &dba) {
-  json result;
-  switch (expression_range.type_) {
-    case PropertyFilter::Type::EQUAL: {
-      result["type"] = "Equal";
-      result["expression"] = ToJson(expression_range.lower_->value(), dba);
-      break;
-    }
-    case PropertyFilter::Type::REGEX_MATCH: {
-      result["type"] = "Regex";
-      break;
-    }
-    case PropertyFilter::Type::RANGE: {
-      result["type"] = "Range";
-      result["lower_bound"] = expression_range.lower_ ? ToJson(*expression_range.lower_, dba) : json();
-      result["upper_bound"] = expression_range.upper_ ? ToJson(*expression_range.upper_, dba) : json();
-      break;
-    }
-    case PropertyFilter::Type::IN: {
-      result["type"] = "In";
-      result["expression"] = ToJson(expression_range.lower_->value(), dba);
-      break;
-    }
-    case PropertyFilter::Type::IS_NOT_NULL: {
-      result["type"] = "IsNotNull";
-      break;
-    }
-  }
-  return result;
-}
-////////////////////////// END HELPER FUNCTIONS ////////////////////////////////
-
-bool PlanToJsonVisitor::Visit(Once &) {
+bool PlanToJsonVisitor::Visit(Once & /*unused*/) {
   json self;
   self["name"] = "Once";
 
   output_ = std::move(self);
   return false;
+}
+
+nlohmann::json PlanToJsonVisitor::PopOutput() {
+  nlohmann::json tmp;
+  tmp.swap(output_);
+  return tmp;
 }
 
 bool PlanToJsonVisitor::PreVisit(ScanAll &op) {
@@ -1120,6 +1229,23 @@ bool PlanToJsonVisitor::PreVisit(query::plan::LoadCsv &op) {
 
   if (op.nullif_) {
     self["nullif"] = ToJson(op.nullif_, *dba_);
+  }
+
+  self["row_variable"] = ToJson(op.row_var_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(query::plan::LoadParquet &op) {
+  json self;
+  self["name"] = "LoadParquet";
+
+  if (op.file_) {
+    self["file"] = ToJson(op.file_, *dba_);
   }
 
   self["row_variable"] = ToJson(op.row_var_);

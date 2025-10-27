@@ -17,6 +17,8 @@
 
 #include "fmt/format.h"
 
+#include <nlohmann/json.hpp>
+
 namespace memgraph::replication::durability {
 
 constexpr auto *kReplicaName = "replica_name";

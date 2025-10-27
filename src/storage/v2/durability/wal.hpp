@@ -19,7 +19,6 @@
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/delta.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
@@ -598,7 +597,7 @@ class fmt::formatter<memgraph::storage::durability::CompositePropertyPaths> {
   constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
-  auto format(const memgraph::storage::durability::CompositePropertyPaths &wrapper, FormatContext &ctx) {
+  auto format(const memgraph::storage::durability::CompositePropertyPaths &wrapper, FormatContext &ctx) const {
     auto out = ctx.out();
     bool first_path = true;
 

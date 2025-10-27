@@ -70,7 +70,7 @@ void Encoder::WriteFileData(utils::InputFile *file) {
   }
 }
 
-bool Encoder::WriteFile(const std::filesystem::path &path) {
+bool Encoder::WriteFile(const std::filesystem::path &path, std::filesystem::path const &path_to_write) {
   builder_->PrepareForFileSending();
   utils::InputFile file;
   if (!file.Open(path)) {
@@ -81,8 +81,7 @@ bool Encoder::WriteFile(const std::filesystem::path &path) {
     spdlog::error("Path {} does not have a filename.", path);
     return false;
   }
-  const auto &filename = path.filename().generic_string();
-  WriteString(filename);
+  WriteString(path_to_write.string());
   auto const file_size = file.GetSize();
   WriteUint(file_size);
   WriteFileData(&file);

@@ -19,6 +19,7 @@
 #include "query/frontend/ast/query/user_profile.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 
+#include "plan/operator.hpp"
 #include "query_common.hpp"
 
 using namespace memgraph::query;
@@ -153,12 +154,28 @@ TEST_F(TestPrivilegeExtractor, DumpDatabase) {
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::DUMP));
 }
 
-TEST_F(TestPrivilegeExtractor, ReadFile) {
-  auto *load_csv = storage.Create<LoadCsv>();
-  load_csv->row_var_ = IDENT("row");
-  auto *query = QUERY(SINGLE_QUERY(load_csv));
+// Parametrized test for both LoadCsv and LoadParquet
+class TestReadFilePrivilege : public TestPrivilegeExtractor, public ::testing::WithParamInterface<std::string> {};
+
+TEST_P(TestReadFilePrivilege, ReadFile) {
+  const std::string &file_type = GetParam();
+
+  Clause *load_clause = nullptr;
+  if (file_type == "CSV") {
+    auto *load_csv = storage.Create<LoadCsv>();
+    load_csv->row_var_ = IDENT("row");
+    load_clause = load_csv;
+  } else if (file_type == "Parquet") {
+    auto *load_parquet = storage.Create<LoadParquet>();
+    load_parquet->row_var_ = IDENT("row");
+    load_clause = load_parquet;
+  }
+
+  auto *query = QUERY(SINGLE_QUERY(load_clause));
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::READ_FILE));
 }
+
+INSTANTIATE_TEST_SUITE_P(FileFormats, TestReadFilePrivilege, ::testing::Values("CSV", "Parquet"));
 
 TEST_F(TestPrivilegeExtractor, LockPathQuery) {
   auto *query = storage.Create<LockPathQuery>();

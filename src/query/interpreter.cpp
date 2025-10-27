@@ -62,6 +62,7 @@
 #include "query/dependant_symbol_visitor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
+#include "query/frame_change_caching.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
@@ -672,7 +673,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   void RemoveCoordinatorInstance(int32_t coordinator_id) override {
-    switch (auto const status = coordinator_handler_.RemoveCoordinatorInstance(coordinator_id)) {
+    switch (coordinator_handler_.RemoveCoordinatorInstance(coordinator_id)) {
       using enum memgraph::coordination::RemoveCoordinatorInstanceStatus;  // NOLINT
       case NO_SUCH_ID:
         throw QueryRuntimeException(
@@ -708,7 +709,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
         };
 
-    switch (auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config)) {
+    switch (coordinator_handler_.AddCoordinatorInstance(coord_coord_config)) {
       using enum memgraph::coordination::AddCoordinatorInstanceStatus;  // NOLINT
       case ID_ALREADY_EXISTS:
         throw QueryRuntimeException("Couldn't add coordinator since instance with such id already exists!");
@@ -2776,32 +2777,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           RWType::NONE};
 }
 
-inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollector *frame_change_collector) {
-  if (!frame_change_collector) return;
-  for (const auto &tree : ast_storage.storage_) {
-    if (tree->GetTypeInfo() != memgraph::query::InListOperator::kType) {
-      continue;
-    }
-    auto *in_list_operator = utils::Downcast<InListOperator>(tree.get());
-    const auto cached_id = memgraph::utils::GetFrameChangeId(*in_list_operator);
-    if (!cached_id) {
-      continue;
-    }
-
-    auto dependencies = std::set<Symbol::Position_t>{};
-    auto visitor = DependantSymbolVisitor(dependencies);
-    in_list_operator->expression2_->Accept(visitor);
-    if (visitor.is_cacheable()) [[likely]] {
-      // This InListOperator can be processed into a set and cached
-      frame_change_collector->AddInListKey(*cached_id);
-      // If any dependency changes then the cache must be invalidated
-      for (auto const symbol_pos : dependencies) {
-        frame_change_collector->AddInListInvalidator(*cached_id, symbol_pos);
-      }
-    }
-  }
-}
-
 PreparedQuery PrepareCypherQuery(
     ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
     CurrentDB &current_db, utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
@@ -2862,7 +2837,7 @@ PreparedQuery PrepareCypherQuery(
     interpreter.LogQueryMessage(fmt::format("Explain plan:\n{}", printed_plan.str()));
   }
 
-  TryCaching(plan->ast_storage(), frame_change_collector);
+  PrepareInListCaching(plan->ast_storage(), frame_change_collector);
   summary->insert_or_assign("cost_estimate", plan->cost());
   interpreter.LogQueryMessage(fmt::format("Plan cost: {}", plan->cost()));
   bool is_profile_query = false;
@@ -3030,7 +3005,7 @@ PreparedQuery PrepareProfileQuery(
   auto cypher_query_plan =
       CypherQueryToPlan(parsed_inner_query.stripped_query, std::move(parsed_inner_query.ast_storage), cypher_query,
                         parsed_inner_query.parameters, plan_cache, dba);
-  TryCaching(cypher_query_plan->ast_storage(), frame_change_collector);
+  PrepareInListCaching(cypher_query_plan->ast_storage(), frame_change_collector);
 
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
   for (const auto &hint : hints) {
@@ -7296,6 +7271,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (tx_query_enum == TransactionQuery::BEGIN) {
       ResetInterpreter();
     }
+    // TODO: Use CreateThreadSafe once parallel multi-command queries are supported
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
     query_execution->prepared_query = PrepareTransactionQuery(tx_query_enum, extras);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
@@ -7330,10 +7306,26 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         fmt::format("Query [{}] associated with transaction [{}]", parsed_query.query_string, *current_transaction_));
   }
 
+  auto *const cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+
+  // Load parquet uses thread safe allocator that's why it is being checked here
+  bool has_load_parquet{false};
+
+  if (cypher_query) {
+    auto clauses = cypher_query->single_query_->clauses_;
+    has_load_parquet =
+        std::ranges::any_of(clauses, [](const auto *clause) { return clause->GetTypeInfo() == LoadParquet::kType; });
+  }
+
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
     // Setup QueryExecution
-    query_executions_.emplace_back(QueryExecution::Create());
+    // TODO: Use CreateThreadSafe for multi-threaded queries
+    if (has_load_parquet) {
+      query_executions_.emplace_back(QueryExecution::CreateThreadSafe());
+    } else {
+      query_executions_.emplace_back(QueryExecution::Create());
+    }
     auto &query_execution = query_executions_.back();
     query_execution_ptr = &query_execution;
 
@@ -7397,7 +7389,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     const utils::Timer planning_timer;  // TODO: Think about moving it to Parse()
     LogQueryMessage("Query planning started!");
     PreparedQuery prepared_query;
-    utils::MemoryResource *memory_resource = query_execution->execution_memory.resource();
+    utils::MemoryResource *memory_resource = query_execution->resource();
     frame_change_collector_.reset();
     frame_change_collector_.emplace();
 
