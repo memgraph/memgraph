@@ -3725,3 +3725,195 @@ TYPED_TEST(IndexTest, LabelPropertiesIndicesScansOnlyStringsForRegexes) {
 
   EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(4, 5, 6, 7, 8));
 }
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, EdgePropertyIndexRemoveObsoleteEntriesWithActiveTransaction) {
+  // Test that verifies the fix for edge indices not removing entries that are
+  // deleted by one transaction but still reachable from an older transaction.
+  // This test reproduces the scenario described in the user query:
+  // 1. Transaction 1 creates an edge and commits
+  // 2. Transaction 2 starts and can see the edge
+  // 3. Transaction 3 deletes the edge and commits
+  // 4. RemoveObsoleteEntries is called
+  // 5. Transaction 2 should still be able to see the edge in the index
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+
+  // Create edge property index
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  Gid edge_gid;
+  // Transaction 1: Create edge with property
+  {
+    auto acc = this->storage->Access();
+    auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+    auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+    auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+    ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(42)));
+    edge_gid = edge_acc.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Transaction 2: Start a transaction that can see the edge
+  auto acc_old_transaction = this->storage->Access();
+  EXPECT_THAT(this->GetIds(acc_old_transaction->Edges(this->edge_prop_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(0));
+
+  // Transaction 3: Delete the edge
+  {
+    auto acc = this->storage->Access();
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    ASSERT_NO_ERROR(acc->DetachDelete({}, {&edge}, false));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify that the old transaction can still see the edge in the index
+  // (this is the key behavior that was broken before the fix)
+  EXPECT_THAT(this->GetIds(acc_old_transaction->Edges(this->edge_prop_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(0));
+
+  // Call RemoveObsoleteEntries - this should NOT remove the edge from the index
+  // because it's still visible to the old transaction
+  {
+    auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
+    mem_storage->indices_.RemoveObsoleteEdgeEntries(acc_old_transaction->GetTransaction()->start_timestamp,
+                                                    std::stop_token());
+  }
+
+  // The old transaction should still be able to see the edge
+  EXPECT_THAT(this->GetIds(acc_old_transaction->Edges(this->edge_prop_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(0));
+
+  // A new transaction should not see the deleted edge
+  {
+    auto acc_new = this->storage->Access();
+    EXPECT_THAT(this->GetIds(acc_new->Edges(this->edge_prop_id1, View::NEW), View::NEW), IsEmpty());
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, EdgeTypeIndexRemoveObsoleteEntriesWithActiveTransaction) {
+  // Similar test for EdgeTypeIndex
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+
+  // Create edge type index
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  Gid edge_gid;
+  // Transaction 1: Create edge
+  {
+    auto acc = this->storage->Access();
+    auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+    auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+    auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+    edge_gid = edge_acc.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Transaction 2: Start a transaction that can see the edge
+  auto acc_old_transaction = this->storage->Access();
+  EXPECT_THAT(this->GetIds(acc_old_transaction->Edges(this->edge_type_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(0));
+
+  // Transaction 3: Delete the edge
+  {
+    auto acc = this->storage->Access();
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    ASSERT_NO_ERROR(acc->DetachDelete({}, {&edge}, false));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify that the old transaction can still see the edge in the index
+  EXPECT_THAT(this->GetIds(acc_old_transaction->Edges(this->edge_type_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(0));
+
+  // Call RemoveObsoleteEntries - this should NOT remove the edge from the index
+  {
+    auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
+    mem_storage->indices_.RemoveObsoleteEdgeEntries(acc_old_transaction->GetTransaction()->start_timestamp,
+                                                    std::stop_token());
+  }
+
+  // The old transaction should still be able to see the edge
+  EXPECT_THAT(this->GetIds(acc_old_transaction->Edges(this->edge_type_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(0));
+
+  // A new transaction should not see the deleted edge
+  {
+    auto acc_new = this->storage->Access();
+    EXPECT_THAT(this->GetIds(acc_new->Edges(this->edge_type_id1, View::NEW), View::NEW), IsEmpty());
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, EdgeTypePropertyIndexRemoveObsoleteEntriesWithActiveTransaction) {
+  // Similar test for EdgeTypePropertyIndex
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+
+  // Create edge type property index
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  Gid edge_gid;
+  // Transaction 1: Create edge with property
+  {
+    auto acc = this->storage->Access();
+    auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+    auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+    auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+    ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(42)));
+    edge_gid = edge_acc.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Transaction 2: Start a transaction that can see the edge
+  auto acc_old_transaction = this->storage->Access();
+  EXPECT_THAT(this->GetIds(acc_old_transaction->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(0));
+
+  // Transaction 3: Delete the edge
+  {
+    auto acc = this->storage->Access();
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    ASSERT_NO_ERROR(acc->DetachDelete({}, {&edge}, false));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify that the old transaction can still see the edge in the index
+  EXPECT_THAT(this->GetIds(acc_old_transaction->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(0));
+
+  // Call RemoveObsoleteEntries - this should NOT remove the edge from the index
+  {
+    auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
+    mem_storage->indices_.RemoveObsoleteEdgeEntries(acc_old_transaction->GetTransaction()->start_timestamp,
+                                                    std::stop_token());
+  }
+
+  // The old transaction should still be able to see the edge
+  EXPECT_THAT(this->GetIds(acc_old_transaction->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(0));
+
+  // A new transaction should not see the deleted edge
+  {
+    auto acc_new = this->storage->Access();
+    EXPECT_THAT(this->GetIds(acc_new->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+                IsEmpty());
+  }
+}
