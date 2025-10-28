@@ -20,7 +20,7 @@ def validate_jwt_token(token: str, scheme: str, config: dict, token_type: str):
         jwks_uri = f"{config['public_key_endpoint']}"
 
     try:
-        response = requests.get(jwks_uri, timeout=10)
+        response = requests.get(jwks_uri, timeout=10, verify=config["cert"])
         response.raise_for_status()
         jwks = response.json()
     except (requests.RequestException, ValueError) as e:
@@ -115,6 +115,8 @@ def _load_config_from_env(scheme: str):
         config["role_field"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_ROLE_FIELD", "roles")
         config["username"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_USERNAME", "id:sub")
         config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_ROLE_MAPPING", ""))
+        # by default check the certificate, this is also the default behavior of the requests library
+        config["cert"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_EXTRA_CA_CERTS", True)
     elif scheme == "oidc-okta":
         config["client_id"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_CLIENT_ID", "")
         config["id_issuer"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ISSUER", "")
@@ -122,6 +124,7 @@ def _load_config_from_env(scheme: str):
         config["role_field"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ROLE_FIELD", "groups")
         config["username"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_USERNAME", "id:sub")
         config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ROLE_MAPPING", ""))
+        config["cert"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_EXTRA_CA_CERTS", True)
     elif scheme == "oidc-custom":
         config["public_key_endpoint"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_PUBLIC_KEY_ENDPOINT", "")
         config["access_token_audience"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_ACCESS_TOKEN_AUDIENCE", "")
@@ -129,7 +132,7 @@ def _load_config_from_env(scheme: str):
         config["role_field"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_ROLE_FIELD", "")
         config["username"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_USERNAME", "")
         config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_ROLE_MAPPING", ""))
-
+        config["cert"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS", True)
     # if ID token is not used it won't be checked
     config["use_id_token"] = config["username"].startswith("id:")
     return config
