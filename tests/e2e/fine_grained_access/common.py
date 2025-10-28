@@ -22,20 +22,12 @@ def switch_db(cursor):
     execute_and_fetch_all(cursor, "USE DATABASE clean;")
 
 
-def create_multi_db(cursor, switch):
+def create_multi_db(cursor, switch, reset_func):
     execute_and_fetch_all(cursor, "USE DATABASE memgraph;")
     if switch:
         switch_db(cursor)
-        reset_and_prepare(cursor)
+        reset_func(cursor)
         execute_and_fetch_all(cursor, "USE DATABASE memgraph;")
-
-
-def reset_and_prepare(admin_cursor):
-    execute_and_fetch_all(admin_cursor, "REVOKE * ON NODES CONTAINING LABELS * FROM user;")
-    execute_and_fetch_all(admin_cursor, "REVOKE * ON EDGES CONTAINING TYPES * FROM user;")
-    execute_and_fetch_all(admin_cursor, "MATCH(n) DETACH DELETE n;")
-    execute_and_fetch_all(admin_cursor, "CREATE (n:test_delete {name: 'test1'});")
-    execute_and_fetch_all(admin_cursor, "CREATE (n:test_delete_1)-[r:edge_type_delete]->(m:test_delete_2);")
 
 
 def execute_and_fetch_all(cursor, query):

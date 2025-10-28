@@ -16,11 +16,19 @@ import pytest
 from mgclient import DatabaseError
 
 
+def reset_and_prepare(admin_cursor):
+    common.execute_and_fetch_all(admin_cursor, "REVOKE * ON NODES CONTAINING LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_cursor, "REVOKE * ON EDGES CONTAINING TYPES * FROM user;")
+    common.execute_and_fetch_all(admin_cursor, "MATCH(n) DETACH DELETE n;")
+    common.execute_and_fetch_all(admin_cursor, "CREATE (n:test_delete {name: 'test1'});")
+    common.execute_and_fetch_all(admin_cursor, "CREATE (n:test_delete_1)-[r:edge_type_delete]->(m:test_delete_2);")
+
+
 @pytest.mark.parametrize("switch", [False, True])
 def test_create_node_all_labels_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE ON NODES CONTAINING LABELS * TO user;")
     user_connection = common.connect(username="user", password="test")
     if switch:
@@ -33,8 +41,8 @@ def test_create_node_all_labels_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_create_node_all_labels_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON NODES CONTAINING LABELS * TO user;")
     user_connection = common.connect(username="user", password="test")
 
@@ -47,8 +55,8 @@ def test_create_node_all_labels_denied(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_create_node_specific_label_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE ON NODES CONTAINING LABELS :label1 TO user;")
     user_connection = common.connect(username="user", password="test")
     if switch:
@@ -61,8 +69,8 @@ def test_create_node_specific_label_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_create_node_specific_label_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON NODES CONTAINING LABELS :label1 TO user;")
     user_connection = common.connect(username="user", password="test")
 
@@ -75,8 +83,8 @@ def test_create_node_specific_label_denied(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_delete_node_all_labels_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(
         admin_connection.cursor(),
         "GRANT READ ON NODES CONTAINING LABELS *, DELETE ON NODES CONTAINING LABELS * TO user;",
@@ -94,8 +102,8 @@ def test_delete_node_all_labels_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_delete_node_all_labels_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON NODES CONTAINING LABELS * TO user;")
     user_connection = common.connect(username="user", password="test")
@@ -109,8 +117,8 @@ def test_delete_node_all_labels_denied(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_delete_node_specific_label_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(
         admin_connection.cursor(),
         "GRANT DELETE ON NODES CONTAINING LABELS :test_delete, READ ON NODES CONTAINING LABELS :test_delete TO user;",
@@ -130,8 +138,8 @@ def test_delete_node_specific_label_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_delete_node_specific_label_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :test_delete TO user;"
     )
@@ -149,8 +157,8 @@ def test_delete_node_specific_label_denied(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_create_edge_all_labels_all_edge_types_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE ON EDGES CONTAINING TYPES * TO user;")
@@ -169,8 +177,8 @@ def test_create_edge_all_labels_all_edge_types_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_create_edge_all_labels_all_edge_types_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON EDGES CONTAINING TYPES * TO user;")
     user_connection = common.connect(username="user", password="test")
@@ -187,8 +195,8 @@ def test_create_edge_all_labels_all_edge_types_denied(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_create_edge_all_labels_denied_all_edge_types_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON EDGES CONTAINING TYPES * TO user;")
     user_connection = common.connect(username="user", password="test")
@@ -205,8 +213,8 @@ def test_create_edge_all_labels_denied_all_edge_types_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_create_edge_all_labels_granted_all_edge_types_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON EDGES CONTAINING TYPES * TO user;")
     user_connection = common.connect(username="user", password="test")
@@ -223,8 +231,8 @@ def test_create_edge_all_labels_granted_all_edge_types_denied(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_create_edge_all_labels_granted_specific_edge_types_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(),
@@ -244,8 +252,8 @@ def test_create_edge_all_labels_granted_specific_edge_types_denied(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_create_edge_first_node_label_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE ON NODES CONTAINING LABELS :label1 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON NODES CONTAINING LABELS :label2 TO user;")
     common.execute_and_fetch_all(
@@ -266,8 +274,8 @@ def test_create_edge_first_node_label_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_create_edge_second_node_label_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE ON NODES CONTAINING LABELS :label2 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON NODES CONTAINING LABELS :label1 TO user;")
     common.execute_and_fetch_all(
@@ -288,8 +296,8 @@ def test_create_edge_second_node_label_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_delete_edge_all_labels_denied_all_edge_types_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES *, DELETE ON EDGES CONTAINING TYPES * TO user;"
@@ -308,8 +316,8 @@ def test_delete_edge_all_labels_denied_all_edge_types_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_delete_edge_all_labels_granted_all_edge_types_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON EDGES CONTAINING TYPES * TO user;")
@@ -327,8 +335,8 @@ def test_delete_edge_all_labels_granted_all_edge_types_denied(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_delete_edge_all_labels_granted_specific_edge_types_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(
         admin_connection.cursor(),
         "GRANT READ ON NODES CONTAINING LABELS *, DELETE ON NODES CONTAINING LABELS * TO user;",
@@ -355,8 +363,8 @@ def test_delete_edge_all_labels_granted_specific_edge_types_denied(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_delete_edge_first_node_label_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :test_delete_1 TO user;"
     )
@@ -386,8 +394,8 @@ def test_delete_edge_first_node_label_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_delete_edge_second_node_label_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :test_delete_2 TO user;"
     )
@@ -417,8 +425,8 @@ def test_delete_edge_second_node_label_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_delete_node_with_edge_label_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(
         admin_connection.cursor(),
         "GRANT READ ON NODES CONTAINING LABELS :test_delete_1 TO user;",
@@ -438,8 +446,8 @@ def test_delete_node_with_edge_label_denied(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_delete_node_with_edge_label_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(
         admin_connection.cursor(),
         "GRANT READ ON NODES CONTAINING LABELS :test_delete_1, DELETE ON NODES CONTAINING LABELS :test_delete_1 TO user;",
@@ -460,8 +468,8 @@ def test_delete_node_with_edge_label_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_set_label_when_label_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(
         admin_connection.cursor(),
         "GRANT READ ON NODES CONTAINING LABELS :update_label_2, UPDATE ON NODES CONTAINING LABELS :update_label_2 TO user;",
@@ -477,8 +485,8 @@ def test_set_label_when_label_granted(switch):
 def test_set_label_when_label_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
 
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT UPDATE ON NODES CONTAINING LABELS :update_label_2 TO user;"
     )
@@ -497,8 +505,8 @@ def test_set_label_when_label_denied(switch):
 def test_remove_label_when_label_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
 
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :test_delete TO user;"
     )
@@ -519,8 +527,8 @@ def test_remove_label_when_label_granted(switch):
 def test_remove_label_when_label_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
 
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT UPDATE ON NODES CONTAINING LABELS :update_label_2 TO user;"
     )
@@ -539,8 +547,8 @@ def test_remove_label_when_label_denied(switch):
 def test_merge_nodes_pass_when_having_read(switch):
     admin_connection = common.connect(username="admin", password="test")
 
-    common.reset_and_prepare(admin_connection.cursor())
-    common.create_multi_db(admin_connection.cursor(), switch)
+    reset_and_prepare(admin_connection.cursor())
+    common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
@@ -560,8 +568,8 @@ def test_merge_nodes_pass_when_having_read(switch):
 def test_unlabeled_nodes_with_system_create_only(switch):
     admin_connection = common.connect(username="admin", password="test")
     admin_cursor = admin_connection.cursor()
-    common.reset_and_prepare(admin_cursor)
-    common.create_multi_db(admin_cursor, switch)
+    reset_and_prepare(admin_cursor)
+    common.create_multi_db(admin_cursor, switch, reset_and_prepare)
 
     common.execute_and_fetch_all(admin_cursor, "REVOKE * ON NODES CONTAINING LABELS * FROM user;")
     common.execute_and_fetch_all(admin_cursor, "REVOKE * ON EDGES CONTAINING TYPES * FROM user;")
@@ -589,8 +597,8 @@ def test_unlabeled_nodes_with_system_create_only(switch):
 def test_create_on_multiple_matching_with_same_label(switch):
     admin_connection = common.connect(username="admin", password="test")
     admin_cursor = admin_connection.cursor()
-    common.reset_and_prepare(admin_cursor)
-    common.create_multi_db(admin_cursor, switch)
+    reset_and_prepare(admin_cursor)
+    common.create_multi_db(admin_cursor, switch, reset_and_prepare)
 
     common.execute_and_fetch_all(
         admin_cursor, "GRANT CREATE ON NODES CONTAINING LABELS :Person, :Actor MATCHING EXACTLY TO user;"
