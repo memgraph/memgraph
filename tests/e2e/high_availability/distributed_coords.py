@@ -281,6 +281,42 @@ def cleanup_after_test():
     interactive_mg_runner.kill_all(keep_directories=False)
 
 
+def test_global_edge_index_drop_replication(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+
+    instance_3_cursor = connect(host="localhost", port=7689).cursor()
+
+    # Exception because one SYNC replica is down
+    try:
+        execute_and_fetch_all(instance_3_cursor, "create global edge index on :(id)")
+    except:
+        pass
+
+    # Exception because one SYNC replica is down
+    try:
+        execute_and_fetch_all(instance_3_cursor, "create (n:Test {id: 1})")
+    except:
+        pass
+
+    # Exception because one SYNC replica is down
+    try:
+        execute_and_fetch_all(instance_3_cursor, "drop global edge index on :(id)")
+    except:
+        pass
+
+    interactive_mg_runner.start(inner_instances_description, "instance_1")
+    instance_1_cursor = connect(host="localhost", port=7687).cursor()
+    mg_sleep_and_assert(1, partial(get_vertex_count, instance_1_cursor))
+
+
 def test_leadership_change(test_name):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
