@@ -749,7 +749,7 @@ jobs:
       - name: Ensure localstack is up
         run: |
           cd tests/e2e/load_parquet/localstack
-          docker compose up -d
+          docker compose --profile bridge up -d
 
       # This step will be skipped because the e2e stream tests have been disabled
       # We need to fix this as soon as possible
