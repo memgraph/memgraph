@@ -154,7 +154,8 @@ struct mgp_date {
   mgp_date(const mgp_date_parameters *parameters, allocator_type alloc)
       : alloc(alloc), date(MapDateParameters(parameters)) {}
 
-  mgp_date(const int64_t microseconds, allocator_type alloc) noexcept : alloc(alloc), date(microseconds) {}
+  mgp_date(const int64_t microseconds, allocator_type alloc) noexcept
+      : alloc(alloc), date(std::chrono::microseconds{microseconds}) {}
 
   mgp_date(const mgp_date &other, allocator_type alloc) noexcept : alloc(alloc), date(other.date) {}
 

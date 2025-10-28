@@ -70,7 +70,7 @@ inline nlohmann::json BoltValueToJson(const communication::bolt::Value &value) {
     }
     case Date: {
       std::stringstream ss;
-      ss << utils::Date(value.ValueDate().MicrosecondsSinceEpoch());
+      ss << utils::Date(std::chrono::microseconds{value.ValueDate().MicrosecondsSinceEpoch()});
       ret = ss.str();
       break;
     }

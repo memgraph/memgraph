@@ -98,7 +98,6 @@ jobs:
       ref: ${{ inputs.ref || github.ref }}
       arch: 'amd'
       os: 'ubuntu-24.04'
-      toolchain: 'v6'
       run_core: ${{ needs.DiffSetup.outputs.run_community_core }}
     secrets: inherit
 
@@ -109,7 +108,6 @@ jobs:
       ref: ${{ inputs.ref || github.ref }}
       arch: 'amd'
       os: 'ubuntu-24.04'
-      toolchain: 'v6'
       run_core: ${{ needs.DiffSetup.outputs.run_coverage_core }}
       run_clang_tidy: ${{ needs.DiffSetup.outputs.run_coverage_clang_tidy }}
     secrets: inherit
@@ -121,7 +119,6 @@ jobs:
       ref: ${{ inputs.ref || github.ref }}
       arch: 'amd'
       os: 'ubuntu-24.04'
-      toolchain: 'v6'
       run_core: ${{ needs.DiffSetup.outputs.run_debug_core }}
       run_integration: ${{ needs.DiffSetup.outputs.run_debug_integration }}
     secrets: inherit
@@ -141,7 +138,6 @@ jobs:
       ref: ${{ inputs.ref || github.ref }}
       arch: 'amd'
       os: 'ubuntu-24.04'
-      toolchain: 'v6'
       run_core: ${{ needs.DiffSetup.outputs.run_release_core }}
       run_benchmark: ${{ needs.DiffSetup.outputs.run_release_benchmark }}
       run_e2e: ${{ needs.DiffSetup.outputs.run_release_e2e }}
@@ -156,7 +152,5 @@ jobs:
       ref: ${{ inputs.ref || github.ref }}
       arch: 'amd'
       os: 'ubuntu-24.04'
-      toolchain: 'v6'
       run_build: ${{ needs.DiffSetup.outputs.run_malloc_build }}
     secrets: inherit
-  

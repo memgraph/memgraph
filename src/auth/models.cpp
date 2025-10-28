@@ -736,12 +736,6 @@ void User::UpdatePassword(const std::optional<std::string> &password,
 
 void User::UpdateHash(HashedPassword hashed_password) { password_hash_ = std::move(hashed_password); }
 
-void User::SetRole(const Role &role) {
-  // Clear all roles and add the new one
-  ClearAllRoles();
-  roles_.AddRole(role);
-}
-
 void User::ClearAllRoles() {
   // Clear all roles by creating a new empty Roles object
   roles_ = Roles{};
@@ -835,11 +829,21 @@ void User::ClearMultiTenantRoles(const std::string &db_name) {
 
 #ifdef MG_ENTERPRISE
 FineGrainedAccessPermissions User::GetFineGrainedAccessLabelPermissions(std::optional<std::string_view> db_name) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return FineGrainedAccessPermissions{};
+  }
+
+  if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};  // Users+role level access check
   return Merge(GetUserFineGrainedAccessLabelPermissions(), GetRoleFineGrainedAccessLabelPermissions(db_name));
 }
 
 FineGrainedAccessPermissions User::GetFineGrainedAccessEdgeTypePermissions(
     std::optional<std::string_view> db_name) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return FineGrainedAccessPermissions{};
+  }
+
+  if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};  // Users+role level access check
   return Merge(GetUserFineGrainedAccessEdgeTypePermissions(), GetRoleFineGrainedAccessEdgeTypePermissions(db_name));
 }
 
@@ -849,7 +853,7 @@ FineGrainedAccessPermissions User::GetUserFineGrainedAccessEdgeTypePermissions(
     return FineGrainedAccessPermissions{};
   }
 
-  if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};
+  if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};  // Users+role level access check
   return fine_grained_access_handler_.edge_type_permissions();
 }
 
@@ -859,7 +863,7 @@ FineGrainedAccessPermissions User::GetUserFineGrainedAccessLabelPermissions(
     return FineGrainedAccessPermissions{};
   }
 
-  if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};
+  if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};  // Users+role level access check
   return fine_grained_access_handler_.label_permissions();
 }
 
@@ -872,7 +876,7 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessEdgeTypePermissions(
   FineGrainedAccessPermissions combined_permissions{};
   for (const auto &role : roles_) {
     // If db_name is provided, only include roles that grant access to that database
-    if (!db_name || role.HasAccess(*db_name)) {
+    if (!db_name || role.HasAccess(*db_name)) {  // Role level access check
       combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().edge_type_permissions());
     }
   }
@@ -888,7 +892,7 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions(
   FineGrainedAccessPermissions combined_permissions{};
   for (const auto &role : roles_) {
     // If db_name is provided, only include roles that grant access to that database
-    if (!db_name || role.HasAccess(*db_name)) {
+    if (!db_name || role.HasAccess(*db_name)) {  // Role level access check
       combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().label_permissions());
     }
   }

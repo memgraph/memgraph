@@ -149,8 +149,14 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(MultiDatabaseQuery &query) override {
     switch (query.action_) {
       case MultiDatabaseQuery::Action::CREATE:
-      case MultiDatabaseQuery::Action::DROP:
         AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
+        break;
+      case MultiDatabaseQuery::Action::DROP:
+      case MultiDatabaseQuery::Action::RENAME:
+        AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
+        if (query.force_) {
+          AddPrivilege(AuthQuery::Privilege::TRANSACTION_MANAGEMENT);
+        }
         break;
     }
   }
@@ -237,6 +243,11 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     return false;
   }
   bool PreVisit(LoadCsv & /*unused*/) override {
+    AddPrivilege(AuthQuery::Privilege::READ_FILE);
+    return false;
+  }
+
+  bool PreVisit(LoadParquet & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::READ_FILE);
     return false;
   }

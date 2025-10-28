@@ -8,12 +8,12 @@ on:
 jobs:
   release_benchmarks:
     name: "Release benchmarks"
-    runs-on: [self-hosted, Linux, X64, Diff, Gen7]
+    runs-on: [self-hosted, Linux, X64, x86-64-v3]
     timeout-minutes: 120
     env:
       ARCH: "amd"
       OS: "ubuntu-24.04"
-      TOOLCHAIN: "v6"
+      TOOLCHAIN: "v7"
       BUILD_TYPE: "Release"
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}

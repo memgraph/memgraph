@@ -56,7 +56,7 @@ DEFINE_string(bolt_server_name_for_init, "Neo4j/v5.11.0 compatible graph databas
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
-DEFINE_VALIDATED_string(log_level, "WARNING", memgraph::flags::log_level_help_string.c_str(),
+DEFINE_VALIDATED_string(log_level, "WARNING", memgraph::flags::GetLogLevelHelpString(),
                         { return memgraph::flags::ValidLogLevel(value); });
 
 // Query flags
@@ -322,7 +322,7 @@ void Initialize() {
       [](auto in) -> utils::Settings::ValidatorResult {
         if (!memgraph::flags::ValidLogLevel(in)) {
           return {"Unsupported log level. Log level must be defined as one of the following strings: " +
-                  allowed_log_levels};
+                  memgraph::flags::GetAllowedLogLevels()};
         }
         return {};
       });

@@ -86,8 +86,35 @@ struct QueryAllocator {
 
 #ifndef MG_MEMORY_PROFILE
   memgraph::utils::MonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
-  memgraph::utils::PoolResource pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
+  memgraph::utils::PoolResource<> pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
 #endif
+};
+
+struct ThreadSafeQueryAllocator {
+  ThreadSafeQueryAllocator() = default;
+  ~ThreadSafeQueryAllocator() = default;
+
+  ThreadSafeQueryAllocator(ThreadSafeQueryAllocator const &) = delete;
+  ThreadSafeQueryAllocator &operator=(ThreadSafeQueryAllocator const &) = delete;
+
+  // No move addresses to pool & monotonic fields must be stable
+  ThreadSafeQueryAllocator(ThreadSafeQueryAllocator &&) = delete;
+  ThreadSafeQueryAllocator &operator=(ThreadSafeQueryAllocator &&) = delete;
+
+  auto resource() -> utils::MemoryResource * { return &pool; }
+
+ private:
+  static constexpr auto kMonotonicInitialSize = 4UL * 1024UL;
+  static constexpr auto kPoolBlockPerChunk = 64UL;
+  static constexpr auto kPoolMaxBlockSize = 1024UL;
+
+  static auto upstream_resource() -> utils::MemoryResource * {
+    static auto upstream = utils::ResourceWithOutOfMemoryException{utils::NewDeleteResource()};
+    return &upstream;
+  }
+
+  memgraph::utils::ThreadSafeMonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
+  memgraph::utils::PoolResource<utils::impl::ThreadSafePool> pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
 };
 
 struct InterpreterContext;
@@ -429,21 +456,17 @@ class Interpreter final {
     query_executions_.clear();
     system_transaction_.reset();
     transaction_queries_->clear();
-    if (current_db_.db_acc_ && current_db_.db_acc_->is_deleting()) {
+    if (current_db_.db_acc_ && current_db_.db_acc_->is_marked_for_deletion()) {
       current_db_.db_acc_.reset();
     }
   }
 
   struct QueryExecution {
-    QueryAllocator execution_memory;  // NOTE: before all other fields which uses this memory
+    static constexpr struct ThreadSafe {
+    } thread_safe_;
 
-    std::optional<PreparedQuery> prepared_query;
-    std::map<std::string, TypedValue> summary;
-    std::vector<Notification> notifications;
-
-    static auto Create() -> std::unique_ptr<QueryExecution> { return std::make_unique<QueryExecution>(); }
-
-    explicit QueryExecution() = default;
+    QueryExecution() = default;
+    explicit QueryExecution(ThreadSafe /*marker*/) : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>} {}
 
     QueryExecution(const QueryExecution &) = delete;
     QueryExecution(QueryExecution &&) = delete;
@@ -451,6 +474,22 @@ class Interpreter final {
     QueryExecution &operator=(QueryExecution &&) = delete;
 
     ~QueryExecution() = default;
+
+    std::variant<QueryAllocator, ThreadSafeQueryAllocator>
+        execution_memory;  // NOTE: before all other fields which uses this memory
+
+    std::optional<PreparedQuery> prepared_query;
+    std::map<std::string, TypedValue> summary;
+    std::vector<Notification> notifications;
+
+    static auto Create() -> std::unique_ptr<QueryExecution> { return std::make_unique<QueryExecution>(); }
+    static auto CreateThreadSafe() -> std::unique_ptr<QueryExecution> {
+      return std::make_unique<QueryExecution>(thread_safe_);
+    }
+
+    utils::MemoryResource *resource() {
+      return std::visit([](auto &mem) { return mem.resource(); }, execution_memory);
+    }
 
     void CleanRuntimeData() {
       prepared_query.reset();
@@ -525,7 +564,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   try {
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
-    AnyStream stream{result_stream, query_execution->execution_memory.resource()};
+    AnyStream stream{result_stream, query_execution->resource()};
     const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n);
     // Stream is using execution memory of the query_execution which
     // can be deleted after its execution so the stream should be cleared

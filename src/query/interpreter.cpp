@@ -59,8 +59,10 @@
 #include "query/constants.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
+#include "query/dependant_symbol_visitor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
+#include "query/frame_change_caching.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
@@ -257,21 +259,6 @@ void Sort(std::vector<TypedValue, K> &vec) {
   std::sort(vec.begin(), vec.end(),
             [](const TypedValue &lv, const TypedValue &rv) { return lv.ValueString() < rv.ValueString(); });
 }
-
-// NOLINTNEXTLINE (misc-unused-parameters)
-[[maybe_unused]] bool Same(const TypedValue &lv, const TypedValue &rv) {
-  return TypedValue(lv).ValueString() == TypedValue(rv).ValueString();
-}
-// NOLINTNEXTLINE (misc-unused-parameters)
-[[maybe_unused]] bool Same(const TypedValue &lv, const std::string &rv) {
-  return std::string_view(TypedValue(lv).ValueString()) == rv;
-}
-// NOLINTNEXTLINE (misc-unused-parameters)
-[[maybe_unused]] bool Same(const std::string &lv, const TypedValue &rv) {
-  return lv == std::string_view(TypedValue(rv).ValueString());
-}
-// NOLINTNEXTLINE (misc-unused-parameters)
-[[maybe_unused]] bool Same(const std::string &lv, const std::string &rv) { return lv == rv; }
 
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
   switch (type) {
@@ -686,7 +673,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   void RemoveCoordinatorInstance(int32_t coordinator_id) override {
-    switch (auto const status = coordinator_handler_.RemoveCoordinatorInstance(coordinator_id)) {
+    switch (coordinator_handler_.RemoveCoordinatorInstance(coordinator_id)) {
       using enum memgraph::coordination::RemoveCoordinatorInstanceStatus;  // NOLINT
       case NO_SUCH_ID:
         throw QueryRuntimeException(
@@ -722,7 +709,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
         };
 
-    switch (auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config)) {
+    switch (coordinator_handler_.AddCoordinatorInstance(coord_coord_config)) {
       using enum memgraph::coordination::AddCoordinatorInstanceStatus;  // NOLINT
       case ID_ALREADY_EXISTS:
         throw QueryRuntimeException("Couldn't add coordinator since instance with such id already exists!");
@@ -2200,7 +2187,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
 
         callback.fn = [db_acc, streams = db_acc->streams(), stream_name = stream_query->stream_name_, batch_limit,
                        timeout]() {
-          if (db_acc.is_deleting()) {
+          if (db_acc.is_marked_for_deletion()) {
             throw QueryException("Can not start stream while database is being dropped.");
           }
           streams->StartWithLimit(stream_name, static_cast<uint64_t>(batch_limit.value()), timeout);
@@ -2208,7 +2195,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
         };
       } else {
         callback.fn = [db_acc, streams = db_acc->streams(), stream_name = stream_query->stream_name_]() {
-          if (db_acc.is_deleting()) {
+          if (db_acc.is_marked_for_deletion()) {
             throw QueryException("Can not start stream while database is being dropped.");
           }
           streams->Start(stream_name);
@@ -2790,21 +2777,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           RWType::NONE};
 }
 
-inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollector *frame_change_collector) {
-  if (!frame_change_collector) return;
-  for (const auto &tree : ast_storage.storage_) {
-    if (tree->GetTypeInfo() != memgraph::query::InListOperator::kType) {
-      continue;
-    }
-    auto *in_list_operator = utils::Downcast<InListOperator>(tree.get());
-    const auto cached_id = memgraph::utils::GetFrameChangeId(*in_list_operator);
-    if (!cached_id || cached_id->empty()) {
-      continue;
-    }
-    frame_change_collector->AddTrackingKey(*cached_id);
-  }
-}
-
 PreparedQuery PrepareCypherQuery(
     ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
     CurrentDB &current_db, utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
@@ -2865,7 +2837,7 @@ PreparedQuery PrepareCypherQuery(
     interpreter.LogQueryMessage(fmt::format("Explain plan:\n{}", printed_plan.str()));
   }
 
-  TryCaching(plan->ast_storage(), frame_change_collector);
+  PrepareInListCaching(plan->ast_storage(), frame_change_collector);
   summary->insert_or_assign("cost_estimate", plan->cost());
   interpreter.LogQueryMessage(fmt::format("Plan cost: {}", plan->cost()));
   bool is_profile_query = false;
@@ -2892,7 +2864,7 @@ PreparedQuery PrepareCypherQuery(
       plan, parsed_query.parameters, is_profile_query, dba, interpreter_context, execution_memory,
       std::move(user_or_role), std::move(stopping_context), dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
       interpreter.query_logger_, trigger_context_collector, memory_limit,
-      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit
+      frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr, hops_limit
 #ifdef MG_ENTERPRISE
       ,
       user_resource
@@ -3033,7 +3005,7 @@ PreparedQuery PrepareProfileQuery(
   auto cypher_query_plan =
       CypherQueryToPlan(parsed_inner_query.stripped_query, std::move(parsed_inner_query.ast_storage), cypher_query,
                         parsed_inner_query.parameters, plan_cache, dba);
-  TryCaching(cypher_query_plan->ast_storage(), frame_change_collector);
+  PrepareInListCaching(cypher_query_plan->ast_storage(), frame_change_collector);
 
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
   for (const auto &hint : hints) {
@@ -3064,7 +3036,7 @@ PreparedQuery PrepareProfileQuery(
           stats_and_total_time =
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
                        std::move(stopping_context), dbms::DatabaseProtector{db_acc}.clone(), query_logger, nullptr,
-                       memory_limit, frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr,
+                       memory_limit, frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,
                        hops_limit
 #ifdef MG_ENTERPRISE
                        ,
@@ -4203,11 +4175,13 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
         std::string info;
         std::string period;
         if (ttl_query->period_) {
-          period = ttl_query->period_->Accept(evaluator).ValueString();
+          auto ttl_period = ttl_query->period_->Accept(evaluator);
+          period = ttl_period.ValueString();
         }
         std::string start_time;
         if (ttl_query->specific_time_) {
-          start_time = ttl_query->specific_time_->Accept(evaluator).ValueString();
+          auto ttl_start_time = ttl_query->specific_time_->Accept(evaluator);
+          start_time = ttl_start_time.ValueString();
         }
         bool run_edge_ttl = db_acc->config().salient.items.properties_on_edges &&
                             db_acc->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL;
@@ -5034,11 +5008,12 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
   auto *recover_query = utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
   auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+  auto path_value = recover_query->snapshot_->Accept(evaluator);
 
   return PreparedQuery{
       {},
       std::move(parsed_query.required_privileges),
-      [db_acc = *current_db.db_acc_, replication_role, path = recover_query->snapshot_->Accept(evaluator).ValueString(),
+      [db_acc = *current_db.db_acc_, replication_role, path = std::move(path_value.ValueString()),
        force = recover_query->force_](AnyStream * /*stream*/,
                                       std::optional<int> /*n*/) mutable -> std::optional<QueryHandlerResult> {
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
@@ -5197,9 +5172,8 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
     });
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
 
-    auto get_interpreter_db_name = [&]() -> std::string const & {
-      static std::string all;
-      return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : all;
+    auto get_interpreter_db_name = [&]() -> std::string {
+      return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : "";
     };
 
     auto same_user = [](const auto &lv, const auto &rv) {
@@ -5254,17 +5228,24 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
     case TransactionQueueQuery::Action::TERMINATE_TRANSACTIONS: {
       auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-      std::vector<std::string> maybe_kill_transaction_ids;
+      std::vector<uint64_t> maybe_kill_transaction_ids;
       std::transform(transaction_query->transaction_id_list_.begin(), transaction_query->transaction_id_list_.end(),
                      std::back_inserter(maybe_kill_transaction_ids), [&evaluator](Expression *expression) {
-                       return std::string(expression->Accept(evaluator).ValueString());
+                       try {
+                         auto value = expression->Accept(evaluator);
+                         return std::stoul(value.ValueString().c_str());  // NOLINT
+                       } catch (std::exception & /* unused */) {
+                         return std::numeric_limits<uint64_t>::max();
+                       }
                      });
       callback.header = {"transaction_id", "killed"};
       callback.fn = [interpreter_context, maybe_kill_transaction_ids = std::move(maybe_kill_transaction_ids),
                      user_or_role = std::move(user_or_role),
                      privilege_checker = std::move(privilege_checker)]() mutable {
-        return interpreter_context->TerminateTransactions(std::move(maybe_kill_transaction_ids), user_or_role.get(),
-                                                          std::move(privilege_checker));
+        return interpreter_context->interpreters.WithLock([&](auto &interpreters) mutable {
+          return interpreter_context->TerminateTransactions(interpreters, std::move(maybe_kill_transaction_ids),
+                                                            user_or_role.get(), std::move(privilege_checker));
+        });
       };
       break;
     }
@@ -6054,8 +6035,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, db_handler, auth = interpreter_context->auth, interpreter = &interpreter](
-              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+          [db_name = query->db_name_, force = query->force_, db_handler, interpreter_context,
+           auth = interpreter_context->auth,
+           interpreter = &interpreter](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             if (!interpreter->system_transaction_) {
               throw QueryException("Expected to be in a system transaction");
             }
@@ -6064,7 +6046,28 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 
             try {
               // Remove database
-              auto success = db_handler->TryDelete(db_name, &*interpreter->system_transaction_);
+              dbms::DbmsHandler::DeleteResult success;
+              if (force) {
+                success = db_handler->Delete(db_name, &*interpreter->system_transaction_);
+                if (!success.HasError()) {
+                  // Try to terminate all interpreters using the database
+                  // Best effort approach, if it fails, user will continue using the db until they commit/abort
+                  // Get access to the interpreter context to notify all active interpreters
+                  interpreter_context->interpreters.WithLock(
+                      [db_name, interpreter_context, interpreter](auto &interpreters) {
+                        auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
+                          return user_or_role &&
+                                 user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
+                                                            db_name, &query::up_to_date_policy);
+                        };
+                        interpreter_context->TerminateTransactions(
+                            interpreters, InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name),
+                            interpreter->user_or_role_.get(), privilege_checker);
+                      });
+                }
+              } else {
+                success = db_handler->TryDelete(db_name, &*interpreter->system_transaction_);
+              }
               if (!success.HasError()) {
                 // Remove from auth
                 if (auth) auth->DeleteDatabase(db_name, &*interpreter->system_transaction_);
@@ -6096,7 +6099,60 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           RWType::W,
           query->db_name_};
     }
-  };
+    case MultiDatabaseQuery::Action::RENAME: {
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+
+      if (!query->new_db_name_) {
+        throw QueryException("New database name is required for RENAME DATABASE query.");
+      }
+
+      return PreparedQuery{
+          {"STATUS"},
+          std::move(parsed_query.required_privileges),
+          [old_name = query->db_name_, new_name = query->new_db_name_, db_handler, interpreter = &interpreter](
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
+
+            std::vector<std::vector<TypedValue>> status;
+            std::string res;
+
+            try {
+              auto result = db_handler->Rename(old_name, *new_name, &*interpreter->system_transaction_);
+              if (!result.HasError()) {
+                res = "Successfully renamed database " + old_name + " to " + *new_name;
+              } else {
+                switch (result.GetError()) {
+                  case dbms::RenameError::DEFAULT_DB:
+                    throw QueryRuntimeException("Cannot rename the default database.");
+                  case dbms::RenameError::NON_EXISTENT:
+                    throw QueryRuntimeException("Database {} does not exist.", old_name);
+                  case dbms::RenameError::ALREADY_EXISTS:
+                    throw QueryRuntimeException("Database {} already exists.", new_name);
+                  case dbms::RenameError::USING:
+                    throw QueryRuntimeException("Cannot rename {}, it is currently being used.", old_name);
+                  case dbms::RenameError::FAIL:
+                    throw QueryRuntimeException("Failed while renaming {}", old_name);
+                }
+              }
+            } catch (const utils::BasicException &e) {
+              throw QueryRuntimeException(e.what());
+            }
+
+            status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          RWType::W,
+          query->db_name_};
+    }
+  }
 #else
   // here to satisfy clang-tidy
   (void)parsed_query;
@@ -6423,7 +6479,13 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
                        RWType::NONE};
 }
 
-PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, CurrentDB &current_db) {
+PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, CurrentDB &current_db
+#ifdef MG_ENTERPRISE
+                                         ,
+                                         InterpreterContext *interpreter_context,
+                                         std::shared_ptr<QueryUserOrRole> user_or_role
+#endif
+) {
   if (current_db.db_acc_->get()->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw ShowSchemaInfoOnDiskException();
   }
@@ -6431,15 +6493,41 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
   Callback callback;
   callback.header = {"schema"};
   callback.fn = [db = *current_db.db_acc_, db_acc = current_db.execution_db_accessor_,
-                 storage_acc =
-                     current_db.db_transactional_accessor_.get()]() mutable -> std::vector<std::vector<TypedValue>> {
+                 storage_acc = current_db.db_transactional_accessor_.get()
+#ifdef MG_ENTERPRISE
+                     ,
+                 interpreter_context, user_or_role
+#endif
+  ]() mutable -> std::vector<std::vector<TypedValue>> {
     memgraph::metrics::IncrementCounter(memgraph::metrics::ShowSchema);
 
     std::vector<std::vector<TypedValue>> schema;
     auto *storage = db->storage();
     if (storage->config_.salient.items.enable_schema_info) {
-      // SCHEMA INFO
+#if MG_ENTERPRISE
+      // Apply fine-grained access control filtering if auth_checker is available
+      std::unique_ptr<FineGrainedAuthChecker> auth_checker = nullptr;
+      const bool has_user_or_role = user_or_role != nullptr && *user_or_role;
+      if (license::global_license_checker.IsEnterpriseValidFast() && interpreter_context &&
+          interpreter_context->auth_checker && has_user_or_role && db_acc) {
+        auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(user_or_role, &*db_acc);
+      }
+
+      const auto node_predicate = [&auth_checker](auto label_id) {
+        return auth_checker &&
+               auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ);
+      };
+      const auto edge_predicate = [&auth_checker](auto edge_type_id) {
+        return auth_checker && auth_checker->Has(edge_type_id, AuthQuery::FineGrainedPrivilege::READ);
+      };
+
+      auto json = auth_checker != nullptr
+                      ? storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_, node_predicate,
+                                                     edge_predicate)
+                      : storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);
+#else
       auto json = storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);
+#endif
 
       // INDICES
       auto node_indexes = nlohmann::json::array();
@@ -6447,15 +6535,28 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       auto index_info = db_acc->ListAllIndices();
       // Vertex label indices
       for (const auto label_id : index_info.label) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         node_indexes.push_back(nlohmann::json::object({
             {"labels", {storage->LabelToName(label_id)}},
             {"properties", nlohmann::json::array()},
             {"count", storage_acc->ApproximateVertexCount(label_id)},
             {"type", "label"},
+
         }));
       }
       // Vertex label property indices
       for (const auto &[label_id, property_paths] : index_info.label_properties) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         auto const path_to_name = [&](const storage::PropertyPath &property_path) {
           return PropertyPathToName(storage, property_path);
         };
@@ -6470,6 +6571,12 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Vertex label text
       for (const auto &[index_name, label_id, properties] : index_info.text_indices) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         auto prop_names = properties | rv::transform([storage](const storage::PropertyId &property) {
                             return storage->PropertyToName(property);
                           }) |
@@ -6483,6 +6590,12 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Vertex label property_point
       for (const auto &[label_id, property] : index_info.point_label_property) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         node_indexes.push_back(nlohmann::json::object(
             {{"labels", {storage->LabelToName(label_id)}},
              {"properties", {storage->PropertyToName(property)}},
@@ -6492,6 +6605,12 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
 
       // Vertex label property_vector
       for (const auto &spec : index_info.vector_indices_spec) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{spec.label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         node_indexes.push_back(nlohmann::json::object(
             {{"labels", {storage->LabelToName(spec.label_id)}},
              {"properties", {storage->PropertyToName(spec.property)}},
@@ -6501,6 +6620,11 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
 
       // Edge type indices
       for (const auto type : index_info.edge_type) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker && !auth_checker->Has(type, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         edge_indexes.push_back(nlohmann::json::object({
             {"edge_type", {storage->EdgeTypeToName(type)}},
             {"properties", nlohmann::json::array()},
@@ -6510,6 +6634,11 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Edge type property indices
       for (const auto &[type, property] : index_info.edge_type_property) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker && !auth_checker->Has(type, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         edge_indexes.push_back(nlohmann::json::object({
             {"edge_type", {storage->EdgeTypeToName(type)}},
             {"properties", {storage->PropertyToName(property)}},
@@ -6527,6 +6656,11 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Edge type property_vector
       for (const auto &spec : index_info.vector_edge_indices_spec) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker && !auth_checker->Has(spec.edge_type_id, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         node_indexes.push_back(nlohmann::json::object(
             {{"edge_type", {storage->EdgeTypeToName(spec.edge_type_id)}},
              {"properties", {storage->PropertyToName(spec.property)}},
@@ -6535,6 +6669,11 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Edge type text
       for (const auto &[index_name, edge_type, properties] : index_info.text_edge_indices) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker && !auth_checker->Has(edge_type, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         auto prop_names =
             properties |
             rv::transform([storage](storage::PropertyId property_id) { return storage->PropertyToName(property_id); }) |
@@ -6553,12 +6692,24 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       auto constraint_info = db_acc->ListAllConstraints();
       // Existence
       for (const auto &[label_id, property] : constraint_info.existence) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         node_constraints.push_back(nlohmann::json::object({{"type", "existence"},
                                                            {"labels", {storage->LabelToName(label_id)}},
                                                            {"properties", {storage->PropertyToName(property)}}}));
       }
       // Unique
       for (const auto &[label_id, properties] : constraint_info.unique) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         auto json_properties = nlohmann::json::array();
         for (const auto property : properties) {
           json_properties.emplace_back(storage->PropertyToName(property));
@@ -6569,6 +6720,12 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Type
       for (const auto &[label_id, property, constraint_kind] : constraint_info.type) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         node_constraints.push_back(
             nlohmann::json::object({{"type", "data_type"},
                                     {"labels", {storage->LabelToName(label_id)}},
@@ -6609,7 +6766,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                          return std::nullopt;
                        },
                        RWType::R};
-}
+}  // namespace memgraph::query
 
 PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
                                       Interpreter *interpreter) {
@@ -7114,6 +7271,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (tx_query_enum == TransactionQuery::BEGIN) {
       ResetInterpreter();
     }
+    // TODO: Use CreateThreadSafe once parallel multi-command queries are supported
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
     query_execution->prepared_query = PrepareTransactionQuery(tx_query_enum, extras);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
@@ -7148,10 +7306,26 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         fmt::format("Query [{}] associated with transaction [{}]", parsed_query.query_string, *current_transaction_));
   }
 
+  auto *const cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+
+  // Load parquet uses thread safe allocator that's why it is being checked here
+  bool has_load_parquet{false};
+
+  if (cypher_query) {
+    auto clauses = cypher_query->single_query_->clauses_;
+    has_load_parquet =
+        std::ranges::any_of(clauses, [](const auto *clause) { return clause->GetTypeInfo() == LoadParquet::kType; });
+  }
+
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
     // Setup QueryExecution
-    query_executions_.emplace_back(QueryExecution::Create());
+    // TODO: Use CreateThreadSafe for multi-threaded queries
+    if (has_load_parquet) {
+      query_executions_.emplace_back(QueryExecution::CreateThreadSafe());
+    } else {
+      query_executions_.emplace_back(QueryExecution::Create());
+    }
     auto &query_execution = query_executions_.back();
     query_execution_ptr = &query_execution;
 
@@ -7215,7 +7389,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     const utils::Timer planning_timer;  // TODO: Think about moving it to Parse()
     LogQueryMessage("Query planning started!");
     PreparedQuery prepared_query;
-    utils::MemoryResource *memory_resource = query_execution->execution_memory.resource();
+    utils::MemoryResource *memory_resource = query_execution->resource();
     frame_change_collector_.reset();
     frame_change_collector_.emplace();
 
@@ -7427,7 +7601,12 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       if (in_explicit_transaction_) {
         throw ShowSchemaInfoInMulticommandTxException();
       }
-      prepared_query = PrepareShowSchemaInfoQuery(parsed_query, current_db_);
+      prepared_query = PrepareShowSchemaInfoQuery(parsed_query, current_db_
+#ifdef MG_ENTERPRISE
+                                                  ,
+                                                  interpreter_context_, user_or_role_
+#endif
+      );
     } else if (utils::Downcast<SessionTraceQuery>(parsed_query.query)) {
       prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
     } else if (utils::Downcast<UserProfileQuery>(parsed_query.query)) {

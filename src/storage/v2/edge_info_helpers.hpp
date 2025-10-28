@@ -13,7 +13,6 @@
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/mvcc.hpp"
-#include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
 
 #include <shared_mutex>

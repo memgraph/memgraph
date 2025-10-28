@@ -34,6 +34,8 @@
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
+#include <nlohmann/json.hpp>
+
 class AuthQueryHandlerFixture : public testing::Test {
  protected:
   std::filesystem::path test_folder_{std::filesystem::temp_directory_path() / "MG_tests_unit_auth_handler"};
@@ -220,7 +222,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherGrantedThe
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
   auth.value()->SaveRole(role);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
-  user.SetRole(role);
+  user.ClearAllRoles();
+  user.AddRole(role);
   auth.value()->SaveUser(user);
 
   auto privileges =
@@ -245,7 +248,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherDeniedThenB
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
   auth.value()->SaveRole(role);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
-  user.SetRole(role);
+  user.ClearAllRoles();
+  user.AddRole(role);
   auth.value()->SaveUser(user);
 
   auto privileges =
@@ -278,7 +282,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherDeniedThen
       std::nullopt,
       user_perms,
   };
-  user.SetRole(role);
+  user.ClearAllRoles();
+  user.AddRole(role);
   auth.value()->SaveUser(user);
 
   auto privileges =
@@ -307,7 +312,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherGrantedThen
   memgraph::auth::Permissions user_perms{};
   user_perms.Deny(memgraph::auth::Permission::MATCH);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, user_perms};
-  user.SetRole(role);
+  user.ClearAllRoles();
+  user.AddRole(role);
   auth.value()->SaveUser(user);
 
   auto privileges =
@@ -1508,23 +1514,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithAllo
   }
   {
     auto privileges = auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{"db3"}});
-    EXPECT_EQ(privileges.size(), 2);
-    {
-      auto &result = privileges[0];
-      ASSERT_EQ(result.size(), 3);
-      ASSERT_TRUE(result[0].IsString());
-      ASSERT_EQ(result[0].ValueString(), "DELETE");
-      ASSERT_TRUE(result[2].IsString());
-      ASSERT_EQ(result[2].ValueString(), "DENIED TO ROLE");
-    }
-    {
-      auto &result = privileges[1];
-      ASSERT_EQ(result.size(), 3);
-      ASSERT_TRUE(result[0].IsString());
-      ASSERT_EQ(result[0].ValueString(), "MATCH");
-      ASSERT_TRUE(result[2].IsString());
-      ASSERT_EQ(result[2].ValueString(), "GRANTED TO ROLE");
-    }
+    EXPECT_EQ(privileges.size(), 0);
   }
   {
     auto privileges = auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{"db4"}});
@@ -1844,7 +1834,8 @@ TEST_F(AuthQueryHandlerFixture, SetMultiTenantRole_GlobalRoleAlreadySet_Throws) 
 
   // Create a user and set the role globally
   memgraph::auth::User user("test_user");
-  user.SetRole(role);
+  user.ClearAllRoles();
+  user.AddRole(role);
   auth.value()->SaveUser(user);
 
   // Try to set the same role as multi-tenant role

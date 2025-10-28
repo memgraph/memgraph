@@ -526,8 +526,8 @@ TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
 
 void test_LocalDateTime() {
   std::vector<Value> vals;
-  const auto value =
-      Value(memgraph::utils::LocalDateTime(memgraph::utils::Date(1), memgraph::utils::LocalTime({0, 0, 30, 1, 0})));
+  const auto value = Value(memgraph::utils::LocalDateTime(memgraph::utils::Date(std::chrono::microseconds{1}),
+                                                          memgraph::utils::LocalTime({0, 0, 30, 1, 0})));
   const auto &local_date_time = value.ValueLocalDateTime();
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);

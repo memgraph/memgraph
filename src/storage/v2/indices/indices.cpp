@@ -72,7 +72,7 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx,
                                   NameIdMapper *name_id_mapper) {
   tx.active_indices_.label_properties_->UpdateOnSetProperty(property, value, vertex, tx);
-  text_index_.UpdateOnSetProperty(vertex, tx);
+  text_index_.UpdateOnSetProperty(vertex, tx, property);
 }
 
 void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,
@@ -82,7 +82,7 @@ void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, con
   tx.active_indices_.edge_property_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value,
                                                          tx.start_timestamp);
   vector_edge_index_.UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value);
-  text_edge_index_.UpdateOnSetProperty(edge, from_vertex, to_vertex, edge_type, tx);
+  text_edge_index_.UpdateOnSetProperty(edge, from_vertex, to_vertex, edge_type, tx, property);
 }
 
 void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,

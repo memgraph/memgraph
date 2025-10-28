@@ -26,6 +26,7 @@
 #include "query_common.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/join_vector.hpp"
 #include "utils/logging.hpp"
 
 #include "formatters.hpp"
@@ -128,7 +129,7 @@ std::vector<std::vector<int>> YenKShortestPaths(int num_vertices, const std::vec
   spdlog::info("YenKShortestPaths: Found {} paths total", all_paths.size());
   for (size_t i = 0; i < all_paths.size(); ++i) {
     spdlog::info("YenKShortestPaths: Path {}: length={}, vertices={}", i, all_paths[i].size() - 1,
-                 fmt::format("{}", fmt::join(all_paths[i], "->")));
+                 fmt::format("{}", memgraph::utils::JoinVector(all_paths[i], "->")));
   }
 
   return all_paths;
@@ -174,7 +175,8 @@ class Yield : public memgraph::query::plan::LogicalOperator {
         pull_index_ = 0;
       }
       for (size_t i = 0; i < self_->values_[pull_index_].size(); ++i) {
-        frame[self_->modified_symbols_[i]] = self_->values_[pull_index_][i];
+        auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, context.evaluation_context.memory);
+        frame_writer.Write(self_->modified_symbols_[i], self_->values_[pull_index_][i]);
       }
       pull_index_++;
       return true;
@@ -278,7 +280,7 @@ std::vector<int> CheckPathsAndExtractLengths(memgraph::query::DbAccessor *dba,
     CheckPath(dba, row[0].ValueVertex(), row[1].ValueVertex(), row[2].ValueList(), edges);
   }
 
-  spdlog::info("lengths: {}", fmt::join(lengths, ", "));
+  spdlog::info("lengths: {}", memgraph::utils::JoinVector(lengths, ", "));
   return lengths;
 }
 
@@ -301,7 +303,7 @@ class Database {
                      std::vector<std::string> edge_types, int limit = -1) {
     spdlog::info("KShortestTest: lower_bound={}, upper_bound={}, direction={}, edge_types={}", lower_bound, upper_bound,
                  static_cast<int>(direction),
-                 edge_types.empty() ? "all" : fmt::format("{}", fmt::join(edge_types, ",")));
+                 edge_types.empty() ? "all" : fmt::format("{}", memgraph::utils::JoinVector(edge_types, ",")));
 
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());

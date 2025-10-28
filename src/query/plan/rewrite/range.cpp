@@ -128,8 +128,8 @@ Expression *CompactFilters(Expression *filter_expr, AstStorage &storage) {
       if (info.Compatible(info_old)) {
         // Combine and switch to range
         auto *range = storage.Create<RangeOperator>();
-        range->expr1_ = filter;
-        range->expr2_ = filter_old;
+        range->expression1_ = filter;
+        range->expression2_ = filter_old;
         // Substitute the current filter
         filter_expr = SubstituteExpression(filter_expr, filter_old, range);
         // Remove the other filter
@@ -179,11 +179,12 @@ FilterInfo RangeOpToFilter(RangeOperator *range, const SymbolTable &symbol_table
   utils::Bound<Expression *> lower_bound{nullptr, utils::BoundType::INCLUSIVE};
   utils::Bound<Expression *> upper_bound{nullptr, utils::BoundType::INCLUSIVE};
 
-  update_bounds(range->expr1_, lower_bound, upper_bound);
-  update_bounds(range->expr2_, lower_bound, upper_bound);
+  update_bounds(range->expression1_, lower_bound, upper_bound);
+  update_bounds(range->expression2_, lower_bound, upper_bound);
 
   DMG_ASSERT(lower_bound.value() != nullptr && upper_bound.value() != nullptr,
              "Range requires both a lower and upper bound");
+  MG_ASSERT(ident != nullptr && prop_lookup != nullptr, "Range requires valid property lookup and identifier");
 
   UsedSymbolsCollector collector(symbol_table);
   range->Accept(collector);

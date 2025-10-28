@@ -51,6 +51,9 @@ class VerticesIterable final {
     void Destroy() noexcept;
 
    public:
+    using difference_type = std::ptrdiff_t;
+    using value_type = VertexAccessor;
+
     explicit Iterator(AllVerticesIterable::Iterator);
     explicit Iterator(InMemoryLabelIndex::Iterable::Iterator);
     explicit Iterator(InMemoryLabelPropertyIndex::Iterable::Iterator);
@@ -63,12 +66,11 @@ class VerticesIterable final {
 
     ~Iterator();
 
-    VertexAccessor const &operator*() const;
+    value_type const &operator*() const;
 
     Iterator &operator++();
 
     bool operator==(const Iterator &other) const;
-    bool operator!=(const Iterator &other) const { return !(*this == other); }
   };
 
   Iterator begin();

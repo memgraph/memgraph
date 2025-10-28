@@ -6,8 +6,16 @@ export DEBIAN_FRONTEND=noninteractive
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "ubuntu-22.04"
-check_architecture "x86_64"
+# Parse command line arguments for --skip-check flag
+SKIP_CHECK=$(parse_skip_check_flag "$@")
+
+# Only run checks if --skip-check flag is not provided
+if [[ "$SKIP_CHECK" == false ]]; then
+    check_operating_system "ubuntu-22.04"
+    check_architecture "x86_64"
+else
+    echo "Skipping checks for ubuntu-22.04"
+fi
 
 TOOLCHAIN_BUILD_DEPS=(
     coreutils gcc g++ build-essential make # generic build tools
@@ -30,6 +38,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libtool # for protobuf
     libssl-dev pkg-config # for pulsar
     libsasl2-dev # for librdkafka
+    python3-pip # for conan
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -53,13 +62,13 @@ MEMGRAPH_BUILD_DEPS=(
     libssl-dev
     libseccomp-dev
     netcat # tests are using nc to wait for memgraph
-    python3 python3-virtualenv python3-pip # for qa, macro_benchmark and stress tests
+    python3 python3-virtualenv python3-pip python3-venv # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
     mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven # for driver tests
-    dotnet-sdk-6.0 golang custom-golang nodejs npm # for driver tests
+    dotnet-sdk-6.0 golang custom-golang custom-node # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     libsasl2-dev
@@ -77,7 +86,8 @@ NEW_DEPS=(
 )
 
 list() {
-    echo "$1"
+    local -n packages="$1"
+    printf '%s\n' "${packages[@]}"
 }
 
 check() {
@@ -99,6 +109,12 @@ check() {
                 ;;
         esac
     done
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        echo "python3 is not installed"
+        exit 1
+    fi
 
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
@@ -142,6 +158,11 @@ install() {
 
     # Update package lists first
     apt update -y
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        apt install -y python3
+    fi
 
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.
@@ -202,5 +223,4 @@ install() {
     fi
 }
 
-deps=$2"[*]"
 "$1" "$2"

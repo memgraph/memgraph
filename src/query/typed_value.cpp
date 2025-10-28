@@ -23,10 +23,11 @@
 #include "query/graph.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
-#include "utils/fnv.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/temporal.hpp"
+
+import memgraph.utils.fnv;
 
 namespace memgraph::query {
 
@@ -116,7 +117,7 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
           type_ = Type::Date;
-          alloc_trait::construct(alloc_, &date_v, temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &date_v, std::chrono::microseconds{temporal_data.microseconds});
           break;
         }
         case storage::TemporalType::LocalTime: {
@@ -227,7 +228,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
           type_ = Type::Date;
-          alloc_trait::construct(alloc_, &date_v, temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &date_v, std::chrono::microseconds{temporal_data.microseconds});
           break;
         }
         case storage::TemporalType::LocalTime: {
@@ -324,7 +325,7 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_ty
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
           type_ = Type::Date;
-          alloc_trait::construct(alloc_, &date_v, temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &date_v, std::chrono::microseconds{temporal_data.microseconds});
           break;
         }
         case storage::TemporalType::LocalTime: {
@@ -423,7 +424,7 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type al
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
           type_ = Type::Date;
-          alloc_trait::construct(alloc_, &date_v, temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &date_v, std::chrono::microseconds{temporal_data.microseconds});
           break;
         }
         case storage::TemporalType::LocalTime: {

@@ -28,7 +28,7 @@
 #include "query/frontend/ast/ast.hpp"
 //////////////////////////////////////////////////////
 #pragma push_macro("EOF")  // hide EOF for antlr headers
-#include <antlr4-runtime.h>
+#include "antlr4-runtime/antlr4-runtime.h"
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #pragma pop_macro("EOF")  // bring back EOF
 #include <gmock/gmock.h>
@@ -4293,6 +4293,41 @@ TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, TestLoadParquetClause) {
+  auto &ast_generator = *GetParam();
+  {
+    const std::string query = R"(LOAD PARQUET FROM "file.parquet")";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = R"(LOAD PARQUET FROM "file.parquet" AS x RETURN x)";
+    auto *parsed_query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
+    ASSERT_TRUE(parsed_query);
+    auto *load_parquet_clause = dynamic_cast<LoadParquet *>(parsed_query->single_query_->clauses_[0]);
+    ASSERT_TRUE(load_parquet_clause);
+  }
+  {
+    const std::string query =
+        R"(LOAD PARQUET FROM 'nodes.parquet' AS row CREATE (n:Person {id: row.id, name: row.name, age: ToInteger(row.age), city: row.city}))";
+    auto *parsed_query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
+    ASSERT_EQ(parsed_query->single_query_->clauses_.size(), 2);
+    ASSERT_TRUE(parsed_query);
+    auto *load_parquet_clause = dynamic_cast<LoadParquet *>(parsed_query->single_query_->clauses_[0]);
+    ASSERT_TRUE(load_parquet_clause);
+  }
+  {
+    const std::string query =
+        R"(LOAD PARQUET FROM 'nodes.parquet' AS row MATCH (a:Person {id: row.START_ID}) MATCH (b:Person {id: row.END_ID}) CREATE (a)-[r:KNOWS {type: row.TYPE, since: ToInteger(row.since), strength: row.strength}]->(b))";
+    auto *parsed_query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
+    ASSERT_TRUE(parsed_query);
+    ASSERT_EQ(parsed_query->single_query_->clauses_.size(), 4);
+    auto *load_parquet_clause = dynamic_cast<LoadParquet *>(parsed_query->single_query_->clauses_[0]);
+    ASSERT_TRUE(load_parquet_clause);
+    ASSERT_EQ(parsed_query->single_query_->clauses_.size(), 4);
+  }
+}
+
 TEST_P(CypherMainVisitorTest, TestLoadCsvClause) {
   auto &ast_generator = *GetParam();
 
@@ -5950,6 +5985,81 @@ TEST_P(CypherMainVisitorTest, ListComprehension) {
     ASSERT_NE(lc->list_, nullptr);
     ASSERT_EQ(lc->where_, nullptr);
     ASSERT_EQ(lc->expression_, nullptr);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ForceDropDatabase) {
+  auto &ast_generator = *GetParam();
+
+  // Test normal DROP DATABASE without FORCE
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("DROP DATABASE testdb"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::DROP);
+    EXPECT_EQ(query->db_name_, "testdb");
+    EXPECT_FALSE(query->force_);
+  }
+
+  // Test DROP DATABASE with FORCE
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("DROP DATABASE testdb FORCE"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::DROP);
+    EXPECT_EQ(query->db_name_, "testdb");
+    EXPECT_TRUE(query->force_);
+  }
+
+  // Test DROP DATABASE with FORCE and different database names
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("DROP DATABASE production_db FORCE"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::DROP);
+    EXPECT_EQ(query->db_name_, "production_db");
+    EXPECT_TRUE(query->force_);
+  }
+
+  // Test DROP DATABASE with FORCE and database name with underscores
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("DROP DATABASE test_database_123 FORCE"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::DROP);
+    EXPECT_EQ(query->db_name_, "test_database_123");
+    EXPECT_TRUE(query->force_);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ForceDropDatabaseInvalidSyntax) {
+  auto &ast_generator = *GetParam();
+
+  // Test invalid syntax - FORCE before database name
+  TestInvalidQuery("DROP DATABASE FORCE testdb", ast_generator);
+
+  // Test invalid syntax - extra tokens after FORCE
+  TestInvalidQuery("DROP DATABASE testdb FORCE extra", ast_generator);
+
+  // Test invalid syntax - FORCE in wrong position
+  TestInvalidQuery("DROP FORCE DATABASE testdb", ast_generator);
+}
+
+TEST_P(CypherMainVisitorTest, CreateDatabaseStillWorks) {
+  auto &ast_generator = *GetParam();
+
+  // Test that CREATE DATABASE still works correctly
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("CREATE DATABASE testdb"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::CREATE);
+    EXPECT_EQ(query->db_name_, "testdb");
+    EXPECT_FALSE(query->force_);  // CREATE should never have force flag set
+  }
+
+  // Test CREATE DATABASE with different names
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("CREATE DATABASE production_db"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::CREATE);
+    EXPECT_EQ(query->db_name_, "production_db");
+    EXPECT_FALSE(query->force_);
   }
 }
 

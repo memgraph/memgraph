@@ -81,6 +81,7 @@ class OrOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -110,6 +111,7 @@ class XorOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -139,6 +141,7 @@ class AndOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -168,6 +171,7 @@ class AdditionOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -197,6 +201,7 @@ class SubtractionOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -226,6 +231,7 @@ class MultiplicationOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -255,6 +261,7 @@ class DivisionOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -284,6 +291,7 @@ class ModOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -313,6 +321,7 @@ class ExponentiationOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -342,6 +351,7 @@ class NotEqualOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -371,6 +381,7 @@ class EqualOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -400,6 +411,7 @@ class LessOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -429,6 +441,7 @@ class GreaterOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -458,6 +471,7 @@ class LessEqualOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -487,6 +501,7 @@ class GreaterEqualOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -514,23 +529,24 @@ class RangeOperator : public memgraph::query::Expression {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  Expression *expr1_{};
-  Expression *expr2_{};
+  Expression *expression1_{};
+  Expression *expression2_{};
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      expr1_->Accept(visitor) && expr2_->Accept(visitor);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
     return visitor.PostVisit(*this);
   }
 
   RangeOperator *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<RangeOperator>();
-    object->expr1_ = expr1_ ? expr1_->Clone(storage) : nullptr;
-    object->expr2_ = expr2_ ? expr2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
     return object;
   }
 
@@ -545,6 +561,7 @@ class InListOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -574,6 +591,7 @@ class SubscriptOperator : public memgraph::query::BinaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -603,6 +621,7 @@ class NotOperator : public memgraph::query::UnaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -631,6 +650,7 @@ class UnaryPlusOperator : public memgraph::query::UnaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -659,6 +679,7 @@ class UnaryMinusOperator : public memgraph::query::UnaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -687,6 +708,7 @@ class IsNullOperator : public memgraph::query::UnaryOperator {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -717,6 +739,7 @@ class ListSlicingOperator : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -760,6 +783,7 @@ class IfOperator : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -812,6 +836,7 @@ class PrimitiveLiteral : public memgraph::query::BaseLiteral {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   DEFVISITABLE(HierarchicalTreeVisitor);
 
@@ -846,6 +871,7 @@ class ListLiteral : public memgraph::query::BaseLiteral {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -882,6 +908,7 @@ class MapLiteral : public memgraph::query::BaseLiteral {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -924,6 +951,7 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -986,6 +1014,7 @@ class PropertyLookup : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -1031,6 +1060,7 @@ class AllPropertiesLookup : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -1065,6 +1095,7 @@ class LabelsTest : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -1129,6 +1160,7 @@ class Function : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -1192,6 +1224,7 @@ class Reduce : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -1244,6 +1277,7 @@ class Coalesce : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -1281,6 +1315,7 @@ class Extract : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -1321,6 +1356,7 @@ class All : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -1358,6 +1394,7 @@ class Single : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -1395,6 +1432,7 @@ class Any : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -1432,6 +1470,7 @@ class None : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -1469,6 +1508,7 @@ class ListComprehension : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -1519,6 +1559,7 @@ class ParameterLookup : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   DEFVISITABLE(HierarchicalTreeVisitor);
 
@@ -1548,6 +1589,7 @@ class RegexMatch : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -3198,6 +3240,39 @@ class LoadCsv : public memgraph::query::Clause {
   friend class AstStorage;
 };
 
+class LoadParquet : public Clause {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  LoadParquet() = default;
+
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      row_var_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  Expression *file_;
+  Identifier *row_var_{nullptr};
+
+  LoadParquet *Clone(AstStorage *storage) const override {
+    LoadParquet *object = storage->Create<LoadParquet>();
+    object->file_ = file_ ? file_->Clone(storage) : nullptr;
+    object->row_var_ = row_var_ ? row_var_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ protected:
+  explicit LoadParquet(Expression *file, Identifier *row_var) : file_(file), row_var_(row_var) {
+    DMG_ASSERT(row_var, "LoadParquet cannot take nullptr for identifier");
+  }
+
+ private:
+  friend class AstStorage;
+};
+
 class FreeMemoryQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
@@ -3600,15 +3675,19 @@ class MultiDatabaseQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  enum class Action { CREATE, DROP };
+  enum class Action { CREATE, DROP, RENAME };
 
   memgraph::query::MultiDatabaseQuery::Action action_;
   std::string db_name_;
+  bool force_{false};
+  std::optional<std::string> new_db_name_;
 
   MultiDatabaseQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<MultiDatabaseQuery>();
     object->action_ = action_;
     object->db_name_ = db_name_;
+    object->force_ = force_;
+    object->new_db_name_ = new_db_name_;
     return object;
   }
 };
@@ -3708,6 +3787,7 @@ class EnumValueAccess : public memgraph::query::Expression {
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   DEFVISITABLE(HierarchicalTreeVisitor);
 
@@ -3890,7 +3970,7 @@ class fmt::formatter<memgraph::query::PropertyIxPath> {
   constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
-  auto format(const memgraph::query::PropertyIxPath &wrapper, FormatContext &ctx) {
+  auto format(const memgraph::query::PropertyIxPath &wrapper, FormatContext &ctx) const {
     auto out = ctx.out();
 
     if (!wrapper.path.empty()) {

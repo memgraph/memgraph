@@ -6,8 +6,16 @@ export DEBIAN_FRONTEND=noninteractive
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "debian-12"
-check_architecture "arm64" "aarch64"
+# Parse command line arguments for --skip-check flag
+SKIP_CHECK=$(parse_skip_check_flag "$@")
+
+# Only run checks if --skip-check flag is not provided
+if [[ "$SKIP_CHECK" == false ]]; then
+    check_operating_system "debian-12"
+    check_architecture "arm64" "aarch64"
+else
+    echo "Skipping checks for debian-12-arm"
+fi
 
 TOOLCHAIN_BUILD_DEPS=(
     coreutils gcc g++ build-essential make # generic build tools
@@ -30,6 +38,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libtool # for protobuf
     libssl-dev pkg-config # for pulsar
     libsasl2-dev # for librdkafka
+    python3-pip # for conan
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -46,7 +55,8 @@ TOOLCHAIN_RUN_DEPS=(
 
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
-    make pkg-config # build system
+    g++ libstdc++-12-dev
+    cmake make pkg-config # build system
     curl wget # for downloading libs
     uuid-dev default-jre-headless # required by antlr
     libreadline-dev # for memgraph console
@@ -54,7 +64,7 @@ MEMGRAPH_BUILD_DEPS=(
     libssl-dev
     libseccomp-dev
     netcat-traditional # tests are using nc to wait for memgraph
-    python3 virtualenv python3-virtualenv python3-pip # for qa, macro_benchmark and stress tests
+    python3 virtualenv python3-virtualenv python3-pip python3-venv # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
@@ -76,7 +86,8 @@ NEW_DEPS=(
 )
 
 list() {
-    echo "$1"
+    local -n packages="$1"
+    printf '%s\n' "${packages[@]}"
 }
 
 check() {
@@ -98,6 +109,12 @@ check() {
                 ;;
         esac
     done
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        echo "python3 is not installed"
+        exit 1
+    fi
 
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
@@ -136,6 +153,11 @@ install() {
 
     # Update package lists first
     apt update -y
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        apt install -y python3
+    fi
 
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.
@@ -184,5 +206,4 @@ install() {
     done
 }
 
-deps=$2"[*]"
 "$1" "$2"

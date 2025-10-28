@@ -425,7 +425,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
     const auto &node_symbol = symbol_table.at(*node->identifier_);
     std::vector<LabelIx> labels;
     for (auto label : node->labels_) {
-      if (const auto *label_node = std::get_if<Expression *>(&label)) {
+      if (std::get_if<Expression *>(&label)) {
         throw SemanticException("Property lookup not supported in MATCH/MERGE clause!");
       }
       labels.push_back(std::get<LabelIx>(label));
@@ -481,7 +481,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
   };
   auto add_expand_filter = [&](NodeAtom *, EdgeAtom *edge, NodeAtom *node) {
     for (auto edge_type : edge->edge_types_) {
-      if (const auto *edge_type_name = std::get_if<Expression *>(&edge_type)) {
+      if (std::get_if<Expression *>(&edge_type)) {
         throw SemanticException("Property lookup not supported in MATCH/MERGE clause!");
       }
     }
@@ -951,9 +951,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         !add_prop_is_not_null_check(is_not)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
-  } else if (auto *exists = utils::Downcast<Exists>(expr)) {
+  } else if (utils::Downcast<Exists>(expr)) {
     all_filters_.emplace_back(make_filter(FilterInfo::Type::Pattern));
-  } else if (auto *function = utils::Downcast<Function>(expr)) {
+  } else if (utils::Downcast<Function>(expr)) {
     // WHERE point.withinbbox()
     if (!add_point_withinbbox_filter_unary(expr, WithinBBoxCondition::INSIDE)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
@@ -1204,7 +1204,7 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         query_part = &query_parts.back();
       } else if (utils::IsSubtype(*clause, query::Unwind::kType) ||
                  utils::IsSubtype(*clause, query::CallProcedure::kType) ||
-                 utils::IsSubtype(*clause, query::LoadCsv::kType)) {
+                 utils::IsSubtype(*clause, query::LoadCsv::kType) || utils::IsSubtype(*clause, LoadParquet::kType)) {
         // This query part is done, continue with a new one.
         query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();

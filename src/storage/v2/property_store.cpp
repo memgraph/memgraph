@@ -1933,8 +1933,8 @@ DecodedBuffer SetupExternalBuffer(uint32_t size) {
       .storage_mode = StorageMode::BUFFER,
   };
 }
-DecodedBuffer SetupBuffer(std::array<uint8_t, 12> &buffer, uint32_t size) {
-  auto can_fit_in_local = size <= sizeof(buffer) - 1;
+DecodedBuffer SetupBuffer(std::array<uint8_t, 12> &buffer, uint32_t const size) {
+  auto const can_fit_in_local = size < sizeof(buffer);
   return can_fit_in_local ? SetupLocalBuffer(buffer) : SetupExternalBuffer(size);
 }
 
@@ -2543,11 +2543,11 @@ bool PropertyStore::DoInitProperties(const TContainer &properties) {
         continue;
       }
       EncodeProperty(&writer, property, value);
-      property_size = writer.Written();
     }
+    property_size = writer.Written();
   }
 
-  auto buffer_info = SetupBuffer(buffer_, property_size);
+  auto const buffer_info = SetupBuffer(buffer_, property_size);
   auto view = buffer_info.view;
 
   // Encode the property into the data buffer.
@@ -2558,14 +2558,13 @@ bool PropertyStore::DoInitProperties(const TContainer &properties) {
       continue;
     }
     MG_ASSERT(EncodeProperty(&writer, property, value), "Invalid database state!");
-    writer.Written();
   }
 
   auto metadata = writer.WriteMetadata();
   if (metadata) {
     // If there is any space left in the buffer we add a tombstone to
     // indicate that there are no more properties to be decoded.
-    metadata->Set({Type::EMPTY});
+    metadata->Set({.type = Type::EMPTY});
   }
 
   // Make buffer perminant

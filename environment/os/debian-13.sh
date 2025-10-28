@@ -6,11 +6,19 @@ export DEBIAN_FRONTEND=noninteractive
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "debian-13"
-check_architecture "x86_64"
+# Parse command line arguments for --skip-check flag
+SKIP_CHECK=$(parse_skip_check_flag "$@")
+
+# Only run checks if --skip-check flag is not provided
+if [[ "$SKIP_CHECK" == false ]]; then
+    check_operating_system "debian-13"
+    check_architecture "x86_64"
+else
+    echo "Skipping checks for debian-13"
+fi
 
 TOOLCHAIN_BUILD_DEPS=(
-    coreutils gcc g++ build-essential make # generic build tools
+    coreutils gcc g++ build-essential make binutils binutils-gold # generic build tools
     wget # used for archive download
     gnupg # used for archive signature verification
     tar gzip bzip2 xz-utils unzip # used for archive unpacking
@@ -19,7 +27,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libcurl4-openssl-dev # for cmake
     libreadline-dev # for cmake and llvm
     libffi-dev libxml2-dev # for llvm
-    libedit-dev libpcre2-dev libpcre3-dev automake bison # for swig
+    libedit-dev libpcre2-dev automake bison # for swig
     curl # snappy
     file # for libunwind
     libssl-dev # for libevent
@@ -30,6 +38,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libtool # for protobuf
     libssl-dev pkg-config # for pulsar
     libsasl2-dev # for librdkafka
+    python3-pip # for conan
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -37,9 +46,9 @@ TOOLCHAIN_RUN_DEPS=(
     tar gzip bzip2 xz-utils # used for archive unpacking
     zlib1g # zlib library used for all builds
     libexpat1 libipt2 libbabeltrace1 liblzma5 python3 # for gdb
-    libcurl4 # for cmake
+    libcurl4t64 # for cmake
     file # for CPack
-    libreadline8 # for cmake and llvm
+    libreadline8t64 # for cmake and llvm
     libffi8 libxml2 # for llvm
     libssl-dev # for libevent
 )
@@ -54,7 +63,7 @@ MEMGRAPH_BUILD_DEPS=(
     libssl-dev
     libseccomp-dev
     netcat-traditional # tests are using nc to wait for memgraph
-    python3 virtualenv python3-virtualenv python3-pip # for qa, macro_benchmark and stress tests
+    python3 virtualenv python3-virtualenv python3-pip python3-venv # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
@@ -78,7 +87,8 @@ NEW_DEPS=(
 )
 
 list() {
-    echo "$1"
+    local -n packages="$1"
+    printf '%s\n' "${packages[@]}"
 }
 
 check() {
@@ -100,6 +110,12 @@ check() {
                 ;;
         esac
     done
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        echo "python3 is not installed"
+        exit 1
+    fi
 
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
@@ -138,6 +154,11 @@ install() {
 
     # Update package lists first
     apt update -y
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        apt install -y python3
+    fi
 
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.
@@ -178,7 +199,8 @@ install() {
         case "$pkg" in
             dotnet-sdk-8.0)
                 if ! dpkg -s dotnet-sdk-8.0 &>/dev/null; then
-                    wget -nv https://packages.microsoft.com/config/debian/13/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+                    # dotnet-sdk-8.0 is not available in debian-13 yet, so we use debian-12
+                    wget -nv https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
                     dpkg -i packages-microsoft-prod.deb
                     apt update -y
                     apt install -y apt-transport-https dotnet-sdk-8.0
@@ -191,5 +213,4 @@ install() {
     done
 }
 
-deps=$2"[*]"
 "$1" "$2"

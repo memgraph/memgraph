@@ -3,9 +3,17 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
+# Parse command line arguments for --skip-check flag
+SKIP_CHECK=$(parse_skip_check_flag "$@")
+
 # TODO(gitbuda): Rocky gets automatically updates -> figure out how to handle it.
-check_operating_system "rocky-10"
-check_architecture "x86_64"
+# Only run checks if --skip-check flag is not provided
+if [[ "$SKIP_CHECK" == false ]]; then
+    check_operating_system "rocky-10"
+    check_architecture "x86_64"
+else
+    echo "Skipping checks for rocky-10"
+fi
 
 TOOLCHAIN_BUILD_DEPS=(
     wget # used for archive download
@@ -14,7 +22,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libcurl-devel # cmake build requires it
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
-    zlib-ng-compat-devel # zlib library used for all builds
+    zlib-ng-compat-devel zlib-ng-compat-static # zlib library used for all builds
     expat-devel xz-devel python3-devel texinfo libbabeltrace-devel # for gdb
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
@@ -26,6 +34,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libtool # for protobuf
     openssl-devel pkgconf-pkg-config # for pulsar
     cyrus-sasl-devel # for librdkafka
+    python3-pip # for conan
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -77,7 +86,8 @@ NEW_DEPS=(
 )
 
 list() {
-    echo "$1"
+    local -n packages="$1"
+    printf '%s\n' "${packages[@]}"
 }
 
 check() {
@@ -99,6 +109,12 @@ check() {
                 ;;
         esac
     done
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        echo "python3 is not installed"
+        exit 1
+    fi
 
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
@@ -170,7 +186,12 @@ install() {
     dnf install -y dnf-plugins-core
     dnf config-manager --set-enabled crb
     dnf config-manager --set-enabled devel
-    sudo dnf install -y epel-release
+    dnf install -y epel-release
+
+    # enable rpm fusion
+    dnf install --nogpgcheck -y https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-10.noarch.rpm
+
+    dnf update -y
     dnf install -y wget git python3 python3-pip
 
     # Separate standard and custom packages
@@ -240,5 +261,4 @@ install() {
     done
 }
 
-deps=$2"[*]"
 "$1" "$2"

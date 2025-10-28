@@ -677,8 +677,6 @@ class User final {
                       std::optional<PasswordHashAlgorithm> algo_override = std::nullopt);
   void UpdateHash(HashedPassword hashed_password);
 
-  [[deprecated("Use SetRoles instead")]] void SetRole(const Role &role);
-
   void ClearAllRoles();
 
   void AddRole(const Role &role);
@@ -734,6 +732,7 @@ class User final {
 #ifdef MG_ENTERPRISE
   bool CanImpersonate(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
     if (GetPermissions(db_name).Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
+    if (db_name && !HasAccess(*db_name)) return false;  // Users+role level access check
 
     // Use the Roles class methods that now support database filtering
     bool role_grants = roles_.UserImpIsGranted(user, db_name);
@@ -765,9 +764,10 @@ class User final {
   // Multi-tenant role management
   Permissions GetPermissions(std::optional<std::string_view> db_name = std::nullopt) const {
 #ifdef MG_ENTERPRISE
+    if (db_name && !HasAccess(*db_name)) return Permissions{};  // Users+role level access check
     // filter roles based on the database name and combine with user permissions
     const auto &roles_permissions = roles_.GetPermissions(db_name);
-    if (!db_name || has_access(*db_name)) {
+    if (!db_name || has_access(*db_name)) {  // User only level access check
       return Permissions{permissions_.grants() | roles_permissions.grants(),
                          permissions_.denies() | roles_permissions.denies()};
     }

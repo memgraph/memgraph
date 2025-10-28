@@ -11,10 +11,6 @@ on:
         type: string
         description: "Target os. Default value is ubuntu-24.04."
         default: 'ubuntu-24.04'
-      toolchain:
-        type: string
-        description: "Toolchain version (v4, v5, v6). Default value is v6."
-        default: 'v6'
       run_core:
         type: string
         description: "Should the core release build tests be run? Default is true."
@@ -51,7 +47,7 @@ env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
-  TOOLCHAIN: ${{ inputs.toolchain }}
+  TOOLCHAIN: v7
   DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
 
 jobs:
@@ -185,7 +181,7 @@ jobs:
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild, Gen7]
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild, x86-64-v3]
     timeout-minutes: 60
     steps:
       - name: Set up repository

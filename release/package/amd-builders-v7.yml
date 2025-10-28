@@ -1,0 +1,91 @@
+version: "3"
+services:
+  # NOTE: build > context > args are injected via mgbuild.sh script.
+
+  mgbuild_v7_centos-9:
+    image: "memgraph/mgbuild:v7_centos-9"
+    build:
+      context: centos-9
+      args:
+        TOOLCHAIN_VERSION: "v7"
+    extra_hosts:
+      - "mgdeps-cache:host-gateway"
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v7_centos-9"
+
+  mgbuild_v7_centos-10:
+    image: "memgraph/mgbuild:v7_centos-10"
+    build:
+      context: centos-10
+      args:
+        TOOLCHAIN_VERSION: "v7"
+    extra_hosts:
+      - "mgdeps-cache:host-gateway"
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v7_centos-10"
+
+  mgbuild_v7_debian-12:
+    image: "memgraph/mgbuild:v7_debian-12"
+    build:
+      context: debian-12
+      args:
+        TOOLCHAIN_VERSION: "v7"
+    extra_hosts:
+      - "mgdeps-cache:host-gateway"
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v7_debian-12"
+
+  mgbuild_v7_debian-13:
+    image: "memgraph/mgbuild:v7_debian-13"
+    build:
+      context: debian-13
+      args:
+        TOOLCHAIN_VERSION: "v7"
+    extra_hosts:
+      - "mgdeps-cache:host-gateway"
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v7_debian-13"
+
+  mgbuild_v7_fedora-42:
+    image: "memgraph/mgbuild:v7_fedora-42"
+    build:
+      context: fedora-42
+      args:
+        TOOLCHAIN_VERSION: "v7"
+    extra_hosts:
+      - "mgdeps-cache:host-gateway"
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v7_fedora-42"
+
+  mgbuild_v7_rocky-10:
+    image: "memgraph/mgbuild:v7_rocky-10"
+    build:
+      context: rocky-10
+      args:
+        TOOLCHAIN_VERSION: "v7"
+    extra_hosts:
+      - "mgdeps-cache:host-gateway"
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v7_rocky-10"
+
+  mgbuild_v7_ubuntu-22.04:
+    image: "memgraph/mgbuild:v7_ubuntu-22.04"
+    build:
+      context: ubuntu-22.04
+      args:
+        TOOLCHAIN_VERSION: "v7"
+    extra_hosts:
+      - "mgdeps-cache:host-gateway"
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v7_ubuntu-22.04"
+
+  mgbuild_v7_ubuntu-24.04:
+    image: "memgraph/mgbuild:v7_ubuntu-24.04"
+    build:
+      context: ubuntu-24.04
+      args:
+        TOOLCHAIN_VERSION: "v7"
+    extra_hosts:
+      - "mgdeps-cache:host-gateway"
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v7_ubuntu-24.04"

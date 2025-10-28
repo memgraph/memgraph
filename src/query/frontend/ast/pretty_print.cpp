@@ -384,9 +384,9 @@ BINARY_OPERATOR_VISIT(SubscriptOperator, "Subscript");
 #undef BINARY_OPERATOR_VISIT
 
 void ExpressionPrettyPrinter::Visit(RangeOperator &op) {
-  op.expr1_->Accept(*this);
+  op.expression1_->Accept(*this);
   *out_ << " And ";
-  op.expr2_->Accept(*this);
+  op.expression2_->Accept(*this);
   *out_ << ")";
 }
 

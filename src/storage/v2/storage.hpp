@@ -199,7 +199,8 @@ class Storage {
 
   virtual ~Storage() = default;
 
-  const std::string &name() const { return config_.salient.name; }
+  std::string name() const { return config_.salient.name.str(); }
+  auto name_view() const { return config_.salient.name.str_view(); }
 
   auto uuid() const -> utils::UUID const & { return config_.salient.uuid; }
 
@@ -451,7 +452,8 @@ class Storage {
 
     StorageMode GetCreationStorageMode() const noexcept;
 
-    const std::string &id() const { return storage_->name(); }
+    std::string id() const { return storage_->name(); }
+    auto id_view() const { return storage_->name_view(); }
 
     std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
 

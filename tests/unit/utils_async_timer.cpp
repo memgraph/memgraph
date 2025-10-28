@@ -27,7 +27,6 @@ inline constexpr auto kShortTimer = std::chrono::milliseconds(30);
 inline constexpr auto kMediumTimer = std::chrono::milliseconds(60);
 inline constexpr auto kLongTimer = std::chrono::milliseconds(90);
 inline constexpr auto kVeryLongTimer = std::chrono::milliseconds(100);
-inline constexpr auto kExtraLongTimer = std::chrono::milliseconds(120);
 
 // Window parameters for verification
 inline constexpr auto kDefaultNotExpiredWindow = std::chrono::milliseconds(40);

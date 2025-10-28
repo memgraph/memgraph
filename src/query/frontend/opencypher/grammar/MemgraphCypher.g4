@@ -128,7 +128,7 @@ memgraphCypherKeyword : cypherKeyword
                       | OFF
                       | ON
                       | ON_DISK_TRANSACTIONAL
-                      | ON_DISK_TRANSACTIONAL
+                      | PARQUET
                       | PASSWORD
                       | PERIODIC
                       | POINT
@@ -143,6 +143,7 @@ memgraphCypherKeyword : cypherKeyword
                       | READ_FILE
                       | RECOVER
                       | REGISTER
+                      | RENAME
                       | REPLACE
                       | REPLICA
                       | REPLICAS
@@ -334,6 +335,7 @@ clause : cypherMatch
        | loadCsv
        | foreach
        | callSubquery
+       | loadParquet
        ;
 
 updateClause : set
@@ -396,7 +398,11 @@ loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( NULLIF nullif ) ?
          AS rowVar ;
 
+loadParquet : LOAD PARQUET FROM parquetFile AS rowVar ;
+
 csvFile : literal | parameter ;
+
+parquetFile : literal | parameter ;
 
 delimiter : literal ;
 
@@ -678,11 +684,14 @@ transactionId : literal ;
 
 multiDatabaseQuery : createDatabase
                    | dropDatabase
+                   | renameDatabase
                    ;
 
 createDatabase : CREATE DATABASE databaseName ;
 
-dropDatabase : DROP DATABASE databaseName ;
+dropDatabase: DROP DATABASE databaseName ( FORCE)?;
+
+renameDatabase : RENAME DATABASE databaseName TO databaseName ;
 
 useDatabase : USE DATABASE databaseName ;
 

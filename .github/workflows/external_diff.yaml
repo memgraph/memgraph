@@ -40,22 +40,46 @@ jobs:
   CallCreateStagingBranch:
     uses: ./.github/workflows/create_staging_branch.yaml
     with:
-      pr_number: ${{ github.event.inputs.pr_number }}
-      base_master: ${{ github.event.inputs.base_master }}
+      pr_number: ${{ inputs.pr_number }}
+      base_master: ${{ inputs.base_master }}
     secrets: inherit
 
   TriggerDiffWorkflow:
     needs: CallCreateStagingBranch
-    uses: ./.github/workflows/diff.yml
+    uses: ./.github/workflows/diff.yaml
     with:
-      pr_number: ${{ github.event.inputs.pr_number }}
-      base_master: ${{ github.event.inputs.base_master }}
-      community_core: ${{ github.event.inputs.community_core }}
-      coverage: ${{ github.event.inputs.coverage }}
-      debug_core: ${{ github.event.inputs.debug_core }}
-      debug_integration: ${{ github.event.inputs.debug_integration }}
-      jepsen_core: ${{ github.event.inputs.jepsen_core }}
-      release: ${{ github.event.inputs.release }}
-      malloc_build: ${{ github.event.inputs.malloc_build }}
+      community_core: ${{ inputs.community_core }}
+      coverage: ${{ inputs.coverage }}
+      debug_core: ${{ inputs.debug_core }}
+      debug_integration: ${{ inputs.debug_integration }}
+      jepsen_core: ${{ inputs.jepsen_core }}
+      release: ${{ inputs.release }}
+      malloc_build: ${{ inputs.malloc_build }}
       ref: ${{ needs.CallCreateStagingBranch.outputs.staging_branch }}
     secrets: inherit
+
+  UpdatePRComment:
+    needs: [CallCreateStagingBranch, TriggerDiffWorkflow]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Update PR comment with diff results
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ needs.TriggerDiffWorkflow.result }}" == "success" ]; then
+            status="true"
+            echo "✅ Diff workflow completed successfully"
+          else
+            status="false"
+            echo "❌ Diff workflow failed"
+          fi
+          
+          python3 ./tools/external-contributions/pr_comment_update.py \
+            "${{ needs.CallCreateStagingBranch.outputs.comment_id }}" \
+            "${{ github.event.inputs.pr_number }}" \
+            "${{ needs.CallCreateStagingBranch.outputs.staging_branch }}" \
+            "$status"

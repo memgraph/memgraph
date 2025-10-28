@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
+#include "flags/general.hpp"
 #include "rpc/messages.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/replication/recovery.hpp"
@@ -23,7 +24,6 @@ extern const Event CurrentWalRpc_us;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
-
 template <rpc::IsRpc T>
 struct RpcInfo {
   static const metrics::Event timerLabel;
@@ -39,9 +39,20 @@ struct WalChainInfo {
   int64_t first_useful_wal;
 };
 
+inline auto GetFilePathWithoutDataDir(std::filesystem::path const &orig, std::filesystem::path const &root_data_dir)
+    -> std::filesystem::path {
+  auto rel = std::filesystem::relative(orig, root_data_dir);
+  if (rel.string().starts_with("..")) {
+    throw std::invalid_argument("Path not under data directory");
+  }
+  return rel;
+}
+
 template <typename T>
-requires(std::is_same_v<T, std::filesystem::path>) bool WriteFiles(const T &path, replication::Encoder &encoder) {
-  if (!encoder.WriteFile(path)) {
+requires(std::is_same_v<T, std::filesystem::path>) bool WriteFiles(const T &path,
+                                                                   std::filesystem::path const &root_data_dir,
+                                                                   replication::Encoder &encoder) {
+  if (!encoder.WriteFile(path, GetFilePathWithoutDataDir(path, root_data_dir))) {
     spdlog::error("File {} couldn't be loaded so it won't be transferred to the replica.", path);
     return false;
   }
@@ -49,11 +60,11 @@ requires(std::is_same_v<T, std::filesystem::path>) bool WriteFiles(const T &path
 }
 
 template <typename T>
-requires(std::is_same_v<T, std::vector<std::filesystem::path>>) bool WriteFiles(const T &paths,
-                                                                                replication::Encoder &encoder) {
+requires(std::is_same_v<T, std::vector<std::filesystem::path>>) bool WriteFiles(
+    const T &paths, std::filesystem::path const &root_data_dir, replication::Encoder &encoder) {
   for (const auto &path : paths) {
     // Flush the segment so the file data could start at the beginning of the next segment
-    if (!encoder.WriteFile(path)) {
+    if (!encoder.WriteFile(path, GetFilePathWithoutDataDir(path, root_data_dir))) {
       spdlog::error("File {} couldn't be loaded so it won't be transferred to the replica.", path);
       return false;
     }
@@ -64,6 +75,7 @@ requires(std::is_same_v<T, std::vector<std::filesystem::path>>) bool WriteFiles(
 
 template <rpc::IsRpc T, typename R, typename... Args>
 std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc::Client &client,
+                                                            std::filesystem::path const &root_data_dir,
                                                             replication_coordination_glue::ReplicationMode const mode,
                                                             Args &&...args) {
   utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
@@ -88,7 +100,7 @@ std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc:
   builder->FlushSegment(/*final_segment*/ false, /*force_flush*/ true);
 
   // If writing files failed, fail the task by returning empty optional
-  if (replication::Encoder encoder(builder); !WriteFiles(files, encoder)) {
+  if (replication::Encoder encoder(builder); !WriteFiles(files, root_data_dir, encoder)) {
     return std::nullopt;
   }
 

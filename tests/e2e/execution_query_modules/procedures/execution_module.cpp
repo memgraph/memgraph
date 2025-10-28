@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,13 +19,6 @@
 #include "mgp.hpp"
 
 namespace {
-
-using mgp_int = decltype(mgp::Value().ValueInt());
-static mgp_int num_ints{0};
-static mgp_int returned_ints{0};
-
-static mgp_int num_strings{0};
-static int returned_strings{0};
 
 constexpr char const *kModuleExecuteFetchHeaders = "execute_fetch_headers";
 constexpr char const *kModuleExecuteFetchResultCount = "execute_fetch_result_count";

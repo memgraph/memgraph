@@ -15,10 +15,9 @@
 #include <cstdint>
 #include <optional>
 
-#include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/rocksdb_serialization.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::storage {

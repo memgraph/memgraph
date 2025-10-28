@@ -43,11 +43,13 @@
 #include "utils/event_counter.hpp"
 #include "utils/exponential_backoff.hpp"
 #include "utils/functional.hpp"
+#include "utils/join_vector.hpp"
 #include "utils/logging.hpp"
 #include "utils/metrics_timer.hpp"
 
 #include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
+#include <nlohmann/json.hpp>
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/transform.hpp>
@@ -1189,8 +1191,8 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
         newest_db_instances.empty()) {
       spdlog::error("Couldn't find newest instance for db with uuid {}", db_uuid);
     } else {
-      spdlog::info("The number of committed txns is {} for db with uuid {}. The following instances have it {}",
-                   curr_num_committed_txns, db_uuid, fmt::join(newest_db_instances, ", "));
+      spdlog::info("The latest durable timestamp is {} for db with uuid {}. The following instances have it {}",
+        curr_num_committed_txns, db_uuid, utils::JoinVector(newest_db_instances, ", "));
       update_instances_counter(newest_db_instances);
     }
   }

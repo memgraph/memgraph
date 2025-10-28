@@ -2,6 +2,10 @@ add_library(mg-utils STATIC)
 add_library(mg::utils ALIAS mg-utils)
 
 target_sources(mg-utils
+    PUBLIC
+    FILE_SET CXX_MODULES FILES
+    fnv.cppm
+
     PRIVATE
     async_timer.cpp
     base64.cpp
@@ -28,6 +32,8 @@ target_sources(mg-utils
     skip_list.cpp
     priority_thread_pool.cpp
     resource_monitoring.cpp
+    safe_string.cpp
+    disk_utils.cpp
 
     PUBLIC
     FILE_SET HEADERS
@@ -35,6 +41,7 @@ target_sources(mg-utils
     FILES
     allocator/page_aligned.hpp
     allocator/page_slab_memory_resource.hpp
+    data_queue.hpp
     exponential_backoff.hpp
     memory_layout.hpp
     small_vector.hpp
@@ -47,6 +54,7 @@ target_sources(mg-utils
     transparent_compare.hpp
     compile_time.hpp
     resource_monitoring.hpp
+    safe_string.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)
@@ -54,9 +62,11 @@ find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
+find_package(spdlog REQUIRED)
+find_package(croncpp REQUIRED)
 
-target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json ZLIB::ZLIB croncpp::croncpp)
-target_link_libraries(mg-utils PRIVATE librdtsc stdc++fs Threads::Threads gflags uuid rt mg-flags)
+target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json ZLIB::ZLIB croncpp::croncpp rollbear::strong_type gflags)
+target_link_libraries(mg-utils PRIVATE librdtsc stdc++fs Threads::Threads uuid rt mg-flags range-v3::range-v3)
 
 add_library(mg-settings STATIC)
 target_sources(mg-settings
