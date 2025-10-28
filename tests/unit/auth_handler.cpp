@@ -354,10 +354,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnLabelThenIsDispla
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "NODES CONTAINING LABELS :Label1 MATCHING ANY");
+  ASSERT_EQ(result[0].ValueString(), "READ ON NODES CONTAINING LABELS :Label1 MATCHING ANY");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "READ");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION GRANTED TO USER");
@@ -386,10 +386,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnLabelThe
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "NODES CONTAINING LABELS :Label1 MATCHING ANY");
+  ASSERT_EQ(result[0].ValueString(), "CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS :Label1 MATCHING ANY");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "CREATE, READ, UPDATE, DELETE");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION GRANTED TO USER");
@@ -415,10 +415,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnLabelThenIs
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "ALL LABELS");
+  ASSERT_EQ(result[0].ValueString(), "READ ON ALL LABELS");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "READ");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL LABEL PERMISSION GRANTED TO USER");
@@ -445,10 +445,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnLa
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "ALL LABELS");
+  ASSERT_EQ(result[0].ValueString(), "READ, UPDATE ON ALL LABELS");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "READ, UPDATE");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL LABEL PERMISSION GRANTED TO USER");
@@ -474,10 +474,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelTh
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "ALL LABELS");
+  ASSERT_EQ(result[0].ValueString(), "CREATE, READ, UPDATE, DELETE ON ALL LABELS");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "CREATE, READ, UPDATE, DELETE");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL LABEL PERMISSION GRANTED TO USER");
@@ -504,10 +504,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnEdgeTypeThenIsDis
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "EDGES CONTAINING TYPES :EdgeType1");
+  ASSERT_EQ(result[0].ValueString(), "READ ON EDGES CONTAINING TYPES :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "READ");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
@@ -534,10 +534,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnEdgeType
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "EDGES CONTAINING TYPES :EdgeType1");
+  ASSERT_EQ(result[0].ValueString(), "READ, UPDATE ON EDGES CONTAINING TYPES :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "READ, UPDATE");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
@@ -563,10 +563,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenA
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "EDGES CONTAINING TYPES :EdgeType1");
+  ASSERT_EQ(result[0].ValueString(), "CREATE, READ, UPDATE, DELETE ON EDGES CONTAINING TYPES :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "CREATE, READ, UPDATE, DELETE");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
@@ -592,10 +592,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnEdgeTypeThe
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "ALL EDGE_TYPES");
+  ASSERT_EQ(result[0].ValueString(), "READ ON ALL EDGE_TYPES");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "READ");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER");
@@ -623,10 +623,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnEd
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "ALL EDGE_TYPES");
+  ASSERT_EQ(result[0].ValueString(), "READ, UPDATE ON ALL EDGE_TYPES");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "READ, UPDATE");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER");
@@ -652,10 +652,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTyp
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "ALL EDGE_TYPES");
+  ASSERT_EQ(result[0].ValueString(), "CREATE, READ, UPDATE, DELETE ON ALL EDGE_TYPES");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "CREATE, READ, UPDATE, DELETE");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER");
@@ -682,10 +682,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermis
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "NODES CONTAINING LABELS :Label1 MATCHING ANY");
+  ASSERT_EQ(result[0].ValueString(), "NOTHING ON NODES CONTAINING LABELS :Label1 MATCHING ANY");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "NOTHING");
+  ASSERT_EQ(result[1].ValueString(), "DENY");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION DENIED TO USER");
@@ -712,10 +712,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPer
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "EDGES CONTAINING TYPES :EdgeType1");
+  ASSERT_EQ(result[0].ValueString(), "NOTHING ON EDGES CONTAINING TYPES :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "NOTHING");
+  ASSERT_EQ(result[1].ValueString(), "DENY");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION DENIED TO USER");
@@ -742,10 +742,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedUpdateThenOneIs
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "EDGES CONTAINING TYPES :EdgeType1");
+  ASSERT_EQ(result[0].ValueString(), "READ ON EDGES CONTAINING TYPES :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "READ");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
@@ -1648,17 +1648,17 @@ TEST_F(AuthQueryHandlerFixture,
 
   for (const auto &privilege : privileges_db1) {
     const auto &privilege_name = privilege[0].ValueString();
-    if (privilege_name == "NODES CONTAINING LABELS :Person MATCHING ANY") {
+    if (privilege_name == "CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS :Person MATCHING ANY") {
       found_label_person = true;
-      ASSERT_EQ(privilege[1].ValueString(), "CREATE, READ, UPDATE, DELETE");
+      ASSERT_EQ(privilege[1].ValueString(), "GRANT");
       ASSERT_EQ(privilege[2].ValueString(), "LABEL PERMISSION GRANTED TO ROLE");
-    } else if (privilege_name == "NODES CONTAINING LABELS :Company MATCHING ANY") {
+    } else if (privilege_name == "READ ON NODES CONTAINING LABELS :Company MATCHING ANY") {
       found_label_company = true;
-      ASSERT_EQ(privilege[1].ValueString(), "READ");
+      ASSERT_EQ(privilege[1].ValueString(), "GRANT");
       ASSERT_EQ(privilege[2].ValueString(), "LABEL PERMISSION GRANTED TO ROLE");
-    } else if (privilege_name == "EDGES CONTAINING TYPES :WORKS_FOR") {
+    } else if (privilege_name == "UPDATE ON EDGES CONTAINING TYPES :WORKS_FOR") {
       found_edge_works_for = true;
-      ASSERT_EQ(privilege[1].ValueString(), "UPDATE");
+      ASSERT_EQ(privilege[1].ValueString(), "GRANT");
       ASSERT_EQ(privilege[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO ROLE");
     }
   }

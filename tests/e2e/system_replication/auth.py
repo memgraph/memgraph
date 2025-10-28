@@ -882,21 +882,21 @@ def test_auth_replication(connection, test_name):
     check(
         partial(show_privileges_func, user_or_role="user4"),
         {
-            ("NODES CONTAINING LABELS :l1 MATCHING ANY", "READ", "LABEL PERMISSION GRANTED TO USER"),
+            ("READ ON NODES CONTAINING LABELS :l1 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
         },
     )
     check(
         partial(show_privileges_func, user_or_role="role3"),
         {
-            ("NODES CONTAINING LABELS :l2, :l3 MATCHING ANY", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE"),
-            ("NODES CONTAINING LABELS :l4, :l5 MATCHING ANY", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE"),
+            ("UPDATE ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE"),
+            ("UPDATE ON NODES CONTAINING LABELS :l4, :l5 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE"),
         },
     )
     check(
         partial(show_privileges_func, user_or_role="user3b"),
         {
-            ("NODES CONTAINING LABELS :l2, :l3 MATCHING ANY", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE"),
-            ("NODES CONTAINING LABELS :l4, :l5 MATCHING ANY", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE"),
+            ("UPDATE ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE"),
+            ("UPDATE ON NODES CONTAINING LABELS :l4, :l5 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE"),
         },
     )
     execute_and_fetch_all(cursor_main, "REVOKE * ON NODES CONTAINING LABELS :l1 FROM user4")
@@ -904,11 +904,11 @@ def test_auth_replication(connection, test_name):
     check(partial(show_privileges_func, user_or_role="user4"), set())
     check(
         partial(show_privileges_func, user_or_role="role3"),
-        {("NODES CONTAINING LABELS :l2, :l3 MATCHING ANY", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE")},
+        {("UPDATE ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE")},
     )
     check(
         partial(show_privileges_func, user_or_role="user3b"),
-        {("NODES CONTAINING LABELS :l2, :l3 MATCHING ANY", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE")},
+        {("UPDATE ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE")},
     )
 
     # GRANT/DENY DATABASE
