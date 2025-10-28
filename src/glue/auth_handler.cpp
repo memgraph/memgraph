@@ -198,7 +198,7 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
   auto add_permission = [&](const std::string &entity_name, uint64_t permission_bitmask,
                             memgraph::auth::PermissionLevel grant_or_deny, bool is_global) {
     std::string permission_description;
-    const auto *const level_str = grant_or_deny == memgraph::auth::PermissionLevel::DENY ? "DENIED" : "GRANTED";
+    auto const *const level_str = grant_or_deny == memgraph::auth::PermissionLevel::DENY ? "DENIED" : "GRANTED";
 
     if (is_global) {
       permission_description =
@@ -212,9 +212,9 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
   };
 
   // Handle global grants
-  const auto global_permission = permissions.GetGlobalPermission();
+  auto const global_permission = permissions.GetGlobalPermission();
   if (global_permission.has_value()) {
-    const auto level =
+    auto const level =
         global_permission.value() == 0 ? memgraph::auth::PermissionLevel::DENY : memgraph::auth::PermissionLevel::GRANT;
     add_permission(fmt::format("ALL {}S", permission_type), global_permission.value(), level, true);
   }
@@ -231,7 +231,7 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
       std::vector<std::string> sorted_symbols = rule.symbols | ranges::to_vector;
       ranges::sort(sorted_symbols);
 
-      const auto *entity_type = (permission_type == "LABEL") ? "NODES CONTAINING LABELS" : "EDGES CONTAINING TYPES";
+      auto const *entity_type = (permission_type == "LABEL") ? "NODES CONTAINING LABELS" : "EDGES CONTAINING TYPES";
       entity_name = entity_type;
 
       bool first = true;
@@ -244,12 +244,12 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
       }
 
       if (permission_type == "LABEL") {
-        const auto *matching_str = (rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY) ? "EXACTLY" : "ANY";
+        auto const *matching_str = (rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY) ? "EXACTLY" : "ANY";
         entity_name += fmt::format(" MATCHING {}", matching_str);
       }
     }
 
-    const auto level = (rule.permissions == memgraph::auth::FineGrainedPermission::NOTHING)
+    auto const level = (rule.permissions == memgraph::auth::FineGrainedPermission::NOTHING)
                            ? memgraph::auth::PermissionLevel::DENY
                            : memgraph::auth::PermissionLevel::GRANT;
     add_permission(entity_name, static_cast<uint64_t>(rule.permissions), level, false);
@@ -266,8 +266,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> ConstructFineGrainedPrivil
   }
   grants.reserve(privileges.size());
   for (const auto &permission : privileges) {
-    const auto permission_types = memgraph::auth::FineGrainedPermissionToString(permission.permission_level);
-    const auto combined_privilege = fmt::format("{} ON {}", permission_types, permission.permission);
+    auto const permission_types = memgraph::auth::FineGrainedPermissionToString(permission.permission_level);
+    auto const combined_privilege = fmt::format("{} ON {}", permission_types, permission.permission);
 
     auto const *effective = (permission.permission_level == 0) ? "DENY" : "GRANT";
 
@@ -883,9 +883,9 @@ void AuthQueryHandler::GrantPrivilege(
       }
 #ifdef MG_ENTERPRISE
       ,
-      [](auto &fine_grained_permissions, const auto &privilege_collection, const auto &matching_mode) {
+      [](auto &fine_grained_permissions, auto const &privilege_collection, auto const &matching_mode) {
         for (const auto &[privilege, entities] : privilege_collection) {
-          const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
+          auto const &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
 
           if (entities.size() == 1 && entities[0] == "*") {
             fine_grained_permissions.GrantGlobal(permission);
@@ -919,7 +919,7 @@ void AuthQueryHandler::DenyPrivilege(const std::string &user_or_role,
       }
 #ifdef MG_ENTERPRISE
       ,
-      [](auto &fine_grained_permissions, const auto &privilege_collection, const auto &matching_mode) {}
+      [](auto &fine_grained_permissions, auto const &privilege_collection, auto const &matching_mode) {}
 #endif
       ,
       system_tx);
@@ -950,9 +950,9 @@ void AuthQueryHandler::RevokePrivilege(
       }
 #ifdef MG_ENTERPRISE
       ,
-      [](auto &fine_grained_permissions, const auto &privilege_collection, const auto &matching_mode) {
+      [](auto &fine_grained_permissions, auto const &privilege_collection, auto const &matching_mode) {
         for (const auto &[privilege, entities] : privilege_collection) {
-          const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
+          auto const &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
 
           if (entities.size() == 1 && entities[0] == "*") {
             fine_grained_permissions.RevokeAll(permission);

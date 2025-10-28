@@ -362,9 +362,8 @@ PermissionLevel FineGrainedAccessPermissions::Has(std::span<std::string const> s
     if (rule.matching_mode == MatchingMode::EXACTLY) {
       return rule.symbols.size() == symbols.size() &&
              r::all_of(symbols, [&](auto const &symbol) { return rule.symbols.contains(symbol); });
-    } else {
-      return r::any_of(symbols, [&](auto const &symbol) { return rule.symbols.contains(symbol); });
     }
+    return r::any_of(symbols, [&](auto const &symbol) { return rule.symbols.contains(symbol); });
   };
 
   // Check NOTHING rules for explicit DENYs, as these take precedence over any
@@ -419,7 +418,7 @@ PermissionLevel FineGrainedAccessPermissions::HasGlobal(const FineGrainedPermiss
 void FineGrainedAccessPermissions::Grant(std::unordered_set<std::string> const &symbols,
                                          FineGrainedPermission const fine_grained_permission,
                                          MatchingMode const matching_mode) {
-  auto const it = r::find_if(
+  auto it = r::find_if(
       rules_, [&](auto const &rule) { return rule.symbols == symbols && rule.matching_mode == matching_mode; });
 
   if (it != rules_.end()) {
