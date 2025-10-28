@@ -88,7 +88,7 @@ target_sources(mg-query
     FILE_SET HEADERS
     FILES
     arrow_parquet/reader.hpp
-        arrow_parquet/parquet_file_config.hpp
+    arrow_parquet/parquet_file_config.hpp
     dependant_symbol_visitor.hpp
     edge_accessor.hpp
     frontend/ast/ast.hpp
