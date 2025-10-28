@@ -35,6 +35,7 @@ startup_config_dict = {
     ),
     "allow_load_csv": ("true", "true", "Controls whether LOAD CSV clause is allowed in queries."),
     "aws_access_key": ("", "", "Define AWS access key for the AWS integration."),
+    "aws_endpoint_url": ("", "", "Define AWS endpoint url for the AWS integration."),
     "aws_region": ("", "", "Define AWS region which is used for the AWS integration."),
     "aws_secret_key": ("", "", "Define AWS secret key for the AWS integration."),
     "audit_buffer_flush_interval_ms": (
