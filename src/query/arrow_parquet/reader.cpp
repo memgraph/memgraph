@@ -48,6 +48,35 @@ constexpr auto kAwsRegionEnv = "AWS_REGION";
 constexpr auto kAwsSecretKeyEnv = "AWS_SECRET_KEY";
 constexpr auto kAwsEndpointUrlEnv = "AWS_ENDPOINT_URL";
 
+class GlobalS3APIManager {
+ public:
+  GlobalS3APIManager(const GlobalS3APIManager &) = delete;
+  GlobalS3APIManager(GlobalS3APIManager &&) = delete;
+  GlobalS3APIManager &operator=(const GlobalS3APIManager &) = delete;
+  GlobalS3APIManager &operator=(GlobalS3APIManager &&) = delete;
+
+  static GlobalS3APIManager &GetInstance() {
+    static GlobalS3APIManager instance;
+    return instance;
+  }
+
+ private:
+  GlobalS3APIManager() {
+    if (auto const status = arrow::fs::EnsureS3Initialized(); !status.ok()) {
+      spdlog::error("Failed to initialize S3 file system: {}", status.message());
+      std::exit(1);
+    }
+  }
+
+  ~GlobalS3APIManager() {
+    if (arrow::fs::IsS3Initialized()) {
+      if (auto const finalize_status = arrow::fs::FinalizeS3(); !finalize_status.ok()) {
+        spdlog::error("Failed to finalize S3 file system");
+      }
+    }
+  }
+};
+
 auto BuildS3Config(memgraph::query::ParquetFileConfig &config) -> memgraph::query::ParquetFileConfig {
   auto get_env_or_empty = [](const char *env_name) -> std::optional<std::string> {
     if (const auto *const env_val = std::getenv(env_name)) {
@@ -102,6 +131,8 @@ auto BuildHeader(std::shared_ptr<arrow::Schema> const &schema, memgraph::utils::
 // nullptr for error
 auto LoadFileFromS3(memgraph::query::ParquetFileConfig const &s3_config)
     -> std::unique_ptr<parquet::arrow::FileReader> {
+  GlobalS3APIManager::GetInstance();
+
   // Users needs to set aws_region, aws_access_key and aws_secret_key in some way. aws_endpoint_url is optional
   if (!s3_config.aws_region.has_value()) {
     spdlog::error(

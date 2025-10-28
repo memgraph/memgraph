@@ -71,7 +71,6 @@
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
 
-#include <arrow/filesystem/s3fs.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
 
@@ -242,11 +241,6 @@ int main(int argc, char **argv) {
   memgraph::utils::Scheduler python_gc_scheduler;
   python_gc_scheduler.SetInterval(std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec));
   python_gc_scheduler.Run("Python GC", [] { memgraph::query::procedure::PyCollectGarbage(); });
-
-  if (auto const status = arrow::fs::EnsureS3Initialized(); !status.ok()) {
-    spdlog::error(status.message());
-    exit(1);
-  }
 
   // Initialize the communication library.
   memgraph::communication::SSLInit sslInit;
@@ -823,11 +817,6 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   metrics_server.AwaitShutdown();
 #endif
-  if (arrow::fs::IsS3Initialized()) {
-    if (auto const finalize_status = arrow::fs::FinalizeS3(); !finalize_status.ok()) {
-      spdlog::error("Failed to finalize S3 file system");
-    }
-  }
   try {
     memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
   } catch (memgraph::query::QueryException &) {

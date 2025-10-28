@@ -7775,7 +7775,7 @@ class LoadParquetCursor : public Cursor {
       }
 
       if (maybe_config_map->size() > 4) {
-        throw QueryRuntimeException("Config map cannot contain > 4 entries: {}, {}, {} and {} can be provided",
+        throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
                                     kAwsAccessKeyQuerySetting, kAwsAccessKeyQuerySetting, kAwsSecretKeyQuerySetting,
                                     kAwsEndpointUrlQuerySetting);
       }
