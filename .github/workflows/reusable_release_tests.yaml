@@ -749,7 +749,7 @@ jobs:
       - name: Ensure localstack is up
         run: |
           cd tests/e2e/load_parquet/localstack
-          docker-compose up -d
+          docker compose up -d
 
       # This step will be skipped because the e2e stream tests have been disabled
       # We need to fix this as soon as possible
@@ -757,9 +757,9 @@ jobs:
         if: false
         run: |
           cd tests/e2e/streams/kafka
-          docker-compose up -d
+          docker compose up -d
           cd ../pulsar
-          docker-compose up -d
+          docker compose up -d
 
       - name: Run e2e tests
         run: |
@@ -774,16 +774,16 @@ jobs:
       - name: Ensure localstack is down
         run: |
           cd tests/e2e/load_parquet/localstack
-          docker-compose down
+          docker compose down
 
       # Same as two steps prior
       - name: Ensure Kafka and Pulsar are down
         if: false
         run: |
           cd tests/e2e/streams/kafka
-          docker-compose down
+          docker compose down
           cd ../pulsar
-          docker-compose down
+          docker compose down
 
       - name: Stop mgbuild container
         if: always()
