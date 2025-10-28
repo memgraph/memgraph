@@ -46,7 +46,7 @@ constexpr auto kPasswordHash = "password_hash";
 namespace r = ranges;
 
 constexpr auto kGlobalPermission = "global_permission";
-constexpr auto kFineGrainedAccessHandler = "fine_grained_access_handler";
+constexpr auto kFineGrainedPermissions = "fine_grained_permissions";
 constexpr auto kLabelPermissions = "label_permissions";
 constexpr auto kEdgeTypePermissions = "edge_type_permissions";
 constexpr auto kAllowAll = "allow_all";
@@ -721,11 +721,11 @@ nlohmann::json Role::Serialize() const {
   data[kPermissions] = permissions_.Serialize();
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    data[kFineGrainedAccessHandler] = fine_grained_access_handler_.Serialize();
+    data[kFineGrainedPermissions] = fine_grained_access_handler_.Serialize();
     data[kDatabases] = db_access_.Serialize();
     data[kUserImp] = user_impersonation_;
   } else {
-    data[kFineGrainedAccessHandler] = {};
+    data[kFineGrainedPermissions] = {};
     data[kDatabases] = {};
     data[kUserImp] = {};
   }
@@ -758,7 +758,7 @@ Role Role::Deserialize(const nlohmann::json &data) {
 
     FineGrainedAccessHandler fine_grained_access_handler{};
     // We can have an empty fine_grained if the user was created without a valid license
-    auto fine_grainged_access_it = data.find(kFineGrainedAccessHandler);
+    auto fine_grainged_access_it = data.find(kFineGrainedPermissions);
     if (fine_grainged_access_it != data.end() && fine_grainged_access_it->is_object()) {
       fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(*fine_grainged_access_it);
     } else {
@@ -1108,11 +1108,11 @@ nlohmann::json User::Serialize() const {
   data[kPermissions] = permissions_.Serialize();
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    data[kFineGrainedAccessHandler] = fine_grained_access_handler_.Serialize();
+    data[kFineGrainedPermissions] = fine_grained_access_handler_.Serialize();
     data[kDatabases] = database_access_.Serialize();
     data[kUserImp] = user_impersonation_;
   } else {
-    data[kFineGrainedAccessHandler] = {};
+    data[kFineGrainedPermissions] = {};
     data[kDatabases] = {};
     data[kUserImp] = {};
   }
@@ -1164,7 +1164,7 @@ User User::Deserialize(const nlohmann::json &data) {
 
     // We can have an empty fine_grained if the user was created without a valid license
     FineGrainedAccessHandler fine_grained_access_handler{};
-    auto fine_grainged_access_it = data.find(kFineGrainedAccessHandler);
+    auto fine_grainged_access_it = data.find(kFineGrainedPermissions);
     if (fine_grainged_access_it != data.end() && fine_grainged_access_it->is_object()) {
       fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(*fine_grainged_access_it);
     } else {
