@@ -74,7 +74,8 @@ VectorIndex::~VectorIndex() = default;
 
 // TODO: add name_id_mapper here in order to set correct property to property store
 bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
-                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                              NameIdMapper *name_id_mapper,
+                              std::optional<SnapshotObserverInfo> const & /*snapshot_info*/) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   const auto label_prop = LabelPropKey{spec.label_id, spec.property};
   try {
@@ -137,11 +138,13 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
         }
       }
       mg_vector_index.index.add(&vertex, vector.data());
+      auto index_id = name_id_mapper->NameToId(spec.index_name);
+      vertex.properties.SetProperty(spec.property, PropertyValue({index_id}, std::vector<float>{}));
     }
-    pimpl->index_.try_emplace(label_prop,
-                              IndexItem{std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(
-                                            std::move(mg_vector_index.index)),
-                                        spec});
+    pimpl->index_.try_emplace(
+        label_prop, IndexItem{.mg_index = std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(
+                                  std::move(mg_vector_index.index)),
+                              .spec = spec});
   } catch (const utils::OutOfMemoryException &) {
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
     pimpl->index_name_to_label_prop_.erase(spec.index_name);
@@ -162,7 +165,8 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
     if (!utils::Contains(vertex.labels, label_prop.label())) {
       continue;
     }
-    vertex.properties.SetProperty(label_prop.property(), PropertyValue());
+    vertex.properties.SetProperty(label_prop.property(),
+                                  PropertyValue());  // TODO: consider adding vector back to property store
   }
   pimpl->index_.erase(label_prop);
   pimpl->index_name_to_label_prop_.erase(it);

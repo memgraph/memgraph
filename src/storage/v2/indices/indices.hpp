@@ -84,8 +84,7 @@ struct Indices {
 
   /// This function should be called whenever a property is modified on a vertex.
   /// @throw std::bad_alloc
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx,
-                           NameIdMapper *name_id_mapper);
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx);
 
   /// This function should be called whenever a property is modified on an edge.
   /// @throw std::bad_alloc

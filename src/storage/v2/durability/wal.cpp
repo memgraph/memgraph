@@ -1427,10 +1427,15 @@ std::optional<RecoveryInfo> LoadWal(
         const auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
                                                   : unum::usearch::scalar_kind_t::f32_k;
         auto vertices_acc = vertices->access();
-        indices->vector_index_.CreateIndex(
-            VectorIndexSpec{data.index_name, label_id, property_id, unum_metric_kind, data.dimension,
-                            data.resize_coefficient, data.capacity, scalar_kind},
-            vertices_acc);
+        indices->vector_index_.CreateIndex(VectorIndexSpec{.index_name = data.index_name,
+                                                           .label_id = label_id,
+                                                           .property = property_id,
+                                                           .metric_kind = unum_metric_kind,
+                                                           .dimension = data.dimension,
+                                                           .resize_coefficient = data.resize_coefficient,
+                                                           .capacity = data.capacity,
+                                                           .scalar_kind = scalar_kind},
+                                           vertices_acc, name_id_mapper);
       },
       [&](WalVectorEdgeIndexCreate const &data) {
         const auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));

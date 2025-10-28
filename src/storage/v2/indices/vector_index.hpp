@@ -90,6 +90,7 @@ class VectorIndex {
   /// @param vertices vertices from which to create vector index
   /// @return true if the index was created successfully, false otherwise.
   bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+                   NameIdMapper *name_id_mapper,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.
