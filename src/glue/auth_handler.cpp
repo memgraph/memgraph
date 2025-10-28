@@ -269,7 +269,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> ConstructFineGrainedPrivil
     const auto permission_types = memgraph::auth::FineGrainedPermissionToString(permission.permission_level);
     const auto combined_privilege = fmt::format("{} ON {}", permission_types, permission.permission);
 
-    const auto effective = (permission.permission_level == 0) ? "DENY" : "GRANT";
+    auto const *effective = (permission.permission_level == 0) ? "DENY" : "GRANT";
 
     grants.push_back({memgraph::query::TypedValue(combined_privilege), memgraph::query::TypedValue(effective),
                       memgraph::query::TypedValue(permission.description)});
