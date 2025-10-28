@@ -644,7 +644,6 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   bool exists = true;
   bool deleted = false;
   bool is_in_vector_index = false;
-  PropertyValue value;
   Delta *delta = nullptr;
 
   auto value = std::invoke([&]() -> PropertyValue {
@@ -654,13 +653,12 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
 
     auto prop_value = vertex_->properties.GetProperty(property);
     if (prop_value.IsVectorIndexId()) [[unlikely]] {
-      value = storage_->indices_.vector_index_.GetPropertyValue(
-          vertex_, storage_->name_id_mapper_->IdToName(prop_value.ValueVectorIndexIds().front()));
       is_in_vector_index = true;
+      return storage_->indices_.vector_index_.GetPropertyValue(
+          vertex_, storage_->name_id_mapper_->IdToName(prop_value.ValueVectorIndexIds().front()));
     } else {
-      value = std::move(prop_value);
+      return prop_value;
     }
-    return vertex_->properties.GetProperty(property);
   });
 
   // Checking cache has a cost, only do it if we have any deltas
