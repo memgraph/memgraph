@@ -17,6 +17,7 @@
 #include <nlohmann/json.hpp>
 
 #include <range/v3/algorithm/all_of.hpp>
+#include <range/v3/algorithm/any_of.hpp>
 #include <range/v3/algorithm/find_if.hpp>
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
@@ -347,7 +348,7 @@ FineGrainedAccessPermissions::FineGrainedAccessPermissions(std::optional<uint64_
                                                            std::vector<FineGrainedAccessRule> rules)
     : global_permission_(global_permission), rules_{std::move(rules)} {}
 
-PermissionLevel FineGrainedAccessPermissions::Has(std::span<const std::string> symbols,
+PermissionLevel FineGrainedAccessPermissions::Has(std::span<std::string const> symbols,
                                                   const FineGrainedPermission fine_grained_permission) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return PermissionLevel::GRANT;
@@ -357,80 +358,49 @@ PermissionLevel FineGrainedAccessPermissions::Has(std::span<const std::string> s
     return PermissionLevel::GRANT;
   }
 
-  for (const auto &rule : rules_) {
-    if (rule.matching_mode == MatchingMode::EXACTLY && rule.permissions == FineGrainedPermission::NOTHING) {
-      if (rule.symbols.size() != symbols.size()) {
-        continue;
-      }
-
-      if (r::all_of(symbols, [&](const auto &symbol) { return rule.symbols.contains(symbol); })) {
-        return PermissionLevel::DENY;
-      }
-    }
-  }
-
-  for (const auto &rule : rules_) {
-    if (rule.matching_mode == MatchingMode::ANY && rule.permissions == FineGrainedPermission::NOTHING) {
-      for (const auto &symbol : symbols) {
-        if (rule.symbols.contains(symbol)) {
-          return PermissionLevel::DENY;
-        }
-      }
-    }
-  }
-
-  for (const auto &rule : rules_) {
+  auto const rule_matches = [&](auto &&rule) -> bool {
     if (rule.matching_mode == MatchingMode::EXACTLY) {
-      if ((rule.permissions & fine_grained_permission) == FineGrainedPermission::NOTHING) {
-        continue;
-      }
+      return rule.symbols.size() == symbols.size() &&
+             r::all_of(symbols, [&](auto const &symbol) { return rule.symbols.contains(symbol); });
+    } else {
+      return r::any_of(symbols, [&](auto const &symbol) { return rule.symbols.contains(symbol); });
+    }
+  };
 
-      if (rule.symbols.size() != symbols.size()) {
-        continue;
-      }
+  // Check NOTHING rules for explicit DENYs, as these take precedence over any
+  // other explicit CREATE, READ, UPDATE, or DELETE rules.
+  for (auto &&rule : rules_) {
+    if (rule.permissions != FineGrainedPermission::NOTHING) {
+      continue;
+    }
 
-      if (r::all_of(symbols, [&](const auto &symbol) { return rule.symbols.contains(symbol); })) {
+    if (rule_matches(rule)) {
+      return PermissionLevel::DENY;
+    }
+  }
+
+  // Check for matching rules: if any rule matches and has the permission, GRANT.
+  // If rules match but none have the permission, DENY (specific rules override global).
+  bool any_rule_matched = false;
+  for (auto &&rule : rules_) {
+    if (rule.permissions == FineGrainedPermission::NOTHING) {
+      continue;
+    }
+
+    if (rule_matches(rule)) {
+      any_rule_matched = true;
+      if ((rule.permissions & fine_grained_permission) != FineGrainedPermission::NOTHING) {
         return PermissionLevel::GRANT;
       }
     }
   }
 
-  for (const auto &rule : rules_) {
-    if (rule.matching_mode == MatchingMode::ANY) {
-      if ((rule.permissions & fine_grained_permission) == FineGrainedPermission::NOTHING) {
-        continue;
-      }
-
-      for (const auto &symbol : symbols) {
-        if (rule.symbols.contains(symbol)) {
-          return PermissionLevel::GRANT;
-        }
-      }
-    }
+  // If any rule matched but none had the permission, specific rules override global.
+  if (any_rule_matched) {
+    return PermissionLevel::DENY;
   }
 
-  for (const auto &rule : rules_) {
-    if (rule.matching_mode == MatchingMode::EXACTLY) {
-      if (rule.symbols.size() != symbols.size()) {
-        continue;
-      }
-
-      if (r::all_of(symbols, [&](const auto &symbol) { return rule.symbols.contains(symbol); })) {
-        return PermissionLevel::DENY;
-      }
-    }
-  }
-
-  for (const auto &rule : rules_) {
-    if (rule.matching_mode == MatchingMode::ANY) {
-      for (const auto &symbol : symbols) {
-        if (rule.symbols.contains(symbol)) {
-          return PermissionLevel::DENY;
-        }
-      }
-    }
-  }
-
+  // No specific rule matches so fall through to a check on global permissions.
   return HasGlobal(fine_grained_permission);
 }
 
@@ -446,10 +416,10 @@ PermissionLevel FineGrainedAccessPermissions::HasGlobal(const FineGrainedPermiss
   return PermissionLevel::DENY;
 }
 
-void FineGrainedAccessPermissions::Grant(const std::unordered_set<std::string> &symbols,
-                                         const FineGrainedPermission fine_grained_permission,
-                                         const MatchingMode matching_mode) {
-  auto it = r::find_if(
+void FineGrainedAccessPermissions::Grant(std::unordered_set<std::string> const &symbols,
+                                         FineGrainedPermission const fine_grained_permission,
+                                         MatchingMode const matching_mode) {
+  auto const it = r::find_if(
       rules_, [&](auto const &rule) { return rule.symbols == symbols && rule.matching_mode == matching_mode; });
 
   if (it != rules_.end()) {
@@ -471,23 +441,20 @@ void FineGrainedAccessPermissions::GrantGlobal(const FineGrainedPermission fine_
   }
 }
 
-void FineGrainedAccessPermissions::Revoke(const std::unordered_set<std::string> &symbols,
-                                          const FineGrainedPermission fine_grained_permission,
-                                          const MatchingMode matching_mode) {
-  for (auto it = rules_.begin(); it != rules_.end();) {
-    if (it->symbols == symbols && it->matching_mode == matching_mode) {
-      it->permissions = static_cast<FineGrainedPermission>(
-          static_cast<std::underlying_type_t<FineGrainedPermission>>(it->permissions) &
-          ~static_cast<std::underlying_type_t<FineGrainedPermission>>(fine_grained_permission));
+void FineGrainedAccessPermissions::Revoke(std::unordered_set<std::string> const &symbols,
+                                          FineGrainedPermission const fine_grained_permission,
+                                          MatchingMode const matching_mode) {
+  auto const it = r::find_if(
+      rules_, [&](auto const &rule) { return rule.symbols == symbols && rule.matching_mode == matching_mode; });
 
-      // When all permissions for a rule are removed, the rule can be removed
-      if (it->permissions == FineGrainedPermission::NOTHING) {
-        it = rules_.erase(it);
-      } else {
-        ++it;
-      }
-    } else {
-      ++it;
+  if (it != rules_.end()) {
+    it->permissions = static_cast<FineGrainedPermission>(
+        static_cast<std::underlying_type_t<FineGrainedPermission>>(it->permissions) &
+        ~static_cast<std::underlying_type_t<FineGrainedPermission>>(fine_grained_permission));
+
+    // If no permissions remain, remove the rule entirely.
+    if (it->permissions == FineGrainedPermission::NOTHING) {
+      rules_.erase(it);
     }
   }
 }
