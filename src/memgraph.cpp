@@ -243,6 +243,11 @@ int main(int argc, char **argv) {
   python_gc_scheduler.SetInterval(std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec));
   python_gc_scheduler.Run("Python GC", [] { memgraph::query::procedure::PyCollectGarbage(); });
 
+  if (auto const status = arrow::fs::EnsureS3Initialized(); !status.ok()) {
+    spdlog::error(status.message());
+    exit(1);
+  }
+
   // Initialize the communication library.
   memgraph::communication::SSLInit sslInit;
 

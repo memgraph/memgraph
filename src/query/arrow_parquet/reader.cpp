@@ -127,11 +127,6 @@ auto LoadFileFromS3(memgraph::query::ParquetFileConfig const &s3_config)
     return nullptr;
   }
 
-  if (auto const status = arrow::fs::EnsureS3Initialized(); !status.ok()) {
-    spdlog::error(status.message());
-    return nullptr;
-  }
-
   auto s3_options = arrow::fs::S3Options::FromAccessKey(*s3_config.aws_access_key, *s3_config.aws_secret_key);
   s3_options.region = *s3_config.aws_region;
   // aws_endpoint_url is optional, by default it will try to pull from the real S3
@@ -147,7 +142,6 @@ auto LoadFileFromS3(memgraph::query::ParquetFileConfig const &s3_config)
 
   auto const &s3_fs = *maybe_s3_fs;
 
-  // TODO: (andi) This is worth experimenting, maybe there are better ways to open a file through buffered streams
   auto const uri_wo_prefix = s3_config.file.substr(s3_prefix.size());
   auto rnd_acc_file = s3_fs->OpenInputFile(uri_wo_prefix);
   if (!rnd_acc_file.ok()) {
