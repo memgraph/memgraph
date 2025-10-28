@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 import boto3
+import mgclient
 import pytest
 from common import connect, execute_and_fetch_all
 
@@ -23,6 +24,20 @@ AWS_ACCESS_KEY_ID = "test"
 AWS_SECRET_ACCESS_KEY = "test"
 AWS_REGION = "us-east-1"
 BUCKET_NAME = "deps.memgraph.io"
+
+
+def test_no_such_file():
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = (
+        f"LOAD PARQUET FROM 's3://{BUCKET_NAME}/nodes_no_file.parquet' WITH CONFIG {{'aws_region': '{AWS_REGION}', "
+        f"'aws_access_key': '{AWS_ACCESS_KEY_ID}', 'aws_secret_key': '{AWS_SECRET_ACCESS_KEY}', 'aws_endpoint_url': '{AWS_ENDPOINT_URL}' }} AS row CREATE (n:N {{id: row.id, name: row.name, age: row.age, city: row.city}})"
+    )
+    try:
+        execute_and_fetch_all(cursor, load_query)
+        assert False
+    except mgclient.DatabaseError:
+        # No such file
+        pass
 
 
 def test_small_file_nodes_query_settings():
