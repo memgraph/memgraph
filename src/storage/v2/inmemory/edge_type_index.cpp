@@ -427,11 +427,11 @@ InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::
   // Index can have duplicate edge entries, we need to make sure each unique edge is inside a single chunk.
   // Chunks are divided at the skiplist level, we need to move each adjacent chunk's start/end to valid entries
   for (int i = 1; i < chunks_.size(); ++i) {
-    // Special case where whole chunk is invalid
     auto &chunk = chunks_[i];
     auto begin = chunk.begin();
     auto end = chunk.end();
     auto null = utils::SkipList<Entry>::ChunkedIterator{};
+    // Special case where whole chunk is invalid
     if (begin != null && end != null && begin->edge == end->edge) [[unlikely]] {
       auto &prev_chunk = chunks_[i - 1];
       prev_chunk = utils::SkipList<Entry>::Chunk{prev_chunk.begin(), end};

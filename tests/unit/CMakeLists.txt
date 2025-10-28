@@ -444,6 +444,16 @@ add_unit_test(skip_list_chunk_iterator_storage_query
     LINK_TARGETS mg-query storage_test_utils
 )
 
+add_unit_test(edge_property_index_chunking
+    SOURCES edge_property_index_chunking.cpp
+    LINK_TARGETS mg-query storage_test_utils
+)
+
+add_unit_test(edge_type_property_index_chunking
+    SOURCES edge_type_property_index_chunking.cpp
+    LINK_TARGETS mg-query storage_test_utils
+)
+
 add_unit_test(utils_mask_sensitive_information
     SOURCES utils_mask_sensitive_information.cpp
     LINK_TARGETS mg-utils fmt::fmt

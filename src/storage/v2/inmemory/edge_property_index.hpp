@@ -134,7 +134,8 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
           : self_(self),
             index_iterator_(index_iterator),
             current_edge_accessor_(EdgeRef{nullptr}, EdgeTypeId{}, nullptr, nullptr, self_->storage_,
-                                   self_->transaction_) {
+                                   self_->transaction_),
+            current_edge_(nullptr) {
         AdvanceUntilValid();
       }
 
@@ -154,7 +155,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
       ChunkedIterable *self_;
       utils::SkipList<Entry>::ChunkedIterator index_iterator_;
       EdgeAccessor current_edge_accessor_;
-      Edge *current_edge_{nullptr};
+      EdgeRef current_edge_{nullptr};
     };
 
     class Chunk {
@@ -176,10 +177,10 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
     utils::SkipList<Edge>::ConstAccessor pin_accessor_edge_;
     utils::SkipList<Vertex>::ConstAccessor pin_accessor_vertex_;
     utils::SkipList<Entry>::Accessor index_accessor_;
-    PropertyId property_;
+    [[maybe_unused]] PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
-    bool bounds_valid_{true};
+    [[maybe_unused]] bool bounds_valid_{true};
     View view_;
     Storage *storage_;
     Transaction *transaction_;

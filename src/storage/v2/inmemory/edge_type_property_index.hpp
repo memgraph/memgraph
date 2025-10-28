@@ -156,11 +156,11 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     utils::SkipList<Edge>::ConstAccessor pin_accessor_edge_;
     utils::SkipList<Vertex>::ConstAccessor pin_accessor_vertex_;
     utils::SkipList<Entry>::Accessor index_accessor_;
-    EdgeTypeId edge_type_;
-    PropertyId property_;
+    [[maybe_unused]] EdgeTypeId edge_type_;
+    [[maybe_unused]] PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
-    bool bounds_valid_{true};
+    [[maybe_unused]] bool bounds_valid_{true};
     View view_;
     Storage *storage_;
     Transaction *transaction_;

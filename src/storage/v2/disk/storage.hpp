@@ -113,6 +113,38 @@ class DiskStorage final : public Storage {
     EdgesIterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                         const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
+    EdgesChunkedIterable ChunkedEdges(EdgeTypeId /*edge_type*/, View /*view*/, size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
+    EdgesChunkedIterable ChunkedEdges(EdgeTypeId /*edge_type*/, PropertyId /*property*/, View /*view*/,
+                                      size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
+    EdgesChunkedIterable ChunkedEdges(EdgeTypeId /*edge_type*/, PropertyId /*property*/,
+                                      const std::optional<utils::Bound<PropertyValue>> & /*lower_bound*/,
+                                      const std::optional<utils::Bound<PropertyValue>> & /*upper_bound*/, View /*view*/,
+                                      size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
+    EdgesChunkedIterable ChunkedEdges(PropertyId /*property*/, View /*view*/, size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
+    EdgesChunkedIterable ChunkedEdges(PropertyId /*property*/, const PropertyValue & /*value*/, View /*view*/,
+                                      size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
+    EdgesChunkedIterable ChunkedEdges(PropertyId /*property*/,
+                                      const std::optional<utils::Bound<PropertyValue>> & /*lower_bound*/,
+                                      const std::optional<utils::Bound<PropertyValue>> & /*upper_bound*/, View /*view*/,
+                                      size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
     uint64_t ApproximateVertexCount() const override;
 
     uint64_t ApproximateVertexCount(LabelId /*label*/) const override { return 10; }

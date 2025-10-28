@@ -80,6 +80,7 @@ target_sources(mg-storage-v2
         ttl.cpp
         all_vertices_chunked_iterable.cpp
         vertices_chunked_iterable.cpp
+        edges_chunked_iterable.cpp
 
         PUBLIC
         FILE_SET HEADERS
@@ -133,6 +134,7 @@ target_sources(mg-storage-v2
         all_vertices_chunked_iterable.hpp
         vertices_chunked_iterable.hpp
         vertices_iterable.hpp
+        edges_chunked_iterable.hpp
 )
 
 find_package(gflags REQUIRED)
