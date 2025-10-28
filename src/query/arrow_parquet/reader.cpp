@@ -10,14 +10,19 @@
 // licenses/APL.txt.
 
 #include "query/arrow_parquet/reader.hpp"
+#include "flags/run_time_configurable.hpp"
+#include "query/arrow_parquet/parquet_file_config.hpp"
 #include "query/typed_value.hpp"
 #include "utils/data_queue.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/temporal.hpp"
 
 #include <chrono>
+#include <string_view>
 #include <thread>
 
 #include "arrow/api.h"
+#include "arrow/filesystem/s3fs.h"
 #include "arrow/io/file.h"
 #include "arrow/util/decimal.h"
 #include "arrow/util/float16.h"
@@ -33,8 +38,194 @@ using memgraph::utils::Duration;
 using memgraph::utils::LocalDateTime;
 using memgraph::utils::LocalTime;
 using memgraph::utils::MemoryResource;
+using namespace std::string_view_literals;
 
 namespace {
+
+constexpr std::string_view s3_prefix = "s3://";
+constexpr auto kAwsAccessKeyEnv = "AWS_ACCESS_KEY";
+constexpr auto kAwsRegionEnv = "AWS_REGION";
+constexpr auto kAwsSecretKeyEnv = "AWS_SECRET_KEY";
+constexpr auto kAwsEndpointUrlEnv = "AWS_ENDPOINT_URL";
+
+class GlobalS3APIManager {
+ public:
+  GlobalS3APIManager(const GlobalS3APIManager &) = delete;
+  GlobalS3APIManager(GlobalS3APIManager &&) = delete;
+  GlobalS3APIManager &operator=(const GlobalS3APIManager &) = delete;
+  GlobalS3APIManager &operator=(GlobalS3APIManager &&) = delete;
+
+  static GlobalS3APIManager &GetInstance() {
+    static GlobalS3APIManager instance;
+    return instance;
+  }
+
+ private:
+  GlobalS3APIManager() {
+    if (auto const status = arrow::fs::EnsureS3Initialized(); !status.ok()) {
+      spdlog::error("Failed to initialize S3 file system: {}", status.message());
+      std::exit(1);
+    }
+  }
+
+  ~GlobalS3APIManager() {
+    if (arrow::fs::IsS3Initialized()) {
+      if (auto const finalize_status = arrow::fs::FinalizeS3(); !finalize_status.ok()) {
+        spdlog::error("Failed to finalize S3 file system");
+      }
+    }
+  }
+};
+
+auto BuildS3Config(memgraph::query::ParquetFileConfig &config) -> memgraph::query::ParquetFileConfig {
+  auto get_env_or_empty = [](const char *env_name) -> std::optional<std::string> {
+    if (const auto *const env_val = std::getenv(env_name)) {
+      return std::string{env_val};
+    }
+    return std::nullopt;
+  };
+
+  config.aws_region = config.aws_region
+                          .or_else([&] {
+                            auto setting = memgraph::flags::run_time::GetAwsRegion();
+                            return setting.empty() ? std::nullopt : std::make_optional(std::move(setting));
+                          })
+                          .or_else([&] { return get_env_or_empty(kAwsRegionEnv); });
+
+  config.aws_access_key = config.aws_access_key
+                              .or_else([&] {
+                                auto setting = memgraph::flags::run_time::GetAwsAccessKey();
+                                return setting.empty() ? std::nullopt : std::make_optional(std::move(setting));
+                              })
+                              .or_else([&] { return get_env_or_empty(kAwsAccessKeyEnv); });
+
+  config.aws_secret_key = config.aws_secret_key
+                              .or_else([&] {
+                                auto setting = memgraph::flags::run_time::GetAwsSecretKey();
+                                return setting.empty() ? std::nullopt : std::make_optional(std::move(setting));
+                              })
+                              .or_else([&] { return get_env_or_empty(kAwsSecretKeyEnv); });
+
+  config.aws_endpoint_url = config.aws_endpoint_url
+                                .or_else([&] {
+                                  auto setting = memgraph::flags::run_time::GetAwsEndpointUrl();
+                                  return setting.empty() ? std::nullopt : std::make_optional(std::move(setting));
+                                })
+                                .or_else([&] { return get_env_or_empty(kAwsEndpointUrlEnv); });
+
+  return config;
+}
+
+auto BuildHeader(std::shared_ptr<arrow::Schema> const &schema, memgraph::utils::MemoryResource *resource)
+    -> memgraph::query::Header {
+  memgraph::query::Header header(resource);
+  header.reserve(schema->num_fields());
+  for (auto const &field : schema->fields()) {
+    // temporary needs to be created
+    // NOLINTNEXTLINE
+    header.push_back(TypedValue::TString{field->name(), resource});
+  }
+  return header;
+}
+
+// nullptr for error
+auto LoadFileFromS3(memgraph::query::ParquetFileConfig const &s3_config)
+    -> std::unique_ptr<parquet::arrow::FileReader> {
+  GlobalS3APIManager::GetInstance();
+
+  // Users needs to set aws_region, aws_access_key and aws_secret_key in some way. aws_endpoint_url is optional
+  if (!s3_config.aws_region.has_value()) {
+    spdlog::error(
+        "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} or "
+        "env variable {}",
+        memgraph::query::kAwsRegionQuerySetting, kAwsRegionEnv);
+    return nullptr;
+  }
+
+  if (!s3_config.aws_access_key.has_value()) {
+    spdlog::error(
+        "AWS access key configuration parameter not provided. Please provide it through the query, run-time setting {} "
+        "or env variable {}",
+        memgraph::query::kAwsAccessKeyQuerySetting, kAwsAccessKeyEnv);
+    return nullptr;
+  }
+
+  if (!s3_config.aws_secret_key.has_value()) {
+    spdlog::error(
+        "AWS secret key configuration parameter not provided. Please provide it through the query, run-time setting {} "
+        "or env variable {}",
+        memgraph::query::kAwsSecretKeyQuerySetting, kAwsSecretKeyEnv);
+    return nullptr;
+  }
+
+  auto s3_options = arrow::fs::S3Options::FromAccessKey(*s3_config.aws_access_key, *s3_config.aws_secret_key);
+  s3_options.region = *s3_config.aws_region;
+  // aws_endpoint_url is optional, by default it will try to pull from the real S3
+  if (s3_config.aws_endpoint_url.has_value()) {
+    s3_options.endpoint_override = *s3_config.aws_endpoint_url;
+  }
+
+  auto maybe_s3_fs = arrow::fs::S3FileSystem::Make(s3_options);
+  if (!maybe_s3_fs.ok()) {
+    spdlog::error(maybe_s3_fs.status().message());
+    return nullptr;
+  }
+
+  auto const &s3_fs = *maybe_s3_fs;
+
+  auto const uri_wo_prefix = s3_config.file.substr(s3_prefix.size());
+  auto rnd_acc_file = s3_fs->OpenInputFile(uri_wo_prefix);
+  if (!rnd_acc_file.ok()) {
+    spdlog::error(rnd_acc_file.status().message());
+    return nullptr;
+  }
+
+  auto maybe_parquet_reader = parquet::arrow::OpenFile(*rnd_acc_file, arrow::default_memory_pool());
+
+  if (!maybe_parquet_reader.ok()) {
+    spdlog::error(maybe_parquet_reader.status().message());
+    return nullptr;
+  }
+
+  return std::move(*maybe_parquet_reader);
+}
+
+// nullptr for error
+auto LoadFileFromDisk(std::string const &file_path) -> std::unique_ptr<parquet::arrow::FileReader> {
+  arrow::MemoryPool *pool = arrow::default_memory_pool();
+
+  auto maybe_file = arrow::io::ReadableFile::Open(file_path, pool);
+  if (!maybe_file.ok()) {
+    spdlog::error(maybe_file.status().message());
+    return nullptr;
+  }
+
+  auto const &file = *maybe_file;
+
+  auto reader_properties = parquet::ReaderProperties(pool);
+  reader_properties.enable_buffered_stream();
+
+  auto arrow_reader_props = parquet::ArrowReaderProperties();
+  arrow_reader_props.set_batch_size(batch_rows);
+  arrow_reader_props.set_use_threads(true);
+
+  parquet::arrow::FileReaderBuilder reader_builder;
+  if (auto const status = reader_builder.Open(file, reader_properties); !status.ok()) {
+    spdlog::error(status.message());
+    return nullptr;
+  }
+
+  reader_builder.memory_pool(pool);
+  reader_builder.properties(arrow_reader_props);
+
+  std::unique_ptr<parquet::arrow::FileReader> file_reader;
+  if (auto const status = reader_builder.Build(&file_reader); !status.ok()) {
+    spdlog::error(status.message());
+    return nullptr;
+  }
+
+  return file_reader;
+}
 
 // Return to microseconds
 auto ArrowTimeToUs(auto const arrow_val, auto const arrow_time_unit) -> int64_t {
@@ -439,16 +630,13 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
   }
 }
 
-ParquetReader::impl::~impl() {
-  // prefetcher_thread_.request_stop();
-}
+ParquetReader::impl::~impl() { prefetcher_thread_.request_stop(); }
 
 auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   if (row_in_batch_ >= current_batch_size_) {
     if (!work_queue_.pop(rows_)) {
       return false;
     }
-
     row_in_batch_ = 0;
     current_batch_size_ = rows_.size();
   }
@@ -456,52 +644,28 @@ auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   return true;
 }
 
-ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *resource) {
-  arrow::MemoryPool *pool = arrow::default_memory_pool();
-
-  try {
-    // Open the file
-    std::shared_ptr<arrow::io::ReadableFile> infile;
-    PARQUET_ASSIGN_OR_THROW(infile, arrow::io::ReadableFile::Open(file, pool));
-
-    // Configure general Parquet reader settings
-    auto reader_properties = parquet::ReaderProperties(pool);
-    reader_properties.enable_buffered_stream();
-
-    // Configure Arrow-specific Parquet reader settings
-    auto arrow_reader_props = parquet::ArrowReaderProperties();
-    arrow_reader_props.set_batch_size(batch_rows);
-    arrow_reader_props.set_use_threads(true);
-
-    // Build the reader
-    parquet::arrow::FileReaderBuilder reader_builder;
-    PARQUET_THROW_NOT_OK(reader_builder.Open(infile, reader_properties));
-    reader_builder.memory_pool(pool);
-    reader_builder.properties(arrow_reader_props);
-
-    std::unique_ptr<parquet::arrow::FileReader> arrow_reader;
-    PARQUET_THROW_NOT_OK(reader_builder.Build(&arrow_reader));
-
-    // Get the RecordBatchReader
-    auto res = arrow_reader->GetRecordBatchReader();
-    if (!res.ok()) {
-      throw std::runtime_error(res.status().message());
+ParquetReader::ParquetReader(ParquetFileConfig parquet_file_config, utils::MemoryResource *resource) {
+  auto file_reader = std::invoke([&]() -> std::unique_ptr<parquet::arrow::FileReader> {
+    if (parquet_file_config.file.starts_with(s3_prefix)) {
+      return LoadFileFromS3(BuildS3Config(parquet_file_config));
     }
+    return LoadFileFromDisk(parquet_file_config.file);
+  });
 
-    auto const schema = (*res)->schema();
-    Header header(resource);
-    header.reserve(schema->num_fields());
-    for (auto const &field : schema->fields()) {
-      // temporary needs to be created
-      // NOLINTNEXTLINE
-      header.push_back(TypedValue::TString{field->name(), resource});
-    }
-
-    pimpl_ = std::make_unique<impl>(std::move(arrow_reader), std::move(*res), std::move(header), resource);
-  } catch (const std::exception &e) {
-    spdlog::error("Failed to open parquet file '{}': {}", file, e.what());
-    throw;
+  if (!file_reader) {
+    throw utils::BasicException("Failed to load file {}.", parquet_file_config.file);
   }
+
+  auto maybe_batch_reader = file_reader->GetRecordBatchReader();
+  if (!maybe_batch_reader.ok()) {
+    throw utils::BasicException("Couldn't create RecordBatchReader because of {}",
+                                maybe_batch_reader.status().message());
+  }
+
+  auto batch_reader = std::move(*maybe_batch_reader);
+  auto header = BuildHeader(batch_reader->schema(), resource);
+
+  pimpl_ = std::make_unique<impl>(std::move(file_reader), std::move(batch_reader), std::move(header), resource);
 }
 
 ParquetReader::~ParquetReader() = default;

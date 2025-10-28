@@ -3255,11 +3255,15 @@ class LoadParquet : public Clause {
   }
 
   Expression *file_;
+  std::unordered_map<Expression *, Expression *> configs_;
   Identifier *row_var_{nullptr};
 
   LoadParquet *Clone(AstStorage *storage) const override {
     LoadParquet *object = storage->Create<LoadParquet>();
     object->file_ = file_ ? file_->Clone(storage) : nullptr;
+    for (const auto &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
     object->row_var_ = row_var_ ? row_var_->Clone(storage) : nullptr;
     return object;
   }

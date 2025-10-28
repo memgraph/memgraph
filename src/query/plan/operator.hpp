@@ -2325,7 +2325,8 @@ class LoadParquet : public memgraph::query::plan::LogicalOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   LoadParquet() = default;
-  LoadParquet(std::shared_ptr<LogicalOperator> input, Expression *file, Symbol row_var);
+  LoadParquet(std::shared_ptr<LogicalOperator> input, Expression *file,
+              std::unordered_map<Expression *, Expression *> config_map, Symbol row_var);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
@@ -2340,6 +2341,7 @@ class LoadParquet : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Expression *file_;
+  std::unordered_map<Expression *, Expression *> config_map_;
   Symbol row_var_;
 };
 

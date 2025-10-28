@@ -32,6 +32,7 @@
 
 #include "csv/parsing.hpp"
 #include "license/license.hpp"
+#include "query/arrow_parquet/parquet_file_config.hpp"
 #include "query/arrow_parquet/reader.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -7724,8 +7725,35 @@ std::unique_ptr<LogicalOperator> LoadCsv::Clone(AstStorage *storage) const {
 
 std::string LoadCsv::ToString() const { return fmt::format("LoadCsv {{{}}}", row_var_.name()); };
 
-LoadParquet::LoadParquet(std::shared_ptr<LogicalOperator> input, Expression *file, Symbol row_var)
-    : input_(input ? input : (std::make_shared<Once>())), file_(file), row_var_(std::move(row_var)) {
+namespace {
+
+auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
+                    PrimitiveLiteralExpressionEvaluator &evaluator)
+    -> std::optional<std::map<std::string, std::string, std::less<>>> {
+  if (std::ranges::any_of(config_map, [&evaluator](const auto &entry) {
+        auto key_expr = entry.first->Accept(evaluator);
+        auto value_expr = entry.second->Accept(evaluator);
+        return !key_expr.IsString() || !value_expr.IsString();
+      })) {
+    spdlog::error("Config map must contain only string keys and values!");
+    return std::nullopt;
+  }
+
+  return rv::all(config_map) | rv::transform([&evaluator](const auto &entry) {
+           auto key_expr = entry.first->Accept(evaluator);
+           auto value_expr = entry.second->Accept(evaluator);
+           return std::pair{key_expr.ValueString(), value_expr.ValueString()};
+         }) |
+         ranges::to<std::map<std::string, std::string, std::less<>>>;
+}
+}  // namespace
+
+LoadParquet::LoadParquet(std::shared_ptr<LogicalOperator> input, Expression *file,
+                         std::unordered_map<Expression *, Expression *> config_map, Symbol row_var)
+    : input_(input ? input : (std::make_shared<Once>())),
+      file_(file),
+      config_map_(std::move(config_map)),
+      row_var_(std::move(row_var)) {
   MG_ASSERT(file_, "Something went wrong - LoadParquet's member file_ shouldn't be a nullptr");
 }
 
@@ -7764,9 +7792,21 @@ class LoadParquetCursor : public Cursor {
       auto evaluator = PrimitiveLiteralExpressionEvaluator{context.evaluation_context};
       auto maybe_file = self_->file_->Accept(evaluator).ValueString();
 
+      auto maybe_config_map = ParseConfigMap(self_->config_map_, evaluator);
+
+      if (!maybe_config_map) {
+        throw QueryRuntimeException("Failed to parse config map for LOAD PARQUET clause!");
+      }
+
+      if (maybe_config_map->size() > 4) {
+        throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
+                                    kAwsAccessKeyQuerySetting, kAwsAccessKeyQuerySetting, kAwsSecretKeyQuerySetting,
+                                    kAwsEndpointUrlQuerySetting);
+      }
+
       // No need to check if maybe_file is std::nullopt, as the parser makes sure
       // we can't get a nullptr for the 'file_' member in the LoadParquet clause
-      reader_.emplace(std::string{maybe_file}, mem);
+      reader_.emplace(ParquetFileConfig::FromQueryConfig(std::string{maybe_file}, std::move(*maybe_config_map)), mem);
     }
 
     if (input_cursor_->Pull(frame, context)) {
