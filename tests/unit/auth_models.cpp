@@ -1111,7 +1111,7 @@ TEST(AuthModule, RoleSerialization) {
 
   auto json = nlohmann::json::parse(R"({
           "databases":{"allow_all":false,"default":"memgraph","denies":[],"grants":["memgraph"]},
-          "fine_grained_access_handler":{
+          "fine_grained_permissions":{
             "edge_type_permissions":{"global_permission":-1,"permissions":[]},
             "label_permissions":{"global_permission":-1,"permissions":[]}
           },
