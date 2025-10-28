@@ -16,3 +16,8 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["load_parquet/load_parquet.py"]
     <<: *load_parquet_in_memory_cluster
+
+  - name: "LOAD S3 PARQUET"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["load_parquet/load_s3_parquet.py"]
+    <<: *load_parquet_in_memory_cluster

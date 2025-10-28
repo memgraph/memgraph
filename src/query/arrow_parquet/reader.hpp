@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "query/arrow_parquet/parquet_file_config.hpp"
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/vector.hpp"
@@ -22,7 +23,7 @@ using Header = utils::pmr::vector<TypedValue::TString>;
 
 class ParquetReader {
  public:
-  explicit ParquetReader(std::string const &file, utils::MemoryResource *resource);
+  explicit ParquetReader(ParquetFileConfig parquet_file_config, utils::MemoryResource *resource);
   ~ParquetReader();
 
   ParquetReader(ParquetReader const &other) = delete;

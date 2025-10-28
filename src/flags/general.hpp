@@ -127,3 +127,10 @@ auto ParseQueryModulesDirectory() -> std::vector<std::filesystem::path>;
 DECLARE_string(license_key);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(organization_name);
+
+// AWS settings
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(aws_region);
+DECLARE_string(aws_access_key);
+DECLARE_string(aws_secret_key);
+DECLARE_string(aws_endpoint_url);

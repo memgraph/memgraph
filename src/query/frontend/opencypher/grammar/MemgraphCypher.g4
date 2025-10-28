@@ -398,7 +398,7 @@ loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( NULLIF nullif ) ?
          AS rowVar ;
 
-loadParquet : LOAD PARQUET FROM parquetFile AS rowVar ;
+loadParquet : LOAD PARQUET FROM parquetFile ( WITH CONFIG configsMap=configMap ) ? AS rowVar ;
 
 csvFile : literal | parameter ;
 

@@ -8,6 +8,7 @@ endfunction()
 
 copy_load_parquet_e2e_python_files(common.py)
 copy_load_parquet_e2e_python_files(load_parquet.py)
+copy_load_parquet_e2e_python_files(load_s3_parquet.py)
 copy_load_parquet_e2e_files(edges_100.parquet)
 copy_load_parquet_e2e_files(edges_with_nulls.parquet)
 copy_load_parquet_e2e_files(nodes_100.parquet)

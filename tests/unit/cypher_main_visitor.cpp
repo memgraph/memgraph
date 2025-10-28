@@ -4309,7 +4309,7 @@ TEST_P(CypherMainVisitorTest, TestLoadParquetClause) {
   }
   {
     const std::string query =
-        R"(LOAD PARQUET FROM 'nodes.parquet' AS row CREATE (n:Person {id: row.id, name: row.name, age: ToInteger(row.age), city: row.city}))";
+        R"(LOAD PARQUET FROM 'nodes.parquet' AS row CREATE (n:Person {id: row.id, name: row.name, age: row.age, city: row.city}))";
     auto *parsed_query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
     ASSERT_EQ(parsed_query->single_query_->clauses_.size(), 2);
     ASSERT_TRUE(parsed_query);
@@ -4318,13 +4318,41 @@ TEST_P(CypherMainVisitorTest, TestLoadParquetClause) {
   }
   {
     const std::string query =
-        R"(LOAD PARQUET FROM 'nodes.parquet' AS row MATCH (a:Person {id: row.START_ID}) MATCH (b:Person {id: row.END_ID}) CREATE (a)-[r:KNOWS {type: row.TYPE, since: ToInteger(row.since), strength: row.strength}]->(b))";
+        R"(LOAD PARQUET FROM 'nodes.parquet' AS row MATCH (a:Person {id: row.START_ID}) MATCH (b:Person {id: row.END_ID}) CREATE (a)-[r:KNOWS {type: row.TYPE, since: row.since, strength: row.strength}]->(b))";
     auto *parsed_query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
     ASSERT_TRUE(parsed_query);
     ASSERT_EQ(parsed_query->single_query_->clauses_.size(), 4);
     auto *load_parquet_clause = dynamic_cast<LoadParquet *>(parsed_query->single_query_->clauses_[0]);
     ASSERT_TRUE(load_parquet_clause);
     ASSERT_EQ(parsed_query->single_query_->clauses_.size(), 4);
+  }
+  {
+    const std::string query =
+        R"(LOAD PARQUET FROM 'nodes.parquet' WITH CONFIG {'aws_region': 'eu-west-1', 'aws_access_key': 'acc_key', 'aws_secret_key': 'secret_key'} AS row CREATE (n:Person {id: row.id, name: row.name, age: row.age, city: row.city}))";
+    auto *parsed_query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
+    ASSERT_EQ(parsed_query->single_query_->clauses_.size(), 2);
+    ASSERT_TRUE(parsed_query);
+    auto *load_parquet_clause = dynamic_cast<LoadParquet *>(parsed_query->single_query_->clauses_[0]);
+    ASSERT_TRUE(load_parquet_clause);
+
+    auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+        -> std::unordered_map<std::string, std::string> {
+      auto const expr_to_str = [&ast_generator](Expression *expression) {
+        return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+      };
+
+      return ranges::views::transform(config_map,
+                                      [&expr_to_str](auto const &expr_pair) {
+                                        return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                      }) |
+             ranges::to<std::unordered_map<std::string, std::string>>;
+    };
+
+    auto const config_map = evaluate_config_map(load_parquet_clause->configs_);
+    ASSERT_EQ(config_map.size(), 3);
+    ASSERT_EQ(config_map.at("aws_region"), "eu-west-1");
+    ASSERT_EQ(config_map.at("aws_access_key"), "acc_key");
+    ASSERT_EQ(config_map.at("aws_secret_key"), "secret_key");
   }
 }
 
