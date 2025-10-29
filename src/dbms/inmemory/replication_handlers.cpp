@@ -1318,7 +1318,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalEdgePropertyIndexDrop const &data) {
           spdlog::trace("       Drop global edge index on ({})", data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (transaction->CreateGlobalEdgeIndex(storage->NameToProperty(data.property)).HasError()) {
+          if (transaction->DropGlobalEdgeIndex(storage->NameToProperty(data.property)).HasError()) {
             throw utils::BasicException("Failed to drop global edge property index on ({}).", data.property);
           }
         },
