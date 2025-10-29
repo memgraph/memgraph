@@ -316,6 +316,11 @@ def test_global_edge_index_drop_replication(test_name):
     instance_1_cursor = connect(host="localhost", port=7687).cursor()
     mg_sleep_and_assert(1, partial(get_vertex_count, instance_1_cursor))
 
+    def get_num_indices(cursor):
+        return len(execute_and_fetch_all(cursor, "show index info"))
+
+    mg_sleep_and_assert(0, partial(get_num_indices, instance_1_cursor))
+
 
 def test_leadership_change(test_name):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
