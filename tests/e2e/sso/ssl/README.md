@@ -1,6 +1,6 @@
 # OIDC SSL Certificate Testing
 
-Tests OIDC authentication with self-signed certificates using `MEMGRAPH_SSO_*_OIDC_EXTRA_CA_CERTS` environment variables.
+Tests OIDC authentication with self-signed certificates using `MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS` environment variables.
 
 ## Quick Start
 
