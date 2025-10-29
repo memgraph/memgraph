@@ -1528,7 +1528,7 @@ void WalFile::FinalizeWal() {
     wal_.Finalize();
     wal_.Close();
     // Rename file.
-    std::filesystem::path new_path(RemakeWalName(path_.filename(), from_timestamp_, to_timestamp_));
+    std::filesystem::path new_path(RemakeWalName(path_, from_timestamp_, to_timestamp_));
     file_retainer_->RenameFile(path_, new_path);
     path_ = std::move(new_path);
   }

@@ -30,22 +30,26 @@ const std::string kTimestampFormat = "{:04d}{:02d}{:02d}{:02d}{:02d}{:02d}{:06d}
 
 // Generates the name for a snapshot in a well-defined sortable format with the
 // start timestamp appended to the file name.
-inline std::string MakeSnapshotName(uint64_t start_timestamp) {
-  std::string date_str = utils::Timestamp::Now().ToString(kTimestampFormat);
-  return date_str + "_timestamp_" + std::to_string(start_timestamp);
+inline auto MakeSnapshotName(uint64_t const start_timestamp) -> std::string {
+  auto const date_str = utils::Timestamp::Now().ToString(kTimestampFormat);
+  return fmt::format("{}_timestamp_{}", date_str, std::to_string(start_timestamp));
 }
 
 // Generates the name for a WAL file in a well-defined sortable format.
-inline std::string MakeWalName() {
-  std::string date_str = utils::Timestamp::Now().ToString(kTimestampFormat);
-  return date_str + "_current";
+inline auto MakeWalName() -> std::string {
+  auto const date_str = utils::Timestamp::Now().ToString(kTimestampFormat);
+  return fmt::format("{}_current", date_str);
 }
 
-// Generates the name for a WAL file in a well-defined sortable format with the
+// Generates the path for a WAL file in a well-defined sortable format with the
 // range of timestamps contained [from, to] appended to the name.
-inline std::string RemakeWalName(const std::string &current_name, uint64_t from_timestamp, uint64_t to_timestamp) {
-  return current_name.substr(0, current_name.size() - 8) + "_from_" + std::to_string(from_timestamp) + "_to_" +
-         std::to_string(to_timestamp);
+inline auto RemakeWalName(const std::filesystem::path &current_path, uint64_t const from_timestamp,
+                          uint64_t const to_timestamp) -> std::string {
+  auto const current_filename = current_path.filename().string();
+  // 8 is the size of _current
+  return fmt::format("{}/{}_from_{}_to_{}", current_path.parent_path().string(),
+                     current_filename.substr(0, current_filename.size() - 8), std::to_string(from_timestamp),
+                     std::to_string(to_timestamp));
 }
 
 }  // namespace memgraph::storage::durability
