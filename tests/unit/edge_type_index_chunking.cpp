@@ -55,19 +55,22 @@ class EdgeTypeIndexChunkingTest : public ::testing::Test {
 
 TEST_F(EdgeTypeIndexChunkingTest, BasicEdgeTypeIndexChunking) {
   // Create edges with different edge types
-  auto acc = storage_->Access();
   std::vector<Gid> edge_gids;
 
-  // Create 100 edges with edge_type_id1_
-  for (int i = 0; i < 100; ++i) {
-    auto vertex_from = acc->CreateVertex();
-    auto vertex_to = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-    edge_gids.push_back(edge->Gid());
+  {
+    auto acc = storage_->Access();
+    // Create 100 edges with edge_type_id1_
+    for (int i = 0; i < 100; ++i) {
+      auto vertex_from = acc->CreateVertex();
+      auto vertex_to = acc->CreateVertex();
+      auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
+      edge_gids.push_back(edge->Gid());
+    }
+
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
-  ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-
+  auto acc = storage_->Access();
   // Test chunking for edges with edge type
   auto edges = acc->ChunkedEdges(edge_type_id1_, View::OLD, 4);
 
@@ -99,27 +102,36 @@ TEST_F(EdgeTypeIndexChunkingTest, BasicEdgeTypeIndexChunking) {
   threads.clear();
 
   {
-    std::sort(read_gids.Lock()->begin(), read_gids.Lock()->end());
+    auto locked_gids = read_gids.Lock();
+    std::sort(locked_gids->begin(), locked_gids->end());
     ASSERT_EQ(total_count.load(), 100);
-    ASSERT_EQ(read_gids.Lock()->size(), 100);
+    ASSERT_EQ(locked_gids->size(), 100);
   }
 }
 
 TEST_F(EdgeTypeIndexChunkingTest, EdgeTypeIndexChunkingBigDataset) {
   // Create edges with edge types
-  auto acc = storage_->Access();
   std::vector<Gid> edge_gids;
 
-  // Create 1000 edges with edge_type_id1_
-  for (int i = 0; i < 1000; ++i) {
-    auto vertex_from = acc->CreateVertex();
-    auto vertex_to = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-    edge_gids.push_back(edge->Gid());
+  {
+    auto acc = storage_->Access();
+    // Create 1000 edges with edge_type_id1_
+    for (int i = 0; i < 100000; ++i) {
+      auto vertex_from = acc->CreateVertex();
+      auto vertex_to = acc->CreateVertex();
+      if (i % 2 == 0) {
+        auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
+        edge_gids.push_back(edge->Gid());
+      } else {
+        auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id2_);
+        edge_gids.push_back(edge->Gid());
+      }
+    }
+
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
-  ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-
+  auto acc = storage_->Access();
   // Test chunking for edges with edge type
   auto edges = acc->ChunkedEdges(edge_type_id1_, View::OLD, 8);
 
@@ -140,7 +152,7 @@ TEST_F(EdgeTypeIndexChunkingTest, EdgeTypeIndexChunkingBigDataset) {
         gids.push_back((*it).Gid());
       }
       ASSERT_GT(local_count, 0);
-      ASSERT_LT(local_count, 1000 / 8 * 2);
+      ASSERT_LT(local_count, 50000 / 8 * 2);
       total_count.fetch_add(local_count, std::memory_order_relaxed);
       auto locked_gids = read_gids.Lock();
       locked_gids->insert(locked_gids->end(), std::make_move_iterator(gids.begin()),
@@ -151,27 +163,30 @@ TEST_F(EdgeTypeIndexChunkingTest, EdgeTypeIndexChunkingBigDataset) {
   threads.clear();
 
   {
-    std::sort(read_gids.Lock()->begin(), read_gids.Lock()->end());
-    ASSERT_EQ(total_count.load(), 1000);
-    ASSERT_EQ(read_gids.Lock()->size(), 1000);
+    auto locked_gids = read_gids.Lock();
+    std::sort(locked_gids->begin(), locked_gids->end());
+    ASSERT_EQ(total_count.load(), 50000);
+    ASSERT_EQ(locked_gids->size(), 50000);
   }
 }
 
 TEST_F(EdgeTypeIndexChunkingTest, EdgeTypeIndexChunkingConcurrentOperations) {
   // Create initial edges
-  auto acc = storage_->Access();
   std::vector<Gid> edge_gids;
+  {
+    auto acc = storage_->Access();
+    // Create 500 edges with edge_type_id1_
+    for (int i = 0; i < 500; ++i) {
+      auto vertex_from = acc->CreateVertex();
+      auto vertex_to = acc->CreateVertex();
+      auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
+      edge_gids.push_back(edge->Gid());
+    }
 
-  // Create 500 edges with edge_type_id1_
-  for (int i = 0; i < 500; ++i) {
-    auto vertex_from = acc->CreateVertex();
-    auto vertex_to = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-    edge_gids.push_back(edge->Gid());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
-  ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-
+  auto acc = storage_->Access();
   // Test chunking for edges with edge type
   auto edges = acc->ChunkedEdges(edge_type_id1_, View::OLD, 6);
 
@@ -238,26 +253,30 @@ TEST_F(EdgeTypeIndexChunkingTest, EdgeTypeIndexChunkingConcurrentOperations) {
 
 TEST_F(EdgeTypeIndexChunkingTest, EdgeTypeIndexChunkingMultipleEdgeTypes) {
   // Create edges with different edge types
-  auto acc = storage_->Access();
   std::vector<Gid> edge_gids;
+  {
+    auto acc = storage_->Access();
 
-  // Create 100 edges with edge_type_id1_
-  for (int i = 0; i < 100; ++i) {
-    auto vertex_from = acc->CreateVertex();
-    auto vertex_to = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-    edge_gids.push_back(edge->Gid());
+    // Create 100 edges with edge_type_id1_
+    for (int i = 0; i < 100; ++i) {
+      auto vertex_from = acc->CreateVertex();
+      auto vertex_to = acc->CreateVertex();
+      auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
+      edge_gids.push_back(edge->Gid());
+    }
+
+    // Create 50 edges with edge_type_id2_
+    for (int i = 0; i < 50; ++i) {
+      auto vertex_from = acc->CreateVertex();
+      auto vertex_to = acc->CreateVertex();
+      auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id2_);
+      edge_gids.push_back(edge->Gid());
+    }
+
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
-  // Create 50 edges with edge_type_id2_
-  for (int i = 0; i < 50; ++i) {
-    auto vertex_from = acc->CreateVertex();
-    auto vertex_to = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id2_);
-    edge_gids.push_back(edge->Gid());
-  }
-
-  ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  auto acc = storage_->Access();
 
   // Test chunking for edges with edge_type_id1_
   auto edges1 = acc->ChunkedEdges(edge_type_id1_, View::OLD, 4);
@@ -314,19 +333,22 @@ TEST_F(EdgeTypeIndexChunkingTest, EdgeTypeIndexChunkingMultipleEdgeTypes) {
 
 TEST_F(EdgeTypeIndexChunkingTest, EdgeTypeIndexChunkingEdgeCases) {
   // Create edges with edge types
-  auto acc = storage_->Access();
   std::vector<Gid> edge_gids;
+  {
+    auto acc = storage_->Access();
 
-  // Create 50 edges with edge_type_id1_
-  for (int i = 0; i < 50; ++i) {
-    auto vertex_from = acc->CreateVertex();
-    auto vertex_to = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-    edge_gids.push_back(edge->Gid());
+    // Create 50 edges with edge_type_id1_
+    for (int i = 0; i < 50; ++i) {
+      auto vertex_from = acc->CreateVertex();
+      auto vertex_to = acc->CreateVertex();
+      auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
+      edge_gids.push_back(edge->Gid());
+    }
+
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
-  ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-
+  auto acc = storage_->Access();
   // Test 1: Empty index (non-existent edge type)
   auto empty_edges = acc->ChunkedEdges(edge_type_id2_, View::OLD, 4);
   ASSERT_GT(empty_edges.size(), 0);
@@ -356,19 +378,22 @@ TEST_F(EdgeTypeIndexChunkingTest, EdgeTypeIndexChunkingEdgeCases) {
 
 TEST_F(EdgeTypeIndexChunkingTest, EdgeTypeIndexChunkingDynamic) {
   // Create edges with edge types
-  auto acc = storage_->Access();
   std::vector<Gid> edge_gids;
+  {
+    auto acc = storage_->Access();
 
-  // Create 200 edges with edge_type_id1_
-  for (int i = 0; i < 200; ++i) {
-    auto vertex_from = acc->CreateVertex();
-    auto vertex_to = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-    edge_gids.push_back(edge->Gid());
+    // Create 200 edges with edge_type_id1_
+    for (int i = 0; i < 200; ++i) {
+      auto vertex_from = acc->CreateVertex();
+      auto vertex_to = acc->CreateVertex();
+      auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
+      edge_gids.push_back(edge->Gid());
+    }
+
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
-  ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-
+  auto acc = storage_->Access();
   // Test chunking for edges with edge type
   auto acc2 = storage_->Access();  // Get access before starting the modify thread
 
@@ -463,8 +488,12 @@ TEST_F(EdgeTypeIndexChunkingTest, EdgeTypeIndexChunkingComprehensiveEdgeCases) {
     for (int i = 0; i < 4; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
-      auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-      edge_gids.push_back(edge->Gid());
+      if (i % 2 == 0) {
+        auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
+        edge_gids.push_back(edge->Gid());
+      } else {
+        auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id2_);
+      }
     }
     ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
