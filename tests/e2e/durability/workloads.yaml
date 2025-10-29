@@ -14,3 +14,6 @@ workloads:
   - name: "Durability with text index"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/durability_with_text_index.py"]
+  - name: "Durability with vector index"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/durability_with_vector_index.py"]

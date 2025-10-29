@@ -247,7 +247,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
     }
   }
 
-  auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
+  auto it = r::find(vertex_->labels, label);
   if (it == vertex_->labels.end()) return false;
 
   utils::AtomicMemoryBlock([transaction = transaction_, vertex = vertex_, &label, &it, this]() {
@@ -259,8 +259,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
         if (auto index_name = properties.find(property_id); index_name != properties.end()) {
           auto old_vertex_property_value = vertex->properties.GetProperty(property_id);
           auto &ids = old_vertex_property_value.ValueVectorIndexIds();
-          ids.erase(std::remove(ids.begin(), ids.end(), storage_->name_id_mapper_->NameToId(index_name->second)),
-                    ids.end());
+          ids.erase(r::remove(ids, storage_->name_id_mapper_->NameToId(index_name->second)), ids.end());
           auto old_vector_property_value =
               storage_->indices_.vector_index_.GetPropertyValue(vertex, index_name->second);
           storage_->indices_.vector_index_.UpdateIndex(

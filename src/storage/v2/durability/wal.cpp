@@ -844,20 +844,14 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
       encoder->WriteMarker(Marker::DELTA_VERTEX_SET_VECTOR_PROPERTY);
       encoder->WriteUint(vertex->gid.AsUint());
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
-      auto property_value = vertex->properties.GetProperty(delta.property.key);
-      if (!property_value.IsVectorIndexId()) {
-        auto ids_to_remove_from =
-            PropertyValue(std::move(delta.property.value->ValueVectorIndexIds()), std::vector<float>{});
-        encoder->WriteExternalPropertyValue(
-            ToExternalPropertyValue(ids_to_remove_from, storage->name_id_mapper_.get()));
-        break;
-      }
-      auto vector_index_id = property_value.ValueVectorIndexIds().front();
+      MG_ASSERT(delta.property.value->IsVectorIndexId(), "Vector index ID expected!");
       auto vector_value = storage->indices_.vector_index_.GetVectorProperty(
-          vertex, storage->name_id_mapper_->IdToName(vector_index_id));
-      auto property_value_with_vector = PropertyValue(property_value.ValueVectorIndexIds(), std::move(vector_value));
+          vertex, storage->name_id_mapper_->IdToName(
+                      delta.property.value->ValueVectorIndexIds()
+                          .front()));  // TODO: this should be okay since the same property should be in all indices?
       encoder->WriteExternalPropertyValue(
-          ToExternalPropertyValue(property_value_with_vector, storage->name_id_mapper_.get()));
+          ToExternalPropertyValue(PropertyValue(delta.property.value->ValueVectorIndexIds(), std::move(vector_value)),
+                                  storage->name_id_mapper_.get()));
       break;
     }
     case Delta::Action::ADD_LABEL:
