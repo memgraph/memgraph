@@ -181,7 +181,6 @@ def test_oidc_custom_with_ca_cert_succeeds(https_server):
     original_value = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS")
 
     try:
-        # Set the CA cert path
         os.environ["MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS"] = cert_path
 
         # Create a dummy token with proper structure
@@ -199,30 +198,20 @@ def test_oidc_custom_with_ca_cert_succeeds(https_server):
         result = validate_jwt_token(dummy_token, "oidc-custom", config, "access")
 
         # The JWKS fetch should succeed (no SSL error)
-        # It may fail later at JWT validation, but that's a different error
-        if not result["valid"]:
-            # If it failed, it should NOT be an SSL/certificate error
-            assert "Failed to fetch JWKS" not in result["errors"] or not any(
-                keyword in result["errors"].lower() for keyword in ["ssl", "certificate", "verify"]
-            )
+        assert not result["valid"]
+        assert not any(keyword in result["errors"].lower() for keyword in ["ssl", "certificate", "verify"])
 
     finally:
         # Restore original value
         if original_value is not None:
             os.environ["MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS"] = original_value
-        else:
-            os.environ.pop("MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS", None)
 
 
 def test_oidc_custom_with_verification_disabled(https_server):
     """Test that custom OIDC succeeds with cert=False (disables SSL verification)"""
-    original_value = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS")
+    original_value = os.environ.pop("MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS")
 
     try:
-        # Don't set the env var - we're testing the config parameter directly
-        if "MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS" in os.environ:
-            del os.environ["MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS"]
-
         # Create a dummy token
         dummy_token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InRlc3Qta2V5LWlkIn0.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJleHAiOjk5OTk5OTk5OTl9.dummy"
 
@@ -236,26 +225,15 @@ def test_oidc_custom_with_verification_disabled(https_server):
         result = validate_jwt_token(dummy_token, "oidc-custom", config, "access")
 
         # The JWKS fetch should succeed (no SSL error) because verification is disabled
-        if not result["valid"]:
-            # If it failed, it should NOT be an SSL/certificate error
-            assert "Failed to fetch JWKS" not in result["errors"] or not any(
-                keyword in result["errors"].lower() for keyword in ["ssl", "certificate", "verify"]
-            )
+        # but the JWT validation should fail because the token is invalid
+        assert not result["valid"]
+        assert not any(keyword in result["errors"].lower() for keyword in ["ssl", "certificate", "verify"])
 
     finally:
         # Restore original value
         if original_value is not None:
             os.environ["MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS"] = original_value
-        else:
-            os.environ.pop("MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS", None)
 
 
 if __name__ == "__main__":
-    # Check if openssl is available
-    try:
-        subprocess.run(["openssl", "version"], check=True, capture_output=True)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        print("OpenSSL is required for this test. Please install it.")
-        sys.exit(1)
-
     sys.exit(pytest.main([__file__, "-v", "-s"]))
