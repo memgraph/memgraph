@@ -15,11 +15,10 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
-
-# Add the auth module path so we can import oidc
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent / "src" / "auth" / "reference_modules"))
-
 from oidc import validate_jwt_token
+
+# TODO: this is probably better way to import oidc
+# sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent / "src" / "auth" / "reference_modules"))
 
 
 class MockJWKSHandler(BaseHTTPRequestHandler):
