@@ -112,6 +112,47 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
                                                             });
 }
 
+inline bool AnyVersionIsVisible(Edge *edge, uint64_t timestamp) {
+  bool deleted{false};
+  const Delta *delta = nullptr;
+  {
+    auto guard = std::shared_lock{edge->lock};
+    deleted = edge->deleted;
+    delta = edge->delta;
+  }
+  if (!deleted) {
+    return true;
+  }
+
+  constexpr auto interesting =
+      details::ActionSet<Delta::Action::RECREATE_OBJECT, Delta::Action::DELETE_DESERIALIZED_OBJECT,
+                         Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<interesting>(timestamp, delta, [&deleted](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::RECREATE_OBJECT: {
+        MG_ASSERT(deleted, "Invalid database state!");
+        deleted = false;
+        break;
+      }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+      case Delta::Action::DELETE_OBJECT: {
+        MG_ASSERT(!deleted, "Invalid database state!");
+        deleted = true;
+        break;
+      }
+      case Delta::Action::ADD_LABEL:
+      case Delta::Action::REMOVE_LABEL:
+      case Delta::Action::SET_PROPERTY:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+    }
+    return !deleted;
+  });
+}
+
 /// Helper function for edgetype-property index garbage collection. Returns true if
 /// there's a reachable version of the edge that has the given property value.
 inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const PropertyValue &value, uint64_t timestamp) {
