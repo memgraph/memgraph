@@ -78,6 +78,33 @@ inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, au
   }
 }
 
+inline void AdvanceUntilValid_(auto &index_iterator, const auto &end_iterator, EdgeRef &current_edge_,
+                               EdgeAccessor &current_accessor_, Transaction *transaction, View view,
+                               EdgeTypeId edge_type, Storage *storage) {
+  for (; index_iterator != end_iterator; ++index_iterator) {
+    if (index_iterator->edge == current_edge_.ptr) {
+      continue;
+    }
+
+    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view)) {
+      continue;
+    }
+
+    auto *from_vertex = index_iterator->from_vertex;
+    auto *to_vertex = index_iterator->to_vertex;
+    auto edge_ref = EdgeRef(index_iterator->edge);
+
+    auto accessor = EdgeAccessor{edge_ref, edge_type, from_vertex, to_vertex, storage, transaction};
+    if (!accessor.IsVisible(view)) {
+      continue;
+    }
+
+    current_edge_ = edge_ref;
+    current_accessor_ = accessor;
+    break;
+  }
+}
+
 }  // namespace
 
 bool InMemoryEdgeTypeIndex::CreateIndexOnePass(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
@@ -315,29 +342,8 @@ InMemoryEdgeTypeIndex::Iterable::Iterator &InMemoryEdgeTypeIndex::Iterable::Iter
 }
 
 void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
-  for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
-    if (index_iterator_->edge == current_edge_.ptr) {
-      continue;
-    }
-
-    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_, self_->view_)) {
-      continue;
-    }
-
-    auto *from_vertex = index_iterator_->from_vertex;
-    auto *to_vertex = index_iterator_->to_vertex;
-    auto edge_ref = EdgeRef(index_iterator_->edge);
-
-    auto accessor =
-        EdgeAccessor{edge_ref, self_->edge_type_, from_vertex, to_vertex, self_->storage_, self_->transaction_};
-    if (!accessor.IsVisible(self_->view_)) {
-      continue;
-    }
-
-    current_edge_ = edge_ref;
-    current_accessor_ = accessor;
-    break;
-  }
+  AdvanceUntilValid_(index_iterator_, self_->index_accessor_.end(), current_edge_, current_accessor_,
+                     self_->transaction_, self_->view_, self_->edge_type_, self_->storage_);
 }
 
 void InMemoryEdgeTypeIndex::RunGC() {
@@ -455,20 +461,10 @@ InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::
 }
 
 void InMemoryEdgeTypeIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
-  while (index_iterator_ != utils::SkipList<Entry>::ChunkedIterator{}) {
-    current_edge_ = index_iterator_->edge;
-    auto edge_ref = EdgeRef(current_edge_);
-    auto accessor =
-        EdgeAccessor{edge_ref,        self_->edge_type_,  index_iterator_->from_vertex, index_iterator_->to_vertex,
-                     self_->storage_, self_->transaction_};
-    if (accessor.IsVisible(self_->view_)) {
-      current_edge_accessor_ = accessor;
-      return;
-    }
-    ++index_iterator_;
-  }
-  current_edge_accessor_ =
-      EdgeAccessor{EdgeRef{nullptr}, EdgeTypeId{}, nullptr, nullptr, self_->storage_, self_->transaction_};
+  // NOTE: Using the skiplist end here to not store the end iterator in the class
+  // The higher level != end will still be correct
+  AdvanceUntilValid_(index_iterator_, utils::SkipList<Entry>::ChunkedIterator{}, current_edge_, current_edge_accessor_,
+                     self_->transaction_, self_->view_, self_->edge_type_, self_->storage_);
 }
 
 }  // namespace memgraph::storage

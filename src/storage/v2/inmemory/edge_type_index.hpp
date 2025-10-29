@@ -121,7 +121,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
       ChunkedIterable *self_;
       utils::SkipList<Entry>::ChunkedIterator index_iterator_;
       EdgeAccessor current_edge_accessor_;
-      Edge *current_edge_{nullptr};
+      EdgeRef current_edge_{nullptr};
     };
 
     class Chunk {

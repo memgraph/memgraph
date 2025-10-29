@@ -134,7 +134,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
       ChunkedIterable *self_;
       utils::SkipList<Entry>::ChunkedIterator index_iterator_;
       EdgeAccessor current_edge_accessor_;
-      Edge *current_edge_{nullptr};
+      EdgeRef current_edge_{nullptr};
     };
 
     class Chunk {
@@ -160,7 +160,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     [[maybe_unused]] PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
-    [[maybe_unused]] bool bounds_valid_{true};
+    bool bounds_valid_{true};
     View view_;
     Storage *storage_;
     Transaction *transaction_;

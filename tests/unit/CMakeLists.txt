@@ -449,6 +449,11 @@ add_unit_test(edge_property_index_chunking
     LINK_TARGETS mg-query storage_test_utils
 )
 
+add_unit_test(edge_type_index_chunking
+    SOURCES edge_type_index_chunking.cpp
+    LINK_TARGETS mg-query storage_test_utils
+)
+
 add_unit_test(edge_type_property_index_chunking
     SOURCES edge_type_property_index_chunking.cpp
     LINK_TARGETS mg-query storage_test_utils
