@@ -2,6 +2,11 @@ name: Daily Benchmark
 
 on:
   workflow_dispatch:
+    inputs:
+      loop_count:
+        type: number
+        description: "Number of times to run the benchmarks. Default is 10."
+        default: 10
   schedule:
     - cron: "0 22 * * *"
 
@@ -15,7 +20,8 @@ jobs:
     #  - macro-benchmark: 2.13 minutes
     #  - mgbench: 13 minutes
     #  - extended planner improvements mgbench: 7.26 minutes
-    #  10 iterations would take about 224 minutes, leaving 46 minutes to allow
+    #  - mgbench-supernode: 1 minute (very rough estimate)
+    #  10 iterations would take about 234 minutes, leaving 36 minutes to allow
     #  for building memgraph and variations in benchmark times.
     env:
       ARCH: "amd"
@@ -25,7 +31,7 @@ jobs:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
-      LOOP_COUNT: 10
+      LOOP_COUNT: ${{ inputs.loop_count || 10 }}
 
     steps:
       - name: Set up repository
@@ -96,6 +102,31 @@ jobs:
             --github-run-id ${{ github.run_id }} \
             --github-run-number ${{ github.run_number }} \
             --head-branch-name ${{ env.BRANCH_NAME }}
+          done
+
+      - name: Run and upload mgbench-supernode
+        run: |
+          for i in {1..${{ env.LOOP_COUNT }}}; do
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph mgbench-supernode --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph upload-to-bench-graph \
+            --benchmark-name "mgbench-supernode" \
+            --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
+            --github-run-id "${{ github.run_id }}" \
+            --github-run-number "${{ github.run_number }}" \
+            --head-branch-name "${{ env.BRANCH_NAME }}"
           done
 
       - name: Run and upload mgbench
