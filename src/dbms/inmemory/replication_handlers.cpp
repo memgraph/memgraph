@@ -34,8 +34,6 @@
 #include <range/v3/view/join.hpp>
 #include <range/v3/view/transform.hpp>
 
-#include "storage/v2/durability/paths.hpp"
-
 using memgraph::storage::Delta;
 using memgraph::storage::EdgeAccessor;
 using memgraph::storage::EdgeRef;
@@ -1028,11 +1026,24 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           if (!vertex) {
             throw utils::BasicException("Failed to find vertex {} when setting property.", gid);
           }
-          auto ret =
-              vertex->SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
+          auto value = ToPropertyValue(data.value, mapper);
+          auto ret = vertex->SetProperty(transaction->NameToProperty(data.property), value);
           if (ret.HasError()) {
             throw utils::BasicException("Failed to set property label from vertex {}.", gid);
           }
+        },
+        [&](WalVertexSetVectorProperty const &data) {
+          auto const gid = data.gid.AsUint();
+          spdlog::trace("   Delta {}. Vertex {} set vector property", current_delta_idx, gid);
+          // NOLINTNEXTLINE
+          auto *transaction = get_replication_accessor(delta_timestamp);
+          // NOLINTNEXTLINE
+          auto vertex = transaction->FindVertex(data.gid, View::NEW);
+          if (!vertex) {
+            throw utils::BasicException("Failed to find vertex {} when setting vector property.", gid);
+          }
+          storage->indices_.vector_index_.UpdateOnSetProperty(ToPropertyValue(data.value, mapper), &*vertex->vertex_,
+                                                              mapper);
         },
         [&](WalEdgeCreate const &data) {
           auto const edge_gid = data.gid.AsUint();
@@ -1114,6 +1125,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                                    case Delta::Action::ADD_LABEL:
                                    case Delta::Action::REMOVE_LABEL:
                                    case Delta::Action::SET_PROPERTY:
+                                   case Delta::Action::SET_VECTOR_PROPERTY:
                                    case Delta::Action::ADD_IN_EDGE:
                                    case Delta::Action::ADD_OUT_EDGE:
                                    case Delta::Action::REMOVE_IN_EDGE:

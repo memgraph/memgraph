@@ -56,6 +56,11 @@ struct VectorIndexSpec {
   friend bool operator==(const VectorIndexSpec &, const VectorIndexSpec &) = default;
 };
 
+struct VectorIndexRecoveryInfo {
+  VectorIndexSpec spec;
+  std::vector<std::vector<float>> vectors;
+};
+
 /// @class VectorIndex
 /// @brief High-level interface for managing vector indexes.
 ///
@@ -85,31 +90,42 @@ class VectorIndex {
   /// @param vertices vertices from which to create vector index
   /// @return true if the index was created successfully, false otherwise.
   bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+                   NameIdMapper *name_id_mapper,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
   /// @return true if the index was dropped successfully, false otherwise.
-  bool DropIndex(std::string_view index_name);
+  bool DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices);
 
   /// @brief Drops all existing indexes.
   void Clear();
-
-  /// @brief Updates the index when a label is added to a vertex.
-  /// @param added_label The label that was added to the vertex.
-  /// @param vertex_after_update The vertex after the label was added.
-  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update);
-
-  /// @brief Updates the index when a label is removed from a vertex.
-  /// @param removed_label The label that was removed from the vertex.
-  /// @param vertex_before_update The vertex before the label was removed.
-  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update);
 
   /// @brief Updates the index when a property is modified on a vertex.
   /// @param property The property that was modified.
   /// @param value The new value of the property.
   /// @param vertex The vertex on which the property was modified.
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex);
+  void UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex, NameIdMapper *name_id_mapper);
+
+  /// @brief Updates the index when a property is modified on a vertex.
+  /// @param value The new value of the property.
+  /// @param vertex The vertex on which the property was modified.
+  /// @param index_name The name of the index to update.
+  /// @return The vector of the vertex as a PropertyValue.
+  std::vector<float> UpdateIndex(const PropertyValue &value, Vertex *vertex, std::string_view index_name,
+                                 NameIdMapper *name_id_mapper);
+
+  /// @brief Retrieves the vector of a vertex as a PropertyValue.
+  /// @param vertex The vertex to retrieve the vector from.
+  /// @param index_name The name of the index to retrieve the vector from.
+  /// @return The vector of the vertex as a PropertyValue.
+  PropertyValue GetPropertyValue(Vertex *vertex, std::string_view index_name) const;
+
+  /// @brief Retrieves the vector of a vertex as a list of float values.
+  /// @param vertex The vertex to retrieve the vector from.
+  /// @param index_name The name of the index to retrieve the vector from.
+  /// @return The vector of the vertex as a list of float values.
+  std::vector<float> GetVectorProperty(Vertex *vertex, std::string_view index_name) const;
 
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.
@@ -133,17 +149,6 @@ class VectorIndex {
   VectorSearchNodeResults SearchNodes(std::string_view index_name, uint64_t result_set_size,
                                       const std::vector<float> &query_vector) const;
 
-  /// @brief Aborts the entries that were inserted in the specified transaction.
-  /// @param label_prop The label of the vertices to be removed.
-  /// @param vertices The vertices to be removed.
-  void AbortEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices);
-
-  /// @brief Restores the entries that were removed in the specified transaction.
-  /// @param label_prop The label and property of the vertices to be restored.
-  /// @param prop_vertices The vertices to be restored.
-  void RestoreEntries(const LabelPropKey &label_prop,
-                      std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices);
-
   /// @brief Removes obsolete entries from the index.
   /// @param token A stop token to allow for cancellation of the operation.
   void RemoveObsoleteEntries(std::stop_token token) const;
@@ -157,13 +162,25 @@ class VectorIndex {
   /// @return true if the index exists, false otherwise.
   bool IndexExists(std::string_view index_name) const;
 
+  /// @brief Checks if the property is in the vector index.
+  /// @param vertex The vertex to check.
+  /// @param property The property to check.
+  /// @return true if the property is in the vector index, false otherwise.
+  std::optional<std::vector<uint64_t>> IsPropertyInVectorIndex(Vertex *vertex, PropertyId property,
+                                                               NameIdMapper *name_id_mapper);
+
+  /// @brief Gets all properties that have vector indices for the given label.
+  /// @param label The label to get the properties for.
+  /// @return A map of property ids to index names.
+  std::unordered_map<PropertyId, std::string> GetProperties(LabelId label) const;
+
  private:
-  /// @brief Adds a vertex to an existing index.
-  /// @param vertex The vertex to be added.
-  /// @param label_prop The label and property key for the index.
-  /// @param value The value of the property.
-  /// @throw query::VectorSearchException
-  bool UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr);
+  /// @brief Gets all label-property combinations that match the given vertex and property.
+  /// @param vertex The vertex to check labels against.
+  /// @param property The property to match.
+  /// @return A vector of matching LabelPropKey objects.
+  std::vector<LabelPropKey> GetMatchingLabelProps(std::span<LabelId const> labels,
+                                                  std::span<PropertyId const> properties) const;
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

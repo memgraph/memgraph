@@ -41,7 +41,6 @@ namespace memgraph::storage {
 namespace {
 
 namespace r = ranges;
-namespace rv = r::views;
 
 // `PropertyValue` is a very large object. It is implemented as a `union` of all
 // possible types that could be stored as a property value. That causes the
@@ -202,6 +201,10 @@ const uint8_t kShiftIdSize = 2;
 //     - type; payload size is used to encode the crs type (this only works becuase there are 4 sizes + 4 crs types)
 //     - encoded property ID
 //     - encoded value as 2 (for 2D) or 3 (for 3D) doubles forced to be encoded as int64
+//   * VECTOR
+//     - type; payload size isn't used
+//     - encoded property ID
+//     - encoded vector index id -> this id is used to get the name of the vector index
 
 const auto TZ_NAME_LENGTH_SIZE = Size::INT8;
 // As the underlying type for zoned temporal data is std::chrono::zoned_time, valid timezone names are limited
@@ -687,6 +690,15 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       if (!writer->WriteDoubleForceInt64(point.z())) return std::nullopt;
       return {{Type::POINT, CrsToSize(point.crs())}};
     }
+    case PropertyValue::Type::VectorIndexId: {
+      auto vector_index_id = value.ValueVectorIndexIds();
+      auto size = writer->WriteUint(vector_index_id.size());
+      if (!size) return std::nullopt;
+      for (const auto &id : vector_index_id) {
+        if (!writer->InternalWriteInt<uint64_t>(id)) return std::nullopt;
+      }
+      return {{Type::VECTOR, *size}};
+    }
   }
 }
 
@@ -890,6 +902,19 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       }
       return true;
     }
+    case Type::VECTOR: {
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return false;
+      std::vector<uint64_t> vector_index_ids;
+      vector_index_ids.reserve(*size);
+      for (auto i = 0; i < *size; ++i) {
+        auto id = reader->ReadUint(Size::INT64);
+        if (!id) return false;
+        vector_index_ids.emplace_back(*id);
+      }
+      value = PropertyValue(std::move(vector_index_ids), std::vector<float>{});
+      return true;
+    }
   }
   // in case of corrupt storage, handle unknown types
   return false;
@@ -985,6 +1010,11 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
         if (!z_opt) return std::nullopt;
         return std::optional<PropertyValue>{std::in_place, Point3d{crs, *x_opt, *y_opt, *z_opt}};
       }
+    }
+    case Type::VECTOR: {
+      auto vector_index_id = reader->ReadUint(payload_size);
+      if (!vector_index_id) return std::nullopt;
+      return std::optional<PropertyValue>{std::in_place, int8_t(*vector_index_id)};
     }
   }
 }
@@ -1084,6 +1114,12 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       property_size += bytes_size;
       return true;
     }
+    case Type::VECTOR: {
+      auto bytes_size = SizeToByteSize(payload_size);
+      if (!reader->SkipBytes(bytes_size)) return false;
+      property_size += bytes_size;
+      return true;
+    }
   }
 }
 
@@ -1149,6 +1185,10 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       auto payload_members = valid2d(SizeToCrs(payload_size)) ? 2 : 3;
       auto bytes_to_skip = payload_members * SizeToByteSize(Size::INT64);
       return reader->SkipBytes(bytes_to_skip);
+    }
+    case Type::VECTOR: {
+      auto bytes_size = SizeToByteSize(payload_size);
+      return reader->SkipBytes(bytes_size);
     }
   }
 }
@@ -1283,6 +1323,10 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
         return value.ValuePoint3d() == Point3d{crs, *x_opt, *y_opt, *z_opt};
       }
       return false;
+    }
+    case Type::VECTOR: {
+      auto bytes_size = SizeToByteSize(payload_size);
+      return reader->SkipBytes(bytes_size);
     }
   }
 }
@@ -1470,6 +1514,9 @@ enum class ExpectedPropertyStatus {
         return ExpectedPropertyStatus::EQUAL;
       }
     } break;
+    case VECTOR:
+      type = ExtendedPropertyType{PropertyValue::Type::VectorIndexId};
+      break;
   }
 
   if (*property_id == expected_property.AsUint()) {
@@ -1607,6 +1654,9 @@ enum class ExpectedPropertyStatus {
           value.type()};  // PropertyStoreType has only Point; while PropertyValueType has point 2d and 3d
       return PropertyId::FromUint(*property_id);
     }
+    case VECTOR:
+      type = ExtendedPropertyType{PropertyValue::Type::VectorIndexId};
+      break;
   }
 
   if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return std::nullopt;
@@ -2312,7 +2362,7 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
     PropertyValue value;
     while (true) {
       auto prop = DecodeAnyProperty(&reader, value);
-      if (!prop) break;
+      if (!prop || value.IsVectorIndexId()) break;
       props.emplace(*prop, std::move(value));
     }
     return props;

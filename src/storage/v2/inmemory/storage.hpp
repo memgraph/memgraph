@@ -56,6 +56,7 @@ struct IndexPerformanceTracker {
       using enum Delta::Action;
       case DELETE_DESERIALIZED_OBJECT:
       case DELETE_OBJECT:
+      case SET_VECTOR_PROPERTY:
       case RECREATE_OBJECT: {
         // can impact correctness, but does not matter for performance
         return;
@@ -476,6 +477,8 @@ class InMemoryStorage final : public Storage {
                                                                          storage::PropertyId property) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateVectorIndex(VectorIndexSpec spec) override;
+
+    std::optional<std::vector<uint64_t>> IsPropertyInVectorIndex(Vertex *vertex, PropertyId property) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropVectorIndex(std::string_view index_name) override;
 

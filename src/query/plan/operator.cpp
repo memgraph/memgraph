@@ -488,17 +488,25 @@ VertexAccessor const &CreateLocalVertex(const NodeCreationInfo &node_info, Frame
   // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
   // when we update PropertyValue with custom allocator.
   std::map<storage::PropertyId, storage::PropertyValue> properties;
+  auto *storage_acc = context.db_accessor->GetStorageAccessor();
   if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
     for (const auto &[key, value_expression] : *node_info_properties) {
       auto typed_value = value_expression->Accept(evaluator);
-      properties.emplace(key,
-                         typed_value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
+      auto property_value = typed_value.ToPropertyValue(storage_acc->GetNameIdMapper());
+      if (auto vector_index_ids = storage_acc->IsPropertyInVectorIndex(new_node.impl_.vertex_, key)) {
+        property_value = HandleVectorProperty(property_value, *vector_index_ids);
+      }
+      properties.emplace(key, std::move(property_value));
     }
   } else {
     auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
     for (const auto &[key, value] : property_map.ValueMap()) {
-      properties.emplace(dba.NameToProperty(key),
-                         value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
+      auto property_id = dba.NameToProperty(key);
+      auto property_value = value.ToPropertyValue(storage_acc->GetNameIdMapper());
+      if (auto vector_index_ids = storage_acc->IsPropertyInVectorIndex(new_node.impl_.vertex_, property_id)) {
+        property_value = HandleVectorProperty(property_value, *vector_index_ids);
+      }
+      properties.emplace(property_id, std::move(property_value));
     }
   }
   if (context.evaluation_context.scope.in_merge) {
@@ -1172,6 +1180,7 @@ std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optio
       case storage::PropertyValue::Type::Enum:
       case storage::PropertyValueType::Point2d:
       case storage::PropertyValueType::Point3d:
+      case storage::PropertyValueType::VectorIndexId:
         // Prevent indexed lookup with something that would fail if we did
         // the original filter with `operator<`. Note, for some reason,
         // Cypher does not support comparing boolean values.
@@ -4628,7 +4637,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       }
 #endif
       auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs,
-                                       context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
+                                       context.db_accessor->GetStorageAccessor()->GetNameIdMapper(),
+                                       context.db_accessor->GetStorageAccessor(), lhs.ValueVertex().impl_.vertex_);
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
@@ -4961,7 +4971,21 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
   };
 
   auto update_props = [&, record](PropertiesMap &new_properties) {
-    auto updated_properties = UpdatePropertiesChecked(record, new_properties);
+    auto updated_properties =
+        UpdatePropertiesChecked(record, new_properties, context->db_accessor->GetStorageAccessor());
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+    context->execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += new_properties.size();
+
+    if (should_register_change) {
+      for (const auto &[id, old_value, new_value] : updated_properties) {
+        register_set_property(std::move(old_value), id, std::move(new_value));
+      }
+    }
+  };
+
+  auto update_props_vertex = [&, record](PropertiesMap &new_properties, storage::Vertex *vertex) {
+    auto updated_properties =
+        UpdatePropertiesChecked(record, new_properties, context->db_accessor->GetStorageAccessor(), vertex);
     // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
     context->execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += new_properties.size();
 
@@ -4980,7 +5004,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     }
     case TypedValue::Type::Vertex: {
       PropertiesMap new_properties = get_props(rhs.ValueVertex());
-      update_props(new_properties);
+      update_props_vertex(new_properties, rhs.ValueVertex().impl_.vertex_);
       break;
     }
     case TypedValue::Type::Map: {

@@ -107,6 +107,7 @@ void Load(storage::ExternalPropertyValue::Type *type, slk::Reader *reader) {
     case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Enum):
     case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Point2d):
     case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Point3d):
+    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::VectorIndexId):
       valid = true;
       break;
     default:
@@ -192,6 +193,18 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
     case storage::ExternalPropertyValue::Type::Point3d: {
       slk::Save(storage::ExternalPropertyValue::Type::Point3d, builder);
       slk::Save(value.ValuePoint3d(), builder);
+      return;
+    }
+    case storage::ExternalPropertyValue::Type::VectorIndexId: {
+      slk::Save(storage::ExternalPropertyValue::Type::VectorIndexId, builder);
+      slk::Save(value.ValueVectorIndexIds().size(), builder);
+      for (const auto &id : value.ValueVectorIndexIds()) {
+        slk::Save(id, builder);
+      }
+      slk::Save(value.ValueVectorIndexList().size(), builder);
+      for (const auto &item : value.ValueVectorIndexList()) {
+        slk::Save(item, builder);
+      }
       return;
     }
   }
@@ -302,6 +315,22 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       storage::Point3d v;
       slk::Load(&v, reader);
       *value = storage::ExternalPropertyValue(v);
+      return;
+    }
+    case storage::ExternalPropertyValue::Type::VectorIndexId: {
+      size_t size{0};
+      slk::Load(&size, reader);
+      std::vector<std::string> ids(size);
+      for (size_t i = 0; i < size; ++i) {
+        slk::Load(&ids[i], reader);
+      }
+      size_t list_size{0};
+      slk::Load(&list_size, reader);
+      std::vector<float> list(list_size);
+      for (size_t i = 0; i < list_size; ++i) {
+        slk::Load(&list[i], reader);
+      }
+      *value = storage::ExternalPropertyValue(std::move(ids), std::move(list));
       return;
     }
   }

@@ -33,6 +33,7 @@ enum class ObjectType : uint8_t {
   ENUM,
   POINT_2D,
   POINT_3D,
+  VECTOR_INDEX_ID,
 };
 }  // namespace
 
@@ -104,6 +105,10 @@ nlohmann::json SerializeExternalPropertyValue(const storage::ExternalPropertyVal
       data.emplace("y", point_3d.y());
       data.emplace("z", point_3d.z());
       return data;
+    }
+    case storage::ExternalPropertyValue::Type::VectorIndexId: {
+      // TODO(@DavIvek): revisit this
+      throw std::runtime_error("VectorIndexId should be used only in storage layer!");
     }
   }
 }
@@ -191,6 +196,8 @@ storage::ExternalPropertyValue DeserializeExternalPropertyValue(const nlohmann::
       return storage::ExternalPropertyValue(
           storage::Point3d{*crs_opt, data["x"].get<double>(), data["y"].get<double>(), data["z"].get<double>()});
     }
+    case ObjectType::VECTOR_INDEX_ID:
+      return storage::ExternalPropertyValue(data["value"].get<int8_t>());
   }
 }
 

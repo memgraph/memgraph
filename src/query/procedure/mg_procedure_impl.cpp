@@ -789,6 +789,13 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
           "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
       break;
     }
+    case memgraph::storage::PropertyValue::Type::VectorIndexId: {
+      throw std::logic_error{
+          "mgp_value for PropertyValue::Type::VectorIndexId doesn't exist. Contact Memgraph team under "
+          "team@memgraph.com or "
+          "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
+      break;
+    }
   }
 }
 

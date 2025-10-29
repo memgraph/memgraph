@@ -22,6 +22,7 @@ enum class DeltaAction : std::uint8_t {
   DELETE_OBJECT,
   RECREATE_OBJECT,
   SET_PROPERTY,
+  SET_VECTOR_PROPERTY,
 
   // Used only for Vertex
   ADD_LABEL,

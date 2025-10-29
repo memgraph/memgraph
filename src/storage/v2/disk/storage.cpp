@@ -164,6 +164,7 @@ bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transactio
       case Delta::Action::ADD_OUT_EDGE:
       case Delta::Action::REMOVE_IN_EDGE:
       case Delta::Action::REMOVE_OUT_EDGE:
+      case Delta::Action::SET_VECTOR_PROPERTY:
         break;
     }
   });
@@ -195,6 +196,7 @@ PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Trans
       case Delta::Action::ADD_OUT_EDGE:
       case Delta::Action::REMOVE_IN_EDGE:
       case Delta::Action::REMOVE_OUT_EDGE:
+      case Delta::Action::SET_VECTOR_PROPERTY:
         break;
     }
   });
@@ -1992,6 +1994,7 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
             case Delta::Action::REMOVE_LABEL:
             case Delta::Action::ADD_LABEL:
             case Delta::Action::SET_PROPERTY:
+            case Delta::Action::SET_VECTOR_PROPERTY:
             case Delta::Action::ADD_IN_EDGE: {
               break;
             }
@@ -2201,6 +2204,12 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::Disk
 
 utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropVectorIndex(
     std::string_view /*index_name*/) {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
+std::optional<std::vector<uint64_t>> DiskStorage::DiskAccessor::IsPropertyInVectorIndex(Vertex *vertex,
+                                                                                        PropertyId property) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }

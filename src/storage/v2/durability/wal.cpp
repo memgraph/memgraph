@@ -34,6 +34,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
@@ -155,6 +156,8 @@ constexpr Marker DeltaActionToMarker(Delta::Action action) {
       return Marker::DELTA_VERTEX_DELETE;
     case Delta::Action::SET_PROPERTY:
       return Marker::DELTA_VERTEX_SET_PROPERTY;
+    case Delta::Action::SET_VECTOR_PROPERTY:
+      return Marker::DELTA_VERTEX_SET_VECTOR_PROPERTY;
     case Delta::Action::ADD_LABEL:
       return Marker::DELTA_VERTEX_REMOVE_LABEL;
     case Delta::Action::REMOVE_LABEL:
@@ -185,6 +188,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_VERTEX_SET_PROPERTY:
     case DELTA_EDGE_SET_PROPERTY:
     case DELTA_TRANSACTION_START:
+    case DELTA_VERTEX_SET_VECTOR_PROPERTY:
       return false;
 
     // This delta explicitly indicates that a transaction is done.
@@ -243,6 +247,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case TYPE_ENUM:
     case TYPE_POINT_2D:
     case TYPE_POINT_3D:
+    case TYPE_VECTOR_INDEX_ID:
     case SECTION_VERTEX:
     case SECTION_EDGE:
     case SECTION_MAPPER:
@@ -653,6 +658,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(VECTOR_INDEX_CREATE, WalVectorIndexCreate);
     read_skip(VECTOR_EDGE_INDEX_CREATE, WalVectorEdgeIndexCreate);
     read_skip(VECTOR_INDEX_DROP, WalVectorIndexDrop);
+    read_skip(VERTEX_SET_VECTOR_PROPERTY, WalVertexSetVectorProperty);
     read_skip(TTL_OPERATION, WalTtlOperation);
 
     // Other markers are not actions
@@ -669,6 +675,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     case Marker::TYPE_ENUM:
     case Marker::TYPE_POINT_2D:
     case Marker::TYPE_POINT_3D:
+    case Marker::TYPE_VECTOR_INDEX_ID:
     case Marker::SECTION_VERTEX:
     case Marker::SECTION_EDGE:
     case Marker::SECTION_MAPPER:
@@ -804,40 +811,54 @@ bool SkipWalDeltaData(BaseDecoder *decoder, const uint64_t version) {
   return ReadSkipWalDeltaData<false>(decoder, version);
 }
 
-void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConfig::Items items, const Delta &delta,
-                 const Vertex &vertex, uint64_t timestamp) {
+void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items items, const Delta &delta, Vertex *vertex,
+                 uint64_t timestamp) {
   // When converting a Delta to a WAL delta the logic is inverted. That is
   // because the Delta's represent undo actions and we want to store redo
   // actions.
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
-  auto guard = std::shared_lock{vertex.lock};
+  auto guard = std::shared_lock{vertex->lock};
   switch (delta.action) {
     case Delta::Action::DELETE_DESERIALIZED_OBJECT:
     case Delta::Action::DELETE_OBJECT:
     case Delta::Action::RECREATE_OBJECT: {
       encoder->WriteMarker(DeltaActionToMarker(delta.action));
-      encoder->WriteUint(vertex.gid.AsUint());
+      encoder->WriteUint(vertex->gid.AsUint());
       break;
     }
     case Delta::Action::SET_PROPERTY: {
       encoder->WriteMarker(Marker::DELTA_VERTEX_SET_PROPERTY);
-      encoder->WriteUint(vertex.gid.AsUint());
-      encoder->WriteString(name_id_mapper->IdToName(delta.property.key.AsUint()));
+      encoder->WriteUint(vertex->gid.AsUint());
+      encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
       // The property value is the value that is currently stored in the
       // vertex.
       // TODO (mferencevic): Mitigate the memory allocation introduced here
       // (with the `GetProperty` call). It is the only memory allocation in the
       // entire WAL file writing logic.
       encoder->WriteExternalPropertyValue(
-          ToExternalPropertyValue(vertex.properties.GetProperty(delta.property.key), name_id_mapper));
+          ToExternalPropertyValue(vertex->properties.GetProperty(delta.property.key), storage->name_id_mapper_.get()));
+      break;
+    }
+    case Delta::Action::SET_VECTOR_PROPERTY: {
+      encoder->WriteMarker(Marker::DELTA_VERTEX_SET_VECTOR_PROPERTY);
+      encoder->WriteUint(vertex->gid.AsUint());
+      encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
+      MG_ASSERT(delta.property.value->IsVectorIndexId(), "Vector index ID expected!");
+      auto vector_value = storage->indices_.vector_index_.GetVectorProperty(
+          vertex, storage->name_id_mapper_->IdToName(
+                      delta.property.value->ValueVectorIndexIds()
+                          .front()));  // TODO: this should be okay since the same property should be in all indices?
+      encoder->WriteExternalPropertyValue(
+          ToExternalPropertyValue(PropertyValue(delta.property.value->ValueVectorIndexIds(), std::move(vector_value)),
+                                  storage->name_id_mapper_.get()));
       break;
     }
     case Delta::Action::ADD_LABEL:
     case Delta::Action::REMOVE_LABEL: {
       encoder->WriteMarker(DeltaActionToMarker(delta.action));
-      encoder->WriteUint(vertex.gid.AsUint());
-      encoder->WriteString(name_id_mapper->IdToName(delta.label.value.AsUint()));
+      encoder->WriteUint(vertex->gid.AsUint());
+      encoder->WriteString(storage->name_id_mapper_->IdToName(delta.label.value.AsUint()));
       break;
     }
     case Delta::Action::ADD_OUT_EDGE:
@@ -848,8 +869,8 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
       } else {
         encoder->WriteUint(delta.vertex_edge.edge.gid.AsUint());
       }
-      encoder->WriteString(name_id_mapper->IdToName(delta.vertex_edge.edge_type.AsUint()));
-      encoder->WriteUint(vertex.gid.AsUint());
+      encoder->WriteString(storage->name_id_mapper_->IdToName(delta.vertex_edge.edge_type.AsUint()));
+      encoder->WriteUint(vertex->gid.AsUint());
       encoder->WriteUint(delta.vertex_edge.vertex->gid.AsUint());
       break;
     }
@@ -861,28 +882,36 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
   }
 }
 
-void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta &delta, const Edge &edge,
-                 uint64_t timestamp) {
+void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp) {
   // When converting a Delta to a WAL delta the logic is inverted. That is
   // because the Delta's represent undo actions and we want to store redo
   // actions.
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
-  auto guard = std::shared_lock{edge.lock};
+  auto guard = std::shared_lock{edge->lock};
   switch (delta.action) {
     case Delta::Action::SET_PROPERTY: {
       encoder->WriteMarker(Marker::DELTA_EDGE_SET_PROPERTY);
-      encoder->WriteUint(edge.gid.AsUint());
-      encoder->WriteString(name_id_mapper->IdToName(delta.property.key.AsUint()));
+      encoder->WriteUint(edge->gid.AsUint());
+      encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
       // The property value is the value that is currently stored in the
       // edge.
       // TODO (mferencevic): Mitigate the memory allocation introduced here
       // (with the `GetProperty` call). It is the only memory allocation in the
       // entire WAL file writing logic.
       encoder->WriteExternalPropertyValue(
-          ToExternalPropertyValue(edge.properties.GetProperty(delta.property.key), name_id_mapper));
+          ToExternalPropertyValue(edge->properties.GetProperty(delta.property.key), storage->name_id_mapper_.get()));
       DMG_ASSERT(delta.property.out_vertex, "Out vertex undefined!");
-      encoder->WriteUint(delta.property.out_vertex->gid.AsUint());
+      encoder->WriteUint((*delta.property.out_vertex).gid.AsUint());
+      break;
+    }
+    case Delta::Action::SET_VECTOR_PROPERTY: {
+      // TODO: fix edges logic
+      encoder->WriteMarker(Marker::DELTA_VERTEX_SET_VECTOR_PROPERTY);
+      encoder->WriteUint(edge->gid.AsUint());
+      encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
+      encoder->WriteExternalPropertyValue(
+          ToExternalPropertyValue(*delta.property.value, storage->name_id_mapper_.get()));
       break;
     }
     case Delta::Action::DELETE_DESERIALIZED_OBJECT:
@@ -953,7 +982,7 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl) {
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::Indices *indices) {
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
@@ -1039,6 +1068,14 @@ std::optional<RecoveryInfo> LoadWal(
           schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(property_value)}, old_type);
         }
         vertex->properties.SetProperty(property_id, property_value);
+      },
+      [&](WalVertexSetVectorProperty const &data) {
+        const auto vertex = vertex_acc.find(data.gid);
+        if (vertex == vertex_acc.end())
+          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
+        const auto property_value = ToPropertyValue(data.value, name_id_mapper);
+        MG_ASSERT(property_value.IsVectorIndexId(), "Property value must be a vector index id");
+        indices->vector_index_.UpdateOnSetProperty(property_value, &*vertex, name_id_mapper);
       },
       [&](WalEdgeCreate const &data) {
         const auto from_vertex = vertex_acc.find(data.from_vertex);
@@ -1383,9 +1420,16 @@ std::optional<RecoveryInfo> LoadWal(
         const auto unum_metric_kind = MetricFromName(data.metric_kind);
         const auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
                                                   : unum::usearch::scalar_kind_t::f32_k;
-        indices_constraints->indices.vector_indices.emplace_back(data.index_name, label_id, property_id,
-                                                                 unum_metric_kind, data.dimension,
-                                                                 data.resize_coefficient, data.capacity, scalar_kind);
+        auto vertices_acc = vertices->access();
+        indices->vector_index_.CreateIndex(VectorIndexSpec{.index_name = data.index_name,
+                                                           .label_id = label_id,
+                                                           .property = property_id,
+                                                           .metric_kind = unum_metric_kind,
+                                                           .dimension = data.dimension,
+                                                           .resize_coefficient = data.resize_coefficient,
+                                                           .capacity = data.capacity,
+                                                           .scalar_kind = scalar_kind},
+                                           vertices_acc, name_id_mapper);
       },
       [&](WalVectorEdgeIndexCreate const &data) {
         const auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
@@ -1397,10 +1441,9 @@ std::optional<RecoveryInfo> LoadWal(
             data.capacity, scalar_kind);
       },
       [&](WalVectorIndexDrop const &data) {
-        auto pred = [&](const auto &index_metadata) { return index_metadata.index_name == data.index_name; };
-        if (!std::erase_if(indices_constraints->indices.vector_indices, pred)) {
-          // Only check the second container if nothing was erased from the first
-          std::erase_if(indices_constraints->indices.vector_edge_indices, pred);
+        auto vertices_acc = vertices->access();
+        if (!indices->vector_index_.DropIndex(data.index_name, vertices_acc)) {
+          // TODO: drop from vector edge index if it exists
         }
       },
       [&](WalTtlOperation const &data) {
@@ -1549,13 +1592,13 @@ WalFile::~WalFile() {
   }
 }
 
-void WalFile::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp) {
-  EncodeDelta(&wal_, name_id_mapper_, items_, delta, vertex, timestamp);
+void WalFile::AppendDelta(const Delta &delta, Vertex *vertex, uint64_t timestamp, Storage *storage) {
+  EncodeDelta(&wal_, storage, items_, delta, vertex, timestamp);
   UpdateStats(timestamp);
 }
 
-void WalFile::AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp) {
-  EncodeDelta(&wal_, name_id_mapper_, delta, edge, timestamp);
+void WalFile::AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, Storage *storage) {
+  EncodeDelta(&wal_, storage, delta, edge, timestamp);
   UpdateStats(timestamp);
 }
 
