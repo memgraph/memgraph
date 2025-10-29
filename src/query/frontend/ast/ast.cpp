@@ -144,6 +144,9 @@ constexpr utils::TypeInfo query::AllPropertiesLookup::kType{utils::TypeId::AST_A
 constexpr utils::TypeInfo query::LabelsTest::kType{utils::TypeId::AST_LABELS_TEST, "LabelsTest",
                                                    &query::Expression::kType};
 
+constexpr utils::TypeInfo query::EdgeTypesTest::kType{utils::TypeId::AST_EDGETYPES_TEST, "EdgeTypesTest",
+                                                      &Expression::kType};
+
 constexpr utils::TypeInfo query::Function::kType{utils::TypeId::AST_FUNCTION, "Function", &query::Expression::kType};
 
 constexpr utils::TypeInfo query::Reduce::kType{utils::TypeId::AST_REDUCE, "Reduce", &query::Expression::kType};

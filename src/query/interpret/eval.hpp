@@ -32,11 +32,8 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/storage_mode.hpp"
-#include "utils/cast.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/frame_change_id.hpp"
 #include "utils/logging.hpp"
-#include "utils/pmr/unordered_map.hpp"
 
 namespace memgraph::query {
 
@@ -44,7 +41,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *
  public:
   ReferenceExpressionEvaluator(Frame *frame, const EvaluationContext *ctx) : frame_(frame), ctx_(ctx) {}
 
-  using ExpressionVisitor<TypedValue const *>::Visit;
+  using ExpressionVisitor::Visit;
 
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
 
@@ -85,6 +82,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *
   UNSUCCESSFUL_VISIT(PropertyLookup);
   UNSUCCESSFUL_VISIT(AllPropertiesLookup);
   UNSUCCESSFUL_VISIT(LabelsTest);
+  UNSUCCESSFUL_VISIT(EdgeTypesTest);
 
   UNSUCCESSFUL_VISIT(PrimitiveLiteral);
   UNSUCCESSFUL_VISIT(ListLiteral);
@@ -116,7 +114,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *
 class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   explicit PrimitiveLiteralExpressionEvaluator(EvaluationContext const &ctx) : ctx_(&ctx) {}
-  using ExpressionVisitor<TypedValue>::Visit;
+  using ExpressionVisitor::Visit;
   TypedValue Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.
@@ -163,6 +161,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(PropertyLookup)
   INVALID_VISIT(AllPropertiesLookup)
   INVALID_VISIT(LabelsTest)
+  INVALID_VISIT(EdgeTypesTest)
   INVALID_VISIT(Aggregation)
   INVALID_VISIT(Function)
   INVALID_VISIT(Reduce)
@@ -579,6 +578,22 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       default:
         throw QueryRuntimeException("Only nodes have labels.");
+    }
+  }
+
+  TypedValue Visit(EdgeTypesTest &edgetype_test) override {
+    switch (auto expression_result = edgetype_test.expression_->Accept(*this); expression_result.type()) {
+      case TypedValue::Type::Null:
+        return TypedValue(ctx_->memory);
+      case TypedValue::Type::Edge: {
+        const auto &edge_type = expression_result.ValueEdge().EdgeType();
+        auto const ix_to_storage = [&](EdgeTypeIx const &et) { return GetEdgeType(et); };
+        auto valid_edgetypes = edgetype_test.valid_edgetypes_ | std::ranges::views::transform(ix_to_storage);
+        const auto is_valid = std::ranges::contains(valid_edgetypes, edge_type);
+        return TypedValue(is_valid, ctx_->memory);
+      }
+      default:
+        throw QueryRuntimeException("Only edges have an edgetype.");
     }
   }
 
@@ -1056,7 +1071,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return *std::move(maybe_props);
   }
 
-  storage::LabelId GetLabel(const LabelIx &label) { return ctx_->labels[label.ix]; }
+  storage::LabelId GetLabel(const LabelIx &label) const { return ctx_->labels[label.ix]; }
+  storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edgetype) const { return ctx_->edgetypes[edgetype.ix]; }
 
   Frame *frame_;
   const SymbolTable *symbol_table_;

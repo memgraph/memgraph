@@ -811,7 +811,22 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   // We are only interested to see the insides of And, because Or prevents
   // indexing since any labels and properties found there may be optional.
   DMG_ASSERT(!utils::IsSubtype(*expr, AndOperator::kType), "Expected AndOperators have been split.");
-  if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
+
+  if (auto *edgetype_test = utils::Downcast<EdgeTypesTest>(expr)) {
+    if (auto *identifier = utils::Downcast<Identifier>(edgetype_test->expression_)) {
+      if (auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(identifier)); it == all_filters_.end()) {
+        // No existing EdgeTypesTest for this identifier
+        auto filter = make_filter(FilterInfo::Type::EdgeType);
+        filter.edgetypes = edgetype_test->valid_edgetypes_;
+        all_filters_.emplace_back(filter);
+      } else {
+        // We could intersect the two OR lists, but for now we don't do that processing and keep it as  separate filter
+        all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+      }
+    } else {
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
+  } else if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
     if (auto *identifier = utils::Downcast<Identifier>(labels_test->expression_)) {

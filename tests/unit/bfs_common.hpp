@@ -372,6 +372,7 @@ class Database {
 
     context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &dba);
     context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &dba);
+    context.evaluation_context.edgetypes = memgraph::query::NamesToEdgeTypes(storage.edge_types_, &dba);
     std::vector<std::vector<memgraph::query::TypedValue>> results;
 
     // An exception should be thrown on one of the pulls.
@@ -566,6 +567,7 @@ class Database {
 
     context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &db_accessor);
     context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &db_accessor);
+    context.evaluation_context.edgetypes = memgraph::query::NamesToEdgeTypes(storage.edge_types_, &db_accessor);
     std::vector<std::vector<memgraph::query::TypedValue>> results;
 
     results =

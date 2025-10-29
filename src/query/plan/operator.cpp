@@ -4154,76 +4154,99 @@ std::unique_ptr<LogicalOperator> Filter::Clone(AstStorage *storage) const {
 
 std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
   using Type = query::plan::FilterInfo::Type;
-  if (single_filter.type == Type::Generic) {
-    std::set<std::string, std::less<>> symbol_names;
-    for (const auto &symbol : single_filter.used_symbols) {
-      symbol_names.insert(symbol.name());
-    }
-    return fmt::format("Generic {{{}}}",
-                       utils::IterableToString(symbol_names, ", ", [](const auto &name) { return name; }));
-  } else if (single_filter.type == Type::Id) {
-    return fmt::format("id({})", single_filter.id_filter->symbol_.name());
-  } else if (single_filter.type == Type::Label) {
-    if (single_filter.expression->GetTypeInfo() != LabelsTest::kType) {
-      LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
-    }
-    auto filter_expression = static_cast<LabelsTest *>(single_filter.expression);
-    std::set<std::string, std::less<>> AND_label_names;
-    for (const auto &label : filter_expression->labels_) {
-      AND_label_names.insert(label.name);
-    }
-
-    // Generate OR label string only if there are OR labels
-    std::string OR_label_string;
-    if (!filter_expression->or_labels_.empty()) {
-      if (AND_label_names.empty()) {
-        // If there is no AND_labels or if there is only one OR_labels vector we
-        // don't need parentheses
-        OR_label_string =
-            filter_expression->or_labels_.size() == 1
-                ? utils::IterableToString(filter_expression->or_labels_[0], "|",
-                                          [](const auto &label) { return label.name; })
-                : utils::IterableToString(filter_expression->or_labels_, ":", [](const auto &label_vec) {
-                    return fmt::format(
-                        "({})", utils::IterableToString(label_vec, "|", [](const auto &label) { return label.name; }));
-                  });
-        OR_label_string = fmt::format(":{}", OR_label_string);
-      } else {
-        OR_label_string = fmt::format(
-            ":{}", utils::IterableToString(filter_expression->or_labels_, ":", [](const auto &label_vec) {
-              return fmt::format("({})",
-                                 utils::IterableToString(label_vec, "|", [](const auto &label) { return label.name; }));
-            }));
+  switch (single_filter.type) {
+    case Type::Generic: {
+      std::set<std::string, std::less<>> symbol_names;
+      for (const auto &symbol : single_filter.used_symbols) {
+        symbol_names.insert(symbol.name());
       }
+      return fmt::format("Generic {{{}}}",
+                         utils::IterableToString(symbol_names, ", ", [](const auto &name) { return name; }));
     }
-    std::string AND_label_string;
-    if (!AND_label_names.empty()) {
-      AND_label_string =
-          fmt::format(":{}", utils::IterableToString(AND_label_names, ":", [](const auto &label) { return label; }));
-    }
+    case Type::Label: {
+      if (single_filter.expression->GetTypeInfo() != LabelsTest::kType) {
+        LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
+      }
+      auto filter_expression = static_cast<LabelsTest *>(single_filter.expression);
+      std::set<std::string, std::less<>> AND_label_names;
+      for (const auto &label : filter_expression->labels_) {
+        AND_label_names.insert(label.name);
+      }
 
-    if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
-      return fmt::format("({}{})", AND_label_string, OR_label_string);
+      // Generate OR label string only if there are OR labels
+      std::string OR_label_string;
+      if (!filter_expression->or_labels_.empty()) {
+        if (AND_label_names.empty()) {
+          // If there is no AND_labels or if there is only one OR_labels vector we
+          // don't need parentheses
+          OR_label_string =
+              filter_expression->or_labels_.size() == 1
+                  ? utils::IterableToString(filter_expression->or_labels_[0], "|",
+                                            [](const auto &label) { return label.name; })
+                  : utils::IterableToString(filter_expression->or_labels_, ":", [](const auto &label_vec) {
+                      return fmt::format("({})", utils::IterableToString(label_vec, "|",
+                                                                         [](const auto &label) { return label.name; }));
+                    });
+          OR_label_string = fmt::format(":{}", OR_label_string);
+        } else {
+          OR_label_string = fmt::format(
+              ":{}", utils::IterableToString(filter_expression->or_labels_, ":", [](const auto &label_vec) {
+                return fmt::format(
+                    "({})", utils::IterableToString(label_vec, "|", [](const auto &label) { return label.name; }));
+              }));
+        }
+      }
+      std::string AND_label_string;
+      if (!AND_label_names.empty()) {
+        AND_label_string =
+            fmt::format(":{}", utils::IterableToString(AND_label_names, ":", [](const auto &label) { return label; }));
+      }
+
+      if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
+        return fmt::format("({}{})", AND_label_string, OR_label_string);
+      }
+      auto identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
+      return fmt::format("({} {}{})", identifier_expression->name_, AND_label_string, OR_label_string);
     }
-    auto identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
-    return fmt::format("({} {}{})", identifier_expression->name_, AND_label_string, OR_label_string);
-  } else if (single_filter.type == Type::Pattern) {
-    return "Pattern";
-  } else if (single_filter.type == Type::Property) {
-    return fmt::format("{{{}.{}}}", single_filter.property_filter->symbol_.name(),
-                       single_filter.property_filter->property_ids_);
-  } else if (single_filter.type == Type::Point) {
-    return fmt::format("{{{}.{}}}", single_filter.point_filter->symbol_.name(),
-                       single_filter.point_filter->property_.name);
-  } else {
-    LOG_FATAL("Unexpected FilterInfo::Type");
+    case Type::Property: {
+      return fmt::format("{{{}.{}}}", single_filter.property_filter->symbol_.name(),
+                         single_filter.property_filter->property_ids_);
+    }
+    case Type::Id: {
+      return fmt::format("id({})", single_filter.id_filter->symbol_.name());
+    }
+    case Type::Pattern: {
+      return "Pattern";
+    }
+    case Type::Point: {
+      return fmt::format("{{{}.{}}}", single_filter.point_filter->symbol_.name(),
+                         single_filter.point_filter->property_.name);
+    }
+    case Type::EdgeType: {
+      if (single_filter.expression->GetTypeInfo() != EdgeTypesTest::kType) {
+        LOG_FATAL("EdgeType filters not using EdgeTypesTest are not supported for query inspection!");
+      }
+      const auto filter_expression = static_cast<EdgeTypesTest *>(single_filter.expression);
+
+      auto or_edge_types =
+          filter_expression->valid_edgetypes_ |
+          std::ranges::views::transform([&](EdgeTypeIx const &et) -> std::string const & { return et.name; }) |
+          std::ranges::views::join_with('|') | std::ranges::to<std::string>();
+      if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
+        return fmt::format("[:{}]", or_edge_types);
+      }
+      const auto identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
+      return fmt::format("[{} :{}]", identifier_expression->name_, or_edge_types);
+    }
+    default:
+      LOG_FATAL("Unexpected FilterInfo::Type");
   }
 }
 
 std::string Filter::ToString() const {
   std::set<std::string, std::less<>> filter_names;
   for (const auto &filter : all_filters_) {
-    filter_names.insert(Filter::SingleFilterName(filter));
+    filter_names.insert(SingleFilterName(filter));
   }
   return fmt::format("Filter {}", utils::IterableToString(filter_names, ", ", [](const auto &name) { return name; }));
 }

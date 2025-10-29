@@ -100,6 +100,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   auto Eval(TExpression *expr) {
     ctx.properties = NamesToProperties(storage.properties_, &dba);
     ctx.labels = NamesToLabels(storage.labels_, &dba);
+    ctx.edgetypes = NamesToEdgeTypes(storage.edge_types_, &dba);
     auto value = expr->Accept(eval);
     EXPECT_EQ(value.get_allocator().resource(), &mem) << "ExpressionEvaluator must use the MemoryResource from "
                                                          "EvaluationContext for allocations!";

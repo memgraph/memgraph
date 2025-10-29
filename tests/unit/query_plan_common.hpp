@@ -40,6 +40,7 @@ ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbo
   context.symbol_table = symbol_table;
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
+  context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
   return context;
 }
 #ifdef MG_ENTERPRISE
@@ -50,6 +51,7 @@ ExecutionContext MakeContextWithFineGrainedChecker(const AstStorage &storage, co
   context.symbol_table = symbol_table;
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
+  context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
   context.auth_checker = std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(*auth_checker));
 
   return context;
