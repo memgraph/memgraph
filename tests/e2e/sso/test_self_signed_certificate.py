@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-Test OIDC with self-signed certificates using MEMGRAPH_EXTRA_CA_CERTS.
-"""
-
 import json
 import os
 import ssl
