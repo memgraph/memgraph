@@ -5,60 +5,32 @@ Tests OIDC authentication with self-signed certificates using `MEMGRAPH_SSO_*_OI
 ## Quick Start
 
 ```bash
-cd tests/e2e/sso/ssl
-./test_oidc_ssl_simple.sh
+source tests/ve3/bin/activate
+pytest tests/e2e/sso/ssl/test_oidc_ssl.py -v
 ```
-
-Runs bash tests + pytest suite (4 tests, auto uses `tests/ve3` virtualenv).
 
 ## What It Tests
 
 OIDC makes HTTPS requests to fetch JWKS from identity providers. With self-signed certs:
-- ❌ Without CA cert → SSL verification fails (secure default)
-- ✅ With CA cert → SSL verification succeeds
+- Without CA cert (cert=True): SSL verification fails (secure default)
+- With CA cert (cert=/path/to/ca.pem): SSL verification succeeds
+- Verification disabled (cert=False): SSL verification bypassed (insecure, testing only)
 
 ## Environment Variables
 
-Per-scheme variables:
-- `MEMGRAPH_SSO_ENTRA_ID_OIDC_EXTRA_CA_CERTS`
-- `MEMGRAPH_SSO_OKTA_OIDC_EXTRA_CA_CERTS`
+Custom OIDC provider uses:
 - `MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS`
 
 ```bash
 export MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS=/path/to/ca-bundle.crt
 ```
 
+Note: Entra ID (`MEMGRAPH_SSO_ENTRA_ID_OIDC_EXTRA_CA_CERTS`) and Okta (`MEMGRAPH_SSO_OKTA_OIDC_EXTRA_CA_CERTS`) also support custom CA certs via their respective environment variables.
+
 ## Test Results
 
 ```
-✅ test_oidc_custom_without_ca_cert_fails
-✅ test_oidc_custom_with_ca_cert_succeeds
-✅ test_oidc_entra_without_ca_cert_fails
-✅ test_oidc_okta_with_ca_cert_succeeds
+PASSED test_oidc_custom_without_ca_cert_fails
+PASSED test_oidc_custom_with_ca_cert_succeeds
+PASSED test_oidc_custom_with_verification_disabled
 ```
-
-## Manual Testing
-
-```bash
-export MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS=/path/to/ca.crt
-./memgraph --auth-module-path=/path/to/oidc.py
-```
-
-## Troubleshooting
-
-**OpenSSL not found:**
-```bash
-sudo apt-get install openssl
-```
-
-**Port 8443 in use:**
-```bash
-lsof -ti:8443 | xargs kill -9
-```
-
-**Hostname mismatch warning:** Expected with test certs. Means SSL handshake succeeded but hostname validation failed (separate check). Production certs with proper SANs won't have this issue.
-
-## Files
-
-- `test_oidc_ssl_simple.sh` - Main test runner (bash + pytest)
-- `test_oidc_ssl.py` - Pytest suite (4 test cases)

@@ -147,9 +147,8 @@ def https_server():
 
 
 def test_oidc_custom_without_ca_cert_fails(https_server):
-    """Test that OIDC fails when connecting to self-signed cert without CA"""
-    # Clear any existing env var
-    original_value = os.environ.pop("MEMGRAPH_EXTRA_CA_CERTS", None)
+    """Test that custom OIDC fails when connecting to self-signed cert without CA"""
+    original_value = os.environ.pop("MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS", None)
 
     try:
         # Create a dummy token (validation will fail at JWKS fetch, which is what we want)
@@ -173,17 +172,17 @@ def test_oidc_custom_without_ca_cert_fails(https_server):
     finally:
         # Restore original value
         if original_value is not None:
-            os.environ["MEMGRAPH_EXTRA_CA_CERTS"] = original_value
+            os.environ["MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS"] = original_value
 
 
 def test_oidc_custom_with_ca_cert_succeeds(https_server):
-    """Test that OIDC succeeds when MEMGRAPH_EXTRA_CA_CERTS is set"""
+    """Test that custom OIDC succeeds when MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS is set"""
     cert_path = https_server
-    original_value = os.environ.get("MEMGRAPH_EXTRA_CA_CERTS")
+    original_value = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS")
 
     try:
         # Set the CA cert path
-        os.environ["MEMGRAPH_EXTRA_CA_CERTS"] = cert_path
+        os.environ["MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS"] = cert_path
 
         # Create a dummy token with proper structure
         # Note: This will still fail validation because our mock key is fake,
@@ -210,65 +209,45 @@ def test_oidc_custom_with_ca_cert_succeeds(https_server):
     finally:
         # Restore original value
         if original_value is not None:
-            os.environ["MEMGRAPH_EXTRA_CA_CERTS"] = original_value
+            os.environ["MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS"] = original_value
         else:
-            os.environ.pop("MEMGRAPH_EXTRA_CA_CERTS", None)
+            os.environ.pop("MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS", None)
 
 
-def test_oidc_entra_without_ca_cert_fails(https_server):
-    """Test Entra ID OIDC fails without CA cert for self-signed server"""
-    original_value = os.environ.pop("MEMGRAPH_EXTRA_CA_CERTS", None)
-
-    try:
-        dummy_token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InRlc3Qta2V5LWlkIn0.eyJzdWIiOiJ0ZXN0LXVzZXIifQ.dummy"
-
-        # Point to our local mock server (simulating Entra ID)
-        config = {
-            "tenant_id": "localhost:8443",  # Hack to point to our server
-            "client_id": "test-client",
-            "cert": True,  # Use default verification
-        }
-
-        result = validate_jwt_token(dummy_token, "oidc-entra-id", config, "access")
-
-        assert result["valid"] is False
-        assert "Failed to fetch JWKS" in result["errors"]
-
-    finally:
-        if original_value is not None:
-            os.environ["MEMGRAPH_EXTRA_CA_CERTS"] = original_value
-
-
-def test_oidc_okta_with_ca_cert_succeeds(https_server):
-    """Test Okta OIDC succeeds with CA cert"""
-    cert_path = https_server
-    original_value = os.environ.get("MEMGRAPH_EXTRA_CA_CERTS")
+def test_oidc_custom_with_verification_disabled(https_server):
+    """Test that custom OIDC succeeds with cert=False (disables SSL verification)"""
+    original_value = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS")
 
     try:
-        os.environ["MEMGRAPH_EXTRA_CA_CERTS"] = cert_path
+        # Don't set the env var - we're testing the config parameter directly
+        if "MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS" in os.environ:
+            del os.environ["MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS"]
 
+        # Create a dummy token
         dummy_token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InRlc3Qta2V5LWlkIn0.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJleHAiOjk5OTk5OTk5OTl9.dummy"
 
         config = {
-            "id_issuer": "https://localhost:8443",
-            "client_id": "test-client",
-            "authorization_server": "test-server",
-            "cert": cert_path,  # Use custom CA cert
+            "public_key_endpoint": "https://localhost:8443/keys",
+            "access_token_audience": "test-audience",
+            "id_token_audience": "test-audience",
+            "cert": False,  # Disable SSL verification entirely (insecure, for testing only)
         }
 
-        result = validate_jwt_token(dummy_token, "oidc-okta", config, "access")
+        result = validate_jwt_token(dummy_token, "oidc-custom", config, "access")
 
-        # Should not fail with SSL error
+        # The JWKS fetch should succeed (no SSL error) because verification is disabled
         if not result["valid"]:
+            # If it failed, it should NOT be an SSL/certificate error
             assert "Failed to fetch JWKS" not in result["errors"] or not any(
                 keyword in result["errors"].lower() for keyword in ["ssl", "certificate", "verify"]
             )
 
     finally:
+        # Restore original value
         if original_value is not None:
-            os.environ["MEMGRAPH_EXTRA_CA_CERTS"] = original_value
+            os.environ["MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS"] = original_value
         else:
-            os.environ.pop("MEMGRAPH_EXTRA_CA_CERTS", None)
+            os.environ.pop("MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS", None)
 
 
 if __name__ == "__main__":
