@@ -1359,7 +1359,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       while (current != nullptr && current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
         switch (current->action) {
           case Delta::Action::REMOVE_LABEL: {
-            auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
+            auto it = r::find(vertex->labels, current->label.value);
             MG_ASSERT(it != vertex->labels.end(), "Invalid database state!");
             std::swap(*it, *vertex->labels.rbegin());
             vertex->labels.pop_back();
@@ -1368,7 +1368,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             break;
           }
           case Delta::Action::ADD_LABEL: {
-            auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
+            auto it = r::find(vertex->labels, current->label.value);
             MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
             vertex->labels.push_back(current->label.value);
 
@@ -1448,7 +1448,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
       // bulk remove in_edges
       if (!remove_in_edges.empty()) {
-        auto mid = std::partition(vertex->in_edges.begin(), vertex->in_edges.end(), [&](auto const &edge_tuple) {
+        auto mid = r::partition(vertex->in_edges, [&](auto const &edge_tuple) {
           return !remove_in_edges.contains(std::get<EdgeRef>(edge_tuple));
         });
         vertex->in_edges.erase(mid, vertex->in_edges.end());
@@ -1457,7 +1457,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
       // bulk remove out_edges
       if (!remove_out_edges.empty()) {
-        auto mid = std::partition(vertex->out_edges.begin(), vertex->out_edges.end(), [&](auto const &edge_tuple) {
+        auto mid = r::partition(vertex->out_edges, [&](auto const &edge_tuple) {
           return !remove_out_edges.contains(std::get<EdgeRef>(edge_tuple));
         });
         vertex->out_edges.erase(mid, vertex->out_edges.end());
