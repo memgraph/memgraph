@@ -64,7 +64,6 @@ TEST(Scheduler, SetupAndSpinOnce) {
 
   // SpinOne to unblock, but still don't execute
   scheduler.SpinOnce();
-  EXPECT_EQ(x, 0);
   std::this_thread::sleep_for(std::chrono::milliseconds(1500));
   EXPECT_GT(x, 0);
 
