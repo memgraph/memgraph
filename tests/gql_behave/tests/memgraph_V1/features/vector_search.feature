@@ -404,13 +404,6 @@ Feature: Vector search related features
         Then the result should be:
             | n                     |
             | ({prop1: [1.0, 2.0]}) |
-        When executing query:
-            """
-            MATCH (n) RETURN n.prop1;
-            """
-        Then the result should be:
-            | n.prop1    |
-            | [1.0, 2.0] |
 
     Scenario: Adding second label to vertex with one label adds to second index
         Given an empty graph
@@ -497,3 +490,63 @@ Feature: Vector search related features
         Then the result should be:
             | n.prop1    |
             | [3.0, 4.0] |
+
+    Scenario: Two indices on different properties work independently
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And with new vector index test_index2 on :L2(prop2) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (:L1 {prop1: [1.0, 2.0]})
+            CREATE (:L2 {prop2: [3.0, 4.0]})
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | 'L2'  | 'prop2'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n:L1) RETURN n;
+            """
+        Then the result should be:
+            | n     |
+            | (:L1) |
+        When executing query:
+            """
+            MATCH (n:L2) RETURN n;
+            """
+        Then the result should be:
+            | n     |
+            | (:L2) |
+        When executing query:
+            """
+            MATCH (n:L1) RETURN n.prop1;
+            """
+        Then the result should be:
+            | n.prop1    |
+            | [1.0, 2.0] |
+        When executing query:
+            """
+            MATCH (n:L2) RETURN n.prop2;
+            """
+        Then the result should be:
+            | n.prop2    |
+            | [3.0, 4.0] |
+        When executing query:
+            """
+            CALL vector_search.search("test_index", 1, [1.0, 2.0]) YIELD * RETURN *;
+            """
+        Then the result should be:
+            | distance | node  | similarity |
+            | 0.0      | (:L1) | 1.0        |
+        When executing query:
+            """
+            CALL vector_search.search("test_index2", 1, [3.0, 4.0]) YIELD * RETURN *;
+            """
+        Then the result should be:
+            | distance | node  | similarity |
+            | 0.0      | (:L2) | 1.0        |

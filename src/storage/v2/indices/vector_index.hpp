@@ -112,7 +112,8 @@ class VectorIndex {
   /// @param vertex The vertex on which the property was modified.
   /// @param index_name The name of the index to update.
   /// @return The vector of the vertex as a PropertyValue.
-  std::vector<float> UpdateIndex(const PropertyValue &value, Vertex *vertex, std::string_view index_name);
+  std::vector<float> UpdateIndex(const PropertyValue &value, Vertex *vertex, std::string_view index_name,
+                                 NameIdMapper *name_id_mapper);
 
   /// @brief Retrieves the vector of a vertex as a PropertyValue.
   /// @param vertex The vertex to retrieve the vector from.

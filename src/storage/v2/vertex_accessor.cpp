@@ -162,7 +162,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
       for (auto property_id : vertex_properties) {
         if (auto index_name = properties.find(property_id); index_name != properties.end()) {
           auto old_property_value = vertex->properties.GetProperty(property_id);
-          auto vec = storage_->indices_.vector_index_.UpdateIndex(old_property_value, vertex, index_name->second);
+          auto vec = storage_->indices_.vector_index_.UpdateIndex(old_property_value, vertex, index_name->second,
+                                                                  storage_->name_id_mapper_.get());
           auto vector_index_id = std::invoke([&]() {
             if (old_property_value.IsVectorIndexId()) {
               auto ids = old_property_value.ValueVectorIndexIds();
@@ -262,8 +263,9 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
                     ids.end());
           auto old_vector_property_value =
               storage_->indices_.vector_index_.GetPropertyValue(vertex, index_name->second);
-          storage_->indices_.vector_index_.UpdateIndex(PropertyValue(), vertex,
-                                                       index_name->second);  // we are removing property from index
+          storage_->indices_.vector_index_.UpdateIndex(
+              PropertyValue(), vertex, index_name->second,
+              storage_->name_id_mapper_.get());  // we are removing property from index
           vertex->properties.SetProperty(
               property_id, ids.empty() ? old_vector_property_value
                                        : old_vertex_property_value);  // we transfer list to property store only if it's

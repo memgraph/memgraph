@@ -226,7 +226,8 @@ void VectorIndex::UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex
   }
 }
 
-std::vector<float> VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *vertex, std::string_view index_name) {
+std::vector<float> VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *vertex, std::string_view index_name,
+                                            NameIdMapper *name_id_mapper) {
   auto label_prop = pimpl->index_name_to_label_prop_.at(index_name.data());
   auto &[mg_index, spec] = pimpl->index_.at(label_prop);
   bool is_index_full = false;
@@ -251,7 +252,8 @@ std::vector<float> VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *
   }
   auto vector_property = std::invoke([&]() {
     if (value.IsVectorIndexId()) {
-      return value.ValueVectorIndexList();
+      // property is in vector index, so we need to return the list from the vector index
+      return GetVectorProperty(vertex, name_id_mapper->IdToName(value.ValueVectorIndexIds().front()));
     }
     if (value.IsList()) {
       auto vector_property = value.ValueList();
