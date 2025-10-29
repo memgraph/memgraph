@@ -241,7 +241,7 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_t
       // should be removed here.
       const bool redundant_duplicate = has_next && it->from_vertex == next_it->from_vertex &&
                                        it->to_vertex == next_it->to_vertex && it->edge == next_it->edge;
-      if (redundant_duplicate) {
+      if (redundant_duplicate || !AnyVersionIsVisible(it->edge, oldest_active_start_timestamp)) {
         edges_acc.remove(*it);
       }
 
