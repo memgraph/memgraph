@@ -122,7 +122,7 @@ jobs:
             --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
             --organization-name $MEMGRAPH_ORGANIZATION_NAME \
             test-memgraph upload-to-bench-graph \
-            --benchmark-name "mgbench-supernode" \
+            --benchmark-name "supernode" \
             --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
             --github-run-id "${{ github.run_id }}" \
             --github-run-number "${{ github.run_number }}" \
