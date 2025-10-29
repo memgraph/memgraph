@@ -8,8 +8,15 @@ on:
 jobs:
   release_benchmarks:
     name: "Release benchmarks"
-    runs-on: [self-hosted, Linux, X64, x86-64-v3]
-    timeout-minutes: 120
+    runs-on: [self-hosted, Linux, X64, "${{ github.ref == 'refs/heads/master' && 'benchmark' || 'x86-64-v3' }}"]
+    timeout-minutes: 270
+    #  The timeout above is calculated based on a previous run where the loop count was 100
+    #  Rough times per test:
+    #  - macro-benchmark: 2.13 minutes
+    #  - mgbench: 13 minutes
+    #  - extended planner improvements mgbench: 7.26 minutes
+    #  10 iterations would take about 224 minutes, leaving 46 minutes to allow
+    #  for building memgraph and variations in benchmark times.
     env:
       ARCH: "amd"
       OS: "ubuntu-24.04"
@@ -18,6 +25,7 @@ jobs:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
+      LOOP_COUNT: 10
 
     steps:
       - name: Set up repository
@@ -56,16 +64,6 @@ jobs:
           --arch $ARCH \
           init-tests
 
-      - name: Run macro benchmarks
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph macro-benchmark
-
       - name: Get branch name
         shell: bash
         run: |
@@ -75,70 +73,81 @@ jobs:
             echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
           fi
 
-      - name: Upload macro benchmark results
+      - name: Run and upload macro benchmarks
         run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph upload-to-bench-graph \
-          --benchmark-name "macro_benchmark" \
-          --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
-          --github-run-id ${{ github.run_id }} \
-          --github-run-number ${{ github.run_number }} \
-          --head-branch-name ${{ env.BRANCH_NAME }}
+          for i in {1..${{ env.LOOP_COUNT }}}; do
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph macro-benchmark
 
-      - name: Run mgbench
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph upload-to-bench-graph \
+            --benchmark-name "macro_benchmark" \
+            --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
+            --github-run-id ${{ github.run_id }} \
+            --github-run-number ${{ github.run_number }} \
+            --head-branch-name ${{ env.BRANCH_NAME }}
+          done
 
-      - name: Upload mgbench results
+      - name: Run and upload mgbench
         run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph upload-to-bench-graph \
-          --benchmark-name "mgbench" \
-          --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
-          --github-run-id "${{ github.run_id }}" \
-          --github-run-number "${{ github.run_number }}" \
-          --head-branch-name "${{ env.BRANCH_NAME }}"
+          for i in {1..${{ env.LOOP_COUNT }}}; do
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph mgbench --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph upload-to-bench-graph \
+            --benchmark-name "mgbench" \
+            --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
+            --github-run-id "${{ github.run_id }}" \
+            --github-run-number "${{ github.run_number }}" \
+            --head-branch-name "${{ env.BRANCH_NAME }}"
+          done
 
       - name: Run extended planner improvements mgbench
         run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench --dataset pokec_planner_optimizations --size medium --export-results-file benchmark_result_extended.json
+          for i in {1..${{ env.LOOP_COUNT }}}; do
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph mgbench --dataset pokec_planner_optimizations --size medium --export-results-file benchmark_result_extended.json
 
-      - name: Upload extended planner improvements mgbench results
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph upload-to-bench-graph \
-          --benchmark-name "mgbench" \
-          --benchmark-results "../../tests/mgbench/benchmark_result_extended.json" \
-          --github-run-id "${{ github.run_id }}" \
-          --github-run-number "${{ github.run_number }}" \
-          --head-branch-name "${{ env.BRANCH_NAME }}"
+
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph upload-to-bench-graph \
+            --benchmark-name "mgbench-planner-optimizations" \
+            --benchmark-results "../../tests/mgbench/benchmark_result_extended.json" \
+            --github-run-id "${{ github.run_id }}" \
+            --github-run-number "${{ github.run_number }}" \
+            --head-branch-name "${{ env.BRANCH_NAME }}"
+          done
 
       - name: Stop mgbuild container
         if: always()
