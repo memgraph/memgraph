@@ -1016,7 +1016,8 @@ test_memgraph() {
           ;;
         esac
       done
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 12 --export-results $EXPORT_RESULTS_FILE supernode"
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE supernode"
     ;;
     upload-to-bench-graph)
       shift 1
