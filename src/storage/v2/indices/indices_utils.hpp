@@ -143,6 +143,7 @@ inline bool AnyVersionIsVisible(Edge *edge, uint64_t timestamp) {
       case Delta::Action::ADD_LABEL:
       case Delta::Action::REMOVE_LABEL:
       case Delta::Action::SET_PROPERTY:
+      case Delta::Action::SET_VECTOR_PROPERTY:
       case Delta::Action::ADD_IN_EDGE:
       case Delta::Action::ADD_OUT_EDGE:
       case Delta::Action::REMOVE_IN_EDGE:
