@@ -14,17 +14,18 @@ import sys
 from functools import partial
 
 import interactive_mg_runner
+import mgclient
 import pytest
 from common import (
-    connect,
-    count_files,
-    execute_and_fetch_all,
-    execute_and_ignore_dead_replica,
-    get_data_path,
-    get_logs_path,
-    get_vertex_count,
-    list_directory_contents,
-    show_instances,
+  connect,
+  count_files,
+  execute_and_fetch_all,
+  execute_and_ignore_dead_replica,
+  get_data_path,
+  get_logs_path,
+  get_vertex_count,
+  list_directory_contents,
+  show_instances,
 )
 from mg_utils import mg_sleep_and_assert
 
@@ -287,7 +288,18 @@ def test_branching_point_snapshot_recovery(test_name):
     ]
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
     instance2_cursor = connect(host="localhost", port=7688).cursor()
-    execute_and_fetch_all(instance2_cursor, "CREATE SNAPSHOT")
+    while True:
+        try:
+            # We test whether the replica became main but replica may need to wait for a few moments before the snapshot
+            # can be created on it. After the election on the coordinator's side is done, the instance receives PromoteRpc
+            # message. To conclude, there is a bit of lag between coordinator electing new main and new main actually
+            # being promoted, which this while loop tries to take care of.
+            execute_and_fetch_all(instance2_cursor, "CREATE SNAPSHOT")
+            break
+        except mgclient.DatabaseError as e:
+            # Fail or continue the while loop
+            assert str(e) == "Failed to create a snapshot. Replica instances are not allowed to create them."
+
     # Count number of WALs and snapshots
     data_dir_instance_2 = f"{build_dir}/{get_data_path(file, test_name)}/instance_2"
     wal_dir_instance_2 = f"{data_dir_instance_2}/wal"
