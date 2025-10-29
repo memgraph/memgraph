@@ -279,8 +279,6 @@ void InMemoryEdgePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_sta
         continue;
       }
 
-      const bool vertices_deleted = it->from_vertex->deleted || it->to_vertex->deleted;
-      const bool edge_deleted = it->edge->deleted;
       const bool has_next = next_it != edges_acc.end();
 
       // When we update specific entries in the index, we don't delete the previous entry.
@@ -290,7 +288,7 @@ void InMemoryEdgePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_sta
       const bool redundant_duplicate = has_next && it->value == next_it->value &&
                                        it->from_vertex == next_it->from_vertex && it->to_vertex == next_it->to_vertex &&
                                        it->edge == next_it->edge;
-      if (redundant_duplicate || vertices_deleted || edge_deleted ||
+      if (redundant_duplicate ||
           !AnyVersionHasProperty(*it->edge, property_id, it->value, oldest_active_start_timestamp)) {
         edges_acc.remove(*it);
       }
