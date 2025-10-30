@@ -111,8 +111,9 @@ struct ExecutionContext {
   FrameChangeCollector *frame_change_collector{nullptr};
   std::shared_ptr<QueryUserOrRole> user_or_role;
   int64_t number_of_hops{0};
-  HopsLimit hops_limit;
+  HopsLimit hops_limit;  // TODO set on a different cache line
   std::optional<uint64_t> periodic_commit_frequency;
+  std::optional<size_t> parallel_execution{std::nullopt};  // if set, number of threads to use for parallel execution
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
