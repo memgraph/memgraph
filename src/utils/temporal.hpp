@@ -18,7 +18,7 @@
 #include <limits>
 
 #include "utils/exceptions.hpp"
-#include "utils/fnv.hpp"
+import memgraph.utils.fnv;
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -145,7 +145,8 @@ constexpr std::chrono::days DaysSinceEpoch(uint16_t year, uint8_t month, uint8_t
 struct Date {
   explicit Date() : Date{DateParameters{}} {}
   // we assume we accepted date in microseconds which was normalized using the epoch time point
-  explicit Date(int64_t microseconds);
+  explicit Date(std::chrono::microseconds microseconds);
+  explicit Date(std::chrono::days days_since_epoch);
   explicit Date(const DateParameters &date_parameters);
 
   friend std::ostream &operator<<(std::ostream &os, const Date &date) { return os << date.ToString(); }

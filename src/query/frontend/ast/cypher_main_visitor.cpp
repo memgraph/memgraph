@@ -914,6 +914,30 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
 
   return load_csv;
 }
+antlrcpp::Any CypherMainVisitor::visitLoadParquet(MemgraphCypher::LoadParquetContext *ctx) {
+  query_info_.has_load_parquet = true;
+  auto *load_parquet = storage_->Create<LoadParquet>();
+  // handle
+  if (ctx->parquetFile()->literal() && ctx->parquetFile()->literal()->StringLiteral()) {
+    load_parquet->file_ = std::any_cast<Expression *>(ctx->parquetFile()->accept(this));
+  } else if (ctx->parquetFile()->parameter()) {
+    load_parquet->file_ = std::any_cast<ParameterLookup *>(ctx->parquetFile()->accept(this));
+  } else {
+    throw SemanticException("CSV file path should be a string literal");
+  }
+
+  // Handle AWS config
+  if (ctx->configsMap) {
+    load_parquet->configs_ =
+        std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
+  }
+
+  // handle row variable
+  load_parquet->row_var_ =
+      storage_->Create<Identifier>(std::any_cast<std::string>(ctx->rowVar()->variable()->accept(this)));
+
+  return load_parquet;
+}
 
 antlrcpp::Any CypherMainVisitor::visitFreeMemoryQuery(MemgraphCypher::FreeMemoryQueryContext *ctx) {
   auto *free_memory_query = storage_->Create<FreeMemoryQuery>();
@@ -1541,6 +1565,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   bool calls_write_procedure = false;
   bool has_any_update = false;
   bool has_load_csv = false;
+  bool has_load_parquet{false};
 
   auto check_write_procedure = [&calls_write_procedure](const std::string_view clause) {
     if (calls_write_procedure) {
@@ -1581,15 +1606,24 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       if (has_update || has_return) {
         throw SemanticException("UNWIND can't be put after RETURN clause or after an update.");
       }
-    } else if (utils::IsSubtype(clause_type, LoadCsv::kType)) {
-      if (has_load_csv) {
-        throw SemanticException("Can't have multiple LOAD CSV clauses in a single query.");
+    } else if (utils::IsSubtype(clause_type, LoadCsv::kType) || utils::IsSubtype(clause_type, LoadParquet::kType)) {
+      bool const is_load_csv = utils::IsSubtype(clause_type, LoadCsv::kType);
+
+      if (has_load_csv || has_load_parquet) {
+        throw SemanticException("Can't have multiple LOAD CSV/LOAD PARQUET clauses in a single query.");
       }
-      check_write_procedure("LOAD CSV");
+
+      check_write_procedure(is_load_csv ? "LOAD CSV" : "LOAD PARQUET");
+
       if (has_return) {
-        throw SemanticException("LOAD CSV can't be put after RETURN clause.");
+        throw SemanticException("LOAD CSV/LOAD PARQUET can't be put after RETURN clause.");
       }
-      has_load_csv = true;
+
+      if (is_load_csv) {
+        has_load_csv = true;
+      } else {
+        has_load_parquet = true;
+      }
     } else if (auto *match = utils::Downcast<Match>(clause)) {
       if (has_update || has_return) {
         throw SemanticException("MATCH can't be put after RETURN clause or after an update.");
@@ -1687,6 +1721,10 @@ antlrcpp::Any CypherMainVisitor::visitClause(MemgraphCypher::ClauseContext *ctx)
   if (ctx->loadCsv()) {
     return static_cast<Clause *>(std::any_cast<LoadCsv *>(ctx->loadCsv()->accept(this)));
   }
+  if (ctx->loadParquet()) {
+    return static_cast<Clause *>(std::any_cast<LoadParquet *>(ctx->loadParquet()->accept(this)));
+  }
+
   if (ctx->foreach ()) {
     return static_cast<Clause *>(std::any_cast<Foreach *>(ctx->foreach ()->accept(this)));
   }

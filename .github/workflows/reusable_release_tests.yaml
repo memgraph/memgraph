@@ -15,10 +15,6 @@ on:
         type: string
         description: "Runner architecture label. Amd is built on X64, arm on ARM64. Default value is X64."
         default: 'X64'
-      toolchain:
-        type: string
-        description: "Toolchain version. Default value is v6."
-        default: 'v6'
       build_type:
         type: string
         description: "Memgraph Build type. Default value is Release."
@@ -45,7 +41,7 @@ on:
         value: ${{ jobs.aggregate_results.outputs.test_status }}
 env:
   OS: ${{ inputs.os }}
-  TOOLCHAIN: ${{ inputs.toolchain }}
+  TOOLCHAIN: v7
   ARCH: ${{ inputs.arch }}
   THREADS: ${{ inputs.threads }}
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -750,15 +746,20 @@ jobs:
           --arch $ARCH \
           init-tests
 
+      - name: Ensure localstack is up
+        run: |
+          cd tests/e2e/load_parquet/localstack
+          docker compose --profile bridge up -d
+
       # This step will be skipped because the e2e stream tests have been disabled
       # We need to fix this as soon as possible
       - name: Ensure Kafka and Pulsar are up
         if: false
         run: |
           cd tests/e2e/streams/kafka
-          docker-compose up -d
+          docker compose up -d
           cd ../pulsar
-          docker-compose up -d
+          docker compose up -d
 
       - name: Run e2e tests
         run: |
@@ -770,14 +771,19 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph e2e
 
+      - name: Ensure localstack is down
+        run: |
+          cd tests/e2e/load_parquet/localstack
+          docker compose down
+
       # Same as two steps prior
       - name: Ensure Kafka and Pulsar are down
         if: false
         run: |
           cd tests/e2e/streams/kafka
-          docker-compose down
+          docker compose down
           cd ../pulsar
-          docker-compose down
+          docker compose down
 
       - name: Stop mgbuild container
         if: always()

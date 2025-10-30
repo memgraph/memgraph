@@ -73,6 +73,30 @@ const std::chrono::time_zone *GetTimezone();
 std::string GetQueryLogDirectory();
 
 /**
+ * @brief Get the AWS region setting
+ * @return std::string
+ */
+auto GetAwsRegion() -> std::string;
+
+/**
+ * @brief Get the AWS access key setting
+ * @return std::string
+ */
+auto GetAwsAccessKey() -> std::string;
+
+/**
+ * @brief Get the AWS secret key setting
+ * @return std::string
+ */
+auto GetAwsSecretKey() -> std::string;
+
+/**
+ * @brief Get the AWS endpoint URL setting
+ * @return std::string
+ */
+auto GetAwsEndpointUrl() -> std::string;
+
+/**
  * @brief Attach observer to the global snapshor period variable
  */
 void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer);

@@ -51,7 +51,6 @@ jobs:
     with:
       os: ubuntu-24.04
       arch: ${{ matrix.arch }}
-      toolchain: v6
       build_type: RelWithDebInfo
       push_to_s3: true
       s3_bucket: deps.memgraph.io

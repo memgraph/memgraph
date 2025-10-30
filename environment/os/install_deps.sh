@@ -7,24 +7,26 @@ source "$SCRIPT_DIR/../util.sh"
 SUPPORTED_OS=(
     all
     centos-9 centos-10
-    debian-11 debian-11-arm debian-12 debian-12-arm debian-13
-    fedora-41 fedora-42
-    rocky-9
+    debian-12 debian-12-arm debian-13 debian-13-arm
+    fedora-42 fedora-42-arm
+    rocky-10
     ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
 )
 
 # Define toolchain download URLs for supported OS and architectures
 declare -A TOOLCHAIN_URLS=(
-    [centos-9]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v6/toolchain-v6-binaries-centos-9-x86_64.tar.gz"
-    [centos-10]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v6/toolchain-v6-binaries-centos-10-x86_64.tar.gz"
-    [debian-11]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v6/toolchain-v6-binaries-debian-11-amd64.tar.gz"
-    [debian-11-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v6/toolchain-v6-binaries-debian-11-arm64.tar.gz"
-    [debian-12]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v6/toolchain-v6-binaries-debian-12-amd64.tar.gz"
-    [debian-12-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v6/toolchain-v6-binaries-debian-12-arm64.tar.gz"
-    [fedora-41]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v6/toolchain-v6-binaries-fedora-41-amd64.tar.gz"
-    [ubuntu-22.04]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v6/toolchain-v6-binaries-ubuntu-22.04-amd64.tar.gz"
-    [ubuntu-24.04]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v6/toolchain-v6-binaries-ubuntu-24.04-amd64.tar.gz"
-    [ubuntu-24.04-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v6/toolchain-v6-binaries-ubuntu-24.04-arm64.tar.gz"
+    [centos-9]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-centos-9-x86_64.tar.gz"
+    [centos-10]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-centos-10-x86_64.tar.gz"
+    [debian-12]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-debian-12-amd64.tar.gz"
+    [debian-12-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-debian-12-arm64.tar.gz"
+    [debian-13]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-debian-13-amd64.tar.gz"
+    [debian-13-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-debian-13-arm64.tar.gz"
+    [fedora-42]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-fedora-42-amd64.tar.gz"
+    [fedora-42-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-fedora-42-arm64.tar.gz"
+    [rocky-10]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-rocky-10-amd64.tar.gz"
+    [ubuntu-22.04]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-ubuntu-22.04-amd64.tar.gz"
+    [ubuntu-24.04]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-ubuntu-24.04-amd64.tar.gz"
+    [ubuntu-24.04-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-ubuntu-24.04-arm64.tar.gz"
 )
 
 # Parse command line arguments to extract --set-os flag

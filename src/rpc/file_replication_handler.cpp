@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "rpc/file_replication_handler.hpp"
+
+#include "flags/general.hpp"
 #include "slk/streams.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/replication/serialization.hpp"
@@ -19,38 +21,38 @@ namespace memgraph::rpc {
 
 FileReplicationHandler::~FileReplicationHandler() { ResetCurrentFile(); }
 
-std::filesystem::path FileReplicationHandler::GetRandomDir() {
-  auto const random_str = utils::GenerateUUID();
-  return std::filesystem::temp_directory_path() / "memgraph" / random_str /
-         storage::durability::kReplicaDurabilityDirectory;
-}
-
 // The assumption is that the header, request, file name and file size will always fit into the buffer size = 64KiB
 // Currently, they are taking few hundred bytes at most so this should be a valid assumption. Also, we aren't expecting
 // big growth in message size/
 std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size_t const size) {
-  auto const tmp_rnd_dir = GetRandomDir();
-
-  if (!utils::EnsureDir(tmp_rnd_dir)) {
-    spdlog::error("Failed to create temporary directory {}", tmp_rnd_dir);
-    return std::nullopt;
-  }
-
   slk::Reader req_reader(data, size, size);
   storage::replication::Decoder decoder(&req_reader);
 
-  auto const maybe_filename = decoder.ReadString();
-  if (!ValidateFilename(maybe_filename)) return std::nullopt;
+  auto const maybe_rel_path_str = decoder.ReadString();
+  if (!ValidateFilename(maybe_rel_path_str)) return std::nullopt;
+
+  auto const rel_path = std::filesystem::path{*maybe_rel_path_str};
+  auto const filename = rel_path.filename();
+  auto const file_type = rel_path.parent_path().filename();  // will be wal or snapshots
+  auto const gp_path =
+      rel_path.parent_path().parent_path();  // grandparent path. Will be either databases/uuid or . for default db
+
+  auto const save_dir = std::filesystem::path{FLAGS_data_directory} / gp_path / "tmp" / file_type;
+
+  if (!utils::EnsureDir(save_dir)) {
+    spdlog::error("Failed to create directory {}", save_dir.string());
+    return std::nullopt;
+  }
 
   const auto maybe_file_size = decoder.ReadUint();
   if (!ValidateFileSize(maybe_file_size)) return std::nullopt;
 
   file_size_ = *maybe_file_size;
-  auto const path = tmp_rnd_dir / *maybe_filename;
+  auto const path = save_dir / filename;
   paths_.emplace_back(path);
 
-  file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
   spdlog::info("Replica will be using file {} with size {}", path, file_size_);
+  file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
   // First N bytes are file_name and file_size, therefore we don't read full size
   size_t const processed_bytes = req_reader.GetPos();
@@ -69,18 +71,8 @@ bool FileReplicationHandler::ValidateFilename(std::optional<std::string> const &
     return false;
   }
 
-  if (filename.find('/') != std::string::npos || filename.find('\\') != std::string::npos) {
-    spdlog::error("Filename must not contain path separators: {}", filename);
-    return false;
-  }
-
   if (filename.find('.') != std::string::npos) {
     spdlog::error("Filename must not contain extension: {}", filename);
-    return false;
-  }
-
-  if (auto const file_path = std::filesystem::path(filename); file_path.has_parent_path()) {
-    spdlog::error("File cannot have a parent path{}", file_path.string());
     return false;
   }
 

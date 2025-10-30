@@ -15,6 +15,7 @@
 
 #include <gtest/gtest.h>
 #include <libnuraft/nuraft.hxx>
+#include <nlohmann/json.hpp>
 #include <range/v3/view.hpp>
 
 using memgraph::coordination::CoordinatorInstanceAux;

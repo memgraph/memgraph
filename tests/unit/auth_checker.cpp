@@ -292,7 +292,8 @@ TEST(AuthChecker, Generate) {
   EXPECT_FALSE(user2->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
 
   // Connect role and recheck
-  new_user2.SetRole(new_role);
+  new_user2.ClearAllRoles();
+  new_user2.AddRole(new_role);
   auth->SaveUser(new_user2);
   user2 = auth_checker.GenQueryUser("new_user2", {});
   EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));

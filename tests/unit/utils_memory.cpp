@@ -9,9 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <mutex>
+#include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -139,7 +143,7 @@ TEST(MonotonicBufferResource, AllocationOverCapacity) {
 
 TEST(MonotonicBufferResource, AllocationWithSize0) {
   memgraph::utils::MonotonicBufferResource mem(1024);
-  EXPECT_THROW(mem.allocate(0), std::bad_alloc);
+  EXPECT_THROW((void)mem.allocate(0), std::bad_alloc);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -153,8 +157,8 @@ TEST(MonotonicBufferResource, AllocationWithSizeOverflow) {
   size_t max_size = std::numeric_limits<size_t>::max();
   memgraph::utils::MonotonicBufferResource mem(1024);
   // Setup so that the next allocation aligning max_size causes overflow.
-  mem.allocate(1, 1);
-  EXPECT_THROW(mem.allocate(max_size, 4), std::bad_alloc);
+  (void)mem.allocate(1, 1);
+  EXPECT_THROW((void)mem.allocate(max_size, 4), std::bad_alloc);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -218,9 +222,9 @@ TEST(MonotonicBufferResource, ResetGrowthFactor) {
   static constexpr size_t stack_data_size = 1024;
   char stack_data[stack_data_size];
   memgraph::utils::MonotonicBufferResource mem(&stack_data[0], stack_data_size, &test_mem);
-  mem.allocate(stack_data_size + 1);
+  (void)mem.allocate(stack_data_size + 1);
   mem.Release();
-  mem.allocate(stack_data_size + 1);
+  (void)mem.allocate(stack_data_size + 1);
   ASSERT_EQ(test_mem.allocated_sizes_.size(), 2);
   ASSERT_EQ(test_mem.allocated_sizes_.front(), test_mem.allocated_sizes_.back());
 }
@@ -297,4 +301,90 @@ TYPED_TEST(AllocatorTest, PropagatesToStdPairUsesAllocator) {
     EXPECT_EQ(pair.first.alloc_, memgraph::utils::NewDeleteResource());
     EXPECT_EQ(pair.second.alloc_, memgraph::utils::NewDeleteResource());
   }
+}
+
+TEST(ThreadSafeMonotonicBufferResource, BasicFunctionality) {
+  memgraph::utils::ThreadSafeMonotonicBufferResource resource(1024);
+
+  // Test basic allocation
+  void *ptr1 = resource.allocate(100, 8);
+  void *ptr2 = resource.allocate(200, 16);
+
+  EXPECT_NE(ptr1, nullptr);
+  EXPECT_NE(ptr2, nullptr);
+  EXPECT_NE(ptr1, ptr2);
+
+  // Test alignment
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr1) % 8, 0);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr2) % 16, 0);
+}
+
+TEST(ThreadSafeMonotonicBufferResource, MultiThreadedAllocation) {
+  memgraph::utils::ThreadSafeMonotonicBufferResource resource(1024);
+  std::vector<std::thread> threads;
+  std::vector<void *> allocations;
+  std::mutex allocations_mutex;
+
+  constexpr size_t num_threads = 4;
+  constexpr size_t allocations_per_thread = 100;
+
+  // Launch threads that allocate memory concurrently
+  for (size_t i = 0; i < num_threads; ++i) {
+    threads.emplace_back([&resource, &allocations, &allocations_mutex] {
+      for (size_t j = 0; j < allocations_per_thread; ++j) {
+        size_t size = 8 + (j % 64);       // Varying sizes
+        size_t alignment = 8 << (j % 4);  // Varying alignments: 8, 16, 32, 64
+
+        void *ptr = resource.allocate(size, alignment);
+        EXPECT_NE(ptr, nullptr);
+        EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) % alignment, 0);
+
+        std::lock_guard<std::mutex> lock(allocations_mutex);
+        allocations.push_back(ptr);
+      }
+    });
+  }
+
+  // Wait for all threads to complete
+  for (auto &thread : threads) {
+    thread.join();
+  }
+
+  // Verify all allocations are unique
+  EXPECT_EQ(allocations.size(), num_threads * allocations_per_thread);
+  std::sort(allocations.begin(), allocations.end());
+  auto it = std::unique(allocations.begin(), allocations.end());
+  EXPECT_EQ(it, allocations.end());
+}
+
+TEST(ThreadSafeMonotonicBufferResource, BufferExpansion) {
+  memgraph::utils::ThreadSafeMonotonicBufferResource resource(64);  // Small initial size
+
+  std::vector<std::thread> threads;
+  std::vector<void *> allocations;
+  std::mutex allocations_mutex;
+
+  constexpr size_t num_threads = 2;
+  constexpr size_t allocations_per_thread = 50;
+
+  // Launch threads that will trigger buffer expansion
+  for (size_t i = 0; i < num_threads; ++i) {
+    threads.emplace_back([&resource, &allocations, &allocations_mutex] {
+      for (size_t j = 0; j < allocations_per_thread; ++j) {
+        size_t size = 32 + (j % 128);  // Larger sizes to trigger expansion
+        void *ptr = resource.allocate(size, 8);
+        EXPECT_NE(ptr, nullptr);
+
+        std::lock_guard<std::mutex> lock(allocations_mutex);
+        allocations.push_back(ptr);
+      }
+    });
+  }
+
+  // Wait for all threads to complete
+  for (auto &thread : threads) {
+    thread.join();
+  }
+
+  EXPECT_EQ(allocations.size(), num_threads * allocations_per_thread);
 }

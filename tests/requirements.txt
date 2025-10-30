@@ -1,4 +1,5 @@
-behave==1.2.6   
+behave==1.2.6
+boto3==1.40.59
 chardet==4.0.0
 cryptography==44.0.0
 gensim==4.3.3

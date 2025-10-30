@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <algorithm>
 #include <cstdint>
 #include <ranges>
 #include <shared_mutex>
@@ -93,10 +92,10 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
       throw query::VectorSearchException(
           fmt::format("Failed to create vector index {}", spec.index_name, ". Failed to reserve memory for the index"));
     }
-    pimpl->index_.try_emplace(label_prop,
-                              IndexItem{std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(
-                                            std::move(mg_vector_index.index)),
-                                        spec});
+    pimpl->index_.try_emplace(
+        label_prop, IndexItem{.mg_index = std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(
+                                  std::move(mg_vector_index.index)),
+                              .spec = spec});
 
     // Update the index with the vertices
     for (auto &vertex : vertices) {
@@ -165,6 +164,7 @@ bool VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
     if (!exclusively_locked_index->try_reserve(new_limits)) {
       throw query::VectorSearchException("Failed to resize vector index.");
     }
+    spec.capacity = exclusively_locked_index->capacity();  // capacity might be larger than the requested capacity
   }
 
   std::vector<float> vector;
@@ -204,6 +204,8 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_befo
 }
 
 void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) {
+  if (pimpl->index_.empty()) return;
+
   auto has_property = [&](const auto &label_prop) { return label_prop.property() == property; };
   auto has_label = [&](const auto &label_prop) { return utils::Contains(vertex->labels, label_prop.label()); };
 

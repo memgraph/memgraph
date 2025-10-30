@@ -12,6 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/data_instance_context.hpp"
+#include <nlohmann/json.hpp>
 #include "coordination/constants.hpp"
 
 namespace memgraph::coordination {

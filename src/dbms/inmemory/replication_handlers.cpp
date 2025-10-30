@@ -70,10 +70,6 @@ namespace {
 
 constexpr auto kWaitForMainLockTimeout = 30s;
 
-auto GenerateOldDir() -> std::string {
-  return ".old_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
-}
-
 void RemoveDirIfEmpty(std::filesystem::path const &dir) {
   // Exception suppression
   std::error_code ec{};
@@ -121,7 +117,13 @@ struct BackupDirectories {
 
 auto CreateBackupDir(std::filesystem::path const &backup_dir) -> bool {
   std::error_code ec{};
-  // Won't fail if directory already exists
+
+  // Clear old directory (single fallback)
+  if (std::filesystem::exists(backup_dir)) {
+    std::filesystem::remove_all(backup_dir, ec);
+    // Silent failure
+  }
+
   std::filesystem::create_directory(backup_dir, ec);
   if (ec) {
     spdlog::error("Failed to create backup directory {}.", backup_dir);
@@ -132,7 +134,7 @@ auto CreateBackupDir(std::filesystem::path const &backup_dir) -> bool {
 
 auto CreateBackupDirectories(std::filesystem::path const &current_snapshot_dir,
                              std::filesystem::path const &current_wal_dir) -> std::optional<BackupDirectories> {
-  auto const backup_subdir = GenerateOldDir();
+  constexpr std::string_view backup_subdir = ".old";
   auto backup_snapshot_dir = current_snapshot_dir / backup_subdir;
   if (!CreateBackupDir(backup_snapshot_dir)) {
     spdlog::error("Failed to create the backup directory for snapshots. Replica won't be recovered.");
@@ -486,15 +488,6 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     return;
   }
 
-  auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
-  if (!maybe_backup_dirs.has_value()) {
-    spdlog::error("Couldn't create backup directories. Replica won't be recovered.");
-    const storage::replication::SnapshotRes res{std::nullopt, 0};
-    rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
-    return;
-  }
-  auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
-
   // Read durability files
   auto const curr_snapshot_files = storage::durability::GetSnapshotFiles(current_snapshot_dir);
   auto const curr_wal_files = storage::durability::GetWalFiles(current_wal_directory);
@@ -580,6 +573,14 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 
   auto snapshots_to_move = curr_snapshot_files | rv::filter(not_recovery_snapshot) | r::to_vector;
 
+  auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
+  if (!maybe_backup_dirs.has_value()) {
+    spdlog::error("Couldn't create backup directories. Replica won't be recovered.");
+    const storage::replication::SnapshotRes res{std::nullopt, 0};
+    rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
+    return;
+  }
+  auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
   MoveDurabilityFiles(snapshots_to_move, backup_snapshot_dir, curr_wal_files, backup_wal_dir,
                       &(storage->file_retainer_));
 
@@ -626,15 +627,6 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
     return;
   }
 
-  auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
-  if (!maybe_backup_dirs.has_value()) {
-    spdlog::error("Couldn't create backup directories. Replica won't be recovered.");
-    rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder,
-                           storage->name());
-    return;
-  }
-  auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
-
   std::vector<storage::durability::SnapshotDurabilityInfo> old_snapshot_files;
   std::vector<storage::durability::WalDurabilityInfo> old_wal_files;
 
@@ -663,20 +655,21 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
   uint32_t local_batch_counter{0};
   uint64_t num_committed_txns{0};
   for (auto i = 0; i < wal_file_number; ++i) {
-    auto const load_wal_res = LoadWal(active_files[i], storage, res_builder, local_batch_counter);
+    const auto [success, current_batch_counter, num_txns_committed] =
+        LoadWal(active_files[i], storage, res_builder, local_batch_counter);
     // Failure to delete the received WAL file isn't fatal since it is saved in the tmp directory so it will eventually
     // get deleted
     utils::DeleteFile(active_files[i]);
 
-    if (!load_wal_res.success) {
+    if (!success) {
       spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files for db {}.",
                     storage->name());
       const storage::replication::WalFilesRes res{std::nullopt, 0};
       rpc::SendFinalResponse(res, request_version, res_builder);
       return;
     }
-    local_batch_counter = load_wal_res.current_batch_counter;
-    num_committed_txns += load_wal_res.num_txns_committed;
+    local_batch_counter = current_batch_counter;
+    num_committed_txns += num_txns_committed;
   }
 
   spdlog::debug("Replication recovery from WAL files succeeded for db {}.", storage->name());
@@ -686,6 +679,14 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
 
   if (req.reset_needed) {
+    auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
+    if (!maybe_backup_dirs.has_value()) {
+      spdlog::error("Couldn't create backup directories. Replica won't be recovered.");
+      rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder,
+                             storage->name());
+      return;
+    }
+    auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
     MoveDurabilityFiles(old_snapshot_files, backup_snapshot_dir, old_wal_files, backup_wal_dir,
                         &(storage->file_retainer_));
   }
@@ -729,14 +730,6 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
     return;
   }
 
-  auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
-  if (!maybe_backup_dirs.has_value()) {
-    spdlog::error("Couldn't create backup directories. Replica won't be recovered for db {}.", storage->name());
-    rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
-    return;
-  }
-  auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
-
   std::vector<storage::durability::SnapshotDurabilityInfo> old_snapshot_files;
   std::vector<storage::durability::WalDurabilityInfo> old_wal_files;
 
@@ -775,6 +768,13 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
 
   if (req.reset_needed) {
+    auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
+    if (!maybe_backup_dirs.has_value()) {
+      spdlog::error("Couldn't create backup directories. Replica won't be recovered for db {}.", storage->name());
+      rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
+      return;
+    }
+    auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
     MoveDurabilityFiles(old_snapshot_files, backup_snapshot_dir, old_wal_files, backup_wal_dir,
                         &(storage->file_retainer_));
   }
@@ -1318,7 +1318,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalEdgePropertyIndexDrop const &data) {
           spdlog::trace("       Drop global edge index on ({})", data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (transaction->CreateGlobalEdgeIndex(storage->NameToProperty(data.property)).HasError()) {
+          if (transaction->DropGlobalEdgeIndex(storage->NameToProperty(data.property)).HasError()) {
             throw utils::BasicException("Failed to drop global edge property index on ({}).", data.property);
           }
         },

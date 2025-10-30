@@ -210,5 +210,3 @@ install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
 # ----------------------------------------------------------------------------
 # END Memgraph Single Node v2 Executable
 # ----------------------------------------------------------------------------
-
-

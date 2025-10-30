@@ -366,17 +366,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return false;
     }
 
-    std::unique_ptr<LogicalOperator> indexed_scan;
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
     // With expand to existing we only get real gains with BFS, because we use a
     // different algorithm then, so prefer expand to existing.
-    if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
-      // TODO: Perhaps take average node degree into consideration, instead of
-      // unconditionally creating an indexed scan.
-      indexed_scan = GenScanByIndex(dst_scan);
-    } else {
-      indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
-    }
+    // TODO: Perhaps take average node degree into consideration, instead of
+    // unconditionally creating an indexed scan.
+    std::unique_ptr<LogicalOperator> indexed_scan =
+        expand.type_ == EdgeAtom::Type::BREADTH_FIRST
+            ? GenScanByIndex(dst_scan)
+            : GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
     if (indexed_scan) {
       expand.set_input(std::move(indexed_scan));
       expand.common_.existing_node = true;
@@ -734,6 +732,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(LoadCsv & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(LoadParquet &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(LoadParquet & /*op*/) override {
     prev_ops_.pop_back();
     return true;
   }

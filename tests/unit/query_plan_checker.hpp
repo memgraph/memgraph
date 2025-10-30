@@ -158,6 +158,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
 
   PRE_VISIT(PeriodicCommit);
   PRE_VISIT(LoadCsv);
+  PRE_VISIT(LoadParquet);
 
   bool PreVisit(PeriodicSubquery &op) override {
     CheckOp(op);
@@ -190,6 +191,7 @@ class OpChecker : public BaseOpChecker {
   virtual void ExpectOp(TOp &, const SymbolTable &) {}
 };
 
+using ExpectOnce = OpChecker<Once>;
 using ExpectCreateNode = OpChecker<CreateNode>;
 using ExpectCreateExpand = OpChecker<CreateExpand>;
 using ExpectDelete = OpChecker<Delete>;
@@ -215,6 +217,7 @@ using ExpectDistinct = OpChecker<Distinct>;
 using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
 using ExpectPeriodicCommit = OpChecker<PeriodicCommit>;
 using ExpectLoadCsv = OpChecker<LoadCsv>;
+using ExpectLoadParquet = OpChecker<LoadParquet>;
 using ExpectBasicCallProcedure = OpChecker<CallProcedure>;
 using ExpectSetNestedProperty = OpChecker<SetNestedProperty>;
 using ExpectRemoveNestedProperty = OpChecker<RemoveNestedProperty>;
@@ -451,7 +454,10 @@ class ExpectScanAllByLabelProperties : public OpChecker<ScanAllByLabelProperties
       // In keeping with the other tests, we are comparing expressions by
       // hash code of their types, rather than performing a full expression
       // comparison.
-      if (typeid(*lhs->value()).hash_code() != typeid(*rhs->value()).hash_code()) return false;
+      // Note: value() is a const method returning const ref, so no side effects
+      auto const &lhs_expr = *lhs->value();
+      auto const &rhs_expr = *rhs->value();
+      if (typeid(lhs_expr).hash_code() != typeid(rhs_expr).hash_code()) return false;
       return true;
     };
 
@@ -663,6 +669,21 @@ std::list<std::unique_ptr<BaseOpChecker>> MakeCheckers(T arg, Rest &&...rest) {
   auto l = MakeCheckers(std::forward<Rest>(rest)...);
   l.emplace_front(std::make_unique<T>(arg));
   return std::move(l);
+}
+
+// Helper to build checker lists in natural top-down order (instead of reverse bottom-up order).
+// Example:
+//   Instead of:  list.push_back(make_unique<Once>()); list.push_back(make_unique<ScanAll>());
+//   You can use: auto list = PlanFromTopDown<Produce, Expand, ScanAll, Once>();
+//
+// This makes test expectations more intuitive by specifying operations in the order you think about them.
+template <typename... Checkers>
+std::list<std::unique_ptr<BaseOpChecker>> PlanFromTopDown() {
+  std::list<std::unique_ptr<BaseOpChecker>> result;
+  // Fold expression that creates each checker and adds it at the front of the list
+  // This reverses the parameter order, converting top-down to bottom-up
+  (result.push_front(std::make_unique<Checkers>()), ...);
+  return result;
 }
 
 template <class TPlanner, class TDbAccessor>

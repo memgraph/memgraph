@@ -22,7 +22,7 @@
 #include "storage/v2/temporal.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/fnv.hpp"
+import memgraph.utils.fnv;
 
 #include <boost/container/flat_map.hpp>
 #include "range/v3/all.hpp"

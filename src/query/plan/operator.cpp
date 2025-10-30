@@ -31,8 +31,9 @@
 #include "spdlog/spdlog.h"
 
 #include "csv/parsing.hpp"
-#include "flags/experimental.hpp"
 #include "license/license.hpp"
+#include "query/arrow_parquet/parquet_file_config.hpp"
+#include "query/arrow_parquet/reader.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -54,7 +55,7 @@
 #include "utils/algorithm.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/fnv.hpp"
+import memgraph.utils.fnv;
 #include "utils/java_string_formatter.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
@@ -423,7 +424,7 @@ storage::EdgeTypeId EvaluateEdgeType(const StorageEdgeType &edge_type, Expressio
           : std::nullopt;
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define SCOPED_PROFILE_OP_BY_REF(ref)                                                                                  \
-  std::optional<ScopedProfile> profile =                                                                               \
+  std::optional<ScopedProfile> const profile =                                                                         \
       context.is_profile_query ? std::optional<ScopedProfile>(std::in_place, ComputeProfilingKey(this), ref, &context) \
                                : std::nullopt;
 
@@ -4278,7 +4279,7 @@ void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
 
 EvaluatePatternFilter::EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol)
-    : input_(input), output_symbol_(std::move(output_symbol)) {}
+    : input_(input ? input : std::make_shared<Once>()), output_symbol_(std::move(output_symbol)) {}
 
 ACCEPT_WITH_INPUT(EvaluatePatternFilter);
 
@@ -4389,9 +4390,8 @@ void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Produce::ProduceCursor::Reset() { input_cursor_->Reset(); }
 
-Delete::Delete(const std::shared_ptr<LogicalOperator> &input_, const std::vector<Expression *> &expressions,
-               bool detach_)
-    : input_(input_), expressions_(expressions), detach_(detach_) {}
+Delete::Delete(const std::shared_ptr<LogicalOperator> &input, const std::vector<Expression *> &expressions, bool detach)
+    : input_(input ? input : std::make_shared<Once>()), expressions_(expressions), detach_(detach) {}
 
 ACCEPT_WITH_INPUT(Delete)
 
@@ -4582,7 +4582,7 @@ void Delete::DeleteCursor::Reset() {
 
 SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property,
                          PropertyLookup *lhs, Expression *rhs)
-    : input_(input), property_(property), lhs_(lhs), rhs_(rhs) {}
+    : input_(input ? input : std::make_shared<Once>()), property_(property), lhs_(lhs), rhs_(rhs) {}
 
 ACCEPT_WITH_INPUT(SetProperty)
 
@@ -4688,7 +4688,10 @@ void SetProperty::SetPropertyCursor::Reset() { input_cursor_->Reset(); }
 SetNestedProperty::SetNestedProperty(const std::shared_ptr<LogicalOperator> &input,
                                      std::vector<storage::PropertyId> property_path, PropertyLookup *lhs,
                                      Expression *rhs)
-    : input_(input), property_path_(std::move(property_path)), lhs_(lhs), rhs_(rhs) {}
+    : input_(input ? input : std::make_shared<Once>()),
+      property_path_(std::move(property_path)),
+      lhs_(lhs),
+      rhs_(rhs) {}
 
 ACCEPT_WITH_INPUT(SetNestedProperty)
 
@@ -4857,7 +4860,7 @@ void SetNestedProperty::SetNestedPropertyCursor::Shutdown() { input_cursor_->Shu
 void SetNestedProperty::SetNestedPropertyCursor::Reset() { input_cursor_->Reset(); }
 
 SetProperties::SetProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Expression *rhs, Op op)
-    : input_(input), input_symbol_(std::move(input_symbol)), rhs_(rhs), op_(op) {}
+    : input_(input ? input : std::make_shared<Once>()), input_symbol_(std::move(input_symbol)), rhs_(rhs), op_(op) {}
 
 ACCEPT_WITH_INPUT(SetProperties)
 
@@ -5092,7 +5095,9 @@ void SetProperties::SetPropertiesCursor::Reset() { input_cursor_->Reset(); }
 
 SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                      std::vector<StorageLabelType> labels)
-    : input_(input), input_symbol_(std::move(input_symbol)), labels_(std::move(labels)) {}
+    : input_(input ? input : std::make_shared<Once>()),
+      input_symbol_(std::move(input_symbol)),
+      labels_(std::move(labels)) {}
 
 ACCEPT_WITH_INPUT(SetLabels)
 
@@ -5190,7 +5195,7 @@ void SetLabels::SetLabelsCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property,
                                PropertyLookup *lhs)
-    : input_(input), property_(property), lhs_(lhs) {}
+    : input_(input ? input : std::make_shared<Once>()), property_(property), lhs_(lhs) {}
 
 ACCEPT_WITH_INPUT(RemoveProperty)
 
@@ -5297,7 +5302,7 @@ void RemoveProperty::RemovePropertyCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveNestedProperty::RemoveNestedProperty(const std::shared_ptr<LogicalOperator> &input,
                                            std::vector<storage::PropertyId> property_path, PropertyLookup *lhs)
-    : input_(input), property_path_(std::move(property_path)), lhs_(lhs) {}
+    : input_(input ? input : std::make_shared<Once>()), property_path_(std::move(property_path)), lhs_(lhs) {}
 
 ACCEPT_WITH_INPUT(RemoveNestedProperty)
 
@@ -5424,7 +5429,9 @@ void RemoveNestedProperty::RemoveNestedPropertyCursor::Reset() { input_cursor_->
 
 RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                            std::vector<StorageLabelType> labels)
-    : input_(input), input_symbol_(std::move(input_symbol)), labels_(std::move(labels)) {}
+    : input_(input ? input : std::make_shared<Once>()),
+      input_symbol_(std::move(input_symbol)),
+      labels_(std::move(labels)) {}
 
 ACCEPT_WITH_INPUT(RemoveLabels)
 
@@ -5524,7 +5531,9 @@ void RemoveLabels::RemoveLabelsCursor::Reset() { input_cursor_->Reset(); }
 
 EdgeUniquenessFilter::EdgeUniquenessFilter(const std::shared_ptr<LogicalOperator> &input, Symbol expand_symbol,
                                            const std::vector<Symbol> &previous_symbols)
-    : input_(input), expand_symbol_(std::move(expand_symbol)), previous_symbols_(previous_symbols) {}
+    : input_(input ? input : std::make_shared<Once>()),
+      expand_symbol_(std::move(expand_symbol)),
+      previous_symbols_(previous_symbols) {}
 
 ACCEPT_WITH_INPUT(EdgeUniquenessFilter)
 
@@ -5659,7 +5668,7 @@ std::unique_ptr<LogicalOperator> EmptyResult::Clone(AstStorage *storage) const {
 
 Accumulate::Accumulate(const std::shared_ptr<LogicalOperator> &input, const std::vector<Symbol> &symbols,
                        bool advance_command)
-    : input_(input), symbols_(symbols), advance_command_(advance_command) {}
+    : input_(input ? input : std::make_shared<Once>()), symbols_(symbols), advance_command_(advance_command) {}
 
 ACCEPT_WITH_INPUT(Accumulate)
 
@@ -6207,7 +6216,7 @@ std::string Aggregate::ToString() const {
 }
 
 Skip::Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
-    : input_(input), expression_(expression) {}
+    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
 
 ACCEPT_WITH_INPUT(Skip)
 
@@ -6270,7 +6279,7 @@ void Skip::SkipCursor::Reset() {
 }
 
 Limit::Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
-    : input_(input), expression_(expression) {}
+    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
 
 ACCEPT_WITH_INPUT(Limit)
 
@@ -6336,7 +6345,7 @@ void Limit::LimitCursor::Reset() {
 
 OrderBy::OrderBy(const std::shared_ptr<LogicalOperator> &input, const std::vector<SortItem> &order_by,
                  const std::vector<Symbol> &output_symbols)
-    : input_(input), output_symbols_(output_symbols) {
+    : input_(input ? input : std::make_shared<Once>()), output_symbols_(output_symbols) {
   // split the order_by vector into two vectors of orderings and expressions
   std::vector<OrderedTypedValueCompare> ordering;
   ordering.reserve(order_by.size());
@@ -7700,6 +7709,137 @@ std::unique_ptr<LogicalOperator> LoadCsv::Clone(AstStorage *storage) const {
 
 std::string LoadCsv::ToString() const { return fmt::format("LoadCsv {{{}}}", row_var_.name()); };
 
+namespace {
+
+auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
+                    PrimitiveLiteralExpressionEvaluator &evaluator)
+    -> std::optional<std::map<std::string, std::string, std::less<>>> {
+  if (std::ranges::any_of(config_map, [&evaluator](const auto &entry) {
+        auto key_expr = entry.first->Accept(evaluator);
+        auto value_expr = entry.second->Accept(evaluator);
+        return !key_expr.IsString() || !value_expr.IsString();
+      })) {
+    spdlog::error("Config map must contain only string keys and values!");
+    return std::nullopt;
+  }
+
+  return rv::all(config_map) | rv::transform([&evaluator](const auto &entry) {
+           auto key_expr = entry.first->Accept(evaluator);
+           auto value_expr = entry.second->Accept(evaluator);
+           return std::pair{key_expr.ValueString(), value_expr.ValueString()};
+         }) |
+         ranges::to<std::map<std::string, std::string, std::less<>>>;
+}
+}  // namespace
+
+LoadParquet::LoadParquet(std::shared_ptr<LogicalOperator> input, Expression *file,
+                         std::unordered_map<Expression *, Expression *> config_map, Symbol row_var)
+    : input_(input ? input : (std::make_shared<Once>())),
+      file_(file),
+      config_map_(std::move(config_map)),
+      row_var_(std::move(row_var)) {
+  MG_ASSERT(file_, "Something went wrong - LoadParquet's member file_ shouldn't be a nullptr");
+}
+
+ACCEPT_WITH_INPUT(LoadParquet);
+
+class LoadParquetCursor;
+
+std::vector<Symbol> LoadParquet::OutputSymbols(const SymbolTable & /*sym_table*/) const { return {row_var_}; };
+
+std::vector<Symbol> LoadParquet::ModifiedSymbols(const SymbolTable &sym_table) const {
+  auto symbols = input_->ModifiedSymbols(sym_table);
+  symbols.push_back(row_var_);
+  return symbols;
+};
+
+class LoadParquetCursor : public Cursor {
+  const LoadParquet *self_;
+  const UniqueCursorPtr input_cursor_;
+  bool did_pull_{false};
+  std::optional<ParquetReader> reader_;
+  Row row_;
+
+ public:
+  LoadParquetCursor(const LoadParquet *self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)), row_(mem) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler const oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(*self_);
+    AbortCheck(context);
+
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+    auto *mem = context.evaluation_context.memory;
+    if (UNLIKELY(!reader_.has_value())) {
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{context.evaluation_context};
+      auto maybe_file = self_->file_->Accept(evaluator).ValueString();
+
+      auto maybe_config_map = ParseConfigMap(self_->config_map_, evaluator);
+
+      if (!maybe_config_map) {
+        throw QueryRuntimeException("Failed to parse config map for LOAD PARQUET clause!");
+      }
+
+      if (maybe_config_map->size() > 4) {
+        throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
+                                    kAwsAccessKeyQuerySetting, kAwsAccessKeyQuerySetting, kAwsSecretKeyQuerySetting,
+                                    kAwsEndpointUrlQuerySetting);
+      }
+
+      // No need to check if maybe_file is std::nullopt, as the parser makes sure
+      // we can't get a nullptr for the 'file_' member in the LoadParquet clause
+      reader_.emplace(ParquetFileConfig::FromQueryConfig(std::string{maybe_file}, std::move(*maybe_config_map)), mem);
+    }
+
+    if (input_cursor_->Pull(frame, context)) {
+      if (did_pull_) {
+        throw QueryRuntimeException(
+            "LOAD PARQUET can be executed only once, please check if the cardinality of the operator before LOAD "
+            "PARQUET "
+            "is 1");
+      }
+      did_pull_ = true;
+    }
+
+    if (!reader_->GetNextRow(row_)) {
+      return false;
+    }
+
+    frame_writer.Modify(self_->row_var_, [&](TypedValue &value) {
+      if (value.IsMap()) {
+        std::swap(value.ValueMap(), row_);
+      } else {
+        value = TypedValue(std::move(row_), mem);
+      }
+    });
+
+    if (context.frame_change_collector) {
+      context.frame_change_collector->ResetInListCache(self_->row_var_);
+    }
+
+    return true;
+  }
+
+  void Reset() override { input_cursor_->Reset(); }
+  void Shutdown() override { input_cursor_->Shutdown(); }
+};
+
+UniqueCursorPtr LoadParquet::MakeCursor(utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<LoadParquetCursor>(mem, this, mem);
+}
+
+std::unique_ptr<LogicalOperator> LoadParquet::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<LoadParquet>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->file_ = file_ ? file_->Clone(storage) : nullptr;
+  object->row_var_ = row_var_;
+  return object;
+}
+
+std::string LoadParquet::ToString() const { return fmt::format("LoadParquet {{{}}}", row_var_.name()); }
+
 class ForeachCursor : public Cursor {
  public:
   explicit ForeachCursor(const Foreach &foreach, utils::MemoryResource *mem)
@@ -8099,7 +8239,7 @@ std::string HashJoin::ToString() const {
 RollUpApply::RollUpApply(std::shared_ptr<LogicalOperator> &&input,
                          std::shared_ptr<LogicalOperator> &&list_collection_branch,
                          const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol, bool pass_input)
-    : input_(std::move(input)),
+    : input_(input ? std::move(input) : std::make_shared<Once>()),
       list_collection_branch_(std::move(list_collection_branch)),
       result_symbol_(std::move(result_symbol)),
       pass_input_(pass_input) {
@@ -8200,7 +8340,7 @@ std::unique_ptr<LogicalOperator> RollUpApply::Clone(AstStorage *storage) const {
 }
 
 PeriodicCommit::PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency)
-    : input_(std::move(input)), commit_frequency_(commit_frequency) {}
+    : input_(input ? std::move(input) : std::make_shared<Once>()), commit_frequency_(commit_frequency) {}
 
 std::vector<Symbol> PeriodicCommit::ModifiedSymbols(const SymbolTable &table) const {
   return input_->ModifiedSymbols(table);

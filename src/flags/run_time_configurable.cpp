@@ -56,7 +56,7 @@ DEFINE_string(bolt_server_name_for_init, "Neo4j/v5.11.0 compatible graph databas
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
-DEFINE_VALIDATED_string(log_level, "WARNING", memgraph::flags::log_level_help_string.c_str(),
+DEFINE_VALIDATED_string(log_level, "WARNING", memgraph::flags::GetLogLevelHelpString(),
                         { return memgraph::flags::ValidLogLevel(value); });
 
 // Query flags
@@ -93,6 +93,18 @@ DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 300,
                         "to 0 to disable periodic snapshot creation.",
                         FLAG_IN_RANGE(0, 7LU * 24 * 3600));
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_string(aws_region, "", "Define AWS region which is used for the AWS integration.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_string(aws_access_key, "", "Define AWS access key for the AWS integration.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_string(aws_secret_key, "", "Define AWS secret key for the AWS integration.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_string(aws_endpoint_url, "", "Define AWS endpoint url for the AWS integration.");
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -128,6 +140,18 @@ constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 
 constexpr auto kSnapshotPeriodicSettingKey = "storage.snapshot.interval";
 constexpr auto kSnapshotPeriodicGFlagsKey = "storage-snapshot-interval";
+
+constexpr auto kAwsRegionSettingKey = "aws.region";
+constexpr auto kAwsRegionGFlagsKey = "aws_region";
+
+constexpr auto kAwsSecretSettingKey = "aws.secret_key";
+constexpr auto kAwsSecretGFlagsKey = "aws_secret_key";
+
+constexpr auto kAwsAccessSettingKey = "aws.access_key";
+constexpr auto kAwsAccessGFlagsKey = "aws_access_key";
+
+constexpr auto kAwsEndpointUrlSettingKey = "aws.endpoint_url";
+constexpr auto kAwsEndpointUrlGFlagsKey = "aws_endpoint_url";
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
@@ -322,7 +346,7 @@ void Initialize() {
       [](auto in) -> utils::Settings::ValidatorResult {
         if (!memgraph::flags::ValidLogLevel(in)) {
           return {"Unsupported log level. Log level must be defined as one of the following strings: " +
-                  allowed_log_levels};
+                  memgraph::flags::GetAllowedLogLevels()};
         }
         return {};
       });
@@ -414,6 +438,11 @@ void Initialize() {
         }
         return {};
       });
+
+  register_flag(kAwsRegionGFlagsKey, kAwsRegionSettingKey, kRestore);
+  register_flag(kAwsAccessGFlagsKey, kAwsAccessSettingKey, kRestore);
+  register_flag(kAwsSecretGFlagsKey, kAwsSecretSettingKey, kRestore);
+  register_flag(kAwsEndpointUrlGFlagsKey, kAwsEndpointUrlSettingKey, kRestore);
 }
 
 std::string GetServerName() {
@@ -438,6 +467,30 @@ std::string GetQueryLogDirectory() {
   // Thread safe read of gflag
   gflags::GetCommandLineOption(kQueryLogDirectoryGFlagsKey, &s);
   return s;
+}
+
+auto GetAwsAccessKey() -> std::string {
+  std::string access_key;
+  gflags::GetCommandLineOption(kAwsAccessGFlagsKey, &access_key);
+  return access_key;
+}
+
+auto GetAwsSecretKey() -> std::string {
+  std::string secret_key;
+  gflags::GetCommandLineOption(kAwsSecretGFlagsKey, &secret_key);
+  return secret_key;
+}
+
+auto GetAwsRegion() -> std::string {
+  std::string region;
+  gflags::GetCommandLineOption(kAwsRegionGFlagsKey, &region);
+  return region;
+}
+
+auto GetAwsEndpointUrl() -> std::string {
+  std::string endpoint_url;
+  gflags::GetCommandLineOption(kAwsEndpointUrlGFlagsKey, &endpoint_url);
+  return endpoint_url;
 }
 
 void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {

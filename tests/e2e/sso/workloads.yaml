@@ -14,3 +14,7 @@ workloads:
   - name: "SSO multi-tenant"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["sso/test_multi_tenant_sso.py"]
+
+  - name: "SSO self signed certificate"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["sso/test_self_signed_certificate.py"]

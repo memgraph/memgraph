@@ -20,13 +20,13 @@ auto FrameWriter::ResetInListCache(const Symbol &symbol) -> void {
   }
 }
 
-auto FrameWriter::Write(const Symbol &symbol, TypedValue value) -> TypedValue & {
+auto FrameWriter::Write(const Symbol &symbol, TypedValue &&value) -> TypedValue & {
   auto &inserted_value = frame_.elems_[symbol.position()] = std::move(value);
   ResetInListCache(symbol);
   return inserted_value;
 }
 
-auto FrameWriter::WriteAt(const Symbol &symbol, TypedValue value) -> TypedValue & {
+auto FrameWriter::WriteAt(const Symbol &symbol, TypedValue &&value) -> TypedValue & {
   auto &inserted_value = frame_.elems_.at(symbol.position()) = std::move(value);
   ResetInListCache(symbol);
   return inserted_value;

@@ -152,6 +152,7 @@ class Union;
 class Cartesian;
 class CallProcedure;
 class LoadCsv;
+class LoadParquet;
 class Foreach;
 class EmptyResult;
 class EvaluatePatternFilter;
@@ -172,7 +173,7 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate,
     Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
     Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit,
-    PeriodicSubquery, SetNestedProperty, RemoveNestedProperty>;
+    PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -297,7 +298,7 @@ class Once : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<LogicalOperator> input() const override;
   void set_input(std::shared_ptr<LogicalOperator>) override;
 
-  std::vector<Symbol> symbols_;
+  std::vector<Symbol> symbols_;  // here as semantic propergation (eg. merge match/create branches)
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -1250,7 +1251,7 @@ class Delete : public memgraph::query::plan::LogicalOperator {
 
   Delete() = default;
 
-  Delete(const std::shared_ptr<LogicalOperator> &input_, const std::vector<Expression *> &expressions, bool detach_);
+  Delete(const std::shared_ptr<LogicalOperator> &input, const std::vector<Expression *> &expressions, bool detach);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -2318,6 +2319,32 @@ class LoadCsv : public memgraph::query::plan::LogicalOperator {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
+class LoadParquet : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  LoadParquet() = default;
+  LoadParquet(std::shared_ptr<LogicalOperator> input, Expression *file,
+              std::unordered_map<Expression *, Expression *> config_map, Symbol row_var);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  Expression *file_;
+  std::unordered_map<Expression *, Expression *> config_map_;
+  Symbol row_var_;
+};
+
 /// Iterates over a collection of elements and applies one or more update
 /// clauses.
 ///
@@ -2378,7 +2405,7 @@ class Apply : public memgraph::query::plan::LogicalOperator {
     void Reset() override;
 
    private:
-    const Apply &self_;
+    [[maybe_unused]] const Apply &self_;
     UniqueCursorPtr input_;
     UniqueCursorPtr subquery_;
     bool pull_input_{true};
@@ -2417,7 +2444,7 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
     void Reset() override;
 
    private:
-    const IndexedJoin &self_;
+    [[maybe_unused]] const IndexedJoin &self_;
     UniqueCursorPtr main_branch_;
     UniqueCursorPtr sub_branch_;
     bool pull_input_{true};

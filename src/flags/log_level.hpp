@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,8 +19,10 @@
 
 namespace memgraph::flags {
 
-extern const std::string allowed_log_levels;
-extern const std::string log_level_help_string;
+const std::string &GetAllowedLogLevels();
+constexpr const char *GetLogLevelHelpString() {
+  return "Minimum log level. Allowed values: TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL";
+}
 
 bool ValidLogLevel(std::string_view value);
 std::optional<spdlog::level::level_enum> LogLevelToEnum(std::string_view value);

@@ -20,7 +20,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
-#include "utils/fnv.hpp"
+import memgraph.utils.fnv;
 
 namespace memgraph::query::plan {
 
@@ -33,8 +33,8 @@ class VertexCountCache {
   auto NameToLabel(const std::string &name) { return db_->NameToLabel(name); }
   auto NameToProperty(const std::string &name) { return db_->NameToProperty(name); }
   auto NameToEdgeType(const std::string &name) { return db_->NameToEdgeType(name); }
-  auto GetEnumValue(std::string_view name,
-                    std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto GetEnumValue(std::string_view name, std::string_view value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return db_->GetEnumValue(name, value);
   }
 
