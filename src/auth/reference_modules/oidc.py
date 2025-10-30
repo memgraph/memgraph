@@ -20,7 +20,8 @@ def validate_jwt_token(token: str, scheme: str, config: dict, token_type: str):
         jwks_uri = f"{config['public_key_endpoint']}"
 
     try:
-        response = requests.get(jwks_uri, timeout=10, verify=config["cert"])
+        # ms entra and okta have a certificate that is verified
+        response = requests.get(jwks_uri, timeout=10, verify=config.get("cert", True))
         response.raise_for_status()
         jwks = response.json()
     except (requests.RequestException, ValueError) as e:
@@ -115,7 +116,6 @@ def _load_config_from_env(scheme: str):
         config["role_field"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_ROLE_FIELD", "roles")
         config["username"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_USERNAME", "id:sub")
         config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_ROLE_MAPPING", ""))
-        config["cert"] = True  # ms entra has a certificate that is verified
     elif scheme == "oidc-okta":
         config["client_id"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_CLIENT_ID", "")
         config["id_issuer"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ISSUER", "")
@@ -123,7 +123,6 @@ def _load_config_from_env(scheme: str):
         config["role_field"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ROLE_FIELD", "groups")
         config["username"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_USERNAME", "id:sub")
         config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ROLE_MAPPING", ""))
-        config["cert"] = True  # okta has a certificate that is verified
     elif scheme == "oidc-custom":
         config["public_key_endpoint"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_PUBLIC_KEY_ENDPOINT", "")
         config["access_token_audience"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_ACCESS_TOKEN_AUDIENCE", "")
