@@ -1394,6 +1394,9 @@ case $command in
         esac
       done
 
+      # clean up conan cache inside container
+      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && ./tools/clean_conan.sh 1w"
+
       # Create cache override files (same logic as run command)
       compose_files=$(setup_cache_override)
 
