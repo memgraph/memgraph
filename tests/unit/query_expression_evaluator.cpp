@@ -859,6 +859,61 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTest) {
   }
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, EdgeTypesTest) {
+  // Setup: Create edge with TYPE_A
+  auto from_vertex = this->dba.InsertVertex();
+  auto to_vertex = this->dba.InsertVertex();
+  auto edge_type_a = this->dba.NameToEdgeType("TYPE_A");
+  auto edge = this->dba.InsertEdge(&from_vertex, &to_vertex, edge_type_a);
+  ASSERT_TRUE(edge.HasValue());
+  this->dba.AdvanceCommand();
+
+  // Setup: Create edge identifier and write edge to frame
+  auto *edge_identifier = this->storage.template Create<Identifier>("e");
+  auto edge_symbol = this->symbol_table.CreateSymbol("e", true);
+  edge_identifier->MapTo(edge_symbol);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+
+  // Pre-compute edge type indices
+  const auto type_a_ix = this->storage.GetEdgeTypeIx("TYPE_A");
+  const auto type_b_ix = this->storage.GetEdgeTypeIx("TYPE_B");
+  const auto type_c_ix = this->storage.GetEdgeTypeIx("TYPE_C");
+
+  // Helper lambda to test edge type matching
+  auto test_edge_types = [&](const std::vector<EdgeTypeIx> &types) {
+    auto *op = this->storage.template Create<EdgeTypesTest>(edge_identifier, types);
+    return this->Eval(op);
+  };
+
+  // Test 1: Single matching edge type - should return true
+  {
+    frame_writer.Write(edge_symbol, TypedValue(*edge));
+    auto value = test_edge_types({type_a_ix});
+    EXPECT_TRUE(value.ValueBool());
+  }
+
+  // Test 2: Edge type is in list of multiple types - should return true
+  {
+    frame_writer.Write(edge_symbol, TypedValue(*edge));
+    auto value = test_edge_types({type_b_ix, type_a_ix, type_c_ix});
+    EXPECT_TRUE(value.ValueBool());
+  }
+
+  // Test 3: Edge type not in list - should return false
+  {
+    frame_writer.Write(edge_symbol, TypedValue(*edge));
+    auto value = test_edge_types({type_b_ix, type_c_ix});
+    EXPECT_FALSE(value.ValueBool());
+  }
+
+  // Test 4: Null edge - should return null
+  {
+    frame_writer.Write(edge_symbol, TypedValue());
+    auto value = test_edge_types({type_a_ix});
+    EXPECT_TRUE(value.IsNull());
+  }
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, Aggregation) {
   auto aggr = this->storage.template Create<Aggregation>(this->storage.template Create<PrimitiveLiteral>(42), nullptr,
                                                          Aggregation::Op::COUNT, false);

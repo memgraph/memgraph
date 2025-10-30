@@ -3613,4 +3613,50 @@ TYPED_TEST(TestPlanner, MatchRemoveNested) {
   CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectRemoveNestedProperty(), ExpectEmptyResult());
 }
 
+TYPED_TEST(TestPlanner, MatchGlobalEdgePropertyIndexWithEdgeTypeFilter) {
+  // Test MATCH ()-[e:A {p:1}]->() RETURN e with global edge property index
+  // Should produce: Filter [e :A] -> ScanAllByEdgePropertyValue -> Produce
+  FakeDbAccessor dba;
+  auto prop = dba.Property("p");
+  const auto property_pair = PROPERTY_PAIR(dba, "p");
+  dba.SetIndexCount(prop, 1);  // Set global edge property index count
+
+  const auto lit_1 = LITERAL(1);
+  const auto prop_map = MAP({this->storage.GetPropertyIx("p"), LITERAL(1)});
+
+  // Helper to build and check query plan
+  auto check_query_plan = [&](auto *query, bool expect_edge_type_filter) {
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+    if (expect_edge_type_filter) {
+      CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgePropertyValue(property_pair, lit_1),
+                ExpectFilter({}, {{"A"}}), ExpectProduce());
+    } else {
+      CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgePropertyValue(property_pair, lit_1), ExpectProduce());
+    }
+  };
+
+  // Test MATCH ()-[e:A]->() WHERE e.p = 1 RETURN e (edge type in pattern, property in WHERE)
+  {
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("e", Direction::OUT, {"A"}), NODE("anon2"))),
+                                     WHERE(EQ(PROPERTY_LOOKUP(dba, "e", prop), LITERAL(1))), RETURN("e")));
+    check_query_plan(query, true);
+  }
+
+  // Test MATCH ()-[e:A {p:1}]->() RETURN e (edge type and property in pattern)
+  {
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("anon1"), EDGE("e", Direction::OUT, {"A"}, false, prop_map), NODE("anon2"))), RETURN("e")));
+    check_query_plan(query, true);
+  }
+
+  // Test MATCH ()-[e {p:1}]->() RETURN e (no edge type - should not have Filter)
+  {
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("anon1"), EDGE("e", Direction::OUT, {}, false, prop_map), NODE("anon2"))), RETURN("e")));
+    check_query_plan(query, false);
+  }
+}
+
 }  // namespace

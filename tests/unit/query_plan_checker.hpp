@@ -224,8 +224,9 @@ using ExpectRemoveNestedProperty = OpChecker<RemoveNestedProperty>;
 
 class ExpectFilter : public OpChecker<Filter> {
  public:
-  explicit ExpectFilter(const std::vector<std::list<BaseOpChecker *>> &pattern_filters = {})
-      : pattern_filters_(pattern_filters) {}
+  explicit ExpectFilter(const std::vector<std::list<BaseOpChecker *>> &pattern_filters = {},
+                        const std::optional<std::vector<std::string>> &expected_edge_types = std::nullopt)
+      : pattern_filters_(pattern_filters), expected_edge_types_(expected_edge_types) {}
 
   void ExpectOp(Filter &filter, const SymbolTable &symbol_table) override {
     for (auto i = 0; i < filter.pattern_filters_.size(); i++) {
@@ -244,6 +245,26 @@ class ExpectFilter : public OpChecker<Filter> {
     }
     if (expr) filter_expressions.emplace_back(expr);
 
+    // Check for EdgeTypesTest if expected_edge_types_ is specified
+    if (expected_edge_types_) {
+      bool found_edge_types_test = false;
+      for (auto *filter_expr : filter_expressions) {
+        if (auto *edge_types_test = utils::Downcast<EdgeTypesTest>(filter_expr)) {
+          found_edge_types_test = true;
+          // Verify the edge types match
+          ASSERT_EQ(edge_types_test->valid_edgetypes_.size(), expected_edge_types_->size())
+              << "EdgeTypesTest has " << edge_types_test->valid_edgetypes_.size() << " edge types, expected "
+              << expected_edge_types_->size();
+          for (size_t i = 0; i < expected_edge_types_->size(); ++i) {
+            ASSERT_EQ(edge_types_test->valid_edgetypes_[i].name, (*expected_edge_types_)[i])
+                << "EdgeTypesTest edge type mismatch at index " << i;
+          }
+          break;
+        }
+      }
+      ASSERT_TRUE(found_edge_types_test) << "Expected EdgeTypesTest in filter but none found";
+    }
+
     auto it = filter_expressions.begin();
     for (; it != filter_expressions.end(); it++) {
       if ((*it)->GetTypeInfo().name == query::Exists::kType.name) {
@@ -259,6 +280,7 @@ class ExpectFilter : public OpChecker<Filter> {
   }
 
   std::vector<std::list<BaseOpChecker *>> pattern_filters_;
+  std::optional<std::vector<std::string>> expected_edge_types_;
 };
 
 class ExpectForeach : public OpChecker<Foreach> {
@@ -542,6 +564,23 @@ class ExpectScanAllByEdgeTypeProperty : public OpChecker<ScanAllByEdgeTypeProper
   memgraph::storage::PropertyId property_;
 };
 
+class ExpectScanAllByEdgePropertyValue : public OpChecker<ScanAllByEdgePropertyValue> {
+ public:
+  ExpectScanAllByEdgePropertyValue(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
+                                   memgraph::query::Expression *expression)
+      : property_(prop_pair.second), expression_(expression) {}
+
+  void ExpectOp(ScanAllByEdgePropertyValue &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.property_, property_);
+    // TODO: Proper expression equality
+    EXPECT_EQ(typeid(scan_all.expression_).hash_code(), typeid(expression_).hash_code());
+  }
+
+ private:
+  memgraph::storage::PropertyId property_;
+  memgraph::query::Expression *expression_;
+};
+
 class ExpectCartesian : public OpChecker<Cartesian> {
  public:
   ExpectCartesian(const std::list<BaseOpChecker *> &left, const std::list<BaseOpChecker *> &right)
@@ -800,7 +839,9 @@ class FakeDbAccessor {
     return false;
   }
 
-  bool EdgePropertyIndexReady(memgraph::storage::PropertyId property) const { return false; }
+  bool EdgePropertyIndexReady(memgraph::storage::PropertyId property) const {
+    return edge_property_index_.find(property) != edge_property_index_.end();
+  }
 
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
       const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties) const {
@@ -849,6 +890,8 @@ class FakeDbAccessor {
     edge_type_property_index_.emplace_back(edge_type, property, count);
   }
 
+  void SetIndexCount(memgraph::storage::PropertyId property, int64_t count) { edge_property_index_[property] = count; }
+
   memgraph::storage::LabelId NameToLabel(const std::string &name) {
     auto found = labels_.find(name);
     if (found != labels_.end()) return found->second;
@@ -880,6 +923,13 @@ class FakeDbAccessor {
     LOG_FATAL("Unable to find property name");
   }
 
+  std::string EdgeTypeToName(memgraph::storage::EdgeTypeId edge_type) const {
+    for (const auto &kv : edge_types_) {
+      if (kv.second == edge_type) return kv.first;
+    }
+    LOG_FATAL("Unable to find edge type name");
+  }
+
   std::string PropertyName(memgraph::storage::PropertyId property) const { return PropertyToName(property); }
 
   auto GetEnumValue(std::string_view name, std::string_view value)
@@ -899,6 +949,7 @@ class FakeDbAccessor {
   std::unordered_map<memgraph::storage::EdgeTypeId, int64_t> edge_type_index_;
   std::vector<std::tuple<memgraph::storage::EdgeTypeId, memgraph::storage::PropertyId, int64_t>>
       edge_type_property_index_;
+  std::unordered_map<memgraph::storage::PropertyId, int64_t> edge_property_index_;
 };
 
 }  // namespace memgraph::query::plan
