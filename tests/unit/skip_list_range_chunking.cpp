@@ -204,7 +204,7 @@ TEST(SkipListRangeChunking, EdgeCases) {
   int empty_count = 0;
   for (auto &chunk : empty_chunks) {
     for (auto it = chunk.begin(); it != chunk.end(); ++it) {
-      std::cout << "val: " << *it << std::endl;
+      std::cout << "val: " << *it << '\n';
       empty_count++;
     }
   }
@@ -230,7 +230,7 @@ TEST(SkipListRangeChunking, EdgeCases) {
   int no_elements_count = 0;
   for (auto &chunk : no_elements_chunks) {
     for (auto it = chunk.begin(); it != chunk.end(); ++it) {
-      std::cout << "val: " << *it << std::endl;
+      std::cout << "val: " << *it << '\n';
       no_elements_count++;
     }
   }
@@ -654,11 +654,11 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentDeletionsAndInsertions) {
   reinsertion_threads.clear();
   processing_threads.clear();
 
-  std::cout << "Deleted elements: " << deleted_count.load() << std::endl;
-  std::cout << "Inserted new elements: " << inserted_count.load() << std::endl;
-  std::cout << "Re-inserted elements: " << reinserted_count.load() << std::endl;
-  std::cout << "Elements processed in range: " << total_processed.load() << std::endl;
-  std::cout << "Unique elements collected: " << collected_elements.size() << std::endl;
+  std::cout << "Deleted elements: " << deleted_count.load() << '\n';
+  std::cout << "Inserted new elements: " << inserted_count.load() << '\n';
+  std::cout << "Re-inserted elements: " << reinserted_count.load() << '\n';
+  std::cout << "Elements processed in range: " << total_processed.load() << '\n';
+  std::cout << "Unique elements collected: " << collected_elements.size() << '\n';
 
   // Verify we processed elements in the range (exact count may vary due to concurrent operations)
   ASSERT_GE(total_processed.load(), 10000);  // At least some elements should be processed
@@ -668,5 +668,225 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentDeletionsAndInsertions) {
   for (const auto &item : collected_elements) {
     ASSERT_GE(item, 10000);
     ASSERT_LE(item, 40000);
+  }
+}
+
+// ============================================================================
+// PARALLEL CHUNKING TESTS (Complete Coverage)
+// ============================================================================
+
+TEST(SkipListRangeChunking, CompleteCoverageChunking) {
+  SkipList<int> skiplist;
+
+  // Insert elements using accessor
+  auto accessor = skiplist.access();
+  for (int i = 0; i < 10000; ++i) {
+    auto res = accessor.insert(i);
+    ASSERT_TRUE(res.second);
+  }
+
+  ASSERT_EQ(accessor.size(), 10000);
+
+  // Create chunks with complete coverage (no range bounds)
+  auto chunks = accessor.create_chunks(4);
+  ASSERT_GT(chunks.size(), 0);
+
+  // Process chunks in parallel
+  std::atomic<int> total_processed{0};
+  std::vector<std::jthread> threads;
+
+  for (size_t i = 0; i < chunks.size(); ++i) {
+    threads.emplace_back([&chunks, i, &total_processed]() {
+      int local_count = 0;
+      auto chunk = chunks[i];
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
+        local_count++;
+        (void)*it;  // Suppress unused variable warning
+      }
+      total_processed.fetch_add(local_count, std::memory_order_relaxed);
+    });
+  }
+
+  threads.clear();
+
+  ASSERT_EQ(total_processed.load(), 10000);
+}
+
+TEST(SkipListRangeChunking, CompleteCoverageConcurrentOperations) {
+  SkipList<int> skiplist;
+
+  // Insert initial data
+  auto accessor = skiplist.access();
+  for (int i = 0; i < 5000; ++i) {
+    auto res = accessor.insert(i);
+    ASSERT_TRUE(res.second);
+  }
+
+  ASSERT_EQ(accessor.size(), 5000);
+
+  // Create chunks with complete coverage
+  auto chunks = accessor.create_chunks(4);
+  ASSERT_GT(chunks.size(), 0);
+
+  // Start concurrent insertion threads
+  std::atomic<bool> stop_insertions{false};
+  std::atomic<int> inserted_count{0};
+
+  std::vector<std::jthread> insertion_threads;
+  for (int t = 0; t < 2; ++t) {
+    insertion_threads.emplace_back([&skiplist, &stop_insertions, &inserted_count, t]() {
+      auto thread_accessor = skiplist.access();
+      int new_value = 10000 + t * 1000;
+      while (!stop_insertions.load(std::memory_order_acquire)) {
+        auto res = thread_accessor.insert(new_value++);
+        if (res.second) {
+          ++inserted_count;
+        }
+        std::this_thread::sleep_for(std::chrono::microseconds(10));
+      }
+    });
+  }
+
+  // Let insertions run for a bit
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  // Process chunks in parallel
+  std::atomic<int> total_processed{0};
+  std::vector<std::jthread> processing_threads;
+
+  for (size_t i = 0; i < chunks.size(); ++i) {
+    processing_threads.emplace_back([&chunks, i, &total_processed]() {
+      int local_count = 0;
+      auto chunk = chunks[i];
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
+        local_count++;
+        (void)*it;  // Suppress unused variable warning
+        if (local_count % 100 == 0) {
+          std::this_thread::sleep_for(std::chrono::microseconds(1));
+        }
+      }
+      total_processed.fetch_add(local_count, std::memory_order_relaxed);
+    });
+  }
+
+  // Stop insertions
+  stop_insertions.store(true, std::memory_order_release);
+  insertion_threads.clear();
+  processing_threads.clear();
+
+  // Should process at least the original elements
+  ASSERT_GE(total_processed.load(), 5000);
+}
+
+TEST(SkipListRangeChunking, CompleteCoveragePerformanceComparison) {
+  SkipList<int> skiplist;
+
+  // Insert dataset
+  auto accessor = skiplist.access();
+  for (int i = 0; i < 20000; ++i) {
+    auto res = accessor.insert(i);
+    ASSERT_TRUE(res.second);
+  }
+
+  ASSERT_EQ(accessor.size(), 20000);
+
+  // Test parallel chunking
+  auto chunks = accessor.create_chunks(8);
+
+  // Process chunks in parallel
+  std::atomic<int> total_processed{0};
+  std::vector<std::jthread> threads;
+
+  auto start_time = std::chrono::high_resolution_clock::now();
+  for (size_t i = 0; i < chunks.size(); ++i) {
+    threads.emplace_back([&chunks, i, &total_processed]() {
+      int local_count = 0;
+      auto chunk = chunks[i];
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
+        local_count++;
+        (void)*it;  // Suppress unused variable warning
+      }
+      total_processed.fetch_add(local_count, std::memory_order_relaxed);
+    });
+  }
+
+  threads.clear();
+
+  // Serial processing for comparison
+  int serial_count = 0;
+  for (auto it = accessor.begin(); it != accessor.end(); ++it) {
+    serial_count++;
+    (void)*it;  // Suppress unused variable warning
+  }
+
+  ASSERT_EQ(total_processed.load(), 20000);
+  ASSERT_EQ(serial_count, 20000);
+}
+
+TEST(SkipListRangeChunking, CompleteCoverageEdgeCases) {
+  {
+    SkipList<int> skiplist;
+
+    // Test with empty list
+    auto accessor = skiplist.access();
+    auto empty_chunks = accessor.create_chunks(4);
+    ASSERT_EQ(empty_chunks.size(), 1);
+    auto empty_chunk = empty_chunks[0];
+    ASSERT_TRUE(empty_chunk.begin() == empty_chunk.end());
+
+    // Test with single element
+    auto res = accessor.insert(42);
+    ASSERT_TRUE(res.second);
+    auto single_chunks = accessor.create_chunks(4);
+    ASSERT_EQ(single_chunks.size(), 1);
+
+    int count = 0;
+    for (auto it = single_chunks[0].begin(); it != single_chunks[0].end(); ++it) {
+      ASSERT_EQ(*it, 42);
+      count++;
+    }
+    ASSERT_EQ(count, 1);
+  }
+
+  {
+    SkipList<int> skiplist;
+    auto accessor = skiplist.access();
+
+    // Test with fewer elements than chunks
+    for (int i = 0; i < 3; ++i) {
+      auto res = accessor.insert(i);
+      ASSERT_TRUE(res.second);
+    }
+
+    auto few_chunks = accessor.create_chunks(8);
+    ASSERT_GT(few_chunks.size(), 0);
+
+    // Collect all elements from chunks
+    std::vector<int> collected;
+    for (auto &chunk : few_chunks) {
+      for (auto it = chunk.begin(); it != chunk.end(); ++it) {
+        collected.push_back(*it);
+      }
+    }
+
+    std::sort(collected.begin(), collected.end());
+    ASSERT_EQ(collected.size(), 3);
+    for (size_t i = 0; i < collected.size(); ++i) {
+      ASSERT_EQ(collected[i], static_cast<int>(i));
+    }
+
+    // Test with exactly one chunk
+    auto one_chunk = accessor.create_chunks(1);
+    ASSERT_EQ(one_chunk.size(), 1);
+
+    collected.clear();
+    for (auto it = one_chunk[0].begin(); it != one_chunk[0].end(); ++it) {
+      collected.push_back(*it);
+    }
+    ASSERT_EQ(collected.size(), 3);
+
+    // Test with zero chunks (should return empty collection)
+    auto zero_chunks = accessor.create_chunks(0);
+    ASSERT_EQ(zero_chunks.size(), 0);
   }
 }
