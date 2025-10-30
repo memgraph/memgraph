@@ -16,9 +16,6 @@
 #include <gflags/gflags.h>
 #include <nlohmann/json.hpp>
 
-#include <range/v3/algorithm/all_of.hpp>
-#include <range/v3/algorithm/any_of.hpp>
-#include <range/v3/algorithm/find_if.hpp>
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "dbms/constants.hpp"
@@ -44,7 +41,7 @@ constexpr auto kPasswordHash = "password_hash";
 
 #ifdef MG_ENTERPRISE
 
-namespace r = ranges;
+namespace r = std::ranges;
 
 constexpr auto kGlobalPermission = "global_permission";
 constexpr auto kFineGrainedPermissions = "fine_grained_permissions";
@@ -193,7 +190,7 @@ std::string PermissionLevelToString(PermissionLevel level) {
 
 #ifdef MG_ENTERPRISE
 std::string FineGrainedPermissionToString(uint64_t const permission) {
-  if (permission == 0) {
+  if (static_cast<FineGrainedPermission>(permission) == FineGrainedPermission::NOTHING) {
     return "NOTHING";
   }
 
@@ -221,14 +218,23 @@ FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
   auto first_global = first.GetGlobalPermission();
   auto second_global = second.GetGlobalPermission();
 
-  if ((first_global.has_value() && first_global.value() == 0) ||
-      (second_global.has_value() && second_global.value() == 0)) {
-    global_permission = 0;
-  } else {
-    uint64_t combined_global = first_global.value_or(0) | second_global.value_or(0);
-    if (combined_global != 0) {
-      global_permission = combined_global;
-    }
+  // If either global permissions is set to NOTHING, the merged result
+  // is NOTHING.
+  if (first_global.has_value() &&
+      static_cast<FineGrainedPermission>(first_global.value()) == FineGrainedPermission::NOTHING) {
+    global_permission = static_cast<uint64_t>(FineGrainedPermission::NOTHING);
+  } else if (second_global.has_value() &&
+             static_cast<FineGrainedPermission>(second_global.value()) == FineGrainedPermission::NOTHING) {
+    global_permission = static_cast<uint64_t>(FineGrainedPermission::NOTHING);
+    // If both global permissions are set, they are merged using |
+  } else if (first_global.has_value() && second_global.has_value()) {
+    global_permission = first_global.value() | second_global.value();
+    // If only one global permission is set and the other is not, the merged
+    // result is the value of the set global permission.
+  } else if (first_global.has_value()) {
+    global_permission = first_global.value();
+  } else if (second_global.has_value()) {
+    global_permission = second_global.value();
   }
 
   auto merged_rules = first.GetPermissions();
