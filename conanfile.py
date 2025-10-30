@@ -55,8 +55,7 @@ class Memgraph(ConanFile):
         self.tool_requires("ccache/4.12.1")
 
     def requirements(self):
-        self.requires("bzip2/1.0.8")  # MG currently uses 1.0.6
-        self.requires("zlib/1.3.1")
+        self.requires("bzip2/1.0.8")
         self.requires("fmt/11.2.0")
         # self.requires("gflags/2.2.2") # we cannot use this gflags because we have a custom one!
         self.requires("benchmark/1.9.1")
@@ -73,6 +72,7 @@ class Memgraph(ConanFile):
         self.requires("range-v3/0.12.0")
         self.requires("asio/1.34.2")
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
+        self.requires("snappy/1.2.1")
 
     def package(self):
         cmake = CMake(self)
