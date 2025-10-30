@@ -33,7 +33,7 @@ static const auto kSmallestEnum = PropertyValue(Enum{EnumTypeId{0}, EnumValueId{
 static const auto kSmallestPoint2d = PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, -180, -90});
 static const auto kSmallestPoint3d =
     PropertyValue(Point3d{CoordinateReferenceSystem::WGS84_3d, -180, -90, -std::numeric_limits<double>::infinity()});
-static const auto kLargestPropertyValue =
+static const auto kLargestProperty =
     PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, std::numeric_limits<double>::infinity(),
                           std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()});
 

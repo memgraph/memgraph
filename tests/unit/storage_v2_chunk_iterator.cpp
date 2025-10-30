@@ -405,6 +405,100 @@ TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorBasic) {
   ASSERT_TRUE(std::equal(read_gids.begin(), read_gids.end(), labeled_vertex_gids.begin()));
 }
 
+TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorMultipleEntriesEdgeCases) {
+  Gid vertex_gid;
+
+  auto add_vertex = [&]() {
+    auto acc = storage_->Access();
+    auto vertex = acc->CreateVertex();
+    vertex_gid = vertex.Gid();
+    ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
+    ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue{0}).HasValue());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  };
+  auto update_vertex = [&]() {
+    auto acc = storage_->Access();
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD);
+    ASSERT_TRUE(vertex);
+    ASSERT_TRUE(vertex->RemoveLabel(label_id_).HasValue());
+    ASSERT_TRUE(vertex->AddLabel(label_id_).HasValue());
+    auto prop = vertex->GetProperty(property_id_, View::OLD);
+    ASSERT_TRUE(prop.HasValue());
+    ASSERT_TRUE(prop->IsInt());
+    ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue{prop->ValueInt() + 1}).HasValue());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  };
+
+  // Create 4 elements in the index and accessors with different timestamps
+  auto acc0 = storage_->Access();
+  add_vertex();
+  auto acc1 = storage_->Access();
+  update_vertex();
+  auto acc2 = storage_->Access();
+  update_vertex();
+  auto acc3 = storage_->Access();
+  update_vertex();
+  auto acc4 = storage_->Access();
+
+  auto read_count = [](auto &chunks) {
+    int count = 0;
+    for (size_t i = 0; i < chunks.size(); ++i) {
+      auto chunk = chunks.get_chunk(i);
+      for (const auto &entry : chunk) {
+        count++;
+        (void)entry;
+      }
+    }
+    return count;
+  };
+
+  auto read_prop = [this](auto &chunks) -> int {
+    std::optional<int> prop;
+    for (size_t i = 0; i < chunks.size(); ++i) {
+      auto chunk = chunks.get_chunk(i);
+      for (const auto &entry : chunk) {
+        if (prop.has_value()) return -1;
+        auto v_prop = entry.GetProperty(property_id_, View::OLD);
+        if (!v_prop.HasValue()) return -1;
+        if (!v_prop->IsInt()) return -1;
+        prop = v_prop->ValueInt();
+      }
+    }
+    if (!prop.has_value()) return -1;
+    return *prop;
+  };
+
+  // acc0
+  {
+    auto vertices = acc0->ChunkedVertices(label_id_, View::OLD, 4);
+    ASSERT_EQ(read_count(vertices), 0);
+  }
+  // acc1
+  {
+    auto vertices = acc1->ChunkedVertices(label_id_, View::OLD, 4);
+    ASSERT_EQ(read_count(vertices), 1);
+    ASSERT_EQ(read_prop(vertices), 0);
+  }
+  // acc2
+  {
+    auto vertices = acc2->ChunkedVertices(label_id_, View::OLD, 4);
+    ASSERT_EQ(read_count(vertices), 1);
+    ASSERT_EQ(read_prop(vertices), 1);
+  }
+  // acc3
+  {
+    auto vertices = acc3->ChunkedVertices(label_id_, View::OLD, 4);
+    ASSERT_EQ(read_count(vertices), 1);
+    ASSERT_EQ(read_prop(vertices), 2);
+  }
+  // acc4
+  {
+    auto vertices = acc4->ChunkedVertices(label_id_, View::OLD, 4);
+    ASSERT_EQ(read_count(vertices), 1);
+    ASSERT_EQ(read_prop(vertices), 3);
+  }
+}
+
 TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorMultipleEntries) {
   // Create vertices with specific label
   std::vector<Gid> vertex_gids;

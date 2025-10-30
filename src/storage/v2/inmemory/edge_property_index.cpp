@@ -411,37 +411,10 @@ InMemoryEdgePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor i
       property_(property),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound),
+      bounds_valid_(ValidateBounds(lower_bound_, upper_bound_)),
       view_(view),
       storage_(storage),
-      transaction_(transaction) {
-  // We have to fix the bounds that the user provided to us. If the user
-  // provided only one bound we should make sure that only values of that type
-  // are returned by the iterator. We ensure this by supplying either an
-  // inclusive lower bound of the same type, or an exclusive upper bound of the
-  // following type. If neither bound is set we yield all items in the index.
-
-  // Remove any bounds that are set to `Null` because that isn't a valid value.
-  if (lower_bound_ && lower_bound_->value().IsNull()) {
-    lower_bound_ = std::nullopt;
-  }
-  if (upper_bound_ && upper_bound_->value().IsNull()) {
-    upper_bound_ = std::nullopt;
-  }
-
-  // Check whether the bounds are of comparable types if both are supplied.
-  if (lower_bound_ && upper_bound_ && !AreComparableTypes(lower_bound_->value().type(), upper_bound_->value().type())) {
-    bounds_valid_ = false;
-    return;
-  }
-
-  // Set missing bounds.
-  if (lower_bound_ && !upper_bound_) {
-    upper_bound_ = UpperBoundForType(lower_bound_->value().type());
-  }
-  if (upper_bound_ && !lower_bound_) {
-    lower_bound_ = LowerBoundForType(upper_bound_->value().type());
-  }
-}
+      transaction_(transaction) {}
 
 InMemoryEdgePropertyIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
@@ -565,71 +538,19 @@ InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
       property_(property),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound),
+      bounds_valid_(ValidateBounds(lower_bound_, upper_bound_)),
       view_(view),
       storage_(storage),
       transaction_(transaction) {
-  // We have to fix the bounds that the user provided to us. If the user
-  // provided only one bound we should make sure that only values of that type
-  // are returned by the iterator. We ensure this by supplying either an
-  // inclusive lower bound of the same type, or an exclusive upper bound of the
-  // following type. If neither bound is set we yield all items in the index.
-
-  // Remove any bounds that are set to `Null` because that isn't a valid value.
-  if (lower_bound_ && lower_bound_->value().IsNull()) {
-    lower_bound_ = std::nullopt;
-  }
-  if (upper_bound_ && upper_bound_->value().IsNull()) {
-    upper_bound_ = std::nullopt;
-  }
-
-  // Check whether the bounds are of comparable types if both are supplied.
-  if (lower_bound_ && upper_bound_ &&
-      (!AreComparableTypes(lower_bound_->value().type(), upper_bound_->value().type()) ||
-       lower_bound_->value() > upper_bound_->value())) {
-    bounds_valid_ = false;
-    return;
-  }
-
-  // Set missing bounds.
-  if (lower_bound_ && !upper_bound_) {
-    upper_bound_ = UpperBoundForType(lower_bound_->value().type());
-  }
-  if (upper_bound_ && !lower_bound_) {
-    lower_bound_ = LowerBoundForType(upper_bound_->value().type());
-  }
+  if (!bounds_valid_) return;
 
   const auto lower_bound_pv = lower_bound_ ? std::optional<PropertyValue>{lower_bound_->value()} : std::nullopt;
   const auto upper_bound_pv = upper_bound_ ? std::optional<PropertyValue>{upper_bound_->value()} : std::nullopt;
   chunks_ = index_accessor_.create_chunks(num_chunks, lower_bound_pv, upper_bound_pv);
 
-  // Index can have duplicate edge entries, we need to make sure each unique edge is inside a single chunk.
-  // Chunks are divided at the skiplist level, we need to move each adjacent chunk's start/end to valid entries
-  for (int i = 1; i < chunks_.size(); ++i) {
-    auto &chunk = chunks_[i];
-    auto begin = chunk.begin();
-    auto end = chunk.end();
-    auto null = utils::SkipList<Entry>::ChunkedIterator{};
-    // Special case where whole chunk is invalid
-    if (begin != null && end != null && begin->edge == end->edge && begin->value == end->value) [[unlikely]] {
-      auto &prev_chunk = chunks_[i - 1];
-      prev_chunk = utils::SkipList<Entry>::Chunk{prev_chunk.begin(), end};
-      chunks_.erase(chunks_.begin() + i);
-      --i;
-      continue;
-    }
-    // Since skiplist has only forward links, we cannot check if the previous edge is the same as the current one.
-    // We need to iterate through the chunk to find the first different edge.
-    Edge *prev_e = begin->edge;
-    while (begin != end) {
-      if (prev_e != begin->edge) break;
-      prev_e = begin->edge;
-      ++begin;
-    }
-    // Update
-    auto &prev = chunks_[i - 1];
-    prev = utils::SkipList<Entry>::Chunk{prev.begin(), begin};
-    chunk = utils::SkipList<Entry>::Chunk{begin, end};
-  }
+  // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
+  RechunkIndex<utils::SkipList<Entry>>(
+      chunks_, [](const auto &a, const auto &b) { return a.edge == b.edge && a.value == b.value; });
 }
 
 void InMemoryEdgePropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {

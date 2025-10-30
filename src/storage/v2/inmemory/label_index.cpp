@@ -448,34 +448,8 @@ InMemoryLabelIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::Acc
       storage_(storage),
       transaction_(transaction),
       chunks_{index_accessor_.create_chunks(num_chunks)} {
-  // Index can have duplicate vertex entries, we need to make sure each unique vertex is inside a single chunk.
-  // Chunks are divided at the skiplist level, we need to move each adjacent chunk's star/end to valid entries
-  for (int i = 1; i < chunks_.size(); ++i) {
-    auto &chunk = chunks_[i];
-    auto begin = chunk.begin();
-    auto end = chunk.end();
-    auto null = utils::SkipList<Entry>::ChunkedIterator{};
-    // Special case where whole chunk is invalid
-    if (begin != null && end != null && begin->vertex == end->vertex) [[unlikely]] {
-      auto &prev_chunk = chunks_[i - 1];
-      prev_chunk = utils::SkipList<Entry>::Chunk{prev_chunk.begin(), end};
-      chunks_.erase(chunks_.begin() + i);
-      --i;
-      continue;
-    }
-    // Since skiplist has only forward links, we cannot check if the previous vertex is the same as the current one.
-    // We need to iterate through the chunk to find the first valid vertex.
-    Vertex *prev_v = begin->vertex;
-    while (begin != end) {
-      if (prev_v != begin->vertex) break;
-      prev_v = begin->vertex;
-      ++begin;
-    }
-    // Update
-    auto &prev = chunks_[i - 1];
-    prev = utils::SkipList<Entry>::Chunk{prev.begin(), begin};
-    chunk = utils::SkipList<Entry>::Chunk{begin, end};
-  }
+  // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
+  RechunkIndex<utils::SkipList<Entry>>(chunks_, [](const auto &a, const auto &b) { return a.vertex == b.vertex; });
 }
 
 }  // namespace memgraph::storage

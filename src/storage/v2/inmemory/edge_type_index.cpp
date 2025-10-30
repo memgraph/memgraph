@@ -430,34 +430,8 @@ InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::
       storage_(storage),
       transaction_(transaction),
       chunks_{index_accessor_.create_chunks(num_chunks)} {
-  // Index can have duplicate edge entries, we need to make sure each unique edge is inside a single chunk.
-  // Chunks are divided at the skiplist level, we need to move each adjacent chunk's start/end to valid entries
-  for (int i = 1; i < chunks_.size(); ++i) {
-    auto &chunk = chunks_[i];
-    auto begin = chunk.begin();
-    auto end = chunk.end();
-    auto null = utils::SkipList<Entry>::ChunkedIterator{};
-    // Special case where whole chunk is invalid
-    if (begin != null && end != null && begin->edge == end->edge) [[unlikely]] {
-      auto &prev_chunk = chunks_[i - 1];
-      prev_chunk = utils::SkipList<Entry>::Chunk{prev_chunk.begin(), end};
-      chunks_.erase(chunks_.begin() + i);
-      --i;
-      continue;
-    }
-    // Since skiplist has only forward links, we cannot check if the previous edge is the same as the current one.
-    // We need to iterate through the chunk to find the first valid edge.
-    Edge *prev_e = begin->edge;
-    while (begin != end) {
-      if (prev_e != begin->edge) break;
-      prev_e = begin->edge;
-      ++begin;
-    }
-    // Update
-    auto &prev = chunks_[i - 1];
-    prev = utils::SkipList<Entry>::Chunk{prev.begin(), begin};
-    chunk = utils::SkipList<Entry>::Chunk{begin, end};
-  }
+  // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
+  RechunkIndex<utils::SkipList<Entry>>(chunks_, [](const auto &a, const auto &b) { return a.edge == b.edge; });
 }
 
 void InMemoryEdgeTypeIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {

@@ -13,6 +13,7 @@
 #include <range/v3/algorithm/find.hpp>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -316,66 +317,6 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
   }
 }
 
-using LowerAndUpperBounds =
-    std::tuple<std::optional<utils::Bound<PropertyValue>>, std::optional<utils::Bound<PropertyValue>>, bool>;
-auto MakeBoundsFromRange(PropertyValueRange const &range) -> LowerAndUpperBounds {
-  std::optional<utils::Bound<PropertyValue>> lower_bound;
-  std::optional<utils::Bound<PropertyValue>> upper_bound;
-
-  if (range.type_ == PropertyRangeType::INVALID) {
-    return {std::nullopt, std::nullopt, false};
-  } else if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
-    lower_bound = LowerBoundForType(PropertyValueType::Bool);
-  } else if (range.type_ == PropertyRangeType::BOUNDED) {
-    // We have to fix the bounds that the user provided to us. If the user
-    // provided only one bound we should make sure that only values of that type
-    // are returned by the iterator. We ensure this by supplying either an
-    // inclusive lower bound of the same type, or an exclusive upper bound of the
-    // following type. If neither bound is set we yield all items in the index.
-    lower_bound = std::move(range.lower_);
-    upper_bound = std::move(range.upper_);
-
-    // Remove any bounds that are set to `Null` because that isn't a valid value.
-    if (lower_bound && lower_bound->value().IsNull()) {
-      lower_bound = std::nullopt;
-    }
-    if (upper_bound && upper_bound->value().IsNull()) {
-      upper_bound = std::nullopt;
-    }
-
-    auto const are_comparable_ranges = [](auto const &lower_bound, auto const &upper_bound) {
-      if (AreComparableTypes(lower_bound.value().type(), upper_bound.value().type())) {
-        return true;
-      } else if (upper_bound.IsInclusive()) {
-        return false;
-      } else {
-        auto const upper_bound_for_lower_bound_type = storage::UpperBoundForType(lower_bound.value().type());
-        return upper_bound_for_lower_bound_type && upper_bound.value() == upper_bound_for_lower_bound_type->value();
-      };
-    };
-
-    // If both bounds are set, but are incomparable types, then this is an
-    // invalid range and will yield an empty result set.
-    if (lower_bound && upper_bound && !are_comparable_ranges(*lower_bound, *upper_bound)) {
-      return {std::nullopt, std::nullopt, false};
-    }
-
-    // Set missing bounds.
-    if (lower_bound && !upper_bound) {
-      // Here we need to supply an upper bound. The upper bound is set to an
-      // exclusive lower bound of the following type.
-      upper_bound = UpperBoundForType(lower_bound->value().type());
-    }
-
-    if (upper_bound && !lower_bound) {
-      // Here we need to supply a lower bound. The lower bound is set to an
-      // inclusive lower bound of the current type.
-      lower_bound = LowerBoundForType(upper_bound->value().type());
-    }
-  }
-
-  return {std::move(lower_bound), std::move(upper_bound), true};
-}
 }  // namespace
 
 bool InMemoryLabelPropertyIndex::Entry::operator<(std::vector<PropertyValue> const &rhs) const {
@@ -898,20 +839,7 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
       view_(view),
       storage_(storage),
       transaction_(transaction) {
-  lower_bound_.reserve(ranges.size());
-  upper_bound_.reserve(ranges.size());
-
-  for (auto &&range : ranges) {
-    auto [lb, ub, valid] = MakeBoundsFromRange(range);
-    if (!valid) {
-      bounds_valid_ = false;
-      lower_bound_.clear();
-      upper_bound_.clear();
-      break;
-    }
-    lower_bound_.emplace_back(std::move(lb));
-    upper_bound_.emplace_back(std::move(ub));
-  }
+  bounds_valid_ = ValidateBounds(ranges, lower_bound_, upper_bound_);  // NOLINT
 }
 
 InMemoryLabelPropertyIndex::Iterable::Iterator InMemoryLabelPropertyIndex::Iterable::begin() {
@@ -919,16 +847,8 @@ InMemoryLabelPropertyIndex::Iterable::Iterator InMemoryLabelPropertyIndex::Itera
   // items from the index.
   if (!bounds_valid_) return {this, index_accessor_.end()};
   auto index_iterator = index_accessor_.begin();
-  if (ranges::any_of(lower_bound_, [](auto &&lb) { return lb.has_value(); })) {
-    auto lower_bound = lower_bound_ | ranges::views::transform([](auto &&range) -> storage::PropertyValue {
-                         if (range.has_value()) {
-                           return range.value().value();
-                         } else {
-                           return kSmallestProperty;
-                         }
-                       }) |
-                       ranges::to_vector;
-    index_iterator = index_accessor_.find_equal_or_greater(lower_bound);
+  if (const auto lower_bound = GenerateBounds(lower_bound_, kSmallestProperty); lower_bound) {
+    index_iterator = index_accessor_.find_equal_or_greater(*lower_bound);
   }
   return {this, index_iterator};
 }
@@ -1221,81 +1141,14 @@ InMemoryLabelPropertyIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Ent
       view_(view),
       storage_(storage),
       transaction_(transaction) {
-  // Handle the range to bounds conversion
-  lower_bound_.reserve(ranges.size());
-  upper_bound_.reserve(ranges.size());
+  bounds_valid_ = ValidateBounds(ranges, lower_bound_, upper_bound_);  // NOLINT
+  if (!bounds_valid_) return;
 
-  for (auto &&range : ranges) {
-    auto [lb, ub, valid] = MakeBoundsFromRange(range);
-    if (!valid) {
-      bounds_valid_ = false;
-      lower_bound_.clear();
-      upper_bound_.clear();
-      break;
-    }
-    lower_bound_.emplace_back(std::move(lb));
-    upper_bound_.emplace_back(std::move(ub));
-  }
-
-  // Generate bounds if valid, and create chunks with bounds
-  if (bounds_valid_) {
-    auto lower_bound = std::invoke([&]() -> std::optional<std::vector<PropertyValue>> {
-      if (ranges::any_of(lower_bound_, [](auto &&lb) { return lb.has_value(); })) {
-        return lower_bound_ | ranges::views::transform([](auto &&range) -> storage::PropertyValue {
-                 if (range.has_value()) {
-                   return range.value().value();
-                 }
-                 return kSmallestProperty;
-               }) |
-               ranges::to_vector;
-      }
-      return std::nullopt;
-    });
-
-    auto upper_bound = std::invoke([&]() -> std::optional<std::vector<PropertyValue>> {
-      if (ranges::any_of(upper_bound_, [](auto &&ub) { return ub.has_value(); })) {
-        return upper_bound_ | ranges::views::transform([](auto &&range) -> storage::PropertyValue {
-                 if (range.has_value()) {
-                   return range.value().value();
-                 }
-                 return kLargestPropertyValue;
-               }) |
-               ranges::to_vector;
-      }
-      return std::nullopt;
-    });
-
-    chunks_ = index_accessor_.create_chunks(num_chunks, lower_bound, upper_bound);
-  }
-
-  // Index can have duplicate vertex entries, we need to make sure each unique vertex is inside a single chunk.
-  // Chunks are divided at the skiplist level, we need to move each adjacent chunk's star/end to valid entries
-  for (int i = 1; i < chunks_.size(); ++i) {
-    auto &chunk = chunks_[i];
-    auto begin = chunk.begin();
-    auto end = chunk.end();
-    auto null = utils::SkipList<Entry>::ChunkedIterator{};
-    // Special case where whole chunk is invalid
-    if (begin != null && end != null && begin->vertex == end->vertex && begin->values == end->values) [[unlikely]] {
-      auto &prev_chunk = chunks_[i - 1];
-      prev_chunk = utils::SkipList<Entry>::Chunk{prev_chunk.begin(), end};
-      chunks_.erase(chunks_.begin() + i);
-      --i;
-      continue;
-    }
-    // Since skiplist has only forward links, we cannot check if the previous vertex is the same as the current one.
-    // We need to iterate through the chunk to find the first valid vertex.
-    Vertex *prev_v = begin->vertex;
-    while (begin != end) {
-      if (prev_v != begin->vertex) break;
-      prev_v = begin->vertex;
-      ++begin;
-    }
-    // Update
-    auto &prev = chunks_[i - 1];
-    prev = utils::SkipList<Entry>::Chunk{prev.begin(), begin};
-    chunk = utils::SkipList<Entry>::Chunk{begin, end};
-  }
+  chunks_ = index_accessor_.create_chunks(num_chunks, GenerateBounds(lower_bound_, kSmallestProperty),
+                                          GenerateBounds(upper_bound_, kLargestProperty));
+  // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
+  RechunkIndex<utils::SkipList<Entry>>(
+      chunks_, [](const auto &a, const auto &b) { return a.vertex == b.vertex && a.values == b.values; });
 }
 
 }  // namespace memgraph::storage
