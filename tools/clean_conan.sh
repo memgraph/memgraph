@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+LRU_PERIOD="${1:-1w}"
+
 # check if env exists
 if [ ! -f "env/bin/activate" ]; then
     echo "Warning: Virtual environment not found at env/bin/activate"
@@ -18,4 +20,4 @@ if ! command -v conan &> /dev/null; then
 fi
 
 # remove all conan packages older than 1 week
-conan remove "*#*" --lru=1w -c
+conan remove "*#*" --lru=$LRU_PERIOD -c

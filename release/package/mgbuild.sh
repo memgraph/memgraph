@@ -1395,7 +1395,14 @@ case $command in
       done
 
       # clean up conan cache inside container
-      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && ./tools/clean_conan.sh"
+      if [[ "$os" == ubuntu-24.04* ]]; then
+        LRU_PERIOD="1w"
+      else
+        # There is a good chance that a CI machine will not be used to build for non-ubuntu-24.04
+        # distros for a long time, so we need to retain for a longer period.
+        LRU_PERIOD="4w"
+      fi
+      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && ./tools/clean_conan.sh $LRU_PERIOD"
 
       # Create cache override files (same logic as run command)
       compose_files=$(setup_cache_override)
