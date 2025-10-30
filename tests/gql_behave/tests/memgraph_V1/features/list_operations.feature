@@ -572,3 +572,48 @@ Feature: List operators
         Then the result should be:
             | x    |
             | true |
+
+    Scenario: Numeric list equality between int and double lists stored as property
+        Given an empty graph
+        And with new index :L(lst)
+        And having executed:
+            """
+            CREATE (:L {lst: [1, 2, 3]});
+            """
+        When executing query:
+            """
+            MATCH (n:L) WHERE n.lst = [1.0, 2.0, 3.0] RETURN count(*) = 1 AS result
+            """
+        Then the result should be:
+            | result |
+            | true   |
+
+    Scenario: Numeric list equality between int and numeric lists stored as property
+        Given an empty graph
+        And with new index :L(lst)
+        And having executed:
+            """
+            CREATE (:L {lst: [1, 2, 3]});
+            """
+        When executing query:
+            """
+            MATCH (n:L) WHERE n.lst = [1.0, 2, 3.0] RETURN count(*) = 1 AS result
+            """
+        Then the result should be:
+            | result |
+            | true   |
+
+    Scenario: Numeric list equality between int and numeric lists stored as property
+        Given an empty graph
+        And with new index :L(lst)
+        And having executed:
+            """
+            CREATE (:L {lst: [1.0, 2.0, 3]});
+            """
+        When executing query:
+            """
+            MATCH (n:L) WHERE n.lst = [1.0, 2.0, 3.0] RETURN count(*) = 1 AS result
+            """
+        Then the result should be:
+            | result |
+            | true   |
