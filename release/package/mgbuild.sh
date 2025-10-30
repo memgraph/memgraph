@@ -1395,8 +1395,7 @@ case $command in
       done
 
       # clean up conan cache inside container
-      LRU_PERIOD="1w"
-      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && ./tools/clean_conan.sh $LRU_PERIOD"
+      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && ./tools/clean_conan.sh 1w"
 
       # Create cache override files (same logic as run command)
       compose_files=$(setup_cache_override)
