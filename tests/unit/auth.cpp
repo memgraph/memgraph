@@ -64,6 +64,21 @@ class V1Auth : public ::testing::Test {
   std::optional<Auth> auth{};
 };
 
+class V2Auth : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    memgraph::utils::EnsureDir(test_folder);
+    memgraph::license::global_license_checker.EnableTesting();
+    auth.emplace(test_folder, auth_config);
+  }
+
+  void TearDown() override {}
+
+  fs::path test_folder{fs::path{boost::dll::program_location().parent_path().string()} / "auth_kvstore/v2"};
+  Auth::Config auth_config{};
+  std::optional<Auth> auth{};
+};
+
 TEST_F(AuthWithStorage, AddRole) {
   ASSERT_TRUE(auth->AddRole("admin"));
   ASSERT_TRUE(auth->AddRole("user"));
@@ -2053,9 +2068,37 @@ TEST_F(V1Auth, MigrationTest) {
   ASSERT_EQ(user2->roles().rolenames().front(), "role2");
 }
 
-#endif
+TEST_F(V2Auth, MigrationTest) {
+  ASSERT_TRUE(auth->HasUsers());
+  ASSERT_FALSE(auth->AllRoles().empty());
 
-#ifdef MG_ENTERPRISE
+  auto user1 = auth->GetUser("user1");
+  ASSERT_TRUE(user1);
+
+  // Check user has no global or per-label fine-grained permissions for
+  // node labels or edge types
+  auto const &user_label_perms = user1->GetFineGrainedAccessLabelPermissions();
+  ASSERT_FALSE(user_label_perms.GetGlobalPermission().has_value());
+  ASSERT_TRUE(user_label_perms.GetPermissions().empty());
+
+  auto const &user_edge_perms = user1->GetFineGrainedAccessEdgeTypePermissions();
+  ASSERT_FALSE(user_edge_perms.GetGlobalPermission().has_value());
+  ASSERT_TRUE(user_edge_perms.GetPermissions().empty());
+
+  auto role1 = auth->GetRole("role1");
+  ASSERT_TRUE(role1);
+
+  // Check role has no global or per-label fine-grained permissions for
+  // node labels or edges types
+  auto const &role_label_perms = role1->GetFineGrainedAccessLabelPermissions();
+  ASSERT_FALSE(role_label_perms.GetGlobalPermission().has_value());
+  ASSERT_TRUE(role_label_perms.GetPermissions().empty());
+
+  auto const &role_edge_perms = role1->GetFineGrainedAccessEdgeTypePermissions();
+  ASSERT_FALSE(role_edge_perms.GetGlobalPermission().has_value());
+  ASSERT_TRUE(role_edge_perms.GetPermissions().empty());
+}
+
 TEST_F(AuthWithStorage, MultiTenantRoleManagement) {
   // Create roles with database access
   ASSERT_TRUE(auth->AddRole("role1"));
