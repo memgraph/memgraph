@@ -1417,6 +1417,43 @@ TEST(AuthWithFineGrainedTest, UniversalRevokeRemovesNothingRules) {
   ASSERT_EQ(perms.Has(std::array{"Label2"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
 }
 
+TEST(AuthWithFineGrainedTest, RevokeNothingBehavior) {
+  FineGrainedAccessPermissions perms;
+
+  perms.Grant({"Label1"}, FineGrainedPermission::NOTHING);
+  ASSERT_EQ(perms.Has(std::array{"Label1"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+  perms.Revoke({"Label1"}, FineGrainedPermission::NOTHING);
+  ASSERT_EQ(perms.Has(std::array{"Label1"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+
+  perms.Grant({"Label2"}, FineGrainedPermission::READ);
+  ASSERT_EQ(perms.Has(std::array{"Label2"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  perms.Revoke({"Label2"}, FineGrainedPermission::NOTHING);
+  ASSERT_EQ(perms.Has(std::array{"Label2"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+
+  perms.Grant({"Label3"}, FineGrainedPermission::NOTHING);
+  ASSERT_EQ(perms.Has(std::array{"Label3"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+  perms.Revoke({"Label3"}, FineGrainedPermission::READ);
+  ASSERT_EQ(perms.Has(std::array{"Label3"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+
+  perms.GrantGlobal(FineGrainedPermission::NOTHING);
+  ASSERT_TRUE(perms.GetGlobalPermission().has_value());
+  ASSERT_EQ(perms.GetGlobalPermission().value(), 0);
+  perms.RevokeGlobal(FineGrainedPermission::NOTHING);
+  ASSERT_FALSE(perms.GetGlobalPermission().has_value());
+
+  perms.GrantGlobal(FineGrainedPermission::READ);
+  ASSERT_TRUE(perms.GetGlobalPermission().has_value());
+  perms.RevokeGlobal(FineGrainedPermission::NOTHING);
+  ASSERT_TRUE(perms.GetGlobalPermission().has_value());
+
+  perms.GrantGlobal(FineGrainedPermission::NOTHING);
+  ASSERT_TRUE(perms.GetGlobalPermission().has_value());
+  ASSERT_EQ(perms.GetGlobalPermission().value(), 0);
+  perms.RevokeGlobal(FineGrainedPermission::READ);
+  ASSERT_TRUE(perms.GetGlobalPermission().has_value());
+  ASSERT_EQ(perms.GetGlobalPermission().value(), 0);
+}
+
 TEST(AuthWithFineGrainedTest, FineGrainedAccessPermissionsSerializeDeserialize) {
   FineGrainedAccessPermissions label_perms;
   FineGrainedAccessPermissions edge_perms;

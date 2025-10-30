@@ -452,22 +452,37 @@ void FineGrainedAccessPermissions::Revoke(std::unordered_set<std::string> const 
       rules_, [&](auto const &rule) { return rule.symbols == symbols && rule.matching_mode == matching_mode; });
 
   if (it != rules_.end()) {
-    it->permissions = static_cast<FineGrainedPermission>(
-        static_cast<std::underlying_type_t<FineGrainedPermission>>(it->permissions) &
-        ~static_cast<std::underlying_type_t<FineGrainedPermission>>(fine_grained_permission));
+    if (fine_grained_permission == FineGrainedPermission::NOTHING) {
+      if (it->permissions == FineGrainedPermission::NOTHING) {
+        rules_.erase(it);
+      }
+    } else {
+      auto const old_permissions = static_cast<std::underlying_type_t<FineGrainedPermission>>(it->permissions);
+      it->permissions = static_cast<FineGrainedPermission>(
+          old_permissions & ~static_cast<std::underlying_type_t<FineGrainedPermission>>(fine_grained_permission));
 
-    // If no permissions remain, remove the rule entirely.
-    if (it->permissions == FineGrainedPermission::NOTHING) {
-      rules_.erase(it);
+      if ((old_permissions & static_cast<std::underlying_type_t<FineGrainedPermission>>(fine_grained_permission)) !=
+              0 &&
+          static_cast<std::underlying_type_t<FineGrainedPermission>>(it->permissions) == 0) {
+        rules_.erase(it);
+      }
     }
   }
 }
 
 void FineGrainedAccessPermissions::RevokeGlobal(const FineGrainedPermission fine_grained_permission) {
   if (global_permission_.has_value()) {
-    global_permission_ = global_permission_.value() & ~static_cast<uint64_t>(fine_grained_permission);
-    if (global_permission_.value() == 0) {
-      global_permission_ = std::nullopt;
+    if (fine_grained_permission == FineGrainedPermission::NOTHING) {
+      if (global_permission_.value() == 0) {
+        global_permission_ = std::nullopt;
+      }
+    } else {
+      auto const old_permissions = global_permission_.value();
+      global_permission_ = old_permissions & ~static_cast<uint64_t>(fine_grained_permission);
+
+      if ((old_permissions & static_cast<uint64_t>(fine_grained_permission)) != 0 && global_permission_.value() == 0) {
+        global_permission_ = std::nullopt;
+      }
     }
   }
 }
