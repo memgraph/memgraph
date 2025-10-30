@@ -220,11 +220,10 @@ FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
 
   // If either global permissions is set to NOTHING, the merged result
   // is NOTHING.
-  if (first_global.has_value() &&
-      static_cast<FineGrainedPermission>(first_global.value()) == FineGrainedPermission::NOTHING) {
-    global_permission = static_cast<uint64_t>(FineGrainedPermission::NOTHING);
-  } else if (second_global.has_value() &&
-             static_cast<FineGrainedPermission>(second_global.value()) == FineGrainedPermission::NOTHING) {
+  if ((first_global.has_value() &&
+       static_cast<FineGrainedPermission>(first_global.value()) == FineGrainedPermission::NOTHING) ||
+      (second_global.has_value() &&
+       static_cast<FineGrainedPermission>(second_global.value()) == FineGrainedPermission::NOTHING)) {
     global_permission = static_cast<uint64_t>(FineGrainedPermission::NOTHING);
     // If both global permissions are set, they are merged using |
   } else if (first_global.has_value() && second_global.has_value()) {
@@ -232,9 +231,9 @@ FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
     // If only one global permission is set and the other is not, the merged
     // result is the value of the set global permission.
   } else if (first_global.has_value()) {
-    global_permission = first_global.value();
+    global_permission = first_global;
   } else if (second_global.has_value()) {
-    global_permission = second_global.value();
+    global_permission = second_global;
   }
 
   auto merged_rules = first.GetPermissions();
