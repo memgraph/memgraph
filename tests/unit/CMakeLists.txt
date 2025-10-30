@@ -184,6 +184,7 @@ add_unit_test(transaction_queue_multiple
     LINK_TARGETS mg-communication mg-query mg-glue
 )
 
+
 # Test query functions
 add_unit_test(query_function_mgp_module
     SOURCES query_function_mgp_module.cpp
@@ -592,6 +593,11 @@ add_unit_test(storage_v2_edge_ondisk
 
 add_unit_test(storage_v2_gc
     SOURCES storage_v2_gc.cpp
+    LINK_TARGETS mg::storage
+)
+
+add_unit_test(storage_v2_interleaved_isolation
+    SOURCES storage_v2_interleaved_isolation.cpp
     LINK_TARGETS mg::storage
 )
 
