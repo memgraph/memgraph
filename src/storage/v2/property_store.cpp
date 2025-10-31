@@ -1017,9 +1017,8 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
     }
   };
 
-  if (!value.IsAnyList()) return false;
   if (list_type == ListType::PROPERTY_VALUE && value.type() == PropertyValueType::List) {
-    // For PropertyValue lists, do recursive comparison (same as operator<=> for List type)
+    // For PropertyValue lists, do recursive comparison
     const auto &list = value.ValueList();
     for (uint32_t i = 0; i < size; ++i) {
       auto metadata = reader->ReadMetadata();
@@ -1029,6 +1028,7 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
     return true;
   }
 
+  // If we are here, we are comparing lists with numeric values
   for (uint32_t i = 0; i < size; ++i) {
     auto reader_val = read_numeric_value();
     auto value_val = get_numeric_value_from_list(value, i);
