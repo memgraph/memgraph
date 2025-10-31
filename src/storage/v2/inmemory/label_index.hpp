@@ -102,6 +102,63 @@ class InMemoryLabelIndex : public LabelIndex {
     Transaction *transaction_;
   };
 
+  class ChunkedIterable {
+   public:
+    ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
+                    utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view,
+                    Storage *storage, Transaction *transaction, size_t num_chunks);
+
+    class Iterator {
+     public:
+      Iterator(ChunkedIterable *self, utils::SkipList<Entry>::ChunkedIterator index_iterator)
+          : self_(self), index_iterator_(index_iterator), current_vertex_accessor_(nullptr, self_->storage_, nullptr) {
+        AdvanceUntilValid();
+      }
+
+      VertexAccessor const &operator*() const { return current_vertex_accessor_; }
+      bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+      bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
+
+      Iterator &operator++() {
+        ++index_iterator_;
+        AdvanceUntilValid();
+        return *this;
+      }
+
+     private:
+      void AdvanceUntilValid();
+
+      ChunkedIterable *self_;
+      utils::SkipList<Entry>::ChunkedIterator index_iterator_;
+      VertexAccessor current_vertex_accessor_;
+      Vertex *current_vertex_{nullptr};
+    };
+
+    class Chunk {
+      Iterator begin_;
+      Iterator end_;
+
+     public:
+      Chunk(ChunkedIterable *self, utils::SkipList<Entry>::Chunk &chunk)
+          : begin_{self, chunk.begin()}, end_{self, chunk.end()} {}
+
+      Iterator begin() { return begin_; }
+      Iterator end() { return end_; }
+    };
+
+    Chunk get_chunk(size_t id) { return {this, chunks_[id]}; }
+    size_t size() const { return chunks_.size(); }
+
+   private:
+    utils::SkipList<Vertex>::ConstAccessor pin_accessor_;
+    utils::SkipList<Entry>::Accessor index_accessor_;
+    LabelId label_;
+    View view_;
+    Storage *storage_;
+    Transaction *transaction_;
+    utils::SkipList<Entry>::ChunkCollection chunks_;
+  };
+
   struct ActiveIndices : LabelIndex::ActiveIndices {
     ActiveIndices(std::shared_ptr<const IndexContainer> index_container = std::make_shared<IndexContainer>())
         : index_container_{std::move(index_container)} {}
@@ -126,6 +183,10 @@ class InMemoryLabelIndex : public LabelIndex {
 
     Iterable Vertices(LabelId label, memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
                       View view, Storage *storage, Transaction *transaction);
+
+    ChunkedIterable ChunkedVertices(LabelId label,
+                                    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
+                                    View view, Storage *storage, Transaction *transaction, size_t num_chunks);
 
     auto GetAbortProcessor() const -> AbortProcessor override;
 
