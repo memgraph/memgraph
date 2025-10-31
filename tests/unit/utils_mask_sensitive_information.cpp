@@ -15,6 +15,21 @@
 
 // Define the maskPasswords function (or include the header where it's defined)
 
+TEST(MaskPasswords, AwsKeys) {
+  EXPECT_EQ(memgraph::logging::MaskSensitiveInformation(
+                "LOAD PARQUET FROM 's3://deps.memgraph.io/nodes_100.parquet' WITH CONFIG {'aws_region': "
+                "'random_region', 'aws_access_key': 'test', 'aws_secret_key': 'test1'} AS row CREATE (n:N {id: row.id, "
+                "name: row.name, age: row.age, city: row.city});"),
+            "LOAD PARQUET FROM 's3://deps.memgraph.io/nodes_100.parquet' WITH CONFIG {'aws_region': 'random_region', "
+            "'aws_access_key': '****', 'aws_secret_key': '****'} AS row CREATE (n:N {id: row.id, name: row.name, age: "
+            "row.age, city: row.city});");
+
+  EXPECT_EQ(memgraph::logging::MaskSensitiveInformation("set database setting 'aws.access_key' to 'test'"),
+            "set database setting 'aws.access_key' to '****'");
+  EXPECT_EQ(memgraph::logging::MaskSensitiveInformation("set database setting 'aws.secret_key' to 'test'"),
+            "set database setting 'aws.secret_key' to '****'");
+}
+
 TEST(MaskPasswords, GeneralCases) {
   EXPECT_EQ(memgraph::logging::MaskSensitiveInformation(
                 "CALL migrate.sql_server('example_table', {user:'memgraph', password:'password', host:'localhost', "

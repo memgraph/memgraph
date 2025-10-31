@@ -16,15 +16,48 @@
 #include <regex>
 
 std::string memgraph::logging::MaskSensitiveInformation(std::string_view input) {
-  static std::regex const nodePattern(R"(\(\w+:\w+\s*\{[^}]*\})");
+  // also fix your nodePattern if you haven't yet
+  static std::regex const nodePattern(R"(\(\w+:\w+\s*\{[^}]*\}\))");
   static std::regex const sensitivePattern(
-      R"((password\s*:\s*['"][^'"]*['"])|([Pp][Aa][Ss]*[Ss]*[Ww]*[Oo]*[Rr]*[Dd]*\s+[Tt][Oo]\s*['"][^'"]*['"])|([Rr][Ee]?[Pp][Ll]?[Aa]?[Cc]?[Ee]?\s*['"][^'"]*['"])|([Ii][Dd]?[Ee]?[Nn]?[Tt]?[Ii]?[Ff]?[Ii]?[Ee]?[Dd]*\s+[Bb][Yy]\s*['"][^'"]*['"])|([Pp][Aa]*[Ss]*[Ss]*[Ww]*[Oo]*[Rr]*[Dd]*\s+[Ff][Oo][Rr]\s+\w+\s+[Tt][Oo]\s*['"][^'"]*['"]))",
+      R"((password\s*:\s*['"][^'"]*['"])|([Pp][Aa][Ss]*[Ss]*[Ww]*[Oo]*[Rr]*[Dd]*\s+[Tt][Oo]\s*['"][^'"]*['"])|([Rr][Ee]?[Pp][Ll]?[Aa]?[Cc]?[Ee]?\s*['"][^'"]*['"])|([Ii][Dd]?[Ee]?[Nn]?[Tt]?[Ii]?[Ff]?[Ii]?[Ee]?[Dd]*\s+[Bb][Yy]\s*['"][^'"]*['"])|([Pp][Aa]*[Ss]*[Ss]*[Ww]*[Oo]*[Rr]*[Dd]*\s+[Ff][Oo][Rr]\s+\w+\s+[Tt][Oo]\s*['"][^'"]*['"])|(['"]?aws[_-]?access[_-]?key['"]?\s*[:=]\s*['"][^'"]*['"])|(['"]?aws[_-]?secret[_-]?key['"]?\s*[:=]\s*['"][^'"]*['"])|(['"]?aws[._-]?access[._-]?key['"]?\s+[Tt][Oo]\s*['"][^'"]*['"])|(['"]?aws[._-]?secret[._-]?key['"]?\s+[Tt][Oo]\s*['"][^'"]*['"]))",
       std::regex_constants::icase);
+
+  // helper that masks the *last* quoted segment in `s`
+  auto mask_last_quoted = [](std::string &s) {
+    // find last quote of either kind
+    auto last_single = s.rfind('\'');
+    auto last_double = s.rfind('"');
+
+    size_t last_pos;
+    char quote_char;
+    if (last_single == std::string::npos && last_double == std::string::npos) return;  // nothing to mask
+
+    if (last_single == std::string::npos) {
+      last_pos = last_double;
+      quote_char = '"';
+    } else if (last_double == std::string::npos) {
+      last_pos = last_single;
+      quote_char = '\'';
+    } else if (last_single > last_double) {
+      last_pos = last_single;
+      quote_char = '\'';
+    } else {
+      last_pos = last_double;
+      quote_char = '"';
+    }
+
+    if (last_pos == 0) return;
+    // find matching opening quote of the same type, before last_pos
+    auto open_pos = s.rfind(quote_char, last_pos - 1);
+    if (open_pos == std::string::npos) return;
+
+    // replace inside the quotes
+    s.replace(open_pos + 1, last_pos - open_pos - 1, "****");
+  };
 
   std::string result;
   std::string_view remaining = input;
 
-  // Process the string by replacing sensitive information first and handling nodes separately
   while (!remaining.empty()) {
     std::match_results<std::string_view::const_iterator> node_match;
     bool const found = std::regex_search(remaining.cbegin(), remaining.cend(), node_match, nodePattern);
@@ -33,11 +66,9 @@ std::string memgraph::logging::MaskSensitiveInformation(std::string_view input) 
     size_t const node_start = node_match.position();
     size_t const node_end = node_start + node_match.length();
 
-    // Process the part before the node match
     auto non_node_part = remaining.substr(0, node_start);
     std::string masked_non_node_part;
 
-    // Declare the iterator for the regex search on sensitive patterns
     auto it = std::regex_iterator{non_node_part.begin(), non_node_part.end(), sensitivePattern};
     const auto end = std::regex_iterator<std::string_view::const_iterator>{};
 
@@ -45,31 +76,22 @@ std::string memgraph::logging::MaskSensitiveInformation(std::string_view input) 
     for (; it != end; ++it) {
       masked_non_node_part.append(non_node_part, prev_end, it->position() - prev_end);
       std::string replacement = it->str();
-      size_t const startPos = replacement.find_first_of("'\"");
-      if (startPos != std::string::npos) {
-        size_t const endPos = replacement.find_first_of("'\"", startPos + 1);
-        if (endPos != std::string::npos) {
-          // Mask the sensitive data between the quotes (single or double)
-          replacement.replace(startPos + 1, endPos - startPos - 1, "****");
-        }
-      }
+
+      mask_last_quoted(replacement);
+
       masked_non_node_part.append(replacement);
       prev_end = it->position() + it->length();
     }
     masked_non_node_part.append(non_node_part, prev_end, non_node_part.length() - prev_end);
 
-    // Append the masked non-node part and the node match
     result.append(masked_non_node_part);
-    result.append(node_match.str());
+    result.append(node_match.str());  // keep node intact
 
-    // Update positions
     remaining = remaining.substr(node_end);
   }
 
-  // Append and mask any remaining text after the last node match
+  // mask remaining tail
   std::string masked_remaining_part;
-
-  // Declare the iterator for the regex search on sensitive patterns in remaining part
   auto it = std::regex_iterator{remaining.begin(), remaining.end(), sensitivePattern};
   const auto end = std::regex_iterator<std::string_view::const_iterator>{};
 
@@ -77,14 +99,9 @@ std::string memgraph::logging::MaskSensitiveInformation(std::string_view input) 
   for (; it != end; ++it) {
     masked_remaining_part.append(remaining, prev_end, it->position() - prev_end);
     std::string replacement = it->str();
-    size_t const startPos = replacement.find_first_of("'\"");
-    if (startPos != std::string::npos) {
-      size_t const endPos = replacement.find_first_of("'\"", startPos + 1);
-      if (endPos != std::string::npos) {
-        // Mask the sensitive data between the quotes (single or double)
-        replacement.replace(startPos + 1, endPos - startPos - 1, "****");
-      }
-    }
+
+    mask_last_quoted(replacement);
+
     masked_remaining_part.append(replacement);
     prev_end = it->position() + it->length();
   }
