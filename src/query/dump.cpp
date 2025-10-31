@@ -173,6 +173,33 @@ void DumpPropertyValue(std::ostream *os, const storage::ExternalPropertyValue &v
       *os << "]";
       return;
     }
+    case storage::PropertyValue::Type::NumericList: {
+      *os << "[";
+      const auto &list = value.ValueNumericList();
+      utils::PrintIterable(*os, list, ", ", [&](auto &os, const auto &item) {
+        if (std::holds_alternative<int>(item)) {
+          os << std::get<int>(item);
+        } else {
+          DumpPreciseDouble(&os, std::get<double>(item));
+        }
+      });
+      *os << "]";
+      return;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      *os << "[";
+      const auto &list = value.ValueIntList();
+      utils::PrintIterable(*os, list, ", ", [&](auto &os, const auto &item) { os << item; });
+      *os << "]";
+      return;
+    }
+    case storage::PropertyValue::Type::DoubleList: {
+      *os << "[";
+      const auto &list = value.ValueDoubleList();
+      utils::PrintIterable(*os, list, ", ", [&](auto &os, const auto &item) { DumpPreciseDouble(&os, item); });
+      *os << "]";
+      return;
+    }
     case storage::PropertyValue::Type::Map: {
       *os << "{";
       const auto &map = value.ValueMap();

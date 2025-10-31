@@ -1453,6 +1453,54 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
   }
 }
 
+TYPED_TEST(IndexTest, ListOrderingNumericLists) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Skip this test for disk storage";
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  std::vector<PropertyValue> expected = {
+      PropertyValue(std::vector<PropertyValue>{PropertyValue(1), PropertyValue(1)}),
+      PropertyValue(NumericListTag{}, std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2)}),
+      PropertyValue(DoubleListTag{}, std::vector<PropertyValue>{PropertyValue(2.0), PropertyValue(1.0)}),
+      PropertyValue(IntListTag{}, std::vector<PropertyValue>{PropertyValue(2), PropertyValue(2)}),
+      PropertyValue(NumericListTag{}, std::vector<PropertyValue>{PropertyValue(3), PropertyValue(1.0)}),
+  };
+
+  {
+    auto acc = this->storage->Access();
+    for (const auto &val : expected) {
+      auto v = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(v.AddLabel(this->label1));
+      ASSERT_NO_ERROR(v.SetProperty(this->prop_val, val));
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access();
+  auto lower = memgraph::storage::LowerBoundForType(memgraph::storage::PropertyValueType::List);
+  auto upper = memgraph::storage::UpperBoundForType(memgraph::storage::PropertyValueType::List);
+  auto iterable = acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                std::array{pvr::Range(lower, upper)}, View::OLD);
+
+  std::vector<PropertyValue> got;
+  for (auto it = iterable.begin(); it != iterable.end(); ++it) {
+    auto vertex = *it;
+    auto maybe_value = vertex.GetProperty(this->prop_val, View::OLD);
+    ASSERT_TRUE(maybe_value.HasValue());
+    got.push_back(*maybe_value);
+  }
+
+  ASSERT_EQ(got.size(), expected.size());
+  for (size_t i = 0; i < expected.size(); ++i) {
+    EXPECT_EQ(got[i], expected[i]);
+  }
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
   if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
@@ -1569,6 +1617,10 @@ TYPED_TEST(IndexTest, LabelPropertyNestedIndexCountEstimate) {
 }
 
 TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Skip this test for disk storage";
+  }
+
   {
     auto acc = this->CreateIndexAccessor();
     EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());

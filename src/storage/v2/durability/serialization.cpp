@@ -162,6 +162,40 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
       }
       break;
     }
+    case ExternalPropertyValue::Type::NumericList: {
+      const auto &list = value.ValueNumericList();
+      WriteMarker(Marker::TYPE_LIST);
+      WriteSize(this, list.size());
+      for (const auto &item : list) {
+        WriteMarker(Marker::TYPE_PROPERTY_VALUE);
+        if (std::holds_alternative<int>(item)) {
+          WriteUint(static_cast<uint64_t>(std::get<int>(item)));
+        } else {
+          WriteDouble(std::get<double>(item));
+        }
+      }
+      break;
+    }
+    case ExternalPropertyValue::Type::IntList: {
+      const auto &list = value.ValueIntList();
+      WriteMarker(Marker::TYPE_LIST);
+      WriteSize(this, list.size());
+      for (const auto &item : list) {
+        WriteMarker(Marker::TYPE_PROPERTY_VALUE);
+        WriteUint(static_cast<uint64_t>(item));
+      }
+      break;
+    }
+    case ExternalPropertyValue::Type::DoubleList: {
+      const auto &list = value.ValueDoubleList();
+      WriteMarker(Marker::TYPE_LIST);
+      WriteSize(this, list.size());
+      for (const auto &item : list) {
+        WriteMarker(Marker::TYPE_PROPERTY_VALUE);
+        WriteDouble(item);
+      }
+      break;
+    }
     case ExternalPropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
       WriteMarker(Marker::TYPE_MAP);
@@ -492,14 +526,30 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
       if (!inner_marker || *inner_marker != Marker::TYPE_LIST) return std::nullopt;
       auto size = ReadSize(this);
       if (!size) return std::nullopt;
-      std::vector<ExternalPropertyValue> value;
-      value.reserve(*size);
+
+      ExternalPropertyValue::list_t list;
+      bool all_ints = true;
+      bool all_doubles = true;
+      bool all_numeric = true;
+      list.reserve(*size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto item = ReadExternalPropertyValue();
         if (!item) return std::nullopt;
-        value.emplace_back(std::move(*item));
+        all_ints &= item->IsInt();
+        all_doubles &= item->IsDouble();
+        all_numeric &= item->IsInt() || item->IsDouble();
+        list.emplace_back(std::move(*item));
       }
-      return ExternalPropertyValue(std::move(value));
+      if (all_ints) {
+        return ExternalPropertyValue(IntListTag{}, std::move(list));
+      }
+      if (all_doubles) {
+        return ExternalPropertyValue(DoubleListTag{}, std::move(list));
+      }
+      if (all_numeric) {
+        return ExternalPropertyValue(NumericListTag{}, std::move(list));
+      }
+      return ExternalPropertyValue(std::move(list));
     }
     case Marker::TYPE_MAP: {
       auto inner_marker = ReadMarker();
