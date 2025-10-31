@@ -69,7 +69,7 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
     if (token == Token::UNMATCHED) {
       if (i < original_.size()) {
         throw LexingException(
-            "Invalid query. There is a wrong token at postion {} starting with {}. Remove that part of the query and "
+            "Invalid query. There is a wrong token at position {} starting with {}. Remove that part of the query and "
             "try to rerun it.",
             i, original_[i]);
       }
