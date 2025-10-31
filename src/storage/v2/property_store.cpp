@@ -608,11 +608,11 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
         if (std::holds_alternative<int>(item)) {
           auto ret = writer->WriteInt(std::get<int>(item));
           if (!ret) return std::nullopt;
-          metadata->Set({Type::INT, Size::INT8, *ret});
+          metadata->Set({.type = Type::INT, .id_size = Size::INT8, .payload_size = *ret});
         } else {
           auto ret = writer->WriteDouble(std::get<double>(item));
           if (!ret) return std::nullopt;
-          metadata->Set({Type::DOUBLE, Size::INT8, *ret});
+          metadata->Set({.type = Type::DOUBLE, .id_size = Size::INT8, .payload_size = *ret});
         }
       }
       return {{Type::LIST, *size}};
