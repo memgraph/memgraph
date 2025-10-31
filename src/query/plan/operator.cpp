@@ -4167,7 +4167,7 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
       if (single_filter.expression->GetTypeInfo() != LabelsTest::kType) {
         LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
       }
-      auto filter_expression = static_cast<LabelsTest *>(single_filter.expression);
+      auto *filter_expression = static_cast<LabelsTest *>(single_filter.expression);
       std::set<std::string, std::less<>> AND_label_names;
       for (const auto &label : filter_expression->labels_) {
         AND_label_names.insert(label.name);
@@ -4205,7 +4205,7 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
       if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
         return fmt::format("({}{})", AND_label_string, OR_label_string);
       }
-      auto identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
+      auto *identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
       return fmt::format("({} {}{})", identifier_expression->name_, AND_label_string, OR_label_string);
     }
     case Type::Property: {
@@ -4226,7 +4226,7 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
       if (single_filter.expression->GetTypeInfo() != EdgeTypesTest::kType) {
         LOG_FATAL("EdgeType filters not using EdgeTypesTest are not supported for query inspection!");
       }
-      const auto filter_expression = static_cast<EdgeTypesTest *>(single_filter.expression);
+      const auto *filter_expression = static_cast<EdgeTypesTest *>(single_filter.expression);
 
       auto or_edge_types =
           filter_expression->valid_edgetypes_ |
@@ -4235,7 +4235,7 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
       if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
         return fmt::format("[:{}]", or_edge_types);
       }
-      const auto identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
+      const auto *identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
       return fmt::format("[{} :{}]", identifier_expression->name_, or_edge_types);
     }
     default:
