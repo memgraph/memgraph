@@ -23,6 +23,7 @@
 #include "storage/v2/commit_args.hpp"
 #include "utils/async_timer.hpp"
 #include "utils/counter.hpp"
+#include "utils/priority_thread_pool.hpp"
 
 #include "query/frame_change.hpp"
 #include "query/hops_limit.hpp"
@@ -107,12 +108,14 @@ struct ExecutionContext {
   FrameChangeCollector *frame_change_collector{nullptr};
   std::shared_ptr<QueryUserOrRole> user_or_role;
   int64_t number_of_hops{0};
-  HopsLimit hops_limit;
+  HopsLimit hops_limit;  // TODO set on a different cache line
   std::optional<uint64_t> periodic_commit_frequency;
+  std::optional<size_t> parallel_execution{std::nullopt};  // if set, number of threads to use for parallel execution
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
   std::shared_ptr<storage::DatabaseProtector> protector;
+  utils::PriorityThreadPool *worker_pool{nullptr};
   bool is_main{true};
   auto commit_args() -> storage::CommitArgs;
 };

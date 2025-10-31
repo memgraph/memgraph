@@ -74,6 +74,9 @@ using TaskSignature = std::function<void(utils::Priority)>;
 // Also execute non scheduler tasks in the local thread
 class TaskCollection {
  public:
+  explicit TaskCollection(size_t num_tasks) { tasks_.reserve(num_tasks); }
+  TaskCollection() = default;
+
   void AddTask(TaskSignature task) { tasks_.emplace_back(std::move(task)); }
 
   class Task {

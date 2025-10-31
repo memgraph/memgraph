@@ -71,6 +71,7 @@ std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transac
   if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
+    // TODO Disable for parallel execution v1
     auto const useCache = transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
 
     if (useCache) {
