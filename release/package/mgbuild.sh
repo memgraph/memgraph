@@ -1005,6 +1005,20 @@ test_memgraph() {
       check_support pokec_size $DATASET_SIZE
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 12 --export-results $EXPORT_RESULTS_FILE $DATASET/$DATASET_SIZE/*/*"
     ;;
+    mgbench-supernode)
+      shift 1
+      local EXPORT_RESULTS_FILE='benchmark_result.json'
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --export-results-file)
+            EXPORT_RESULTS_FILE="$2"
+            shift 2
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE supernode"
+    ;;
     upload-to-bench-graph)
       shift 1
       local SETUP_PASSED_ARGS="export PASSED_ARGS=\"$@\""
