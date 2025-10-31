@@ -101,6 +101,8 @@ class VectorIndex {
   /// @brief Drops all existing indexes.
   void Clear();
 
+  void DoCleanup(const PropertyValue &value, PropertyId property, Vertex *vertex, NameIdMapper *name_id_mapper);
+
   /// @brief Updates the index when a property is modified on a vertex.
   /// @param property The property that was modified.
   /// @param value The new value of the property.

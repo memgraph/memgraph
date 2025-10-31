@@ -22,6 +22,7 @@
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 
@@ -69,8 +70,10 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx
   text_index_.UpdateOnRemoveLabel(label, vertex, tx);
 }
 
-void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx) {
+void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx,
+                                  NameIdMapper *name_id_mapper) {
   tx.active_indices_.label_properties_->UpdateOnSetProperty(property, value, vertex, tx);
+  vector_index_.UpdateOnSetProperty(value, vertex, name_id_mapper);
   text_index_.UpdateOnSetProperty(vertex, tx, property);
 }
 

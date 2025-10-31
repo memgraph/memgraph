@@ -832,8 +832,12 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
       // TODO (mferencevic): Mitigate the memory allocation introduced here
       // (with the `GetProperty` call). It is the only memory allocation in the
       // entire WAL file writing logic.
-      encoder->WriteExternalPropertyValue(
-          ToExternalPropertyValue(vertex->properties.GetProperty(delta.property.key), storage->name_id_mapper_.get()));
+      auto property_value = vertex->properties.GetProperty(delta.property.key);
+      if (property_value.IsVectorIndexId()) {
+        property_value.ValueVectorIndexList() = storage->indices_.vector_index_.GetVectorProperty(
+            vertex, storage->name_id_mapper_->IdToName(property_value.ValueVectorIndexIds().front()));
+      }
+      encoder->WriteExternalPropertyValue(ToExternalPropertyValue(property_value, storage->name_id_mapper_.get()));
       break;
     }
     case Delta::Action::ADD_LABEL:
@@ -1040,6 +1044,7 @@ std::optional<RecoveryInfo> LoadWal(
           const auto old_type = vertex->properties.GetExtendedPropertyType(property_id);
           schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(property_value)}, old_type);
         }
+        indices->vector_index_.DoCleanup(property_value, property_id, &*vertex, name_id_mapper);
         vertex->properties.SetProperty(property_id, property_value);
       },
       [&](WalEdgeCreate const &data) {

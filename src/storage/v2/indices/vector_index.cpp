@@ -175,6 +175,37 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
   return true;
 }
 
+void VectorIndex::DoCleanup(const PropertyValue &value, PropertyId property, Vertex *vertex,
+                            NameIdMapper *name_id_mapper) {
+  if (!value.IsVectorIndexId() && !value.IsList() && !value.IsNull()) {
+    return;
+  }
+  auto property_value = vertex->properties.GetProperty(property);
+  const auto &new_ids = value.IsVectorIndexId() ? value.ValueVectorIndexIds() : std::vector<uint64_t>{};
+  const auto &old_ids =
+      property_value.IsVectorIndexId() ? property_value.ValueVectorIndexIds() : std::vector<uint64_t>{};
+
+  // for each old id, if it's not in new ids, remove it from the index
+  auto old_ids_to_remove = old_ids | rv::filter([&](const auto &old_id) {
+                             return std::find(new_ids.begin(), new_ids.end(), old_id) == new_ids.end();
+                           });
+  for (const auto &old_id : old_ids_to_remove) {
+    auto label_prop = pimpl->index_name_to_label_prop_.at(name_id_mapper->IdToName(old_id));
+    auto &[mg_index, _] = pimpl->index_.at(label_prop);
+    auto locked_index = mg_index->MutableSharedLock();
+    locked_index->remove(vertex);
+  }
+
+  // add new ids to the index
+  for (const auto &new_id : new_ids) {
+    auto label_prop = pimpl->index_name_to_label_prop_.at(name_id_mapper->IdToName(new_id));
+    auto &[mg_index, spec] = pimpl->index_.at(label_prop);
+    auto locked_index = mg_index->MutableSharedLock();
+    locked_index->remove(vertex);
+    locked_index->add(vertex, value.ValueVectorIndexList().data());
+  }
+}
+
 void VectorIndex::Clear() {
   // TODO: Is this enough or we should go through all nodes with this index?
   pimpl->index_name_to_label_prop_.clear();

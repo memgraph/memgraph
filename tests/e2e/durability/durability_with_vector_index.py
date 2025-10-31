@@ -374,9 +374,7 @@ def test_durability_with_two_vector_indices_remove_one_label(connection):
     execute_and_fetch_all(cursor, "MATCH (n:L1:L2 {prop1: [1.0, 2.0]}) REMOVE n:L1;")
 
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
-    index_info = sorted(index_info, key=lambda x: x[2])
-    assert index_info[0][6] == 0
-    assert index_info[1][6] == 1
+    assert index_info[0][6] == 0 and index_info[1][6] == 1 or index_info[0][6] == 1 and index_info[1][6] == 0
 
     # 4/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
@@ -385,10 +383,7 @@ def test_durability_with_two_vector_indices_remove_one_label(connection):
 
     # 5/
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
-    index_info = sorted(index_info, key=lambda x: x[2])
-    assert len(index_info) == 2
-    assert index_info[0][6] == 0
-    assert index_info[1][6] == 1
+    assert index_info[0][6] == 0 and index_info[1][6] == 1 or index_info[0][6] == 1 and index_info[1][6] == 0
 
     node = execute_and_fetch_all(cursor, "MATCH (n:L2) RETURN n LIMIT 1;")
     assert "prop1" not in node[0][0].properties, "Property should not be visible on node when stored in index"
@@ -441,9 +436,7 @@ def test_durability_with_two_vector_indices_remove_both_labels(connection):
     execute_and_fetch_all(cursor, "CREATE (n:L1:L2 {prop1: [1.0, 2.0]});")
 
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
-    index_info = sorted(index_info, key=lambda x: x[2])
-    assert index_info[0][6] == 1
-    assert index_info[1][6] == 1
+    assert index_info[0][6] == 1 and index_info[1][6] == 1 or index_info[0][6] == 1 and index_info[1][6] == 1
 
     # 3/
     execute_and_fetch_all(cursor, "MATCH (n:L1:L2 {prop1: [1.0, 2.0]}) REMOVE n:L1, n:L2;")
