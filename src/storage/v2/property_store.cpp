@@ -938,75 +938,106 @@ bool SkipList(Reader *reader, ListType list_type, uint32_t size) {
 }
 
 bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const PropertyValue &value) {
-  auto compare_list_types = [](ListType lt, PropertyValueType vt) -> bool {
-    switch (lt) {
-      case ListType::PROPERTY_VALUE:
-        return vt == PropertyValueType::List;
-      case ListType::INT:
-        return vt == PropertyValueType::IntList;
-      case ListType::DOUBLE:
-        return vt == PropertyValueType::DoubleList;
-      case ListType::NUMERIC:
-        return vt == PropertyValueType::NumericList;
+  // Helper to get numeric value from PropertyValue list at index
+  auto get_numeric_value_from_list = [](const PropertyValue &val,
+                                        size_t idx) -> std::optional<std::variant<int, double>> {
+    switch (val.type()) {
+      case PropertyValueType::List: {
+        const auto &list_val = val.ValueList();
+        if (list_val[idx].IsInt()) {
+          return static_cast<int>(list_val[idx].ValueInt());
+        }
+        if (list_val[idx].IsDouble()) {
+          return list_val[idx].ValueDouble();
+        }
+        return std::nullopt;
+      }
+      case PropertyValueType::IntList: {
+        const auto &list_val = val.ValueIntList();
+        return list_val[idx];
+      }
+      case PropertyValueType::DoubleList: {
+        const auto &list_val = val.ValueDoubleList();
+        return list_val[idx];
+      }
+      case PropertyValueType::NumericList: {
+        const auto &list_val = val.ValueNumericList();
+        return list_val[idx];
+      }
       default:
-        throw PropertyValueException("Invalid list type");
+        return std::nullopt;
     }
   };
 
-  if (!compare_list_types(list_type, value.type())) return false;
-  switch (list_type) {
-    case ListType::PROPERTY_VALUE: {
-      const auto &list = value.ValueList();
-      for (uint32_t i = 0; i < size; ++i) {
+  // Helper to read numeric value from reader based on list_type
+  auto read_numeric_value = [&reader, list_type]() -> std::optional<std::variant<int, double>> {
+    switch (list_type) {
+      case ListType::PROPERTY_VALUE: {
         auto metadata = reader->ReadMetadata();
-        if (!metadata) return false;
-        if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, list[i])) return false;
-      }
-      return true;
-    }
-    case ListType::INT: {
-      const auto &list = value.ValueIntList();
-      for (uint32_t i = 0; i < size; ++i) {
-        auto int_v = reader->ReadInt(Size::INT32);
-        if (!int_v) return false;
-        if (list[i] == *int_v) return true;
-      }
-      return true;
-    }
-    case ListType::DOUBLE: {
-      const auto &list = value.ValueDoubleList();
-      for (uint32_t i = 0; i < size; ++i) {
-        auto double_v = reader->ReadDouble(Size::INT64);
-        if (!double_v) return false;
-        if (list[i] == *double_v) return true;
-      }
-      return true;
-    }
-    case ListType::NUMERIC: {
-      const auto &list = value.ValueNumericList();
-      for (uint32_t i = 0; i < size; ++i) {
-        auto metadata = reader->ReadMetadata();
-        if (!metadata) return false;
+        if (!metadata) return std::nullopt;
         if (metadata->type == Type::INT) {
           auto int_v = reader->ReadInt(metadata->payload_size);
-          if (!int_v) return false;
-          auto int_v_value = std::get<int>(list[i]);
-          if (int_v_value == *int_v) return true;
-        } else if (metadata->type == Type::DOUBLE) {
-          auto double_v = reader->ReadDouble(metadata->payload_size);
-          if (!double_v) return false;
-          auto double_v_value = std::get<double>(list[i]);
-          if (double_v_value == *double_v) return true;
-        } else {
-          throw PropertyValueException("Expected INT or DOUBLE while comparing numeric list");
+          if (!int_v) return std::nullopt;
+          return static_cast<int>(*int_v);
         }
+        if (metadata->type == Type::DOUBLE) {
+          auto double_v = reader->ReadDouble(metadata->payload_size);
+          if (!double_v) return std::nullopt;
+          return *double_v;
+        }
+        return std::nullopt;
       }
-      return true;
+      case ListType::INT: {
+        auto int_v = reader->ReadInt(Size::INT32);
+        if (!int_v) return std::nullopt;
+        return static_cast<int>(*int_v);
+      }
+      case ListType::DOUBLE: {
+        auto double_v = reader->ReadDouble(Size::INT64);
+        if (!double_v) return std::nullopt;
+        return *double_v;
+      }
+      case ListType::NUMERIC: {
+        auto metadata = reader->ReadMetadata();
+        if (!metadata) return std::nullopt;
+        if (metadata->type == Type::INT) {
+          auto int_v = reader->ReadInt(metadata->payload_size);
+          if (!int_v) return std::nullopt;
+          return static_cast<int>(*int_v);
+        }
+        if (metadata->type == Type::DOUBLE) {
+          auto double_v = reader->ReadDouble(metadata->payload_size);
+          if (!double_v) return std::nullopt;
+          return *double_v;
+        }
+        return std::nullopt;
+      }
+      default:
+        return std::nullopt;
     }
-    default: {
-      throw PropertyValueException("Invalid list type");
+  };
+
+  if (!value.IsAnyList()) return false;
+  if (list_type == ListType::PROPERTY_VALUE && value.type() == PropertyValueType::List) {
+    // For PropertyValue lists, do recursive comparison (same as operator<=> for List type)
+    const auto &list = value.ValueList();
+    for (uint32_t i = 0; i < size; ++i) {
+      auto metadata = reader->ReadMetadata();
+      if (!metadata) return false;
+      if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, list[i])) return false;
     }
+    return true;
   }
+
+  for (uint32_t i = 0; i < size; ++i) {
+    auto reader_val = read_numeric_value();
+    auto value_val = get_numeric_value_from_list(value, i);
+    if (!reader_val || !value_val) {
+      return false;
+    }
+    if (CompareNumericValues(*reader_val, *value_val) != std::partial_ordering::equivalent) return false;
+  }
+  return true;
 }
 
 // Function used to decode a PropertyValue from a byte stream.
