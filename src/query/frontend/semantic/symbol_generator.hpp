@@ -214,9 +214,9 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
 
   // Unary operators
   void Visit(NotOperator &op) override { op.expression_->Accept(*this); }
-  void Visit(IsNullOperator &op) override { op.expression_->Accept(*this); };
-  void Visit(UnaryPlusOperator &op) override{};
-  void Visit(UnaryMinusOperator &op) override{};
+  void Visit(IsNullOperator &op) override { op.expression_->Accept(*this); }
+  void Visit(UnaryPlusOperator &op) override {}
+  void Visit(UnaryMinusOperator &op) override {}
 
   void Visit(OrOperator &op) override {
     op.expression1_->Accept(*this);
@@ -233,52 +233,53 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
   void Visit(NotEqualOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
-  };
+  }
   void Visit(EqualOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
-  };
+  }
   void Visit(InListOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
-  };
-  void Visit(AdditionOperator &op) override{};
-  void Visit(SubtractionOperator &op) override{};
-  void Visit(MultiplicationOperator &op) override{};
-  void Visit(DivisionOperator &op) override{};
-  void Visit(ModOperator &op) override{};
-  void Visit(ExponentiationOperator &op) override{};
-  void Visit(LessOperator &op) override{};
-  void Visit(GreaterOperator &op) override{};
-  void Visit(LessEqualOperator &op) override{};
-  void Visit(GreaterEqualOperator &op) override{};
-  void Visit(RangeOperator &op) override{};
-  void Visit(SubscriptOperator &op) override{};
-  void Visit(ListSlicingOperator &op) override{};
-  void Visit(IfOperator &op) override{};
-  void Visit(ListLiteral &op) override{};
-  void Visit(MapLiteral &op) override{};
-  void Visit(MapProjectionLiteral &op) override{};
-  void Visit(LabelsTest &op) override{};
-  void Visit(Aggregation &op) override{};
-  void Visit(Function &op) override{};
-  void Visit(Reduce &op) override{};
-  void Visit(Coalesce &op) override{};
-  void Visit(Extract &op) override{};
-  void Visit(Exists &op) override{};
-  void Visit(All &op) override{};
-  void Visit(Single &op) override{};
-  void Visit(Any &op) override{};
-  void Visit(None &op) override{};
-  void Visit(ListComprehension &op) override{};
-  void Visit(Identifier &op) override{};
-  void Visit(PrimitiveLiteral &op) override{};
-  void Visit(AllPropertiesLookup &op) override{};
-  void Visit(ParameterLookup &op) override{};
+  }
+  void Visit(AdditionOperator &op) override {}
+  void Visit(SubtractionOperator &op) override {}
+  void Visit(MultiplicationOperator &op) override {}
+  void Visit(DivisionOperator &op) override {}
+  void Visit(ModOperator &op) override {}
+  void Visit(ExponentiationOperator &op) override {}
+  void Visit(LessOperator &op) override {}
+  void Visit(GreaterOperator &op) override {}
+  void Visit(LessEqualOperator &op) override {}
+  void Visit(GreaterEqualOperator &op) override {}
+  void Visit(RangeOperator &op) override {}
+  void Visit(SubscriptOperator &op) override {}
+  void Visit(ListSlicingOperator &op) override {}
+  void Visit(IfOperator &op) override {}
+  void Visit(ListLiteral &op) override {}
+  void Visit(MapLiteral &op) override {}
+  void Visit(MapProjectionLiteral &op) override {}
+  void Visit(LabelsTest &op) override {}
+  void Visit(EdgeTypesTest &op) override {}
+  void Visit(Aggregation &op) override {}
+  void Visit(Function &op) override {}
+  void Visit(Reduce &op) override {}
+  void Visit(Coalesce &op) override {}
+  void Visit(Extract &op) override {}
+  void Visit(Exists &op) override {}
+  void Visit(All &op) override {}
+  void Visit(Single &op) override {}
+  void Visit(Any &op) override {}
+  void Visit(None &op) override {}
+  void Visit(ListComprehension &op) override {}
+  void Visit(Identifier &op) override {}
+  void Visit(PrimitiveLiteral &op) override {}
+  void Visit(AllPropertiesLookup &op) override {}
+  void Visit(ParameterLookup &op) override {}
   void Visit(NamedExpression &op) override { op.expression_->Accept(*this); };
-  void Visit(RegexMatch &op) override{};
-  void Visit(PatternComprehension &op) override{};
-  void Visit(EnumValueAccess &op) override{};
+  void Visit(RegexMatch &op) override {}
+  void Visit(PatternComprehension &op) override {}
+  void Visit(EnumValueAccess &op) override {}
 
   void Visit(PropertyLookup & /*property_lookup*/) override;
 
@@ -297,9 +298,9 @@ class PropertyLookupBaseIdentifierVisitor : public ExpressionVisitor<void> {
 
   // Unary operators
   void Visit(NotOperator &op) override { op.expression_->Accept(*this); }
-  void Visit(IsNullOperator &op) override { op.expression_->Accept(*this); };
-  void Visit(UnaryPlusOperator &op) override{};
-  void Visit(UnaryMinusOperator &op) override{};
+  void Visit(IsNullOperator &op) override { op.expression_->Accept(*this); }
+  void Visit(UnaryPlusOperator &op) override {}
+  void Visit(UnaryMinusOperator &op) override {}
 
   void Visit(OrOperator &op) override {
     op.expression1_->Accept(*this);
@@ -316,52 +317,53 @@ class PropertyLookupBaseIdentifierVisitor : public ExpressionVisitor<void> {
   void Visit(NotEqualOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
-  };
+  }
   void Visit(EqualOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
-  };
+  }
   void Visit(InListOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
-  };
-  void Visit(AdditionOperator &op) override{};
-  void Visit(SubtractionOperator &op) override{};
-  void Visit(MultiplicationOperator &op) override{};
-  void Visit(DivisionOperator &op) override{};
-  void Visit(ModOperator &op) override{};
-  void Visit(ExponentiationOperator &op) override{};
-  void Visit(LessOperator &op) override{};
-  void Visit(GreaterOperator &op) override{};
-  void Visit(LessEqualOperator &op) override{};
-  void Visit(GreaterEqualOperator &op) override{};
-  void Visit(RangeOperator &op) override{};
-  void Visit(SubscriptOperator &op) override{};
-  void Visit(ListSlicingOperator &op) override{};
-  void Visit(IfOperator &op) override{};
-  void Visit(ListLiteral &op) override{};
-  void Visit(MapLiteral &op) override{};
-  void Visit(MapProjectionLiteral &op) override{};
-  void Visit(LabelsTest &op) override{};
-  void Visit(Aggregation &op) override{};
-  void Visit(Function &op) override{};
-  void Visit(Reduce &op) override{};
-  void Visit(Coalesce &op) override{};
-  void Visit(Extract &op) override{};
-  void Visit(Exists &op) override{};
-  void Visit(All &op) override{};
-  void Visit(Single &op) override{};
-  void Visit(Any &op) override{};
-  void Visit(None &op) override{};
-  void Visit(ListComprehension &op) override{};
-  void Visit(Identifier &op) override{};
-  void Visit(PrimitiveLiteral &op) override{};
-  void Visit(AllPropertiesLookup &op) override{};
-  void Visit(ParameterLookup &op) override{};
-  void Visit(NamedExpression &op) override { op.expression_->Accept(*this); };
-  void Visit(RegexMatch &op) override{};
-  void Visit(PatternComprehension &op) override{};
-  void Visit(EnumValueAccess &op) override{};
+  }
+  void Visit(AdditionOperator &op) override {}
+  void Visit(SubtractionOperator &op) override {}
+  void Visit(MultiplicationOperator &op) override {}
+  void Visit(DivisionOperator &op) override {}
+  void Visit(ModOperator &op) override {}
+  void Visit(ExponentiationOperator &op) override {}
+  void Visit(LessOperator &op) override {}
+  void Visit(GreaterOperator &op) override {}
+  void Visit(LessEqualOperator &op) override {}
+  void Visit(GreaterEqualOperator &op) override {}
+  void Visit(RangeOperator &op) override {}
+  void Visit(SubscriptOperator &op) override {}
+  void Visit(ListSlicingOperator &op) override {}
+  void Visit(IfOperator &op) override {}
+  void Visit(ListLiteral &op) override {}
+  void Visit(MapLiteral &op) override {}
+  void Visit(MapProjectionLiteral &op) override {}
+  void Visit(LabelsTest &op) override {}
+  void Visit(EdgeTypesTest &op) override {}
+  void Visit(Aggregation &op) override {}
+  void Visit(Function &op) override {}
+  void Visit(Reduce &op) override {}
+  void Visit(Coalesce &op) override {}
+  void Visit(Extract &op) override {}
+  void Visit(Exists &op) override {}
+  void Visit(All &op) override {}
+  void Visit(Single &op) override {}
+  void Visit(Any &op) override {}
+  void Visit(None &op) override {}
+  void Visit(ListComprehension &op) override {}
+  void Visit(Identifier &op) override {}
+  void Visit(PrimitiveLiteral &op) override {}
+  void Visit(AllPropertiesLookup &op) override {}
+  void Visit(ParameterLookup &op) override {}
+  void Visit(NamedExpression &op) override { op.expression_->Accept(*this); }
+  void Visit(RegexMatch &op) override {}
+  void Visit(PatternComprehension &op) override {}
+  void Visit(EnumValueAccess &op) override {}
 
   void Visit(PropertyLookup & /*property_lookup*/) override;
 

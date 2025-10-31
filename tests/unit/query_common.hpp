@@ -210,13 +210,25 @@ auto GetAllPropertiesLookup(AstStorage &storage, Expression *expr) { return stor
 ///
 /// Name is used to create the Identifier which is assigned to the edge.
 auto GetEdge(AstStorage &storage, const std::string &name, EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
-             const std::vector<std::string> &edge_types = {}, const bool user_declared = true) {
+             const std::vector<std::string> &edge_types = {}, const bool user_declared = true,
+             Expression *properties = nullptr) {
   std::vector<QueryEdgeType> types;
   types.reserve(edge_types.size());
   for (const auto &type : edge_types) {
     types.push_back(storage.GetEdgeTypeIx(type));
   }
-  return storage.Create<EdgeAtom>(storage.Create<Identifier>(name, user_declared), EdgeAtom::Type::SINGLE, dir, types);
+  auto *edge =
+      storage.Create<EdgeAtom>(storage.Create<Identifier>(name, user_declared), EdgeAtom::Type::SINGLE, dir, types);
+  if (properties) {
+    if (auto *map_literal = dynamic_cast<MapLiteral *>(properties)) {
+      edge->properties_ = map_literal->elements_;
+    } else {
+      // Assume it's a ParameterLookup
+      DMG_ASSERT(properties->GetTypeInfo() == ParameterLookup::kType);
+      edge->properties_ = dynamic_cast<ParameterLookup *>(properties);
+    }
+  }
+  return edge;
 }
 
 /// Create a variable length expansion EdgeAtom with given name, direction and

@@ -34,7 +34,7 @@ class Symbol;
  */
 class DependantSymbolVisitor : public ExpressionVisitor<void> {
  public:
-  using ExpressionVisitor<void>::Visit;
+  using ExpressionVisitor::Visit;
 
   explicit DependantSymbolVisitor(std::set<Symbol::Position_t> &dependencies) : dependencies_(dependencies) {}
 
@@ -178,6 +178,8 @@ class DependantSymbolVisitor : public ExpressionVisitor<void> {
   }
 
   void Visit(LabelsTest &labels_test) override { labels_test.expression_->Accept(*this); }
+
+  void Visit(EdgeTypesTest &edgetype_test) override { edgetype_test.expression_->Accept(*this); }
 
   void Visit(RegexMatch &regex_match) override {
     regex_match.string_expr_->Accept(*this);

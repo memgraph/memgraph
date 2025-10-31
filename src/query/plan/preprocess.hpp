@@ -226,7 +226,7 @@ class PatternVisitor : public ExpressionVisitor<void> {
 
   // Unary operators
   void Visit(NotOperator &op) override { op.expression_->Accept(*this); }
-  void Visit(IsNullOperator &op) override { op.expression_->Accept(*this); };
+  void Visit(IsNullOperator &op) override { op.expression_->Accept(*this); }
   void Visit(UnaryPlusOperator &op) override { op.expression_->Accept(*this); }
   void Visit(UnaryMinusOperator &op) override { op.expression_->Accept(*this); }
 
@@ -326,12 +326,12 @@ class PatternVisitor : public ExpressionVisitor<void> {
     op.list_->Accept(*this);
     if (op.lower_bound_) op.lower_bound_->Accept(*this);
     if (op.upper_bound_) op.upper_bound_->Accept(*this);
-  };
+  }
   void Visit(IfOperator &op) override {
     op.condition_->Accept(*this);
     op.then_expression_->Accept(*this);
     op.else_expression_->Accept(*this);
-  };
+  }
   void Visit(ListLiteral &op) override {
     for (auto element_expr : op.elements_) element_expr->Accept(*this);
   }
@@ -345,7 +345,8 @@ class PatternVisitor : public ExpressionVisitor<void> {
       pair.second->Accept(*this);
     }
   }
-  void Visit(LabelsTest &op) override { op.expression_->Accept(*this); };
+  void Visit(LabelsTest &op) override { op.expression_->Accept(*this); }
+  void Visit(EdgeTypesTest &op) override { op.expression_->Accept(*this); }
   void Visit(Aggregation &op) override {
     if (op.expression1_) op.expression1_->Accept(*this);
     if (op.expression2_) op.expression2_->Accept(*this);
@@ -394,18 +395,18 @@ class PatternVisitor : public ExpressionVisitor<void> {
       op.expression_->Accept(*this);
     }
   }
-  void Visit(Identifier &op) override{};
-  void Visit(PrimitiveLiteral &op) override{};
-  void Visit(PropertyLookup &op) override{};
-  void Visit(AllPropertiesLookup &op) override{};
-  void Visit(ParameterLookup &op) override{};
+  void Visit(Identifier &op) override {}
+  void Visit(PrimitiveLiteral &op) override {}
+  void Visit(PropertyLookup &op) override {}
+  void Visit(AllPropertiesLookup &op) override {}
+  void Visit(ParameterLookup &op) override {}
   void Visit(RegexMatch &op) override {
     op.string_expr_->Accept(*this);
     op.regex_->Accept(*this);
   }
   void Visit(NamedExpression &op) override;
   void Visit(PatternComprehension &op) override;
-  void Visit(EnumValueAccess &op) override{};
+  void Visit(EnumValueAccess &op) override {}
 
   std::vector<FilterMatching> getFilterMatchings();
   std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings();
@@ -528,7 +529,7 @@ struct FilterInfo {
   /// applied for labels or a property. Non generic types contain extra
   /// information which can be used to produce indexed scans of graph
   /// elements.
-  enum class Type { Generic, Label, Property, Id, Pattern, Point };
+  enum class Type { Generic, Label, Property, Id, Pattern, Point, EdgeType };
 
   // FilterInfo is tricky because FilterMatching is not yet defined:
   //   * if no declared constructor -> FilterInfo is std::__is_complete_or_unbounded
@@ -555,6 +556,8 @@ struct FilterInfo {
   std::vector<std::vector<LabelIx>> or_labels{};
   /// Property information for Type::Property filtering.
   std::optional<PropertyFilter> property_filter{};
+  /// Edgetypes for Type::EdgeType filtering.
+  std::vector<EdgeTypeIx> edgetypes{};
   /// Information for Type::Id filtering.
   std::optional<IdFilter> id_filter{};
   /// Matchings for filters that include patterns

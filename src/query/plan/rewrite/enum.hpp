@@ -153,6 +153,7 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
   void Visit(MapLiteral &op) override {}
   void Visit(MapProjectionLiteral &op) override {}
   void Visit(LabelsTest &op) override {}
+  void Visit(EdgeTypesTest &op) override {}
 
   void Visit(Function &op) override {
     for (auto *argument : op.arguments_) {

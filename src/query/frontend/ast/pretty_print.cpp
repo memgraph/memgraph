@@ -65,6 +65,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(MapLiteral &op) override;
   void Visit(MapProjectionLiteral &op) override;
   void Visit(LabelsTest &op) override;
+  void Visit(EdgeTypesTest &op) override;
   void Visit(Aggregation &op) override;
   void Visit(Function &op) override;
   void Visit(Reduce &op) override;
@@ -414,6 +415,7 @@ void ExpressionPrettyPrinter::Visit(MapProjectionLiteral &op) {
 void ExpressionPrettyPrinter::Visit(AllPropertiesLookup &op) { PrintObject(out_, &op); }
 
 void ExpressionPrettyPrinter::Visit(LabelsTest &op) { PrintOperator(out_, dba_, "LabelsTest", op.expression_); }
+void ExpressionPrettyPrinter::Visit(EdgeTypesTest &op) { PrintOperator(out_, dba_, "EdgeTypesTest", op.expression_); }
 
 void ExpressionPrettyPrinter::Visit(Aggregation &op) { PrintOperator(out_, dba_, "Aggregation", op.op_); }
 

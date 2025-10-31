@@ -48,7 +48,7 @@ class Symbol {
   bool operator!=(const Symbol &other) const { return !operator==(other); }
 
   // TODO: Remove these since members are public
-  const auto &name() const { return name_; }
+  auto name() const -> std::string const & { return name_; }
   Position_t position() const { return position_; }
   Type type() const { return type_; }
   bool user_declared() const { return user_declared_; }

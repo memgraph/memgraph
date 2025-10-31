@@ -56,7 +56,7 @@ inline constexpr std::string_view kDefaultMetric = "l2sq";
 inline constexpr std::string_view kScalarKind = "scalar_kind";
 inline constexpr std::string_view kDefaultScalarKind = "f32";
 
-class UnaryOperator : public memgraph::query::Expression {
+class UnaryOperator : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -524,7 +524,7 @@ class GreaterEqualOperator : public memgraph::query::BinaryOperator {
   friend class AstStorage;
 };
 
-class RangeOperator : public memgraph::query::Expression {
+class RangeOperator : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -730,7 +730,7 @@ class IsNullOperator : public memgraph::query::UnaryOperator {
   friend class AstStorage;
 };
 
-class ListSlicingOperator : public memgraph::query::Expression {
+class ListSlicingOperator : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -774,7 +774,7 @@ class ListSlicingOperator : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
-class IfOperator : public memgraph::query::Expression {
+class IfOperator : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -814,7 +814,7 @@ class IfOperator : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
-class BaseLiteral : public memgraph::query::Expression {
+class BaseLiteral : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -994,7 +994,7 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
   friend class AstStorage;
 };
 
-class PropertyLookup : public memgraph::query::Expression {
+class PropertyLookup : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -1051,7 +1051,7 @@ class PropertyLookup : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
-class AllPropertiesLookup : public memgraph::query::Expression {
+class AllPropertiesLookup : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -1086,7 +1086,7 @@ class AllPropertiesLookup : public memgraph::query::Expression {
 
 using QueryLabelType = std::variant<LabelIx, Expression *>;
 
-class LabelsTest : public memgraph::query::Expression {
+class LabelsTest : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -1104,11 +1104,10 @@ class LabelsTest : public memgraph::query::Expression {
     return visitor.PostVisit(*this);
   }
 
-  memgraph::query::Expression *expression_{nullptr};
-  std::vector<memgraph::query::LabelIx> labels_;  // TODO: Maybe we should unify this with or_labels_
-  std::vector<std::vector<memgraph::query::LabelIx>>
-      or_labels_;  // Because we need to support OR in labels -> node has to have at least one of the labels in "inner"
-                   // vector
+  Expression *expression_{nullptr};
+  std::vector<LabelIx> labels_;                  // TODO: Maybe we should unify this with or_labels_
+  std::vector<std::vector<LabelIx>> or_labels_;  // Because we need to support OR in labels -> node has to have at least
+                                                 // one of the labels in "inner" vector
 
   LabelsTest *Clone(AstStorage *storage) const override {
     LabelsTest *object = storage->Create<LabelsTest>();
@@ -1151,7 +1150,43 @@ class LabelsTest : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
-class Function : public memgraph::query::Expression {
+class EdgeTypesTest : public Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  EdgeTypesTest() = default;
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      expression_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  Expression *expression_{nullptr};  // expression used to get the Edge
+  std::vector<EdgeTypeIx> valid_edgetypes_;
+
+  EdgeTypesTest *Clone(AstStorage *storage) const override {
+    EdgeTypesTest *object = storage->Create<EdgeTypesTest>();
+    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    object->valid_edgetypes_ = valid_edgetypes_;
+    return object;
+  }
+
+ protected:
+  EdgeTypesTest(Expression *expression, std::vector<EdgeTypeIx> valid_edgetypes)
+      : expression_(expression), valid_edgetypes_(std::move(valid_edgetypes)) {}
+
+ private:
+  friend class AstStorage;
+};
+
+class Function : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -1215,7 +1250,7 @@ class Function : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
-class Reduce : public memgraph::query::Expression {
+class Reduce : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -1268,7 +1303,7 @@ class Reduce : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
-class Coalesce : public memgraph::query::Expression {
+class Coalesce : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -1306,7 +1341,7 @@ class Coalesce : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
-class Extract : public memgraph::query::Expression {
+class Extract : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -1347,7 +1382,7 @@ class Extract : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
-class All : public memgraph::query::Expression {
+class All : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -1385,7 +1420,7 @@ class All : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
-class Single : public memgraph::query::Expression {
+class Single : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -1423,7 +1458,7 @@ class Single : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
-class Any : public memgraph::query::Expression {
+class Any : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -1461,7 +1496,7 @@ class Any : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
-class None : public memgraph::query::Expression {
+class None : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -1499,7 +1534,7 @@ class None : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
-class ListComprehension : public memgraph::query::Expression {
+class ListComprehension : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -1550,7 +1585,7 @@ class ListComprehension : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
-class ParameterLookup : public memgraph::query::Expression {
+class ParameterLookup : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -1580,7 +1615,7 @@ class ParameterLookup : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
-class RegexMatch : public memgraph::query::Expression {
+class RegexMatch : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -3779,7 +3814,7 @@ class ShowEnumsQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
-class EnumValueAccess : public memgraph::query::Expression {
+class EnumValueAccess : public Expression {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
