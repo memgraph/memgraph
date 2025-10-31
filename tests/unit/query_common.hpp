@@ -224,6 +224,7 @@ auto GetEdge(AstStorage &storage, const std::string &name, EdgeAtom::Direction d
       edge->properties_ = map_literal->elements_;
     } else {
       // Assume it's a ParameterLookup
+      DMG_ASSERT(properties->GetTypeInfo() == ParameterLookup::kType);
       edge->properties_ = dynamic_cast<ParameterLookup *>(properties);
     }
   }

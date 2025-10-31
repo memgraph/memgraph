@@ -1173,7 +1173,7 @@ class EdgeTypesTest : public Expression {
 
   EdgeTypesTest *Clone(AstStorage *storage) const override {
     EdgeTypesTest *object = storage->Create<EdgeTypesTest>();
-    object->expression_ = expression_->Clone(storage);
+    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     object->valid_edgetypes_ = valid_edgetypes_;
     return object;
   }

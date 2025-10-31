@@ -582,14 +582,18 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(EdgeTypesTest &edgetype_test) override {
+    if (edgetype_test.valid_edgetypes_.empty()) {
+      return TypedValue(true, ctx_->memory);
+    }
+    DMG_ASSERT(edgetype_test.expression_, "expression_ should not be null");
     switch (auto expression_result = edgetype_test.expression_->Accept(*this); expression_result.type()) {
       case TypedValue::Type::Null:
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Edge: {
-        const auto &edge_type = expression_result.ValueEdge().EdgeType();
-        auto const ix_to_storage = [&](EdgeTypeIx const &et) { return GetEdgeType(et); };
-        auto valid_edgetypes = edgetype_test.valid_edgetypes_ | std::ranges::views::transform(ix_to_storage);
-        const auto is_valid = std::ranges::contains(valid_edgetypes, edge_type);
+        const auto edge_type = expression_result.ValueEdge().EdgeType();
+        const auto is_valid = std::ranges::any_of(
+            edgetype_test.valid_edgetypes_, [=](const storage::EdgeTypeId et_id) { return edge_type == et_id; },
+            [&](EdgeTypeIx const &et) { return GetEdgeType(et); });
         return TypedValue(is_valid, ctx_->memory);
       }
       default:
