@@ -33,9 +33,9 @@ class VertexCountCache {
   auto NameToLabel(const std::string &name) { return db_->NameToLabel(name); }
   auto NameToProperty(const std::string &name) { return db_->NameToProperty(name); }
   auto NameToEdgeType(const std::string &name) { return db_->NameToEdgeType(name); }
-  auto LabelToName(storage::LabelId name) { return db_->LabelToName(name); }
-  auto PropertyToName(storage::PropertyId name) { return db_->PropertyToName(name); }
-  auto EdgeTypeToName(storage::EdgeTypeId name) { return db_->EdgeTypeToName(name); }
+  auto LabelToName(storage::LabelId id) { return db_->LabelToName(id); }
+  auto PropertyToName(storage::PropertyId id) { return db_->PropertyToName(id); }
+  auto EdgeTypeToName(storage::EdgeTypeId id) { return db_->EdgeTypeToName(id); }
 
   auto GetEnumValue(std::string_view name, std::string_view value)
       -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {

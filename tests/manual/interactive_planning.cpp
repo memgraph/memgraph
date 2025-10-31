@@ -145,6 +145,9 @@ class InteractiveDbAccessor {
   auto NameToLabel(const std::string &name) { return dba_->NameToLabel(name); }
   auto NameToProperty(const std::string &name) { return dba_->NameToProperty(name); }
   auto NameToEdgeType(const std::string &name) { return dba_->NameToEdgeType(name); }
+  auto LabelToName(memgraph::storage::LabelId id) { return dba_->LabelToName(id); }
+  auto PropertyToName(memgraph::storage::PropertyId id) { return dba_->PropertyToName(id); }
+  auto EdgeTypeToName(memgraph::storage::EdgeTypeId id) { return dba_->EdgeTypeToName(id); }
 
   auto GetStorageAccessor() { return dba_->GetStorageAccessor(); }
 
