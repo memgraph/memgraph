@@ -289,7 +289,8 @@ macro(build_protobuf)
       BUILD_IN_SOURCE 1
       CONFIGURE_COMMAND true)
 endmacro()
-mg_build_if_needed(build_protobuf "protobuf")
+#mg_build_if_needed(build_protobuf "protobuf")
+mg_create_linkable_if_no_cmake(protobuf STATIC "${MG_TOOLCHAIN_ROOT}/lib/libprotobuf.a" "${MG_TOOLCHAIN_ROOT}/include")
 
 macro(build_pulsar)
     import_external_library(pulsar STATIC
@@ -314,11 +315,7 @@ macro(build_pulsar)
       BUILD_COMMAND $(MAKE))
     add_dependencies(pulsar-proj protobuf)
 endmacro()
-find_library(protobuf
-        NAMES protobuf
-        PATHS /opt/toolchain-v7/lib/libprotobuf.a
-        NO_DEFAULT_PATH
-)
+
 # mg_build_if_needed(build_pulsar "pulsar")
 mg_create_linkable_if_no_cmake(pulsar STATIC "${MG_TOOLCHAIN_ROOT}/lib/libpulsar.a" "${MG_TOOLCHAIN_ROOT}/include")
 
