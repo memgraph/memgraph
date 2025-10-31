@@ -1167,10 +1167,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 LOG_FATAL("Invalid database state!");
                 break;
               }
-              case Delta::Action::SET_VECTOR_PROPERTY: {
-                // Do nothing, vector index doesn't have transactional guarantees
-                break;
-              }
             }
             current = current->next.load(std::memory_order_acquire);
           }
@@ -1311,11 +1307,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               }
               case Delta::Action::RECREATE_OBJECT: {
                 vertex->deleted = false;
-                break;
-              }
-              case Delta::Action::SET_VECTOR_PROPERTY: {
-                storage_->indices_.vector_index_.UpdateOnSetProperty(*current->property.value, vertex,
-                                                                     storage_->name_id_mapper_.get());
                 break;
               }
             }
@@ -2719,7 +2710,6 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
           case Delta::Action::SET_PROPERTY:
           case Delta::Action::ADD_LABEL:
           case Delta::Action::REMOVE_LABEL:
-          case Delta::Action::SET_VECTOR_PROPERTY:
             return true;
 
           case Delta::Action::RECREATE_OBJECT:
@@ -2751,7 +2741,6 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
           case Delta::Action::ADD_IN_EDGE:
           case Delta::Action::ADD_OUT_EDGE:
           case Delta::Action::REMOVE_IN_EDGE:
-          case Delta::Action::SET_VECTOR_PROPERTY:
             return false;
           default:
             LOG_FATAL("Unknown Delta Action");
@@ -2776,7 +2765,6 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
           case Delta::Action::ADD_OUT_EDGE:
           case Delta::Action::REMOVE_IN_EDGE:
           case Delta::Action::REMOVE_OUT_EDGE:
-          case Delta::Action::SET_VECTOR_PROPERTY:
             return false;
           default:
             LOG_FATAL("Unknown Delta Action");
@@ -2801,7 +2789,6 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
           case Delta::Action::ADD_IN_EDGE:
           case Delta::Action::REMOVE_IN_EDGE:
           case Delta::Action::REMOVE_OUT_EDGE:
-          case Delta::Action::SET_VECTOR_PROPERTY:
             return false;
           default:
             LOG_FATAL("Unknown Delta Action");
@@ -2826,7 +2813,6 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
           case Delta::Action::ADD_OUT_EDGE:
           case Delta::Action::REMOVE_IN_EDGE:
           case Delta::Action::REMOVE_OUT_EDGE:
-          case Delta::Action::SET_VECTOR_PROPERTY:
             return false;
           default:
             LOG_FATAL("Unknown Delta Action");

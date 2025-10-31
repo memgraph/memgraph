@@ -1032,19 +1032,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             throw utils::BasicException("Failed to set property label from vertex {}.", gid);
           }
         },
-        [&](WalVertexSetVectorProperty const &data) {
-          auto const gid = data.gid.AsUint();
-          spdlog::trace("   Delta {}. Vertex {} set vector property", current_delta_idx, gid);
-          // NOLINTNEXTLINE
-          auto *transaction = get_replication_accessor(delta_timestamp);
-          // NOLINTNEXTLINE
-          auto vertex = transaction->FindVertex(data.gid, View::NEW);
-          if (!vertex) {
-            throw utils::BasicException("Failed to find vertex {} when setting vector property.", gid);
-          }
-          storage->indices_.vector_index_.UpdateOnSetProperty(ToPropertyValue(data.value, mapper), &*vertex->vertex_,
-                                                              mapper);
-        },
         [&](WalEdgeCreate const &data) {
           auto const edge_gid = data.gid.AsUint();
           auto const from_vertex_gid = data.from_vertex.AsUint();
@@ -1125,7 +1112,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                                    case Delta::Action::ADD_LABEL:
                                    case Delta::Action::REMOVE_LABEL:
                                    case Delta::Action::SET_PROPERTY:
-                                   case Delta::Action::SET_VECTOR_PROPERTY:
                                    case Delta::Action::ADD_IN_EDGE:
                                    case Delta::Action::ADD_OUT_EDGE:
                                    case Delta::Action::REMOVE_IN_EDGE:

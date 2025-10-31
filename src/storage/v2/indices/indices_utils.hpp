@@ -101,7 +101,6 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
                                                                   break;
                                                                 }
                                                                 case Delta::Action::SET_PROPERTY:
-                                                                case Delta::Action::SET_VECTOR_PROPERTY:
                                                                 case Delta::Action::ADD_IN_EDGE:
                                                                 case Delta::Action::ADD_OUT_EDGE:
                                                                 case Delta::Action::REMOVE_IN_EDGE:
@@ -143,7 +142,6 @@ inline bool AnyVersionIsVisible(Edge *edge, uint64_t timestamp) {
       case Delta::Action::ADD_LABEL:
       case Delta::Action::REMOVE_LABEL:
       case Delta::Action::SET_PROPERTY:
-      case Delta::Action::SET_VECTOR_PROPERTY:
       case Delta::Action::ADD_IN_EDGE:
       case Delta::Action::ADD_OUT_EDGE:
       case Delta::Action::REMOVE_IN_EDGE:
@@ -201,7 +199,6 @@ inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const Proper
           case Delta::Action::ADD_OUT_EDGE:
           case Delta::Action::REMOVE_IN_EDGE:
           case Delta::Action::REMOVE_OUT_EDGE:
-          case Delta::Action::SET_VECTOR_PROPERTY:
             break;
         }
         return !deleted && current_value_equal_to_value;

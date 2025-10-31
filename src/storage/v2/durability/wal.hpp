@@ -172,13 +172,6 @@ struct WalVertexSetProperty {
   std::string property;
   ExternalPropertyValue value;
 };
-struct WalVertexSetVectorProperty {
-  friend bool operator==(const WalVertexSetVectorProperty &, const WalVertexSetVectorProperty &) = default;
-  using ctr_types = std::tuple<Gid, std::string, ExternalPropertyValue>;
-  Gid gid;
-  std::string property;
-  ExternalPropertyValue value;
-};
 struct WalEdgeSetProperty {
   friend bool operator==(const WalEdgeSetProperty &lhs, const WalEdgeSetProperty &rhs) {
     // Since kEdgeSetDeltaWithVertexInfo version delta holds from vertex gid; this is an extra information (no need to
@@ -352,16 +345,15 @@ struct WalDeltaData {
   }
 
   std::variant<WalVertexCreate, WalVertexDelete, WalVertexAddLabel, WalVertexRemoveLabel, WalVertexSetProperty,
-               WalVertexSetVectorProperty, WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionStart,
-               WalTransactionEnd, WalLabelIndexCreate, WalLabelIndexDrop, WalLabelIndexStatsClear,
-               WalLabelPropertyIndexStatsClear, WalEdgeTypeIndexCreate, WalEdgeTypeIndexDrop,
-               WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop, WalLabelIndexStatsSet, WalLabelPropertyIndexCreate,
-               WalLabelPropertyIndexDrop, WalPointIndexCreate, WalPointIndexDrop, WalExistenceConstraintCreate,
-               WalExistenceConstraintDrop, WalLabelPropertyIndexStatsSet, WalEdgeTypePropertyIndexCreate,
-               WalEdgeTypePropertyIndexDrop, WalUniqueConstraintCreate, WalUniqueConstraintDrop,
-               WalTypeConstraintCreate, WalTypeConstraintDrop, WalTextIndexCreate, WalTextIndexDrop,
-               WalTextEdgeIndexCreate, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate, WalVectorIndexCreate,
-               WalVectorIndexDrop, WalVectorEdgeIndexCreate, WalTtlOperation>
+               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionStart, WalTransactionEnd,
+               WalLabelIndexCreate, WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear,
+               WalEdgeTypeIndexCreate, WalEdgeTypeIndexDrop, WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop,
+               WalLabelIndexStatsSet, WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop, WalPointIndexCreate,
+               WalPointIndexDrop, WalExistenceConstraintCreate, WalExistenceConstraintDrop,
+               WalLabelPropertyIndexStatsSet, WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop,
+               WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
+               WalTextIndexCreate, WalTextIndexDrop, WalTextEdgeIndexCreate, WalEnumCreate, WalEnumAlterAdd,
+               WalEnumAlterUpdate, WalVectorIndexCreate, WalVectorIndexDrop, WalVectorEdgeIndexCreate, WalTtlOperation>
       data_ = WalTransactionEnd{};
 };
 
@@ -374,7 +366,6 @@ constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData 
                         [](WalVertexAddLabel const &) { return false; },
                         [](WalVertexRemoveLabel const &) { return false; },
                         [](WalVertexSetProperty const &) { return false; },
-                        [](WalVertexSetVectorProperty const &) { return false; },
                         [](WalEdgeCreate const &) { return false; },
                         [](WalEdgeDelete const &) { return false; },
                         [](WalEdgeSetProperty const &) { return false; },

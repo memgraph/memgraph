@@ -68,7 +68,6 @@ bool EdgeAccessor::IsVisible(const View view) const {
         case Delta::Action::ADD_LABEL:
         case Delta::Action::REMOVE_LABEL:
         case Delta::Action::SET_PROPERTY:
-        case Delta::Action::SET_VECTOR_PROPERTY:
         case Delta::Action::REMOVE_IN_EDGE:
         case Delta::Action::ADD_IN_EDGE:
         case Delta::Action::RECREATE_OBJECT:
@@ -104,7 +103,6 @@ bool EdgeAccessor::IsVisible(const View view) const {
         case Delta::Action::ADD_LABEL:
         case Delta::Action::REMOVE_LABEL:
         case Delta::Action::SET_PROPERTY:
-        case Delta::Action::SET_VECTOR_PROPERTY:
         case Delta::Action::ADD_IN_EDGE:
         case Delta::Action::ADD_OUT_EDGE:
         case Delta::Action::REMOVE_IN_EDGE:
@@ -360,7 +358,6 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
       case Delta::Action::ADD_OUT_EDGE:
       case Delta::Action::REMOVE_IN_EDGE:
       case Delta::Action::REMOVE_OUT_EDGE:
-      case Delta::Action::SET_VECTOR_PROPERTY:
         break;
     }
   });
@@ -434,7 +431,6 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
       case Delta::Action::ADD_OUT_EDGE:
       case Delta::Action::REMOVE_IN_EDGE:
       case Delta::Action::REMOVE_OUT_EDGE:
-      case Delta::Action::SET_VECTOR_PROPERTY:
         break;
     }
   });
@@ -495,7 +491,6 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyId
       case Delta::Action::ADD_OUT_EDGE:
       case Delta::Action::REMOVE_IN_EDGE:
       case Delta::Action::REMOVE_OUT_EDGE:
-      case Delta::Action::SET_VECTOR_PROPERTY:
         break;
     }
   });

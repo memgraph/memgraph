@@ -156,8 +156,6 @@ constexpr Marker DeltaActionToMarker(Delta::Action action) {
       return Marker::DELTA_VERTEX_DELETE;
     case Delta::Action::SET_PROPERTY:
       return Marker::DELTA_VERTEX_SET_PROPERTY;
-    case Delta::Action::SET_VECTOR_PROPERTY:
-      return Marker::DELTA_VERTEX_SET_VECTOR_PROPERTY;
     case Delta::Action::ADD_LABEL:
       return Marker::DELTA_VERTEX_REMOVE_LABEL;
     case Delta::Action::REMOVE_LABEL:
@@ -188,7 +186,6 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_VERTEX_SET_PROPERTY:
     case DELTA_EDGE_SET_PROPERTY:
     case DELTA_TRANSACTION_START:
-    case DELTA_VERTEX_SET_VECTOR_PROPERTY:
       return false;
 
     // This delta explicitly indicates that a transaction is done.
@@ -658,7 +655,6 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(VECTOR_INDEX_CREATE, WalVectorIndexCreate);
     read_skip(VECTOR_EDGE_INDEX_CREATE, WalVectorEdgeIndexCreate);
     read_skip(VECTOR_INDEX_DROP, WalVectorIndexDrop);
-    read_skip(VERTEX_SET_VECTOR_PROPERTY, WalVertexSetVectorProperty);
     read_skip(TTL_OPERATION, WalTtlOperation);
 
     // Other markers are not actions
@@ -840,20 +836,6 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
           ToExternalPropertyValue(vertex->properties.GetProperty(delta.property.key), storage->name_id_mapper_.get()));
       break;
     }
-    case Delta::Action::SET_VECTOR_PROPERTY: {
-      encoder->WriteMarker(Marker::DELTA_VERTEX_SET_VECTOR_PROPERTY);
-      encoder->WriteUint(vertex->gid.AsUint());
-      encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
-      MG_ASSERT(delta.property.value->IsVectorIndexId(), "Vector index ID expected!");
-      auto vector_value = storage->indices_.vector_index_.GetVectorProperty(
-          vertex, storage->name_id_mapper_->IdToName(
-                      delta.property.value->ValueVectorIndexIds()
-                          .front()));  // TODO: this should be okay since the same property should be in all indices?
-      encoder->WriteExternalPropertyValue(
-          ToExternalPropertyValue(PropertyValue(delta.property.value->ValueVectorIndexIds(), std::move(vector_value)),
-                                  storage->name_id_mapper_.get()));
-      break;
-    }
     case Delta::Action::ADD_LABEL:
     case Delta::Action::REMOVE_LABEL: {
       encoder->WriteMarker(DeltaActionToMarker(delta.action));
@@ -903,15 +885,6 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edg
           ToExternalPropertyValue(edge->properties.GetProperty(delta.property.key), storage->name_id_mapper_.get()));
       DMG_ASSERT(delta.property.out_vertex, "Out vertex undefined!");
       encoder->WriteUint((*delta.property.out_vertex).gid.AsUint());
-      break;
-    }
-    case Delta::Action::SET_VECTOR_PROPERTY: {
-      // TODO: fix edges logic
-      encoder->WriteMarker(Marker::DELTA_VERTEX_SET_VECTOR_PROPERTY);
-      encoder->WriteUint(edge->gid.AsUint());
-      encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
-      encoder->WriteExternalPropertyValue(
-          ToExternalPropertyValue(*delta.property.value, storage->name_id_mapper_.get()));
       break;
     }
     case Delta::Action::DELETE_DESERIALIZED_OBJECT:
@@ -1068,14 +1041,6 @@ std::optional<RecoveryInfo> LoadWal(
           schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(property_value)}, old_type);
         }
         vertex->properties.SetProperty(property_id, property_value);
-      },
-      [&](WalVertexSetVectorProperty const &data) {
-        const auto vertex = vertex_acc.find(data.gid);
-        if (vertex == vertex_acc.end())
-          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
-        const auto property_value = ToPropertyValue(data.value, name_id_mapper);
-        MG_ASSERT(property_value.IsVectorIndexId(), "Property value must be a vector index id");
-        indices->vector_index_.UpdateOnSetProperty(property_value, &*vertex, name_id_mapper);
       },
       [&](WalEdgeCreate const &data) {
         const auto from_vertex = vertex_acc.find(data.from_vertex);

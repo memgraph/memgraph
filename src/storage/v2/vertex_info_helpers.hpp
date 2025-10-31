@@ -14,6 +14,7 @@
 #include <tuple>
 #include <vector>
 
+#include "storage/v2/delta.hpp"
 #include "storage/v2/delta_action.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/result.hpp"
@@ -49,7 +50,6 @@ void DeltaDispatch(Delta const &delta, Func &&func) {
     dispatch(DELETE_OBJECT);
     dispatch(RECREATE_OBJECT);
     dispatch(SET_PROPERTY);
-    dispatch(SET_VECTOR_PROPERTY);
     dispatch(ADD_LABEL);
     dispatch(REMOVE_LABEL);
     dispatch(ADD_IN_EDGE);

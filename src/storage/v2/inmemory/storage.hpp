@@ -56,7 +56,6 @@ struct IndexPerformanceTracker {
       using enum Delta::Action;
       case DELETE_DESERIALIZED_OBJECT:
       case DELETE_OBJECT:
-      case SET_VECTOR_PROPERTY:
       case RECREATE_OBJECT: {
         // can impact correctness, but does not matter for performance
         return;

@@ -164,7 +164,6 @@ bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transactio
       case Delta::Action::ADD_OUT_EDGE:
       case Delta::Action::REMOVE_IN_EDGE:
       case Delta::Action::REMOVE_OUT_EDGE:
-      case Delta::Action::SET_VECTOR_PROPERTY:
         break;
     }
   });
@@ -196,7 +195,6 @@ PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Trans
       case Delta::Action::ADD_OUT_EDGE:
       case Delta::Action::REMOVE_IN_EDGE:
       case Delta::Action::REMOVE_OUT_EDGE:
-      case Delta::Action::SET_VECTOR_PROPERTY:
         break;
     }
   });
@@ -1994,7 +1992,6 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
             case Delta::Action::REMOVE_LABEL:
             case Delta::Action::ADD_LABEL:
             case Delta::Action::SET_PROPERTY:
-            case Delta::Action::SET_VECTOR_PROPERTY:
             case Delta::Action::ADD_IN_EDGE: {
               break;
             }

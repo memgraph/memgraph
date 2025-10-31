@@ -117,7 +117,6 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
       case Delta::Action::ADD_OUT_EDGE:
       case Delta::Action::REMOVE_IN_EDGE:
       case Delta::Action::REMOVE_OUT_EDGE:
-      case Delta::Action::SET_VECTOR_PROPERTY:
         break;
     }
 
@@ -228,7 +227,6 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
       case Delta::Action::ADD_OUT_EDGE:
       case Delta::Action::REMOVE_IN_EDGE:
       case Delta::Action::REMOVE_OUT_EDGE:
-      case Delta::Action::SET_VECTOR_PROPERTY:
         break;
     }
 
