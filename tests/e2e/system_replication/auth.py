@@ -169,8 +169,8 @@ def only_main_queries(cursor):
     n_exceptions += try_and_count(cursor, f"GRANT AUTH TO role_name")
     n_exceptions += try_and_count(cursor, f"DENY AUTH, INDEX TO user_name")
     n_exceptions += try_and_count(cursor, f"REVOKE AUTH FROM role_name")
-    n_exceptions += try_and_count(cursor, f"GRANT READ ON LABELS :l TO role_name;")
-    n_exceptions += try_and_count(cursor, f"REVOKE EDGE_TYPES :e FROM user_name")
+    n_exceptions += try_and_count(cursor, f"GRANT READ ON NODES CONTAINING LABELS :l TO role_name;")
+    n_exceptions += try_and_count(cursor, f"REVOKE * ON EDGES CONTAINING TYPES :e FROM user_name")
     n_exceptions += try_and_count(cursor, f"GRANT DATABASE memgraph TO user_name;")
     n_exceptions += try_and_count(cursor, f"SET MAIN DATABASE memgraph FOR user_name")
     n_exceptions += try_and_count(cursor, f"DENY DATABASE memgraph FROM user_name;")
@@ -876,38 +876,39 @@ def test_auth_replication(connection, test_name):
     execute_and_fetch_all(cursor_main, "REVOKE ALL PRIVILEGES FROM role3")
     execute_and_fetch_all(cursor_main, "REVOKE ALL PRIVILEGES FROM user4")
     execute_and_fetch_all(cursor_main, "REVOKE ALL PRIVILEGES FROM user3b")
-    execute_and_fetch_all(cursor_main, "GRANT READ ON LABELS :l1 TO user4")
-    execute_and_fetch_all(cursor_main, "GRANT UPDATE ON LABELS :l2, :l3 TO role3")
+    execute_and_fetch_all(cursor_main, "GRANT READ ON NODES CONTAINING LABELS :l1 TO user4")
+    execute_and_fetch_all(cursor_main, "GRANT UPDATE ON NODES CONTAINING LABELS :l2, :l3 TO role3")
+    execute_and_fetch_all(cursor_main, "GRANT UPDATE ON NODES CONTAINING LABELS :l4, :l5 TO role3")
     check(
         partial(show_privileges_func, user_or_role="user4"),
         {
-            ("LABEL :l1", "READ", "LABEL PERMISSION GRANTED TO USER"),
+            ("READ ON NODES CONTAINING LABELS :l1 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
         },
     )
     check(
         partial(show_privileges_func, user_or_role="role3"),
         {
-            ("LABEL :l3", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE"),
-            ("LABEL :l2", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE"),
+            ("UPDATE ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE"),
+            ("UPDATE ON NODES CONTAINING LABELS :l4, :l5 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE"),
         },
     )
     check(
         partial(show_privileges_func, user_or_role="user3b"),
         {
-            ("LABEL :l3", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE"),
-            ("LABEL :l2", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE"),
+            ("UPDATE ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE"),
+            ("UPDATE ON NODES CONTAINING LABELS :l4, :l5 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE"),
         },
     )
-    execute_and_fetch_all(cursor_main, "REVOKE LABELS :l1 FROM user4")
-    execute_and_fetch_all(cursor_main, "REVOKE LABELS :l2 FROM role3")
+    execute_and_fetch_all(cursor_main, "REVOKE * ON NODES CONTAINING LABELS :l1 FROM user4")
+    execute_and_fetch_all(cursor_main, "REVOKE * ON NODES CONTAINING LABELS :l4, :l5 FROM role3")
     check(partial(show_privileges_func, user_or_role="user4"), set())
     check(
         partial(show_privileges_func, user_or_role="role3"),
-        {("LABEL :l3", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE")},
+        {("UPDATE ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE")},
     )
     check(
         partial(show_privileges_func, user_or_role="user3b"),
-        {("LABEL :l3", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE")},
+        {("UPDATE ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE")},
     )
 
     # GRANT/DENY DATABASE

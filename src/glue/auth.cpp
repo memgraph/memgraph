@@ -11,6 +11,7 @@
 
 #include "glue/auth.hpp"
 #include "auth/models.hpp"
+#include "query/exceptions.hpp"
 
 namespace memgraph::glue {
 
@@ -85,8 +86,12 @@ auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
       return auth::FineGrainedPermission::READ;
     case query::AuthQuery::FineGrainedPrivilege::UPDATE:
       return auth::FineGrainedPermission::UPDATE;
-    case query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE:
-      return auth::FineGrainedPermission::CREATE_DELETE;
+    case query::AuthQuery::FineGrainedPrivilege::CREATE:
+      return auth::FineGrainedPermission::CREATE;
+    case query::AuthQuery::FineGrainedPrivilege::DELETE:
+      return auth::FineGrainedPermission::DELETE;
+    case query::AuthQuery::FineGrainedPrivilege::ALL:
+      return auth::kAllPermissions;
   }
 }
 #endif

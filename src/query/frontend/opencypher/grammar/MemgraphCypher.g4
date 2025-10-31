@@ -26,6 +26,7 @@ memgraphCypherKeyword : cypherKeyword
                       | AFTER
                       | ALTER
                       | ANALYZE
+                      | ANY
                       | ASYNC
                       | AT
                       | AUTH
@@ -47,8 +48,8 @@ memgraphCypherKeyword : cypherKeyword
                       | CONFIGS
                       | CONSTRAINTS
                       | CONSUMER_GROUP
+                      | CONTAINING
                       | COORDINATOR
-                      | CREATE_DELETE
                       | CREDENTIALS
                       | CSV
                       | CURRENT
@@ -67,11 +68,13 @@ memgraphCypherKeyword : cypherKeyword
                       | DURABILITY
                       | DURATION
                       | EDGE
+                      | EDGES
                       | EDGE_TYPES
                       | ENABLE
                       | ENUM
                       | ENUMS
                       | EVERY
+                      | EXACTLY
                       | EXECUTE
                       | FAILOVER
                       | FLOAT
@@ -113,6 +116,7 @@ memgraphCypherKeyword : cypherKeyword
                       | LOCK
                       | MAIN
                       | MAP
+                      | MATCHING
                       | METRICS
                       | MODE
                       | MODULE_READ
@@ -122,6 +126,7 @@ memgraphCypherKeyword : cypherKeyword
                       | NEXT
                       | NO
                       | NODE_LABELS
+                      | NODES
                       | NOTHING
                       | NULLIF
                       | OF_TOKEN
@@ -188,6 +193,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TRIGGER
                       | TRIGGERS
                       | TTL
+                      | TYPES
                       | UNCOMMITTED
                       | UNLOCK
                       | UNREGISTER
@@ -441,11 +447,11 @@ setRole : SET ( ROLE | ROLES ) FOR user=userOrRoleName TO roles=listOfSymbolicNa
 
 clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=grantPrivilegesList ) TO userOrRole=userOrRoleName ;
+grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRole=userOrRoleName ;
+denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList ) TO userOrRole=userOrRoleName ;
 
-revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
+revokePrivilege : REVOKE ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) FROM userOrRole=userOrRoleName ;
 
 listOfSymbolicNames : symbolicName ( ',' symbolicName )* ;
 
@@ -497,25 +503,30 @@ privilege : CREATE
           | PROFILE_RESTRICTION
           ;
 
-granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
+granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE | ASTERISK ;
 
-entityType : LABELS | EDGE_TYPES ;
-
-privilegeOrEntityPrivileges : privilege | entityPrivileges=entityPrivilegeList ;
-
-grantPrivilegesList : privilegeOrEntityPrivileges ( ',' privilegeOrEntityPrivileges )* ;
+granularPrivilegeList : granularPrivilege ( ',' granularPrivilege )* ;
 
 entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
 
-entityPrivilege : granularPrivilege ON entityType entities=entitiesList ;
+entityPrivilege : granularPrivilegeList ON entityTypeSpec ;
 
-privilegeOrEntities : privilege | entityType entities=entitiesList ;
+entityTypeSpec
+    : NODES CONTAINING LABELS labelEntities=labelEntitiesList matchingClause?
+    | EDGES CONTAINING TYPES edgeTypes=edgeTypeEntitiesList
+    ;
 
-revokePrivilegesList : privilegeOrEntities ( ',' privilegeOrEntities )* ;
+labelEntitiesList : ASTERISK | listOfColonSymbolicNames ;
+
+edgeTypeEntitiesList : ASTERISK | listOfColonSymbolicNames ;
+
+edgeTypeEntity : ASTERISK | colonSymbolicName ;
+
+matchingClause
+    : MATCHING ( ANY | EXACTLY )
+    ;
 
 privilegesList : privilege ( ',' privilege )* ;
-
-entitiesList : ASTERISK | listOfColonSymbolicNames ;
 
 listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 

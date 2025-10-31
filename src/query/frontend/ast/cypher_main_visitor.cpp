@@ -48,8 +48,6 @@ namespace srv = std::ranges::views;
 const std::string CypherMainVisitor::kAnonPrefix = "anon";
 
 namespace {
-enum class EntityType : uint8_t { LABELS, EDGE_TYPES };
-
 template <typename TVisitor>
 std::optional<std::pair<memgraph::query::Expression *, size_t>> VisitMemoryLimit(
     MemgraphCypher::MemoryLimitContext *memory_limit_ctx, TVisitor *visitor) {
@@ -2045,14 +2043,24 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::GRANT_PRIVILEGE;
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
-  if (ctx->grantPrivilegesList()) {
-    const auto [label_privileges, edge_type_privileges, privileges] = std::any_cast<
-        std::tuple<std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
-                   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
-                   std::vector<memgraph::query::AuthQuery::Privilege>>>(ctx->grantPrivilegesList()->accept(this));
-    auth->label_privileges_ = label_privileges;
-    auth->edge_type_privileges_ = edge_type_privileges;
-    auth->privileges_ = privileges;
+  if (ctx->systemPrivileges) {
+    auth->privileges_ = std::any_cast<std::vector<AuthQuery::Privilege>>(ctx->systemPrivileges->accept(this));
+  } else if (ctx->entityPrivileges) {
+    const auto [label_privileges, label_matching_modes, edge_type_privileges] =
+        std::any_cast<std::tuple<std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
+                                 std::vector<AuthQuery::LabelMatchingMode>,
+                                 std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>>(
+            ctx->entityPrivileges->accept(this));
+    for (size_t i = 0; i < label_privileges.size(); ++i) {
+      const auto &[privilege, labels] = label_privileges[i];
+      auth->label_privileges_.emplace_back(
+          std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, labels}});
+      auth->label_matching_modes_.emplace_back(label_matching_modes[i]);
+    }
+    for (const auto &[privilege, edge_types] : edge_type_privileges) {
+      auth->edge_type_privileges_.emplace_back(
+          std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, edge_types}});
+    }
   } else {
     /* grant all privileges */
     auth->privileges_ = kPrivilegesAll;
@@ -2067,8 +2075,8 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DENY_PRIVILEGE;
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
-  if (ctx->privilegesList()) {
-    auth->privileges_ = std::any_cast<std::vector<AuthQuery::Privilege>>(ctx->privilegesList()->accept(this));
+  if (ctx->systemPrivileges) {
+    auth->privileges_ = std::any_cast<std::vector<AuthQuery::Privilege>>(ctx->systemPrivileges->accept(this));
   } else {
     /* deny all privileges */
     auth->privileges_ = kPrivilegesAll;
@@ -2089,60 +2097,29 @@ antlrcpp::Any CypherMainVisitor::visitPrivilegesList(MemgraphCypher::PrivilegesL
 }
 
 /**
- * @return std::tuple<std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
-                    std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
-                    std::vector<memgraph::query::AuthQuery::Privilege>>
- */
-antlrcpp::Any CypherMainVisitor::visitGrantPrivilegesList(MemgraphCypher::GrantPrivilegesListContext *ctx) {
-  std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges;
-  std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges;
-  std::vector<memgraph::query::AuthQuery::Privilege> privileges;
-  for (auto *it : ctx->privilegeOrEntityPrivileges()) {
-    if (it->entityPrivilegeList()) {
-      const auto result =
-          std::any_cast<std::pair<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>,
-                                  std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>(
-              it->entityPrivilegeList()->accept(this));
-      if (!result.first.empty()) {
-        label_privileges.emplace_back(result.first);
-      }
-      if (!result.second.empty()) {
-        edge_type_privileges.emplace_back(result.second);
-      }
-    } else {
-      privileges.push_back(std::any_cast<AuthQuery::Privilege>(it->privilege()->accept(this)));
-    }
-  }
-
-  return std::tuple<std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
-                    std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
-                    std::vector<memgraph::query::AuthQuery::Privilege>>(label_privileges, edge_type_privileges,
-                                                                        privileges);
-}
-
-/**
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePrivilegeContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::REVOKE_PRIVILEGE;
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
-  if (ctx->revokePrivilegesList()) {
-    for (auto *it : ctx->revokePrivilegesList()->privilegeOrEntities()) {
-      if (it->entitiesList()) {
-        const auto entity_type = std::any_cast<EntityType>(it->entityType()->accept(this));
-        if (entity_type == EntityType::LABELS) {
-          auth->label_privileges_.push_back(
-              {{AuthQuery::FineGrainedPrivilege::CREATE_DELETE,
-                std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this))}});
-        } else {
-          auth->edge_type_privileges_.push_back(
-              {{AuthQuery::FineGrainedPrivilege::CREATE_DELETE,
-                std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this))}});
-        }
-      } else {
-        auth->privileges_.push_back(std::any_cast<AuthQuery::Privilege>(it->privilege()->accept(this)));
-      }
+  if (ctx->systemPrivileges) {
+    auth->privileges_ = std::any_cast<std::vector<AuthQuery::Privilege>>(ctx->systemPrivileges->accept(this));
+  } else if (ctx->entityPrivileges) {
+    const auto [label_privileges, label_matching_modes, edge_type_privileges] =
+        std::any_cast<std::tuple<std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
+                                 std::vector<AuthQuery::LabelMatchingMode>,
+                                 std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>>(
+            ctx->entityPrivileges->accept(this));
+    for (size_t i = 0; i < label_privileges.size(); ++i) {
+      const auto &[privilege, labels] = label_privileges[i];
+      auth->label_privileges_.emplace_back(
+          std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, labels}});
+      auth->label_matching_modes_.emplace_back(label_matching_modes[i]);
+    }
+    for (const auto &[privilege, edge_types] : edge_type_privileges) {
+      auth->edge_type_privileges_.emplace_back(
+          std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, edge_types}});
     }
   } else {
     /* revoke all privileges */
@@ -2152,29 +2129,68 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
 }
 
 /**
- * @return std::pair<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>,
-                     std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+ * @return std::tuple<std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
+                      std::vector<AuthQuery::LabelMatchingMode>,
+                      std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>
  */
 antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::EntityPrivilegeListContext *ctx) {
-  std::pair<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>,
-            std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-      result;
+  std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges;
+  std::vector<AuthQuery::LabelMatchingMode> label_matching_modes;
+  std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges;
 
   for (auto *it : ctx->entityPrivilege()) {
-    const auto key = std::any_cast<AuthQuery::FineGrainedPrivilege>(it->granularPrivilege()->accept(this));
-    const auto entityType = std::any_cast<EntityType>(it->entityType()->accept(this));
-    auto value = std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this));
+    const auto keys =
+        std::any_cast<std::vector<AuthQuery::FineGrainedPrivilege>>(it->granularPrivilegeList()->accept(this));
 
-    switch (entityType) {
-      case EntityType::LABELS:
-        result.first[key] = std::move(value);
-        break;
-      case EntityType::EDGE_TYPES:
-        result.second[key] = std::move(value);
-        break;
+    auto *typeSpec = it->entityTypeSpec();
+
+    if (typeSpec->labelEntitiesList()) {
+      auto value = std::any_cast<std::vector<std::string>>(typeSpec->labelEntitiesList()->accept(this));
+
+      if (value.size() == 1 && value[0] == "*" && typeSpec->matchingClause()) {
+        throw SemanticException("Cannot use MATCHING clause with wildcard '*'");
+      }
+
+      AuthQuery::LabelMatchingMode matching_mode = AuthQuery::LabelMatchingMode::ANY;
+      if (typeSpec->matchingClause()) {
+        if (typeSpec->matchingClause()->EXACTLY()) {
+          matching_mode = AuthQuery::LabelMatchingMode::EXACTLY;
+        } else {
+          matching_mode = AuthQuery::LabelMatchingMode::ANY;
+        }
+      }
+
+      for (const auto &key : keys) {
+        if (key == AuthQuery::FineGrainedPrivilege::ALL) {
+          label_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::CREATE, value);
+          label_matching_modes.emplace_back(matching_mode);
+          label_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::DELETE, value);
+          label_matching_modes.emplace_back(matching_mode);
+          label_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::UPDATE, value);
+          label_matching_modes.emplace_back(matching_mode);
+          label_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::READ, value);
+          label_matching_modes.emplace_back(matching_mode);
+        } else {
+          label_privileges.emplace_back(key, value);
+          label_matching_modes.emplace_back(matching_mode);
+        }
+      }
+    } else if (typeSpec->edgeTypes) {
+      auto value = std::any_cast<std::vector<std::string>>(typeSpec->edgeTypes->accept(this));
+
+      for (const auto &key : keys) {
+        if (key == AuthQuery::FineGrainedPrivilege::ALL) {
+          edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::CREATE, value);
+          edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::DELETE, value);
+          edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::UPDATE, value);
+          edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::READ, value);
+        } else {
+          edge_type_privileges.emplace_back(key, value);
+        }
+      }
     }
   }
-  return result;
+  return std::make_tuple(label_privileges, label_matching_modes, edge_type_privileges);
 }
 
 antlrcpp::Any CypherMainVisitor::visitListOfColonSymbolicNames(MemgraphCypher::ListOfColonSymbolicNamesContext *ctx) {
@@ -2226,12 +2242,37 @@ antlrcpp::Any CypherMainVisitor::visitDenyImpersonateUser(MemgraphCypher::DenyIm
 /**
  * @return std::vector<std::string>
  */
-antlrcpp::Any CypherMainVisitor::visitEntitiesList(MemgraphCypher::EntitiesListContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitLabelEntitiesList(MemgraphCypher::LabelEntitiesListContext *ctx) {
   std::vector<std::string> entities;
   if (ctx->listOfColonSymbolicNames()) {
     return ctx->listOfColonSymbolicNames()->accept(this);
   }
   entities.emplace_back("*");
+  return entities;
+}
+
+/**
+ * @return std::vector<std::string>
+ */
+antlrcpp::Any CypherMainVisitor::visitEdgeTypeEntitiesList(MemgraphCypher::EdgeTypeEntitiesListContext *ctx) {
+  std::vector<std::string> entities;
+  if (ctx->listOfColonSymbolicNames()) {
+    return ctx->listOfColonSymbolicNames()->accept(this);
+  }
+  entities.emplace_back("*");
+  return entities;
+}
+
+/**
+ * @return std::vector<std::string>
+ */
+antlrcpp::Any CypherMainVisitor::visitEdgeTypeEntity(MemgraphCypher::EdgeTypeEntityContext *ctx) {
+  std::vector<std::string> entities;
+  if (ctx->colonSymbolicName()) {
+    entities.push_back(std::any_cast<std::string>(ctx->colonSymbolicName()->symbolicName()->accept(this)));
+  } else {
+    entities.emplace_back("*");
+  }
   return entities;
 }
 
@@ -2287,17 +2328,41 @@ antlrcpp::Any CypherMainVisitor::visitGranularPrivilege(MemgraphCypher::Granular
   if (ctx->NOTHING()) return AuthQuery::FineGrainedPrivilege::NOTHING;
   if (ctx->READ()) return AuthQuery::FineGrainedPrivilege::READ;
   if (ctx->UPDATE()) return AuthQuery::FineGrainedPrivilege::UPDATE;
-  if (ctx->CREATE_DELETE()) return AuthQuery::FineGrainedPrivilege::CREATE_DELETE;
+  if (ctx->CREATE()) return AuthQuery::FineGrainedPrivilege::CREATE;
+  if (ctx->DELETE()) return AuthQuery::FineGrainedPrivilege::DELETE;
+  if (ctx->ASTERISK()) return AuthQuery::FineGrainedPrivilege::ALL;
   LOG_FATAL("Should not get here - unknown fine grained privilege!");
 }
 
 /**
- * @return EntityType
+ * @return std::vector<AuthQuery::FineGrainedPrivilege>
  */
-antlrcpp::Any CypherMainVisitor::visitEntityType(MemgraphCypher::EntityTypeContext *ctx) {
-  if (ctx->LABELS()) return EntityType::LABELS;
-  if (ctx->EDGE_TYPES()) return EntityType::EDGE_TYPES;
-  LOG_FATAL("Should not get here - unknown entity type!");
+antlrcpp::Any CypherMainVisitor::visitGranularPrivilegeList(MemgraphCypher::GranularPrivilegeListContext *ctx) {
+  std::unordered_set<AuthQuery::FineGrainedPrivilege> seen;
+  std::vector<AuthQuery::FineGrainedPrivilege> privileges;
+
+  for (auto *privilege : ctx->granularPrivilege()) {
+    auto const priv = std::any_cast<AuthQuery::FineGrainedPrivilege>(privilege->accept(this));
+
+    if (seen.contains(priv)) {
+      throw SemanticException("Duplicate permission in permissions list");
+    }
+
+    if ((priv == AuthQuery::FineGrainedPrivilege::NOTHING && !seen.empty()) ||
+        (priv != AuthQuery::FineGrainedPrivilege::NOTHING && seen.contains(AuthQuery::FineGrainedPrivilege::NOTHING))) {
+      throw SemanticException("Cannot combine NOTHING with other permissions");
+    }
+
+    if ((priv == AuthQuery::FineGrainedPrivilege::ALL && !seen.empty()) ||
+        (priv != AuthQuery::FineGrainedPrivilege::ALL && seen.contains(AuthQuery::FineGrainedPrivilege::ALL))) {
+      throw SemanticException("Cannot combine * with other permissions");
+    }
+
+    seen.insert(priv);
+    privileges.push_back(priv);
+  }
+
+  return privileges;
 }
 
 /**

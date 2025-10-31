@@ -65,15 +65,18 @@ enum class Permission : uint64_t {
 #ifdef MG_ENTERPRISE
 // clang-format off
 enum class FineGrainedPermission : uint64_t {
-  NOTHING       = 0,
-  READ          = 1,
-  UPDATE        = 1U << 1U,
-  CREATE_DELETE = 1U << 2U
+  NOTHING = 0,
+  READ    = 1U << 0U,  // 1
+  UPDATE  = 1U << 1U,  // 2
+  // Bit 2 reserved: was CREATE_DELETE in Memgraph 3.6 and earlier
+  CREATE  = 1U << 3U,  // 8
+  DELETE  = 1U << 4U   // 16
 };
 // clang-format on
 
-constexpr inline uint64_t operator|(FineGrainedPermission lhs, FineGrainedPermission rhs) {
-  return static_cast<uint64_t>(lhs) | static_cast<uint64_t>(rhs);
+constexpr inline FineGrainedPermission operator|(FineGrainedPermission lhs, FineGrainedPermission rhs) {
+  return static_cast<FineGrainedPermission>(std::underlying_type_t<FineGrainedPermission>(lhs) |
+                                            std::underlying_type_t<FineGrainedPermission>(rhs));
 }
 
 constexpr inline uint64_t operator|(uint64_t lhs, FineGrainedPermission rhs) {
@@ -84,11 +87,19 @@ constexpr inline uint64_t operator&(uint64_t lhs, FineGrainedPermission rhs) {
   return (lhs & static_cast<uint64_t>(rhs)) != 0;
 }
 
-constexpr uint64_t kLabelPermissionAll = memgraph::auth::FineGrainedPermission::CREATE_DELETE |
-                                         memgraph::auth::FineGrainedPermission::UPDATE |
-                                         memgraph::auth::FineGrainedPermission::READ;
-constexpr uint64_t kLabelPermissionMax = static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-constexpr uint64_t kLabelPermissionMin = static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ);
+constexpr inline FineGrainedPermission operator&(FineGrainedPermission lhs, FineGrainedPermission rhs) {
+  return static_cast<FineGrainedPermission>(std::underlying_type_t<FineGrainedPermission>(lhs) &
+                                            std::underlying_type_t<FineGrainedPermission>(rhs));
+}
+
+constexpr inline FineGrainedPermission &operator|=(FineGrainedPermission &lhs, FineGrainedPermission rhs) {
+  lhs = lhs | rhs;
+  return lhs;
+}
+
+constexpr FineGrainedPermission kAllPermissions = static_cast<FineGrainedPermission>(
+    memgraph::auth::FineGrainedPermission::CREATE | memgraph::auth::FineGrainedPermission::DELETE |
+    memgraph::auth::FineGrainedPermission::UPDATE | memgraph::auth::FineGrainedPermission::READ);
 #endif
 
 // Function that converts a permission to its string representation.
@@ -101,11 +112,9 @@ enum class PermissionLevel : uint8_t { GRANT, NEUTRAL, DENY };
 std::string PermissionLevelToString(PermissionLevel level);
 
 #ifdef MG_ENTERPRISE
-// Function that converts a label permission level to its string representation.
-std::string FineGrainedPermissionToString(FineGrainedPermission level);
+// Function that converts a label permission bitmask to its string representation.
+std::string FineGrainedPermissionToString(uint64_t permission);
 
-// Constructs a label permission from a permission
-FineGrainedPermission PermissionToFineGrainedPermission(uint64_t permission);
 #endif
 
 class Permissions final {
@@ -228,34 +237,55 @@ class UserImpersonation {
 #endif
 
 #ifdef MG_ENTERPRISE
+enum class MatchingMode : uint8_t { ANY, EXACTLY };
+
+struct FineGrainedAccessRule {
+  std::unordered_set<std::string> symbols;
+  FineGrainedPermission permissions;
+  MatchingMode matching_mode;
+
+  bool operator==(const FineGrainedAccessRule &other) const = default;
+};
+
 class FineGrainedAccessPermissions final {
  public:
-  explicit FineGrainedAccessPermissions(std::unordered_map<std::string, uint64_t> permissions = {},
-                                        std::optional<uint64_t> global_permission = std::nullopt);
+  explicit FineGrainedAccessPermissions(std::optional<uint64_t> global_permission = std::nullopt,
+                                        std::vector<FineGrainedAccessRule> rules = {});
   FineGrainedAccessPermissions(const FineGrainedAccessPermissions &) = default;
   FineGrainedAccessPermissions &operator=(const FineGrainedAccessPermissions &) = default;
   FineGrainedAccessPermissions(FineGrainedAccessPermissions &&) = default;
   FineGrainedAccessPermissions &operator=(FineGrainedAccessPermissions &&) = default;
   ~FineGrainedAccessPermissions() = default;
-  PermissionLevel Has(const std::string &permission, FineGrainedPermission fine_grained_permission) const;
 
-  void Grant(const std::string &permission, FineGrainedPermission fine_grained_permission);
+  PermissionLevel Has(std::span<const std::string> symbols, FineGrainedPermission fine_grained_permission) const;
 
-  void Revoke(const std::string &permission);
+  PermissionLevel HasGlobal(FineGrainedPermission fine_grained_permission) const;
+
+  void Grant(std::unordered_set<std::string> const &symbols, FineGrainedPermission fine_grained_permission,
+             MatchingMode matching_mode = MatchingMode::ANY);
+
+  void GrantGlobal(FineGrainedPermission fine_grained_permission);
+
+  void Revoke(std::unordered_set<std::string> const &symbols, FineGrainedPermission fine_grained_permission,
+              MatchingMode matching_mode = MatchingMode::ANY);
+
+  void RevokeGlobal(FineGrainedPermission fine_grained_permission);
+
+  void RevokeAll();
+
+  void RevokeAll(FineGrainedPermission fine_grained_permission);
 
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
   static FineGrainedAccessPermissions Deserialize(const nlohmann::json &data);
 
-  const std::unordered_map<std::string, uint64_t> &GetPermissions() const;
   const std::optional<uint64_t> &GetGlobalPermission() const;
+  const std::vector<FineGrainedAccessRule> &GetPermissions() const;
 
  private:
-  std::unordered_map<std::string, uint64_t> permissions_{};
   std::optional<uint64_t> global_permission_;
-
-  static uint64_t CalculateGrant(FineGrainedPermission fine_grained_permission);
+  std::vector<FineGrainedAccessRule> rules_;
 };
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
@@ -517,7 +547,10 @@ class Roles {
   explicit Roles(std::unordered_set<Role> roles) : roles_{std::move(roles)} {}
 
   // Add a single role
-  void AddRole(const Role &role) { roles_.insert(role); }
+  void AddRole(const Role &role) {
+    RemoveRole(role.rolename());
+    roles_.insert(role);
+  }
 
   // Remove a role by name
   void RemoveRole(const std::string &rolename) {

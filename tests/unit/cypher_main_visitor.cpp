@@ -2605,7 +2605,8 @@ void check_auth_query(
     Base *ast_generator, std::string input, AuthQuery::Action action, std::string user, std::vector<std::string> roles,
     std::string user_or_role, std::optional<TypedValue> password, std::vector<AuthQuery::Privilege> privileges,
     std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges,
-    std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges) {
+    std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges,
+    std::vector<AuthQuery::LabelMatchingMode> label_matching_modes = {}) {
   auto *auth_query = dynamic_cast<AuthQuery *>(ast_generator->ParseQuery(input));
   ASSERT_TRUE(auth_query);
   EXPECT_EQ(auth_query->action_, action);
@@ -2619,6 +2620,7 @@ void check_auth_query(
   EXPECT_EQ(auth_query->privileges_, privileges);
   EXPECT_EQ(auth_query->label_privileges_, label_privileges);
   EXPECT_EQ(auth_query->edge_type_privileges_, edge_type_privileges);
+  EXPECT_EQ(auth_query->label_matching_modes_, label_matching_modes);
 }
 
 TEST_P(CypherMainVisitorTest, UserOrRoleName) {
@@ -2808,48 +2810,156 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges{};
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"*"}}}});
-  check_auth_query(&ast_generator, "GRANT READ ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user",
-                   {}, {}, label_privileges, {});
+  check_auth_query(&ast_generator, "GRANT READ ON NODES CONTAINING LABELS * TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"*"}}}});
-  check_auth_query(&ast_generator, "GRANT UPDATE ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {},
-                   "user", {}, {}, label_privileges, {});
+  check_auth_query(&ast_generator, "GRANT UPDATE ON NODES CONTAINING LABELS * TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"*"}}}});
-  check_auth_query(&ast_generator, "GRANT CREATE_DELETE ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "",
-                   {}, "user", {}, {}, label_privileges, {});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE}, {{"*"}}}});
+  check_auth_query(&ast_generator, "GRANT CREATE ON NODES CONTAINING LABELS * TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY});
+  label_privileges.clear();
+
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::DELETE}, {{"*"}}}});
+  check_auth_query(&ast_generator, "GRANT DELETE ON NODES CONTAINING LABELS * TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
-  check_auth_query(&ast_generator, "GRANT READ ON LABELS :Label1, :Label2 TO user", AuthQuery::Action::GRANT_PRIVILEGE,
-                   "", {}, "user", {}, {}, label_privileges, {});
+  check_auth_query(&ast_generator, "GRANT READ ON NODES CONTAINING LABELS :Label1, :Label2 TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"Label1"}, {"Label2"}}}});
-  check_auth_query(&ast_generator, "GRANT UPDATE ON LABELS :Label1, :Label2 TO user",
-                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {});
+  check_auth_query(&ast_generator, "GRANT UPDATE ON NODES CONTAINING LABELS :Label1, :Label2 TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
-  check_auth_query(&ast_generator, "GRANT CREATE_DELETE ON LABELS :Label1, :Label2 TO user",
-                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE}, {{"Label1"}, {"Label2"}}}});
+  check_auth_query(&ast_generator, "GRANT CREATE ON NODES CONTAINING LABELS :Label1, :Label2 TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}},
-                              {{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"Label3"}}}});
-  check_auth_query(&ast_generator, "GRANT READ ON LABELS :Label1, :Label2, UPDATE ON LABELS :Label3 TO user",
-                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::DELETE}, {{"Label1"}, {"Label2"}}}});
+  check_auth_query(&ast_generator, "GRANT DELETE ON NODES CONTAINING LABELS :Label1, :Label2 TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
-  edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Edge1"}, {"Edge2"}, {"Edge3"}}}});
-  check_auth_query(&ast_generator,
-                   "GRANT READ ON LABELS :Label1, :Label2, READ ON EDGE_TYPES :Edge1, :Edge2, :Edge3 TO user",
-                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, edge_type_privileges);
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"Label3"}}}});
+  check_auth_query(
+      &ast_generator,
+      "GRANT READ ON NODES CONTAINING LABELS :Label1, :Label2, UPDATE ON NODES CONTAINING LABELS :Label3 TO user",
+      AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+      {AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY});
+  label_privileges.clear();
+
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
+  edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Edge1"}}}});
+  check_auth_query(
+      &ast_generator,
+      "GRANT READ ON NODES CONTAINING LABELS :Label1, :Label2, READ ON EDGES CONTAINING TYPES :Edge1 TO user",
+      AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, edge_type_privileges,
+      {AuthQuery::LabelMatchingMode::ANY});
   label_privileges.clear();
   edge_type_privileges.clear();
+
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE}, {{"Label1"}, {"Label2"}}}});
+  edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Edge1"}}}});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"Label3"}, {"Label4"}}}});
+  edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::DELETE}, {{"Edge2"}}}});
+  check_auth_query(&ast_generator,
+                   R"(GRANT CREATE ON NODES CONTAINING LABELS :Label1, :Label2 MATCHING EXACTLY,
+                          READ ON EDGES CONTAINING TYPES :Edge1,
+                          UPDATE ON NODES CONTAINING LABELS :Label3, :Label4  MATCHING ANY,
+                          DELETE ON EDGES CONTAINING TYPES :Edge2 TO user)",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, edge_type_privileges,
+                   {AuthQuery::LabelMatchingMode::EXACTLY, AuthQuery::LabelMatchingMode::ANY});
+  label_privileges.clear();
+  edge_type_privileges.clear();
+
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
+  check_auth_query(&ast_generator, "GRANT READ ON NODES CONTAINING LABELS :Label1, :Label2 MATCHING ANY TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY});
+  label_privileges.clear();
+
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
+  check_auth_query(&ast_generator, "GRANT READ ON NODES CONTAINING LABELS :Label1, :Label2 MATCHING EXACTLY TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::EXACTLY});
+  label_privileges.clear();
+
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}}}});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"Label2"}, {"Label3"}}}});
+  check_auth_query(&ast_generator,
+                   "GRANT READ ON NODES CONTAINING LABELS :Label1 MATCHING ANY, UPDATE ON NODES CONTAINING LABELS "
+                   ":Label2, :Label3 MATCHING EXACTLY TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::EXACTLY});
+  label_privileges.clear();
+
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ ON NODES CONTAINING LABELS * MATCHING ANY TO user"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ ON NODES CONTAINING LABELS * MATCHING EXACTLY TO user"),
+               SemanticException);
+
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ ON EDGES CONTAINING TYPES :Edge1 MATCHING ANY TO user"),
+               SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ ON EDGES CONTAINING TYPES :Edge1 MATCHING EXACTLY TO user"),
+               SyntaxException);
+
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}}}});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE}, {{"Label1"}}}});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"Label1"}}}});
+  check_auth_query(
+      &ast_generator, "GRANT READ, CREATE, UPDATE ON NODES CONTAINING LABELS :Label1 TO user",
+      AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+      {AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY});
+  label_privileges.clear();
+
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::DELETE}, {{"Label1"}, {"Label2"}}}});
+  check_auth_query(&ast_generator,
+                   "GRANT READ, DELETE ON NODES CONTAINING LABELS :Label1, :Label2 MATCHING EXACTLY TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::EXACTLY, AuthQuery::LabelMatchingMode::EXACTLY});
+  label_privileges.clear();
+
+  edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Edge1"}}}});
+  edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE}, {{"Edge1"}}}});
+  check_auth_query(&ast_generator, "GRANT READ, CREATE ON EDGES CONTAINING TYPES :Edge1 TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, {}, edge_type_privileges, {});
+  edge_type_privileges.clear();
+
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ, READ ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT CREATE, UPDATE, CREATE ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
+
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT NOTHING, READ ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ, NOTHING ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT CREATE, UPDATE, NOTHING ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
+
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT *, READ ON NODES CONTAINING LABELS :Label1 TO user"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ, * ON NODES CONTAINING LABELS :Label1 TO user"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT CREATE, UPDATE, * ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
@@ -2936,24 +3046,146 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges{};
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges{};
 
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"*"}}}});
-  check_auth_query(&ast_generator, "REVOKE LABELS * FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
-                   {}, label_privileges, {});
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, {"*"}}});
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::DELETE, {"*"}}});
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::UPDATE, {"*"}}});
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::READ, {"*"}}});
+  check_auth_query(&ast_generator, "REVOKE * ON NODES CONTAINING LABELS * FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY,
+                    AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
-  check_auth_query(&ast_generator, "REVOKE LABELS :Label1, :Label2 FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "",
-                   {}, "user", {}, {}, label_privileges, {});
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, {"Label1", "Label2"}}});
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::DELETE, {"Label1", "Label2"}}});
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::UPDATE, {"Label1", "Label2"}}});
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::READ, {"Label1", "Label2"}}});
+  check_auth_query(&ast_generator, "REVOKE * ON NODES CONTAINING LABELS :Label1, :Label2 FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY,
+                    AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
-  edge_type_privileges.push_back(
-      {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Edge1"}, {"Edge2"}, {"Edge3"}}}});
-  check_auth_query(&ast_generator, "REVOKE LABELS :Label1, :Label2, EDGE_TYPES :Edge1, :Edge2, :Edge3 FROM user",
-                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, edge_type_privileges);
-
-  label_privileges.clear();
+  edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, {"Edge1"}}});
+  edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::DELETE, {"Edge1"}}});
+  edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::UPDATE, {"Edge1"}}});
+  edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::READ, {"Edge1"}}});
+  check_auth_query(&ast_generator, "REVOKE * ON EDGES CONTAINING TYPES :Edge1 FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, {}, edge_type_privileges);
   edge_type_privileges.clear();
+
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, {"Label1", "Label2"}}});
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::DELETE, {"Label1", "Label2"}}});
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::UPDATE, {"Label1", "Label2"}}});
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::READ, {"Label1", "Label2"}}});
+  edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, {"Edge1"}}});
+  edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::DELETE, {"Edge1"}}});
+  edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::UPDATE, {"Edge1"}}});
+  edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::READ, {"Edge1"}}});
+  check_auth_query(&ast_generator,
+                   "REVOKE * ON NODES CONTAINING LABELS :Label1, :Label2, * ON EDGES CONTAINING TYPES :Edge1 FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, edge_type_privileges,
+                   {AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY,
+                    AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY});
+  edge_type_privileges.clear();
+  label_privileges.clear();
+
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, {"Label1", "Label2"}}});
+  check_auth_query(&ast_generator, "REVOKE CREATE ON NODES CONTAINING LABELS :Label1, :Label2 FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY});
+  label_privileges.clear();
+
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::READ, {"Label1", "Label2"}}});
+  check_auth_query(&ast_generator, "REVOKE READ ON NODES CONTAINING LABELS :Label1, :Label2 FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY});
+  label_privileges.clear();
+
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::UPDATE, {"Label1", "Label2"}}});
+  check_auth_query(&ast_generator, "REVOKE UPDATE ON NODES CONTAINING LABELS :Label1, :Label2 FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY});
+  label_privileges.clear();
+
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::DELETE, {"Label1", "Label2"}}});
+  check_auth_query(&ast_generator, "REVOKE DELETE ON NODES CONTAINING LABELS :Label1, :Label2 FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY});
+  label_privileges.clear();
+
+  edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, {"Edge1"}}});
+  check_auth_query(&ast_generator, "REVOKE CREATE ON EDGES CONTAINING TYPES :Edge1 FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, {}, edge_type_privileges);
+  edge_type_privileges.clear();
+
+  edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::READ, {"Edge1"}}});
+  check_auth_query(&ast_generator, "REVOKE READ ON EDGES CONTAINING TYPES :Edge1 FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, {}, edge_type_privileges);
+  edge_type_privileges.clear();
+
+  edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::UPDATE, {"Edge1"}}});
+  check_auth_query(&ast_generator, "REVOKE UPDATE ON EDGES CONTAINING TYPES :Edge1 FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, {}, edge_type_privileges);
+  edge_type_privileges.clear();
+
+  edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::DELETE, {"Edge1"}}});
+  check_auth_query(&ast_generator, "REVOKE DELETE ON EDGES CONTAINING TYPES :Edge1 FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, {}, edge_type_privileges);
+  edge_type_privileges.clear();
+
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, {"Label1", "Label2"}}});
+  check_auth_query(&ast_generator, "REVOKE CREATE ON NODES CONTAINING LABELS :Label1, :Label2 MATCHING ANY FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::ANY});
+  label_privileges.clear();
+
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, {"Label1", "Label2"}}});
+  check_auth_query(&ast_generator,
+                   "REVOKE CREATE ON NODES CONTAINING LABELS :Label1, :Label2 MATCHING EXACTLY FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+                   {AuthQuery::LabelMatchingMode::EXACTLY});
+  label_privileges.clear();
+
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, {"Label1", "Label2"}}});
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::READ, {"Label3", "Label4"}}});
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::UPDATE, {"Label5", "Label6"}}});
+  check_auth_query(
+      &ast_generator, R"(REVOKE CREATE ON NODES CONTAINING LABELS :Label1, :Label2 MATCHING ANY,
+                                             READ ON NODES CONTAINING LABELS :Label3, :Label4 MATCHING EXACTLY,
+                                             UPDATE ON NODES CONTAINING LABELS :Label5, :Label6 MATCHING ANY FROM user)",
+      AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+      {AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::EXACTLY, AuthQuery::LabelMatchingMode::ANY});
+  label_privileges.clear();
+
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE CREATE ON EDGES CONTAINING TYPES :Edge1 MATCHING ANY FROM user"),
+               SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE CREATE ON EDGES CONTAINING TYPES :Edge1 MATCHING EXACTLY FROM user"),
+               SyntaxException);
+
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}}}});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE}, {{"Label1"}}}});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"Label1"}}}});
+  check_auth_query(
+      &ast_generator, "REVOKE READ, CREATE, UPDATE ON NODES CONTAINING LABELS :Label1 FROM user",
+      AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {},
+      {AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY});
+  label_privileges.clear();
+
+  edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Edge1"}}}});
+  edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::DELETE}, {{"Edge1"}}}});
+  check_auth_query(&ast_generator, "REVOKE READ, DELETE ON EDGES CONTAINING TYPES :Edge1 FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, {}, edge_type_privileges, {});
+  edge_type_privileges.clear();
+
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE READ, READ ON NODES CONTAINING LABELS :Label1 FROM user"),
+               SemanticException);
+
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE NOTHING, READ ON NODES CONTAINING LABELS :Label1 FROM user"),
+               SemanticException);
+
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE *, READ ON NODES CONTAINING LABELS :Label1 FROM user"),
+               SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, ShowPrivileges) {

@@ -217,6 +217,7 @@ const std::string kVersion = "version";
 
 static constexpr auto kVersionV1 = "V1";
 static constexpr auto kVersionV2 = "V2";
+static constexpr auto kVersionV3 = "V3";
 }  // namespace
 
 /**
@@ -316,6 +317,15 @@ void MigrateVersions(kvstore::KVStore &store) {
 
     spdlog::info("Auth storage migration to V2 completed successfully");
   }
+
+  if (version_str == kVersionV2) {
+    spdlog::info("Migrating auth storage from V2 to V3");
+    spdlog::warn(
+        "IMPORTANT: Review your security policy and explicitly configure finely grained access rules where needed.");
+
+    store.Put(kVersion, kVersionV3);
+    version_str = kVersionV3;
+  }
 }
 
 std::unordered_map<std::string, auth::Module> PopulateModules(std::string_view module_mappings) {
@@ -362,7 +372,7 @@ Auth::Auth(std::string storage_directory, Config config
     MigrateVersions(storage_);
   } else {
     // Clean storage; put the version
-    storage_.Put(kVersion, kVersionV2);
+    storage_.Put(kVersion, kVersionV3);
   }
 
 #ifdef MG_ENTERPRISE
