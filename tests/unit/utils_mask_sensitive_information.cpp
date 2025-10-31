@@ -13,8 +13,6 @@
 
 #include "utils/logging.hpp"
 
-// Define the maskPasswords function (or include the header where it's defined)
-
 TEST(MaskPasswords, AwsKeys) {
   EXPECT_EQ(memgraph::logging::MaskSensitiveInformation(
                 "LOAD PARQUET FROM 's3://deps.memgraph.io/nodes_100.parquet' WITH CONFIG {'aws_region': "
@@ -70,13 +68,13 @@ TEST(MaskPasswords, NodePropertyCases) {
       memgraph::logging::MaskSensitiveInformation(
           "CREATE (g1:G {name: 'g1', password: 'password'}), (g2:G {name: 'g2'}), (h1:H {name: 'h1'}), (h2:H {name: "
           "'h2'}), (h3:H {name: 'h3'}), (g1)-[:CONNECTS]->(g2), (h1)-[:CONNECTS]->(h2), (h2)-[:CONNECTS]->(h3');"),
-      "CREATE (g1:G {name: 'g1', password: 'password'}), (g2:G {name: 'g2'}), (h1:H {name: 'h1'}), (h2:H {name: "
+      "CREATE (g1:G {name: 'g1', password: '****'}), (g2:G {name: 'g2'}), (h1:H {name: 'h1'}), (h2:H {name: "
       "'h2'}), (h3:H {name: 'h3'}), (g1)-[:CONNECTS]->(g2), (h1)-[:CONNECTS]->(h2), (h2)-[:CONNECTS]->(h3');");
 
   EXPECT_EQ(
       memgraph::logging::MaskSensitiveInformation(
           "CREATE (g1:G {name: 'g1', password: \"password\"}), (g2:G {name: 'g2'}), (h1:H {name: 'h1'}), (h2:H {name: "
           "'h2'}), (h3:H {name: 'h3'}), (g1)-[:CONNECTS]->(g2), (h1)-[:CONNECTS]->(h2), (h2)-[:CONNECTS]->(h3');"),
-      "CREATE (g1:G {name: 'g1', password: \"password\"}), (g2:G {name: 'g2'}), (h1:H {name: 'h1'}), (h2:H {name: "
+      "CREATE (g1:G {name: 'g1', password: \"****\"}), (g2:G {name: 'g2'}), (h1:H {name: 'h1'}), (h2:H {name: "
       "'h2'}), (h3:H {name: 'h3'}), (g1)-[:CONNECTS]->(g2), (h1)-[:CONNECTS]->(h2), (h2)-[:CONNECTS]->(h3');");
 }
