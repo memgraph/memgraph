@@ -965,7 +965,7 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
         return list_val[idx];
       }
       default:
-        return std::nullopt;
+        throw PropertyValueException("Invalid list type");
     }
   };
 
@@ -1010,10 +1010,10 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
           if (!double_v) return std::nullopt;
           return *double_v;
         }
-        return std::nullopt;
+        throw PropertyValueException("Expected INT or DOUBLE while decoding numeric list");
       }
       default:
-        return std::nullopt;
+        throw PropertyValueException("Invalid list type");
     }
   };
 
