@@ -16,7 +16,6 @@
 #include <regex>
 
 std::string memgraph::logging::MaskSensitiveInformation(std::string_view input) {
-  // also fix your nodePattern if you haven't yet
   static std::regex const nodePattern(R"(\(\w+:\w+\s*\{[^}]*\}\))");
   static std::regex const sensitivePattern(
       R"((password\s*:\s*['"][^'"]*['"])|([Pp][Aa][Ss]*[Ss]*[Ww]*[Oo]*[Rr]*[Dd]*\s+[Tt][Oo]\s*['"][^'"]*['"])|([Rr][Ee]?[Pp][Ll]?[Aa]?[Cc]?[Ee]?\s*['"][^'"]*['"])|([Ii][Dd]?[Ee]?[Nn]?[Tt]?[Ii]?[Ff]?[Ii]?[Ee]?[Dd]*\s+[Bb][Yy]\s*['"][^'"]*['"])|([Pp][Aa]*[Ss]*[Ss]*[Ww]*[Oo]*[Rr]*[Dd]*\s+[Ff][Oo][Rr]\s+\w+\s+[Tt][Oo]\s*['"][^'"]*['"])|(['"]?aws[_-]?access[_-]?key['"]?\s*[:=]\s*['"][^'"]*['"])|(['"]?aws[_-]?secret[_-]?key['"]?\s*[:=]\s*['"][^'"]*['"])|(['"]?aws[._-]?access[._-]?key['"]?\s+[Tt][Oo]\s*['"][^'"]*['"])|(['"]?aws[._-]?secret[._-]?key['"]?\s+[Tt][Oo]\s*['"][^'"]*['"]))",
