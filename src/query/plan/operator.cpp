@@ -561,6 +561,11 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
           "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
           "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running "
           "SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+      throw QueryRuntimeException(
+          "Vertex not created due to not having enough permission! This error means that the fine grained access "
+          "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
+          "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running "
+          "SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
     }
 #endif
 
@@ -1168,6 +1173,9 @@ std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optio
     switch (property_value.type()) {
       case storage::PropertyValue::Type::Bool:
       case storage::PropertyValue::Type::List:
+      case storage::PropertyValue::Type::NumericList:
+      case storage::PropertyValue::Type::IntList:
+      case storage::PropertyValue::Type::DoubleList:
       case storage::PropertyValue::Type::Map:
       case storage::PropertyValue::Type::Enum:
       case storage::PropertyValueType::Point2d:

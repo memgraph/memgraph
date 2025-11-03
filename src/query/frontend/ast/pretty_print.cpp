@@ -218,6 +218,18 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Proper
       PrintObject(out, dba, value.ValueList());
       break;
 
+    case storage::PropertyValue::Type::NumericList:
+      PrintObject(out, dba, value.ValueNumericList());
+      break;
+
+    case storage::PropertyValue::Type::IntList:
+      PrintObject(out, dba, value.ValueIntList());
+      break;
+
+    case storage::PropertyValue::Type::DoubleList:
+      PrintObject(out, dba, value.ValueDoubleList());
+      break;
+
     case storage::PropertyValue::Type::Map:
       PrintObject(out, dba, value.ValueMap());
       break;
@@ -266,6 +278,18 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Extern
       PrintObject(out, dba, value.ValueList());
       break;
 
+    case storage::ExternalPropertyValue::Type::NumericList:
+      PrintObject(out, dba, value.ValueNumericList());
+      break;
+
+    case storage::ExternalPropertyValue::Type::IntList:
+      PrintObject(out, dba, value.ValueIntList());
+      break;
+
+    case storage::ExternalPropertyValue::Type::DoubleList:
+      PrintObject(out, dba, value.ValueDoubleList());
+      break;
+
     case storage::ExternalPropertyValue::Type::Map:
       PrintObject(out, dba, value.ValueMap());
       break;
@@ -286,6 +310,17 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Extern
     case storage::ExternalPropertyValue::Type::Point3d:
       PrintObject(out, value.ValuePoint3d());
   }
+}
+
+template <typename T, typename K>
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::variant<T, K> &vec) {
+  *out << "[";
+  if (std::holds_alternative<T>(vec)) {
+    PrintObject(out, dba, std::get<T>(vec));
+  } else {
+    PrintObject(out, dba, std::get<K>(vec));
+  }
+  *out << "]";
 }
 
 template <typename T>

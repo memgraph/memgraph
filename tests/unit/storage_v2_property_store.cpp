@@ -88,7 +88,9 @@ const PropertyValue kSampleValues[] = {
     PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
     PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
     PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
-
+    PropertyValue(std::vector<int>{33, 0, -33}),
+    PropertyValue(std::vector<double>{33.0, 0.0, -33.33}),
+    PropertyValue(std::vector<std::variant<int, double>>{33, 0.0, -33.33}),
 };
 
 void TestIsPropertyEqual(const PropertyStore &store, PropertyId property, const PropertyValue &value) {
@@ -610,6 +612,106 @@ TEST(PropertyStore, IsPropertyEqualList) {
   ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::vector<PropertyValue>{PropertyValue(42)})));
   ASSERT_FALSE(props.IsPropertyEqual(
       prop, PropertyValue(std::vector<PropertyValue>{PropertyValue(42), PropertyValue("test"), PropertyValue(true)})));
+}
+
+TEST(PropertyStore, IsPropertyEqualSameTypeListsComparison) {
+  PropertyStore props;
+  auto prop = PropertyId::FromInt(42);
+
+  // Test IntList - same values should be equal
+  auto int_list1 = PropertyValue(std::vector<int>{33, 0, -33});
+  ASSERT_TRUE(props.SetProperty(prop, int_list1));
+  ASSERT_TRUE(props.IsPropertyEqual(prop, int_list1));
+
+  // Test IntList - different values should not be equal
+  auto int_list2 = PropertyValue(std::vector<int>{33, 0, -34});
+  ASSERT_FALSE(props.IsPropertyEqual(prop, int_list2));
+
+  // Test IntList - different length should not be equal
+  auto int_list3 = PropertyValue(std::vector<int>{33, 0});
+  ASSERT_FALSE(props.IsPropertyEqual(prop, int_list3));
+
+  // Test DoubleList - same values should be equal
+  auto double_list1 = PropertyValue(std::vector<double>{33.0, 0.0, -33.33});
+  props.SetProperty(prop, double_list1);
+  ASSERT_TRUE(props.IsPropertyEqual(prop, double_list1));
+
+  // Test DoubleList - different values should not be equal
+  auto double_list2 = PropertyValue(std::vector<double>{33.0, 0.0, -33.34});
+  ASSERT_FALSE(props.IsPropertyEqual(prop, double_list2));
+
+  // Test NumericList - same values should be equal
+  auto numeric_list1 = PropertyValue(std::vector<std::variant<int, double>>{33, 0.0, -33.33});
+  ASSERT_TRUE(props.IsPropertyEqual(prop, numeric_list1));
+
+  // Test NumericList - different values should not be equal
+  auto numeric_list2 = PropertyValue(std::vector<std::variant<int, double>>{33, 0.0, -33.34});
+  ASSERT_FALSE(props.IsPropertyEqual(prop, numeric_list2));
+
+  // Test PropertyValue list - should be equal
+  auto prop_value_list =
+      PropertyValue(std::vector<PropertyValue>{PropertyValue(33), PropertyValue("sample"), PropertyValue(-33.33)});
+  props.SetProperty(prop, prop_value_list);
+  ASSERT_TRUE(props.IsPropertyEqual(prop, prop_value_list));
+
+  // Test PropertyValue list - different values should not be equal
+  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::vector<PropertyValue>{
+                                               PropertyValue(33), PropertyValue("different"), PropertyValue(-33.33)})));
+}
+
+TEST(PropertyStore, IsPropertyEqualCrossTypeNumericListsComparison) {
+  PropertyStore props;
+  auto prop = PropertyId::FromInt(42);
+
+  // ============================================================================
+  // 1: IntList cross-type comparisons
+  // ============================================================================
+  auto int_list_for_cross = PropertyValue(std::vector<int>{42, 100});
+  ASSERT_TRUE(props.SetProperty(prop, int_list_for_cross));
+  ASSERT_TRUE(props.IsPropertyEqual(prop, int_list_for_cross));
+  ASSERT_TRUE(props.IsPropertyEqual(prop, PropertyValue(std::vector<double>{42.0, 100.0})));
+  ASSERT_TRUE(props.IsPropertyEqual(prop, PropertyValue(std::vector<std::variant<int, double>>{42, 100.0})));
+
+  // Test IntList - different values should not be equal
+  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::vector<int>{42, 101})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::vector<double>{42.0, 101.0})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::vector<std::variant<int, double>>{42, 101.0})));
+
+  // ============================================================================
+  // 2: DoubleList cross-type comparisons
+  // ============================================================================
+  auto double_list_for_cross = PropertyValue(std::vector<double>{42.0, 100.0});
+  props.SetProperty(prop, double_list_for_cross);
+  ASSERT_TRUE(props.IsPropertyEqual(prop, double_list_for_cross));
+  ASSERT_TRUE(props.IsPropertyEqual(prop, PropertyValue(std::vector<int>{42, 100})));
+  ASSERT_TRUE(props.IsPropertyEqual(prop, PropertyValue(std::vector<double>{42.0, 100.0})));
+  ASSERT_TRUE(props.IsPropertyEqual(prop, PropertyValue(std::vector<std::variant<int, double>>{42, 100.0})));
+
+  // Test DoubleList - different values should not be equal
+  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::vector<int>{42, 101})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::vector<double>{42.0, 101.0})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::vector<std::variant<int, double>>{42, 101.0})));
+
+  // ============================================================================
+  // 3: NumericList cross-type comparisons
+  // ============================================================================
+  auto numeric_list_for_cross = PropertyValue(std::vector<std::variant<int, double>>{42, 100.0});
+  props.SetProperty(prop, numeric_list_for_cross);
+  ASSERT_TRUE(props.IsPropertyEqual(prop, numeric_list_for_cross));
+  ASSERT_TRUE(props.IsPropertyEqual(prop, PropertyValue(std::vector<int>{42, 100})));
+  ASSERT_TRUE(props.IsPropertyEqual(prop, PropertyValue(std::vector<double>{42.0, 100.0})));
+  ASSERT_TRUE(props.IsPropertyEqual(prop, PropertyValue(std::vector<std::variant<int, double>>{42, 100.0})));
+
+  // Test NumericList - different values should not be equal
+  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::vector<int>{42, 101})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::vector<double>{42.0, 101.0})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::vector<std::variant<int, double>>{42, 101.0})));
+
+  // ============================================================================
+  // 4: PropertyValue lists should not be equal to numeric lists
+  // ============================================================================
+  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::vector<PropertyValue>{
+                                               PropertyValue(33), PropertyValue("sample"), PropertyValue(-33.33)})));
 }
 
 TEST(PropertyStore, IsPropertyEqualMap) {

@@ -549,3 +549,71 @@ Feature: List operators
             | e1_type | e2_type | e3_type |
             | 'ET1'   | 'ET1'   | 'ET2'   |
             | 'ET2'   | 'ET2'   | 'ET1'   |
+
+    Scenario: Encode and decode mixed list type
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {prop: ['string', [1, 2], [1, 2.5], [1.3, 1.4], ['string', 1]]})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                                                                       |
+            | (:Node {prop: ['string', [1, 2], [1, 2.5], [1.3, 1.4], ['string', 1]]}) |
+
+    Scenario: Numeric list equality between int and double lists
+        When executing query:
+            """
+            RETURN [1, 2, 3, 4] = [1.0, 2.0, 3.0, 4.0] AND [1.0, 2.0, 3.0, 4.0] = [1, 2, 3, 4.0] AND [1, 2, 3, 4] = [1, 2, 3, 4.0] AS x
+            """
+        Then the result should be:
+            | x    |
+            | true |
+
+    Scenario: Numeric list equality between int and double lists stored as property
+        Given an empty graph
+        And with new index :L(lst)
+        And having executed:
+            """
+            CREATE (:L {lst: [1, 2, 3]});
+            """
+        When executing query:
+            """
+            MATCH (n:L) WHERE n.lst = [1.0, 2.0, 3.0] RETURN count(*) = 1 AS result
+            """
+        Then the result should be:
+            | result |
+            | true   |
+
+    Scenario: Numeric list equality between int and numeric lists stored as property
+        Given an empty graph
+        And with new index :L(lst)
+        And having executed:
+            """
+            CREATE (:L {lst: [1, 2, 3]});
+            """
+        When executing query:
+            """
+            MATCH (n:L) WHERE n.lst = [1.0, 2, 3.0] RETURN count(*) = 1 AS result
+            """
+        Then the result should be:
+            | result |
+            | true   |
+
+    Scenario: Numeric list equality between int and numeric lists stored as property
+        Given an empty graph
+        And with new index :L(lst)
+        And having executed:
+            """
+            CREATE (:L {lst: [1.0, 2.0, 3]});
+            """
+        When executing query:
+            """
+            MATCH (n:L) WHERE n.lst = [1.0, 2.0, 3.0] RETURN count(*) = 1 AS result
+            """
+        Then the result should be:
+            | result |
+            | true   |

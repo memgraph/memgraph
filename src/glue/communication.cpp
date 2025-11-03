@@ -383,7 +383,38 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
       for (const auto &v : values) {
         vec.push_back(ToBoltValue(v, storage));
       }
-      return Value(std::move(vec));
+      return vec;
+    }
+    case storage::PropertyValue::Type::NumericList: {
+      const auto &values = value.ValueNumericList();
+      std::vector<Value> vec;
+      vec.reserve(values.size());
+      for (const auto &v : values) {
+        if (std::holds_alternative<int>(v)) {
+          vec.emplace_back(std::get<int>(v));
+        } else {
+          vec.emplace_back(std::get<double>(v));
+        }
+      }
+      return vec;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      const auto &values = value.ValueIntList();
+      std::vector<Value> vec;
+      vec.reserve(values.size());
+      for (const auto &v : values) {
+        vec.emplace_back(v);
+      }
+      return vec;
+    }
+    case storage::PropertyValue::Type::DoubleList: {
+      const auto &values = value.ValueDoubleList();
+      std::vector<Value> vec;
+      vec.reserve(values.size());
+      for (const auto &v : values) {
+        vec.emplace_back(v);
+      }
+      return vec;
     }
     case storage::PropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
