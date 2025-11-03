@@ -94,5 +94,5 @@ inline bool CheckRocksDBStatus(const auto &status) {
   return status.ok();
 }
 
-std::string MaskSensitiveInformation(std::string_view input);
+std::string MaskSensitiveInformation(std::string_view const input);
 }  // namespace memgraph::logging
