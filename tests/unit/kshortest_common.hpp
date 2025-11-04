@@ -339,6 +339,7 @@ class Database {
 
     context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &dba);
     context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &dba);
+    context.evaluation_context.edgetypes = memgraph::query::NamesToEdgeTypes(storage.edge_types_, &dba);
     std::vector<std::vector<memgraph::query::TypedValue>> results;
 
     results =
@@ -531,6 +532,7 @@ class Database {
 
     context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &db_accessor);
     context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &db_accessor);
+    context.evaluation_context.edgetypes = memgraph::query::NamesToEdgeTypes(storage.edge_types_, &db_accessor);
     std::vector<std::vector<memgraph::query::TypedValue>> results;
 
     results = PullResults(input_operator.get(), &context,

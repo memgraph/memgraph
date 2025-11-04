@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <algorithm>
 #include <cstdint>
 #include <ranges>
 #include <shared_mutex>
@@ -267,14 +266,30 @@ std::vector<float> VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *
     locked_index->remove(vertex);
     is_index_full = locked_index->size() == locked_index->capacity();
   }
+
+  const auto &property = (value != nullptr ? *value : vertex->properties.GetProperty(label_prop.property()));
+  if (property.IsNull()) {
+    // if property is null, that means that the vertex should not be in the index and we shouldn't do any other updates
+    return false;
+  }
+  if (!property.IsAnyList()) {
+    throw query::VectorSearchException("Vector index property must be a list.");
+  }
+  const auto vector_size = GetListSize(property);
+  if (spec.dimension != vector_size) {
+    throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
+  }
+
   if (is_index_full) {
     spdlog::warn("Vector index is full, resizing...");
+    // we need unique lock when we are resizing the index
     auto exclusively_locked_index = mg_index->Lock();
     const auto new_size = spec.resize_coefficient * exclusively_locked_index->capacity();
     const unum::usearch::index_limits_t new_limits(new_size, FLAGS_bolt_num_workers);
     if (!exclusively_locked_index->try_reserve(new_limits)) {
       throw query::VectorSearchException("Failed to resize vector index.");
     }
+    spec.capacity = exclusively_locked_index->capacity();  // capacity might be larger than the requested capacity
   }
   if (value.IsNull()) {
     // if property is null, that means that the vertex should not be in the index and we shouldn't do any other

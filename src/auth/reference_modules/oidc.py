@@ -20,7 +20,8 @@ def validate_jwt_token(token: str, scheme: str, config: dict, token_type: str):
         jwks_uri = f"{config['public_key_endpoint']}"
 
     try:
-        response = requests.get(jwks_uri, timeout=10)
+        # ms entra and okta have a certificate that is verified
+        response = requests.get(jwks_uri, timeout=10, verify=config.get("cert", True))
         response.raise_for_status()
         jwks = response.json()
     except (requests.RequestException, ValueError) as e:
@@ -129,7 +130,8 @@ def _load_config_from_env(scheme: str):
         config["role_field"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_ROLE_FIELD", "")
         config["username"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_USERNAME", "")
         config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_ROLE_MAPPING", ""))
-
+        # by default check the certificate, this is also the default behavior of the requests library
+        config["cert"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_EXTRA_CA_CERTS", True)
     # if ID token is not used it won't be checked
     config["use_id_token"] = config["username"].startswith("id:")
     return config

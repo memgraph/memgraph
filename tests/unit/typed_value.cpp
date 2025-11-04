@@ -304,6 +304,28 @@ TEST(TypedValue, Hash) {
   EXPECT_NE(hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}), hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 0.0}}));
 }
 
+TEST(TypedValue, ListToPropertyValueList) {
+  memgraph::storage::NameIdMapper name_id_mapper;
+  auto typed_value_int_list = TypedValue(std::vector<int>{33, 0, -33});
+  auto typed_value_double_list = TypedValue(std::vector<double>{33.0, 0.0, -33.33});
+  auto typed_value_numeric_list =
+      TypedValue(std::vector<TypedValue>{TypedValue(33), TypedValue(0.0), TypedValue(-33.33)});
+  auto typed_value_mixed_types_list =
+      TypedValue(std::vector<TypedValue>{TypedValue(33), TypedValue("string"), TypedValue(-33.33)});
+
+  auto property_value_int_list = PropertyValue(std::vector<int>{33, 0, -33});
+  auto property_value_double_list = PropertyValue(std::vector<double>{33.0, 0.0, -33.33});
+  auto property_value_numeric_list = PropertyValue(std::vector<std::variant<int, double>>{33, 0.0, -33.33});
+  auto property_value_mixed_types_list =
+      PropertyValue(PropertyValue::list_t{PropertyValue(33), PropertyValue("string"), PropertyValue(-33.33)});
+
+  ASSERT_EQ(typed_value_int_list.ToPropertyValue(&name_id_mapper).type(), property_value_int_list.type());
+  ASSERT_EQ(typed_value_double_list.ToPropertyValue(&name_id_mapper).type(), property_value_double_list.type());
+  ASSERT_EQ(typed_value_numeric_list.ToPropertyValue(&name_id_mapper).type(), property_value_numeric_list.type());
+  ASSERT_EQ(typed_value_mixed_types_list.ToPropertyValue(&name_id_mapper).type(),
+            property_value_mixed_types_list.type());
+}
+
 TYPED_TEST(AllTypesFixture, CreationValuesFromPropertyValues) {
   auto pv_true = PropertyValue{true};
   EXPECT_EQ(TypedValue(pv_true, this->storage_dba->GetNameIdMapper()).ValueBool(), true);

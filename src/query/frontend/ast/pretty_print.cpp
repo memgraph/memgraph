@@ -65,6 +65,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(MapLiteral &op) override;
   void Visit(MapProjectionLiteral &op) override;
   void Visit(LabelsTest &op) override;
+  void Visit(EdgeTypesTest &op) override;
   void Visit(Aggregation &op) override;
   void Visit(Function &op) override;
   void Visit(Reduce &op) override;
@@ -217,6 +218,18 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Proper
       PrintObject(out, dba, value.ValueList());
       break;
 
+    case storage::PropertyValue::Type::NumericList:
+      PrintObject(out, dba, value.ValueNumericList());
+      break;
+
+    case storage::PropertyValue::Type::IntList:
+      PrintObject(out, dba, value.ValueIntList());
+      break;
+
+    case storage::PropertyValue::Type::DoubleList:
+      PrintObject(out, dba, value.ValueDoubleList());
+      break;
+
     case storage::PropertyValue::Type::Map:
       PrintObject(out, dba, value.ValueMap());
       break;
@@ -268,6 +281,18 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Extern
       PrintObject(out, dba, value.ValueList());
       break;
 
+    case storage::ExternalPropertyValue::Type::NumericList:
+      PrintObject(out, dba, value.ValueNumericList());
+      break;
+
+    case storage::ExternalPropertyValue::Type::IntList:
+      PrintObject(out, dba, value.ValueIntList());
+      break;
+
+    case storage::ExternalPropertyValue::Type::DoubleList:
+      PrintObject(out, dba, value.ValueDoubleList());
+      break;
+
     case storage::ExternalPropertyValue::Type::Map:
       PrintObject(out, dba, value.ValueMap());
       break;
@@ -291,6 +316,17 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Extern
     case storage::ExternalPropertyValue::Type::VectorIndexId:
       PrintObject(out, dba, value.ValueVectorIndexList());
   }
+}
+
+template <typename T, typename K>
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::variant<T, K> &vec) {
+  *out << "[";
+  if (std::holds_alternative<T>(vec)) {
+    PrintObject(out, dba, std::get<T>(vec));
+  } else {
+    PrintObject(out, dba, std::get<K>(vec));
+  }
+  *out << "]";
 }
 
 template <typename T>
@@ -420,6 +456,7 @@ void ExpressionPrettyPrinter::Visit(MapProjectionLiteral &op) {
 void ExpressionPrettyPrinter::Visit(AllPropertiesLookup &op) { PrintObject(out_, &op); }
 
 void ExpressionPrettyPrinter::Visit(LabelsTest &op) { PrintOperator(out_, dba_, "LabelsTest", op.expression_); }
+void ExpressionPrettyPrinter::Visit(EdgeTypesTest &op) { PrintOperator(out_, dba_, "EdgeTypesTest", op.expression_); }
 
 void ExpressionPrettyPrinter::Visit(Aggregation &op) { PrintOperator(out_, dba_, "Aggregation", op.op_); }
 

@@ -162,7 +162,7 @@ TEST_F(VectorIndexTest, ConcurrencyTest) {
   std::vector<std::thread> threads;
   threads.reserve(index_size);
   for (int i = 0; i < index_size; i++) {
-    threads.emplace_back(std::thread([this, i]() {
+    threads.emplace_back([this, i]() {
       auto acc = this->storage->Access();
       PropertyValue properties(
           std::vector<PropertyValue>{PropertyValue(static_cast<double>(i)), PropertyValue(static_cast<double>(i + 1))});
@@ -170,7 +170,7 @@ TEST_F(VectorIndexTest, ConcurrencyTest) {
       // Each thread adds a node to the index
       [[maybe_unused]] const auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    }));
+    });
   }
 
   for (auto &thread : threads) {
