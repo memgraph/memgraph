@@ -157,6 +157,12 @@ static_assert(std::is_constructible_v<opt_str, std::optional<std::string_view>, 
 static_assert(std::is_trivially_destructible_v<opt_str>,
               "uses PageSlabMemoryResource, lifetime linked to that, dtr should be trivial");
 
+/* Interleaved deltas relax the usual rules of MVCC by allowing certain
+ * commutative operations (i.e., edge creations) to be prepended to a delta
+ * chain, even in cases where normally this would be a write conflict. Doing so
+ * hugely improves performance in edge-write heavy imports, at the expensive
+ * of increasing delta chain iteration and garbage collection whilst interleaved
+ * deltas exist in the chains. */
 enum class DeltaInterleaving { NON_INTERLEAVED, INTERLEAVED };
 
 /**
@@ -368,6 +374,6 @@ static_assert(std::is_trivially_destructible_v<Delta>,
 
 static_assert(alignof(Delta) >= 8, "The Delta should be aligned to at least 8!");
 
-static_assert(sizeof(Delta) <= 56, "Delta size is 56 bytes");
+static_assert(sizeof(Delta) <= 56, "Delta size is at most 56 bytes");
 
 }  // namespace memgraph::storage

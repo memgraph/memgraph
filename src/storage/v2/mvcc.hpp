@@ -61,7 +61,6 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
     if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && ts < transaction->start_timestamp) ||
         (transaction->isolation_level == IsolationLevel::READ_COMMITTED && ts < kTransactionInitialId)) {
       if (is_delta_interleaved) {
-        // Move to the next delta.
         delta = delta->next.load(std::memory_order_acquire);
         continue;
       } else {
@@ -74,7 +73,6 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
     auto cid = delta->command_id;
     if (view == View::NEW && ts == commit_timestamp && cid <= transaction->command_id) {
       if (is_delta_interleaved) {
-        // Move to the next delta.
         delta = delta->next.load(std::memory_order_acquire);
         continue;
       } else {
@@ -89,7 +87,6 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
          // This check is used for on-disk storage. The vertex is valid only if it was deserialized in this transaction.
          (cid == transaction->command_id && delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT))) {
       if (is_delta_interleaved) {
-        // Move to the next delta.
         delta = delta->next.load(std::memory_order_acquire);
         continue;
       } else {

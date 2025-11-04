@@ -580,7 +580,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   transaction_.async_index_helper_.Track(edge_type);
 
-  auto from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
+  auto const from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
   if (from_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
   if (from_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
@@ -702,7 +702,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     guard_from.lock();
   }
 
-  auto from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
+  auto const from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
   if (from_result == WriteResult::CONFLICT) return Error::SERIALIZATION_ERROR;
   if (from_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
@@ -1107,7 +1107,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
                           impact_tracker);
   }
 
-  // STEP 2) this transactions deltas also minimal unlinking + remove
+  // STEP 2) this transaction's deltas also minimal unlinking + remove
   UnlinkAndRemoveDeltas(transaction_.deltas, transaction_.transaction_id, current_deleted_edges,
                         current_deleted_vertices, impact_tracker);
 
@@ -1474,7 +1474,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           current->prev.Set(vertex);
         }
       } else if (actual_prev.type == PreviousPtr::Type::DELTA) {
-        // Prev must be a delta
         actual_prev.delta->next.store(current, std::memory_order_release);
         if (current != nullptr) {
           current->prev.Set(actual_prev.delta);
@@ -2427,7 +2426,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
               continue;
             }
             if (ts >= kTransactionInitialId && !commit_log_->IsFinished(ts)) {
-              ;
               all_contributors_committed = false;
               break;
             }
@@ -2518,7 +2516,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   for (auto linked_entry = linked_undo_buffers.begin(); linked_entry != end_linked_undo_buffers;) {
     auto const *const commit_timestamp_ptr = linked_entry->commit_timestamp_.get();
 
-    // Use unlinkable_timestamp to determine if safe to unlink (accounts for waiting room delay)
+    // Use unlinkable_timestamp to determine if safe to unlink
     auto const unlinkable_timestamp = linked_entry->unlinkable_timestamp_;
 
     // only process those that are no longer active
@@ -2560,7 +2558,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
     for (Delta &delta : linked_entry->deltas_) {
       index_impact.update(delta.action);
-
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {
@@ -2727,8 +2724,9 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         guard.unlock();
         // correct the markers, and defer until next GC run
         for (auto &unlinked_undo_buffer : unlinked_undo_buffers) {
-          // Use unlinkable_timestamp as mark_timestamp for interleaved deltas
-          // This ensures they aren't freed until all transactions that could see them are done
+          // Use unlinkable_timestamp as mark_timestamp for interleaved deltas.
+          // This ensures they aren't freed until all transactions that could
+          // see them have finished.
           unlinked_undo_buffer.mark_timestamp_ = unlinked_undo_buffer.unlinkable_timestamp_;
         }
         // ensure insert at end to preserve the order
