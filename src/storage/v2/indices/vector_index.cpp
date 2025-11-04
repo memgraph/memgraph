@@ -267,19 +267,6 @@ std::vector<float> VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *
     is_index_full = locked_index->size() == locked_index->capacity();
   }
 
-  const auto &property = (value != nullptr ? *value : vertex->properties.GetProperty(label_prop.property()));
-  if (property.IsNull()) {
-    // if property is null, that means that the vertex should not be in the index and we shouldn't do any other updates
-    return false;
-  }
-  if (!property.IsAnyList()) {
-    throw query::VectorSearchException("Vector index property must be a list.");
-  }
-  const auto vector_size = GetListSize(property);
-  if (spec.dimension != vector_size) {
-    throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
-  }
-
   if (is_index_full) {
     spdlog::warn("Vector index is full, resizing...");
     // we need unique lock when we are resizing the index

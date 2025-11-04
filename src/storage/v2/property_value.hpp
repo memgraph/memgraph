@@ -845,9 +845,9 @@ class PropertyValueImpl {
 };
 
 /// Helper function to extract numeric value from any list type at given index
-template <typename Alloc, typename KeyType>
-inline std::optional<std::variant<int, double>> GetNumericValueAt(const PropertyValueImpl<Alloc, KeyType> &list,
-                                                                  size_t index) {
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline std::optional<std::variant<int, double>> GetNumericValueAt(
+    const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list, size_t index) {
   switch (list.type()) {
     case PropertyValueType::List: {
       auto const &list_val = list.ValueList();
@@ -877,8 +877,8 @@ inline std::optional<std::variant<int, double>> GetNumericValueAt(const Property
 }
 
 /// Helper function to get size of any list type
-template <typename Alloc, typename KeyType>
-inline size_t GetListSize(const PropertyValueImpl<Alloc, KeyType> &list) {
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline size_t GetListSize(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list) {
   switch (list.type()) {
     case PropertyValueType::List:
       return list.ValueList().size();
@@ -894,9 +894,9 @@ inline size_t GetListSize(const PropertyValueImpl<Alloc, KeyType> &list) {
 }
 
 /// Helper function to compare two lists of different types
-template <typename Alloc, typename Alloc2, typename KeyType>
-inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType> &first,
-                                       const PropertyValueImpl<Alloc2, KeyType> &second) {
+template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
+inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
+                                       const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) {
   const size_t size1 = GetListSize(first);
   const size_t size2 = GetListSize(second);
 
@@ -905,7 +905,7 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType> &
   }
 
   auto extract_type = [](const std::optional<std::variant<int, double>> &val,
-                         const PropertyValueImpl<Alloc, KeyType> &list, auto index) {
+                         const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list, auto index) {
     if (val) {
       if (std::holds_alternative<int>(*val)) {
         return PropertyValueType::Int;
@@ -943,9 +943,10 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType> &
 
 // Note: this function is only used for backwards compatibility with the old list types
 // It is not used for new list types
-template <typename Alloc, typename Alloc2, typename KeyType>
-inline std::weak_ordering CompareIncompatibleTypes(const PropertyValueImpl<Alloc, KeyType> &first,
-                                                   const PropertyValueImpl<Alloc2, KeyType> &second) {
+template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
+inline std::weak_ordering CompareIncompatibleTypes(
+    const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
+    const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) {
   auto first_is_list = IsListType(first.type());
   auto second_is_list = IsListType(second.type());
   if (first_is_list || second_is_list) {
@@ -1741,18 +1742,19 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdTy
       case Point3d:
         return std::hash<memgraph::storage::Point3d>{}(value.ValuePoint3d());
       case IntList: {
-        return memgraph::utils::FnvCollection<typename memgraph::storage::PropertyValueImpl<Alloc, KeyType>::int_list_t,
-                                              int>{}(value.ValueIntList());
+        return memgraph::utils::FnvCollection<
+            typename memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::int_list_t, int>{}(
+            value.ValueIntList());
       }
       case DoubleList: {
         return memgraph::utils::FnvCollection<
-            typename memgraph::storage::PropertyValueImpl<Alloc, KeyType>::double_list_t, double>{}(
+            typename memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::double_list_t, double>{}(
             value.ValueDoubleList());
       }
       case NumericList: {
         return memgraph::utils::FnvCollection<
-            typename memgraph::storage::PropertyValueImpl<Alloc, KeyType>::numeric_list_t, std::variant<int, double>>{}(
-            value.ValueNumericList());
+            typename memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::numeric_list_t,
+            std::variant<int, double>>{}(value.ValueNumericList());
       }
       case VectorIndexId: {
         size_t hash = 6543457;
