@@ -86,8 +86,13 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
   bool HasAllGlobalPrivilegesOnEdges() const override;
 
  private:
+  auth::FineGrainedAccessPermissions const &GetCachedLabelPermissions() const;
+  auth::FineGrainedAccessPermissions const &GetCachedEdgePermissions() const;
+
   auth::UserOrRole user_or_role_;
   const query::DbAccessor *dba_;
+  mutable std::optional<auth::FineGrainedAccessPermissions> cached_label_permissions_;
+  mutable std::optional<auth::FineGrainedAccessPermissions> cached_edge_permissions_;
 };
 #endif
 }  // namespace memgraph::glue
