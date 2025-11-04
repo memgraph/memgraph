@@ -204,4 +204,15 @@ constexpr utils::TypeInfo query::plan::ScanAllByPointDistance::kType{
 constexpr utils::TypeInfo query::plan::ScanAllByPointWithinbbox::kType{utils::TypeId::SCAN_ALL_BY_POINT_WITHINBBOX,
                                                                        "ScanAllByPointWithinbbox",
                                                                        &query::plan::ScanAllByPointWithinbbox::kType};
+
+constexpr utils::TypeInfo query::plan::ScanChunk::kType{utils::TypeId::SCAN_CHUNK, "ScanChunk",
+                                                        &query::plan::ScanAll::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallel::kType{utils::TypeId::SCAN_PARALLEL, "ScanParallel",
+                                                           &query::plan::ScanAll::kType};
+
+constexpr utils::TypeInfo query::plan::AggregateParallel::kType{.id = utils::TypeId::AGGREGATE_PARALLEL,
+                                                                .name = "AggregateParallel",
+                                                                .superclass = &query::plan::LogicalOperator::kType};
+
 }  // namespace memgraph

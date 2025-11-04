@@ -163,6 +163,7 @@ class PeriodicCommit;
 class PeriodicSubquery;
 class SetNestedProperty;
 class RemoveNestedProperty;
+class AggregateParallel;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelProperties, ScanAllById, ScanAllByEdge,
@@ -172,7 +173,7 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate,
     Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
     Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit,
-    PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl>;
+    PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl, AggregateParallel>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1765,6 +1766,75 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
   std::string ToString() const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+};
+
+class AggregateParallel : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  AggregateParallel() = default;
+  AggregateParallel(const std::shared_ptr<LogicalOperator> &post_scan_input,
+                    const std::shared_ptr<LogicalOperator> &agg_inputs, size_t num_threads);
+
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *mem) const override;
+
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &table) const override;
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+
+  bool HasSingleInput() const override;
+  std::shared_ptr<LogicalOperator> input() const override;
+  void set_input(std::shared_ptr<LogicalOperator> input) override;
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> post_scan_input_;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> agg_inputs_;
+  size_t num_threads_;
+
+  std::string ToString() const override { return "AggregateParallel"; }
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<AggregateParallel>();
+    object->post_scan_input_ = post_scan_input_->Clone(storage);
+    object->agg_inputs_ = agg_inputs_->Clone(storage);
+    object->num_threads_ = num_threads_;
+    return object;
+  }
+};
+
+class ScanParallel : public memgraph::query::plan::ScanAll {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallel() = default;
+  ScanParallel(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view,
+               size_t num_threads);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  size_t num_threads_;
+};
+
+class ScanChunk : public memgraph::query::plan::ScanAll {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanChunk() = default;
+  ScanChunk(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol output_symbol,
+            storage::View view);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  static thread_local UniqueCursorPtr shared_scan_parallel_;
+  Symbol input_symbol_;
 };
 
 /// Skips a number of Pulls from the input op.

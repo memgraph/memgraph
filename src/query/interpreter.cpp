@@ -7585,18 +7585,20 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
   // Load parquet uses thread safe allocator that's why it is being checked here
   bool has_load_parquet{false};
+  bool parallel_execution{false};
 
   if (cypher_query) {
     auto clauses = cypher_query->single_query_->clauses_;
     has_load_parquet =
         std::ranges::any_of(clauses, [](const auto *clause) { return clause->GetTypeInfo() == LoadParquet::kType; });
+    parallel_execution = cypher_query->pre_query_directives_.parallel_execution_;
   }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
     // Setup QueryExecution
     // TODO: Use CreateThreadSafe for multi-threaded queries
-    if (has_load_parquet) {
+    if (has_load_parquet || parallel_execution) {
       query_executions_.emplace_back(QueryExecution::CreateThreadSafe());
     } else {
       query_executions_.emplace_back(QueryExecution::Create());

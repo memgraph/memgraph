@@ -19,6 +19,7 @@
 
 #include <utility>
 
+#include "flags/bolt.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
@@ -27,6 +28,7 @@
 #include "query/plan/rewrite/enum.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/rewrite/join.hpp"
+#include "query/plan/rewrite/parallel_aggregate.hpp"
 #include "query/plan/rewrite/periodic_delete.hpp"
 #include "query/plan/rewrite/plan_validator.hpp"
 #include "query/plan/rule_based_planner.hpp"
@@ -70,7 +72,25 @@ class PostProcessor final {
            [&](auto p) { return RewriteWithIndexLookup(std::move(p), symbol_table, ast, db, index_hints_); } |
            [&](auto p) { return RewriteWithJoinRewriter(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db); } |
-           [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); };
+           [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); } | [&](auto p) {
+             if (context->query->pre_query_directives_.parallel_execution_) {
+               auto get_num_threads = [&]() -> size_t {
+                 if (auto *num_threads = context->query->pre_query_directives_.num_threads_) {
+                   auto *literal = utils::Downcast<const PrimitiveLiteral>(num_threads);
+                   if (!literal) {
+                     throw QueryException("Number of threads must be a literal");
+                   }
+                   if (literal->token_position_ != -1) {
+                     return parameters_.AtTokenPosition(literal->token_position_).ValueInt();
+                   }
+                   return literal->value_.ValueInt();
+                 }
+                 return FLAGS_bolt_num_workers;
+               };
+               return RewriteParallelAggregate(std::move(p), symbol_table, ast, db, get_num_threads());
+             }
+             return std::move(p);
+           };
   }
 
   bool IsValidPlan(const std::unique_ptr<LogicalOperator> &plan, const SymbolTable &table) {
