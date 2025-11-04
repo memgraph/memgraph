@@ -87,7 +87,7 @@ struct EGraph : private detail::EGraphBase {
   /**
    * @brief Emplace an e-node directly with canonical children
    */
-  auto emplace(Symbol symbol, utils::small_vector<EClassId> children) -> EClassId;
+  auto emplace(Symbol symbol, utils::small_vector<EClassId> children, uint64_t disambiguator = 0) -> EClassId;
 
   /**
    * @brief Emplace leaf nodes with optional disambiguator
@@ -100,8 +100,8 @@ struct EGraph : private detail::EGraphBase {
    * Allows inline specification of children without explicit vector construction.
    * Example: egraph.emplace(Symbol::Plus, {a, b})
    */
-  auto emplace(Symbol symbol, std::initializer_list<EClassId> children) -> EClassId {
-    return emplace(std::move(symbol), utils::small_vector(children));
+  auto emplace(Symbol symbol, std::initializer_list<EClassId> children, uint64_t disambiguator = 0) -> EClassId {
+    return emplace(std::move(symbol), utils::small_vector(children), disambiguator);
   }
 
   /**
@@ -216,11 +216,12 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator) ->
 }
 
 template <typename Symbol, typename Analysis>
-auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClassId> children) -> EClassId {
+auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClassId> children, uint64_t disambiguator)
+    -> EClassId {
   for (auto &child_id : children) {
     child_id = union_find_.Find(child_id);
   }
-  auto canonical_node = ENode{std::move(symbol), std::move(children)};
+  auto canonical_node = ENode{std::move(symbol), std::move(children), disambiguator};
 
   auto it = hashcons_.find(ENodeRef{canonical_node});
   if (it != hashcons_.end()) {

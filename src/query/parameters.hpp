@@ -41,6 +41,7 @@ struct Parameters {
    *  @return Value for the given token position.
    */
   const storage::ExternalPropertyValue &AtTokenPosition(int position) const {
+    // TODO: make it not a linear scan
     auto found = std::find_if(storage_.begin(), storage_.end(), [&](const auto &a) { return a.first == position; });
     MG_ASSERT(found != storage_.end(), "Token position must be present in container");
     return found->second;

@@ -41,6 +41,7 @@ auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserP
   // Copy over the parameters that were introduced during stripping.
   Parameters parameters{stripped_query.literals()};
   // Check that all user-specified parameters are provided.
+  // TODO: parameters should be pre populated with user_parameters, hence positions
   for (const auto &[param_index, param_key] : stripped_query.parameters()) {
     auto it = user_parameters.find(param_key);
 

@@ -13,13 +13,27 @@
 
 #include <memory>
 
+#include "storage/v2/property_value.hpp"
+#include "strong_type/strong_type.hpp"
+
 namespace memgraph::query::plan::v2 {
+
+using eclass = strong::type<std::uint32_t, struct eclass_>;
 
 struct egraph {
   egraph();
   egraph(egraph &&) noexcept;
   egraph &operator=(egraph &&) noexcept;
   ~egraph();  // required because pimpl
+
+  auto MakeSymbol(int32_t sym_pos) -> eclass;
+  auto MakeBind(eclass input, eclass sym, eclass expr) -> eclass;
+  auto MakeLiteral(storage::ExternalPropertyValue const &value) -> eclass;
+  auto MakeOnce() -> eclass;
+  auto MakeParameterLookup(int32_t param_pos) -> eclass;
+  auto MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> eclass;
+  auto MakeOutputs(eclass input, std::vector<eclass> named_outputs) -> eclass;
+  auto MakeIdentifier(eclass sym) -> eclass;
 
  private:
   struct impl;
