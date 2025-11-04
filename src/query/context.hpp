@@ -116,7 +116,7 @@ struct ExecutionContext {
   std::optional<uint64_t> periodic_commit_frequency;
   std::optional<size_t> parallel_execution{std::nullopt};  // if set, number of threads to use for parallel execution
 #ifdef MG_ENTERPRISE
-  std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
+  std::shared_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
   std::shared_ptr<storage::DatabaseProtector> protector;
   utils::PriorityThreadPool *worker_pool{nullptr};
