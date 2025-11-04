@@ -407,10 +407,17 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   auto const set_property_impl = [this, transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
                                   skip_duplicate_write, &schema_acc]() {
     if (new_value.IsVectorIndexId()) {
-      old_value = storage_->indices_.vector_index_.GetPropertyValue(
+      auto old_value_vector = storage_->indices_.vector_index_.GetVectorProperty(
           vertex, storage_->name_id_mapper_->IdToName(new_value.ValueVectorIndexIds().front()));
-      if (skip_duplicate_write && old_value == new_value) {
-        return true;
+      if (skip_duplicate_write && old_value_vector == new_value.ValueVectorIndexList()) return true;
+      old_value = vertex->properties.GetProperty(property);
+      auto ids_to_remove = old_value.IsVectorIndexId()
+                               ? old_value.ValueVectorIndexIds() | rv::filter([&](const auto &old_id) {
+                                   return !r::contains(new_value.ValueVectorIndexIds(), old_id);
+                                 }) | r::to<std::vector>()
+                               : std::vector<uint64_t>{};
+      if (!ids_to_remove.empty()) {
+        storage_->indices_.vector_index_.DoCleanup(ids_to_remove, vertex, storage_->name_id_mapper_.get());
       }
       vertex->properties.SetProperty(property, new_value.ValueVectorIndexList().empty() ? PropertyValue() : new_value);
     } else {

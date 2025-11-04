@@ -196,17 +196,16 @@ storage::PropertyValue HandleVectorProperty(const storage::PropertyValue &proper
   }
 
   std::vector<float> vector;
-  if (property_value.IsList()) {
-    auto list = property_value.ValueList();
-    vector.reserve(list.size());
-    for (const auto &elem : list) {
-      if (elem.IsDouble()) {
-        vector.push_back(static_cast<float>(elem.ValueDouble()));
-      } else if (elem.IsInt()) {
-        vector.push_back(static_cast<float>(elem.ValueInt()));
-      } else {
+  if (property_value.IsAnyList()) {
+    const auto list_size = property_value.ListSize();
+    vector.reserve(list_size);
+    for (auto i = 0; i < list_size; i++) {
+      const auto value = GetNumericValueAt(property_value, i);
+      if (!value) {
         throw QueryRuntimeException("Expected to evaluate vector index of Double or Int type");
       }
+      const auto float_value = std::visit([](const auto &val) -> float { return static_cast<float>(val); }, *value);
+      vector.push_back(float_value);
     }
   } else {
     throw QueryRuntimeException("Expected to evaluate vector index of List type");

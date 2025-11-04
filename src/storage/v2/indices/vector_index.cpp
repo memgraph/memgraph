@@ -109,22 +109,22 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
       if (property.IsNull()) {
         continue;
       }
-      if (!property.IsList()) {
+      if (!property.IsAnyList()) {
         throw query::VectorSearchException("Vector index property must be a list.");
       }
+      const auto vector_size = property.ListSize();
       std::vector<float> vector;
-      vector.reserve(property.ValueList().size());
-      std::transform(
-          property.ValueList().begin(), property.ValueList().end(), std::back_inserter(vector), [](const auto &value) {
-            if (value.IsDouble()) {
-              return static_cast<float>(value.ValueDouble());
-            }
-            if (value.IsInt()) {
-              return static_cast<float>(value.ValueInt());
-            }
-            throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
-          });
-      if (vector.size() != spec.dimension) {
+      vector.reserve(vector_size);
+      for (auto i = 0; i < vector_size; i++) {
+        const auto numeric_value = GetNumericValueAt(property, i);
+        if (!numeric_value) {
+          throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+        }
+        const auto float_value =
+            std::visit([](const auto &val) -> float { return static_cast<float>(val); }, *numeric_value);
+        vector.push_back(float_value);
+      }
+      if (vector_size != spec.dimension) {
         throw query::VectorSearchException(
             "Vector index property must have the same number of dimensions as the index.");
       }
@@ -174,6 +174,15 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
   return true;
 }
 
+void VectorIndex::DoCleanup(std::span<uint64_t> ids_to_remove, Vertex *vertex, NameIdMapper *name_id_mapper) {
+  for (const auto &id : ids_to_remove) {
+    auto label_prop = pimpl->index_name_to_label_prop_.at(name_id_mapper->IdToName(id));
+    auto &[mg_index, _] = pimpl->index_.at(label_prop);
+    auto locked_index = mg_index->MutableSharedLock();
+    locked_index->remove(vertex);
+  }
+}
+
 void VectorIndex::DoCleanup(const PropertyValue &value, PropertyId property, Vertex *vertex,
                             NameIdMapper *name_id_mapper) {
   if (!value.IsVectorIndexId() && !value.IsList() && !value.IsNull()) {
@@ -185,9 +194,8 @@ void VectorIndex::DoCleanup(const PropertyValue &value, PropertyId property, Ver
       property_value.IsVectorIndexId() ? property_value.ValueVectorIndexIds() : std::vector<uint64_t>{};
 
   // for each old id, if it's not in new ids, remove it from the index
-  auto old_ids_to_remove = old_ids | rv::filter([&](const auto &old_id) {
-                             return std::find(new_ids.begin(), new_ids.end(), old_id) == new_ids.end();
-                           });
+  auto old_ids_to_remove =
+      old_ids | rv::filter([&](const auto &old_id) { return !r::contains(new_ids, old_id); }) | r::to<std::vector>();
   for (const auto &old_id : old_ids_to_remove) {
     auto label_prop = pimpl->index_name_to_label_prop_.at(name_id_mapper->IdToName(old_id));
     auto &[mg_index, _] = pimpl->index_.at(label_prop);
@@ -288,19 +296,19 @@ std::vector<float> VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *
       // property is in vector index, so we need to return the list from the vector index
       return GetVectorProperty(vertex, name_id_mapper->IdToName(value.ValueVectorIndexIds().front()));
     }
-    if (value.IsList()) {
-      auto vector_property = value.ValueList();
+    if (value.IsAnyList()) {
+      const auto list_size = value.ListSize();
       std::vector<float> vector;
-      vector.reserve(vector_property.size());
-      std::transform(vector_property.begin(), vector_property.end(), std::back_inserter(vector), [](const auto &value) {
-        if (value.IsDouble()) {
-          return static_cast<float>(value.ValueDouble());
+      vector.reserve(list_size);
+      for (auto i = 0; i < list_size; i++) {
+        const auto numeric_value = GetNumericValueAt(value, i);
+        if (!numeric_value) {
+          throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
         }
-        if (value.IsInt()) {
-          return static_cast<float>(value.ValueInt());
-        }
-        throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
-      });
+        const auto float_value =
+            std::visit([](const auto &val) -> float { return static_cast<float>(val); }, *numeric_value);
+        vector.push_back(float_value);
+      }
       return vector;
     }
     throw query::VectorSearchException("Vector index property must be a list of floats or integers.");

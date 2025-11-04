@@ -103,6 +103,8 @@ class VectorIndex {
 
   void DoCleanup(const PropertyValue &value, PropertyId property, Vertex *vertex, NameIdMapper *name_id_mapper);
 
+  void DoCleanup(std::span<uint64_t> ids_to_remove, Vertex *vertex, NameIdMapper *name_id_mapper);
+
   /// @brief Updates the index when a property is modified on a vertex.
   /// @param property The property that was modified.
   /// @param value The new value of the property.
