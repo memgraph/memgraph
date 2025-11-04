@@ -163,6 +163,50 @@ class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::util
   memgraph::utils::Scheduler *scheduler_;
 };
 
+void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std::list<Gid> &current_deleted_edges,
+                           std::list<Gid> &current_deleted_vertices, IndexPerformanceTracker &impact_tracker) {
+  for (auto &delta : deltas) {
+    DMG_ASSERT(!IsOperationInterleaved(delta), "interleaved deltas are not candidates for rapid delta cleanup");
+    DMG_ASSERT(
+        [&delta]() {
+          Delta *next = delta.next.load();
+          if (next == nullptr) return true;
+          auto next_ts = next->timestamp->load();
+          return !(next_ts >= kTransactionInitialId && IsOperationInterleaved(*next));
+        }(),
+        "downstream active interleaved delta found during rapid cleanup");
+    impact_tracker.update(delta.action);
+    auto prev = delta.prev.Get();
+    switch (prev.type) {
+      case PreviousPtr::Type::NULL_PTR:
+        break;
+      case PreviousPtr::Type::DELTA:
+        if (prev.delta->timestamp->load(std::memory_order_acquire) != transaction_id) {
+          prev.delta->next.store(nullptr, std::memory_order_release);
+        }
+        break;
+      case PreviousPtr::Type::VERTEX: {
+        auto &vertex = *prev.vertex;
+        vertex.delta = nullptr;
+        if (vertex.deleted) {
+          DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
+          current_deleted_vertices.push_back(vertex.gid);
+        }
+        break;
+      }
+      case PreviousPtr::Type::EDGE: {
+        auto &edge = *prev.edge;
+        edge.delta = nullptr;
+        if (edge.deleted) {
+          DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
+          current_deleted_edges.push_back(edge.gid);
+        }
+        break;
+      }
+    }
+  }
+}
+
 };  // namespace
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
@@ -1045,48 +1089,6 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  auto const unlink_remove = [&](delta_container &deltas, uint64_t transaction_id) {
-    for (auto &delta : deltas) {
-      DMG_ASSERT(!IsOperationInterleaved(delta), "interleaved deltas are not candidates for rapid delta cleanup");
-      Delta *next = delta.next.load();
-      if (next != nullptr) {
-        auto next_ts = next->timestamp->load();
-        if (next_ts >= kTransactionInitialId && IsOperationInterleaved(*next)) {
-          DMG_ASSERT(false, "downstream active interleaved delta found during rapid cleanup");
-        }
-      }
-      impact_tracker.update(delta.action);
-      auto prev = delta.prev.Get();
-      switch (prev.type) {
-        case PreviousPtr::Type::NULL_PTR:
-          break;
-        case PreviousPtr::Type::DELTA:
-          if (prev.delta->timestamp->load(std::memory_order_acquire) != transaction_id) {
-            prev.delta->next.store(nullptr, std::memory_order_release);
-          }
-          break;
-        case PreviousPtr::Type::VERTEX: {
-          auto &vertex = *prev.vertex;
-          vertex.delta = nullptr;
-          if (vertex.deleted) {
-            DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-            current_deleted_vertices.push_back(vertex.gid);
-          }
-          break;
-        }
-        case PreviousPtr::Type::EDGE: {
-          auto &edge = *prev.edge;
-          edge.delta = nullptr;
-          if (edge.deleted) {
-            DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-            current_deleted_edges.push_back(edge.gid);
-          }
-          break;
-        }
-      }
-    }
-  };
-
   // STEP 1) ensure everything in GC is gone
 
   // 1.a) old garbage_undo_buffers are safe to remove
@@ -1101,11 +1103,13 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
 
   // 1.b.1) unlink, gathering the removals
   for (auto &gc_deltas : linked_undo_buffers) {
-    unlink_remove(gc_deltas.deltas_, gc_deltas.transaction_id_);
+    UnlinkAndRemoveDeltas(gc_deltas.deltas_, gc_deltas.transaction_id_, current_deleted_edges, current_deleted_vertices,
+                          impact_tracker);
   }
 
   // STEP 2) this transactions deltas also minimal unlinking + remove
-  unlink_remove(transaction_.deltas, transaction_.transaction_id);
+  UnlinkAndRemoveDeltas(transaction_.deltas, transaction_.transaction_id, current_deleted_edges,
+                        current_deleted_vertices, impact_tracker);
 
   // STEP 3) clear all deltas after unlinking is complete
   linked_undo_buffers.clear();
