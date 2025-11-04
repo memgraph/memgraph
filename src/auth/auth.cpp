@@ -215,9 +215,9 @@ const std::string kMtLinkPrefix = "mtlink:";
 // Profile linking is now handled by UserProfiles class
 const std::string kVersion = "version";
 
-static constexpr auto kVersionV1 = "V1";
-static constexpr auto kVersionV2 = "V2";
-static constexpr auto kVersionV3 = "V3";
+constexpr auto kVersionV1 = "V1";
+constexpr auto kVersionV2 = "V2";
+constexpr auto kVersionV3 = "V3";
 }  // namespace
 
 /**
