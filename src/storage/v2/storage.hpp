@@ -785,7 +785,6 @@ class Storage {
     ttl_.Shutdown();
   }
 
- public:
   // TODO: make non-public
   ReplicationStorageState repl_storage_state_;
 
