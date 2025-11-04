@@ -173,14 +173,14 @@ class TaggedVertexPtr {
   TaggedVertexPtr() : ptr_(nullptr) {}
 
   TaggedVertexPtr(Vertex *vertex, DeltaInterleaving interleaving = DeltaInterleaving::NON_INTERLEAVED) {
-    set(vertex, interleaving == DeltaInterleaving::INTERLEAVED);
+    Set(vertex, interleaving == DeltaInterleaving::INTERLEAVED);
   }
 
   Vertex *Get() const { return reinterpret_cast<Vertex *>(reinterpret_cast<uintptr_t>(ptr_) & ~0x1UL); }
 
   bool IsInterleaved() const { return (reinterpret_cast<uintptr_t>(ptr_) & 0x1UL) != 0; }
 
-  void set(Vertex *vertex, bool is_interleaved = false) {
+  void Set(Vertex *vertex, bool is_interleaved = false) {
     uintptr_t vertex_ptr = reinterpret_cast<uintptr_t>(vertex);
     MG_ASSERT((vertex_ptr & 0x1UL) == 0, "Vertex pointer must be aligned");
     if (is_interleaved) {
