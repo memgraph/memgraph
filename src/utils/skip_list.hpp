@@ -195,8 +195,7 @@ constexpr uint64_t ExpectedSizeAtLayer(const uint64_t N, const uint8_t k) {
   const uint8_t power = k - 1;
   if (power >= 64) return 0;  // Result would be too small to represent
 
-  const uint64_t denominator = 1ULL << power;
-  return N / denominator;
+  return N >> power;
 }
 
 /// The skip list doesn't have built-in reclamation of removed nodes (objects).
@@ -1659,7 +1658,6 @@ class SkipList final : detail::SkipListNode_base {
     std::array<TNode *, kSkipListMaxHeight> end{};
     for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
       start[layer] = head_->nexts[layer].load(std::memory_order_acquire);
-      end[layer] = nullptr;
     }
     return create_chunks_(num_chunks, start, end);
   }
@@ -1697,7 +1695,7 @@ class SkipList final : detail::SkipListNode_base {
     if (upper_bound) {
       find_node<GCPolicy::DoNotRun>(upper_bound.value(), end, succs);
       for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
-        // head_ is not a valid node (use next)
+        // end is preds which are defaulted to head_, but head_ is not a valid node, so we must use nexts
         auto *current = end[layer] == head_ ? head_->nexts[layer].load(std::memory_order_acquire) : end[layer];
         // Find the first element over the bound
         while (current != nullptr && (current->obj < upper_bound.value() || current->obj == upper_bound.value())) {
@@ -1708,10 +1706,6 @@ class SkipList final : detail::SkipListNode_base {
           current = current->nexts[layer].load(std::memory_order_acquire);
         }
         end[layer] = current;
-      }
-    } else {
-      for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
-        end[layer] = nullptr;
       }
     }
 
