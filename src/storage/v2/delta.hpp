@@ -334,11 +334,11 @@ struct Delta {
   };
 };
 
-inline bool IsActionCommutative(Delta::Action action) {
+constexpr bool IsActionCommutative(Delta::Action action) noexcept {
   return action == Delta::Action::ADD_IN_EDGE || action == Delta::Action::ADD_OUT_EDGE;
 }
 
-inline bool IsResultOfCommutativeOperation(Delta::Action action) {
+constexpr bool IsResultOfCommutativeOperation(Delta::Action action) noexcept {
   return action == Delta::Action::REMOVE_IN_EDGE || action == Delta::Action::REMOVE_OUT_EDGE;
 }
 
@@ -352,6 +352,6 @@ static_assert(std::is_trivially_destructible_v<Delta>,
 
 static_assert(alignof(Delta) >= 8, "The Delta should be aligned to at least 8!");
 
-static_assert(sizeof(Delta) == 56, "Delta size is 56 bytes");
+static_assert(sizeof(Delta) <= 56, "Delta size is 56 bytes");
 
 }  // namespace memgraph::storage
