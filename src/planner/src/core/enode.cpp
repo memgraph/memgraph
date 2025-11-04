@@ -17,11 +17,6 @@
 namespace memgraph::planner::core::detail {
 
 auto ENodeBase::canonicalize(UnionFind &uf) const -> ENodeBase {
-  if (children_.empty()) {
-    // Leaf node with copy over disambiguator
-    return ENodeBase{disambiguator_};
-  }
-
   // Check if canonicalization is actually needed (quick optimization)
   bool needs_canonicalization = false;
   for (auto child : children_) {
@@ -32,8 +27,8 @@ auto ENodeBase::canonicalize(UnionFind &uf) const -> ENodeBase {
   }
 
   if (!needs_canonicalization) {
-    // Children are already canonical, just copy the existing vector
-    return ENodeBase{children_};
+    // Children are already canonical, just copy the existing
+    return *this;
   }
 
   // Only create new vector if canonicalization is actually needed
@@ -44,8 +39,7 @@ auto ENodeBase::canonicalize(UnionFind &uf) const -> ENodeBase {
     // NOTE: UnionFind is mutable, so we are using the path halving optimization here
     canonical_children.emplace_back(uf.Find(child));
   }
-  // Non-leaf node
-  return ENodeBase{std::move(canonical_children)};
+  return ENodeBase{disambiguator_, std::move(canonical_children)};
 }
 
 auto ENodeBase::canonicalize_in_place(UnionFind &uf) -> bool {
@@ -67,8 +61,7 @@ auto ENodeBase::canonicalize_in_place(UnionFind &uf) -> bool {
 
 auto ENodeBase::canonicalize(UnionFind &uf, BaseProcessingContext &ctx) const -> ENodeBase {
   if (children_.empty()) {
-    // Leaf node with copy over disambiguator
-    return ENodeBase{disambiguator_};
+    return *this;
   }
 
   // Single pass: gather canonical children and check if canonicalization is needed
@@ -87,24 +80,18 @@ auto ENodeBase::canonicalize(UnionFind &uf, BaseProcessingContext &ctx) const ->
 
   if (!needs_canonicalization) {
     // Children are already canonical, just copy the existing vector
-    return ENodeBase{children_};
+    return *this;
   }
 
   // Move the canonical children from buffer (they've been computed in the single pass)
-  return ENodeBase{utils::small_vector<EClassId>(canonical_children.begin(), canonical_children.end())};
+  return ENodeBase{disambiguator_, utils::small_vector<EClassId>(canonical_children.begin(), canonical_children.end())};
 }
 
 auto ENodeBase::compute_hash() const -> std::size_t {
   auto seed = std::size_t{};
-
-  if (children_.empty()) {
-    // leaf
-    boost::hash_combine(seed, disambiguator_);
-  } else {
-    // non-leaf
-    for (auto const &child : children_) {
-      boost::hash_combine(seed, child);
-    }
+  boost::hash_combine(seed, disambiguator_);
+  for (auto const &child : children_) {
+    boost::hash_combine(seed, child);
   }
   return seed;
 }
