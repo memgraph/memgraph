@@ -2936,7 +2936,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   if (!file_in_local_dir) {
     std::filesystem::copy_file(path, local_path, std::filesystem::copy_options::overwrite_existing, ec);
     if (ec) {
-      spdlog::warn("Failed to copy snapshot into local snapshots directory.");
+      spdlog::warn("Failed to copy snapshot into local snapshots directory. Err: {}", ec.message());
       return InMemoryStorage::RecoverSnapshotError::CopyFailure;
     }
   }
@@ -3011,7 +3011,9 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     // Recreate clean old directory
     std::filesystem::create_directory(snapshot_old_dir, ec);
     if (ec) {
-      spdlog::warn("Failed to create backup snapshot directory; snapshots directory should be cleaned manually.");
+      spdlog::warn(
+          "Failed to create backup snapshot directory; snapshots directory should be cleaned manually. Err: {}",
+          ec.message());
       return InMemoryStorage::RecoverSnapshotError::BackupFailure;
     }
     auto const wal_old_dir = recovery_.wal_directory_ / old_dir;
@@ -3022,7 +3024,8 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     // Recreate clean old directory
     std::filesystem::create_directory(wal_old_dir, ec);
     if (ec) {
-      spdlog::warn("Failed to create backup WAL directory; WAL directory should be cleaned manually.");
+      spdlog::warn("Failed to create backup WAL directory; WAL directory should be cleaned manually. Err: {}",
+                   ec.message());
       return InMemoryStorage::RecoverSnapshotError::BackupFailure;
     }
 
@@ -3041,7 +3044,8 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
           if (ec) {
             spdlog::warn(
                 "Failed to copy snapshot file to backup directory; snapshots directory should be cleaned "
-                "manually.");
+                "manually. Err: {}",
+                ec.message());
             return InMemoryStorage::RecoverSnapshotError::BackupFailure;
           }
         }

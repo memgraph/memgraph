@@ -558,6 +558,24 @@ def test_recover_snapshot_already_in_local_dir(global_snapshot):
     old_files = os.listdir(old_snapshots_dir)
     assert len(old_files) > 0, ".old directory should contain files"
 
+    # Recover from the local snapshot again
+    local_snapshots_dir = os.path.join(data_directory.name, "snapshots")
+    local_files = [f for f in os.listdir(local_snapshots_dir) if os.path.isfile(os.path.join(local_snapshots_dir, f))]
+    assert len(local_files) == 1, "There should be exactly one snapshot file in the local directory"
+    local_snapshot_path = os.path.join(local_snapshots_dir, local_files[0])
+    execute_and_fetch_all(cursor, f'RECOVER SNAPSHOT "{local_snapshot_path}" FORCE;')
+
+    # Verify only the original data exists (id: 1)
+    result = execute_and_fetch_all(cursor, "MATCH (n:TestNode) RETURN n.id ORDER BY n.id;")
+    assert len(result) == 1, "Should have only one node after recovery"
+    assert result[0][0] == 1, "Should have the original node with id 1"
+
+    # Verify .old directory was created and contains the old snapshot
+    old_snapshots_dir = os.path.join(data_directory.name, "snapshots", ".old")
+    assert os.path.exists(old_snapshots_dir), ".old directory should exist"
+    old_files = os.listdir(old_snapshots_dir)
+    assert len(old_files) > 0, ".old directory should contain files"
+
     interactive_mg_runner.kill_all()
 
 
