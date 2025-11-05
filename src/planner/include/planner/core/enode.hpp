@@ -15,13 +15,24 @@
 
 #include <boost/functional/hash.hpp>
 
-#include "planner/core/fwd.hpp"
 #include "utils/small_vector.hpp"
+
+import memgraph.planner.core.union_find;
+import memgraph.planner.core.eids;
+import memgraph.planner.core.concepts;
 
 namespace memgraph::planner::core {
 
-struct UnionFind;
-struct BaseProcessingContext;
+/**
+ * @brief Processing context for ENode operations
+ *
+ * @details
+ * Provides reusable temporary storage specifically for ENode operations,
+ * eliminating allocation overhead in hot paths.
+ */
+struct ENodeContext {
+  utils::small_vector<EClassId> canonical_children_buffer;
+};
 
 namespace detail {
 
@@ -43,8 +54,8 @@ struct ENodeBase {
 
   /// Returns copy with children updated to canonical e-class IDs via union-find using context buffer
   /// @param uf Union-find structure (will be modified for path compression)
-  /// @param ctx Base processing context containing reusable buffer for canonical children
-  auto canonicalize(UnionFind &uf, BaseProcessingContext &ctx) const -> ENodeBase;
+  /// @param ctx ENode context containing reusable buffer for canonical children
+  auto canonicalize(UnionFind &uf, ENodeContext &ctx) const -> ENodeBase;
 
   /// In-place canonicalization that modifies this node's children
   /// @param uf Union-find structure (will be modified for path compression)

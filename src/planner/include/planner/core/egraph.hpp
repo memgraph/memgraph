@@ -24,10 +24,10 @@
 #endif
 
 #include "planner/core/eclass.hpp"
-#include "planner/core/eids.hpp"
+import memgraph.planner.core.eids;
 #include "planner/core/enode.hpp"
 #include "planner/core/processing_context.hpp"
-#include "planner/core/union_find.hpp"
+import memgraph.planner.core.union_find;
 
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <range/v3/all.hpp>

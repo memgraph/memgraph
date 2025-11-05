@@ -10,7 +10,15 @@
 // licenses/APL.txt.
 
 #pragma once
-#include "enode.hpp"
+
+#include <functional>
+#include <utility>
+#include <vector>
+
+#include "planner/core/enode.hpp"
+#include "planner/core/fwd.hpp"
+
+import memgraph.planner.core.eids;
 
 #include "planner/core/eids.hpp"
 

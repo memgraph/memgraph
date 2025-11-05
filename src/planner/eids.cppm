@@ -9,10 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
-#include <cstddef>
+#include <cstdint>
 
-namespace memgraph::planner::core {
-static constexpr size_t REBUILD_BATCH_SIZE = 100;
-}
+export module memgraph.planner.core.eids;
+
+export namespace memgraph::planner::core {
+
+using EClassId = uint32_t;
+using ENodeId = uint32_t;
+
+}  // namespace memgraph::planner::core

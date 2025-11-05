@@ -9,12 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
 #include <concepts>
 #include <functional>
 
-namespace memgraph::planner::core {
+export module memgraph.planner.core.concepts;
+
+export namespace memgraph::planner::core {
 /// Concept: Symbol must be hashable, trivially copyable, and equality comparable
 template <typename T>
 concept ENodeSymbol = requires(T a, T b) {

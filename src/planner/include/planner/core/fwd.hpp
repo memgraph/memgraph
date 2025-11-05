@@ -12,8 +12,8 @@
 #pragma once
 
 #include <cstdint>
-#include "planner/core/concepts.hpp"
-#include "planner/core/eids.hpp"
+import memgraph.planner.core.concepts;
+import memgraph.planner.core.eids;
 
 namespace memgraph::planner::core {
 
@@ -26,9 +26,6 @@ struct EClass;
 
 template <typename Symbol, typename Analysis>
 struct EGraph;
-
-struct UnionFind;
-struct UnionFindContext;
 
 template <typename Symbol>
 struct ProcessingContext;

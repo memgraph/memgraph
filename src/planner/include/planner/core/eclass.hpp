@@ -11,8 +11,7 @@
 
 #pragma once
 
-#include "planner/core/eids.hpp"
-#include "planner/core/enode.hpp"
+import memgraph.planner.core.eids;
 
 #include <boost/unordered/unordered_flat_set.hpp>
 
