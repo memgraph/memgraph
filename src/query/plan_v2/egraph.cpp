@@ -15,10 +15,10 @@
 
 #include <cstdint>
 
-/// SYMBOL
-namespace {
+#include "private_analysis.hpp"
+#include "private_symbol.hpp"
 
-enum struct symbol : std::uint8_t;
+namespace memgraph::query::plan::v2 {
 
 enum struct symbol_flags : std::uint8_t {
   none = 0b0000'0000,
@@ -33,17 +33,6 @@ constexpr symbol_flags operator|(symbol_flags a, symbol_flags b) {
 constexpr bool operator&(symbol_flags a, symbol_flags b) {
   return (static_cast<std::uint8_t>(a) & static_cast<std::uint8_t>(b)) != 0;
 }
-
-enum struct symbol : std::uint8_t {
-  Once,
-  Bind,
-  Symbol,
-  Literal,
-  Identifier,
-  Output,
-  NamedOutput,
-  ParamLookup,
-};
 
 using enum symbol_flags;
 inline constexpr symbol_flags symbol_traits_table[] = {
@@ -64,18 +53,7 @@ struct symbol_traits {
   static constexpr auto is_disambiguated = flags & disambiguated;
 };
 
-}  // namespace
-namespace std {
-template <>
-struct hash<symbol> {
-  size_t operator()(symbol const &value) const noexcept { return std::to_underlying(value); }
-};
-}  // namespace std
-
-/// ANALYSIS
-namespace {
-struct analysis {};
-}  // namespace
+}  // namespace memgraph::query::plan::v2
 
 using memgraph::planner::core::EGraph;
 

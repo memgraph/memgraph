@@ -165,16 +165,13 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
     auto vertex_counts = plan::VertexCountCache(db_accessor);
 
     if (flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2)) {
+      // WITH 1 AS tmp RETURN tmp AS result;
+      //  SymTbl: tmp result
       auto egraph = plan::v2::ConvertToEgraph(*query, symbol_table);
-
-      // AST + Symbol table -> EGRAPH -> REWRITES -> EXTRACT (AST + LogicalOperator + symbol table)
-
-      // TODO: make egraph
-      //       do rewrite passes
-      //       extract LogicalOperator + cost estimate
-      //       NOTE: add to `ast_storage` for new expressions
-      //             add to `symbol_table` for new symbols
-      return std::make_pair<std::unique_ptr<plan::LogicalOperator>, double>(nullptr, 0.0);
+      // TODO: rewrite
+      // TODO: new ast_storage + symbol_table
+      auto [plan, cost] = egraph.Extract();  // LogicalOperator + double
+      return std::pair{std::move(plan), cost};
     }
     auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
     return plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
