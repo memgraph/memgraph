@@ -12,7 +12,7 @@
 #include "planner/core/enode.hpp"
 
 #include "planner/core/processing_context.hpp"
-#include "planner/core/union_find.hpp"
+import memgraph.planner.core.union_find;
 
 namespace memgraph::planner::core::detail {
 
@@ -59,7 +59,7 @@ auto ENodeBase::canonicalize_in_place(UnionFind &uf) -> bool {
   return changed;
 }
 
-auto ENodeBase::canonicalize(UnionFind &uf, BaseProcessingContext &ctx) const -> ENodeBase {
+auto ENodeBase::canonicalize(UnionFind &uf, ENodeContext &ctx) const -> ENodeBase {
   if (children_.empty()) {
     return *this;
   }

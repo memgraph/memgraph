@@ -12,7 +12,7 @@
 #include <gtest/gtest.h>
 
 #include "planner/core/enode.hpp"
-#include "planner/core/union_find.hpp"
+import memgraph.planner.core.union_find;
 
 namespace memgraph::planner::core {
 
