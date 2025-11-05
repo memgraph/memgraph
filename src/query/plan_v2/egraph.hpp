@@ -16,6 +16,10 @@
 #include "storage/v2/property_value.hpp"
 #include "strong_type/strong_type.hpp"
 
+namespace memgraph::query::plan {
+class LogicalOperator;
+}
+
 namespace memgraph::query::plan::v2 {
 
 using eclass = strong::type<std::uint32_t, struct eclass_>;
@@ -34,6 +38,8 @@ struct egraph {
   auto MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> eclass;
   auto MakeOutputs(eclass input, std::vector<eclass> named_outputs) -> eclass;
   auto MakeIdentifier(eclass sym) -> eclass;
+
+  friend auto ConvertToLogicalOperator(egraph const &egraph) -> std::tuple<std::unique_ptr<LogicalOperator>, double>;
 
  private:
   struct impl;

@@ -12,6 +12,7 @@ target_sources(mg-planner
     include/planner/core/egraph.hpp
     include/planner/core/eids.hpp
     include/planner/core/enode.hpp
+    include/planner/core/extractor.hpp
     include/planner/core/fwd.hpp
     include/planner/core/processing_context.hpp
     include/planner/core/union_find.hpp
@@ -21,6 +22,7 @@ target_sources(mg-planner
     src/core/enode.cpp
     src/core/egraph.cpp
     src/core/union_find.cpp
+    src/core/extractor.cpp
 )
 target_include_directories(mg-planner PUBLIC include)
 
