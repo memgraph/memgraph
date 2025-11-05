@@ -159,7 +159,7 @@ static_assert(std::is_trivially_destructible_v<opt_str>,
  * hugely improves performance in edge-write heavy imports, at the expensive
  * of increasing delta chain iteration and garbage collection whilst interleaved
  * deltas exist in the chains. */
-enum class DeltaInterleaving { NON_INTERLEAVED, INTERLEAVED };
+enum class DeltaInterleaving { NORMAL, INTERLEAVED };
 
 /**
  * By using a tagged pointer for the vertex in a vertex_edge `Delta`, we can
@@ -174,7 +174,7 @@ class TaggedVertexPtr {
  public:
   TaggedVertexPtr() : ptr_(nullptr) {}
 
-  TaggedVertexPtr(Vertex *vertex, DeltaInterleaving interleaving = DeltaInterleaving::NON_INTERLEAVED) {
+  TaggedVertexPtr(Vertex *vertex, DeltaInterleaving interleaving = DeltaInterleaving::NORMAL) {
     Set(vertex, interleaving == DeltaInterleaving::INTERLEAVED);
   }
 
@@ -252,7 +252,7 @@ struct Delta {
 
   Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
-      : Delta(AddInEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NON_INTERLEAVED, timestamp, command_id) {}
+      : Delta(AddInEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NORMAL, timestamp, command_id) {}
 
   Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
@@ -265,7 +265,7 @@ struct Delta {
 
   Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
-      : Delta(AddOutEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NON_INTERLEAVED, timestamp, command_id) {}
+      : Delta(AddOutEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NORMAL, timestamp, command_id) {}
 
   Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
@@ -278,7 +278,7 @@ struct Delta {
 
   Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
-      : Delta(RemoveInEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NON_INTERLEAVED, timestamp, command_id) {}
+      : Delta(RemoveInEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NORMAL, timestamp, command_id) {}
 
   Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
@@ -291,7 +291,7 @@ struct Delta {
 
   Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
-      : Delta(RemoveOutEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NON_INTERLEAVED, timestamp, command_id) {}
+      : Delta(RemoveOutEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NORMAL, timestamp, command_id) {}
 
   Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
@@ -348,7 +348,7 @@ constexpr bool IsResultOfCommutativeOperation(Delta::Action action) noexcept {
   return action == Delta::Action::REMOVE_IN_EDGE || action == Delta::Action::REMOVE_OUT_EDGE;
 }
 
-inline bool IsOperationInterleaved(Delta const &delta) {
+inline bool IsDeltaInterleaved(Delta const &delta) {
   return IsResultOfCommutativeOperation(delta.action) && delta.vertex_edge.vertex.IsInterleaved();
 }
 

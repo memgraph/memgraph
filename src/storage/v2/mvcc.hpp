@@ -55,8 +55,7 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
     //
     // For READ UNCOMMITTED -> we accept any change. (already handled above)
     auto ts = delta->timestamp->load(std::memory_order_acquire);
-    bool const is_delta_interleaved =
-        IsOperationInterleaved(*delta);  // @TODO IsOperationInterleaved: don't like that name
+    bool const is_delta_interleaved = IsDeltaInterleaved(*delta);
 
     if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && ts < transaction->start_timestamp) ||
         (transaction->isolation_level == IsolationLevel::READ_COMMITTED && ts < kTransactionInitialId)) {
@@ -116,7 +115,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
 
   if (ts == transaction->transaction_id) {
     // If head delta from same transaction is interleaved, cannot add non-commutative operation
-    if (IsOperationInterleaved(*object->delta)) {
+    if (IsDeltaInterleaved(*object->delta)) {
       transaction->has_serialization_error = true;
       return false;
     }
@@ -131,7 +130,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   return false;
 }
 
-enum class WriteResult { SUCCESS, COMMUTATIVE, CONFLICT };
+enum class WriteResult { SUCCESS, INTERLEAVED, CONFLICT };
 
 template <typename TObj>
 inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *object, Delta::Action action) {
@@ -144,8 +143,8 @@ inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *ob
   if (ts == transaction->transaction_id) {
     // If the head delta belongs to the same transaction and is interleaved,
     // then only another commutative action delta can be prepended.
-    if (IsOperationInterleaved(*object->delta)) {
-      return WriteResult::COMMUTATIVE;
+    if (IsDeltaInterleaved(*object->delta)) {
+      return WriteResult::INTERLEAVED;
     }
     // Head delta from same transaction is not interleaved - allow any new delta
     return WriteResult::SUCCESS;
@@ -160,7 +159,7 @@ inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *ob
   // If the head delta resulted from a commutative operation from another
   // (as yet uncommited) transaction, we can prepend an interleaved delta.
   if (IsResultOfCommutativeOperation(object->delta->action)) {
-    return WriteResult::COMMUTATIVE;
+    return WriteResult::INTERLEAVED;
   }
 
   // Standard MVCC serialization conflict.
