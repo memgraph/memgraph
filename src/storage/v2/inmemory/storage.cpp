@@ -166,13 +166,13 @@ class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::util
 void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std::list<Gid> &current_deleted_edges,
                            std::list<Gid> &current_deleted_vertices, IndexPerformanceTracker &impact_tracker) {
   for (auto &delta : deltas) {
-    DMG_ASSERT(!IsOperationInterleaved(delta), "interleaved deltas are not candidates for rapid delta cleanup");
+    DMG_ASSERT(!IsDeltaInterleaved(delta), "interleaved deltas are not candidates for rapid delta cleanup");
     DMG_ASSERT(
         [&delta]() {
           Delta *next = delta.next.load();
           if (next == nullptr) return true;
           auto next_ts = next->timestamp->load();
-          return !(next_ts >= kTransactionInitialId && IsOperationInterleaved(*next));
+          return !(next_ts >= kTransactionInitialId && IsDeltaInterleaved(*next));
         }(),
         "downstream active interleaved delta found during rapid cleanup");
     impact_tracker.update(delta.action);
@@ -582,14 +582,14 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   auto const from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
   if (from_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
-  if (from_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
+  if (from_result == WriteResult::INTERLEAVED) transaction_.has_interleaved_deltas = true;
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
     to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
-    if (to_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
+    if (to_result == WriteResult::INTERLEAVED) transaction_.has_interleaved_deltas = true;
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
 
@@ -617,24 +617,24 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     }
   }
 
-  bool const from_interleaved = (from_result == WriteResult::COMMUTATIVE);
-  bool const to_interleaved = (to_result == WriteResult::COMMUTATIVE);
+  bool const from_interleaved = (from_result == WriteResult::INTERLEAVED);
+  bool const to_interleaved = (to_result == WriteResult::INTERLEAVED);
 
   utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex,
                             &schema_acc, from_interleaved, to_interleaved]() {
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge,
-                       from_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NON_INTERLEAVED);
+                       from_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge,
-                       to_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NON_INTERLEAVED);
+                       to_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
     transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
     // Update indices if they exist.
-    Indices::UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
+    storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
 
     // Increment edge count.
     storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
@@ -703,15 +703,15 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   }
 
   auto const from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
-  if (from_result == WriteResult::CONFLICT) return Error::SERIALIZATION_ERROR;
-  if (from_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
-  if (from_vertex->deleted) return Error::DELETED_OBJECT;
+  if (from_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (from_result == WriteResult::INTERLEAVED) transaction_.has_interleaved_deltas = true;
+  if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
     to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
-    if (to_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
+    if (to_result == WriteResult::INTERLEAVED) transaction_.has_interleaved_deltas = true;
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
 
@@ -747,24 +747,24 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     }
   }
 
-  bool const from_interleaved = (from_result == WriteResult::COMMUTATIVE);
-  bool const to_interleaved = (to_result == WriteResult::COMMUTATIVE);
+  bool const from_interleaved = (from_result == WriteResult::INTERLEAVED);
+  bool const to_interleaved = (to_result == WriteResult::INTERLEAVED);
 
   utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex,
                             &schema_acc, from_interleaved, to_interleaved]() {
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge,
-                       from_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NON_INTERLEAVED);
+                       from_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge,
-                       to_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NON_INTERLEAVED);
+                       to_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
     transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
     // Update indices if they exist.
-    Indices::UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
+    storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
 
     // Increment edge count.
     storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
@@ -1340,17 +1340,14 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       Delta *current = &delta;
       auto actual_prev = current->prev.Get();
 
-      // In the time between detecting that we can disconnect the subchain
-      // from here, and actually locking the vertex to make the modification,
-      // the delta chain could have been modified either by another concurrent
-      // transaction with interleaved deltas aborting, or prepending new
-      // interleaved deltas. Doesn't matter, provided we use the actual current
-      // prev value, but with one special case: Due to concurrent aborts, two
-      // disconnected subchains belonging to the same transaction may now be
-      // connected. If so, prev will be a delta with the same transaction id. In
-      // that case, we will let the processing of the delta - which must occur
-      // later as a prepended delta will be later in the `transaction_.deltas_`
-      // list - handle the joined subchains.
+      // Between detecting this unlink point and locking the vertex, concurrent
+      // interleaved transactions may have modified the chain.
+      //
+      // Special case: If prev.delta has our transaction_id, an abort merged two
+      // of our subchains. Skip unlinking here, as the later delta (earlier in
+      // the transaction_.deltas_ list) will handle the joined chain.
+      //
+      // Otherwise, it it safe to proceed with current prev value.
 
       if (actual_prev.type == PreviousPtr::Type::DELTA &&
           actual_prev.delta->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
@@ -1478,8 +1475,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         if (current != nullptr) {
           current->prev.Set(actual_prev.delta);
         }
-      } else {
-        DMG_ASSERT(false, "Unexpected prev type in delta chain");
       }
     }
 
@@ -1494,7 +1489,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         // emplace back could take a long time.
         engine_guard.unlock();
 
-        // @TODO is `mark_timestamp` correct here, in the precence of
+        // @TODO is `mark_timestamp` correct here, in the precense of
         // interleaved deltas?
 
         transaction_.commit_timestamp->store(kAbortedTransactionId, std::memory_order_release);
@@ -2416,7 +2411,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       std::unordered_set<const Delta *> visited;
 
       for (const auto &delta : it->deltas_) {
-        if (IsOperationInterleaved(delta) && !visited.contains(&delta)) {
+        if (IsDeltaInterleaved(delta) && !visited.contains(&delta)) {
           auto *current_delta = &delta;
           while (current_delta != nullptr && !visited.contains(current_delta)) {
             visited.insert(current_delta);
