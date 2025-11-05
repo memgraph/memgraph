@@ -2205,6 +2205,12 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::Disk
                                  kErrorMessage);
 }
 
+std::optional<std::vector<uint64_t>> DiskStorage::DiskAccessor::IsPropertyInVectorIndex(Vertex *vertex,
+                                                                                        PropertyId property) {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
 utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateVectorEdgeIndex(
     VectorEdgeIndexSpec /*spec*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
