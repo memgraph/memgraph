@@ -2079,7 +2079,7 @@ TEST_F(AuthWithStorage, UserImpersonationWUserAndRole) {
   ASSERT_FALSE(admin->CanImpersonate(*another_user));
 }
 
-TEST_F(V1Auth, MigrationTest) {
+TEST_F(V1Auth, MigrationTestV1ToV2) {
   // Check if migration was successful
   ASSERT_TRUE(auth->HasUsers());
   ASSERT_FALSE(auth->AllRoles().empty());
@@ -2105,35 +2105,43 @@ TEST_F(V1Auth, MigrationTest) {
   ASSERT_EQ(user2->roles().rolenames().front(), "role2");
 }
 
-TEST_F(V2Auth, MigrationTest) {
+TEST_F(V2Auth, MigrationTestV2ToV3) {
   ASSERT_TRUE(auth->HasUsers());
   ASSERT_FALSE(auth->AllRoles().empty());
 
-  auto user1 = auth->GetUser("user1");
+  auto const user1 = auth->GetUser("user1");
   ASSERT_TRUE(user1);
+  auto const &user1_label_perms = user1->GetFineGrainedAccessLabelPermissions();
+  ASSERT_FALSE(user1_label_perms.GetGlobalPermission().has_value());
+  ASSERT_TRUE(user1_label_perms.GetPermissions().empty());
+  auto const &user1_edge_perms = user1->GetFineGrainedAccessEdgeTypePermissions();
+  ASSERT_FALSE(user1_edge_perms.GetGlobalPermission().has_value());
+  ASSERT_TRUE(user1_edge_perms.GetPermissions().empty());
 
-  // Check user has no global or per-label fine-grained permissions for
-  // node labels or edge types
-  auto const &user_label_perms = user1->GetFineGrainedAccessLabelPermissions();
-  ASSERT_FALSE(user_label_perms.GetGlobalPermission().has_value());
-  ASSERT_TRUE(user_label_perms.GetPermissions().empty());
+  auto const user2 = auth->GetUser("user2");
+  ASSERT_TRUE(user2);
+  auto const &user2_label_perms = user2->GetFineGrainedAccessLabelPermissions();
+  ASSERT_TRUE(user2_label_perms.GetGlobalPermission().has_value());
+  ASSERT_EQ(user2_label_perms.GetGlobalPermission().value(), static_cast<uint64_t>(FineGrainedPermission::NOTHING));
+  ASSERT_TRUE(user2_label_perms.GetPermissions().empty());
+  auto const &user2_edge_perms = user2->GetFineGrainedAccessEdgeTypePermissions();
+  ASSERT_TRUE(user2_edge_perms.GetGlobalPermission().has_value());
+  ASSERT_EQ(user2_edge_perms.GetGlobalPermission().value(), static_cast<uint64_t>(FineGrainedPermission::READ));
+  ASSERT_TRUE(user2_edge_perms.GetPermissions().empty());
 
-  auto const &user_edge_perms = user1->GetFineGrainedAccessEdgeTypePermissions();
-  ASSERT_FALSE(user_edge_perms.GetGlobalPermission().has_value());
-  ASSERT_TRUE(user_edge_perms.GetPermissions().empty());
-
-  auto role1 = auth->GetRole("role1");
+  auto const role1 = auth->GetRole("role1");
   ASSERT_TRUE(role1);
-
-  // Check role has no global or per-label fine-grained permissions for
-  // node labels or edges types
-  auto const &role_label_perms = role1->GetFineGrainedAccessLabelPermissions();
-  ASSERT_FALSE(role_label_perms.GetGlobalPermission().has_value());
-  ASSERT_TRUE(role_label_perms.GetPermissions().empty());
-
-  auto const &role_edge_perms = role1->GetFineGrainedAccessEdgeTypePermissions();
-  ASSERT_FALSE(role_edge_perms.GetGlobalPermission().has_value());
-  ASSERT_TRUE(role_edge_perms.GetPermissions().empty());
+  auto const &role1_label_perms = role1->GetFineGrainedAccessLabelPermissions();
+  ASSERT_TRUE(role1_label_perms.GetGlobalPermission().has_value());
+  ASSERT_EQ(role1_label_perms.GetGlobalPermission().value(),
+            static_cast<uint64_t>(FineGrainedPermission::UPDATE | FineGrainedPermission::READ));
+  ASSERT_TRUE(role1_label_perms.GetPermissions().empty());
+  auto const &role1_edge_perms = role1->GetFineGrainedAccessEdgeTypePermissions();
+  ASSERT_TRUE(role1_edge_perms.GetGlobalPermission().has_value());
+  ASSERT_EQ(role1_edge_perms.GetGlobalPermission().value(),
+            static_cast<uint64_t>(FineGrainedPermission::CREATE | FineGrainedPermission::DELETE |
+                                  FineGrainedPermission::UPDATE | FineGrainedPermission::READ));
+  ASSERT_TRUE(role1_edge_perms.GetPermissions().empty());
 }
 
 TEST_F(AuthWithStorage, MultiTenantRoleManagement) {

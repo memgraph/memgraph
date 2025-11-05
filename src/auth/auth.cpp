@@ -323,8 +323,83 @@ void MigrateVersions(kvstore::KVStore &store) {
     spdlog::warn(
         "IMPORTANT: Review your security policy and explicitly configure finely grained access rules where needed.");
 
-    store.Put(kVersion, kVersionV3);
+    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV3}};
+
+    auto const convert_v2_to_v3_permissions = [](uint64_t const v2_perm) -> uint64_t {
+      // V2 permissions used bit_0 for read, bit_1 for update, and bit_2 for
+      // create_delete, but note that the trailing bits are also set because the
+      // permission formed a hierarchy.
+      constexpr uint64_t kV2Read = 1;
+      constexpr uint64_t kV2Update = 3;
+      constexpr uint64_t kV2CreateDelete = 7;
+
+      // V3 permission bits: NOTHING=0, READ=1, UPDATE=2, CREATE=8, DELETE=16.
+      // Need to duplicate them here as FineGrainedPermission is enterprise only
+      // and duplication is preferable to leaking the enum into community
+      // builds.
+      constexpr uint64_t kV3Nothing = 0;
+      constexpr uint64_t kV3Read = 1;
+      constexpr uint64_t kV3Update = 2;
+      constexpr uint64_t kV3Create = 8;
+      constexpr uint64_t kV3Delete = 16;
+
+      switch (v2_perm) {
+        case 0:
+          return kV3Nothing;
+        case kV2Read:
+          return kV3Read;
+        case kV2Update:
+          return kV3Update | kV3Read;
+        case kV2CreateDelete:
+          return kV3Create | kV3Delete | kV3Update | kV3Read;
+        default:
+          return kV3Nothing;
+      }
+    };
+
+    auto const migrate_entity = [&](auto const &prefix) {
+      for (auto it = store.begin(prefix); it != store.end(prefix); ++it) {
+        auto const &[key, value] = *it;
+        try {
+          auto data = nlohmann::json::parse(value);
+
+          if (data.contains("fine_grained_access_handler") && data["fine_grained_access_handler"].is_object()) {
+            auto fg_data = data["fine_grained_access_handler"];
+
+            for (auto const &perm_type : {"label_permissions", "edge_type_permissions"}) {
+              if (fg_data.contains(perm_type) && fg_data[perm_type].is_object()) {
+                auto &perm_data = fg_data[perm_type];
+
+                if (perm_data.contains("global_permission") && perm_data["global_permission"].is_number_integer()) {
+                  auto const v2_perm = perm_data["global_permission"].template get<int64_t>();
+                  if (v2_perm >= 0) {
+                    perm_data["global_permission"] = convert_v2_to_v3_permissions(static_cast<uint64_t>(v2_perm));
+                  }
+                }
+
+                perm_data["permissions"] = nlohmann::json::array();
+              }
+            }
+
+            data["fine_grained_permissions"] = fg_data;
+            data.erase("fine_grained_access_handler");
+            puts.emplace(key, data.dump());
+          }
+        } catch (const nlohmann::json::exception &e) {
+          spdlog::error("Failed to migrate {}: {}", key, e.what());
+        }
+      }
+    };
+
+    migrate_entity(kUserPrefix);
+    migrate_entity(kRolePrefix);
+
+    if (!puts.empty()) {
+      store.PutMultiple(puts);
+    }
+
     version_str = kVersionV3;
+    spdlog::info("Auth storage migration to V3 completed successfully");
   }
 }
 
