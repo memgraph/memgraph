@@ -2507,6 +2507,9 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   // The WAL file needs to be updated only if we don't commit immediately.
   needs_wal_update_ = two_phase_commit;
 
+  auto timer = utils::Timer{};
+  constexpr auto delta_cb_timeout = std::chrono::seconds{5};
+
   // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
   //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.
   //            For correctness on the REPLICA side we need to send the metadata deltas first in order to acquire a
@@ -2520,7 +2523,11 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     full_encode_operation(mem_storage->wal_file_->encoder());
     mem_storage->wal_file_->UpdateStats(durability_commit_timestamp);
     replicating_txn.EncodeToReplicas(full_encode_operation);
-    commit_args.apply_delta_cb_if_replica_write();
+    // We send in progress msg every 10s. RPC timeout on main is configured with 30s
+    if (timer.Elapsed<std::chrono::seconds>() >= delta_cb_timeout) {
+      timer.ResetStartTime();
+      commit_args.apply_cb_if_replica_write();
+    }
   };
 
   // Handle metadata deltas
@@ -2836,7 +2843,11 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     append_deltas([&](const Delta &delta, const auto &parent, uint64_t durability_commit_timestamp_arg) {
       mem_storage->wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg);
       replicating_txn.AppendDelta(delta, parent, durability_commit_timestamp_arg);
-      commit_args.apply_delta_cb_if_replica_write();
+      // We send in progress msg every 5s. RPC timeout on main is configured with 30s
+      if (timer.Elapsed<std::chrono::seconds>() >= delta_cb_timeout) {
+        timer.ResetStartTime();
+        commit_args.apply_cb_if_replica_write();
+      }
     });
   }
 

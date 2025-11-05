@@ -26,10 +26,10 @@ struct CommitArgs {
   static auto make_main(DatabaseProtectorPtr protector) -> CommitArgs { return CommitArgs{Main{std::move(protector)}}; }
 
   static auto make_replica_write(uint64_t const desired_commit_timestamp, bool const two_phase_commit,
-                                 std::function<void()> delta_cb) -> CommitArgs {
+                                 std::function<void()> in_progress_cb) -> CommitArgs {
     return CommitArgs{ReplicaWrite{.desired_commit_timestamp = desired_commit_timestamp,
                                    .two_phase_commit_ = two_phase_commit,
-                                   .delta_cb_ = std::move(delta_cb)}};
+                                   .in_progress_cb_ = std::move(in_progress_cb)}};
   }
 
   static auto make_replica_read() -> CommitArgs { return CommitArgs{ReplicaRead{}}; }
@@ -63,9 +63,9 @@ struct CommitArgs {
     return std::visit(f, data);
   }
 
-  void apply_delta_cb_if_replica_write() const {
-    auto const f =
-        utils::Overloaded{[](auto const &) {}, [](ReplicaWrite const &replica) { std::invoke(replica.delta_cb_); }};
+  void apply_cb_if_replica_write() const {
+    auto const f = utils::Overloaded{[](auto const &) {},
+                                     [](ReplicaWrite const &replica) { std::invoke(replica.in_progress_cb_); }};
     std::visit(f, data);
   }
 
@@ -85,7 +85,7 @@ struct CommitArgs {
     uint64_t desired_commit_timestamp{};
     // false for SYNC/ASYNC replica, true for STRICT_SYNC replica
     bool two_phase_commit_ = false;
-    std::function<void()> delta_cb_;
+    std::function<void()> in_progress_cb_;
   };
 
   struct Main {

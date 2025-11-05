@@ -1192,16 +1192,14 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             throw utils::BasicException("Invalid commit data!");
           }
 
-          // We need to check whether the timeout passed as well when replica is making deltas durable
-          auto delta_cnt_checker = [&]() {
-            if (++current_batch_counter == kDeltasBatchProgressSize) {
-              rpc::SendInProgressMsg(res_builder);
-              current_batch_counter = 0;
-            }
-          };
+          // Durability could take some time on replica
+          rpc::SendInProgressMsg(res_builder);
 
-          auto const ret = commit_accessor->PrepareForCommitPhase(storage::CommitArgs::make_replica_write(
-              commit_timestamp, two_phase_commit, std::move(delta_cnt_checker)));
+          // We need to check whether the timeout passed as well when replica is making deltas durable
+          auto in_progress_cb = [&]() { rpc::SendInProgressMsg(res_builder); };
+
+          auto const ret = commit_accessor->PrepareForCommitPhase(
+              storage::CommitArgs::make_replica_write(commit_timestamp, two_phase_commit, std::move(in_progress_cb)));
 
           if (ret.HasError()) {
             throw utils::BasicException("Committing failed while trying to prepare for commit on replica.");
