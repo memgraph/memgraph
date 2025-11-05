@@ -2520,6 +2520,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     full_encode_operation(mem_storage->wal_file_->encoder());
     mem_storage->wal_file_->UpdateStats(durability_commit_timestamp);
     replicating_txn.EncodeToReplicas(full_encode_operation);
+    commit_args.apply_delta_cb_if_replica_write();
   };
 
   // Handle metadata deltas
@@ -2835,6 +2836,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     append_deltas([&](const Delta &delta, const auto &parent, uint64_t durability_commit_timestamp_arg) {
       mem_storage->wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg);
       replicating_txn.AppendDelta(delta, parent, durability_commit_timestamp_arg);
+      commit_args.apply_delta_cb_if_replica_write();
     });
   }
 
