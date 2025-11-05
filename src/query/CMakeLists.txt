@@ -125,7 +125,7 @@ target_sources(mg-query
     vertex_accessor.hpp
 
     PRIVATE
-    FILE_SET PRIVATE_HEADERS
+    FILE_SET private_headers
     TYPE HEADERS
     FILES
     plan_v2/private_analysis.hpp

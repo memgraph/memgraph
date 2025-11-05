@@ -34,7 +34,7 @@ static_assert(ENodeSymbol<int>);
 // --- Leaf Node Tests ---
 
 TEST(ENode, LeafNodeHasNoChildren) {
-  TestNode x(Op::Var, 1);
+  TestNode x(Op::Var, {}, 1);
 
   EXPECT_TRUE(x.is_leaf());
   EXPECT_EQ(x.arity(), 0);
@@ -42,34 +42,34 @@ TEST(ENode, LeafNodeHasNoChildren) {
 }
 
 TEST(ENode, LeafNodePreservesSymbol) {
-  TestNode x(Op::Var, 1);
+  TestNode x(Op::Var, {}, 1);
 
   EXPECT_EQ(x.symbol(), Op::Var);
 }
 
 TEST(ENode, LeafNodePreservesDisambiguator) {
-  TestNode x(Op::Var, 42);
+  TestNode x(Op::Var, {}, 42);
 
   EXPECT_EQ(x.disambiguator(), 42);
 }
 
 TEST(ENode, LeafNodesEqualWithSameSymbolAndDisambiguator) {
-  TestNode x1(Op::Var, 1);
-  TestNode x2(Op::Var, 1);
+  TestNode x1(Op::Var, {}, 1);
+  TestNode x2(Op::Var, {}, 1);
 
   EXPECT_EQ(x1, x2);
 }
 
 TEST(ENode, LeafNodesDifferWithDifferentDisambiguator) {
-  TestNode x1(Op::Var, 1);
-  TestNode x2(Op::Var, 2);
+  TestNode x1(Op::Var, {}, 1);
+  TestNode x2(Op::Var, {}, 2);
 
   EXPECT_NE(x1, x2);
 }
 
 TEST(ENode, LeafNodesDifferWithDifferentSymbol) {
-  TestNode x(Op::Var, 1);
-  TestNode y(Op::Const, 1);
+  TestNode x(Op::Var, {}, 1);
+  TestNode y(Op::Const, {}, 1);
 
   EXPECT_NE(x, y);
 }
@@ -133,8 +133,8 @@ TEST(ENode, UnaryNodeSupported) {
 // --- Hash Tests ---
 
 TEST(ENode, EqualLeafNodesHaveSameHash) {
-  TestNode x1(Op::Var, 42);
-  TestNode x2(Op::Var, 42);
+  TestNode x1(Op::Var, {}, 42);
+  TestNode x2(Op::Var, {}, 42);
 
   EXPECT_EQ(x1.hash(), x2.hash());
 }
@@ -149,8 +149,8 @@ TEST(ENode, EqualNonLeafNodesHaveSameHash) {
 }
 
 TEST(ENode, HashDiffersForDifferentDisambiguator) {
-  TestNode x1(Op::Var, 1);
-  TestNode x2(Op::Var, 2);
+  TestNode x1(Op::Var, {}, 1);
+  TestNode x2(Op::Var, {}, 2);
 
   // Different disambiguators should produce different hashes
   EXPECT_NE(x1.hash(), x2.hash());
@@ -204,7 +204,7 @@ TEST(ENode, HashConsistentAcrossConstructions) {
 }
 
 TEST(ENode, StdHashSpecializationWorks) {
-  TestNode x(Op::Var, 1);
+  TestNode x(Op::Var, {}, 1);
   std::hash<TestNode> hasher;
 
   EXPECT_EQ(hasher(x), x.hash());
@@ -226,7 +226,7 @@ TEST(ENode, StdHashConsistentWithNodeHash) {
 
 TEST(ENode, LeafNodeCanonicalizationIsIdentity) {
   UnionFind uf;  // does not matter about union find, cononicalization won't use it
-  TestNode x(Op::Var, 42);
+  TestNode x(Op::Var, {}, 42);
 
   auto canonical = x.canonicalize(uf);
 
@@ -310,7 +310,7 @@ TEST(ENode, MoveConstructionPreservesData) {
 }
 
 TEST(ENode, MoveAssignmentWorks) {
-  TestNode target(Op::Var, 1);
+  TestNode target(Op::Var, {}, 1);
   TestNode source(Op::F, {EClassId{42}, EClassId{43}, EClassId{44}});
   auto original_hash = source.hash();
 
