@@ -196,7 +196,7 @@ struct EGraph : private detail::EGraphBase {
 template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator) -> EClassId {
   // construct leaf e-node with disambiguator
-  auto canonical_node = ENode{std::move(symbol), disambiguator};
+  auto canonical_node = ENode{std::move(symbol), {}, disambiguator};
 
   auto it = hashcons_.find(ENodeRef{canonical_node});
   if (it != hashcons_.end()) {
