@@ -6,6 +6,8 @@ from multiprocessing import Array, Lock, Manager, Process, Value
 
 import psycopg2
 import psycopg2.extras
+from arango import ArangoClient
+from constants import GraphVendors
 from falkordb import FalkorDB
 from neo4j import GraphDatabase
 
@@ -64,8 +66,8 @@ class Neo4jClient(PythonClient):
 
 
 class PostgreSQLClient(PythonClient):
-    def __init__(self, host, port, user="postgres", password="postgres", database="postgres"):
-        self._conn = psycopg2.connect(host=host, port=port, user=user, password=password, database=database)
+    def __init__(self, host, port):
+        self._conn = psycopg2.connect(host=host, port=port, user="postgres", password="postgres", database="postgres")
         self._conn.autocommit = True
         self._cursor = self._conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
@@ -85,25 +87,55 @@ class PostgreSQLClient(PythonClient):
         return (end - start) * 1000
 
 
+class ArangoDBClient(PythonClient):
+    def __init__(self, host, port):
+        self._client = ArangoClient(hosts=f"http://{host}:{port}")
+        # Use default authentication (root with empty password) and _system database
+        self._db = self._client.db("_system", username="root", password="")
+
+    def close(self):
+        pass
+
+    def execute_query(self, query, params=None):
+        start = time.time()
+        cursor = self._db.aql.execute(query, bind_vars=params or {})
+        _ = list(cursor)  # Force client to pull results
+        end = time.time()
+        return (end - start) * 1000
+
+
 def get_python_client(vendor):
-    if vendor == "memgraph" or vendor == "neo4j":
+    if vendor == GraphVendors.MEMGRAPH or vendor == GraphVendors.NEO4J:
         return Neo4jClient
-    if vendor == "falkordb":
+    if vendor == GraphVendors.FALKORDB:
         return FalkorDBClient
-    if vendor == "postgresql":
+    if vendor == GraphVendors.POSTGRESQL:
         return PostgreSQLClient
+    if vendor == GraphVendors.ARANGODB:
+        return ArangoDBClient
     raise Exception(f"Unknown vendor {vendor} when running benchmarks with a Python client!")
 
 
 def execute_validation_task(
-    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit
+    worker_id,
+    vendor,
+    host,
+    port,
+    queries,
+    position,
+    lock,
+    results,
+    durations,
+    max_retries,
+    time_limit,
 ):
     # The method uses same set of arguments so it can be called with multiple workers with the same pattern
     # For this reason, in this function we will not use the following argumetns:
     # - Time limit: Validation queries are performed which are independent from timed execution
     # - Position and lock: There is no synchronization needed as validation query is the sole query needed
     #   to be executed.
-    client = get_python_client(vendor)(host, port)
+    client_class = get_python_client(vendor)
+    client = client_class(host, port)
 
     if len(queries) != 1:
         raise Exception("Validation query should be performed with only one query!")
@@ -126,12 +158,23 @@ def execute_validation_task(
 
 
 def execute_queries_task(
-    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit
+    worker_id,
+    vendor,
+    host,
+    port,
+    queries,
+    position,
+    lock,
+    results,
+    durations,
+    max_retries,
+    time_limit,
 ):
     # The method uses same set of arguments so it can be called with multiple workers with the same pattern
     # For this reason, in this function we will not use the following argumetns:
     # - Time limit: This task is independent from timed execution as every query will be executed only once
-    client = get_python_client(vendor)(host, port)
+    client_class = get_python_client(vendor)
+    client = client_class(host, port)
 
     size = len(queries)
 
@@ -170,9 +213,20 @@ def execute_queries_task(
 
 
 def execute_time_dependent_task(
-    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit
+    worker_id,
+    vendor,
+    host,
+    port,
+    queries,
+    position,
+    lock,
+    results,
+    durations,
+    max_retries,
+    time_limit,
 ):
-    client = get_python_client(vendor)(host, port)
+    client_class = get_python_client(vendor)
+    client = client_class(host, port)
 
     size = len(queries)
 
@@ -295,8 +349,6 @@ def main():
     parser.add_argument("--vendor", default="memgraph", help="Vendor name for the python client")
     parser.add_argument("--host", default="localhost", help="Database server host")
     parser.add_argument("--port", type=int, default=7687, help="Database server port")
-    parser.add_argument("--username", default="", help="Username for the database")
-    parser.add_argument("--password", default="", help="Password for the database")
     parser.add_argument("--num-workers", type=int, default=1, help="Number of worker threads")
     parser.add_argument("--max-retries", type=int, default=50, help="Maximum number of retries for each query")
     parser.add_argument("--input", default="", help="Input file containing queries in JSON format")

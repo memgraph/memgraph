@@ -158,6 +158,8 @@ class BaseClient(ABC):
                 return "RETURN 0;"
             case GraphVendors.POSTGRESQL:
                 return "SELECT 1 AS result;"
+            case GraphVendors.ARANGODB:
+                return "RETURN 1"
             case _:
                 raise Exception(f"Unknown vendor name {self._vendor} for sanity check query!")
 
@@ -1474,3 +1476,107 @@ class PostgreSQLDocker(BaseRunner):
                     raise e  # Credentials are actually wrong
                 time.sleep(0.5)
         raise TimeoutError("PostgreSQL did not become ready in time.")
+
+
+class ArangoDBDocker(BaseRunner):
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context)
+        self._container_name = f"{benchmark_context.vendor_name}_benchmark"
+        self._port = benchmark_context.vendor_args.get("port", 8529)
+        self._user = "root"
+        self._password = ""
+        self._database = "_system"
+        self._image = "arangodb/arangodb:latest"
+        _setup_docker_benchmark_network(DOCKER_NETWORK_NAME)
+
+    def start_db_init(self, message):
+        log.init("Starting ArangoDB for import...")
+        command = [
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            self._container_name,
+            "--network",
+            DOCKER_NETWORK_NAME,
+            "-e",
+            "ARANGO_ROOT_PASSWORD=",
+            "-p",
+            f"{self._port}:8529",
+            self._image,
+        ]
+        run_command(command)
+        _wait_for_server_socket(self._port)
+        self._wait_for_arangodb_ready("127.0.0.1", self._port, self._user, self._password, self._database)
+        log.log("Database started.")
+
+    def start_db(self, message):
+        log.init("Starting ArangoDB for benchmark...")
+        command = ["docker", "start", self._container_name]
+        run_command(command)
+        _wait_for_server_socket(self._port)
+        self._wait_for_arangodb_ready("127.0.0.1", self._port, self._user, self._password, self._database)
+        log.log("Database started.")
+
+    def stop_db_init(self, message):
+        log.init("Stopping database (init)...")
+        usage = self._get_cpu_memory_usage()
+        command = ["docker", "stop", self._container_name]
+        run_command(command)
+        log.log("Database stopped.")
+        return usage
+
+    def stop_db(self, message):
+        log.init("Stopping database...")
+        usage = self._get_cpu_memory_usage()
+        command = ["docker", "stop", self._container_name]
+        run_command(command)
+        log.log("Database stopped.")
+        return usage
+
+    def clean_db(self):
+        self.remove_container(self._container_name)
+
+    def get_database_port(self):
+        return self._port
+
+    def remove_container(self, container_name):
+        command = ["docker", "rm", "-f", container_name]
+        run_command(command)
+
+    def _get_args(self, **kwargs):
+        return _convert_args_to_flags(**kwargs)
+
+    def _get_cpu_memory_usage(self):
+        return {
+            "cpu": get_docker_cpu_usage(self._container_name),
+            "memory": get_docker_memory_usage(self._container_name),
+        }
+
+    def run_command(self, command):
+        ret = subprocess.run(command, capture_output=True, text=True)
+        if ret.returncode != 0:
+            return None
+        return ret.stdout.strip().split("\n")
+
+    def _wait_for_arangodb_ready(self, host, port, user, password, database, timeout=30):
+        from arango import ArangoClient
+
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                client = ArangoClient(hosts=f"http://{host}:{port}")
+                # Use default authentication (root with empty password)
+                sys_db = client.db("_system", username="root", password="")
+                # Try to access the database
+                if database != "_system":
+                    if not sys_db.has_database(database):
+                        sys_db.create_database(database)
+                db = client.db(database, username="root", password="")
+                db.aql.execute("RETURN 1")
+                return
+            except Exception as e:
+                if "authentication failed" in str(e).lower() or "401" in str(e):
+                    raise e  # Credentials are actually wrong
+                time.sleep(0.5)
+        raise TimeoutError("ArangoDB did not become ready in time.")

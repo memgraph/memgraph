@@ -13,10 +13,11 @@
 class DatabaseLanguage:
     CYPHER = "cypher"
     SQL = "sql"
+    AQL = "aql"
 
     @classmethod
     def get_all_database_languages(cls):
-        return [cls.CYPHER, cls.SQL]
+        return [cls.CYPHER, cls.SQL, cls.AQL]
 
 
 class GraphVendors:
@@ -24,10 +25,11 @@ class GraphVendors:
     NEO4J = "neo4j"
     FALKORDB = "falkordb"
     POSTGRESQL = "postgresql"
+    ARANGODB = "arangodb"
 
     @classmethod
     def get_all_vendors(cls):
-        return [cls.MEMGRAPH, cls.NEO4J, cls.FALKORDB, cls.POSTGRESQL]
+        return [cls.MEMGRAPH, cls.NEO4J, cls.FALKORDB, cls.POSTGRESQL, cls.ARANGODB]
 
     @classmethod
     def get_database_language(cls, vendor):
@@ -35,6 +37,9 @@ class GraphVendors:
             return DatabaseLanguage.CYPHER
         if vendor in [GraphVendors.POSTGRESQL]:
             return DatabaseLanguage.SQL
+        if vendor in [GraphVendors.ARANGODB]:
+            return DatabaseLanguage.AQL
+        raise Exception(f"Unknown vendor {vendor} for database language!")
 
 
 class BenchmarkInstallationType:
