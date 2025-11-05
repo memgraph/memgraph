@@ -411,15 +411,9 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
           vertex, storage_->name_id_mapper_->IdToName(new_value.ValueVectorIndexIds().front()));
       if (skip_duplicate_write && old_value_vector == new_value.ValueVectorIndexList()) return true;
       old_value = vertex->properties.GetProperty(property);
-      auto ids_to_remove = old_value.IsVectorIndexId()
-                               ? old_value.ValueVectorIndexIds() | rv::filter([&](const auto &old_id) {
-                                   return !r::contains(new_value.ValueVectorIndexIds(), old_id);
-                                 }) | r::to<std::vector>()
-                               : std::vector<uint64_t>{};
-      if (!ids_to_remove.empty()) {
-        storage_->indices_.vector_index_.DoCleanup(ids_to_remove, vertex, storage_->name_id_mapper_.get());
-      }
-      vertex->properties.SetProperty(property, new_value.ValueVectorIndexList().empty() ? PropertyValue() : new_value);
+      storage_->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, storage_->name_id_mapper_.get(),
+                                                           old_value);
+      vertex->properties.SetProperty(property, new_value);
     } else {
       old_value = vertex->properties.GetProperty(property);
       if (skip_duplicate_write && old_value == new_value) {
@@ -488,7 +482,8 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
     for (const auto &[property, new_value] : properties) {
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
       // TODO: defer until once all properties have been set, to make fewer entries ?
-      storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction, storage->name_id_mapper_.get());
+      storage->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, storage->name_id_mapper_.get(),
+                                                          PropertyValue{});
       transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
@@ -604,6 +599,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
     auto new_value = PropertyValue();
     for (const auto &[property, old_value] : *properties) {
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+      storage->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, storage->name_id_mapper_.get(),
+                                                          PropertyValue{});
       storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction, storage->name_id_mapper_.get());
       transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
       if (schema_acc) {

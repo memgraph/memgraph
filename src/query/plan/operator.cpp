@@ -493,7 +493,7 @@ VertexAccessor const &CreateLocalVertex(const NodeCreationInfo &node_info, Frame
     for (const auto &[key, value_expression] : *node_info_properties) {
       auto typed_value = value_expression->Accept(evaluator);
       auto property_value = typed_value.ToPropertyValue(storage_acc->GetNameIdMapper());
-      if (auto vector_index_ids = storage_acc->IsPropertyInVectorIndex(new_node.impl_.vertex_, key)) {
+      if (auto vector_index_ids = storage_acc->IsVertexInVectorIndex(new_node.impl_.vertex_, key)) {
         property_value = HandleVectorProperty(property_value, *vector_index_ids);
       }
       properties.emplace(key, std::move(property_value));
@@ -503,7 +503,7 @@ VertexAccessor const &CreateLocalVertex(const NodeCreationInfo &node_info, Frame
     for (const auto &[key, value] : property_map.ValueMap()) {
       auto property_id = dba.NameToProperty(key);
       auto property_value = value.ToPropertyValue(storage_acc->GetNameIdMapper());
-      if (auto vector_index_ids = storage_acc->IsPropertyInVectorIndex(new_node.impl_.vertex_, property_id)) {
+      if (auto vector_index_ids = storage_acc->IsVertexInVectorIndex(new_node.impl_.vertex_, property_id)) {
         property_value = HandleVectorProperty(property_value, *vector_index_ids);
       }
       properties.emplace(property_id, std::move(property_value));

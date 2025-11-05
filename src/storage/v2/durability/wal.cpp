@@ -1044,7 +1044,10 @@ std::optional<RecoveryInfo> LoadWal(
           const auto old_type = vertex->properties.GetExtendedPropertyType(property_id);
           schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(property_value)}, old_type);
         }
-        indices->vector_index_.DoCleanup(property_value, property_id, &*vertex, name_id_mapper);
+        if (indices->vector_index_.IsPropertyInVectorIndex(property_id)) {
+          const auto old_property_value = vertex->properties.GetProperty(property_id);
+          indices->vector_index_.UpdateOnSetProperty(property_value, &*vertex, name_id_mapper, old_property_value);
+        }
         vertex->properties.SetProperty(property_id, property_value);
       },
       [&](WalEdgeCreate const &data) {

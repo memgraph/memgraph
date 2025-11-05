@@ -1738,10 +1738,10 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-std::optional<std::vector<uint64_t>> InMemoryStorage::InMemoryAccessor::IsPropertyInVectorIndex(Vertex *vertex,
-                                                                                                PropertyId property) {
+std::optional<std::vector<uint64_t>> InMemoryStorage::InMemoryAccessor::IsVertexInVectorIndex(Vertex *vertex,
+                                                                                              PropertyId property) {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  return in_memory->indices_.vector_index_.IsPropertyInVectorIndex(vertex, property, in_memory->name_id_mapper_.get());
+  return in_memory->indices_.vector_index_.IsVertexInVectorIndex(vertex, property, in_memory->name_id_mapper_.get());
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateVectorEdgeIndex(

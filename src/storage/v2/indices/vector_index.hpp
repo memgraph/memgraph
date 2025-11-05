@@ -101,15 +101,12 @@ class VectorIndex {
   /// @brief Drops all existing indexes.
   void Clear();
 
-  void DoCleanup(const PropertyValue &value, PropertyId property, Vertex *vertex, NameIdMapper *name_id_mapper);
-
-  void DoCleanup(std::span<uint64_t> ids_to_remove, Vertex *vertex, NameIdMapper *name_id_mapper);
-
   /// @brief Updates the index when a property is modified on a vertex.
   /// @param property The property that was modified.
   /// @param value The new value of the property.
   /// @param vertex The vertex on which the property was modified.
-  void UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex, NameIdMapper *name_id_mapper);
+  void UpdateOnSetProperty(const PropertyValue &new_value, Vertex *vertex, NameIdMapper *name_id_mapper,
+                           const PropertyValue &old_value);
 
   /// @brief Updates the index when a property is modified on a vertex.
   /// @param value The new value of the property.
@@ -170,8 +167,10 @@ class VectorIndex {
   /// @param vertex The vertex to check.
   /// @param property The property to check.
   /// @return true if the property is in the vector index, false otherwise.
-  std::optional<std::vector<uint64_t>> IsPropertyInVectorIndex(Vertex *vertex, PropertyId property,
-                                                               NameIdMapper *name_id_mapper);
+  std::optional<std::vector<uint64_t>> IsVertexInVectorIndex(Vertex *vertex, PropertyId property,
+                                                             NameIdMapper *name_id_mapper);
+
+  bool IsPropertyInVectorIndex(PropertyId property) const;
 
   /// @brief Gets all properties that have vector indices for the given label.
   /// @param label The label to get the properties for.

@@ -283,7 +283,7 @@ class DiskStorage final : public Storage {
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
         std::string_view index_name) override;
 
-    std::optional<std::vector<uint64_t>> IsPropertyInVectorIndex(Vertex *vertex, PropertyId property) override;
+    std::optional<std::vector<uint64_t>> IsVertexInVectorIndex(Vertex *vertex, PropertyId property) override;
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(
         VectorEdgeIndexSpec spec) override;
