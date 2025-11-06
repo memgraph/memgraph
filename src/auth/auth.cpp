@@ -215,8 +215,9 @@ const std::string kMtLinkPrefix = "mtlink:";
 // Profile linking is now handled by UserProfiles class
 const std::string kVersion = "version";
 
-static constexpr auto kVersionV1 = "V1";
-static constexpr auto kVersionV2 = "V2";
+constexpr auto kVersionV1 = "V1";
+constexpr auto kVersionV2 = "V2";
+constexpr auto kVersionV3 = "V3";
 }  // namespace
 
 /**
@@ -316,6 +317,91 @@ void MigrateVersions(kvstore::KVStore &store) {
 
     spdlog::info("Auth storage migration to V2 completed successfully");
   }
+
+  if (version_str == kVersionV2) {
+    spdlog::info("Migrating auth storage from V2 to V3");
+    spdlog::warn(
+        "IMPORTANT: Review your security policy and explicitly configure finely grained access rules where needed.");
+
+    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV3}};
+
+    auto const convert_v2_to_v3_permissions = [](uint64_t const v2_perm) -> uint64_t {
+      // V2 permissions used bit_0 for read, bit_1 for update, and bit_2 for
+      // create_delete, but note that the trailing bits are also set because the
+      // permission formed a hierarchy.
+      constexpr uint64_t kV2Read = 1;
+      constexpr uint64_t kV2Update = 3;
+      constexpr uint64_t kV2CreateDelete = 7;
+
+      // V3 permission bits: NOTHING=0, READ=1, UPDATE=2, CREATE=8, DELETE=16.
+      // Need to duplicate them here as FineGrainedPermission is enterprise only
+      // and duplication is preferable to leaking the enum into community
+      // builds.
+      constexpr uint64_t kV3Nothing = 0;
+      constexpr uint64_t kV3Read = 1;
+      constexpr uint64_t kV3Update = 2;
+      constexpr uint64_t kV3Create = 8;
+      constexpr uint64_t kV3Delete = 16;
+
+      switch (v2_perm) {
+        case 0:
+          return kV3Nothing;
+        case kV2Read:
+          return kV3Read;
+        case kV2Update:
+          return kV3Update | kV3Read;
+        case kV2CreateDelete:
+          return kV3Create | kV3Delete | kV3Update | kV3Read;
+        default:
+          return kV3Nothing;
+      }
+    };
+
+    auto const migrate_entity = [&](auto const &prefix) {
+      for (auto it = store.begin(prefix); it != store.end(prefix); ++it) {
+        auto const &[key, value] = *it;
+        try {
+          auto data = nlohmann::json::parse(value);
+
+          auto const fg_it = data.find("fine_grained_access_handler");
+          if (fg_it != data.end() && fg_it->is_object()) {
+            for (auto const &perm_type : {"label_permissions", "edge_type_permissions"}) {
+              auto const perm_it = fg_it->find(perm_type);
+              if (perm_it != fg_it->end() && perm_it->is_object()) {
+                auto &perm_data = *perm_it;
+
+                auto const global_perm_it = perm_data.find("global_permission");
+                if (global_perm_it != perm_data.end() && global_perm_it->is_number_integer()) {
+                  auto const v2_perm = global_perm_it->template get<int64_t>();
+                  if (v2_perm >= 0) {
+                    *global_perm_it = convert_v2_to_v3_permissions(static_cast<uint64_t>(v2_perm));
+                  }
+                }
+
+                perm_data["permissions"] = nlohmann::json::array();
+              }
+            }
+
+            data["fine_grained_permissions"] = std::move(*fg_it);
+            data.erase("fine_grained_access_handler");
+            puts.emplace(key, data.dump());
+          }
+        } catch (const nlohmann::json::exception &e) {
+          spdlog::error("Failed to migrate {}: {}", key, e.what());
+        }
+      }
+    };
+
+    migrate_entity(kUserPrefix);
+    migrate_entity(kRolePrefix);
+
+    if (!puts.empty()) {
+      store.PutMultiple(puts);
+    }
+
+    version_str = kVersionV3;
+    spdlog::info("Auth storage migration to V3 completed successfully");
+  }
 }
 
 std::unordered_map<std::string, auth::Module> PopulateModules(std::string_view module_mappings) {
@@ -362,7 +448,7 @@ Auth::Auth(std::string storage_directory, Config config
     MigrateVersions(storage_);
   } else {
     // Clean storage; put the version
-    storage_.Put(kVersion, kVersionV2);
+    storage_.Put(kVersion, kVersionV3);
   }
 
 #ifdef MG_ENTERPRISE

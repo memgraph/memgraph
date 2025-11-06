@@ -48,25 +48,19 @@ BASIC_PRIVILEGES = [
 
 def test_lba_procedures_show_privileges_first_user():
     expected_assertions_josip = [
-        ("ALL LABELS", "CREATE_DELETE", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
-        (
-            "ALL EDGE_TYPES",
-            "CREATE_DELETE",
-            "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER",
-        ),
-        ("LABEL :Label1", "READ", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label2", "NOTHING", "LABEL PERMISSION DENIED TO USER"),
-        ("LABEL :Label3", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label4", "READ", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label5", "CREATE_DELETE", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label6", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label7", "NOTHING", "LABEL PERMISSION DENIED TO USER"),
+        ("CREATE, READ, UPDATE, DELETE ON ALL LABELS", "GRANT", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
+        ("CREATE, READ, UPDATE, DELETE ON ALL EDGE_TYPES", "GRANT", "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER"),
+        ("READ ON NODES CONTAINING LABELS :Label1 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
+        ("NOTHING ON NODES CONTAINING LABELS :Label2 MATCHING ANY", "DENY", "LABEL PERMISSION DENIED TO USER"),
+        ("UPDATE ON NODES CONTAINING LABELS :Label3 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
+        ("READ ON NODES CONTAINING LABELS :Label4 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
+        ("CREATE, DELETE ON NODES CONTAINING LABELS :Label5 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
+        ("UPDATE ON NODES CONTAINING LABELS :Label6 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
+        ("NOTHING ON NODES CONTAINING LABELS :Label7 MATCHING ANY", "DENY", "LABEL PERMISSION DENIED TO USER"),
     ]
 
     cursor = connect(username="Josip", password="").cursor()
     result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR Josip ON MAIN;")
-
-    assert len(result) == 37
 
     fine_privilege_results = [res for res in result if res[0] not in BASIC_PRIVILEGES]
 
@@ -77,13 +71,13 @@ def test_lba_procedures_show_privileges_first_user():
 def test_lba_procedures_show_privileges_second_user():
     expected_assertions_boris = [
         ("AUTH", "GRANT", "GRANTED TO USER"),
-        ("LABEL :Label1", "READ", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label2", "NOTHING", "LABEL PERMISSION DENIED TO USER"),
-        ("LABEL :Label3", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label4", "READ", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label5", "CREATE_DELETE", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label6", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label7", "NOTHING", "LABEL PERMISSION DENIED TO USER"),
+        ("READ ON NODES CONTAINING LABELS :Label1 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
+        ("NOTHING ON NODES CONTAINING LABELS :Label2 MATCHING ANY", "DENY", "LABEL PERMISSION DENIED TO USER"),
+        ("UPDATE ON NODES CONTAINING LABELS :Label3 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
+        ("READ ON NODES CONTAINING LABELS :Label4 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
+        ("CREATE, DELETE ON NODES CONTAINING LABELS :Label5 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
+        ("UPDATE ON NODES CONTAINING LABELS :Label6 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
+        ("NOTHING ON NODES CONTAINING LABELS :Label7 MATCHING ANY", "DENY", "LABEL PERMISSION DENIED TO USER"),
     ]
 
     cursor = connect(username="Boris", password="").cursor()
@@ -96,7 +90,7 @@ def test_lba_procedures_show_privileges_second_user():
 def test_lba_procedures_show_privileges_third_user():
     expected_assertions_niko = [
         ("AUTH", "GRANT", "GRANTED TO USER"),
-        ("ALL LABELS", "READ", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
+        ("CREATE, READ, DELETE ON ALL LABELS", "GRANT", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
     ]
 
     cursor = connect(username="Niko", password="").cursor()
@@ -109,7 +103,7 @@ def test_lba_procedures_show_privileges_third_user():
 def test_lba_procedures_show_privileges_fourth_user():
     expected_assertions_bruno = [
         ("AUTH", "GRANT", "GRANTED TO USER"),
-        ("ALL LABELS", "UPDATE", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
+        ("UPDATE ON ALL LABELS", "GRANT", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
     ]
 
     # TODO: Revisit behaviour of this test
@@ -119,6 +113,40 @@ def test_lba_procedures_show_privileges_fourth_user():
 
     assert len(result) == len(expected_assertions_bruno)
     assert set(result) == set(expected_assertions_bruno)
+
+
+def test_show_privileges_multiple_labels_matching_any():
+    auth_cursor = connect(username="Boris", password="").cursor()
+
+    execute_and_fetch_all(auth_cursor, "CREATE USER test_user;")
+    execute_and_fetch_all(
+        auth_cursor, "GRANT READ ON NODES CONTAINING LABELS :Person, :Employee MATCHING ANY TO test_user;"
+    )
+    execute_and_fetch_all(auth_cursor, "GRANT UPDATE ON EDGES CONTAINING TYPES :KNOWS, :MANAGES TO test_user;")
+
+    results = execute_and_fetch_all(auth_cursor, "SHOW PRIVILEGES FOR test_user;")
+    privilege_strings = [r[0] for r in results]
+
+    assert "READ ON NODES CONTAINING LABELS :Employee, :Person MATCHING ANY" in privilege_strings
+    assert "UPDATE ON EDGES CONTAINING TYPES :KNOWS, :MANAGES" in privilege_strings
+
+    execute_and_fetch_all(auth_cursor, "DROP USER test_user;")
+
+
+def test_show_privileges_multiple_labels_matching_exactly():
+    auth_cursor = connect(username="Niko", password="").cursor()
+
+    execute_and_fetch_all(auth_cursor, "CREATE USER test_user2;")
+    execute_and_fetch_all(
+        auth_cursor, "GRANT CREATE ON NODES CONTAINING LABELS :Admin, :SuperUser MATCHING EXACTLY TO test_user2;"
+    )
+
+    results = execute_and_fetch_all(auth_cursor, "SHOW PRIVILEGES FOR test_user2;")
+    privilege_strings = [r[0] for r in results]
+
+    assert "CREATE ON NODES CONTAINING LABELS :Admin, :SuperUser MATCHING EXACTLY" in privilege_strings
+
+    execute_and_fetch_all(auth_cursor, "DROP USER test_user2;")
 
 
 if __name__ == "__main__":

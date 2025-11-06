@@ -797,6 +797,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   auto role_databases = auth_query->role_databases_;
 #ifdef MG_ENTERPRISE
   auto label_privileges = auth_query->label_privileges_;
+  auto label_matching_modes = auth_query->label_matching_modes_;
   auto edge_type_privileges = auth_query->edge_type_privileges_;
   auto impersonation_targets = auth_query->impersonation_targets_;
 #endif
@@ -881,11 +882,13 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
               username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
               ,
-              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+              {{{AuthQuery::FineGrainedPrivilege::CREATE, {query::kAsterisk}},
+                {AuthQuery::FineGrainedPrivilege::DELETE, {query::kAsterisk}}}},
+              {AuthQuery::LabelMatchingMode::ANY},  // matching mode for label privileges
               {
                 {
-                  {
-                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
+                  {AuthQuery::FineGrainedPrivilege::CREATE, {query::kAsterisk}}, {
+                    AuthQuery::FineGrainedPrivilege::DELETE, { query::kAsterisk }
                   }
                 }
               }
@@ -1090,7 +1093,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       callback.fn = [auth, user_or_role, privileges, interpreter = &interpreter
 #ifdef MG_ENTERPRISE
                      ,
-                     label_privileges, edge_type_privileges
+                     label_privileges, label_matching_modes, edge_type_privileges
 #endif
       ] {
         if (!interpreter->system_transaction_) {
@@ -1100,7 +1103,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         auth->GrantPrivilege(user_or_role, privileges
 #ifdef MG_ENTERPRISE
                              ,
-                             label_privileges, edge_type_privileges
+                             label_privileges, label_matching_modes, edge_type_privileges
 #endif
                              ,
                              &*interpreter->system_transaction_);
@@ -1123,7 +1126,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       callback.fn = [auth, user_or_role, privileges, interpreter = &interpreter
 #ifdef MG_ENTERPRISE
                      ,
-                     label_privileges, edge_type_privileges
+                     label_privileges, label_matching_modes, edge_type_privileges
 #endif
       ] {
         if (!interpreter->system_transaction_) {
@@ -1133,7 +1136,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         auth->RevokePrivilege(user_or_role, privileges
 #ifdef MG_ENTERPRISE
                               ,
-                              label_privileges, edge_type_privileges
+                              label_privileges, label_matching_modes, edge_type_privileges
 #endif
                               ,
                               &*interpreter->system_transaction_);
@@ -2521,8 +2524,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 
     // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
     // otherwise, we do assign the auth checker to check for label access control
-    if (!auth_checker->HasGlobalPrivilegeOnVertices(AuthQuery::FineGrainedPrivilege::CREATE_DELETE) ||
-        !auth_checker->HasGlobalPrivilegeOnEdges(AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+    if (!auth_checker->HasAllGlobalPrivilegesOnVertices() || !auth_checker->HasAllGlobalPrivilegesOnEdges()) {
       ctx_.auth_checker = std::move(auth_checker);
     }
   }

@@ -103,11 +103,12 @@ TEST_F(TestPrivilegeExtractor, CreateIndex) {
 TEST_F(TestPrivilegeExtractor, AuthQuery) {
   memgraph::license::global_license_checker.EnableTesting();
   auto label_privileges = std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>{};
+  auto label_matching_modes = std::vector<AuthQuery::LabelMatchingMode>{};
   auto edge_type_privileges =
       std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>{};
   auto *query = AUTH_QUERY(AuthQuery::Action::CREATE_ROLE, "", std::vector<std::string>{"role"}, "", false, nullptr, "",
-                           std::vector<AuthQuery::Privilege>{}, label_privileges, edge_type_privileges,
-                           std::vector<std::string>{});
+                           std::vector<AuthQuery::Privilege>{}, label_privileges, label_matching_modes,
+                           edge_type_privileges, std::vector<std::string>{});
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::AUTH));
 }
 #endif
