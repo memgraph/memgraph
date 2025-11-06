@@ -139,27 +139,29 @@ def main_test(data_directory, snapshot, database, clean):
         execute_and_fetch_all(cursor, f"RECOVER SNAPSHOT '{snapshot}' FORCE;")
 
     # 2
-    # Check that the snapshot has been copied over
+    # Check that the snapshot has been copied over (datetime will be different)
     for entry in os.listdir(data_directory + "/snapshots"):
         if not os.path.isdir(data_directory + "/snapshots/" + entry):
-            assert entry == os.path.basename(snapshot), "Missing recovered snapshot from local dir"
+            assert entry.endswith(
+                os.path.basename(snapshot).split("_timestamp_")[1]
+            ), "Missing recovered snapshot from local dir"
             break
-    # Check that the old wal/snapshots have been moved
+    # Check that the old wal/snapshots have been moved to .old directory
     if not clean:
         found = False
-        for entry in os.listdir(data_directory + "/snapshots"):
-            if os.path.isdir(data_directory + "/snapshots/" + entry) and ".old" in entry:
-                found = len(os.listdir(data_directory + "/snapshots/" + entry)) != 0
-                break
+        # Check for .old directory in snapshots
+        old_snapshots_dir = data_directory + "/snapshots/.old"
+        if os.path.exists(old_snapshots_dir) and os.path.isdir(old_snapshots_dir):
+            found = len(os.listdir(old_snapshots_dir)) != 0
+        # If not found in snapshots, check in wal
         if not found:
-            print(found)
-            for entry in os.listdir(data_directory + "/wal"):
-                if os.path.isdir(data_directory + "/wal/" + entry) and ".old" in entry:
-                    found = len(os.listdir(data_directory + "/wal/" + entry)) != 0
-                    break
-        print(os.listdir(data_directory + "/snapshots"))
-        print(os.listdir(data_directory + "/wal"))
-        assert found, "Missing .old"
+            old_wal_dir = data_directory + "/wal/.old"
+            if os.path.exists(old_wal_dir) and os.path.isdir(old_wal_dir):
+                found = len(os.listdir(old_wal_dir)) != 0
+        print(f"Found .old directory with content: {found}")
+        print(f"Snapshots directory contents: {os.listdir(data_directory + '/snapshots')}")
+        print(f"WAL directory contents: {os.listdir(data_directory + '/wal')}")
+        assert found, "Missing .old directory or .old directory is empty"
     # check data
     data_check(cursor, 10)
 
@@ -516,6 +518,139 @@ def test_marked_commits_after_snapshot():
             unreleased_deltas = val
     assert unreleased_deltas is not None
     assert unreleased_deltas == 0
+
+    interactive_mg_runner.kill_all()
+
+
+def test_recover_snapshot_already_in_local_dir(global_snapshot):
+    """Test recovering from a snapshot that is already in the local snapshots directory."""
+    assert global_snapshot is not None, "Need a snapshot to recover from"
+
+    data_directory = tempfile.TemporaryDirectory()
+    interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
+    mt_setup()
+
+    connection = connect(host="localhost", port=7687)
+    cursor = mt_cursor(connection, "memgraph")
+
+    # Create some data and a snapshot
+    execute_and_fetch_all(cursor, "CREATE (:TestNode{id: 1});")
+    result = execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+    local_snapshot_path = result[0][0]
+
+    # Verify the snapshot exists in local directory
+    assert os.path.exists(local_snapshot_path), f"Local snapshot should exist at {local_snapshot_path}"
+
+    # Create more data
+    execute_and_fetch_all(cursor, "CREATE (:TestNode{id: 2});")
+
+    # Recover from the local snapshot
+    execute_and_fetch_all(cursor, f'RECOVER SNAPSHOT "{local_snapshot_path}" FORCE;')
+
+    # Verify only the original data exists (id: 1)
+    result = execute_and_fetch_all(cursor, "MATCH (n:TestNode) RETURN n.id ORDER BY n.id;")
+    assert len(result) == 1, "Should have only one node after recovery"
+    assert result[0][0] == 1, "Should have the original node with id 1"
+
+    # Verify .old directory was created and contains the old snapshot
+    old_snapshots_dir = os.path.join(data_directory.name, "snapshots", ".old")
+    assert os.path.exists(old_snapshots_dir), ".old directory should exist"
+    old_files = os.listdir(old_snapshots_dir)
+    assert len(old_files) > 0, ".old directory should contain files"
+
+    # Recover from the local snapshot again
+    local_snapshots_dir = os.path.join(data_directory.name, "snapshots")
+    local_files = [f for f in os.listdir(local_snapshots_dir) if os.path.isfile(os.path.join(local_snapshots_dir, f))]
+    assert len(local_files) == 1, "There should be exactly one snapshot file in the local directory"
+    local_snapshot_path = os.path.join(local_snapshots_dir, local_files[0])
+    execute_and_fetch_all(cursor, f'RECOVER SNAPSHOT "{local_snapshot_path}" FORCE;')
+
+    # Verify only the original data exists (id: 1)
+    result = execute_and_fetch_all(cursor, "MATCH (n:TestNode) RETURN n.id ORDER BY n.id;")
+    assert len(result) == 1, "Should have only one node after recovery"
+    assert result[0][0] == 1, "Should have the original node with id 1"
+
+    # Verify .old directory was created and contains the old snapshot
+    old_snapshots_dir = os.path.join(data_directory.name, "snapshots", ".old")
+    assert os.path.exists(old_snapshots_dir), ".old directory should exist"
+    old_files = os.listdir(old_snapshots_dir)
+    assert len(old_files) > 0, ".old directory should contain files"
+
+    interactive_mg_runner.kill_all()
+
+
+def test_recover_snapshot_already_in_old_dir(global_snapshot):
+    """Test recovering from a snapshot that is already in the .old directory."""
+    assert global_snapshot is not None, "Need a snapshot to recover from"
+
+    data_directory = tempfile.TemporaryDirectory()
+    interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
+    mt_setup()
+
+    connection = connect(host="localhost", port=7687)
+    cursor = mt_cursor(connection, "memgraph")
+
+    # Create some data and a snapshot
+    execute_and_fetch_all(cursor, "CREATE (:TestNode{id: 1});")
+    result = execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+    local_snapshot_path = result[0][0]
+
+    # Create more data and another snapshot to trigger .old directory creation
+    execute_and_fetch_all(cursor, "CREATE (:TestNode{id: 2});")
+    execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+
+    # Now recover from the first snapshot (which should be in .old directory)
+    execute_and_fetch_all(cursor, f'RECOVER SNAPSHOT "{local_snapshot_path}" FORCE;')
+
+    # Verify only the original data exists (id: 1)
+    result = execute_and_fetch_all(cursor, "MATCH (n:TestNode) RETURN n.id ORDER BY n.id;")
+    assert len(result) == 1, "Should have only one node after recovery"
+    assert result[0][0] == 1, "Should have the original node with id 1"
+
+    # Verify .old directory still exists and contains files
+    old_snapshots_dir = os.path.join(data_directory.name, "snapshots", ".old")
+    assert os.path.exists(old_snapshots_dir), ".old directory should exist"
+    old_files = os.listdir(old_snapshots_dir)
+    assert len(old_files) > 0, ".old directory should contain files"
+
+    interactive_mg_runner.kill_all()
+
+
+def test_recover_snapshot_uuid_and_name_update(global_snapshot):
+    """Test that recovered snapshot gets new UUID and name."""
+    assert global_snapshot is not None, "Need a snapshot to recover from"
+
+    data_directory = tempfile.TemporaryDirectory()
+    interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
+    mt_setup()
+
+    connection = connect(host="localhost", port=7687)
+    cursor = mt_cursor(connection, "memgraph")
+
+    # Create some data and a snapshot
+    execute_and_fetch_all(cursor, "CREATE (:TestNode{id: 1});")
+    result = execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+    original_snapshot_path = result[0][0]
+    original_filename = os.path.basename(original_snapshot_path)
+
+    # Create more data
+    execute_and_fetch_all(cursor, "CREATE (:TestNode{id: 2});")
+
+    # Recover from the original snapshot
+    execute_and_fetch_all(cursor, f'RECOVER SNAPSHOT "{original_snapshot_path}" FORCE;')
+
+    # Check that the recovered snapshot has a new name (different from original)
+    snapshots_dir = os.path.join(data_directory.name, "snapshots")
+    current_files = [f for f in os.listdir(snapshots_dir) if os.path.isfile(os.path.join(snapshots_dir, f))]
+    assert len(current_files) == 1, "Should have exactly one snapshot file"
+    new_filename = current_files[0]
+    assert new_filename != original_filename, "Recovered snapshot should have a new name"
+
+    # Verify the original snapshot is backed up in .old directory
+    old_snapshots_dir = os.path.join(data_directory.name, "snapshots", ".old")
+    assert os.path.exists(old_snapshots_dir), ".old directory should exist"
+    old_files = os.listdir(old_snapshots_dir)
+    assert original_filename in old_files, "Original snapshot should be backed up in .old directory"
 
     interactive_mg_runner.kill_all()
 
