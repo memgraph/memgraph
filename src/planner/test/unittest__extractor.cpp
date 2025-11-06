@@ -16,9 +16,20 @@
 
 using namespace memgraph::planner::core;
 
-enum struct symbol : std::uint8_t { A, B };
+enum struct symbol : std::uint8_t { A, B, ADD, LITERAL };
 
 struct analysis {};
+
+// Helper functions to make tests read like s-expressions
+template <typename EGraph>
+auto Lit(EGraph &egraph, uint64_t value) {
+  return egraph.emplace(symbol::LITERAL, value);
+}
+
+template <typename EGraph>
+auto Add(EGraph &egraph, EClassId left, EClassId right) {
+  return egraph.emplace(symbol::ADD, {left, right});
+}
 
 TEST(Extractor, Thing) {
   auto egraph = EGraph<symbol, analysis>{};
@@ -42,4 +53,605 @@ TEST(Extractor, CheapestRootSelected) {
   ASSERT_EQ(extracted.size(), 1);
   ASSERT_EQ(extracted[0].first, root);
   ASSERT_EQ(extracted[0].second, anode);
+}
+
+// ========================================
+// ProcessEGraph Tests
+// ========================================
+
+TEST(ProcessEGraph, SingleLeafNode) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
+  auto cost_function = [](ENode<symbol> const &) -> double { return 5.0; };
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+
+  auto cost = ProcessEGraph(egraph, cost_function, leaf_class, cheapest_enode);
+
+  ASSERT_EQ(cost, 5.0);
+  ASSERT_EQ(cheapest_enode.size(), 1);
+  ASSERT_EQ(cheapest_enode[leaf_class].enode_id, leaf_node);
+  ASSERT_EQ(cheapest_enode[leaf_class].cost, 5.0);
+}
+
+TEST(ProcessEGraph, SimpleTree) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [left_class, left_node] = egraph.emplace(symbol::A);
+  auto [right_class, right_node] = egraph.emplace(symbol::B);
+  auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
+
+  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+
+  auto cost = ProcessEGraph(egraph, cost_function, root_class, cheapest_enode);
+
+  // Cost should be: 1 (root) + 1 (left) + 1 (right) = 3
+  ASSERT_EQ(cost, 3.0);
+  ASSERT_EQ(cheapest_enode.size(), 3);
+}
+
+TEST(ProcessEGraph, DeepTree) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
+  auto [mid_class, mid_node] = egraph.emplace(symbol::B, {leaf_class});
+  auto [root_class, root_node] = egraph.emplace(symbol::A, {mid_class});
+
+  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+
+  auto cost = ProcessEGraph(egraph, cost_function, root_class, cheapest_enode);
+
+  // Cost should be: 1 (root) + 1 (mid) + 1 (leaf) = 3
+  ASSERT_EQ(cost, 3.0);
+  ASSERT_EQ(cheapest_enode.size(), 3);
+}
+
+TEST(ProcessEGraph, DiamondDAGSharedNode) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [shared_class, shared_node] = egraph.emplace(symbol::A);
+  auto [left_class, left_node] = egraph.emplace(symbol::B, {shared_class}, 1);    // disambiguator = 1
+  auto [right_class, right_node] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
+  auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
+
+  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+
+  auto cost = ProcessEGraph(egraph, cost_function, root_class, cheapest_enode);
+
+  // Shared node should only be computed once via memoization
+  // Cost: root=1 + (left=1+shared=1) + (right=1+shared=1) = 1+2+2 = 5
+  ASSERT_EQ(cost, 5.0);
+  ASSERT_EQ(cheapest_enode.size(), 4);
+  ASSERT_EQ(cheapest_enode[shared_class].cost, 1);
+  ASSERT_EQ(cheapest_enode[left_class].cost, 2);
+  ASSERT_EQ(cheapest_enode[right_class].cost, 2);
+  ASSERT_EQ(cheapest_enode[root_class].cost, 5);
+}
+
+TEST(ProcessEGraph, VariableCostBySymbol) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [aclass, anode] = egraph.emplace(symbol::A);
+  auto [bclass, bnode] = egraph.emplace(symbol::B);
+
+  auto cost_function = [](ENode<symbol> const &node) -> double { return (node.symbol() == symbol::A) ? 2.0 : 5.0; };
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+
+  auto cost_a = ProcessEGraph(egraph, cost_function, aclass, cheapest_enode);
+  auto cost_b = ProcessEGraph(egraph, cost_function, bclass, cheapest_enode);
+
+  ASSERT_EQ(cost_a, 2.0);
+  ASSERT_EQ(cost_b, 5.0);
+}
+
+TEST(ProcessEGraph, SelectsCheapestAmongEquivalents) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [aclass, anode] = egraph.emplace(symbol::A);
+  auto [bclass, bnode] = egraph.emplace(symbol::B);
+  auto root = egraph.merge(aclass, bclass);
+
+  auto cost_function = [](ENode<symbol> const &node) -> double { return (node.symbol() == symbol::A) ? 1.0 : 10.0; };
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+
+  auto cost = ProcessEGraph(egraph, cost_function, root, cheapest_enode);
+
+  ASSERT_EQ(cost, 1.0);
+  ASSERT_EQ(cheapest_enode[root].enode_id, anode);
+  ASSERT_EQ(cheapest_enode[root].cost, 1.0);
+}
+
+TEST(ProcessEGraph, CostAccumulationWithVariableCosts) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [leaf1_class, leaf1_node] = egraph.emplace(symbol::A);
+  auto [leaf2_class, leaf2_node] = egraph.emplace(symbol::B);
+  auto [root_class, root_node] = egraph.emplace(symbol::A, {leaf1_class, leaf2_class});
+
+  auto cost_function = [](ENode<symbol> const &node) -> double { return (node.symbol() == symbol::A) ? 2.0 : 3.0; };
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+
+  auto cost = ProcessEGraph(egraph, cost_function, root_class, cheapest_enode);
+
+  // Cost: 2 (root, symbol A) + 2 (leaf1, symbol A) + 3 (leaf2, symbol B) = 7
+  ASSERT_EQ(cost, 7.0);
+}
+
+TEST(ProcessEGraph, CyclicEGraphInfiniteCost) {
+  // Test case: X (LITERAL 1) merged with (ADD X (LITERAL 0))
+  // This creates a cycle: the 'ADD' e-node has a child that is its own e-class
+  // When evaluating 'ADD' e-node: cost = 1 + cost(X_class) + cost(LITERAL 0)
+  // But X_class now contains both LITERAL 1 and the 'ADD' node
+  // The 'ADD' node can't be the cheapest because it depends on itself
+  // If all e-nodes in the e-class are cyclic, the cost should be infinite
+
+  auto egraph = EGraph<symbol, analysis>{};
+
+  // Create X (LITERAL 1) - a leaf node
+  auto [x_class, x_node] = egraph.emplace(symbol::LITERAL, 1);
+
+  // Create (LITERAL 0) - another leaf
+  auto [zero_class, zero_node] = egraph.emplace(symbol::LITERAL, 0);
+
+  // Create (ADD X 0) - a node with children
+  auto [plus_class, plus_node] = egraph.emplace(symbol::ADD, {x_class, zero_class});
+
+  // Now merge X with (ADD X 0) - this creates the cycle!
+  auto cyclic_class = egraph.merge(x_class, plus_class);
+
+  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+
+  // Process the cyclic e-class
+  auto cost = ProcessEGraph(egraph, cost_function, cyclic_class, cheapest_enode);
+
+  // The cyclic 'ADD' node should have infinite cost (or very large)
+  // The non-cyclic LITERAL node should be selected with cost 1
+  ASSERT_EQ(cost, 1.0);
+  ASSERT_EQ(cheapest_enode[cyclic_class].enode_id, x_node);
+  ASSERT_EQ(cheapest_enode[cyclic_class].cost, 1.0);
+}
+
+TEST(ProcessEGraph, FullyCyclicEClassInfiniteCost) {
+  // Test case: All e-nodes in an e-class are cyclic
+  // E.g., X contains only (ADD X (LITERAL 1)) and (ADD X (LITERAL 2))
+  // Both ADD nodes reference the e-class they're in, creating unavoidable cycles
+
+  auto egraph = EGraph<symbol, analysis>{};
+
+  // Create a placeholder e-class (will become cyclic)
+  auto [x_class, x_node] = egraph.emplace(symbol::LITERAL, 1);
+
+  // Create literals
+  auto [one_class, one_node] = egraph.emplace(symbol::LITERAL, 1);
+  auto [two_class, two_node] = egraph.emplace(symbol::LITERAL, 2);
+
+  // Create (ADD X 1) and (ADD X 2)
+  auto [plus1_class, plus1_node] = egraph.emplace(symbol::ADD, {x_class, one_class});
+  auto [plus2_class, plus2_node] = egraph.emplace(symbol::ADD, {x_class, two_class});
+
+  // Merge X with (ADD X 1)
+  auto cyclic1 = egraph.merge(x_class, plus1_class);
+  // Merge result with (ADD X 2)
+  auto fully_cyclic = egraph.merge(cyclic1, plus2_class);
+
+  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+
+  // This should either:
+  // 1. Return infinity/max double if all nodes are cyclic
+  // 2. Select the original X node if it still exists in the e-class
+  auto cost = ProcessEGraph(egraph, cost_function, fully_cyclic, cheapest_enode);
+
+  // After merges, the original x_node should still be selectable
+  // It has cost 1 (no children), while the 'ADD' nodes have infinite cost
+  ASSERT_EQ(cost, 1.0);
+  ASSERT_EQ(cheapest_enode[fully_cyclic].enode_id, x_node);
+}
+
+// ========================================
+// CollectDependencies Tests
+// ========================================
+
+TEST(CollectDependencies, SingleLeafNode) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+  cheapest_enode[leaf_class] = {leaf_node, 1.0};
+  std::unordered_map<EClassId, int> in_degree;
+
+  CollectDependencies(egraph, cheapest_enode, leaf_class, in_degree);
+
+  // Leaf has no children, so in_degree should be empty
+  ASSERT_EQ(in_degree.size(), 0);
+}
+
+TEST(CollectDependencies, LinearChain) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
+  auto [mid_class, mid_node] = egraph.emplace(symbol::B, {leaf_class});
+  auto [root_class, root_node] = egraph.emplace(symbol::A, {mid_class});
+
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+  cheapest_enode[leaf_class] = {leaf_node, 1.0};
+  cheapest_enode[mid_class] = {mid_node, 1.0};
+  cheapest_enode[root_class] = {root_node, 1.0};
+  std::unordered_map<EClassId, int> in_degree;
+
+  CollectDependencies(egraph, cheapest_enode, root_class, in_degree);
+
+  // mid has in_degree 1 (from root), leaf has in_degree 1 (from mid)
+  ASSERT_EQ(in_degree.size(), 2);
+  ASSERT_EQ(in_degree[mid_class], 1);
+  ASSERT_EQ(in_degree[leaf_class], 1);
+}
+
+TEST(CollectDependencies, SimpleTree) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [left_class, left_node] = egraph.emplace(symbol::A);
+  auto [right_class, right_node] = egraph.emplace(symbol::B);
+  auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
+
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+  cheapest_enode[left_class] = {left_node, 1.0};
+  cheapest_enode[right_class] = {right_node, 1.0};
+  cheapest_enode[root_class] = {root_node, 1.0};
+  std::unordered_map<EClassId, int> in_degree;
+
+  CollectDependencies(egraph, cheapest_enode, root_class, in_degree);
+
+  // Both left and right have in_degree 1 (from root)
+  ASSERT_EQ(in_degree.size(), 2);
+  ASSERT_EQ(in_degree[left_class], 1);
+  ASSERT_EQ(in_degree[right_class], 1);
+}
+
+TEST(CollectDependencies, DiamondDAG) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [shared_class, shared_node] = egraph.emplace(symbol::A);
+  auto [left_class, left_node] = egraph.emplace(symbol::B, {shared_class}, 1);    // disambiguator = 1
+  auto [right_class, right_node] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
+  auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
+
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+  cheapest_enode[shared_class] = {shared_node, 1.0};
+  cheapest_enode[left_class] = {left_node, 1.0};
+  cheapest_enode[right_class] = {right_node, 1.0};
+  cheapest_enode[root_class] = {root_node, 1.0};
+  std::unordered_map<EClassId, int> in_degree;
+
+  CollectDependencies(egraph, cheapest_enode, root_class, in_degree);
+
+  // shared has in_degree 2 (from left and right)
+  // left and right each have in_degree 1 (from root)
+  ASSERT_EQ(in_degree.size(), 3);
+  ASSERT_EQ(in_degree[left_class], 1);
+  ASSERT_EQ(in_degree[right_class], 1);
+  ASSERT_EQ(in_degree[shared_class], 2);
+}
+
+TEST(CollectDependencies, MultipleChildren) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [c1_class, c1_node] = egraph.emplace(symbol::A, 1);  // disambiguator = 1
+  auto [c2_class, c2_node] = egraph.emplace(symbol::B);
+  auto [c3_class, c3_node] = egraph.emplace(symbol::A, 3);  // disambiguator = 3
+  auto [root_class, root_node] = egraph.emplace(symbol::B, {c1_class, c2_class, c3_class});
+
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+  cheapest_enode[c1_class] = {c1_node, 1.0};
+  cheapest_enode[c2_class] = {c2_node, 1.0};
+  cheapest_enode[c3_class] = {c3_node, 1.0};
+  cheapest_enode[root_class] = {root_node, 1.0};
+  std::unordered_map<EClassId, int> in_degree;
+
+  CollectDependencies(egraph, cheapest_enode, root_class, in_degree);
+
+  ASSERT_EQ(in_degree.size(), 3);
+  ASSERT_EQ(in_degree[c1_class], 1);
+  ASSERT_EQ(in_degree[c2_class], 1);
+  ASSERT_EQ(in_degree[c3_class], 1);
+}
+
+TEST(CollectDependencies, EmptyCheapestMap) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, int> in_degree;
+
+  // Should handle gracefully when eclass not in cheapest_enode
+  CollectDependencies(egraph, cheapest_enode, leaf_class, in_degree);
+
+  ASSERT_EQ(in_degree.size(), 0);
+}
+
+// ========================================
+// TopologicalSort Tests
+// ========================================
+
+TEST(TopologicalSort, SingleNode) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+  cheapest_enode[leaf_class] = {leaf_node, 1.0};
+  std::unordered_map<EClassId, int> in_degree;
+  std::vector<std::pair<EClassId, ENodeId>> result;
+
+  TopologicalSort(egraph, cheapest_enode, in_degree, leaf_class, result);
+
+  ASSERT_EQ(result.size(), 1);
+  ASSERT_EQ(result[0].first, leaf_class);
+  ASSERT_EQ(result[0].second, leaf_node);
+}
+
+TEST(TopologicalSort, LinearChainOrdering) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
+  auto [mid_class, mid_node] = egraph.emplace(symbol::B, {leaf_class});
+  auto [root_class, root_node] = egraph.emplace(symbol::A, {mid_class});
+
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+  cheapest_enode[leaf_class] = {leaf_node, 1.0};
+  cheapest_enode[mid_class] = {mid_node, 1.0};
+  cheapest_enode[root_class] = {root_node, 1.0};
+  std::unordered_map<EClassId, int> in_degree;
+  in_degree[mid_class] = 1;
+  in_degree[leaf_class] = 1;
+  std::vector<std::pair<EClassId, ENodeId>> result;
+
+  TopologicalSort(egraph, cheapest_enode, in_degree, root_class, result);
+
+  ASSERT_EQ(result.size(), 3);
+  // Order should be: root, mid, leaf
+  ASSERT_EQ(result[0].first, root_class);
+  ASSERT_EQ(result[1].first, mid_class);
+  ASSERT_EQ(result[2].first, leaf_class);
+}
+
+TEST(TopologicalSort, SimpleTreeOrdering) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [left_class, left_node] = egraph.emplace(symbol::A);
+  auto [right_class, right_node] = egraph.emplace(symbol::B);
+  auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
+
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+  cheapest_enode[left_class] = {left_node, 1.0};
+  cheapest_enode[right_class] = {right_node, 1.0};
+  cheapest_enode[root_class] = {root_node, 1.0};
+  std::unordered_map<EClassId, int> in_degree;
+  in_degree[left_class] = 1;
+  in_degree[right_class] = 1;
+  std::vector<std::pair<EClassId, ENodeId>> result;
+
+  TopologicalSort(egraph, cheapest_enode, in_degree, root_class, result);
+
+  ASSERT_EQ(result.size(), 3);
+  // Root should come first
+  ASSERT_EQ(result[0].first, root_class);
+  // Left and right can come in any order, but both should be after root
+}
+
+TEST(TopologicalSort, DiamondTopology) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [shared_class, shared_node] = egraph.emplace(symbol::A);
+  auto [left_class, left_node] = egraph.emplace(symbol::B, {shared_class}, 1);    // disambiguator = 1
+  auto [right_class, right_node] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
+  auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
+
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+  cheapest_enode[shared_class] = {shared_node, 1.0};
+  cheapest_enode[left_class] = {left_node, 1.0};
+  cheapest_enode[right_class] = {right_node, 1.0};
+  cheapest_enode[root_class] = {root_node, 1.0};
+  std::unordered_map<EClassId, int> in_degree;
+  in_degree[left_class] = 1;
+  in_degree[right_class] = 1;
+  in_degree[shared_class] = 2;
+  std::vector<std::pair<EClassId, ENodeId>> result;
+
+  TopologicalSort(egraph, cheapest_enode, in_degree, root_class, result);
+
+  ASSERT_EQ(result.size(), 4);
+  // Root comes first
+  ASSERT_EQ(result[0].first, root_class);
+  // Shared must come after both left and right
+  ASSERT_EQ(result[3].first, shared_class);
+}
+
+TEST(TopologicalSort, VerifyDependenciesBeforeParents) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
+  auto [mid_class, mid_node] = egraph.emplace(symbol::B, {leaf_class});
+  auto [root_class, root_node] = egraph.emplace(symbol::A, {mid_class});
+
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+  cheapest_enode[leaf_class] = {leaf_node, 1.0};
+  cheapest_enode[mid_class] = {mid_node, 1.0};
+  cheapest_enode[root_class] = {root_node, 1.0};
+  std::unordered_map<EClassId, int> in_degree;
+  in_degree[mid_class] = 1;
+  in_degree[leaf_class] = 1;
+  std::vector<std::pair<EClassId, ENodeId>> result;
+
+  TopologicalSort(egraph, cheapest_enode, in_degree, root_class, result);
+
+  // Find indices
+  int root_idx = -1, mid_idx = -1, leaf_idx = -1;
+  for (size_t i = 0; i < result.size(); ++i) {
+    if (result[i].first == root_class) root_idx = i;
+    if (result[i].first == mid_class) mid_idx = i;
+    if (result[i].first == leaf_class) leaf_idx = i;
+  }
+
+  // Verify dependencies come after parents
+  ASSERT_LT(root_idx, mid_idx);
+  ASSERT_LT(mid_idx, leaf_idx);
+}
+
+TEST(TopologicalSort, EmptyCheapestMap) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, int> in_degree;
+  std::vector<std::pair<EClassId, ENodeId>> result;
+
+  TopologicalSort(egraph, cheapest_enode, in_degree, leaf_class, result);
+
+  // Should handle gracefully
+  ASSERT_EQ(result.size(), 0);
+}
+
+TEST(TopologicalSort, MultipleRootsIndependentBranches) {
+  // Although Extract() is called on a single root, test that topological sort
+  // can handle case where there are parallel independent branches
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [l1_class, l1_node] = egraph.emplace(symbol::A);
+  auto [l2_class, l2_node] = egraph.emplace(symbol::B);
+  auto [root_class, root_node] = egraph.emplace(symbol::A, {l1_class, l2_class});
+
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+  cheapest_enode[l1_class] = {l1_node, 1.0};
+  cheapest_enode[l2_class] = {l2_node, 1.0};
+  cheapest_enode[root_class] = {root_node, 1.0};
+  std::unordered_map<EClassId, int> in_degree;
+  in_degree[l1_class] = 1;
+  in_degree[l2_class] = 1;
+  std::vector<std::pair<EClassId, ENodeId>> result;
+
+  TopologicalSort(egraph, cheapest_enode, in_degree, root_class, result);
+
+  ASSERT_EQ(result.size(), 3);
+  // Root should be first, l1 and l2 can be in any order
+  ASSERT_EQ(result[0].first, root_class);
+}
+
+TEST(TopologicalSort, WideTree) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [c1_class, c1_node] = egraph.emplace(symbol::A, 1);  // disambiguator = 1
+  auto [c2_class, c2_node] = egraph.emplace(symbol::B, 2);  // disambiguator = 2
+  auto [c3_class, c3_node] = egraph.emplace(symbol::A, 3);  // disambiguator = 3
+  auto [c4_class, c4_node] = egraph.emplace(symbol::B, 4);  // disambiguator = 4
+  auto [root_class, root_node] = egraph.emplace(symbol::A, {c1_class, c2_class, c3_class, c4_class});
+
+  std::unordered_map<EClassId, Cost> cheapest_enode;
+  cheapest_enode[c1_class] = {c1_node, 1.0};
+  cheapest_enode[c2_class] = {c2_node, 1.0};
+  cheapest_enode[c3_class] = {c3_node, 1.0};
+  cheapest_enode[c4_class] = {c4_node, 1.0};
+  cheapest_enode[root_class] = {root_node, 1.0};
+  std::unordered_map<EClassId, int> in_degree;
+  in_degree[c1_class] = 1;
+  in_degree[c2_class] = 1;
+  in_degree[c3_class] = 1;
+  in_degree[c4_class] = 1;
+  std::vector<std::pair<EClassId, ENodeId>> result;
+
+  TopologicalSort(egraph, cheapest_enode, in_degree, root_class, result);
+
+  ASSERT_EQ(result.size(), 5);
+  ASSERT_EQ(result[0].first, root_class);
+}
+
+// ========================================
+// Integration Tests (Full Extract Pipeline)
+// ========================================
+
+TEST(Extractor, IntegrationComplexTree) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [l1_class, l1_node] = egraph.emplace(symbol::A);
+  auto [l2_class, l2_node] = egraph.emplace(symbol::B);
+  auto [mid_class, mid_node] = egraph.emplace(symbol::A, {l1_class, l2_class});
+  auto [root_class, root_node] = egraph.emplace(symbol::B, {mid_class});
+
+  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
+  auto extractor = Extractor{egraph, cost_function};
+  auto extracted = extractor.Extract(root_class);
+
+  ASSERT_EQ(extracted.size(), 4);
+  // Verify root is first
+  ASSERT_EQ(extracted[0].first, root_class);
+}
+
+TEST(Extractor, IntegrationDiamondDAG) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [shared_class, shared_node] = egraph.emplace(symbol::A);
+  auto [left_class, left_node] = egraph.emplace(symbol::B, {shared_class}, 1);    // disambiguator = 1
+  auto [right_class, right_node] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
+  auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
+
+  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
+  auto extractor = Extractor{egraph, cost_function};
+  auto extracted = extractor.Extract(root_class);
+
+  ASSERT_EQ(extracted.size(), 4);
+  // Verify shared node comes last
+  ASSERT_EQ(extracted[3].first, shared_class);
+}
+
+TEST(Extractor, IntegrationNestedEquivalence) {
+  auto egraph = EGraph<symbol, analysis>{};
+  // Create equivalence at leaf level
+  auto [a1_class, a1_node] = egraph.emplace(symbol::A);
+  auto [b1_class, b1_node] = egraph.emplace(symbol::B);
+  auto leaf_equiv = egraph.merge(a1_class, b1_class);
+
+  // Create parent with equivalence
+  auto [a2_class, a2_node] = egraph.emplace(symbol::A, {leaf_equiv});
+  auto [b2_class, b2_node] = egraph.emplace(symbol::B, {leaf_equiv});
+  auto root = egraph.merge(a2_class, b2_class);
+
+  auto cost_function = [](ENode<symbol> const &node) -> double { return (node.symbol() == symbol::A) ? 1.0 : 5.0; };
+  auto extractor = Extractor{egraph, cost_function};
+  auto extracted = extractor.Extract(root);
+
+  ASSERT_EQ(extracted.size(), 2);
+  // Should select cheaper A nodes at both levels
+  ASSERT_EQ(extracted[0].second, a2_node);
+  ASSERT_EQ(extracted[1].second, a1_node);
+}
+
+TEST(Extractor, IntegrationGetResultAfterExtract) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
+  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
+  auto extractor = Extractor{egraph, cost_function};
+
+  auto extracted = extractor.Extract(leaf_class);
+  auto result = extractor.GetResult();
+
+  ASSERT_EQ(result.size(), extracted.size());
+  ASSERT_EQ(result[0].first, extracted[0].first);
+  ASSERT_EQ(result[0].second, extracted[0].second);
+}
+
+TEST(Extractor, IntegrationMultipleEquivalents) {
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [a_class, a_node] = egraph.emplace(symbol::A);
+  auto [b_class, b_node] = egraph.emplace(symbol::B);
+  auto ab_equiv = egraph.merge(a_class, b_class);
+  auto [c_class, c_node] = egraph.emplace(symbol::A);
+  auto root = egraph.merge(ab_equiv, c_class);
+
+  // 3 equivalent nodes: A (cost 1), B (cost 10), A (cost 1)
+  auto cost_function = [](ENode<symbol> const &node) -> double { return (node.symbol() == symbol::A) ? 1.0 : 10.0; };
+  auto extractor = Extractor{egraph, cost_function};
+  auto extracted = extractor.Extract(root);
+
+  ASSERT_EQ(extracted.size(), 1);
+  // Should select one of the A nodes (both have cost 1)
+  auto selected_node = egraph.get_enode(extracted[0].second);
+  ASSERT_EQ(selected_node.symbol(), symbol::A);
+}
+
+TEST(Extractor, IntegrationWideAndDeep) {
+  auto egraph = EGraph<symbol, analysis>{};
+  // Build a structure that's both wide and deep
+  auto [l1_class, l1_node] = egraph.emplace(symbol::A, 1);  // disambiguator = 1
+  auto [l2_class, l2_node] = egraph.emplace(symbol::B);
+  auto [l3_class, l3_node] = egraph.emplace(symbol::A, 3);  // disambiguator = 3
+  auto [mid1_class, mid1_node] = egraph.emplace(symbol::B, {l1_class, l2_class});
+  auto [mid2_class, mid2_node] = egraph.emplace(symbol::A, {l3_class});
+  auto [root_class, root_node] = egraph.emplace(symbol::A, {mid1_class, mid2_class});
+
+  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
+  auto extractor = Extractor{egraph, cost_function};
+  auto extracted = extractor.Extract(root_class);
+
+  ASSERT_EQ(extracted.size(), 6);
+  ASSERT_EQ(extracted[0].first, root_class);
 }
