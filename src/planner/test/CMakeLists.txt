@@ -3,6 +3,7 @@ add_unit_test(planner
         unittest__union_find.cpp
         unittest__enode.cpp
         unittest__egraph.cpp
+        unittest__extractor.cpp
     LINK_TARGETS mg::planner
 )
 
