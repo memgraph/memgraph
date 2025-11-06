@@ -27,6 +27,9 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 #include "ctre.hpp"
+#include "flags/bolt.hpp"
+#include "memory/query_memory_control.hpp"
+#include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
 #include "flags/run_time_configurable.hpp"
@@ -4923,13 +4926,15 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value,
-                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
-  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-  {value.UpdateProperties(properties)};
-};
+concept AccessorWithProperties =
+    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
+             std::map<storage::PropertyId, storage::PropertyValue> properties) {
+      {
+        value.ClearProperties()
+      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+      { value.SetProperty(property_id, property_value) };
+      { value.UpdateProperties(properties) };
+    };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -5993,7 +5998,7 @@ void UpdateImpl(ExpressionEvaluator *evaluator, auto *agg_value, const auto &agg
         value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
         break;
     }  // end switch over Aggregation::Op enum
-  }    // end loop over all aggregations
+  }  // end loop over all aggregations
 }
 
 void ProcessOneImpl(const Frame &frame, ExpressionEvaluator *evaluator, const std::vector<Expression *> &group_by,
@@ -6087,8 +6092,11 @@ bool ProcessAllImpl(Frame *frame, ExecutionContext *context, Cursor *input_curso
 
 }  // namespace
 
+class AggregateParallelCursor;
+
 class AggregateCursor : public Cursor {
  public:
+  friend class AggregateParallelCursor;
   AggregateCursor(const Aggregate &self, utils::MemoryResource *mem)
       : self_(self),
         input_cursor_(self_.input_->MakeCursor(mem)),
@@ -6452,9 +6460,8 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(
-          rv::zip(order_by, output), self_.compare_.lex_cmp(),
-          [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(rv::zip(order_by, output), self_.compare_.lex_cmp(),
+                   [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
@@ -8939,26 +8946,33 @@ class ScanParallelCursor : public Cursor {
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), get_chunks_(std::move(get_chunks)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    auto now = std::chrono::steady_clock::now();
     size_t index = 0;
     {
       std::lock_guard lock(mutex_);
       if (index_ == 0 || index_ >= self_.num_threads_) {
-        bool res = input_cursor_->Pull(frame, context);
+        if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
+        bool res = input_cursor_->Pull(*frame_, context);
         if (!res) return false;
         index_ = 0;
-        chunks_ = get_chunks_(frame, context);
+        chunks_ = get_chunks_(*frame_, context);
         if (!chunks_) return false;
         chunks_vector_.clear();
+        std::cout << "scanparallel got " << chunks_->size() << " chunks\n";
         for (size_t i = 0; i < chunks_->size(); i++) {
           chunks_vector_.push_back(chunks_->get_chunk(i));
         }
       }
+      frame = *frame_;  // Copy the filled frame
       index = index_;
       index_++;
     }
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     frame_writer.Write(self_.output_symbol_,
                        index < chunks_vector_.size() ? reinterpret_cast<int64_t>(&chunks_vector_[index]) : 0);
+    auto end = std::chrono::steady_clock::now();
+    std::cout << "scanparallel pulling time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - now).count() << "ms" << std::endl;
     return true;
   }
 
@@ -8970,6 +8984,7 @@ class ScanParallelCursor : public Cursor {
   mutable std::mutex mutex_;
   size_t index_{0};
   const ScanParallel &self_;
+  std::optional<Frame> frame_{std::nullopt};
   const UniqueCursorPtr input_cursor_;
   TChunksFun get_chunks_;
   std::optional<typename std::result_of<TChunksFun(Frame &, ExecutionContext &)>::type::value_type> chunks_{};
@@ -8981,6 +8996,7 @@ UniqueCursorPtr ScanParallel::MakeCursor(utils::MemoryResource *mem) const {
 
   auto get_chunks = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
+    std::cout << "scanparallel getting " << num_threads_ << " chunks\n";
     return std::make_optional(db->ChunkedVertices(view_, num_threads_));
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
@@ -9012,8 +9028,9 @@ class AggregateParallelCursor : public Cursor {
           // Set the shared scan parallel
           ScanChunk::shared_scan_parallel_ = self_.post_scan_input_->MakeCursor(mem);
           std::vector<UniqueCursorPtr> cursors;
-          cursors.reserve(self_.num_threads_);
-          for (size_t i = 0; i < self_.num_threads_; i++) {
+          const auto num_threads = std::min(self_.num_threads_, static_cast<size_t>(FLAGS_bolt_num_workers));
+          cursors.reserve(num_threads);
+          for (size_t i = 0; i < num_threads; i++) {
             cursors.push_back(self_.agg_inputs_->MakeCursor(mem));
           }
           return cursors;
@@ -9023,31 +9040,58 @@ class AggregateParallelCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
-    (void)initialized_;
+    if (agg_inputs_cursor_.empty()) {
+      return false;
+    }
+
+    // TODO Maybe not needed
+    context.frame_change_collector = nullptr;
+
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    auto &main_aggregation = static_cast<AggregateCursor *>(agg_inputs_cursor_[0].get())->aggregation_;
+    auto &aggregations = static_cast<AggregateCursor *>(agg_inputs_cursor_[0].get())->self_.aggregations_;
+    auto &remember = static_cast<AggregateCursor *>(agg_inputs_cursor_[0].get())->self_.remember_;
+
+    // Already pulled all, just return next aggregation value
+    if (initialized_) {
+      if (aggregation_it_ == main_aggregation.end()) return false;
+
+      // place aggregation values on the frame
+      auto aggregation_values_it = aggregation_it_->second.values_.begin();
+      for (const auto &aggregation_elem : aggregations)
+        frame_writer.Write(aggregation_elem.output_sym, *aggregation_values_it++);
+
+      // place remember values on the frame
+      auto remember_values_it = aggregation_it_->second.remember_.begin();
+      for (const Symbol &remember_sym : remember) frame_writer.Write(remember_sym, *remember_values_it++);
+
+      aggregation_it_++;
+      return true;
+    }
+
+    initialized_ = true;
     (void)post_scan_input_cursor_;
 
     AbortCheck(context);
-
-    context.frame_change_collector = nullptr;
 
     // Call post scan input cursor (initializes the iterators)
     std::atomic_int pull_result = false;
     utils::TaskCollection tasks(agg_inputs_cursor_.size());
     for (size_t i = 1; i < agg_inputs_cursor_.size(); i++) {
-      const auto &cursor = agg_inputs_cursor_[i];
       // TODO Frame needs to be copied after the bottom pull (pull from here, copy then schedule)
-      tasks.AddTask([&, context_copy = context](utils::Priority /*unused*/) mutable {
+      tasks.AddTask([&, i, frame_copy = frame, context_copy = context](utils::Priority /*unused*/) mutable {
+        const auto &cursor = agg_inputs_cursor_[i];
         // TODO: copy the context
-        Frame frame_copy{(int)frame.elems().size(), frame.get_allocator()};
         auto now = std::chrono::steady_clock::now();
-
         pull_result.fetch_add((int)cursor->Pull(frame_copy, context_copy));
+        // cursor->Pull(frame_copy, context_copy);
         auto end = std::chrono::steady_clock::now();
         std::cout << "while pulling time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - now).count()
                   << "ms" << std::endl;
       });
     }
-    // TODO directly call the 0th branch
+
+    // Schedule the tasks
     if (context.worker_pool) {
       context.worker_pool->ScheduledCollection(tasks);
     }
@@ -9058,27 +9102,273 @@ class AggregateParallelCursor : public Cursor {
 
     tasks.WaitOrSteal();
     if (pull_result.load() == 0) return false;
-    // TODO: Combine the results of the aggregations...
 
-    // TODO: Return the result of the aggregation...
-    // If exhausted, pull the next row from the post scan input...
+    // Combine the results of the aggregations from all cursors into main_aggregation
+    auto *main_mem = main_aggregation.get_allocator().resource();
+    for (size_t i = 1; i < agg_inputs_cursor_.size(); i++) {
+      auto &other_aggregation = static_cast<AggregateCursor *>(agg_inputs_cursor_[i].get())->aggregation_;
+
+      for (const auto &other_kv : other_aggregation) {
+        const auto &other_group_by = other_kv.first;
+        const auto &other_agg_value = other_kv.second;
+
+        // Try to find or create the entry in main_aggregation
+        auto main_res = main_aggregation.try_emplace(other_group_by, main_mem);
+        auto &main_agg_value = main_res.first->second;
+        bool was_newly_inserted = main_res.second;
+
+        if (was_newly_inserted) {
+          // Copy the entire AggregationValue from the other cursor
+          // Initialize vectors (they will be empty for newly inserted entries)
+          const auto num_of_aggregations = aggregations.size();
+          main_agg_value.values_.reserve(num_of_aggregations);
+          main_agg_value.unique_values_.reserve(num_of_aggregations);
+
+          for (const auto &agg_elem : aggregations) {
+            main_agg_value.values_.emplace_back(DefaultAggregationOpValue(agg_elem, main_mem));
+            main_agg_value.unique_values_.emplace_back(typename AggregateCursor::AggregationValue::TSet(main_mem));
+          }
+          main_agg_value.counts_.resize(num_of_aggregations, 0);
+          main_agg_value.remember_.reserve(other_agg_value.remember_.size());
+          for (const auto &remember_val : other_agg_value.remember_) {
+            main_agg_value.remember_.push_back(remember_val);
+          }
+
+          // Copy values, counts, and unique_values from other_agg_value
+          // For AVG, values may be post-processed (averages), so convert back to sums
+          auto *pull_memory = context.evaluation_context.memory;
+          for (size_t pos = 0; pos < aggregations.size(); ++pos) {
+            if (aggregations[pos].op == Aggregation::Op::AVG) {
+              // Convert average back to sum (avg * count = sum)
+              const auto &other_value = other_agg_value.values_[pos];
+              const auto &other_count = other_agg_value.counts_[pos];
+              if (!other_value.IsNull() && other_count > 0) {
+                main_agg_value.values_[pos] = other_value * TypedValue(static_cast<double>(other_count), pull_memory);
+              } else {
+                main_agg_value.values_[pos] = other_value;
+              }
+            } else {
+              main_agg_value.values_[pos] = other_agg_value.values_[pos];
+            }
+            main_agg_value.counts_[pos] = other_agg_value.counts_[pos];
+            // Copy unique_values set
+            for (const auto &unique_val : other_agg_value.unique_values_[pos]) {
+              main_agg_value.unique_values_[pos].insert(unique_val);
+            }
+          }
+        } else {
+          // Merge the AggregationValues
+          for (size_t pos = 0; pos < aggregations.size(); ++pos) {
+            const auto &agg_op = aggregations[pos].op;
+            const auto &other_value = other_agg_value.values_[pos];
+            const auto &other_count = other_agg_value.counts_[pos];
+            auto &main_value = main_agg_value.values_[pos];
+            auto &main_count = main_agg_value.counts_[pos];
+
+            // Merge unique_values sets for distinct aggregations
+            if (aggregations[pos].distinct) {
+              for (const auto &unique_val : other_agg_value.unique_values_[pos]) {
+                main_agg_value.unique_values_[pos].insert(unique_val);
+              }
+            }
+
+            // Skip if other value is Null (unless it's COUNT)
+            if (other_value.IsNull() && agg_op != Aggregation::Op::COUNT) {
+              continue;
+            }
+
+            // Merge based on aggregation operation
+            switch (agg_op) {
+              case Aggregation::Op::COUNT: {
+                // For COUNT, just add the counts
+                main_count += other_count;
+                break;
+              }
+              case Aggregation::Op::SUM: {
+                // For SUM, add values and counts
+                if (main_value.IsNull()) {
+                  main_value = other_value;
+                } else if (!other_value.IsNull()) {
+                  main_value = main_value + other_value;
+                }
+                main_count += other_count;
+                break;
+              }
+              case Aggregation::Op::AVG: {
+                // For AVG, values may already be post-processed (averages) from ProcessAll.
+                // We need to convert averages back to sums, add sums, then divide in post-processing.
+                // sum = avg * count, so we reconstruct the sum from the average and count.
+                if (main_value.IsNull()) {
+                  main_value = other_value;
+                  main_count = other_count;
+                } else if (!other_value.IsNull()) {
+                  // Convert averages back to sums, add sums, store as sum
+                  // We'll divide by total count in post-processing
+                  auto *pull_memory = context.evaluation_context.memory;
+                  TypedValue main_sum = main_value * TypedValue(static_cast<double>(main_count), pull_memory);
+                  TypedValue other_sum = other_value * TypedValue(static_cast<double>(other_count), pull_memory);
+                  main_value = main_sum + other_sum;
+                  main_count += other_count;
+                } else {
+                  main_count += other_count;
+                }
+                break;
+              }
+              case Aggregation::Op::MIN: {
+                if (main_value.IsNull()) {
+                  main_value = other_value;
+                } else if (!other_value.IsNull()) {
+                  try {
+                    TypedValue comparison_result = other_value < main_value;
+                    if (comparison_result.ValueBool()) {
+                      main_value = other_value;
+                    }
+                  } catch (const TypedValueException &) {
+                    throw QueryRuntimeException("Unable to get MIN of '{}' and '{}'.", other_value.type(),
+                                                main_value.type());
+                  }
+                }
+                main_count += other_count;
+                break;
+              }
+              case Aggregation::Op::MAX: {
+                if (main_value.IsNull()) {
+                  main_value = other_value;
+                } else if (!other_value.IsNull()) {
+                  try {
+                    TypedValue comparison_result = other_value > main_value;
+                    if (comparison_result.ValueBool()) {
+                      main_value = other_value;
+                    }
+                  } catch (const TypedValueException &) {
+                    throw QueryRuntimeException("Unable to get MAX of '{}' and '{}'.", other_value.type(),
+                                                main_value.type());
+                  }
+                }
+                main_count += other_count;
+                break;
+              }
+              case Aggregation::Op::COLLECT_LIST: {
+                // Append lists together
+                if (main_value.IsNull()) {
+                  main_value = other_value;
+                } else if (!other_value.IsNull()) {
+                  auto &main_list = main_value.ValueList();
+                  const auto &other_list = other_value.ValueList();
+                  main_list.insert(main_list.end(), other_list.begin(), other_list.end());
+                }
+                main_count += other_count;
+                break;
+              }
+              case Aggregation::Op::COLLECT_MAP: {
+                // Merge maps (if key exists in both, the other value overwrites)
+                if (main_value.IsNull()) {
+                  main_value = other_value;
+                } else if (!other_value.IsNull()) {
+                  auto &main_map = main_value.ValueMap();
+                  const auto &other_map = other_value.ValueMap();
+                  for (const auto &[key, val] : other_map) {
+                    main_map[key] = val;
+                  }
+                }
+                main_count += other_count;
+                break;
+              }
+              case Aggregation::Op::PROJECT_PATH:
+              case Aggregation::Op::PROJECT_LISTS: {
+                // Merge graphs together by inserting vertices and edges
+                if (main_value.IsNull()) {
+                  main_value = other_value;
+                } else if (!other_value.IsNull()) {
+                  auto &main_graph = main_value.ValueGraph();
+                  const auto &other_graph = other_value.ValueGraph();
+                  // Insert all vertices and edges from the other graph
+                  for (const auto &vertex : other_graph.vertices()) {
+                    main_graph.InsertVertex(vertex);
+                  }
+                  for (const auto &edge : other_graph.edges()) {
+                    main_graph.InsertEdge(edge);
+                  }
+                }
+                main_count += other_count;
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Post-processing: convert SUM to AVG and COUNT counts to values
+    // Note: For AVG, we've already converted averages back to sums during merging,
+    // so now we need to divide by the total count to get the final average.
+    for (size_t pos = 0; pos < aggregations.size(); ++pos) {
+      switch (aggregations[pos].op) {
+        case Aggregation::Op::AVG: {
+          // Calculate AVG aggregations (values are sums, divide by count)
+          for (auto &kv : main_aggregation) {
+            auto &agg_value = kv.second;
+            auto count = agg_value.counts_[pos];
+            auto *pull_memory = context.evaluation_context.memory;
+            if (count > 0) {
+              agg_value.values_[pos] = agg_value.values_[pos] / TypedValue(static_cast<double>(count), pull_memory);
+            }
+          }
+          break;
+        }
+        case Aggregation::Op::COUNT: {
+          // Copy counts to be the value
+          for (auto &kv : main_aggregation) {
+            auto &agg_value = kv.second;
+            agg_value.values_[pos] = agg_value.counts_[pos];
+          }
+          break;
+        }
+        case Aggregation::Op::MIN:
+        case Aggregation::Op::MAX:
+        case Aggregation::Op::SUM:
+        case Aggregation::Op::COLLECT_LIST:
+        case Aggregation::Op::COLLECT_MAP:
+        case Aggregation::Op::PROJECT_PATH:
+        case Aggregation::Op::PROJECT_LISTS:
+          break;
+      }
+    }
+
+    aggregation_it_ = main_aggregation.begin();
+    if (aggregation_it_ == main_aggregation.end()) return false;
+
+    // place aggregation values on the frame
+    auto aggregation_values_it = aggregation_it_->second.values_.begin();
+    for (const auto &aggregation_elem : aggregations)
+      frame_writer.Write(aggregation_elem.output_sym, *aggregation_values_it++);
+
+    // place remember values on the frame
+    auto remember_values_it = aggregation_it_->second.remember_.begin();
+    for (const Symbol &remember_sym : remember) frame_writer.Write(remember_sym, *remember_values_it++);
+
+    aggregation_it_++;
     return true;
   }
 
   void Shutdown() override {
-    // post_scan_input_cursor_->Shutdown();
     // TODO Shutdown and cleanup on the shared_scan_parallel_ cursor
     for (const auto &cursor : agg_inputs_cursor_) cursor->Shutdown();
+    // post_scan_input_cursor_->Shutdown();
+    ScanChunk::shared_scan_parallel_->Shutdown();
+    ScanChunk::shared_scan_parallel_ = nullptr;
   }
 
   void Reset() override {
     // post_scan_input_cursor_->Reset();
     // TODO Reset and cleanup on the shared_scan_parallel_ cursor
     for (const auto &cursor : agg_inputs_cursor_) cursor->Reset();
+    ScanChunk::shared_scan_parallel_->Reset();
   }
 
  private:
   bool initialized_ = false;
+  decltype(AggregateCursor::aggregation_.begin()) aggregation_it_;
   const AggregateParallel &self_;
   const UniqueCursorPtr post_scan_input_cursor_;
   const std::vector<UniqueCursorPtr> agg_inputs_cursor_;

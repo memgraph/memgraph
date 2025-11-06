@@ -1795,8 +1795,8 @@ class AggregateParallel : public memgraph::query::plan::LogicalOperator {
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<AggregateParallel>();
-    object->post_scan_input_ = post_scan_input_->Clone(storage);
-    object->agg_inputs_ = agg_inputs_->Clone(storage);
+    object->post_scan_input_ = post_scan_input_ ? post_scan_input_->Clone(storage) : nullptr;
+    object->agg_inputs_ = agg_inputs_ ? agg_inputs_->Clone(storage) : nullptr;
     object->num_threads_ = num_threads_;
     return object;
   }

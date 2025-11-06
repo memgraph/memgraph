@@ -20,6 +20,8 @@
 #include <utility>
 
 #include "flags/bolt.hpp"
+#include "query/context.hpp"
+#include "query/interpret/eval.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
@@ -34,6 +36,7 @@
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "utils/memory.hpp"
 
 namespace memgraph::query {
 
@@ -76,14 +79,18 @@ class PostProcessor final {
              if (context->query->pre_query_directives_.parallel_execution_) {
                auto get_num_threads = [&]() -> size_t {
                  if (auto *num_threads = context->query->pre_query_directives_.num_threads_) {
-                   auto *literal = utils::Downcast<const PrimitiveLiteral>(num_threads);
-                   if (!literal) {
-                     throw QueryException("Number of threads must be a literal");
+                   // Create a minimal evaluation context to evaluate the expression
+                   // This handles both PrimitiveLiteral (when query is not cached) and
+                   // ParameterLookup (when query is cached and stripped)
+                   EvaluationContext eval_ctx{.parameters = parameters_};
+                   PrimitiveLiteralExpressionEvaluator evaluator{eval_ctx};
+
+                   TypedValue value = num_threads->Accept(evaluator);
+                   if (!value.IsInt() || value.ValueInt() < 0) {
+                     throw QueryException("Number of threads must be a non-negative integer");
                    }
-                   if (literal->token_position_ != -1) {
-                     return parameters_.AtTokenPosition(literal->token_position_).ValueInt();
-                   }
-                   return literal->value_.ValueInt();
+                   std::cout << "Number of threads: " << value.ValueInt() << std::endl;
+                   return static_cast<size_t>(value.ValueInt());
                  }
                  return FLAGS_bolt_num_workers;
                };

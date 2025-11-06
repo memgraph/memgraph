@@ -17,7 +17,7 @@
 namespace memgraph::query {
 
 struct HopsLimit {
-  std::optional<int64_t> limit;
+  std::optional<int64_t> limit{std::nullopt};
   int64_t hops_counter{0};
   bool limit_reached{false};
 

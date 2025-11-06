@@ -315,6 +315,11 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
 
   if (auto *pre_query_directives_ctx = ctx->preQueryDirectives()) {
     cypher_query->pre_query_directives_ = std::any_cast<PreQueryDirectives>(pre_query_directives_ctx->accept(this));
+    // NOTE Parallel exectution cannot be cached because the user can define number of threads that is used to generate
+    // the parallel branches
+    if (cypher_query->pre_query_directives_.num_threads_ != nullptr) {
+      query_info_.is_cacheable = false;
+    }
   }
 
   if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {
