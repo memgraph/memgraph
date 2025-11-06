@@ -61,6 +61,13 @@ struct EGraphBase {
 };
 }  // namespace detail
 
+struct ENodeInfo {
+  auto UpdatedInfo(UnionFind &uf) const -> ENodeInfo { return {uf.Find(current_eclassid), enode_id}; }
+
+  EClassId current_eclassid;  // can be invalidated by merges
+  ENodeId enode_id;           // stable enode identifier
+};
+
 /**
  * @brief e-graph with defered invariant maintenance
  *
@@ -87,12 +94,12 @@ struct EGraph : private detail::EGraphBase {
   /**
    * @brief Emplace an e-node directly with canonical children
    */
-  auto emplace(Symbol symbol, utils::small_vector<EClassId> children, uint64_t disambiguator = 0) -> EClassId;
+  auto emplace(Symbol symbol, utils::small_vector<EClassId> children, uint64_t disambiguator = 0) -> ENodeInfo;
 
   /**
    * @brief Emplace leaf nodes with optional disambiguator
    */
-  auto emplace(Symbol symbol, uint64_t disambiguator = 0) -> EClassId;
+  auto emplace(Symbol symbol, uint64_t disambiguator = 0) -> ENodeInfo;
 
   /**
    * @brief Convenience overload accepting initializer list for children
@@ -100,7 +107,7 @@ struct EGraph : private detail::EGraphBase {
    * Allows inline specification of children without explicit vector construction.
    * Example: egraph.emplace(Symbol::Plus, {a, b})
    */
-  auto emplace(Symbol symbol, std::initializer_list<EClassId> children, uint64_t disambiguator = 0) -> EClassId {
+  auto emplace(Symbol symbol, std::initializer_list<EClassId> children, uint64_t disambiguator = 0) -> ENodeInfo {
     return emplace(std::move(symbol), utils::small_vector(children), disambiguator);
   }
 
@@ -113,6 +120,11 @@ struct EGraph : private detail::EGraphBase {
    * @brief Get e-class by canonical ID
    */
   auto eclass(EClassId id) -> EClass<Analysis> & { return *classes_.find(id)->second; }
+
+  /**
+   * @brief Get e-class by canonical ID
+   */
+  auto eclass(EClassId id) const -> EClass<Analysis> const & { return *classes_.find(id)->second; }
 
   /**
    * @brief Check if an e-class exists and is canonical
@@ -164,6 +176,14 @@ struct EGraph : private detail::EGraphBase {
   }
 
   /**
+   * @brief Get e-node by ID with reference access
+   */
+  auto get_enode(ENodeId id) const -> ENode<Symbol> const & {
+    assert(id < enode_storage_.size());
+    return enode_storage_[id];
+  }
+
+  /**
    * @brief Restore all e-graph invariants using rebuilding algorithm
    */
   void rebuild(ProcessingContext<Symbol> &ctx);
@@ -176,7 +196,7 @@ struct EGraph : private detail::EGraphBase {
  protected:
   void repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id);
 
-  void repair_hashcons_enode(ENode<Symbol> &enode, EClassId eclass_id);
+  void repair_hashcons_enode(ENodeId enode_id, EClassId eclass_id);
 
   void process_parents(EClass<Analysis> const &eclass, ProcessingContext<Symbol> &ctx);
 
@@ -185,7 +205,7 @@ struct EGraph : private detail::EGraphBase {
   auto intern_enode(ENode<Symbol> enode) -> ENodeRef<Symbol>;
 
   boost::unordered_flat_map<EClassId, std::unique_ptr<EClass<Analysis>>> classes_;
-  boost::unordered_flat_map<ENodeRef<Symbol>, EClassId> hashcons_;
+  boost::unordered_flat_map<ENodeRef<Symbol>, ENodeInfo> hashcons_;
   std::deque<ENode<Symbol>> enode_storage_;
 };
 
@@ -194,7 +214,7 @@ struct EGraph : private detail::EGraphBase {
 // ========================================================================
 
 template <typename Symbol, typename Analysis>
-auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator) -> EClassId {
+auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator) -> ENodeInfo {
   // construct leaf e-node with disambiguator
   auto canonical_node = ENode{std::move(symbol), {}, disambiguator};
 
@@ -202,22 +222,23 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator) ->
   if (it != hashcons_.end()) {
     // TODO: check if we need to do find here
     //       When we build the rewrite engine we can fuzz that and test if this is needed
-    return union_find_.Find(it->second);
+    return it->second.UpdatedInfo(union_find_);
   }
 
   EClassId new_eclass_id = union_find_.MakeSet();
   ENodeId new_enode_id = new_eclass_id;
 
   auto enode_ref = intern_enode(std::move(canonical_node));
-  hashcons_[enode_ref] = new_eclass_id;
+  auto info = ENodeInfo{new_eclass_id, new_enode_id};
+  hashcons_[enode_ref] = info;
   classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(new_enode_id));
 
-  return new_eclass_id;
+  return info;
 }
 
 template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClassId> children, uint64_t disambiguator)
-    -> EClassId {
+    -> ENodeInfo {
   for (auto &child_id : children) {
     child_id = union_find_.Find(child_id);
   }
@@ -227,14 +248,15 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
   if (it != hashcons_.end()) {
     // TODO: check if we need to do find here
     //       When we build the rewrite engine we can fuzz that and test if this is needed
-    return union_find_.Find(it->second);
+    return it->second.UpdatedInfo(union_find_);
   }
 
   EClassId new_eclass_id = union_find_.MakeSet();
   ENodeId new_enode_id = new_eclass_id;
 
   auto enode_ref = intern_enode(std::move(canonical_node));
-  hashcons_[enode_ref] = new_eclass_id;
+  auto info = ENodeInfo{new_eclass_id, new_enode_id};
+  hashcons_[enode_ref] = info;
   classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(new_enode_id));
 
   // Update parent lists for children - ESSENTIAL for congruence closure
@@ -245,7 +267,7 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
     child_it->second->add_parent(new_enode_id);
   }
 
-  return new_eclass_id;
+  return info;
 }
 
 template <typename Symbol, typename Analysis>
@@ -339,12 +361,13 @@ void EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) {
 template <typename Symbol, typename Analysis>
 void EGraph<Symbol, Analysis>::repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id) {
   for (const auto &enode_id : eclass.nodes()) {
-    repair_hashcons_enode(get_enode(enode_id), eclass_id);
+    repair_hashcons_enode(enode_id, eclass_id);
   }
 }
 
 template <typename Symbol, typename Analysis>
-void EGraph<Symbol, Analysis>::repair_hashcons_enode(ENode<Symbol> &enode, EClassId eclass_id) {
+void EGraph<Symbol, Analysis>::repair_hashcons_enode(ENodeId enode_id, EClassId eclass_id) {
+  auto &enode = get_enode(enode_id);
   // NOTE: the node maybe non-canonicalize, if so it will not be found
   auto it = hashcons_.find(ENodeRef{enode});
 
@@ -355,9 +378,9 @@ void EGraph<Symbol, Analysis>::repair_hashcons_enode(ENode<Symbol> &enode, EClas
     if (it != hashcons_.end()) {
       hashcons_.erase(it);
     }
-    hashcons_[ENodeRef{enode}] = eclass_id;
+    hashcons_[ENodeRef{enode}].current_eclassid = eclass_id;
   } else {
-    it->second = eclass_id;
+    it->second.current_eclassid = enode_id;
   }
 }
 
@@ -400,7 +423,7 @@ void EGraph<Symbol, Analysis>::process_parents(EClass<Analysis> const &eclass, P
     } else if (canonical_eclass_ids.size() == 1) {
       // NOTE: we can NOT add to rebuild_worklist_, we must avoid infinate processing bugs (where parent is yourself)
       for (auto enode_id : enode_ids) {
-        repair_hashcons_enode(get_enode(enode_id), canonical_eclass_ids[0]);
+        repair_hashcons_enode(enode_id, canonical_eclass_ids[0]);
       }
     }
   }
