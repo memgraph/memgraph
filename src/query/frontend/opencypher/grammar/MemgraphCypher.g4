@@ -100,6 +100,7 @@ memgraphCypherKeyword : cypherKeyword
                       | INSTANCES
                       | INTEGER
                       | ISOLATION
+                      | JSONL
                       | KAFKA
                       | LABELS
                       | LAG
@@ -336,6 +337,7 @@ clause : cypherMatch
        | foreach
        | callSubquery
        | loadParquet
+       | loadJsonl
        ;
 
 updateClause : set
@@ -400,9 +402,13 @@ loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
 
 loadParquet : LOAD PARQUET FROM parquetFile ( WITH CONFIG configsMap=configMap ) ? AS rowVar ;
 
+loadJsonl : LOAD JSONL FROM jsonlFile AS rowVar ;
+
 csvFile : literal | parameter ;
 
 parquetFile : literal | parameter ;
+
+jsonlFile : literal | parameter ;
 
 delimiter : literal ;
 

@@ -100,6 +100,7 @@ class ReplicationInfoQuery;
 class LockPathQuery;
 class LoadCsv;
 class LoadParquet;
+class LoadJsonl;
 class FreeMemoryQuery;
 class TriggerQuery;
 class IsolationLevelQuery;
@@ -148,7 +149,7 @@ using TreeCompositeVisitor = utils::CompositeVisitor<
     AllPropertiesLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None,
     ListComprehension, CallProcedure, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv, Foreach,
-    Exists, CallSubquery, CypherQuery, PatternComprehension, LoadParquet, EdgeTypesTest>;
+    Exists, CallSubquery, CypherQuery, PatternComprehension, LoadParquet, EdgeTypesTest, LoadJsonl>;
 
 using TreeLeafVisitor = utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup, EnumValueAccess>;
 
