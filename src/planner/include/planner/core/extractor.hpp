@@ -12,6 +12,8 @@
 #pragma once
 #include "enode.hpp"
 
+#include "planner/core/eids.hpp"
+
 namespace memgraph::planner::core {
 
 template <typename Symbol>
@@ -22,14 +24,22 @@ struct Extractor {
   Extractor(EGraph<Symbol, Analysis> const &egraph, CostFunction<Symbol> cost_function)
       : egraph_(egraph), cost_function_(std::move(cost_function)) {}
 
-  auto Extract(EClass<Analysis> eclass) -> void;
+  auto Process(EClassId eclass_id, bool is_eclass = true) -> double;
+
+  auto CollectDependencies(EClassId eclass_id) -> void;
+
+  auto TopologicalSort(EClassId eclass_id) -> void;
 
   auto GetResult() -> std::vector<std::pair<EClassId, ENodeId>> const & { return result_; }
 
  private:
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   EGraph<Symbol, Analysis> const &egraph_;
+
   CostFunction<Symbol> cost_function_;
   std::vector<std::pair<EClassId, ENodeId>> result_;
+  std::unordered_map<EClassId, std::pair<ENodeId, double>> cheapest_enode_;
+  std::unordered_map<EClassId, int> in_degree_;
 };
 
 }  // namespace memgraph::planner::core
