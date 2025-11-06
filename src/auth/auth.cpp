@@ -363,17 +363,18 @@ void MigrateVersions(kvstore::KVStore &store) {
         try {
           auto data = nlohmann::json::parse(value);
 
-          if (data.contains("fine_grained_access_handler") && data["fine_grained_access_handler"].is_object()) {
-            auto fg_data = data["fine_grained_access_handler"];
-
+          auto const fg_it = data.find("fine_grained_access_handler");
+          if (fg_it != data.end() && fg_it->is_object()) {
             for (auto const &perm_type : {"label_permissions", "edge_type_permissions"}) {
-              if (fg_data.contains(perm_type) && fg_data[perm_type].is_object()) {
-                auto &perm_data = fg_data[perm_type];
+              auto const perm_it = fg_it->find(perm_type);
+              if (perm_it != fg_it->end() && perm_it->is_object()) {
+                auto &perm_data = *perm_it;
 
-                if (perm_data.contains("global_permission") && perm_data["global_permission"].is_number_integer()) {
-                  auto const v2_perm = perm_data["global_permission"].template get<int64_t>();
+                auto const global_perm_it = perm_data.find("global_permission");
+                if (global_perm_it != perm_data.end() && global_perm_it->is_number_integer()) {
+                  auto const v2_perm = global_perm_it->template get<int64_t>();
                   if (v2_perm >= 0) {
-                    perm_data["global_permission"] = convert_v2_to_v3_permissions(static_cast<uint64_t>(v2_perm));
+                    *global_perm_it = convert_v2_to_v3_permissions(static_cast<uint64_t>(v2_perm));
                   }
                 }
 
@@ -381,7 +382,7 @@ void MigrateVersions(kvstore::KVStore &store) {
               }
             }
 
-            data["fine_grained_permissions"] = fg_data;
+            data["fine_grained_permissions"] = std::move(*fg_it);
             data.erase("fine_grained_access_handler");
             puts.emplace(key, data.dump());
           }
