@@ -25,17 +25,15 @@ class AllVerticesChunkedIterable final {
   Transaction *transaction_;                             // Read only
   View view_;
   utils::SkipList<Vertex>::ChunkCollection chunks_;
-  std::vector<std::optional<VertexAccessor>> chunk_cache_;
 
  public:
   class Iterator final {
     AllVerticesChunkedIterable *self_{nullptr};
-    std::optional<VertexAccessor> *cache_{nullptr};
+    std::optional<VertexAccessor> cache_{std::nullopt};
     utils::SkipList<Vertex>::ChunkedIterator it_;
 
    public:
-    Iterator(AllVerticesChunkedIterable *self, std::optional<VertexAccessor> *cache,
-             utils::SkipList<Vertex>::Chunk &chunk);
+    Iterator(AllVerticesChunkedIterable *self, utils::SkipList<Vertex>::Chunk &chunk);
     explicit Iterator(utils::SkipList<Vertex>::ChunkedIterator end);
 
     VertexAccessor const &operator*() const;
@@ -51,22 +49,21 @@ class AllVerticesChunkedIterable final {
         storage_(storage),
         transaction_(transaction),
         view_(view),
-        chunks_{vertices_accessor_.create_chunks(num_chunks)},
-        chunk_cache_(chunks_.size(), std::nullopt) {}
+        chunks_{vertices_accessor_.create_chunks(num_chunks)} {}
 
   class Chunk {
     Iterator begin_;
     Iterator end_;
 
    public:
-    Chunk(AllVerticesChunkedIterable *self, std::optional<VertexAccessor> *cache, utils::SkipList<Vertex>::Chunk &chunk)
-        : begin_{self, cache, chunk}, end_{chunk.end()} {}
+    Chunk(AllVerticesChunkedIterable *self, utils::SkipList<Vertex>::Chunk &chunk)
+        : begin_{self, chunk}, end_{chunk.end()} {}
 
     Iterator begin() { return begin_; }
     Iterator end() { return end_; }
   };
 
-  Chunk get_chunk(size_t id) { return {this, &chunk_cache_[id], chunks_[id]}; }
+  Chunk get_chunk(size_t id) { return {this, chunks_[id]}; }
   size_t size() const { return chunks_.size(); }
 };
 

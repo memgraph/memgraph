@@ -154,10 +154,6 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_
 }
 }  // namespace
 
-bool InMemoryEdgeTypePropertyIndex::Entry::operator<(const PropertyValue &rhs) const { return value < rhs; }
-
-bool InMemoryEdgeTypePropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
-
 bool InMemoryEdgeTypePropertyIndex::RegisterIndex(EdgeTypeId edge_type, PropertyId property) {
   return index_.WithLock([&](std::shared_ptr<IndexContainer const> &index_container) {
     {

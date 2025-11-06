@@ -34,20 +34,18 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::ChunkedIterator it, std::op
 }
 }  // namespace
 
-AllVerticesChunkedIterable::Iterator::Iterator(AllVerticesChunkedIterable *self, std::optional<VertexAccessor> *cache,
-                                               utils::SkipList<Vertex>::Chunk &chunk)
+AllVerticesChunkedIterable::Iterator::Iterator(AllVerticesChunkedIterable *self, utils::SkipList<Vertex>::Chunk &chunk)
     : self_(self),
-      cache_{cache},
-      it_(AdvanceToVisibleVertex(chunk.begin(), chunk.end(), cache_, self->storage_, self->transaction_, self->view_)) {
-}
+      it_(AdvanceToVisibleVertex(chunk.begin(), chunk.end(), &cache_, self->storage_, self->transaction_,
+                                 self->view_)) {}
 
 AllVerticesChunkedIterable::Iterator::Iterator(utils::SkipList<Vertex>::ChunkedIterator end) : it_(end) {}
 
-VertexAccessor const &AllVerticesChunkedIterable::Iterator::operator*() const { return cache_->value(); }
+VertexAccessor const &AllVerticesChunkedIterable::Iterator::operator*() const { return cache_.value(); }
 
 AllVerticesChunkedIterable::Iterator &AllVerticesChunkedIterable::Iterator::operator++() {
   ++it_;
-  it_ = AdvanceToVisibleVertex(it_, cache_, self_->storage_, self_->transaction_, self_->view_);
+  it_ = AdvanceToVisibleVertex(it_, &cache_, self_->storage_, self_->transaction_, self_->view_);
   return *this;
 }
 

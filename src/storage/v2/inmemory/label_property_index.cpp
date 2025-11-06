@@ -328,6 +328,10 @@ bool InMemoryLabelPropertyIndex::Entry::operator==(std::vector<PropertyValue> co
   return std::ranges::equal(std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())}, rhs);
 }
 
+bool InMemoryLabelPropertyIndex::Entry::operator<=(std::vector<PropertyValue> const &rhs) const {
+  return *this < rhs || *this == rhs;
+}
+
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
                                           auto &&index_accessor,
                                           std::optional<SnapshotObserverInfo> const &snapshot_info) {

@@ -40,7 +40,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     bool operator<(std::vector<PropertyValue> const &rhs) const;
     bool operator==(std::vector<PropertyValue> const &rhs) const;
-    bool operator<=(std::vector<PropertyValue> const &rhs) const { return values < rhs || values == rhs; }
+    bool operator<=(std::vector<PropertyValue> const &rhs) const;
   };
 
  public:

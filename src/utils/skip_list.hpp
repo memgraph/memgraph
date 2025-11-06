@@ -1698,7 +1698,7 @@ class SkipList final : detail::SkipListNode_base {
         // end is preds which are defaulted to head_, but head_ is not a valid node, so we must use nexts
         auto *current = end[layer] == head_ ? head_->nexts[layer].load(std::memory_order_acquire) : end[layer];
         // Find the first element over the bound
-        while (current != nullptr && (current->obj < upper_bound.value() || current->obj == upper_bound.value())) {
+        while (current != nullptr && current->obj <= upper_bound.value()) {
           if (!current->marked.load(std::memory_order_acquire)) {
             while (!current->fully_linked.load(std::memory_order_acquire))
               ;
