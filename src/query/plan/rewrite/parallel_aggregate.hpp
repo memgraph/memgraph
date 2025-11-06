@@ -331,8 +331,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
   bool PreVisit(Aggregate &op) override {
     // Only process the first Aggregate we encounter
     if (aggregate_processed_) {
-      prev_ops_.push_back(&op);
-      return true;
+      return false;
     }
     aggregate_processed_ = true;
 
@@ -340,7 +339,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     std::shared_ptr<LogicalOperator> last_scan;
     std::shared_ptr<LogicalOperator> scan_parent;
     FindLastScan(prev_ops_.back()->input() /* op */, last_scan, scan_parent);
-    if (!last_scan) {
+    if (!last_scan || last_scan->GetTypeInfo() != ScanAll::kType) {
       // No Scan operator found, skip rewriting
       aggregate_processed_ = false;  // TODO Check if this is correct
       prev_ops_.push_back(&op);
@@ -377,6 +376,231 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
   }
 
   bool PostVisit(Aggregate &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(Expand &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(Expand &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ExpandVariable &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ExpandVariable &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(CreateNode &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(CreateNode &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(CreateExpand &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(CreateExpand &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAll &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAll &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByLabel &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByLabel &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByLabelProperties &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByLabelProperties &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllById &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllById &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdge &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByEdge &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeType &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByEdgeType &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypeProperty &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByEdgeTypeProperty &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypePropertyValue &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByEdgeTypePropertyValue &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypePropertyRange &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByEdgeTypePropertyRange &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeProperty &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByEdgeProperty &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgePropertyValue &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByEdgePropertyValue &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgePropertyRange &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByEdgePropertyRange &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeId &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByEdgeId &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByPointDistance &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByPointDistance &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByPointWithinbbox &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByPointWithinbbox &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(Union &op) override {
+    prev_ops_.push_back(&op);
+    op.left_op_->Accept(*this);
+    op.right_op_->Accept(*this);
+    return false;
+  }
+  bool PostVisit(Union &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(Cartesian &op) override {
+    prev_ops_.push_back(&op);
+    op.left_op_->Accept(*this);
+    op.right_op_->Accept(*this);
+    return false;
+  }
+  bool PostVisit(Cartesian &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(HashJoin &op) override {
+    prev_ops_.push_back(&op);
+    op.left_op_->Accept(*this);
+    op.right_op_->Accept(*this);
+    return false;
+  }
+  bool PostVisit(HashJoin &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(IndexedJoin &op) override {
+    prev_ops_.push_back(&op);
+    op.main_branch_->Accept(*this);
+    op.sub_branch_->Accept(*this);
+    return false;
+  }
+  bool PostVisit(IndexedJoin &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(AggregateParallel &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(AggregateParallel &) override {
     prev_ops_.pop_back();
     return true;
   }
