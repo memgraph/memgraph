@@ -912,6 +912,7 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
 
   return load_csv;
 }
+
 antlrcpp::Any CypherMainVisitor::visitLoadParquet(MemgraphCypher::LoadParquetContext *ctx) {
   query_info_.has_load_parquet = true;
   auto *load_parquet = storage_->Create<LoadParquet>();
@@ -921,7 +922,7 @@ antlrcpp::Any CypherMainVisitor::visitLoadParquet(MemgraphCypher::LoadParquetCon
   } else if (ctx->parquetFile()->parameter()) {
     load_parquet->file_ = std::any_cast<ParameterLookup *>(ctx->parquetFile()->accept(this));
   } else {
-    throw SemanticException("CSV file path should be a string literal");
+    throw SemanticException("Parquet file path should be a string literal");
   }
 
   // Handle AWS config
@@ -935,6 +936,25 @@ antlrcpp::Any CypherMainVisitor::visitLoadParquet(MemgraphCypher::LoadParquetCon
       storage_->Create<Identifier>(std::any_cast<std::string>(ctx->rowVar()->variable()->accept(this)));
 
   return load_parquet;
+}
+
+antlrcpp::Any CypherMainVisitor::visitLoadJsonl(MemgraphCypher::LoadJsonlContext *ctx) {
+  query_info_.has_load_jsonl = true;
+  auto *load_jsonl = storage_->Create<LoadJsonl>();
+  // handle
+  if (ctx->jsonlFile()->literal() && ctx->jsonlFile()->literal()->StringLiteral()) {
+    load_jsonl->file_ = std::any_cast<Expression *>(ctx->jsonlFile()->accept(this));
+  } else if (ctx->jsonlFile()->parameter()) {
+    load_jsonl->file_ = std::any_cast<ParameterLookup *>(ctx->jsonlFile()->accept(this));
+  } else {
+    throw SemanticException("JSONL file path should be a string literal");
+  }
+
+  // handle row variable
+  load_jsonl->row_var_ =
+      storage_->Create<Identifier>(std::any_cast<std::string>(ctx->rowVar()->variable()->accept(this)));
+
+  return load_jsonl;
 }
 
 antlrcpp::Any CypherMainVisitor::visitFreeMemoryQuery(MemgraphCypher::FreeMemoryQueryContext *ctx) {
