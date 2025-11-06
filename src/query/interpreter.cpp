@@ -5399,7 +5399,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                    storage_acc->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value_or(0)))});
         }
 
-        std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
+        std::ranges::sort(results, [&label_index_mark](const auto &record_1, const auto &record_2) {
           const auto type_1 = record_1[0].ValueString();
           const auto type_2 = record_2[0].ValueString();
 
@@ -5407,8 +5407,9 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
             return type_1 < type_2;
           }
 
-          const auto label_1 = record_1[1].ValueString();
-          const auto label_2 = record_2[1].ValueString();
+          // global edge index doesn't have a label
+          const auto label_1 = record_1[1].IsString() ? record_1[1].UnsafeValueString() : "";
+          const auto label_2 = record_2[1].IsString() ? record_2[1].UnsafeValueString() : "";
           if (type_1 == label_index_mark || label_1 != label_2) {
             return label_1 < label_2;
           }
