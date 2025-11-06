@@ -27,6 +27,94 @@ namespace memgraph::planner::core {
 template <typename Symbol>
 using CostFunction = std::function<double(ENode<Symbol> const &)>;
 
+struct Cost {
+  ENodeId enode_id;
+  double cost;
+};
+
+// Standalone function: Process an e-graph to find the cheapest e-node for each e-class
+template <typename Symbol, typename Analysis, typename Func>
+requires std::is_invocable_r_v < double, Func, ENode<Symbol>
+const & > auto ProcessEGraph(EGraph<Symbol, Analysis> const &egraph, Func const &cost_function, EClassId id,
+                             std::unordered_map<EClassId, Cost> &cheapest_enode, bool is_eclass = true) -> double {
+  if (!is_eclass) {
+    // enode
+    const auto &enode = egraph.get_enode(id);
+    return std::accumulate(enode.children().begin(), enode.children().end(), 0.0,
+                           [&](double acc, EClassId child_eclass_id) {
+                             return acc + ProcessEGraph(egraph, cost_function, child_eclass_id, cheapest_enode);
+                           });
+  }
+
+  // eclass
+  auto it = cheapest_enode.find(id);
+  if (it != cheapest_enode.end()) {
+    return it->second.cost;
+  }
+
+  double best_cost = std::numeric_limits<double>::max();
+  ENodeId best_node{0};
+  for (auto const &enode_id : egraph.eclass(id).nodes()) {
+    auto cost = cost_function(egraph.get_enode(enode_id)) +
+                ProcessEGraph(egraph, cost_function, enode_id, cheapest_enode, false);
+
+    if (cost < best_cost) {
+      best_cost = cost;
+      best_node = enode_id;
+    }
+  }
+
+  cheapest_enode.emplace(id, Cost(best_node, best_cost));
+  return best_cost;
+}
+
+// Standalone function: Collect dependencies and compute in-degrees for topological sort
+template <typename Symbol, typename Analysis>
+auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
+                         std::unordered_map<EClassId, Cost> const &cheapest_enode, EClassId eclass_id,
+                         std::unordered_map<EClassId, int> &in_degree) -> void {
+  auto child_it = cheapest_enode.find(eclass_id);
+  if (child_it == cheapest_enode.end()) return;
+  auto enode = egraph.get_enode(child_it->second.enode_id);
+  for (auto const &child_eclass_id : enode.children()) {
+    if (!in_degree.contains(child_eclass_id)) {
+      // if not visited yet go visit
+      CollectDependencies(egraph, cheapest_enode, child_eclass_id, in_degree);
+    }
+    ++in_degree[child_eclass_id];
+  }
+}
+
+// Standalone function: Perform topological sort to produce ordered output
+template <typename Symbol, typename Analysis>
+auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph, std::unordered_map<EClassId, Cost> const &cheapest_enode,
+                     std::unordered_map<EClassId, int> in_degree, EClassId eclass_id,
+                     std::vector<std::pair<EClassId, ENodeId>> &result) -> void {
+  // egraph is an acyclic graph so we can use topological sort
+
+  // root should be the only eclass with in_degree 0
+  std::queue<EClassId> queue{{eclass_id}};
+  result.reserve(in_degree.size() + 1);
+
+  while (!queue.empty()) {
+    EClassId current_id = queue.front();
+    queue.pop();
+
+    auto it = cheapest_enode.find(current_id);
+    if (it == cheapest_enode.end()) continue;
+    auto enode_id = it->second.enode_id;
+
+    result.emplace_back(current_id, enode_id);
+
+    for (EClassId child_eclass_id : egraph.get_enode(enode_id).children()) {
+      --in_degree[child_eclass_id];
+      if (in_degree[child_eclass_id] == 0) {
+        queue.push(child_eclass_id);
+      }
+    }
+  }
+}
+
 template <typename Symbol, typename Analysis, typename Func>
 requires std::is_invocable_r_v < double, Func, ENode<Symbol>
 const & > struct Extractor {
@@ -36,78 +124,10 @@ const & > struct Extractor {
       : egraph_(egraph),
   cost_function_(std::forward<FuncInner>(cost_function)) {}
 
-  auto Process(EClassId id, bool is_eclass = true) -> double {
-    if (!is_eclass) {
-      // enode
-      const auto &enode = egraph_.get_enode(id);
-      return std::accumulate(enode.children().begin(), enode.children().end(), 0.0,
-                             [this](double acc, EClassId child_eclass_id) { return acc + Process(child_eclass_id); });
-    }
-
-    // eclass
-    auto it = cheapest_enode_.find(id);
-    if (it != cheapest_enode_.end()) {
-      return it->second.second;
-    }
-
-    double best_cost = std::numeric_limits<double>::max();
-    ENodeId best_node{0};
-    for (auto const &enode_id : egraph_.eclass(id).nodes()) {
-      auto cost = cost_function_(egraph_.get_enode(enode_id)) + Process(enode_id, false);
-
-      if (cost < best_cost) {
-        best_cost = cost;
-        best_node = enode_id;
-      }
-    }
-
-    cheapest_enode_.emplace(id, std::make_pair(best_node, best_cost));
-    return best_cost;
-  }
-
-  auto CollectDependencies(EClassId eclass_id) -> void {
-    auto child_it = cheapest_enode_.find(eclass_id);
-    if (child_it == cheapest_enode_.end()) return;
-    auto enode = egraph_.get_enode(child_it->second.first);
-    for (auto const &child_eclass_id : enode.children()) {
-      if (!in_degree_.contains(child_eclass_id)) {
-        // if not visited yet go visit
-        CollectDependencies(child_eclass_id);
-      }
-      ++in_degree_[child_eclass_id];
-    }
-  }
-
-  auto TopologicalSort(EClassId eclass_id) -> void {
-    // egraph is an acyclic graph so we can use topological sort
-
-    // root should be the only eclass with in_degree 0
-    std::queue<EClassId> queue{{eclass_id}};
-    result_.reserve(in_degree_.size() + 1);
-
-    while (!queue.empty()) {
-      EClassId current_id = queue.front();
-      queue.pop();
-
-      auto it = cheapest_enode_.find(current_id);
-      if (it == cheapest_enode_.end()) continue;
-      auto enode_id = it->second.first;
-
-      result_.emplace_back(current_id, enode_id);
-
-      for (EClassId child_eclass_id : egraph_.get_enode(enode_id).children()) {
-        --in_degree_[child_eclass_id];
-        if (in_degree_[child_eclass_id] == 0) {
-          queue.push(child_eclass_id);
-        }
-      }
-    }
-  }
-
   auto Extract(EClassId const root_id) -> std::vector<std::pair<EClassId, ENodeId>> {
-    Process(root_id);
-    CollectDependencies(root_id);
-    TopologicalSort(root_id);
+    ProcessEGraph(egraph_, cost_function_, root_id, cheapest_enode_);
+    CollectDependencies(egraph_, cheapest_enode_, root_id, in_degree_);
+    TopologicalSort(egraph_, cheapest_enode_, in_degree_, root_id, result_);
     return result_;
   }
   auto GetResult() -> std::vector<std::pair<EClassId, ENodeId>> const & { return result_; }
@@ -117,7 +137,7 @@ const & > struct Extractor {
   EGraph<Symbol, Analysis> const &egraph_;
   Func cost_function_;
   std::vector<std::pair<EClassId, ENodeId>> result_;
-  std::unordered_map<EClassId, std::pair<ENodeId, double>> cheapest_enode_;
+  std::unordered_map<EClassId, Cost> cheapest_enode_;
   std::unordered_map<EClassId, int> in_degree_;
 };
 
