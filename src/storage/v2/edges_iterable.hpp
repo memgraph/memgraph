@@ -11,10 +11,9 @@
 
 #pragma once
 
-#include "storage/v2/all_vertices_iterable.hpp"
+#include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
-#include "storage/v2/inmemory/edge_property_index.hpp"
 
 namespace memgraph::storage {
 

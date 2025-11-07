@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -137,8 +137,26 @@ VerticesIterable::Iterator::Iterator(const VerticesIterable::Iterator &other) : 
 
 // NOLINTNEXTLINE(cert-oop54-cpp)
 VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const VerticesIterable::Iterator &other) {
-  Destroy();
-  type_ = other.type_;
+  if (this != &other) {
+    Destroy();
+    type_ = other.type_;
+    switch (other.type_) {
+      case Type::ALL:
+        new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
+        break;
+      case Type::BY_LABEL_IN_MEMORY:
+        new (&in_memory_by_label_it_) InMemoryLabelIndex::Iterable::Iterator(other.in_memory_by_label_it_);
+        break;
+      case Type::BY_LABEL_PROPERTY_IN_MEMORY:
+        new (&in_memory_by_label_property_it_)
+            InMemoryLabelPropertyIndex::Iterable::Iterator(other.in_memory_by_label_property_it_);
+        break;
+    }
+  }
+  return *this;
+}
+
+VerticesIterable::Iterator::Iterator(VerticesIterable::Iterator &&other) noexcept : type_(other.type_) {
   switch (other.type_) {
     case Type::ALL:
       new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
@@ -151,44 +169,25 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const Vertices
           InMemoryLabelPropertyIndex::Iterable::Iterator(other.in_memory_by_label_property_it_);
       break;
   }
-  return *this;
 }
 
-VerticesIterable::Iterator::Iterator(VerticesIterable::Iterator &&other) noexcept : type_(other.type_) {
-  switch (other.type_) {
-    case Type::ALL:
-      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
-      new (&all_it_) AllVerticesIterable::Iterator(std::move(other.all_it_));
-      break;
-    case Type::BY_LABEL_IN_MEMORY:
-      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
-      new (&in_memory_by_label_it_) InMemoryLabelIndex::Iterable::Iterator(std::move(other.in_memory_by_label_it_));
-      break;
-    case Type::BY_LABEL_PROPERTY_IN_MEMORY:
-      new (&in_memory_by_label_property_it_)
-          // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
-          InMemoryLabelPropertyIndex::Iterable::Iterator(std::move(other.in_memory_by_label_property_it_));
-      break;
-  }
-}
-
+// NOLINTNEXTLINE(cert-oop54-cpp)
 VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(VerticesIterable::Iterator &&other) noexcept {
-  Destroy();
-  type_ = other.type_;
-  switch (other.type_) {
-    case Type::ALL:
-      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
-      new (&all_it_) AllVerticesIterable::Iterator(std::move(other.all_it_));
-      break;
-    case Type::BY_LABEL_IN_MEMORY:
-      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
-      new (&in_memory_by_label_it_) InMemoryLabelIndex::Iterable::Iterator(std::move(other.in_memory_by_label_it_));
-      break;
-    case Type::BY_LABEL_PROPERTY_IN_MEMORY:
-      new (&in_memory_by_label_property_it_)
-          // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
-          InMemoryLabelPropertyIndex::Iterable::Iterator(std::move(other.in_memory_by_label_property_it_));
-      break;
+  if (this != &other) {
+    Destroy();
+    type_ = other.type_;
+    switch (other.type_) {
+      case Type::ALL:
+        new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
+        break;
+      case Type::BY_LABEL_IN_MEMORY:
+        new (&in_memory_by_label_it_) InMemoryLabelIndex::Iterable::Iterator(other.in_memory_by_label_it_);
+        break;
+      case Type::BY_LABEL_PROPERTY_IN_MEMORY:
+        new (&in_memory_by_label_property_it_)
+            InMemoryLabelPropertyIndex::Iterable::Iterator(other.in_memory_by_label_property_it_);
+        break;
+    }
   }
   return *this;
 }
@@ -235,7 +234,8 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator++() {
   return *this;
 }
 
-bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
+bool VerticesIterable::Iterator::operator==(const VerticesIterable::Iterator &other) const {
+  if (type_ != other.type_) return false;
   switch (type_) {
     case Type::ALL:
       return all_it_ == other.all_it_;

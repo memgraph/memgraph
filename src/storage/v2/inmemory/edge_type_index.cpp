@@ -78,6 +78,33 @@ inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, au
   }
 }
 
+inline void AdvanceUntilValid_(auto &index_iterator, const auto &end_iterator, EdgeRef &current_edge_,
+                               EdgeAccessor &current_accessor_, Transaction *transaction, View view,
+                               EdgeTypeId edge_type, Storage *storage) {
+  for (; index_iterator != end_iterator; ++index_iterator) {
+    if (index_iterator->edge == current_edge_.ptr) {
+      continue;
+    }
+
+    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view)) {
+      continue;
+    }
+
+    auto *from_vertex = index_iterator->from_vertex;
+    auto *to_vertex = index_iterator->to_vertex;
+    auto edge_ref = EdgeRef(index_iterator->edge);
+
+    auto accessor = EdgeAccessor{edge_ref, edge_type, from_vertex, to_vertex, storage, transaction};
+    if (!accessor.IsVisible(view)) {
+      continue;
+    }
+
+    current_edge_ = edge_ref;
+    current_accessor_ = accessor;
+    break;
+  }
+}
+
 }  // namespace
 
 bool InMemoryEdgeTypeIndex::CreateIndexOnePass(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
@@ -315,29 +342,8 @@ InMemoryEdgeTypeIndex::Iterable::Iterator &InMemoryEdgeTypeIndex::Iterable::Iter
 }
 
 void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
-  for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
-    if (index_iterator_->edge == current_edge_.ptr) {
-      continue;
-    }
-
-    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_, self_->view_)) {
-      continue;
-    }
-
-    auto *from_vertex = index_iterator_->from_vertex;
-    auto *to_vertex = index_iterator_->to_vertex;
-    auto edge_ref = EdgeRef(index_iterator_->edge);
-
-    auto accessor =
-        EdgeAccessor{edge_ref, self_->edge_type_, from_vertex, to_vertex, self_->storage_, self_->transaction_};
-    if (!accessor.IsVisible(self_->view_)) {
-      continue;
-    }
-
-    current_edge_ = edge_ref;
-    current_accessor_ = accessor;
-    break;
-  }
+  AdvanceUntilValid_(index_iterator_, self_->index_accessor_.end(), current_edge_, current_accessor_,
+                     self_->transaction_, self_->view_, self_->edge_type_, self_->storage_);
 }
 
 void InMemoryEdgeTypeIndex::RunGC() {
@@ -367,6 +373,22 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(Edge
           transaction};
 }
 
+InMemoryEdgeTypeIndex::ChunkedIterable InMemoryEdgeTypeIndex::ActiveIndices::ChunkedEdges(
+    EdgeTypeId edge_type, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
+    utils::SkipList<Edge>::ConstAccessor edge_accessor, View view, Storage *storage, Transaction *transaction,
+    size_t num_chunks) {
+  const auto it = index_container_->indices_.find(edge_type);
+  MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
+  return {it->second->skip_list_.access(),
+          std::move(vertex_accessor),
+          std::move(edge_accessor),
+          edge_type,
+          view,
+          storage,
+          transaction,
+          num_chunks};
+}
+
 EdgeTypeIndex::AbortProcessor InMemoryEdgeTypeIndex::ActiveIndices::GetAbortProcessor() const {
   auto edge_type_filter = index_container_->indices_ | std::views::keys | ranges::to_vector;
   return AbortProcessor{edge_type_filter};
@@ -393,6 +415,30 @@ void InMemoryEdgeTypeIndex::CleanupAllIndices() {
       indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
     }
   });
+}
+
+InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
+                                                        utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
+                                                        utils::SkipList<Edge>::ConstAccessor edge_accessor,
+                                                        EdgeTypeId edge_type, View view, Storage *storage,
+                                                        Transaction *transaction, size_t num_chunks)
+    : pin_accessor_edge_(std::move(edge_accessor)),
+      pin_accessor_vertex_(std::move(vertex_accessor)),
+      index_accessor_(std::move(index_accessor)),
+      edge_type_(edge_type),
+      view_(view),
+      storage_(storage),
+      transaction_(transaction),
+      chunks_{index_accessor_.create_chunks(num_chunks)} {
+  // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
+  RechunkIndex<utils::SkipList<Entry>>(chunks_, [](const auto &a, const auto &b) { return a.edge == b.edge; });
+}
+
+void InMemoryEdgeTypeIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
+  // NOTE: Using the skiplist end here to not store the end iterator in the class
+  // The higher level != end will still be correct
+  AdvanceUntilValid_(index_iterator_, utils::SkipList<Entry>::ChunkedIterator{}, current_edge_, current_edge_accessor_,
+                     self_->transaction_, self_->view_, self_->edge_type_, self_->storage_);
 }
 
 }  // namespace memgraph::storage

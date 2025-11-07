@@ -49,8 +49,8 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
              std::tie(rhs.value, rhs.edge, rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
     }
 
-    bool operator<(const PropertyValue &rhs) const;
-    bool operator==(const PropertyValue &rhs) const;
+    bool operator==(const PropertyValue &rhs) const { return value == rhs; }
+    auto operator<=>(const PropertyValue &rhs) const { return value <=> rhs; }
   };
 
  public:
@@ -99,6 +99,74 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     Transaction *transaction_;
   };
 
+  class ChunkedIterable {
+   public:
+    ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
+                    utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
+                    utils::SkipList<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type, PropertyId property,
+                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+                    Transaction *transaction, size_t num_chunks);
+
+    class Iterator {
+     public:
+      Iterator(ChunkedIterable *self, utils::SkipList<Entry>::ChunkedIterator index_iterator)
+          : self_(self),
+            index_iterator_(index_iterator),
+            current_edge_accessor_(EdgeRef{nullptr}, EdgeTypeId{}, nullptr, nullptr, self_->storage_,
+                                   self_->transaction_) {
+        AdvanceUntilValid();
+      }
+
+      EdgeAccessor const &operator*() const { return current_edge_accessor_; }
+      bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+      bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
+
+      Iterator &operator++() {
+        ++index_iterator_;
+        AdvanceUntilValid();
+        return *this;
+      }
+
+     private:
+      void AdvanceUntilValid();
+
+      ChunkedIterable *self_;
+      utils::SkipList<Entry>::ChunkedIterator index_iterator_;
+      EdgeAccessor current_edge_accessor_;
+      EdgeRef current_edge_{nullptr};
+    };
+
+    class Chunk {
+      Iterator begin_;
+      Iterator end_;
+
+     public:
+      Chunk(ChunkedIterable *self, utils::SkipList<Entry>::Chunk &chunk)
+          : begin_{self, chunk.begin()}, end_{self, chunk.end()} {}
+
+      Iterator begin() { return begin_; }
+      Iterator end() { return end_; }
+    };
+
+    Chunk get_chunk(size_t id) { return {this, chunks_[id]}; }
+    size_t size() const { return chunks_.size(); }
+
+   private:
+    utils::SkipList<Edge>::ConstAccessor pin_accessor_edge_;
+    utils::SkipList<Vertex>::ConstAccessor pin_accessor_vertex_;
+    utils::SkipList<Entry>::Accessor index_accessor_;
+    [[maybe_unused]] EdgeTypeId edge_type_;
+    [[maybe_unused]] PropertyId property_;
+    std::optional<utils::Bound<PropertyValue>> lower_bound_;
+    std::optional<utils::Bound<PropertyValue>> upper_bound_;
+    bool bounds_valid_{true};
+    View view_;
+    Storage *storage_;
+    Transaction *transaction_;
+    utils::SkipList<Entry>::ChunkCollection chunks_;
+  };
+
   struct IndividualIndex {
     ~IndividualIndex();
     void Publish(uint64_t commit_timestamp);
@@ -139,6 +207,13 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                    Transaction *transaction);
+
+    ChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
+                                 utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
+                                 utils::SkipList<Edge>::ConstAccessor edge_accessor,
+                                 const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                 const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
+                                 Storage *storage, Transaction *transaction, size_t num_chunks);
 
     void AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
                       std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
