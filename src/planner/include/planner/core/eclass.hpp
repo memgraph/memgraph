@@ -41,7 +41,7 @@ struct EClassBase {
 
  private:
   boost::unordered_flat_set<ENodeId> nodes_;
-  boost::unordered_flat_set<EClassId> parents_;
+  boost::unordered_flat_set<ENodeId> parents_;
 };
 }  // namespace detail
 

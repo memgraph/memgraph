@@ -17,8 +17,8 @@
 #include <utility>
 #include <vector>
 
+#include "planner/core/egraph.hpp"
 #include "planner/core/enode.hpp"
-#include "planner/core/fwd.hpp"
 
 import memgraph.planner.core.eids;
 
@@ -36,27 +36,32 @@ struct Cost {
 template <typename Symbol, typename Analysis, typename Func>
 requires std::is_invocable_r_v < double, Func, ENode<Symbol>
 const & > auto ProcessEGraph(EGraph<Symbol, Analysis> const &egraph, Func const &cost_function, EClassId id,
-                             std::unordered_map<EClassId, Cost> &cheapest_enode, bool is_eclass = true) -> double {
-  if (!is_eclass) {
-    // enode
-    const auto &enode = egraph.get_enode(id);
-    return std::accumulate(enode.children().begin(), enode.children().end(), 0.0,
-                           [&](double acc, EClassId child_eclass_id) {
-                             return acc + ProcessEGraph(egraph, cost_function, child_eclass_id, cheapest_enode);
-                           });
-  }
+                             std::unordered_map<EClassId, Cost> &cheapest_enode) -> double {
+  // if (!is_eclass) {
+  //   // enode
+  //   const auto &enode = egraph.get_enode(id);
+  //   return std::accumulate(enode.children().begin(), enode.children().end(), 0.0,
+  //                          [&](double acc, EClassId child_eclass_id) {
+  //                            return acc + ProcessEGraph(egraph, cost_function, child_eclass_id, cheapest_enode);
+  //                          });
+  // }
 
   // eclass
   auto it = cheapest_enode.find(id);
   if (it != cheapest_enode.end()) {
+    // If cost is infinity, we're currently processing this e-class (cycle detected)
+    // If cost is finite, we've already computed it
     return it->second.cost;
   }
+
+  // Mark this e-class as "in progress" with infinity cost to detect cycles
+  cheapest_enode.emplace(id, Cost(ENodeId{0}, std::numeric_limits<double>::infinity()));
 
   double best_cost = std::numeric_limits<double>::max();
   ENodeId best_node{0};
   for (auto const &enode_id : egraph.eclass(id).nodes()) {
     auto cost = cost_function(egraph.get_enode(enode_id)) +
-                ProcessEGraph(egraph, cost_function, enode_id, cheapest_enode, false);
+                ProcessEGraph(egraph, cost_function, egraph.find(enode_id), cheapest_enode);
 
     if (cost < best_cost) {
       best_cost = cost;
@@ -64,7 +69,8 @@ const & > auto ProcessEGraph(EGraph<Symbol, Analysis> const &egraph, Func const 
     }
   }
 
-  cheapest_enode.emplace(id, Cost(best_node, best_cost));
+  // Update with the actual computed cost
+  cheapest_enode[id] = Cost(best_node, best_cost);
   return best_cost;
 }
 

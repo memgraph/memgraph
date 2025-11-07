@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <strong_type/strong_type.hpp>
+
 import memgraph.planner.core.constants;
 import memgraph.planner.core.eids;
 import memgraph.planner.core.union_find;
@@ -30,7 +32,7 @@ namespace memgraph::planner::core {
 struct BaseProcessingContext {
   ENodeContext enode_context;
   UnionFindContext union_find_context;
-  std::vector<EClassId> canonical_eclass_ids;
+  std::vector<strong::underlying_type_t<EClassId>> canonical_eclass_ids;
   boost::container::flat_set<EClassId> canonicalized_chunk;
 };
 

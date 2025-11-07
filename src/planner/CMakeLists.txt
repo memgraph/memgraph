@@ -4,6 +4,7 @@ add_library(mg::planner ALIAS mg-planner)
 target_sources(mg-planner
     PUBLIC
     FILE_SET CXX_MODULES FILES
+    strong_type.cppm
     concepts.cppm
     constants.cppm
     eids.cppm
