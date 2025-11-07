@@ -835,3 +835,33 @@ Feature: WHERE exists
           | name    |
           | 'John'  |
           | 'Alice' |
+
+   Scenario: EXISTS simple match finds node
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Node {id: 2});
+          """
+      When executing query:
+          """
+          MATCH (n:Node)
+          WHERE EXISTS {
+              MATCH (n)
+          }
+          RETURN n.id as id;
+          """
+      Then the result should be:
+          | id    |
+          | 2     |
+
+  Scenario: EXISTS simple match finds no node
+      Given an empty graph
+      When executing query:
+          """
+          MATCH (n:Node)
+          WHERE EXISTS {
+              MATCH (n)
+          }
+          RETURN n.id as id;
+          """
+      Then the result should be empty
