@@ -1584,6 +1584,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   bool has_any_update = false;
   bool has_load_csv = false;
   bool has_load_parquet{false};
+  bool has_load_jsonl{false};
 
   auto check_write_procedure = [&calls_write_procedure](const std::string_view clause) {
     if (calls_write_procedure) {
@@ -1594,6 +1595,11 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
 
   for (Clause *clause : single_query->clauses_) {
     const auto &clause_type = clause->GetTypeInfo();
+    // Cache so I don't have to evaluate multiple times in the if-else loop
+    bool const is_load_csv = utils::IsSubtype(clause_type, LoadCsv::kType);
+    bool const is_load_parquet = utils::IsSubtype(clause_type, LoadParquet::kType);
+    bool const is_load_jsonl = utils::IsSubtype(clause_type, LoadJsonl::kType);
+
     if (const auto *call_procedure = utils::Downcast<CallProcedure>(clause); call_procedure != nullptr) {
       if (has_return) {
         throw SemanticException("CALL can't be put after RETURN clause.");
@@ -1624,24 +1630,27 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       if (has_update || has_return) {
         throw SemanticException("UNWIND can't be put after RETURN clause or after an update.");
       }
-    } else if (utils::IsSubtype(clause_type, LoadCsv::kType) || utils::IsSubtype(clause_type, LoadParquet::kType)) {
-      bool const is_load_csv = utils::IsSubtype(clause_type, LoadCsv::kType);
-
-      if (has_load_csv || has_load_parquet) {
-        throw SemanticException("Can't have multiple LOAD CSV/LOAD PARQUET clauses in a single query.");
+    } else if (is_load_csv || is_load_parquet || is_load_jsonl) {
+      if (has_load_csv || has_load_parquet || has_load_jsonl) {
+        throw SemanticException("Can't have multiple LOAD CSV/LOAD PARQUET/LOAD JSONL clauses in a single query.");
       }
 
-      check_write_procedure(is_load_csv ? "LOAD CSV" : "LOAD PARQUET");
+      auto clause_str = std::invoke([is_load_csv, is_load_parquet]() -> std::string_view {
+        if (is_load_csv) return "LOAD CSV";
+        if (is_load_parquet) return "LOAD PARQUET";
+        return "LOAD JSONL";
+      });
+
+      check_write_procedure(clause_str);
 
       if (has_return) {
-        throw SemanticException("LOAD CSV/LOAD PARQUET can't be put after RETURN clause.");
+        throw SemanticException("LOAD CSV/LOAD PARQUET/LOAD JSONl can't be put after RETURN clause.");
       }
 
-      if (is_load_csv) {
-        has_load_csv = true;
-      } else {
-        has_load_parquet = true;
-      }
+      has_load_csv |= is_load_csv;
+      has_load_parquet |= is_load_parquet;
+      has_load_jsonl |= is_load_jsonl;
+
     } else if (auto *match = utils::Downcast<Match>(clause)) {
       if (has_update || has_return) {
         throw SemanticException("MATCH can't be put after RETURN clause or after an update.");
@@ -1742,7 +1751,9 @@ antlrcpp::Any CypherMainVisitor::visitClause(MemgraphCypher::ClauseContext *ctx)
   if (ctx->loadParquet()) {
     return static_cast<Clause *>(std::any_cast<LoadParquet *>(ctx->loadParquet()->accept(this)));
   }
-
+  if (ctx->loadJsonl()) {
+    return static_cast<Clause *>(std::any_cast<LoadJsonl *>(ctx->loadJsonl()->accept(this)));
+  }
   if (ctx->foreach ()) {
     return static_cast<Clause *>(std::any_cast<Foreach *>(ctx->foreach ()->accept(this)));
   }

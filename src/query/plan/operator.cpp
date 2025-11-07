@@ -7906,8 +7906,8 @@ class LoadJsonlCursor : public Cursor {
     SCOPED_PROFILE_OP_BY_REF(*self_);
     AbortCheck(context);
 
-    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-    auto *mem = context.evaluation_context.memory;
+    // auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    // auto *mem = context.evaluation_context.memory;
 
     if (input_cursor_->Pull(frame, context)) {
       if (did_pull_) {
