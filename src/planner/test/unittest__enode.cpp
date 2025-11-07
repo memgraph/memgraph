@@ -239,9 +239,9 @@ TEST(ENode, NonLeafNodeCanonicalizesChildren) {
   auto id1 = uf.MakeSet();
 
   // Merge id1 and id0
-  auto merged = uf.UnionSets(id0, id1);
+  auto merged = EClassId{uf.UnionSets(id0, id1)};
 
-  TestNode add(Op::Add, {id0, id1});
+  TestNode add(Op::Add, {EClassId{id0}, EClassId{id1}});
   auto canonical = add.canonicalize(uf);
 
   // Symbol preserved
@@ -259,7 +259,7 @@ TEST(ENode, CanonicalizationDoesNotMutateOriginal) {
 
   uf.UnionSets(id0, id1);
 
-  TestNode add(Op::Add, {id0, id1});
+  TestNode add(Op::Add, {EClassId{id0}, EClassId{id1}});
   auto before_child0 = add.children()[0];
   auto before_child1 = add.children()[1];
 

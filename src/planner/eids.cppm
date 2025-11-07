@@ -12,12 +12,22 @@
 module;
 
 #include <cstdint>
+#include <functional>
 
 export module memgraph.planner.core.eids;
 
+export import rollbear.strong_type;
+
 export namespace memgraph::planner::core {
 
-using EClassId = uint32_t;
-using ENodeId = uint32_t;
+using EClassId = strong::type<uint32_t, struct EClassId_, strong::regular, strong::formattable, strong::hashable,
+                              strong::ordered, strong::ostreamable>;
+using ENodeId = strong::type<uint32_t, struct ENodeId_, strong::regular, strong::formattable, strong::hashable,
+                             strong::ordered, strong::ostreamable>;
+
+// Provide hash_value for boost::hash ADL lookup
+inline std::size_t hash_value(const EClassId &id) { return std::hash<EClassId>{}(id); }
+
+inline std::size_t hash_value(const ENodeId &id) { return std::hash<ENodeId>{}(id); }
 
 }  // namespace memgraph::planner::core

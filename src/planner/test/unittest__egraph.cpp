@@ -70,7 +70,7 @@ TEST(EGraphBasicOperations, AddNodesWithChildren) {
   EXPECT_EQ(egraph.num_classes(), 3);
   EXPECT_EQ(egraph.num_nodes(), 3);
   EXPECT_TRUE(egraph.has_class(plus));
-  auto const &enode = egraph.get_enode(plus);
+  auto const &enode = egraph.get_enode(plus_enodeid);
   EXPECT_EQ(enode.arity(), 2);
 
   auto const &eclass = egraph.eclass(plus);

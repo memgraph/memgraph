@@ -11,6 +11,7 @@
 
 #include "planner/core/enode.hpp"
 
+#include "planner/core/egraph.hpp"
 #include "planner/core/processing_context.hpp"
 import memgraph.planner.core.union_find;
 
@@ -20,7 +21,7 @@ auto ENodeBase::canonicalize(UnionFind &uf) const -> ENodeBase {
   // Check if canonicalization is actually needed (quick optimization)
   bool needs_canonicalization = false;
   for (auto child : children_) {
-    if (uf.Find(child) != child) {
+    if (canonical_eclass(uf, child) != child) {
       needs_canonicalization = true;
       break;
     }
@@ -35,9 +36,9 @@ auto ENodeBase::canonicalize(UnionFind &uf) const -> ENodeBase {
   auto canonical_children = utils::small_vector<EClassId>{};
   canonical_children.reserve(children_.size());
 
-  for (auto child : children_) {
+  for (const auto child : children_) {
     // NOTE: UnionFind is mutable, so we are using the path halving optimization here
-    canonical_children.emplace_back(uf.Find(child));
+    canonical_children.emplace_back(canonical_eclass(uf, child));
   }
   return ENodeBase{disambiguator_, std::move(canonical_children)};
 }
@@ -50,7 +51,7 @@ auto ENodeBase::canonicalize_in_place(UnionFind &uf) -> bool {
 
   bool changed = false;
   for (auto &child : children_) {
-    auto canonical_child = uf.Find(child);
+    auto canonical_child = canonical_eclass(uf, child);
     if (canonical_child != child) {
       child = canonical_child;
       changed = true;
@@ -71,7 +72,7 @@ auto ENodeBase::canonicalize(UnionFind &uf, ENodeContext &ctx) const -> ENodeBas
 
   bool needs_canonicalization = false;
   for (auto child : children_) {
-    auto canonical_child = uf.Find(child);
+    auto canonical_child = canonical_eclass(uf, child);
     canonical_children.emplace_back(canonical_child);
     if (canonical_child != child) {
       needs_canonicalization = true;
