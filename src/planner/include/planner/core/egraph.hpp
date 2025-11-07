@@ -126,12 +126,18 @@ struct EGraph : private detail::EGraphBase {
   /**
    * @brief Get e-class by canonical ID
    */
-  auto eclass(EClassId id) -> EClass<Analysis> & { return *classes_.find(id)->second; }
+  auto eclass(EClassId id) -> EClass<Analysis> & {
+    DMG_ASSERT(classes_.contains(id), "id needs to be canonical");
+    return *classes_.find(id)->second;
+  }
 
   /**
    * @brief Get e-class by canonical ID
    */
-  auto eclass(EClassId id) const -> EClass<Analysis> const & { return *classes_.find(id)->second; }
+  auto eclass(EClassId id) const -> EClass<Analysis> const & {
+    DMG_ASSERT(classes_.contains(id), "id needs to be canonical");
+    return *classes_.find(id)->second;
+  }
 
   /**
    * @brief Check if an e-class exists and is canonical
@@ -178,7 +184,7 @@ struct EGraph : private detail::EGraphBase {
    * @brief Get e-node by ID with reference access
    */
   auto get_enode(ENodeId id) -> ENode<Symbol> & {
-    assert(id < enode_storage_.size());
+    assert(id.value_of() < enode_storage_.size());
     return enode_storage_[id.value_of()];
   }
 
@@ -186,7 +192,7 @@ struct EGraph : private detail::EGraphBase {
    * @brief Get e-node by ID with reference access
    */
   auto get_enode(ENodeId id) const -> ENode<Symbol> const & {
-    assert(id < enode_storage_.size());
+    assert(id.value_of() < enode_storage_.size());
     return enode_storage_[id.value_of()];
   }
 
@@ -194,6 +200,11 @@ struct EGraph : private detail::EGraphBase {
    * @brief Restore all e-graph invariants using rebuilding algorithm
    */
   void rebuild(ProcessingContext<Symbol> &ctx);
+
+  /**
+   * @brief checks if a rebuild is required
+   */
+  auto needs_rebuild() const -> bool { return !rebuild_worklist_.empty(); }
 
   /**
    * @brief Checks that congruence has been maintained post rebuild. Only used in test code.
@@ -270,7 +281,7 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
 
   // Update parent lists for children - ESSENTIAL for congruence closure
   for (EClassId child_id : enode_ref.value().children()) {
-    assert(union_find_.Find(child_id) == child_id);
+    assert(canonical_eclass(union_find_, child_id) == child_id);
     auto child_it = classes_.find(child_id);
     assert(child_it != classes_.end());
     child_it->second->add_parent(new_enode_id);
