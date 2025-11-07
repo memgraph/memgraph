@@ -177,15 +177,15 @@ EdgesChunkedIterable::Iterator::Iterator(EdgesChunkedIterable::Iterator &&other)
   switch (other.type_) {
     case Type::BY_EDGE_TYPE_IN_MEMORY_CHUNKED:
       new (&in_memory_chunked_by_type_it_)
-          InMemoryEdgeTypeIndex::ChunkedIterable::Iterator(std::move(other.in_memory_chunked_by_type_it_));
+          InMemoryEdgeTypeIndex::ChunkedIterable::Iterator(other.in_memory_chunked_by_type_it_);
       break;
     case Type::BY_EDGE_TYPE_PROPERTY_IN_MEMORY_CHUNKED:
-      new (&in_memory_chunked_by_type_property_it_) InMemoryEdgeTypePropertyIndex::ChunkedIterable::Iterator(
-          std::move(other.in_memory_chunked_by_type_property_it_));
+      new (&in_memory_chunked_by_type_property_it_)
+          InMemoryEdgeTypePropertyIndex::ChunkedIterable::Iterator(other.in_memory_chunked_by_type_property_it_);
       break;
     case Type::BY_EDGE_PROPERTY_IN_MEMORY_CHUNKED:
       new (&in_memory_chunked_by_property_it_)
-          InMemoryEdgePropertyIndex::ChunkedIterable::Iterator(std::move(other.in_memory_chunked_by_property_it_));
+          InMemoryEdgePropertyIndex::ChunkedIterable::Iterator(other.in_memory_chunked_by_property_it_);
       break;
   }
 }
@@ -199,15 +199,15 @@ EdgesChunkedIterable::Iterator &EdgesChunkedIterable::Iterator::operator=(
     switch (other.type_) {
       case Type::BY_EDGE_TYPE_IN_MEMORY_CHUNKED:
         new (&in_memory_chunked_by_type_it_)
-            InMemoryEdgeTypeIndex::ChunkedIterable::Iterator(std::move(other.in_memory_chunked_by_type_it_));
+            InMemoryEdgeTypeIndex::ChunkedIterable::Iterator(other.in_memory_chunked_by_type_it_);
         break;
       case Type::BY_EDGE_TYPE_PROPERTY_IN_MEMORY_CHUNKED:
-        new (&in_memory_chunked_by_type_property_it_) InMemoryEdgeTypePropertyIndex::ChunkedIterable::Iterator(
-            std::move(other.in_memory_chunked_by_type_property_it_));
+        new (&in_memory_chunked_by_type_property_it_)
+            InMemoryEdgeTypePropertyIndex::ChunkedIterable::Iterator(other.in_memory_chunked_by_type_property_it_);
         break;
       case Type::BY_EDGE_PROPERTY_IN_MEMORY_CHUNKED:
         new (&in_memory_chunked_by_property_it_)
-            InMemoryEdgePropertyIndex::ChunkedIterable::Iterator(std::move(other.in_memory_chunked_by_property_it_));
+            InMemoryEdgePropertyIndex::ChunkedIterable::Iterator(other.in_memory_chunked_by_property_it_);
         break;
     }
   }

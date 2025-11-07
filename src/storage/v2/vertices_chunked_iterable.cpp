@@ -167,15 +167,15 @@ VerticesChunkedIterable::Iterator &VerticesChunkedIterable::Iterator::operator=(
 VerticesChunkedIterable::Iterator::Iterator(VerticesChunkedIterable::Iterator &&other) noexcept : type_(other.type_) {
   switch (other.type_) {
     case Type::ALL_CHUNKED:
-      new (&all_chunked_it_) AllVerticesChunkedIterable::Iterator(std::move(other.all_chunked_it_));
+      new (&all_chunked_it_) AllVerticesChunkedIterable::Iterator(other.all_chunked_it_);
       break;
     case Type::BY_LABEL_IN_MEMORY_CHUNKED:
       new (&in_memory_chunked_by_label_it_)
-          InMemoryLabelIndex::ChunkedIterable::Iterator(std::move(other.in_memory_chunked_by_label_it_));
+          InMemoryLabelIndex::ChunkedIterable::Iterator(other.in_memory_chunked_by_label_it_);
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
-      new (&in_memory_chunked_by_label_property_it_) InMemoryLabelPropertyIndex::ChunkedIterable::Iterator(
-          std::move(other.in_memory_chunked_by_label_property_it_));
+      new (&in_memory_chunked_by_label_property_it_)
+          InMemoryLabelPropertyIndex::ChunkedIterable::Iterator(other.in_memory_chunked_by_label_property_it_);
       break;
   }
 }
@@ -188,15 +188,15 @@ VerticesChunkedIterable::Iterator &VerticesChunkedIterable::Iterator::operator=(
     type_ = other.type_;
     switch (other.type_) {
       case Type::ALL_CHUNKED:
-        new (&all_chunked_it_) AllVerticesChunkedIterable::Iterator(std::move(other.all_chunked_it_));
+        new (&all_chunked_it_) AllVerticesChunkedIterable::Iterator(other.all_chunked_it_);
         break;
       case Type::BY_LABEL_IN_MEMORY_CHUNKED:
         new (&in_memory_chunked_by_label_it_)
-            InMemoryLabelIndex::ChunkedIterable::Iterator(std::move(other.in_memory_chunked_by_label_it_));
+            InMemoryLabelIndex::ChunkedIterable::Iterator(other.in_memory_chunked_by_label_it_);
         break;
       case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
-        new (&in_memory_chunked_by_label_property_it_) InMemoryLabelPropertyIndex::ChunkedIterable::Iterator(
-            std::move(other.in_memory_chunked_by_label_property_it_));
+        new (&in_memory_chunked_by_label_property_it_)
+            InMemoryLabelPropertyIndex::ChunkedIterable::Iterator(other.in_memory_chunked_by_label_property_it_);
         break;
     }
   }

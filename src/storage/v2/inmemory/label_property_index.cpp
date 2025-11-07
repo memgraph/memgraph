@@ -210,7 +210,7 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
       if (all_null) continue;
     }
 
-    enum class InBoundResult { UNDER, IN_BOUNDS, IN_BOUNDS_AT_UB, OVER };
+    enum class InBoundResult : uint8_t { UNDER, IN_BOUNDS, IN_BOUNDS_AT_UB, OVER };
 
     auto const value_within_upper_bounds = [](std::optional<utils::Bound<PropertyValue>> const &ub,
                                               PropertyValue const &cmp_value) -> InBoundResult {
@@ -238,7 +238,7 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
       return value_within_upper_bounds(ub, cmp_value);
     };
 
-    enum class Result { Skip, NoMoreValidEntries, WithAllBounds };
+    enum class Result : uint8_t { Skip, NoMoreValidEntries, WithAllBounds };
 
     auto bounds_checker = [&]() {
       auto at_boundary_counter = 0;
@@ -303,7 +303,8 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
     skip_lower_bound_check = false;
     if (res == Result::Skip) {
       continue;
-    } else if (res == Result::NoMoreValidEntries) {
+    }
+    if (res == Result::NoMoreValidEntries) {
       index_iterator = end;
       break;
     }
@@ -1030,7 +1031,7 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::
           label,
           &it2->first,
           &it2->second->permutations_helper,
-          std::move(range),
+          range,
           view,
           storage,
           transaction};
@@ -1052,7 +1053,7 @@ InMemoryLabelPropertyIndex::ChunkedIterable InMemoryLabelPropertyIndex::ActiveIn
           label,
           &it2->first,
           &it2->second->permutations_helper,
-          std::move(range),
+          range,
           view,
           storage,
           transaction,

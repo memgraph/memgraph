@@ -159,14 +159,14 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const Vertices
 VerticesIterable::Iterator::Iterator(VerticesIterable::Iterator &&other) noexcept : type_(other.type_) {
   switch (other.type_) {
     case Type::ALL:
-      new (&all_it_) AllVerticesIterable::Iterator(std::move(other.all_it_));
+      new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
       break;
     case Type::BY_LABEL_IN_MEMORY:
-      new (&in_memory_by_label_it_) InMemoryLabelIndex::Iterable::Iterator(std::move(other.in_memory_by_label_it_));
+      new (&in_memory_by_label_it_) InMemoryLabelIndex::Iterable::Iterator(other.in_memory_by_label_it_);
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       new (&in_memory_by_label_property_it_)
-          InMemoryLabelPropertyIndex::Iterable::Iterator(std::move(other.in_memory_by_label_property_it_));
+          InMemoryLabelPropertyIndex::Iterable::Iterator(other.in_memory_by_label_property_it_);
       break;
   }
 }
@@ -178,14 +178,14 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(VerticesIterab
     type_ = other.type_;
     switch (other.type_) {
       case Type::ALL:
-        new (&all_it_) AllVerticesIterable::Iterator(std::move(other.all_it_));
+        new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
         break;
       case Type::BY_LABEL_IN_MEMORY:
-        new (&in_memory_by_label_it_) InMemoryLabelIndex::Iterable::Iterator(std::move(other.in_memory_by_label_it_));
+        new (&in_memory_by_label_it_) InMemoryLabelIndex::Iterable::Iterator(other.in_memory_by_label_it_);
         break;
       case Type::BY_LABEL_PROPERTY_IN_MEMORY:
         new (&in_memory_by_label_property_it_)
-            InMemoryLabelPropertyIndex::Iterable::Iterator(std::move(other.in_memory_by_label_property_it_));
+            InMemoryLabelPropertyIndex::Iterable::Iterator(other.in_memory_by_label_property_it_);
         break;
     }
   }
