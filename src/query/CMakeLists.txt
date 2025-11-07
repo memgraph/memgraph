@@ -53,6 +53,7 @@ target_sources(mg-query
     interpret/frame.cpp
     interpreter_context.cpp
     interpreter.cpp
+    jsonl/reader.cpp
     metadata.cpp
     plan/hint_provider.cpp
     plan/operator_type_info.cpp
@@ -89,6 +90,7 @@ target_sources(mg-query
     FILES
     arrow_parquet/parquet_file_config.cppm
     arrow_parquet/reader.cppm
+    jsonl/reader.cppm
     FILE_SET HEADERS
     FILES
     dependant_symbol_visitor.hpp

@@ -73,6 +73,7 @@
 
 import memgraph.query.arrow_parquet.parquet_file_config;
 import memgraph.query.arrow_parquet.reader;
+import memgraph.query.jsonl.reader;
 import memgraph.utils.fnv;
 
 namespace r = ranges;
@@ -7896,6 +7897,8 @@ class LoadJsonlCursor : public Cursor {
   const LoadJsonl *self_;
   const UniqueCursorPtr input_cursor_;
   bool did_pull_{false};
+  std::optional<JsonlReader> reader_;
+  Row row_;
 
  public:
   LoadJsonlCursor(const LoadJsonl *self, utils::MemoryResource *mem)
@@ -7906,8 +7909,14 @@ class LoadJsonlCursor : public Cursor {
     SCOPED_PROFILE_OP_BY_REF(*self_);
     AbortCheck(context);
 
-    // auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-    // auto *mem = context.evaluation_context.memory;
+    auto *mem = context.evaluation_context.memory;
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+    if (UNLIKELY(!reader_.has_value())) {
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{context.evaluation_context};
+      auto maybe_file = self_->file_->Accept(evaluator).ValueString();
+      reader_.emplace(std::string{maybe_file}, mem);
+    }
 
     if (input_cursor_->Pull(frame, context)) {
       if (did_pull_) {
@@ -7917,6 +7926,18 @@ class LoadJsonlCursor : public Cursor {
       }
       did_pull_ = true;
     }
+
+    if (!reader_->GetNextRow(row_)) {
+      return false;
+    }
+
+    frame_writer.Modify(self_->row_var_, [&](TypedValue &value) {
+      if (value.IsMap()) {
+        std::swap(value.ValueMap(), row_);
+      } else {
+        value = TypedValue(std::move(row_), mem);
+      }
+    });
 
     if (context.frame_change_collector) {
       context.frame_change_collector->ResetInListCache(self_->row_var_);
