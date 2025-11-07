@@ -37,7 +37,7 @@ class JsonlReader {
   std::string file_;
   std::pmr::memory_resource *resource_;
   simdjson::ondemand::parser parser_;
-  simdjson::padded_string jsonl_;
+  simdjson::padded_string content_;
   simdjson::ondemand::document_stream docs_;
   simdjson::ondemand::document_stream::iterator it_;
 };
