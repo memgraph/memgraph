@@ -138,13 +138,11 @@ auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph, std::unordered_map<
 }
 
 template <typename Symbol, typename Analysis, typename Func>
-requires std::is_invocable_r_v < double, Func, ENode<Symbol>
-const & > struct Extractor {
+requires(std::is_invocable_r_v<double, Func, ENode<Symbol> const &>) struct Extractor {
   template <typename FuncInner>
-  requires std::is_invocable_r_v < double, FuncInner, ENode<Symbol>
-  const & > Extractor(EGraph<Symbol, Analysis> const &egraph, FuncInner &&cost_function)
-      : egraph_(egraph),
-  cost_function_(std::forward<FuncInner>(cost_function)) {}
+  requires(std::is_invocable_r_v<double, FuncInner, ENode<Symbol> const &>)
+      Extractor(EGraph<Symbol, Analysis> const &egraph, FuncInner &&cost_function)
+      : egraph_(egraph), cost_function_(std::forward<FuncInner>(cost_function)) {}
 
   auto Extract(EClassId const root_id) -> std::vector<std::pair<EClassId, ENodeId>> {
     auto cheapest_enode = std::unordered_map<EClassId, Cost>{};
