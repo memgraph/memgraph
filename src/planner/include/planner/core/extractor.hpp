@@ -24,9 +24,6 @@ import memgraph.planner.core.eids;
 
 namespace memgraph::planner::core {
 
-template <typename Symbol>
-using CostFunction = std::function<double(ENode<Symbol> const &)>;
-
 struct Cost {
   ENodeId enode_id;
   double cost;
