@@ -26,6 +26,7 @@ find_package(antlr4-runtime REQUIRED)
 find_package(antlr4 REQUIRED)
 find_package(cppitertools REQUIRED)
 find_package(range-v3 REQUIRED)
+find_package(simdjson REQUIRED)
 
 add_library(mg-query STATIC)
 target_sources(mg-query
@@ -140,6 +141,7 @@ target_link_libraries(mg-query
     arrow
     mg-module-support
     mg-cpp-api
+    simdjson::simdjson
 )
 
 if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
