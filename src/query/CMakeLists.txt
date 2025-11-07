@@ -53,6 +53,7 @@ target_sources(mg-query
     interpret/frame.cpp
     interpreter_context.cpp
     interpreter.cpp
+    jsonl/reader.cpp
     metadata.cpp
     plan/hint_provider.cpp
     plan/operator_type_info.cpp
@@ -85,6 +86,9 @@ target_sources(mg-query
     vertex_accessor.cpp
 
     PUBLIC
+    FILE_SET CXX_MODULES
+    FILES
+    jsonl/reader.cppm
     FILE_SET HEADERS
     FILES
     arrow_parquet/reader.hpp
