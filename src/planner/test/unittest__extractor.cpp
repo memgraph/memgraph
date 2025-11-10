@@ -309,12 +309,11 @@ TEST(CollectDependencies, SingleLeafNode) {
   auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
   std::unordered_map<EClassId, Cost> cheapest_enode;
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
-  std::unordered_map<EClassId, int> in_degree;
 
-  CollectDependencies(egraph, cheapest_enode, leaf_class, in_degree);
+  auto in_degree = CollectDependencies(egraph, cheapest_enode, leaf_class);
 
   // Leaf has no children, so in_degree should be empty
-  ASSERT_EQ(in_degree.size(), 0);
+  ASSERT_EQ(in_degree.size(), 1);
 }
 
 TEST(CollectDependencies, LinearChain) {
@@ -327,12 +326,12 @@ TEST(CollectDependencies, LinearChain) {
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
   cheapest_enode[mid_class] = {mid_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
-  std::unordered_map<EClassId, int> in_degree;
 
-  CollectDependencies(egraph, cheapest_enode, root_class, in_degree);
+  auto in_degree = CollectDependencies(egraph, cheapest_enode, root_class);
 
   // mid has in_degree 1 (from root), leaf has in_degree 1 (from mid)
-  ASSERT_EQ(in_degree.size(), 2);
+  ASSERT_EQ(in_degree.size(), 3);
+  ASSERT_EQ(in_degree[root_class], 0);
   ASSERT_EQ(in_degree[mid_class], 1);
   ASSERT_EQ(in_degree[leaf_class], 1);
 }
@@ -347,9 +346,8 @@ TEST(CollectDependencies, SimpleTree) {
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
-  std::unordered_map<EClassId, int> in_degree;
 
-  CollectDependencies(egraph, cheapest_enode, root_class, in_degree);
+  auto in_degree = CollectDependencies(egraph, cheapest_enode, root_class);
 
   // Both left and right have in_degree 1 (from root)
   ASSERT_EQ(in_degree.size(), 2);
@@ -369,9 +367,8 @@ TEST(CollectDependencies, DiamondDAG) {
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
-  std::unordered_map<EClassId, int> in_degree;
 
-  CollectDependencies(egraph, cheapest_enode, root_class, in_degree);
+  auto in_degree = CollectDependencies(egraph, cheapest_enode, root_class);
 
   // shared has in_degree 2 (from left and right)
   // left and right each have in_degree 1 (from root)
@@ -393,9 +390,8 @@ TEST(CollectDependencies, MultipleChildren) {
   cheapest_enode[c2_class] = {c2_node, 1.0};
   cheapest_enode[c3_class] = {c3_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
-  std::unordered_map<EClassId, int> in_degree;
 
-  CollectDependencies(egraph, cheapest_enode, root_class, in_degree);
+  auto in_degree = CollectDependencies(egraph, cheapest_enode, root_class);
 
   ASSERT_EQ(in_degree.size(), 3);
   ASSERT_EQ(in_degree[c1_class], 1);
@@ -407,10 +403,9 @@ TEST(CollectDependencies, EmptyCheapestMap) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
   std::unordered_map<EClassId, Cost> cheapest_enode;
-  std::unordered_map<EClassId, int> in_degree;
 
   // Should handle gracefully when eclass not in cheapest_enode
-  CollectDependencies(egraph, cheapest_enode, leaf_class, in_degree);
+  auto in_degree = CollectDependencies(egraph, cheapest_enode, leaf_class);
 
   ASSERT_EQ(in_degree.size(), 0);
 }
