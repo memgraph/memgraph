@@ -22,10 +22,13 @@ module;
 
 module memgraph.query.jsonl.reader;
 
-// TODO: (andi) It would probably be better that we create only once parser and reuse it for all documents and
+// TODO: (andi) It would probably be better that we create only once parser anulnd reuse it for all documents and
 // subsequent calls
 // TODO: (andi) Type system?
 // TODO: (andi) Performance improvements
+// TODO: (andi) Handle all .value scenarios safely
+// TODO: (andi) Handle map and array
+// TODO: (andi) How to handle uint64_t type here and in LOAD PARQUET clause?
 
 namespace {
 using memgraph::query::TypedValue;
@@ -41,76 +44,107 @@ auto ToTypedValue(simdjson::ondemand::value &val, memgraph::utils::MemoryResourc
       return TypedValue{val.get_bool(), resource};
     }
     case json_type::number: {
-      auto number = val.get_number();
-      if (number->is_double()) {
-        return TypedValue{number->get_double(), resource};
+      auto num_type = val.get_number_type();
+      switch (num_type.value()) {
+        case number_type::floating_point_number: {
+          return TypedValue{val.get_double(), resource};
+        }
+        case number_type::signed_integer: {
+          return TypedValue{val.get_int64(), resource};
+        }
+        case number_type::unsigned_integer: {
+          // NOTE: uint64_t read as int64_t
+          return TypedValue{static_cast<int64_t>(val.get_uint64()), resource};
+        }
+        case number_type::big_integer: {
+          // NOTE: big integer read as raw json
+          return TypedValue{val.raw_json_token(), resource};
+        }
+        default: {
+          std::unreachable();
+        }
       }
-      if (number->is_int64()) {
-        spdlog::trace("Read int64: {}", std::to_string(val.get_int64()));
-        return TypedValue{number->get_int64(), resource};
-      }
-      if (number->is_uint64()) {
-        return TypedValue{static_cast<int64_t>(number->get_uint64()), resource};
-      }
-      // If it is neither of these, then it must be a big integer which needs to be parsed as string
-      return TypedValue{val.get_raw_json_string()->raw(), resource};
     }
     case json_type::string: {
-      spdlog::trace("Read value str: {}", val.get_string().value());
       return TypedValue{val.get_string().value(), resource};
     }
-    default: {
-      spdlog::trace("Unknown type");
-      return TypedValue{};
+    case json_type::array: {
+      return TypedValue{resource};
     }
-      // TODO: (andi) Use std::unreachable
+    case json_type::object: {
+      return TypedValue{resource};
+    }
+    case json_type::unknown: {
+      spdlog::trace("Found bad token in the JSON document but still able to continue");
+      return TypedValue{resource};
+    }
+    default: {
+      std::unreachable();
+    }
   }
 }
 
 }  // namespace
 
 namespace memgraph::query {
-JsonlReader::JsonlReader(std::string file, std::pmr::memory_resource *resource)
-    : file_{std::move(file)}, resource_{resource} {
-  // Load file
-  auto jsonl = simdjson::padded_string::load(file_);
-  if (!jsonl.has_value()) {
-    throw utils::BasicException("Failed to load file {}.", file_);
-  }
-  content_ = std::move(jsonl.value());
-  // Create docs iterator
-  auto error = parser_.iterate_many(content_).get(docs_);
-  if (error) {
-    throw utils::BasicException("Failed to create iterator over documents for file {}", file_);
+
+struct JsonlReader::impl {
+ public:
+  impl(std::string file, std::pmr::memory_resource *resource) : file_{std::move(file)}, resource_{resource} {
+    // Load file
+    auto jsonl = simdjson::padded_string::load(file_);
+    if (!jsonl.has_value()) {
+      throw utils::BasicException("Failed to load file {}.", file_);
+    }
+    content_ = std::move(jsonl.value());
+    // Create docs iterator
+    auto error = parser_.iterate_many(content_).get(docs_);
+    if (error) {
+      throw utils::BasicException("Failed to create iterator over documents for file {}", file_);
+    }
+
+    it_ = docs_.begin();
   }
 
-  it_ = docs_.begin();
-  spdlog::trace("Cached iterator");
-}
+  auto GetNextRow(Row &out) -> bool {
+    if (it_ == docs_.end()) return false;
+
+    if ((*it_).error()) {
+      spdlog::error("Failed to parse document: {}", simdjson::error_message((*it_).error()));
+      ++it_;
+      return GetNextRow(out);
+    }
+
+    // TODO: (andi) Profile and optimize
+    for (auto field : (*it_)->get_object()) {
+      std::string_view key_view;
+      auto error = field->unescaped_key().get(key_view);
+      if (error) continue;
+
+      TypedValue::TString key{key_view, resource_};
+      auto maybe_val = field->value();
+      auto val = ToTypedValue(maybe_val, resource_);
+      out.insert_or_assign(std::move(key), std::move(val));
+    }
+
+    ++it_;
+    return true;
+  }
+
+ private:
+  std::string file_;
+  std::pmr::memory_resource *resource_;
+  simdjson::ondemand::parser parser_;
+  simdjson::padded_string content_;
+  simdjson::ondemand::document_stream docs_;
+  simdjson::ondemand::document_stream::iterator it_;
+};
+
+JsonlReader::JsonlReader(std::string file, std::pmr::memory_resource *resource)
+    : pimpl_{std::make_unique<JsonlReader::impl>(std::move(file), resource)} {}
 
 JsonlReader::~JsonlReader() {}
 
-auto JsonlReader::GetNextRow(Row &out) -> bool {
-  if (it_ == docs_.end()) return false;
+auto JsonlReader::GetNextRow(Row &out) -> bool { return pimpl_->GetNextRow(out); }
 
-  if ((*it_).error()) {
-    spdlog::error("Failed to parse document: {}", simdjson::error_message((*it_).error()));
-    ++it_;
-    return GetNextRow(out);
-  }
-
-  for (auto field : (*it_)->get_object()) {
-    std::string_view key_view;
-    auto error = field->unescaped_key().get(key_view);
-    if (error) continue;
-
-    TypedValue::TString key{key_view, resource_};
-    auto maybe_val = field->value();
-
-    auto val = ToTypedValue(maybe_val, resource_);
-  }
-
-  ++it_;
-  return true;
-}
 }  // namespace memgraph::query

@@ -71,8 +71,12 @@
 #include "utils/temporal.hpp"
 #include "vertex_accessor.hpp"
 
+<<<<<<< HEAD
 import memgraph.query.arrow_parquet.parquet_file_config;
 import memgraph.query.arrow_parquet.reader;
+=======
+// Includes should be put before import
+>>>>>>> fb02cec0a (feat: Use pimpl idiom for compilation, connect e2e example for numeric and string types)
 import memgraph.query.jsonl.reader;
 import memgraph.utils.fnv;
 
@@ -7931,13 +7935,13 @@ class LoadJsonlCursor : public Cursor {
       return false;
     }
 
-    // frame_writer.Modify(self_->row_var_, [&](TypedValue &value) {
-    //   if (value.IsMap()) {
-    //     std::swap(value.ValueMap(), row_);
-    //   } else {
-    //     value = TypedValue(std::move(row_), mem);
-    //   }
-    // });
+    frame_writer.Modify(self_->row_var_, [&](TypedValue &value) {
+      if (value.IsMap()) {
+        std::swap(value.ValueMap(), row_);
+      } else {
+        value = TypedValue(std::move(row_), mem);
+      }
+    });
 
     if (context.frame_change_collector) {
       context.frame_change_collector->ResetInListCache(self_->row_var_);

@@ -14,8 +14,6 @@ module;
 #include <string>
 #include "query/typed_value.hpp"
 
-#include "simdjson.h"
-
 export module memgraph.query.jsonl.reader;
 
 export namespace memgraph::query {
@@ -34,12 +32,8 @@ class JsonlReader {
   auto GetNextRow(Row &out) -> bool;
 
  private:
-  std::string file_;
-  std::pmr::memory_resource *resource_;
-  simdjson::ondemand::parser parser_;
-  simdjson::padded_string content_;
-  simdjson::ondemand::document_stream docs_;
-  simdjson::ondemand::document_stream::iterator it_;
+  struct impl;
+  std::unique_ptr<impl> pimpl_;
 };
 
 }  // namespace memgraph::query
