@@ -44,6 +44,6 @@ struct egraph {
   std::unique_ptr<impl> pimpl_;
 
   // Friend accessor for internal implementation access
-  friend struct egraph_internal_access;
+  friend struct internal;
 };
 }  // namespace memgraph::query::plan::v2

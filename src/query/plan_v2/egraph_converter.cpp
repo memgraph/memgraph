@@ -28,11 +28,11 @@
 namespace memgraph::query::plan::v2 {
 auto ConvertToLogicalOperator(egraph const &e, eclass root) -> std::tuple<std::unique_ptr<LogicalOperator>, double> {
   // Access the internal egraph through the accessor
-  auto const &internal_egraph = egraph_internal_access::get_egraph(e);
+  auto const &internal_egraph = internal::get_egraph(e);
 
   auto cost_func = [](planner::core::ENode<symbol> const &) -> double { return 1.0; };
   auto extractor = memgraph::planner::core::Extractor{internal_egraph, cost_func};
-  auto thing = extractor.Extract(planner::core::EClassId{root.value_of()});
+  auto thing = extractor.Extract(internal::to_core_id(root));
 
   // egraph extraction -> subgraph of the egraph (one Enode per EClass)
   // start for a root
