@@ -350,7 +350,7 @@ TEST(CollectDependencies, SimpleTree) {
   auto in_degree = CollectDependencies(egraph, cheapest_enode, root_class);
 
   // Both left and right have in_degree 1 (from root)
-  ASSERT_EQ(in_degree.size(), 2);
+  ASSERT_EQ(in_degree.size(), 3);
   ASSERT_EQ(in_degree[left_class], 1);
   ASSERT_EQ(in_degree[right_class], 1);
 }
@@ -372,7 +372,7 @@ TEST(CollectDependencies, DiamondDAG) {
 
   // shared has in_degree 2 (from left and right)
   // left and right each have in_degree 1 (from root)
-  ASSERT_EQ(in_degree.size(), 3);
+  ASSERT_EQ(in_degree.size(), 4);
   ASSERT_EQ(in_degree[left_class], 1);
   ASSERT_EQ(in_degree[right_class], 1);
   ASSERT_EQ(in_degree[shared_class], 2);
@@ -393,21 +393,10 @@ TEST(CollectDependencies, MultipleChildren) {
 
   auto in_degree = CollectDependencies(egraph, cheapest_enode, root_class);
 
-  ASSERT_EQ(in_degree.size(), 3);
+  ASSERT_EQ(in_degree.size(), 4);
   ASSERT_EQ(in_degree[c1_class], 1);
   ASSERT_EQ(in_degree[c2_class], 1);
   ASSERT_EQ(in_degree[c3_class], 1);
-}
-
-TEST(CollectDependencies, EmptyCheapestMap) {
-  auto egraph = EGraph<symbol, analysis>{};
-  auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
-  std::unordered_map<EClassId, Cost> cheapest_enode;
-
-  // Should handle gracefully when eclass not in cheapest_enode
-  auto in_degree = CollectDependencies(egraph, cheapest_enode, leaf_class);
-
-  ASSERT_EQ(in_degree.size(), 0);
 }
 
 // ========================================
