@@ -111,48 +111,30 @@ auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
   return in_degree;
 }
 
-// template <typename Symbol, typename Analysis>
-// auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
-//                          std::unordered_map<EClassId, Cost> const &cheapest_enode, EClassId eclass_id,
-//                          std::unordered_map<EClassId, int> &in_degree) -> void {
-//   auto child_it = cheapest_enode.find(eclass_id);
-//   if (child_it == cheapest_enode.end()) return;
-//   auto enode = egraph.get_enode(child_it->second.enode_id);
-//   for (auto const &child_eclass_id : enode.children()) {
-//     if (!in_degree.contains(child_eclass_id)) {
-//       // if not visited yet go visit
-//       CollectDependencies(egraph, cheapest_enode, child_eclass_id, in_degree);
-//     }
-//     ++in_degree[child_eclass_id];
-//   }
-// }
-
-// Standalone function: Perform topological sort to produce ordered output
 template <typename Symbol, typename Analysis>
-auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph, std::unordered_map<EClassId, Cost> const &cheapest_enode,
-                     std::unordered_map<EClassId, int> in_degree, EClassId eclass_id)
-    -> std::vector<std::pair<EClassId, ENodeId>> {
+auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph, std::unordered_map<EClassId, Cost> const &enode_selection,
+                     std::unordered_map<EClassId, int> in_degree) -> std::vector<std::pair<EClassId, ENodeId>> {
   auto result = std::vector<std::pair<EClassId, ENodeId>>{};
-  result.reserve(in_degree.size() + 1);
-  // egraph is an acyclic graph so we can use topological sort
+  result.reserve(in_degree.size());
 
-  // root should be the only eclass with in_degree 0
-  std::queue<EClassId> queue{{eclass_id}};
+  auto queue = std::deque<EClassId>{};
+  for (auto const &p : in_degree)
+    if (p.second == 0) queue.emplace_back(p.first);
 
   while (!queue.empty()) {
-    EClassId current_id = queue.front();
-    queue.pop();
+    auto current = queue.front();
+    queue.pop_front();
 
-    auto it = cheapest_enode.find(current_id);
-    if (it == cheapest_enode.end()) continue;
+    auto it = enode_selection.find(current);
+    DMG_ASSERT(it != enode_selection.end(), "all reachable EClasses should have selected ENode");
+
     auto enode_id = it->second.enode_id;
+    result.emplace_back(current, enode_id);
 
-    result.emplace_back(current_id, enode_id);
-
-    for (EClassId child_eclass_id : egraph.get_enode(enode_id).children()) {
-      --in_degree[child_eclass_id];
-      if (in_degree[child_eclass_id] == 0) {
-        queue.push(child_eclass_id);
+    auto const &enode = egraph.get_enode(enode_id);
+    for (EClassId child : enode.children()) {
+      if (--in_degree[child] == 0) {
+        queue.push_back(child);
       }
     }
   }
@@ -170,7 +152,7 @@ requires(std::is_invocable_r_v<double, Func, ENode<Symbol> const &>) struct Extr
     auto cheapest_enode = std::unordered_map<EClassId, Cost>{};
     ProcessCosts(egraph_, cost_function_, root_id, cheapest_enode);
     auto in_degree = CollectDependencies(egraph_, cheapest_enode, root_id);
-    return TopologicalSort(egraph_, cheapest_enode, in_degree, root_id);
+    return TopologicalSort(egraph_, cheapest_enode, std::move(in_degree));
   }
 
  private:
