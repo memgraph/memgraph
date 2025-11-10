@@ -4269,3 +4269,72 @@ TEST_P(DurabilityTest, CreateSnapshotReturnsErrorForReplica) {
 
   ASSERT_TRUE(result.has_value());
 }
+
+TEST_F(DurabilityTest, WalInterleavedDeltaEncoding) {
+  memgraph::storage::Config config{};
+  config.durability.storage_directory = storage_directory;
+  config.durability.snapshot_wal_mode =
+      memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+
+  memgraph::storage::Gid v1_gid, v2_gid, v3_gid;
+  memgraph::storage::EdgeTypeId edge_type_1;
+
+  {
+    std::unique_ptr<memgraph::storage::Storage> storage(std::make_unique<memgraph::storage::InMemoryStorage>(config));
+
+    {
+      auto acc = storage->Access();
+      auto v1 = acc->CreateVertex();
+      auto v2 = acc->CreateVertex();
+      auto v3 = acc->CreateVertex();
+      v1_gid = v1.Gid();
+      v2_gid = v2.Gid();
+      v3_gid = v3.Gid();
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    }
+
+    auto tx1 = storage->Access();
+    auto v1_tx1 = tx1->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_tx1 = tx1->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_tx1.has_value());
+    ASSERT_TRUE(v2_tx1.has_value());
+
+    auto edge1 = tx1->CreateEdge(&*v1_tx1, &*v2_tx1, tx1->NameToEdgeType("Edge1"));
+    ASSERT_TRUE(edge1.HasValue());
+    edge_type_1 = tx1->NameToEdgeType("Edge1");
+
+    auto tx2 = storage->Access();
+    auto v1_tx2 = tx2->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v3_tx2 = tx2->FindVertex(v3_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_tx2.has_value());
+    ASSERT_TRUE(v3_tx2.has_value());
+
+    auto edge2 = tx2->CreateEdge(&*v1_tx2, &*v3_tx2, tx2->NameToEdgeType("Edge2"));
+    ASSERT_TRUE(edge2.HasValue());
+
+    ASSERT_FALSE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+
+    tx2->Abort();
+  }
+
+  // Recover from WAL and verify T1's edge exists
+  {
+    memgraph::storage::Config recovery_config = config;
+    recovery_config.durability.recover_on_startup = true;
+
+    std::unique_ptr<memgraph::storage::Storage> storage(
+        std::make_unique<memgraph::storage::InMemoryStorage>(recovery_config));
+
+    auto acc = storage->Access();
+    auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    ASSERT_TRUE(v2.has_value());
+
+    auto edges = v1->OutEdges(memgraph::storage::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    ASSERT_EQ(edges->edges.size(), 1);
+    ASSERT_EQ(edges->edges[0].EdgeType(), edge_type_1);
+    ASSERT_EQ(edges->edges[0].ToVertex().Gid(), v2_gid);
+  }
+}
