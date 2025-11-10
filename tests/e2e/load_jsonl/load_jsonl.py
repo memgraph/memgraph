@@ -18,9 +18,15 @@ from common import connect, execute_and_fetch_all, get_file_path
 
 def test_small_file_nodes():
     cursor = connect(host="localhost", port=7687).cursor()
-    load_query = f"LOAD JSONL FROM '{get_file_path('test_types.jsonl')}' AS row CREATE (n:N {{id: row.id, name: row.name, age: row.age, score: row.score, active: row.active, address: row.address, balance: row.balance}})"
+    load_query = f"LOAD JSONL FROM '{get_file_path('test_types.jsonl')}' AS row \
+    CREATE (n:N {{id: row.id, name: row.name, age: row.age, score: row.score, \
+        active: row.active, address: row.address, balance: row.balance, \
+        tags: row.tags, scores: row.scores, numbers: row.numbers, mixed: row.mixed, \
+        nested: row.nested, data: row.data, empty: row.empty, matrix: row.matrix, \
+        items: row.items, prices: row.prices, quantities: row.quantities, deep: row.deep, \
+        values: row.values, floats: row.flaots, strings: row.strings, combo: row.combo}})"
     execute_and_fetch_all(cursor, load_query)
-    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
+    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 110
     assert execute_and_fetch_all(cursor, "match (n) return valueType(n.id)")[0][0] == "INTEGER"
     assert execute_and_fetch_all(cursor, "match (n) return valueType(n.name)")[0][0] == "STRING"
     assert execute_and_fetch_all(cursor, "match (n) return valueType(n.age)")[0][0] == "INTEGER"
@@ -32,6 +38,11 @@ def test_small_file_nodes():
     # Big integer is converted to string if larger than int64_t
     big_val_type = execute_and_fetch_all(cursor, "match (n) return valueType(n.id)")[0][0]
     assert big_val_type == "INTEGER" or big_val_type == "STRING"
+
+    assert execute_and_fetch_all(cursor, "match (n:N) where n.id = 101 return valueType(n.tags)")[0][0] == "LIST"
+    assert execute_and_fetch_all(cursor, "match (n:N) where n.id = 103 return n.data")[0][0][1] == 200.5
+    assert execute_and_fetch_all(cursor, "match (n:N) where n.id = 110 return n.combo")[0][0][0] == ["a", "b"]
+
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 

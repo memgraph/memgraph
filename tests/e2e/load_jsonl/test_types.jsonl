@@ -98,3 +98,13 @@
 {"id": 98, "name": "Vince", "age": 37, "score": 88.8, "active": false, "address": "345 Hickory Rd", "balance": 20202020202020202020202020}
 {"id": 99, "name": "Wren", "age": 22, "score": 91.6, "active": true, "address": null, "balance": -30303030303030303030303030}
 {"id": 100, "name": "Yves", "age": 39, "score": 97.4, "active": false, "address": "456 Beech Dr", "balance": 40404040404040404040404040}
+{"id": 101, "name": "Array Test 1", "tags": ["tag1", "tag2", "tag3"], "scores": [95.5, 87.3, 92.1], "numbers": [1, 2, 3, 4, 5]}
+{"id": 102, "name": "Array Test 2", "mixed": ["string", 42, 3.14, true, null], "nested": [[1, 2], [3, 4], [5, 6]]}
+{"id": 103, "name": "Array Test 3", "data": [100, 200.5, "text", [10, 20, 30]], "empty": []}
+{"id": 104, "name": "Array Test 4", "matrix": [[1.1, 2.2, 3.3], [4.4, 5.5, 6.6], [7.7, 8.8, 9.9]]}
+{"id": 105, "name": "Array Test 5", "items": ["apple", "banana", "cherry"], "prices": [1.99, 2.49, 3.99], "quantities": [10, 20, 15]}
+{"id": 106, "name": "Array Test 6", "deep": [1, [2, [3, [4, [5]]]]]}
+{"id": 107, "name": "Array Test 7", "values": [0, -1, 1, -100, 100, 9223372036854775807, -9223372036854775808]}
+{"id": 108, "name": "Array Test 8", "floats": [0.0, -1.5, 2.7, 3.14159, -99.99, 123.456]}
+{"id": 109, "name": "Array Test 9", "strings": ["hello", "world", "test", "array", "strings"]}
+{"id": 110, "name": "Array Test 10", "combo": [["a", "b"], [1, 2], [1.1, 2.2], [true, false]]}

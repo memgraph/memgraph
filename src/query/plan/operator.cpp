@@ -7935,13 +7935,7 @@ class LoadJsonlCursor : public Cursor {
       return false;
     }
 
-    frame_writer.Modify(self_->row_var_, [&](TypedValue &value) {
-      if (value.IsMap()) {
-        std::swap(value.ValueMap(), row_);
-      } else {
-        value = TypedValue(std::move(row_), mem);
-      }
-    });
+    frame_writer.Write(self_->row_var_, TypedValue(std::move(row_), mem));
 
     if (context.frame_change_collector) {
       context.frame_change_collector->ResetInListCache(self_->row_var_);
