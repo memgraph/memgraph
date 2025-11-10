@@ -28,9 +28,16 @@ namespace memgraph::query::plan::v2 {
  * It is only for internal implementation files that need access to
  * the underlying EGraph<symbol, analysis> instance.
  */
-struct egraph_internal_access {
+struct internal {
   static auto get_egraph(egraph const &e) -> memgraph::planner::core::EGraph<symbol, analysis> const &;
   static auto get_egraph(egraph &e) -> memgraph::planner::core::EGraph<symbol, analysis> &;
+
+  // Conversion helpers between eclass and planner::core::EClassId
+  static auto to_core_id(eclass id) -> memgraph::planner::core::EClassId {
+    return memgraph::planner::core::EClassId{id.value_of()};
+  }
+
+  static auto from_core_id(memgraph::planner::core::EClassId id) -> eclass { return eclass{id.value_of()}; }
 };
 
 }  // namespace memgraph::query::plan::v2

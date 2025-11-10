@@ -69,38 +69,38 @@ struct egraph::impl {
 
   template <symbol S, typename... Args>
   requires(!symbol_traits<S>::is_disambiguated && symbol_traits<S>::has_children) auto make(Args &&...args) -> eclass {
-    auto res = std::array{std::forward<Args>(args)...} |
-               std::ranges::views::transform(
-                   [](eclass ec) -> planner::core::EClassId { return planner::core::EClassId{ec.value_of()}; }) |
-               std::ranges::to<utils::small_vector<planner::core::EClassId>>();
-    return eclass(egraph_.emplace(S, std::move(res)).current_eclassid.value_of());
+    auto res =
+        std::array{std::forward<Args>(args)...} |
+        std::ranges::views::transform([](eclass ec) -> planner::core::EClassId { return internal::to_core_id(ec); }) |
+        std::ranges::to<utils::small_vector<planner::core::EClassId>>();
+    return internal::from_core_id(egraph_.emplace(S, std::move(res)).current_eclassid);
   }
 
   template <symbol S>
   requires(!symbol_traits<S>::is_disambiguated &&
            symbol_traits<S>::has_children) auto make(std::vector<eclass> children) -> eclass {
-    auto res = children | std::ranges::views::transform([](eclass ec) -> planner::core::EClassId {
-                 return planner::core::EClassId{ec.value_of()};
-               }) |
-               std::ranges::to<utils::small_vector<planner::core::EClassId>>();
-    return eclass(egraph_.emplace(S, std::move(res)).current_eclassid.value_of());
+    auto res =
+        children |
+        std::ranges::views::transform([](eclass ec) -> planner::core::EClassId { return internal::to_core_id(ec); }) |
+        std::ranges::to<utils::small_vector<planner::core::EClassId>>();
+    return internal::from_core_id(egraph_.emplace(S, std::move(res)).current_eclassid);
   }
 
   template <symbol S>
   requires(symbol_traits<S>::is_disambiguated &&
            !symbol_traits<S>::has_children) auto make(uint64_t const disambiguator) -> eclass {
-    return eclass(
-        egraph_.emplace(S, utils::small_vector<planner::core::EClassId>{}, disambiguator).current_eclassid.value_of());
+    return internal::from_core_id(
+        egraph_.emplace(S, utils::small_vector<planner::core::EClassId>{}, disambiguator).current_eclassid);
   }
 
   template <symbol S, typename... Args>
   requires(symbol_traits<S>::is_disambiguated &&symbol_traits<S>::has_children) auto make(uint64_t const disambiguator,
                                                                                           Args &&...args) -> eclass {
-    auto res = std::array{std::forward<Args>(args)...} |
-               std::ranges::views::transform(
-                   [](eclass ec) -> planner::core::EClassId { return planner::core::EClassId{ec.value_of()}; }) |
-               std::ranges::to<utils::small_vector<planner::core::EClassId>>();
-    return eclass(egraph_.emplace(S, std::move(res), disambiguator).current_eclassid.value_of());
+    auto res =
+        std::array{std::forward<Args>(args)...} |
+        std::ranges::views::transform([](eclass ec) -> planner::core::EClassId { return internal::to_core_id(ec); }) |
+        std::ranges::to<utils::small_vector<planner::core::EClassId>>();
+    return internal::from_core_id(egraph_.emplace(S, std::move(res), disambiguator).current_eclassid);
   }
 
   auto store_literal(storage::ExternalPropertyValue const &value) -> uint64_t {
@@ -173,11 +173,11 @@ auto egraph::MakeIdentifier(eclass sym) -> eclass { return pimpl_->make<symbol::
 // Internal accessor implementations
 // ========================================================================
 
-auto egraph_internal_access::get_egraph(egraph const &e) -> memgraph::planner::core::EGraph<symbol, analysis> const & {
+auto internal::get_egraph(egraph const &e) -> memgraph::planner::core::EGraph<symbol, analysis> const & {
   return e.pimpl_->egraph_;
 }
 
-auto egraph_internal_access::get_egraph(egraph &e) -> memgraph::planner::core::EGraph<symbol, analysis> & {
+auto internal::get_egraph(egraph &e) -> memgraph::planner::core::EGraph<symbol, analysis> & {
   return e.pimpl_->egraph_;
 }
 
