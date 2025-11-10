@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/plan_v2/egraph.hpp"
+#include "query/plan_v2/egraph_internal.hpp"
 
 #include "planner/core/egraph.hpp"
 
@@ -167,5 +168,17 @@ auto egraph::MakeOutputs(eclass input, std::vector<eclass> named_outputs) -> ecl
 
 // NOLINTNEXTLINE(readability-make-member-function-const)
 auto egraph::MakeIdentifier(eclass sym) -> eclass { return pimpl_->make<symbol::Identifier>(sym); }
+
+// ========================================================================
+// Internal accessor implementations
+// ========================================================================
+
+auto egraph_internal_access::get_egraph(egraph const &e) -> memgraph::planner::core::EGraph<symbol, analysis> const & {
+  return e.pimpl_->egraph_;
+}
+
+auto egraph_internal_access::get_egraph(egraph &e) -> memgraph::planner::core::EGraph<symbol, analysis> & {
+  return e.pimpl_->egraph_;
+}
 
 }  // namespace memgraph::query::plan::v2

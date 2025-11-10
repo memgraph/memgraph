@@ -8,22 +8,30 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+
+// Copyright 2025 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
 #include "query/plan_v2/egraph_converter.hpp"
 
 #include "planner/core/extractor.hpp"
-
-#include "planner/core/egraph.hpp"
 #include "query/plan/operator.hpp"
-
-#include "private_analysis.hpp"
-#include "private_symbol.hpp"
-
-// #include "egraph.cpp"  //TODO: fix C++20 module
+#include "query/plan_v2/egraph_internal.hpp"
 
 namespace memgraph::query::plan::v2 {
 auto ConvertToLogicalOperator(egraph const &e, eclass root) -> std::tuple<std::unique_ptr<LogicalOperator>, double> {
+  // Access the internal egraph through the accessor
+  auto const &internal_egraph = egraph_internal_access::get_egraph(e);
+
   auto cost_func = [](planner::core::ENode<symbol> const &) -> double { return 1.0; };
-  auto extractor = memgraph::planner::core::Extractor{e.pimpl_->egraph_, cost_func};
+  auto extractor = memgraph::planner::core::Extractor{internal_egraph, cost_func};
   auto thing = extractor.Extract(planner::core::EClassId{root.value_of()});
 
   // egraph extraction -> subgraph of the egraph (one Enode per EClass)
