@@ -19,6 +19,7 @@ module;
 
 #include "query/typed_value.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/likely.hpp"
 
 module memgraph.query.jsonl.reader;
 
@@ -28,7 +29,12 @@ module memgraph.query.jsonl.reader;
 // TODO: (andi) Performance improvements
 // TODO: (andi) Handle all .value scenarios safely
 // TODO: (andi) Handle map and array
-// TODO: (andi) How to handle uint64_t type here and in LOAD PARQUET clause?
+// TODO: (andi) How to handle uint64_t type here and in LOAD PARQUET clause, ask in the team core?
+// TODO: (andi) Use UNLIKELY for errors
+// TODO: (andi) If you are using .error() to check for error I think .value_unsafe() should be used because .value()
+// does the error checking
+// TODO: (andi) load parquet maybe has the issue with swapping if not whole file is under the same schema
+// TODO: (andi) Test specific overflow/underflow values
 
 namespace {
 using memgraph::query::TypedValue;
@@ -69,13 +75,35 @@ auto ToTypedValue(simdjson::ondemand::value &val, memgraph::utils::MemoryResourc
       return TypedValue{val.get_string().value(), resource};
     }
     case json_type::array: {
-      return TypedValue{resource};
+      TypedValue::TVector t_vec;
+      auto arr = val.get_array();
+      if (UNLIKELY(arr.error())) {
+        spdlog::error("Error when reading JSONL array. Null value will be used to represent the whole array.");
+        return TypedValue{resource};
+      }
+
+      for (auto it = arr->begin(); it != arr->end(); ++it) {
+        if (UNLIKELY(it.error())) {
+          spdlog::error(
+              "Error when reading element in JSONL array. Null value will be used to represent the element in the "
+              "array.");
+          // TODO: (andi) Try to use emplace_back without creating temporary but I rememeber I had some issues with
+          // parquet file
+          t_vec.push_back(TypedValue{resource});
+        }
+        auto arr_elem_value = (*it).value_unsafe();
+        t_vec.push_back(ToTypedValue(arr_elem_value, resource));
+      }
+
+      return TypedValue{std::move(t_vec), resource};
     }
     case json_type::object: {
       return TypedValue{resource};
     }
     case json_type::unknown: {
-      spdlog::trace("Found bad token in the JSON document but still able to continue");
+      spdlog::trace(
+          "Found bad token in the JSON document. Null value will be used instead of this token. The rest of the "
+          "document will be processed normally.");
       return TypedValue{resource};
     }
     default: {
@@ -115,6 +143,8 @@ struct JsonlReader::impl {
       return GetNextRow(out);
     }
 
+    out.clear();
+
     // TODO: (andi) Profile and optimize
     for (auto field : (*it_)->get_object()) {
       std::string_view key_view;
@@ -124,7 +154,7 @@ struct JsonlReader::impl {
       TypedValue::TString key{key_view, resource_};
       auto maybe_val = field->value();
       auto val = ToTypedValue(maybe_val, resource_);
-      out.insert_or_assign(std::move(key), std::move(val));
+      out.emplace(std::move(key), std::move(val));
     }
 
     ++it_;
