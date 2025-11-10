@@ -406,10 +406,10 @@ TEST(CollectDependencies, MultipleChildren) {
 TEST(TopologicalSort, SingleNode) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Cost> cheapest_enode{};
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
-  std::unordered_map<EClassId, int> in_degree;
-  auto result = TopologicalSort(egraph, cheapest_enode, in_degree, leaf_class);
+  auto in_degree = std::unordered_map<EClassId, int>{{leaf_class, 0}};
+  auto result = TopologicalSort(egraph, cheapest_enode, in_degree);
 
   ASSERT_EQ(result.size(), 1);
   ASSERT_EQ(result[0].first, leaf_class);
@@ -427,9 +427,10 @@ TEST(TopologicalSort, LinearChainOrdering) {
   cheapest_enode[mid_class] = {mid_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
   std::unordered_map<EClassId, int> in_degree;
+  in_degree[root_class] = 0;
   in_degree[mid_class] = 1;
   in_degree[leaf_class] = 1;
-  auto result = TopologicalSort(egraph, cheapest_enode, in_degree, root_class);
+  auto result = TopologicalSort(egraph, cheapest_enode, in_degree);
 
   ASSERT_EQ(result.size(), 3);
   // Order should be: root, mid, leaf
@@ -451,7 +452,8 @@ TEST(TopologicalSort, SimpleTreeOrdering) {
   std::unordered_map<EClassId, int> in_degree;
   in_degree[left_class] = 1;
   in_degree[right_class] = 1;
-  auto result = TopologicalSort(egraph, cheapest_enode, in_degree, root_class);
+  in_degree[root_class] = 0;
+  auto result = TopologicalSort(egraph, cheapest_enode, in_degree);
 
   ASSERT_EQ(result.size(), 3);
   // Root should come first
@@ -475,7 +477,8 @@ TEST(TopologicalSort, DiamondTopology) {
   in_degree[left_class] = 1;
   in_degree[right_class] = 1;
   in_degree[shared_class] = 2;
-  auto result = TopologicalSort(egraph, cheapest_enode, in_degree, root_class);
+  in_degree[root_class] = 0;
+  auto result = TopologicalSort(egraph, cheapest_enode, in_degree);
 
   ASSERT_EQ(result.size(), 4);
   // Root comes first
@@ -497,7 +500,8 @@ TEST(TopologicalSort, VerifyDependenciesBeforeParents) {
   std::unordered_map<EClassId, int> in_degree;
   in_degree[mid_class] = 1;
   in_degree[leaf_class] = 1;
-  auto result = TopologicalSort(egraph, cheapest_enode, in_degree, root_class);
+  in_degree[root_class] = 0;
+  auto result = TopologicalSort(egraph, cheapest_enode, in_degree);
 
   // Find indices
   int root_idx = -1, mid_idx = -1, leaf_idx = -1;
@@ -517,7 +521,7 @@ TEST(TopologicalSort, EmptyCheapestMap) {
   auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
   std::unordered_map<EClassId, Cost> cheapest_enode;
   std::unordered_map<EClassId, int> in_degree;
-  auto result = TopologicalSort(egraph, cheapest_enode, in_degree, leaf_class);
+  auto result = TopologicalSort(egraph, cheapest_enode, in_degree);
 
   // Should handle gracefully
   ASSERT_EQ(result.size(), 0);
@@ -538,7 +542,8 @@ TEST(TopologicalSort, MultipleRootsIndependentBranches) {
   std::unordered_map<EClassId, int> in_degree;
   in_degree[l1_class] = 1;
   in_degree[l2_class] = 1;
-  auto result = TopologicalSort(egraph, cheapest_enode, in_degree, root_class);
+  in_degree[root_class] = 0;
+  auto result = TopologicalSort(egraph, cheapest_enode, in_degree);
 
   ASSERT_EQ(result.size(), 3);
   // Root should be first, l1 and l2 can be in any order
@@ -564,7 +569,8 @@ TEST(TopologicalSort, WideTree) {
   in_degree[c2_class] = 1;
   in_degree[c3_class] = 1;
   in_degree[c4_class] = 1;
-  auto result = TopologicalSort(egraph, cheapest_enode, in_degree, root_class);
+  in_degree[root_class] = 0;
+  auto result = TopologicalSort(egraph, cheapest_enode, in_degree);
 
   ASSERT_EQ(result.size(), 5);
   ASSERT_EQ(result[0].first, root_class);
