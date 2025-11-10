@@ -32,7 +32,6 @@
 
 #include "csv/parsing.hpp"
 #include "license/license.hpp"
-import memgraph.query.jsonl.reader;
 #include "query/arrow_parquet/parquet_file_config.hpp"
 #include "query/arrow_parquet/reader.hpp"
 #include "query/context.hpp"
@@ -56,7 +55,6 @@ import memgraph.query.jsonl.reader;
 #include "utils/algorithm.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
-import memgraph.utils.fnv;
 #include "utils/java_string_formatter.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
@@ -74,6 +72,10 @@ import memgraph.utils.fnv;
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
 #include "vertex_accessor.hpp"
+
+// Includes should be put before import
+import memgraph.query.jsonl.reader;
+import memgraph.utils.fnv;
 
 namespace r = ranges;
 namespace rv = r::views;
@@ -7922,13 +7924,13 @@ class LoadJsonlCursor : public Cursor {
       return false;
     }
 
-    // frame_writer.Modify(self_->row_var_, [&](TypedValue &value) {
-    //   if (value.IsMap()) {
-    //     std::swap(value.ValueMap(), row_);
-    //   } else {
-    //     value = TypedValue(std::move(row_), mem);
-    //   }
-    // });
+    frame_writer.Modify(self_->row_var_, [&](TypedValue &value) {
+      if (value.IsMap()) {
+        std::swap(value.ValueMap(), row_);
+      } else {
+        value = TypedValue(std::move(row_), mem);
+      }
+    });
 
     if (context.frame_change_collector) {
       context.frame_change_collector->ResetInListCache(self_->row_var_);
