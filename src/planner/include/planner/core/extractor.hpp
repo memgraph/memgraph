@@ -79,6 +79,23 @@ const & > auto ProcessCosts(EGraph<Symbol, Analysis> const &egraph, Func const &
   return std::numeric_limits<double>::infinity();
 }
 
+// TODO: can we do everything in a single phase algorithm
+//  template <typename Symbol, typename Analysis, typename Func>
+//    requires std::is_invocable_r_v<double, Func, ENode<Symbol> const &>
+//  auto ExtractMega(EGraph<Symbol, Analysis> const &egraph, Func const &cost_function, EClassId root)
+//      -> std::unordered_map<EClassId, Cost> {
+//    // start with root in the queue
+//    // we want to process each enode in eclass
+//    // each enode has children, those eclasses need to be on the queue (make sure only inserted once)
+//    // We need a counter for each enode (number of children)
+//    // an enode cost can be calculated when all its children have been processed (count is 0)
+//    // process cost, then see if it is the smallest cost for the eclass the enode belongs to...if so update
+//    // Eclass also has a counter for all the enodes it has. Once a enode has been processed, the eclass counter goes
+//    down.
+//    // when the elcass counter is 0, then go to all the parents enodes counters are decremented.
+//    // we also need to handle infinate loops/cycles in the graph. If....
+//  }
+
 template <typename Symbol, typename Analysis>
 auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
                          std::unordered_map<EClassId, Cost> const &enode_selection, const EClassId root)
@@ -117,13 +134,13 @@ auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph, std::unordered_map<
   auto result = std::vector<std::pair<EClassId, ENodeId>>{};
   result.reserve(in_degree.size());
 
-  auto queue = std::deque<EClassId>{};
+  auto queue = std::queue<EClassId>{};
   for (auto const &p : in_degree)
-    if (p.second == 0) queue.emplace_back(p.first);
+    if (p.second == 0) queue.emplace(p.first);
 
   while (!queue.empty()) {
     auto current = queue.front();
-    queue.pop_front();
+    queue.pop();
 
     auto it = enode_selection.find(current);
     DMG_ASSERT(it != enode_selection.end(), "all reachable EClasses should have selected ENode");
@@ -134,7 +151,7 @@ auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph, std::unordered_map<
     auto const &enode = egraph.get_enode(enode_id);
     for (EClassId child : enode.children()) {
       if (--in_degree[child] == 0) {
-        queue.push_back(child);
+        queue.emplace(child);
       }
     }
   }
