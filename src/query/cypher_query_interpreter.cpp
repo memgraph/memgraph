@@ -17,6 +17,7 @@
 #include "frontend/semantic/rw_checker.hpp"
 #include "frontend/semantic/symbol_generator.hpp"
 #include "plan/read_write_type_checker.hpp"
+#include "plan_v2/egraph_converter.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/plan/planner.hpp"

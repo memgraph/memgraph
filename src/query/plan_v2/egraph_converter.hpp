@@ -13,14 +13,11 @@
 
 #include "query/plan_v2/egraph.hpp"
 
-namespace memgraph::query {
-class CypherQuery;
-class SymbolTable;
-}  // namespace memgraph::query
+namespace memgraph::query::plan {
+class LogicalOperator;
+}
 
 namespace memgraph::query::plan::v2 {
 
-// auto ConvertToLogicalOperator(egraph const &egraph,eclass root) -> std::tuple<std::unique_ptr<LogicalOperator>,
-// double>;
-
+auto ConvertToLogicalOperator(egraph const &e, eclass root) -> std::tuple<std::unique_ptr<LogicalOperator>, double>;
 }  // namespace memgraph::query::plan::v2

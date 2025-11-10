@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <tuple>
+
 #include "query/plan_v2/egraph.hpp"
 
 namespace memgraph::query {
