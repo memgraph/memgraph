@@ -167,10 +167,11 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
     if (flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2)) {
       // WITH 1 AS tmp RETURN tmp AS result;
       //  SymTbl: tmp result
-      auto egraph = plan::v2::ConvertToEgraph(*query, symbol_table);
+      auto [egraph, root] = plan::v2::ConvertToEgraph(*query, symbol_table);
+
       // TODO: rewrite
       // TODO: new ast_storage + symbol_table
-      auto [plan, cost] = egraph.Extract();  // LogicalOperator + double
+      auto [plan, cost] = ConvertToLogicalOperator(egraph, root);  // LogicalOperator + double
       return std::pair{std::move(plan), cost};
     }
     auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);

@@ -74,7 +74,7 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
   bool PostVisit(NamedExpression &op) override {
     auto expr = PopStack();
     auto input = PopStack();
-    DMG_ASSERT(named_expression.symbol_pos_ != -1, "AST symbol should have already been mapped into the frame");
+    DMG_ASSERT(op.symbol_pos_ != -1, "AST symbol should have already been mapped into the frame");
     auto sym = egraph_.MakeSymbol(op.symbol_pos_);
     auto bind = egraph_.MakeBind(input, sym, expr);
     builder_stack_.emplace_back(bind);
@@ -438,7 +438,10 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
 
   bool PostVisit(PatternComprehension &) override { return true; }
 
-  auto GetEgraph() && -> egraph { return std::move(egraph_); }
+  auto GetEgraph() && -> std::tuple<egraph, plan::v2::eclass> {
+    MG_ASSERT(builder_stack_.size() == 1, "should have a root");
+    return {std::move(egraph_), builder_stack_.back()};
+  }
 
  private:
   auto PopStack() -> plan::v2::eclass {
@@ -462,7 +465,7 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
 
 namespace memgraph::query::plan::v2 {
 
-auto ConvertToEgraph(CypherQuery const &query, SymbolTable const &symbol_table) -> egraph {
+auto ConvertToEgraph(CypherQuery const &query, SymbolTable const &symbol_table) -> std::tuple<egraph, eclass> {
   auto visitor = AstConverterVisitor{};
   // TODO: fix HierarchicalTreeVisitor to allow const
   const_cast<CypherQuery &>(query).Accept(visitor);

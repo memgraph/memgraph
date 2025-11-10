@@ -20,6 +20,7 @@ class SymbolTable;
 
 namespace memgraph::query::plan::v2 {
 
-auto ConvertToLogicalOperator(egraph const &egraph) -> std::tuple<std::unique_ptr<LogicalOperator>, double>;
+// auto ConvertToLogicalOperator(egraph const &egraph,eclass root) -> std::tuple<std::unique_ptr<LogicalOperator>,
+// double>;
 
 }  // namespace memgraph::query::plan::v2

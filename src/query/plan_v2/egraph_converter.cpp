@@ -13,16 +13,18 @@
 #include "planner/core/extractor.hpp"
 
 #include "planner/core/egraph.hpp"
+#include "query/plan/operator.hpp"
 
 #include "private_analysis.hpp"
 #include "private_symbol.hpp"
 
-#include "egraph.cpp"  //TODO: fix C++20 module
+// #include "egraph.cpp"  //TODO: fix C++20 module
 
 namespace memgraph::query::plan::v2 {
-auto ConvertToLogicalOperator(egraph const &egraph) -> std::tuple<std::unique_ptr<LogicalOperator>, double> {
+auto ConvertToLogicalOperator(egraph const &e, eclass root) -> std::tuple<std::unique_ptr<LogicalOperator>, double> {
   auto cost_func = [](planner::core::ENode<symbol> const &) -> double { return 1.0; };
-  auto extractor = memgraph::planner::core::Extractor<symbol, analysis>{egraph.pimpl_->egraph_, cost_func};
+  auto extractor = memgraph::planner::core::Extractor{e.pimpl_->egraph_, cost_func};
+  auto thing = extractor.Extract(planner::core::EClassId{root.value_of()});
 
   // egraph extraction -> subgraph of the egraph (one Enode per EClass)
   // start for a root
@@ -41,6 +43,6 @@ auto ConvertToLogicalOperator(egraph const &egraph) -> std::tuple<std::unique_pt
 
   // $a=(IDENT X), (BIND _ X $b) -> MERGE $a, $b
 
-  return ? ? ? ;
+  return {nullptr, 0.0};
 }
 }  // namespace memgraph::query::plan::v2

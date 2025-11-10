@@ -69,33 +69,37 @@ struct egraph::impl {
   template <symbol S, typename... Args>
   requires(!symbol_traits<S>::is_disambiguated && symbol_traits<S>::has_children) auto make(Args &&...args) -> eclass {
     auto res = std::array{std::forward<Args>(args)...} |
-               std::ranges::views::transform([](eclass ec) -> planner::core::EClassId { return ec.value_of(); }) |
+               std::ranges::views::transform(
+                   [](eclass ec) -> planner::core::EClassId { return planner::core::EClassId{ec.value_of()}; }) |
                std::ranges::to<utils::small_vector<planner::core::EClassId>>();
-    return eclass(egraph_.emplace(S, std::move(res)));
+    return eclass(egraph_.emplace(S, std::move(res)).current_eclassid.value_of());
   }
 
   template <symbol S>
   requires(!symbol_traits<S>::is_disambiguated &&
            symbol_traits<S>::has_children) auto make(std::vector<eclass> children) -> eclass {
-    auto res = children |
-               std::ranges::views::transform([](eclass ec) -> planner::core::EClassId { return ec.value_of(); }) |
+    auto res = children | std::ranges::views::transform([](eclass ec) -> planner::core::EClassId {
+                 return planner::core::EClassId{ec.value_of()};
+               }) |
                std::ranges::to<utils::small_vector<planner::core::EClassId>>();
-    return eclass(egraph_.emplace(S, std::move(res)));
+    return eclass(egraph_.emplace(S, std::move(res)).current_eclassid.value_of());
   }
 
   template <symbol S>
   requires(symbol_traits<S>::is_disambiguated &&
            !symbol_traits<S>::has_children) auto make(uint64_t const disambiguator) -> eclass {
-    return eclass(egraph_.emplace(S, utils::small_vector<planner::core::EClassId>{}, disambiguator));
+    return eclass(
+        egraph_.emplace(S, utils::small_vector<planner::core::EClassId>{}, disambiguator).current_eclassid.value_of());
   }
 
   template <symbol S, typename... Args>
   requires(symbol_traits<S>::is_disambiguated &&symbol_traits<S>::has_children) auto make(uint64_t const disambiguator,
                                                                                           Args &&...args) -> eclass {
     auto res = std::array{std::forward<Args>(args)...} |
-               std::ranges::views::transform([](eclass ec) -> planner::core::EClassId { return ec.value_of(); }) |
+               std::ranges::views::transform(
+                   [](eclass ec) -> planner::core::EClassId { return planner::core::EClassId{ec.value_of()}; }) |
                std::ranges::to<utils::small_vector<planner::core::EClassId>>();
-    return eclass(egraph_.emplace(S, std::move(res), disambiguator));
+    return eclass(egraph_.emplace(S, std::move(res), disambiguator).current_eclassid.value_of());
   }
 
   auto store_literal(storage::ExternalPropertyValue const &value) -> uint64_t {
