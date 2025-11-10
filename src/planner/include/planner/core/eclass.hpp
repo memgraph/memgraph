@@ -33,6 +33,8 @@ struct EClassBase {
 
   auto nodes() const -> boost::unordered_flat_set<ENodeId> const & { return nodes_; }
 
+  auto representative() const -> ENodeId { return *nodes_.begin(); }
+
   // TODO: does this need to be a set? do we use O(1) contains/lookup?
   //       maybe needed for ematching later, leave for now
   auto parents() const -> boost::unordered_flat_set<ENodeId> const & { return parents_; }
@@ -59,6 +61,7 @@ struct EClass : private detail::EClassBase {
   using EClassBase::add_parent;
   using EClassBase::nodes;
   using EClassBase::parents;
+  using EClassBase::representative;
   using EClassBase::size;
 
   /**
