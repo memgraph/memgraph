@@ -3201,6 +3201,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
 
+      if (prev.type == PreviousPtr::Type::EDGE) continue;
+
       bool const is_subchain_start =
           (prev.type == PreviousPtr::Type::VERTEX) ||
           (prev.type == PreviousPtr::Type::DELTA &&
@@ -3233,6 +3235,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
+
+      if (prev.type == PreviousPtr::Type::EDGE) continue;
 
       bool const is_subchain_start =
           (prev.type == PreviousPtr::Type::VERTEX) ||
@@ -3290,6 +3294,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
 
+      if (prev.type == PreviousPtr::Type::EDGE) continue;
+
       bool const is_subchain_start =
           (prev.type == PreviousPtr::Type::VERTEX) ||
           (prev.type == PreviousPtr::Type::DELTA &&
@@ -3321,6 +3327,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
+
+      if (prev.type == PreviousPtr::Type::EDGE) continue;
 
       bool const is_subchain_start =
           (prev.type == PreviousPtr::Type::VERTEX) ||
