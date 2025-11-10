@@ -20,6 +20,6 @@ class SymbolTable;
 
 namespace memgraph::query::plan::v2 {
 
-auto ConvertToEgraph(CypherQuery const &query, SymbolTable const &symbol_table) -> egraph;
+auto ConvertToEgraph(CypherQuery const &query, SymbolTable const &symbol_table) -> std::tuple<egraph, eclass>;
 
 }  // namespace memgraph::query::plan::v2

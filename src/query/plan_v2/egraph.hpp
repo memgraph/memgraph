@@ -39,7 +39,8 @@ struct egraph {
   auto MakeOutputs(eclass input, std::vector<eclass> named_outputs) -> eclass;
   auto MakeIdentifier(eclass sym) -> eclass;
 
-  friend auto ConvertToLogicalOperator(egraph const &egraph) -> std::tuple<std::unique_ptr<LogicalOperator>, double>;
+  friend auto ConvertToLogicalOperator(egraph const &e, eclass root)
+      -> std::tuple<std::unique_ptr<LogicalOperator>, double>;
 
  private:
   struct impl;
