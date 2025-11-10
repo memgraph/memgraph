@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <utility>
 
 namespace memgraph::query::plan::v2 {
@@ -30,6 +31,7 @@ enum struct symbol : std::uint8_t {
 }  // namespace memgraph::query::plan::v2
 
 namespace std {
+using std::hash;
 template <>
 struct hash<memgraph::query::plan::v2::symbol> {
   size_t operator()(memgraph::query::plan::v2::symbol const &value) const noexcept { return std::to_underlying(value); }
