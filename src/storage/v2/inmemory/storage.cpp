@@ -3181,7 +3181,12 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     // their delta chains. This approach has a drawback because we lose the
     // correct order of the operations. Because of that, we need to traverse the
     // deltas several times and we have to manually ensure that the stored deltas
-    // will be ordered correctly.
+    // will be ordered correctly. The exception is if we have interleaved
+    // deltas. We can detect first (upstream) delta in an interleaved delta
+    // subchain by checking if the `prev` delta is from another transaction. If
+    // this is the case, we can process the subchain as normal, but we *do*
+    // need to look upstream to find the vertex at the head. To optimise this,
+    // we use a `DeltaVertexCache` on subchain heads.
 
     // 1. Process all Vertex deltas and store all operations that create vertices
     // and modify vertex data.
