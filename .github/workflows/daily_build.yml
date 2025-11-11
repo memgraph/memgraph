@@ -9,10 +9,6 @@ on:
     - cron: "0 22 * * *" #UTC
   workflow_dispatch:
     inputs:
-      build_memgraph:
-        type: boolean
-        description: "Build memgraph"
-        default: true
       trigger_mage:
         type: boolean
         description: "Trigger MAGE build"
@@ -39,8 +35,7 @@ jobs:
   # so that the daily build is sent to the right folder!
   # (we may cross over midnight during build/test)
   CurrentDateJob:
-    if: ${{ inputs.build_memgraph || github.event_name == 'schedule' }}
-    runs-on: [self-hosted]
+    runs-on: [ubuntu-latest]
     outputs:
       current_date: ${{ steps.set_date.outputs.current_date }}
     steps:
@@ -56,7 +51,7 @@ jobs:
           echo "current_date=$current_date" >> $GITHUB_OUTPUT
 
   TestBuild:
-    if: ${{ (inputs.build_memgraph || github.event_name == 'schedule') && !inputs.skip_tests }}
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_tests) }}
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: 'ubuntu-24.04'
@@ -69,7 +64,7 @@ jobs:
 
 
   DailyPackageArtifact:
-    if: ${{ (inputs.build_memgraph || github.event_name == 'schedule') && !inputs.skip_package && always() }}
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_package)  }}
     needs: [CurrentDateJob]
     strategy:
       fail-fast: false
@@ -129,7 +124,7 @@ jobs:
     secrets: inherit
 
   DailyDockerArtifact:
-    if: ${{ (inputs.build_memgraph || github.event_name == 'schedule') && !inputs.skip_package && always() }}
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_package)  }}
     needs: [CurrentDateJob]
     strategy:
       fail-fast: false
@@ -151,7 +146,7 @@ jobs:
     secrets: inherit
 
   AggregateBuildTests:
-    if: ${{ (inputs.build_memgraph || github.event_name == 'schedule') && !inputs.skip_tests && always() }}
+    if: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_tests)) && always() }}
     needs: [CurrentDateJob,TestBuild,DailyPackageArtifact,DailyDockerArtifact]
     runs-on: [self-hosted]
     steps:
@@ -217,7 +212,7 @@ jobs:
             -d "${MAGE_PAYLOAD}"
 
   ManualTriggerMageDailyBuild:
-    if: ${{ inputs.trigger_mage }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.trigger_mage }}
     runs-on: [self-hosted]
     steps:
       - name: Build Request Payload
@@ -249,7 +244,7 @@ jobs:
   SetupISSUTestInputs:
     name: Setup ISSU Test Inputs
     needs: [CurrentDateJob, DailyDockerArtifact]
-    if: ${{ (inputs.build_memgraph || github.event_name == 'schedule') && !inputs.skip_issu_tests }}
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests) }}
     runs-on: ubuntu-24.04
     outputs:
       amd_image_url: ${{ steps.set_image_urls.outputs.amd_image_url }}
@@ -280,7 +275,7 @@ jobs:
           echo "last_image_version=$last_image_version" >> $GITHUB_OUTPUT
 
   RunISSUTest:
-    if: ${{ (inputs.build_memgraph || github.event_name == 'schedule') && !inputs.skip_issu_tests }}
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests) }}
     name: Run ISSU Tests
     needs: [SetupISSUTestInputs]
     uses: ./.github/workflows/reusable_issu_test.yaml
