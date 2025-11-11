@@ -8902,31 +8902,20 @@ query::plan::Aggregate::Element query::plan::Aggregate::Element::Clone(query::As
   return object;
 }
 
-thread_local UniqueCursorPtr ScanChunk::shared_scan_parallel_ = nullptr;
-
-ScanChunk::ScanChunk(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol output_symbol,
-                     storage::View view)
-    : ScanAll(input, std::move(output_symbol), view), input_symbol_(std::move(input_symbol)) {}
+ScanChunk::ScanChunk(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view)
+    : ScanAll(input, std::move(output_symbol), view) {}
 
 ACCEPT_WITH_INPUT(ScanChunk)
 
 UniqueCursorPtr ScanChunk::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO
 
-  // TODO ??? hack use of frame to pass back the chunk
-  auto vertices = [input_symbol = input_symbol_](Frame &frame,
-                                                 ExecutionContext &) -> std::optional<VerticesChunkedIterable::Chunk> {
-    auto chunk = frame.at(input_symbol);
-    if (chunk.IsInt() && chunk.ValueInt() != 0) {
-      auto *chunk_ptr = (VerticesChunkedIterable::Chunk *)chunk.ValueInt();  // TODO Make generic
-      return std::make_optional(*chunk_ptr);
-    }
-    return std::nullopt;
+  auto vertices = [](Frame &frame, ExecutionContext &context) -> std::optional<VerticesChunkedIterable::Chunk> {
+    DMG_ASSERT(context.parallel_state, "Missing parallel state in context");
+    return context.parallel_state->GetNextChunk();
   };
-  // TODO: hack to move the shared_scan_parallel_ to the cursor
-  UniqueCursorPtr shared_scan_parallel_ptr{shared_scan_parallel_.get(), [](Cursor *) { /* do nothing */ }};
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
-      mem, *this, output_symbol_, std::move(shared_scan_parallel_ptr), view_, std::move(vertices), "ScanChunk");
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                view_, std::move(vertices), "ScanChunk");
 }
 
 std::string ScanChunk::ToString() const { return fmt::format("ScanChunk ({})", output_symbol_.name()); }
@@ -8947,7 +8936,6 @@ class ScanParallelCursor : public Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     auto now = std::chrono::steady_clock::now();
-    size_t index = 0;
     {
       std::lock_guard lock(mutex_);
       if (index_ == 0 || index_ >= self_.num_threads_) {
@@ -8955,21 +8943,11 @@ class ScanParallelCursor : public Cursor {
         bool res = input_cursor_->Pull(*frame_, context);
         if (!res) return false;
         index_ = 0;
-        chunks_ = get_chunks_(*frame_, context);
-        if (!chunks_) return false;
-        chunks_vector_.clear();
-        std::cout << "scanparallel got " << chunks_->size() << " chunks\n";
-        for (size_t i = 0; i < chunks_->size(); i++) {
-          chunks_vector_.push_back(chunks_->get_chunk(i));
-        }
+        if (!get_chunks_(*frame_, context)) return false;
       }
       frame = *frame_;  // Copy the filled frame
-      index = index_;
       index_++;
     }
-    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-    frame_writer.Write(self_.output_symbol_,
-                       index < chunks_vector_.size() ? reinterpret_cast<int64_t>(&chunks_vector_[index]) : 0);
     auto end = std::chrono::steady_clock::now();
     std::cout << "scanparallel pulling time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - now).count() << "ms" << std::endl;
@@ -8987,8 +8965,6 @@ class ScanParallelCursor : public Cursor {
   std::optional<Frame> frame_{std::nullopt};
   const UniqueCursorPtr input_cursor_;
   TChunksFun get_chunks_;
-  std::optional<typename std::result_of<TChunksFun(Frame &, ExecutionContext &)>::type::value_type> chunks_{};
-  std::vector<VerticesChunkedIterable::Chunk> chunks_vector_;  // TODO Make generic
 };
 
 UniqueCursorPtr ScanParallel::MakeCursor(utils::MemoryResource *mem) const {
@@ -8997,36 +8973,95 @@ UniqueCursorPtr ScanParallel::MakeCursor(utils::MemoryResource *mem) const {
   auto get_chunks = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
     std::cout << "scanparallel getting " << num_threads_ << " chunks\n";
-    return std::make_optional(db->ChunkedVertices(view_, num_threads_));
+    auto chunks = db->ChunkedVertices(view_, num_threads_);
+    const bool has_chunks = chunks.size() > 0;
+    DMG_ASSERT(context.parallel_state, "Missing parallel state in context");
+    context.parallel_state->SetChunks(std::move(chunks));
+    return has_chunks;
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
 }
 
-ScanParallel::ScanParallel(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view,
-                           size_t num_threads)
-    : ScanAll(input, std::move(output_symbol), view), num_threads_(num_threads) {}
+ScanParallel::ScanParallel(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads)
+    : input_(input), view_(view), num_threads_(num_threads) {}
 
 ACCEPT_WITH_INPUT(ScanParallel)
 
 std::string ScanParallel::ToString() const {
-  return fmt::format("ScanParallel ({}, threads: {})", output_symbol_.name(), num_threads_);
+  return fmt::format("ScanParallel ({}, threads: {})", input_->ToString(), num_threads_);
 }
 
 std::unique_ptr<LogicalOperator> ScanParallel::Clone(AstStorage *storage) const {
   auto object = std::make_unique<ScanParallel>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->output_symbol_ = output_symbol_;
   object->view_ = view_;
   object->num_threads_ = num_threads_;
   return object;
 }
 
+class ParallelMergeCursor;
+
+ParallelMerge::ParallelMerge(const std::shared_ptr<LogicalOperator> &input) : input_(input) {}
+
+ACCEPT_WITH_INPUT(ParallelMerge)
+
+std::string ParallelMerge::ToString() const { return fmt::format("ParallelMerge ({})", input_->ToString()); }
+
+std::unique_ptr<LogicalOperator> ParallelMerge::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ParallelMerge>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  return object;
+}
+
+std::vector<Symbol> ParallelMerge::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+UniqueCursorPtr ParallelMerge::MakeCursor(utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<ParallelMergeCursor>(mem, *this, mem);
+}
+
+class ParallelMergeCursor : public Cursor {
+ public:
+  ParallelMergeCursor(const ParallelMerge &self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(std::invoke([&]() {
+          if (!plan_creation_helper_) {
+            plan_creation_helper_ = self_.input_->MakeCursor(mem);
+          }
+          return plan_creation_helper_;
+        })) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override { return input_cursor_->Pull(frame, context); }
+
+  void Shutdown() override {
+    if (input_cursor_) input_cursor_->Shutdown();
+    input_cursor_.reset();
+  }
+
+  void Reset() override {
+    if (input_cursor_) input_cursor_->Reset();
+  }
+
+  static void ResetPlanCreationHelper() { plan_creation_helper_.reset(); }
+
+  struct PlanCreationHelper {
+    PlanCreationHelper() { ParallelMergeCursor::ResetPlanCreationHelper(); }
+    ~PlanCreationHelper() { ParallelMergeCursor::ResetPlanCreationHelper(); }
+  };
+
+ private:
+  const ParallelMerge &self_;
+  static thread_local std::shared_ptr<Cursor> plan_creation_helper_;
+  std::shared_ptr<Cursor> input_cursor_;
+};
+
+thread_local std::shared_ptr<Cursor> ParallelMergeCursor::plan_creation_helper_ = nullptr;
+
 class AggregateParallelCursor : public Cursor {
  public:
   AggregateParallelCursor(const AggregateParallel &self, utils::MemoryResource *mem)
-      : self_(self), post_scan_input_cursor_(nullptr), agg_inputs_cursor_(std::invoke([&]() {
-          // Set the shared scan parallel
-          ScanChunk::shared_scan_parallel_ = self_.post_scan_input_->MakeCursor(mem);
+      : self_(self), agg_inputs_cursor_(std::invoke([&]() {
+          ParallelMergeCursor::PlanCreationHelper helper;
           std::vector<UniqueCursorPtr> cursors;
           const auto num_threads = std::min(self_.num_threads_, static_cast<size_t>(FLAGS_bolt_num_workers));
           cursors.reserve(num_threads);
@@ -9046,6 +9081,7 @@ class AggregateParallelCursor : public Cursor {
 
     // TODO Maybe not needed
     context.frame_change_collector = nullptr;
+    if (!context.parallel_state) context.parallel_state = std::make_shared<ParallelState>(self_.num_threads_);
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     auto &main_aggregation = static_cast<AggregateCursor *>(agg_inputs_cursor_[0].get())->aggregation_;
@@ -9070,7 +9106,6 @@ class AggregateParallelCursor : public Cursor {
     }
 
     initialized_ = true;
-    (void)post_scan_input_cursor_;
 
     AbortCheck(context);
 
@@ -9079,11 +9114,12 @@ class AggregateParallelCursor : public Cursor {
     utils::TaskCollection tasks(agg_inputs_cursor_.size());
     for (size_t i = 1; i < agg_inputs_cursor_.size(); i++) {
       // TODO Frame needs to be copied after the bottom pull (pull from here, copy then schedule)
-      tasks.AddTask([&, i, frame_copy = frame, context_copy = context](utils::Priority /*unused*/) mutable {
+      tasks.AddTask([&, i, context_copy = context](utils::Priority /*unused*/) mutable {
         const auto &cursor = agg_inputs_cursor_[i];
         // TODO: copy the context
         auto now = std::chrono::steady_clock::now();
-        pull_result.fetch_add((int)cursor->Pull(frame_copy, context_copy));
+        Frame frame_local(0);  // No need to allocate the frame, it will be copied after the pull
+        pull_result.fetch_add((int)cursor->Pull(frame_local, context_copy));
         // cursor->Pull(frame_copy, context_copy);
         auto end = std::chrono::steady_clock::now();
         std::cout << "while pulling time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - now).count()
@@ -9352,25 +9388,17 @@ class AggregateParallelCursor : public Cursor {
   }
 
   void Shutdown() override {
-    // TODO Shutdown and cleanup on the shared_scan_parallel_ cursor
     for (const auto &cursor : agg_inputs_cursor_) cursor->Shutdown();
-    // post_scan_input_cursor_->Shutdown();
-    ScanChunk::shared_scan_parallel_->Shutdown();
-    ScanChunk::shared_scan_parallel_ = nullptr;
   }
 
   void Reset() override {
-    // post_scan_input_cursor_->Reset();
-    // TODO Reset and cleanup on the shared_scan_parallel_ cursor
     for (const auto &cursor : agg_inputs_cursor_) cursor->Reset();
-    ScanChunk::shared_scan_parallel_->Reset();
   }
 
  private:
   bool initialized_ = false;
   decltype(AggregateCursor::aggregation_.begin()) aggregation_it_;
   const AggregateParallel &self_;
-  const UniqueCursorPtr post_scan_input_cursor_;
   const std::vector<UniqueCursorPtr> agg_inputs_cursor_;
 };
 
@@ -9385,7 +9413,8 @@ UniqueCursorPtr AggregateParallel::MakeCursor(utils::MemoryResource *mem) const 
 }
 
 std::vector<Symbol> AggregateParallel::ModifiedSymbols(const SymbolTable &table) const {
-  auto symbols = post_scan_input_->ModifiedSymbols(table);
+  // auto symbols = post_scan_input_->ModifiedSymbols(table);
+  auto symbols = std::vector<Symbol>();
   auto right = agg_inputs_->ModifiedSymbols(table);
   symbols.insert(symbols.end(), right.begin(), right.end());
   return symbols;
@@ -9393,7 +9422,8 @@ std::vector<Symbol> AggregateParallel::ModifiedSymbols(const SymbolTable &table)
 
 bool AggregateParallel::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
-    post_scan_input_->Accept(visitor) && agg_inputs_->Accept(visitor);
+    // post_scan_input_->Accept(visitor) &&
+    agg_inputs_->Accept(visitor);
   }
   return visitor.PostVisit(*this);
 }

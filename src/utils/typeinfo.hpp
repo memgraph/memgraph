@@ -87,6 +87,7 @@ enum class TypeId : uint64_t {
   LOAD_PARQUET,
   LOAD_JSONL,
   AGGREGATE_PARALLEL,
+  PARALLEL_MERGE,
 
   // Replication
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)
