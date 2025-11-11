@@ -8,4 +8,10 @@ DerivePointerAlignment: false
 PointerAlignment: Right
 ColumnLimit : 120
 IncludeBlocks: Preserve
+SeparateDefinitionBlocks: Always
+AllowShortFunctionsOnASingleLine: All
+EmptyLineBeforeAccessModifier: LogicalBlock
+BinPackArguments: false
+InsertTrailingCommas: Wrapped
+AllowShortLambdasOnASingleLine: All
 ...
