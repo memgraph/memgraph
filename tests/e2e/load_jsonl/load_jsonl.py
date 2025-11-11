@@ -24,9 +24,12 @@ def test_small_file_nodes():
         tags: row.tags, scores: row.scores, numbers: row.numbers, mixed: row.mixed, \
         nested: row.nested, data: row.data, empty: row.empty, matrix: row.matrix, \
         items: row.items, prices: row.prices, quantities: row.quantities, deep: row.deep, \
-        values: row.values, floats: row.flaots, strings: row.strings, combo: row.combo}})"
+        values: row.values, floats: row.flaots, strings: row.strings, combo: row.combo, \
+        metadata: row.metadata, config: row.config, person: row.person, nested_2: row.nested_2, \
+        mixed_2: row.mixed_2, stats: row.stats, empty_2: row.empty_2, location: row.location, \
+        product: row.product, complex: row.complex}})"
     execute_and_fetch_all(cursor, load_query)
-    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 110
+    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 120
     assert execute_and_fetch_all(cursor, "match (n) return valueType(n.id)")[0][0] == "INTEGER"
     assert execute_and_fetch_all(cursor, "match (n) return valueType(n.name)")[0][0] == "STRING"
     assert execute_and_fetch_all(cursor, "match (n) return valueType(n.age)")[0][0] == "INTEGER"
@@ -42,6 +45,18 @@ def test_small_file_nodes():
     assert execute_and_fetch_all(cursor, "match (n:N) where n.id = 101 return valueType(n.tags)")[0][0] == "LIST"
     assert execute_and_fetch_all(cursor, "match (n:N) where n.id = 103 return n.data")[0][0][1] == 200.5
     assert execute_and_fetch_all(cursor, "match (n:N) where n.id = 110 return n.combo")[0][0][0] == ["a", "b"]
+
+    assert execute_and_fetch_all(cursor, "match (n:N) where n.id = 111 return valueType(n.metadata)")[0][0] == "MAP"
+    assert execute_and_fetch_all(cursor, "match (n:N) where n.id = 111 return n.metadata")[0][0]["tags"] == [
+        "test",
+        "object",
+    ]
+    assert (
+        execute_and_fetch_all(cursor, "match (n:N) where n.id = 114 return n.nested_2")[0][0]["level1"]["level2"][
+            "level3"
+        ]["value"]
+        == "deep"
+    )
 
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 

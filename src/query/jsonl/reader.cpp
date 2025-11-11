@@ -25,15 +25,8 @@ module memgraph.query.jsonl.reader;
 
 // TODO: (andi) It would probably be better that we create only once parser anulnd reuse it for all documents and
 // subsequent calls
-// TODO: (andi) Type system?
 // TODO: (andi) Performance improvements
-// TODO: (andi) Handle all .value scenarios safely
-// TODO: (andi) Handle map and array
 // TODO: (andi) How to handle uint64_t type here and in LOAD PARQUET clause, ask in the team core?
-// TODO: (andi) Use UNLIKELY for errors
-// TODO: (andi) If you are using .error() to check for error I think .value_unsafe() should be used because .value()
-// does the error checking
-// TODO: (andi) load parquet maybe has the issue with swapping if not whole file is under the same schema
 // TODO: (andi) Test specific overflow/underflow values
 
 namespace {
@@ -41,26 +34,29 @@ using memgraph::query::TypedValue;
 using simdjson::ondemand::json_type;
 using simdjson::ondemand::number_type;
 
+void IterateObject(simdjson::ondemand::object &obj, auto &out, memgraph::utils::MemoryResource *resource);
+
+// .value() method may fail and in that the exception will be thrown.
 auto ToTypedValue(simdjson::ondemand::value &val, memgraph::utils::MemoryResource *resource) -> TypedValue {
   switch (val.type()) {
     case json_type::null: {
       return TypedValue{resource};
     }
     case json_type::boolean: {
-      return TypedValue{val.get_bool(), resource};
+      return TypedValue{val.get_bool().value(), resource};
     }
     case json_type::number: {
-      auto num_type = val.get_number_type();
-      switch (num_type.value()) {
+      auto const num_type = val.get_number_type().value();
+      switch (num_type) {
         case number_type::floating_point_number: {
-          return TypedValue{val.get_double(), resource};
+          return TypedValue{val.get_double().value(), resource};
         }
         case number_type::signed_integer: {
-          return TypedValue{val.get_int64(), resource};
+          return TypedValue{val.get_int64().value(), resource};
         }
         case number_type::unsigned_integer: {
           // NOTE: uint64_t read as int64_t
-          return TypedValue{static_cast<int64_t>(val.get_uint64()), resource};
+          return TypedValue{static_cast<int64_t>(val.get_uint64().value()), resource};
         }
         case number_type::big_integer: {
           // NOTE: big integer read as raw json
@@ -75,30 +71,22 @@ auto ToTypedValue(simdjson::ondemand::value &val, memgraph::utils::MemoryResourc
       return TypedValue{val.get_string().value(), resource};
     }
     case json_type::array: {
-      TypedValue::TVector t_vec;
-      auto arr = val.get_array();
-      if (UNLIKELY(arr.error())) {
-        spdlog::error("Error when reading JSONL array. Null value will be used to represent the whole array.");
-        return TypedValue{resource};
-      }
+      TypedValue::TVector t_vec{resource};
+      auto arr = val.get_array().value();
 
-      for (auto it = arr->begin(); it != arr->end(); ++it) {
-        if (UNLIKELY(it.error())) {
-          spdlog::error(
-              "Error when reading element in JSONL array. Null value will be used to represent the element in the "
-              "array.");
-          // TODO: (andi) Try to use emplace_back without creating temporary but I rememeber I had some issues with
-          // parquet file
-          t_vec.push_back(TypedValue{resource});
-        }
-        auto arr_elem_value = (*it).value_unsafe();
-        t_vec.push_back(ToTypedValue(arr_elem_value, resource));
+      for (auto &&it : arr) {
+        t_vec.emplace_back(ToTypedValue(it.value(), resource));
       }
 
       return TypedValue{std::move(t_vec), resource};
     }
     case json_type::object: {
-      return TypedValue{resource};
+      TypedValue::TMap t_map{resource};
+      auto obj = val.get_object().value();
+
+      IterateObject(obj, t_map, resource);
+
+      return TypedValue{std::move(t_map), resource};
     }
     case json_type::unknown: {
       spdlog::trace(
@@ -112,6 +100,19 @@ auto ToTypedValue(simdjson::ondemand::value &val, memgraph::utils::MemoryResourc
   }
 }
 
+void IterateObject(simdjson::ondemand::object &obj, auto &out, memgraph::utils::MemoryResource *resource) {
+  for (auto &&field : obj) {
+    std::string_view key_view;
+    // Check for error
+    if (UNLIKELY(field.unescaped_key().get(key_view))) continue;
+    TypedValue::TString key{key_view, resource};
+
+    auto val = field.value().value();
+    auto typed_val = ToTypedValue(val, resource);
+    out.emplace(std::move(key), std::move(typed_val));
+  }
+}
+
 }  // namespace
 
 namespace memgraph::query {
@@ -119,45 +120,22 @@ namespace memgraph::query {
 struct JsonlReader::impl {
  public:
   impl(std::string file, std::pmr::memory_resource *resource) : file_{std::move(file)}, resource_{resource} {
-    // Load file
-    auto jsonl = simdjson::padded_string::load(file_);
-    if (!jsonl.has_value()) {
-      throw utils::BasicException("Failed to load file {}.", file_);
-    }
-    content_ = std::move(jsonl.value());
-    // Create docs iterator
-    auto error = parser_.iterate_many(content_).get(docs_);
-    if (error) {
+    content_ = simdjson::padded_string::load(file_).value();
+
+    if (UNLIKELY(parser_.iterate_many(content_).get(docs_)))
       throw utils::BasicException("Failed to create iterator over documents for file {}", file_);
-    }
 
     it_ = docs_.begin();
   }
 
   auto GetNextRow(Row &out) -> bool {
-    if (it_ == docs_.end()) return false;
-
-    if ((*it_).error()) {
-      spdlog::error("Failed to parse document: {}", simdjson::error_message((*it_).error()));
-      ++it_;
-      return GetNextRow(out);
-    }
+    if (UNLIKELY(it_ == docs_.end())) return false;
 
     out.clear();
-
-    // TODO: (andi) Profile and optimize
-    for (auto field : (*it_)->get_object()) {
-      std::string_view key_view;
-      auto error = field->unescaped_key().get(key_view);
-      if (error) continue;
-
-      TypedValue::TString key{key_view, resource_};
-      auto maybe_val = field->value();
-      auto val = ToTypedValue(maybe_val, resource_);
-      out.emplace(std::move(key), std::move(val));
-    }
-
+    auto obj = (*it_)->get_object().value();
+    IterateObject(obj, out, resource_);
     ++it_;
+
     return true;
   }
 
