@@ -614,15 +614,18 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
 
     // Creating deltas and erasing edge only at the end -> we might have incomplete state as
     // delta might cause OOM, so we don't remove edges from edges_attached_to_vertex
-    utils::AtomicMemoryBlock([&mid,
-                              &edges_attached_to_vertex,
-                              &deleted_edges,
-                              &partially_detached_edge_ids,
-                              this,
-                              vertex_ptr,
-                              deletion_delta,
-                              reverse_vertex_order,
-                              &schema_acc]() {
+
+    for (auto it = mid; it != edges_attached_to_vertex->end(); it++) {
+      auto const &[edge_type, opposing_vertex, edge_ref] = *it;
+      if (storage_->config_.salient.items.properties_on_edges) {
+        auto edge_ptr = edge_ref.ptr;
+        auto guard = std::unique_lock{edge_ptr->lock};
+        if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
+      }
+    }
+
+    utils::AtomicMemoryBlock([&mid, &edges_attached_to_vertex, &deleted_edges, &partially_detached_edge_ids, this,
+                              vertex_ptr, deletion_delta, reverse_vertex_order, &schema_acc]() {
       for (auto it = mid; it != edges_attached_to_vertex->end(); it++) {
         auto const &[edge_type, opposing_vertex, edge_ref] = *it;
         std::unique_lock<utils::RWSpinLock> guard;
