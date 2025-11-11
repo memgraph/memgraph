@@ -2460,52 +2460,43 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
     auto it = waiting_list.begin();
     while (it != waiting_list.end()) {
-      // @TODO(colinbarry): can we improve this? Have to traverse delta
-      // chains is not a quick operation. Basically, we know upfront upon which
-      // transactions the waiting list is waiting: we need some quick method
-      // or saying: "are all these transactions finished"?
-      // Check if all downstream deltas are now committed by re-traversing chains
+      // Traverse delta chains once to check if all contributors committed,
+      // and find highest commit timestamp for safe unlinking.
       bool all_contributors_committed = true;
+      uint64_t highest_commit_ts = it->commit_timestamp_->load();
       std::unordered_set<const Delta *> visited;
 
       for (const auto &delta : it->deltas_) {
-        if (IsDeltaInterleaved(delta) && !visited.contains(&delta)) {
-          auto *current_delta = &delta;
-          while (current_delta != nullptr && !visited.contains(current_delta)) {
-            visited.insert(current_delta);
-            auto ts = current_delta->timestamp->load();
-            if (ts == kAbortedTransactionId) {
-              current_delta = current_delta->next.load();
-              continue;
-            }
-            if (ts >= kTransactionInitialId) {
-              all_contributors_committed = false;
-              break;
-            }
-            current_delta = current_delta->next.load();
+        if (!IsDeltaInterleaved(delta)) continue;
+        if (visited.contains(&delta)) continue;
+
+        auto *current = &delta;
+        while (current != nullptr && !visited.contains(current)) {
+          visited.insert(current);
+          auto ts = current->timestamp->load();
+
+          if (ts == kAbortedTransactionId) {
+            current = current->next.load();
+            continue;
           }
-          if (!all_contributors_committed) break;
+
+          if (ts >= kTransactionInitialId) {
+            all_contributors_committed = false;
+            current = current->next.load();
+            continue;
+          }
+
+          if (ts > highest_commit_ts) {
+            highest_commit_ts = ts;
+          }
+          current = current->next.load();
         }
       }
 
+      // Once all contributors have committed (or aborted), we know that
+      // it is safe to move these deltas to the next phase of the garbage
+      // collection.
       if (all_contributors_committed) {
-        // Calculate the highest commit timestamp in the entire chain for safe unlinking
-        uint64_t highest_commit_ts = it->commit_timestamp_->load();
-
-        for (const auto &delta : it->deltas_) {
-          auto *current = &delta;
-          while (current != nullptr) {
-            auto ts = current->timestamp->load();
-            DMG_ASSERT(ts < kTransactionInitialId || ts == kAbortedTransactionId,
-                       "found uncommitted/unaborted delta in settled delta chain");
-            if (ts < kTransactionInitialId && ts > highest_commit_ts) {
-              highest_commit_ts = std::max(highest_commit_ts, ts);
-            }
-            current = current->next.load();
-          }
-        }
-
-        // Set the unlinkable timestamp to the highest commit timestamp found
         it->unlinkable_timestamp_ = highest_commit_ts;
 
         committed_transactions_.WithLock(
