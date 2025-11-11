@@ -248,7 +248,7 @@ jobs:
     name: Setup ISSU Test Inputs
     needs: [CurrentDateJob, DailyDockerArtifact]
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests) }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux]
     outputs:
       amd_image_url: ${{ steps.set_image_urls.outputs.amd_image_url }}
       arm_image_url: ${{ steps.set_image_urls.outputs.arm_image_url }}
