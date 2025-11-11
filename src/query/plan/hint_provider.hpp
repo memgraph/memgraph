@@ -180,6 +180,12 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(AggregateParallel & /*unused*/) override { return true; }
   bool PostVisit(AggregateParallel & /*unused*/) override { return true; }
 
+  bool PreVisit(ParallelMerge & /*unused*/) override { return true; }
+  bool PostVisit(ParallelMerge & /*unused*/) override { return true; }
+
+  bool PreVisit(ScanParallel & /*unused*/) override { return true; }
+  bool PostVisit(ScanParallel & /*unused*/) override { return true; }
+
   bool PreVisit(Skip & /*unused*/) override { return true; }
   bool PostVisit(Skip & /*unused*/) override { return true; }
 

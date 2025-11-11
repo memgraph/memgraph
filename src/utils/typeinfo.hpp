@@ -86,6 +86,7 @@ enum class TypeId : uint64_t {
   REMOVE_NESTED_PROPERTY,
   LOAD_PARQUET,
   AGGREGATE_PARALLEL,
+  PARALLEL_MERGE,
 
   // Replication
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)
