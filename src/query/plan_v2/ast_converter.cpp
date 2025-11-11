@@ -29,6 +29,7 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
     // NOTE: with the stripper it mans that literals are also parameters
     //       hence we can't distinguish between literals vs parameters
     //       we will not do any optimisations around ParameterLookup at plan time (because we still need to cache)
+    // TODO: is token_position_ right? rename
     builder_stack_.emplace_back(egraph_.MakeParameterLookup(expr.token_position_));
     return true;
   }

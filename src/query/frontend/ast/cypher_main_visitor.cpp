@@ -3397,7 +3397,7 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
       // ParameterLookup, so that the AST can be cached. This allows for
       // varying literals, which are then looked up in the parameters table
       // (even though they are not user provided). Note, that NULL always
-      // generates a PrimitiveLiteral.
+      // generates a PrimitiveLiteral.=
       return static_cast<Expression *>(storage_->Create<ParameterLookup>(token_position));
     } else if (ctx->StringLiteral()) {
       return static_cast<Expression *>(storage_->Create<PrimitiveLiteral>(

@@ -58,9 +58,9 @@ class Symbol {
 
   std::string name_;
   Position_t position_;
-  bool user_declared_{true};
-  Type type_{Type::ANY};
-  int64_t token_position_{-1};  // from ANTLR token stream
+  bool user_declared_{true};    /*NOT USED IN PLANNER V2*/
+  Type type_{Type::ANY};        /*NOT USED IN PLANNER V2*/
+  int64_t token_position_{-1};  // from ANTLR token stream /*NOT USED IN PLANNER V2*/
 };
 
 }  // namespace memgraph::query

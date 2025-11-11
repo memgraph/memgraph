@@ -50,12 +50,20 @@ struct CostModel {
 // We can build operators or expressions
 // Operators -> used once in the build
 // Expression -> can be reused
-using ChildThing = std::variant<std::unique_ptr<LogicalOperator>, Expression *, Symbol>;
+using LogicalOperatorPtr = std::shared_ptr<LogicalOperator>;
+using ChildThing = std::variant<LogicalOperatorPtr, Expression *, Symbol, NamedExpression *>;
+using enode_ref = planner::core::ENode<symbol> const &;
+using children_ref = std::span<std::reference_wrapper<ChildThing const> const>;
+
+template <typename T, std::size_t idx>
+auto ExtractAndValidate(children_ref children) -> const T & {
+  if (children.size() <= idx) throw 1;  // TODO: add right exception + msg
+  auto ptr = std::get_if<T>(&children[idx].get());
+  if (!ptr) throw 1;  // TODO: add right exception + msg
+  return *ptr;
+}
 
 struct Builder {
-  using enode_ref = planner::core::ENode<symbol> const &;
-  using children_ref = std::span<std::reference_wrapper<ChildThing const> const>;
-
   auto Build(enode_ref node, children_ref children) -> ChildThing {
 #define X(SYM)      \
   case symbol::SYM: \
@@ -74,33 +82,77 @@ struct Builder {
 #undef X
   }
 
-  auto Build(utils::tag_value<symbol::Once>, enode_ref node, children_ref children) -> ChildThing {
+  auto Build(utils::tag_value<symbol::Once>, enode_ref /*node*/, children_ref /*children*/) -> ChildThing {
     return std::make_unique<Once>();
   }
-  auto Build(utils::tag_value<symbol::Bind>, enode_ref node, children_ref children) -> ChildThing { throw 1; }
-  auto Build(utils::tag_value<symbol::Symbol>, enode_ref node, children_ref children) -> ChildThing {
-    //      : name_(std::move(name)), <-- preserve
-    // position_(position), <-- generated
-    // user_declared_(user_declared), <-- preserve
-    // type_(type), <-- Analysis/preserved
-    // token_position_(token_position) {} <-- preserved
-    // TODO: do we also need to gether info for our frame?
 
-    return Symbol{};
+  auto Build(utils::tag_value<symbol::Bind>, enode_ref /*node*/, children_ref children) -> ChildThing {
+    auto const &input = ExtractAndValidate<LogicalOperatorPtr, 0>(children);
+    auto const &sym = ExtractAndValidate<Symbol, 1>(children);
+    auto const &expression = ExtractAndValidate<Expression *, 2>(children);
+
+    // TODO/NOTE: lost token_position_, and is_aliased_
+    auto named_expression = ast_storage_.Create<NamedExpression>(sym.name(), expression);
+    named_expression->MapTo(sym);
+
+    if (input->GetTypeInfo() == Produce::kType) {
+      auto const &produce = static_pointer_cast<Produce>(input);
+      // TODO: check if its ok to steal from the other produce (Operators make a tree, we are skipping hence unused)
+      auto named_expressions = produce->named_expressions_;
+      named_expressions.emplace_back(named_expression);
+      return std::make_shared<Produce>(produce->input(), named_expressions);
+    }
+    return std::make_shared<Produce>(input, std::vector{named_expression});
   }
-  auto Build(utils::tag_value<symbol::Literal>, enode_ref node, children_ref children) -> ChildThing { throw 1; }
-  auto Build(utils::tag_value<symbol::Identifier>, enode_ref node, children_ref children) -> ChildThing { throw 1; }
-  auto Build(utils::tag_value<symbol::Output>, enode_ref node, children_ref children) -> ChildThing { throw 1; }
-  auto Build(utils::tag_value<symbol::NamedOutput>, enode_ref node, children_ref children) -> ChildThing { throw 1; }
-  auto Build(utils::tag_value<symbol::ParamLookup>, enode_ref node, children_ref children) -> ChildThing { throw 1; }
+  auto Build(utils::tag_value<symbol::Symbol>, enode_ref /*node*/, children_ref /*children*/) -> ChildThing {
+    auto const frame_position = next_frame_position_++;
+    // TODO/NOTE: lost user_declared_, type_, and token_position_
+    return Symbol{"TODO", frame_position, false /*TODO*/};
+  }
+  auto Build(utils::tag_value<symbol::Literal>, enode_ref node, children_ref children) -> ChildThing {
+    auto const dis = node.disambiguator();
+    auto const it = reverse_literal_store_.find(dis);
+    if (it == reverse_literal_store_.end()) [[unlikely]] {
+      throw 1;
+    }
+    return ast_storage_.Create<PrimitiveLiteral>(it->second);
+  }
+  auto Build(utils::tag_value<symbol::Identifier>, enode_ref node, children_ref children) -> ChildThing {
+    auto const &sym = ExtractAndValidate<Symbol, 0>(children);
+    auto identifier = ast_storage_.Create<Identifier>(sym.name(), sym.user_declared());
+    identifier->MapTo(sym);
+    return identifier;
+  }
+  auto Build(utils::tag_value<symbol::Output>, enode_ref node, children_ref children) -> ChildThing {
+    auto const &input = ExtractAndValidate<LogicalOperatorPtr, 0>(children);
+    return input;
+  }
+  auto Build(utils::tag_value<symbol::NamedOutput>, enode_ref node, children_ref children) -> ChildThing {
+    auto const &sym = ExtractAndValidate<Symbol, 0>(children);
+    auto const &expression = ExtractAndValidate<Expression *, 1>(children);
+
+    // TODO/NOTE: lost token_position_, and is_aliased_
+    auto named_expression = ast_storage_.Create<NamedExpression>(sym.name(), expression);
+    named_expression->MapTo(sym);
+    return named_expression;
+  }
+  auto Build(utils::tag_value<symbol::ParamLookup>, enode_ref node, children_ref children) -> ChildThing {
+    auto const dis = node.disambiguator();
+    return ast_storage_.Create<ParameterLookup>(dis);
+  }
 
   Builder(std::map<storage::ExternalPropertyValue, uint64_t> const &literal_store,
           std::map<std::string, uint64_t> const &name_store)
       : literal_store_(literal_store), name_store_(name_store) {}
 
   std::map<storage::ExternalPropertyValue, uint64_t> const &literal_store_;
+  std::map<uint64_t, storage::ExternalPropertyValue> reverse_literal_store_;  // TODO make the reverse mapping
   std::map<std::string, uint64_t> const &name_store_;
+
+  AstStorage ast_storage_{};
+  int next_frame_position_ = 0;
 };
+
 auto ConvertToLogicalOperator(egraph const &e, eclass root) -> std::tuple<std::unique_ptr<LogicalOperator>, double> {
   // Access the internal egraph through the accessor
   auto const &internal_egraph = internal::get_egraph(e);
