@@ -15,7 +15,7 @@ on:
         default: true
       trigger_mage:
         type: boolean
-        description: "Triggers MAGE build"
+        description: "Trigger MAGE build"
         default: true
       build_date:
         type: string
@@ -249,7 +249,7 @@ jobs:
   SetupISSUTestInputs:
     name: Setup ISSU Test Inputs
     needs: [CurrentDateJob, DailyDockerArtifact]
-    if: ${{ !inputs.skip_issu_tests || github.event_name == 'schedule' }}
+    if: ${{ (inputs.build_memgraph || github.event_name == 'schedule') && !inputs.skip_issu_tests }}
     runs-on: ubuntu-24.04
     outputs:
       amd_image_url: ${{ steps.set_image_urls.outputs.amd_image_url }}
@@ -280,7 +280,7 @@ jobs:
           echo "last_image_version=$last_image_version" >> $GITHUB_OUTPUT
 
   RunISSUTest:
-    if: ${{ !inputs.skip_issu_tests || github.event_name == 'schedule' }}
+    if: ${{ (inputs.build_memgraph || github.event_name == 'schedule') && !inputs.skip_issu_tests }}
     name: Run ISSU Tests
     needs: [SetupISSUTestInputs]
     uses: ./.github/workflows/reusable_issu_test.yaml
