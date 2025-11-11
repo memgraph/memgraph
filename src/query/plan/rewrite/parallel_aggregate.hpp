@@ -355,12 +355,12 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     auto post_scan_input = last_scan->input();
     // TODO generic
     auto *scan = dynamic_cast<ScanAll *>(last_scan.get());
-    auto local_symbol = symbol_table->CreateAnonymousSymbol();
-    auto scan_input = std::make_shared<ScanParallel>(post_scan_input, local_symbol, scan->view_, num_threads_);
-    scan_parent->set_input(std::make_shared<ScanChunk>(scan_input, local_symbol, scan->output_symbol_, scan->view_));
+    auto scan_input = std::make_shared<ScanParallel>(post_scan_input, scan->view_, num_threads_);
+    auto parallel_merge = std::make_shared<ParallelMerge>(scan_input);
+    scan_parent->set_input(std::make_shared<ScanChunk>(parallel_merge, scan->output_symbol_, scan->view_));
 
     // Create AggregateParallel with default num_threads
-    auto parallel_agg = std::make_shared<AggregateParallel>(scan_input, prev_ops_.back()->input(),  // op
+    auto parallel_agg = std::make_shared<AggregateParallel>(nullptr, prev_ops_.back()->input(),  // op
                                                             num_threads_);
 
     // Switch the parent operator (if any) to use AggregateParallel instead of Aggregate
@@ -601,6 +601,15 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     return true;
   }
   bool PostVisit(AggregateParallel &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ParallelMerge &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ParallelMerge &) override {
     prev_ops_.pop_back();
     return true;
   }

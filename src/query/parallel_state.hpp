@@ -37,7 +37,7 @@ struct ParallelState {
 
   /// Get the next chunk for the given branch.
   /// Returns nullopt when all chunks have been distributed.
-  std::optional<VerticesChunkedIterable::Chunk> GetNextChunk(size_t branch_id) {
+  std::optional<VerticesChunkedIterable::Chunk> GetNextChunk() {
     std::lock_guard lock(mutex_);
     if (!initialized_ || !chunks_.has_value()) {
       return std::nullopt;

@@ -215,4 +215,7 @@ constexpr utils::TypeInfo query::plan::AggregateParallel::kType{.id = utils::Typ
                                                                 .name = "AggregateParallel",
                                                                 .superclass = &query::plan::LogicalOperator::kType};
 
+constexpr utils::TypeInfo query::plan::ParallelMerge::kType{
+    .id = utils::TypeId::PARALLEL_MERGE, .name = "ParallelMerge", .superclass = &query::plan::LogicalOperator::kType};
+
 }  // namespace memgraph
