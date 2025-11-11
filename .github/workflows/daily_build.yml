@@ -29,7 +29,10 @@ on:
         type: boolean
         description: "Skip ISSU tests"
         default: false
-
+      mock:
+        type: boolean
+        description: "Mock build"
+        default: true
 jobs:
   # this job is used to get the current date at the time when the job is first triggered
   # so that the daily build is sent to the right folder!
@@ -119,7 +122,7 @@ jobs:
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
-      s3_dest_dir: "daily-build/memgraph/${{ needs.CurrentDateJob.outputs.current_date }}"
+      s3_dest_dir: "daily-build/memgraph${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
       additional_build_args: ${{ matrix.additional_build_args }}
     secrets: inherit
 
@@ -142,11 +145,11 @@ jobs:
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
-      s3_dest_dir: "daily-build/memgraph/${{ needs.CurrentDateJob.outputs.current_date }}"
+      s3_dest_dir: "daily-build/memgraph${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
     secrets: inherit
 
   AggregateBuildTests:
-    if: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_tests)) && always() }}
+    if: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_tests && !inputs.mock)) && always() }}
     needs: [CurrentDateJob,TestBuild,DailyPackageArtifact,DailyDockerArtifact]
     runs-on: [self-hosted]
     steps:
@@ -212,7 +215,7 @@ jobs:
             -d "${MAGE_PAYLOAD}"
 
   ManualTriggerMageDailyBuild:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.trigger_mage }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.trigger_mage && !inputs.mock }}
     runs-on: [self-hosted]
     steps:
       - name: Build Request Payload
@@ -258,6 +261,8 @@ jobs:
 
       - name: Set Image URLs
         id: set_image_urls
+        env:
+          MOCK: ${{ inputs.mock && 'true' || 'false' }}
         run: |
           echo "Setting next image URLs"
           export CURRENT_BUILD_DATE=${{ needs.CurrentDateJob.outputs.current_date }}

@@ -19,7 +19,11 @@ def main() -> None:
     Print images to be used in ISSU test
     """
     date = int(os.getenv("CURRENT_BUILD_DATE"))
+    mock = os.getenv("MOCK", "false") == "true"
     amd_docker, arm_docker = get_daily_issu_images(date)
+    if mock:
+        amd_docker = amd_docker.replace("daily-build/memgraph/", "daily-build/memgraph_mock/")
+        arm_docker = arm_docker.replace("daily-build/memgraph/", "daily-build/memgraph_mock/")
     print(f"{amd_docker} {arm_docker}")
 
 
