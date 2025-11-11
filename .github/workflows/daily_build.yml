@@ -287,11 +287,12 @@ jobs:
           echo "last_image_version=$last_image_version" >> $GITHUB_OUTPUT
 
   RunISSUTest:
-    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests) }}
     name: Run ISSU Tests
     needs: [SetupISSUTestInputs]
+    if: ${{ (github.event_name == 'schedule' && always() || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests)) && needs.SetupISSUTestInputs.results.success == 'true' }}
     uses: ./.github/workflows/reusable_issu_test.yaml
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: amd
