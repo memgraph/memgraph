@@ -2347,7 +2347,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
               current_delta = current_delta->next.load();
               continue;
             }
-            if (ts >= kTransactionInitialId && !commit_log_->IsFinished(ts)) {
+            if (ts >= kTransactionInitialId) {
               all_contributors_committed = false;
               break;
             }
