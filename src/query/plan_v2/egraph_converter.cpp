@@ -53,13 +53,21 @@ struct CostModel {
 using LogicalOperatorPtr = std::shared_ptr<LogicalOperator>;
 using ChildThing = std::variant<LogicalOperatorPtr, Expression *, Symbol, NamedExpression *>;
 using enode_ref = planner::core::ENode<symbol> const &;
-using children_ref = std::span<std::reference_wrapper<ChildThing const> const>;
+using child_ref = std::reference_wrapper<ChildThing const>;
+using children_ref = std::span<child_ref const>;
 
 template <typename T, std::size_t idx>
 auto ExtractAndValidate(children_ref children) -> const T & {
-  if (children.size() <= idx) throw 1;  // TODO: add right exception + msg
+  if (children.size() <= idx) throw QueryException{"Planner error, missing child node"};
   auto ptr = std::get_if<T>(&children[idx].get());
-  if (!ptr) throw 1;  // TODO: add right exception + msg
+  if (!ptr) throw QueryException{"Planner error, child node is incorrect type"};
+  return *ptr;
+}
+
+template <typename T>
+auto Validate(child_ref child) -> const T & {
+  auto ptr = std::get_if<T>(&child.get());
+  if (!ptr) throw QueryException{"Planner error, child node is incorrect type"};
   return *ptr;
 }
 
@@ -104,29 +112,36 @@ struct Builder {
     }
     return std::make_shared<Produce>(input, std::vector{named_expression});
   }
+
   auto Build(utils::tag_value<symbol::Symbol>, enode_ref /*node*/, children_ref /*children*/) -> ChildThing {
     auto const frame_position = next_frame_position_++;
     // TODO/NOTE: lost user_declared_, type_, and token_position_
     return Symbol{"TODO", frame_position, false /*TODO*/};
   }
+
   auto Build(utils::tag_value<symbol::Literal>, enode_ref node, children_ref children) -> ChildThing {
     auto const dis = node.disambiguator();
     auto const it = reverse_literal_store_.find(dis);
     if (it == reverse_literal_store_.end()) [[unlikely]] {
-      throw 1;
+      throw QueryException{"Planner error, child node is incorrect type"};
     }
     return ast_storage_.Create<PrimitiveLiteral>(it->second);
   }
+
   auto Build(utils::tag_value<symbol::Identifier>, enode_ref node, children_ref children) -> ChildThing {
     auto const &sym = ExtractAndValidate<Symbol, 0>(children);
     auto identifier = ast_storage_.Create<Identifier>(sym.name(), sym.user_declared());
     identifier->MapTo(sym);
     return identifier;
   }
+
   auto Build(utils::tag_value<symbol::Output>, enode_ref node, children_ref children) -> ChildThing {
     auto const &input = ExtractAndValidate<LogicalOperatorPtr, 0>(children);
-    return input;
+    auto named_expressions =
+        children | std::views::drop(1) | std::views::transform(Validate<NamedExpression *>) | ranges::to<std::vector>;
+    return std::make_shared<Produce>(input, std::move(named_expressions));
   }
+
   auto Build(utils::tag_value<symbol::NamedOutput>, enode_ref node, children_ref children) -> ChildThing {
     auto const &sym = ExtractAndValidate<Symbol, 0>(children);
     auto const &expression = ExtractAndValidate<Expression *, 1>(children);
@@ -136,6 +151,7 @@ struct Builder {
     named_expression->MapTo(sym);
     return named_expression;
   }
+
   auto Build(utils::tag_value<symbol::ParamLookup>, enode_ref node, children_ref children) -> ChildThing {
     auto const dis = node.disambiguator();
     return ast_storage_.Create<ParameterLookup>(dis);
