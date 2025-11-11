@@ -47,12 +47,94 @@ struct CostModel {
 // TODO: make a concept to check cost model is valid
 //  static_assert(some_concept<CostModel>);
 
+// We can build operators or expressions
+// Operators -> used once in the build
+// Expression -> can be reused
+using ChildThing = std::variant<std::unique_ptr<LogicalOperator>, Expression *, Symbol>;
+
+struct Builder {
+  using enode_ref = planner::core::ENode<symbol> const &;
+  using children_ref = std::span<std::reference_wrapper<ChildThing const> const>;
+
+  auto Build(enode_ref node, children_ref children) -> ChildThing {
+#define X(SYM)      \
+  case symbol::SYM: \
+    return Build(utils::tag_v<symbol::SYM>, node, children)
+
+    switch (node.symbol()) {
+      X(Once);
+      X(Bind);
+      X(Symbol);
+      X(Literal);
+      X(Identifier);
+      X(Output);
+      X(NamedOutput);
+      X(ParamLookup);
+    }
+#undef X
+  }
+
+  auto Build(utils::tag_value<symbol::Once>, enode_ref node, children_ref children) -> ChildThing {
+    return std::make_unique<Once>();
+  }
+  auto Build(utils::tag_value<symbol::Bind>, enode_ref node, children_ref children) -> ChildThing { throw 1; }
+  auto Build(utils::tag_value<symbol::Symbol>, enode_ref node, children_ref children) -> ChildThing {
+    //      : name_(std::move(name)), <-- preserve
+    // position_(position), <-- generated
+    // user_declared_(user_declared), <-- preserve
+    // type_(type), <-- Analysis/preserved
+    // token_position_(token_position) {} <-- preserved
+    // TODO: do we also need to gether info for our frame?
+
+    return Symbol{};
+  }
+  auto Build(utils::tag_value<symbol::Literal>, enode_ref node, children_ref children) -> ChildThing { throw 1; }
+  auto Build(utils::tag_value<symbol::Identifier>, enode_ref node, children_ref children) -> ChildThing { throw 1; }
+  auto Build(utils::tag_value<symbol::Output>, enode_ref node, children_ref children) -> ChildThing { throw 1; }
+  auto Build(utils::tag_value<symbol::NamedOutput>, enode_ref node, children_ref children) -> ChildThing { throw 1; }
+  auto Build(utils::tag_value<symbol::ParamLookup>, enode_ref node, children_ref children) -> ChildThing { throw 1; }
+
+  Builder(std::map<storage::ExternalPropertyValue, uint64_t> const &literal_store,
+          std::map<std::string, uint64_t> const &name_store)
+      : literal_store_(literal_store), name_store_(name_store) {}
+
+  std::map<storage::ExternalPropertyValue, uint64_t> const &literal_store_;
+  std::map<std::string, uint64_t> const &name_store_;
+};
 auto ConvertToLogicalOperator(egraph const &e, eclass root) -> std::tuple<std::unique_ptr<LogicalOperator>, double> {
   // Access the internal egraph through the accessor
   auto const &internal_egraph = internal::get_egraph(e);
+  // TODO: Get pimpl we need access to proper versions of:
+  std::map<storage::ExternalPropertyValue, uint64_t> literal_store_;
+  std::map<std::string, uint64_t> name_store_;
 
   auto extractor = planner::core::Extractor{internal_egraph, CostModel{}};
-  auto thing = extractor.Extract(internal::to_core_id(root));
+  auto true_root = internal::to_core_id(root);
+  auto thing = extractor.Extract(true_root);
+
+  // change the order to bottom up
+  std::ranges::reverse(thing);
+
+  auto builder = Builder{literal_store_, name_store_};
+
+  auto dynamic_programming_cache = std::map<planner::core::EClassId, ChildThing>{};
+
+  for (auto [eclass_id, enode_id] : thing) {
+    auto const &enode = internal_egraph.get_enode(enode_id);
+    // build enode_id
+    auto xx =
+        enode.children() | std::views::transform([&](const planner::core::EClassId id) {
+          const auto it = dynamic_programming_cache.find(id);
+          DMG_ASSERT(it != dynamic_programming_cache.end(), "Building bottom up we should be able to find our child");
+          return std::cref(it->second);
+        }) |
+        ranges::to<std::vector>;
+
+    // track
+    dynamic_programming_cache[eclass_id] = builder.Build(enode, xx);
+  }
+
+  dynamic_programming_cache[true_root];
 
   // TODO: build LogicalOperator
 
