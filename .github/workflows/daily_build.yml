@@ -15,7 +15,7 @@ on:
         default: false
       build_date:
         type: string
-        description: "Build date to trigger MAGE with (only used with trigger_mage option)"
+        description: "Specify build date (YYYYMMDD)"
         required: false
 
 
@@ -32,7 +32,11 @@ jobs:
       - name: Get current date
         id: set_date
         run: |
-          current_date=$(date -u +'%Y%m%d')
+          if [[ ${{ github.event_name }} == 'workflow_dispatch' && -n "${{ github.event.inputs.build_date }}" ]]; then
+            current_date="${{ github.event.inputs.build_date }}"
+          else
+            current_date=$(date -u +'%Y%m%d')
+          fi
           echo "Current date is: $current_date"
           echo "current_date=$current_date" >> $GITHUB_OUTPUT
 
