@@ -1550,9 +1550,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         // emplace back could take a long time.
         engine_guard.unlock();
 
-        // @TODO is `mark_timestamp` correct here, in the precense of
-        // interleaved deltas?
-
         transaction_.commit_timestamp->store(kAbortedTransactionId, std::memory_order_release);
         garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas),
                                           std::move(transaction_.commit_timestamp), transaction_.transaction_id);
@@ -2524,7 +2521,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto guard = std::unique_lock{engine_lock_};
     uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
 
-    // @TODO check all these assumptions in the case of interleaved deltas.
     // Deltas from previous GC runs or from aborts can be cleaned up here
     garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
       guard.unlock();
