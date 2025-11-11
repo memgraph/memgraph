@@ -33,10 +33,10 @@ struct Cost {
 template <typename Symbol, typename Analysis, typename Func>
 requires std::is_invocable_r_v < double, Func, ENode<Symbol>
 const & > auto ProcessCosts(EGraph<Symbol, Analysis> const &egraph, Func const &cost_function, EClassId eclass_id,
-                            std::unordered_map<EClassId, Cost> &cheapest_enode) -> double {
+                            std::unordered_map<EClassId, Cost> &enode_selection) -> double {
   DMG_ASSERT(!egraph.needs_rebuild(), "to avoid internal cost of getting canonical looking up we should");
 
-  if (const auto it = cheapest_enode.find(eclass_id); it != cheapest_enode.end()) {
+  if (const auto it = enode_selection.find(eclass_id); it != enode_selection.end()) {
     // If cost is infinity, we're currently processing this e-class (cycle detected)
     // If cost is finite, we've already computed it
     return it->second.cost;
@@ -46,7 +46,7 @@ const & > auto ProcessCosts(EGraph<Symbol, Analysis> const &egraph, Func const &
 
   // Mark this e-class as "in progress" with infinity cost to detect cycles
   auto [it2, _] =
-      cheapest_enode.emplace(eclass_id, Cost(eclass.representative(), std::numeric_limits<double>::infinity()));
+      enode_selection.emplace(eclass_id, Cost(eclass.representative(), std::numeric_limits<double>::infinity()));
 
   auto best_node = std::optional<Cost>{};
 
@@ -55,7 +55,7 @@ const & > auto ProcessCosts(EGraph<Symbol, Analysis> const &egraph, Func const &
     auto current_cost =
         std::accumulate(enode.children().begin(), enode.children().end(), cost_function(enode),
                         [&](double acc, EClassId child_eclass_id) {
-                          return acc + ProcessCosts(egraph, cost_function, child_eclass_id, cheapest_enode);
+                          return acc + ProcessCosts(egraph, cost_function, child_eclass_id, enode_selection);
                         });
 
     // ignore enodes who have infinate cost
@@ -75,7 +75,7 @@ const & > auto ProcessCosts(EGraph<Symbol, Analysis> const &egraph, Func const &
   }
 
   // Remove infinate cycle case
-  cheapest_enode.erase(it2);
+  enode_selection.erase(it2);
   return std::numeric_limits<double>::infinity();
 }
 
@@ -166,10 +166,10 @@ requires(std::is_invocable_r_v<double, Func, ENode<Symbol> const &>) struct Extr
       : egraph_(egraph), cost_function_(std::forward<FuncInner>(cost_function)) {}
 
   auto Extract(EClassId const root_id) -> std::vector<std::pair<EClassId, ENodeId>> {
-    auto cheapest_enode = std::unordered_map<EClassId, Cost>{};
-    ProcessCosts(egraph_, cost_function_, root_id, cheapest_enode);
-    auto in_degree = CollectDependencies(egraph_, cheapest_enode, root_id);
-    return TopologicalSort(egraph_, cheapest_enode, std::move(in_degree));
+    auto enode_selection = std::unordered_map<EClassId, Cost>{};
+    ProcessCosts(egraph_, cost_function_, root_id, enode_selection);
+    auto in_degree = CollectDependencies(egraph_, enode_selection, root_id);
+    return TopologicalSort(egraph_, enode_selection, std::move(in_degree));
   }
 
  private:

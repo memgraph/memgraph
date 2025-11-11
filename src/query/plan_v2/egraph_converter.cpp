@@ -31,7 +31,7 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root) -> std::tuple<std::u
   auto const &internal_egraph = internal::get_egraph(e);
 
   auto cost_func = [](planner::core::ENode<symbol> const &) -> double { return 1.0; };
-  auto extractor = memgraph::planner::core::Extractor{internal_egraph, cost_func};
+  auto extractor = planner::core::Extractor{internal_egraph, cost_func};
   auto thing = extractor.Extract(internal::to_core_id(root));
 
   // egraph extraction -> subgraph of the egraph (one Enode per EClass)
