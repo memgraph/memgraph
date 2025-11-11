@@ -108,3 +108,13 @@
 {"id": 108, "name": "Array Test 8", "floats": [0.0, -1.5, 2.7, 3.14159, -99.99, 123.456]}
 {"id": 109, "name": "Array Test 9", "strings": ["hello", "world", "test", "array", "strings"]}
 {"id": 110, "name": "Array Test 10", "combo": [["a", "b"], [1, 2], [1.1, 2.2], [true, false]]}
+{"id": 111, "name": "Object Test 1", "metadata": {"version": "1.0", "author": "Alice", "tags": ["test", "object"]}}
+{"id": 112, "name": "Object Test 2", "config": {"enabled": true, "timeout": 300, "host": "localhost", "port": 8080}}
+{"id": 113, "name": "Object Test 3", "person": {"name": "John Doe", "age": 35, "email": "john@example.com", "active": true}}
+{"id": 114, "name": "Object Test 4", "nested_2": {"level1": {"level2": {"level3": {"value": "deep"}}}}}
+{"id": 115, "name": "Object Test 5", "mixed_2": {"string": "text", "number": 42, "float": 3.14, "bool": true, "null": null, "array": [1, 2, 3]}}
+{"id": 116, "name": "Object Test 6", "stats": {"count": 100, "average": 85.5, "min": 0, "max": 100, "total": 8550}}
+{"id": 117, "name": "Object Test 7", "empty_2": {}}
+{"id": 118, "name": "Object Test 8", "location": {"city": "San Francisco", "state": "CA", "country": "USA", "coordinates": {"lat": 37.7749, "lon": -122.4194}}}
+{"id": 119, "name": "Object Test 9", "product": {"name": "Laptop", "price": 999.99, "specs": {"cpu": "Intel i7", "ram": "16GB", "storage": "512GB SSD"}}}
+{"id": 120, "name": "Object Test 10", "complex": {"users": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}], "settings": {"theme": "dark", "notifications": true}}}
