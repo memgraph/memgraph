@@ -2957,12 +2957,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> InMemoryStorage::CreateSnapshot(
-    memgraph::replication_coordination_glue::ReplicationRole replication_role, bool force) {
-  using memgraph::replication_coordination_glue::ReplicationRole;
-  if (replication_role == ReplicationRole::REPLICA) {
-    return CreateSnapshotError::DisabledForReplica;
-  }
-
+    bool force) {
   auto abort_reset = utils::OnScopeExit([this]() mutable {
     // Abort is a one shot, reset it to false every time
     abort_snapshot_.store(false, std::memory_order_release);
@@ -3003,7 +2998,11 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> 
 
   // In memory analytical doesn't update last_durable_ts so digest isn't valid
   if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    auto current_digest = SnapshotDigest{epoch, epochHistory, storage_uuid, *transaction->last_durable_ts_};
+    auto current_digest = SnapshotDigest{.epoch_ = epoch,
+                                         .history_ = epochHistory,
+                                         .storage_uuid_ = storage_uuid,
+                                         .last_durable_ts_ = *transaction->last_durable_ts_};
+
     if (!force && last_snapshot_digest_ == current_digest) return CreateSnapshotError::NothingNewToWrite;
     last_snapshot_digest_ = std::move(current_digest);
   }
@@ -3295,9 +3294,6 @@ void InMemoryStorage::CreateSnapshotHandler(
   create_snapshot_handler = [cb = std::move(cb)] {
     if (auto maybe_error = cb(); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
-        case CreateSnapshotError::DisabledForReplica:
-          spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
-          break;
         case CreateSnapshotError::ReachedMaxNumTries:
           spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support.");
           break;

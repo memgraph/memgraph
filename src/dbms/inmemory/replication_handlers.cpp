@@ -476,6 +476,29 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+
+  // Creating a snapshot on replica is mutually exclusive with receiving snapshot from main
+  // When receiving a snapshot, main will clear all the durability files and move them into .old directory
+  auto snapshot_guard = std::unique_lock(storage->snapshot_lock_, std::defer_lock);
+  if (!snapshot_guard.try_lock()) {
+    spdlog::trace(
+        "Couldn't obtain the snapshot lock because there is an ongoing snapshot creation. Trying to abort snapshot "
+        "creation.");
+
+    // abort_snapshot_ will be reset to false in CreateSnapshot in storage.cpp at the end of its execution with
+    // OnScopeExit block
+    storage->abort_snapshot_.store(true, std::memory_order_release);
+
+    constexpr auto timeout = std::chrono::seconds{10};
+    // If after aborting the snapshot we still cannot obtain the snapshot lock, then reply to the main that changes
+    // cannot be accepted
+    if (!snapshot_guard.try_lock_for(timeout)) {
+      // Send default response
+      rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
+      return;
+    }
+  }
+
   AbortPrevTxnIfNeeded(storage);
 
   // Backup dir
@@ -493,7 +516,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   auto const curr_wal_files = storage::durability::GetWalFiles(current_wal_directory);
 
   auto const &active_files = file_replication_handler.GetActiveFileNames();
-  MG_ASSERT(active_files.size() == 1, "Received {} snapshot files but expecting only one!", active_files.size());
+  DMG_ASSERT(active_files.size() == 1, "Received {} snapshot files but expecting only one!", active_files.size());
   auto const &src_snapshot_file = active_files[0];
   auto const dst_snapshot_file = current_snapshot_dir / active_files[0].filename();
 
