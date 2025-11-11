@@ -21,62 +21,75 @@
 #include "planner/core/egraph.hpp"
 #include "planner/core/enode.hpp"
 
+#include "utils/tag.hpp"
+
 import memgraph.planner.core.eids;
 
 namespace memgraph::planner::core {
 
-struct Cost {
+template <typename CostResult>
+struct Selection {
   ENodeId enode_id;
-  double cost;
+  std::optional<CostResult> cost_result;
 };
 
-template <typename Symbol, typename Analysis, typename Func>
-requires std::is_invocable_r_v < double, Func, ENode<Symbol>
-const & > auto ProcessCosts(EGraph<Symbol, Analysis> const &egraph, Func const &cost_function, EClassId eclass_id,
-                            std::unordered_map<EClassId, Cost> &enode_selection) -> double {
+// TODO: decouple, calculated cost useful for debugging and for making the selection. But later phases only need the
+// selection that was made.
+template <typename Symbol, typename Analysis, typename CostModel>
+auto ProcessCosts(EGraph<Symbol, Analysis> const &egraph, CostModel const &cost_model, EClassId eclass_id,
+                  std::unordered_map<EClassId, Selection<typename CostModel::CostResult>> &enode_selection)
+    -> std::optional<typename CostModel::CostResult> {
+  using CostResult = CostModel::CostResult;
+
   DMG_ASSERT(!egraph.needs_rebuild(), "to avoid internal cost of getting canonical looking up we should");
 
   if (const auto it = enode_selection.find(eclass_id); it != enode_selection.end()) {
-    // If cost is infinity, we're currently processing this e-class (cycle detected)
-    // If cost is finite, we've already computed it
-    return it->second.cost;
+    // If cost is nullopt, we're currently processing this e-class (cycle detected)
+    // If cost is set, we've already computed it
+    return it->second.cost_result;
   }
 
   auto const &eclass = egraph.eclass(eclass_id);
 
   // Mark this e-class as "in progress" with infinity cost to detect cycles
-  auto [it2, _] =
-      enode_selection.emplace(eclass_id, Cost(eclass.representative(), std::numeric_limits<double>::infinity()));
+  auto [it2, _] = enode_selection.emplace(eclass_id, Selection<CostResult>(eclass.representative(), std::nullopt));
 
-  auto best_node = std::optional<Cost>{};
+  auto best_node = std::optional<Selection<CostResult>>{};
 
   for (auto const &enode_id : eclass.nodes()) {
+    auto skip = false;
     auto &enode = egraph.get_enode(enode_id);
-    auto current_cost =
-        std::accumulate(enode.children().begin(), enode.children().end(), cost_function(enode),
-                        [&](double acc, EClassId child_eclass_id) {
-                          return acc + ProcessCosts(egraph, cost_function, child_eclass_id, enode_selection);
-                        });
-
-    // ignore enodes who have infinate cost
-    if (std::isinf(current_cost)) {
-      continue;
+    auto children_costs = std::vector<CostResult>{};  // TODO: use a context
+    for (auto child : enode.children()) {
+      auto cost = ProcessCosts(egraph, cost_model, child, enode_selection);
+      if (!cost) {
+        skip = true;
+        break;
+      }
+      children_costs.emplace_back(*cost);
     }
+    if (skip) continue;
 
-    if (!best_node || current_cost < best_node->cost) {
-      best_node = Cost{enode_id, current_cost};
+    // auto current_cost =
+    //     std::accumulate(enode.children().begin(), enode.children().end(), std::vector<CostResult>,
+    //                     [&](CostResult acc, EClassId child_eclass_id) -> CostResult {
+    //                       return  acc +
+    //                     });
+    auto current_cost = cost_model(enode, children_costs);
+    if (!best_node || current_cost < *best_node->cost_result) {
+      best_node = Selection<CostResult>{enode_id, current_cost};
     }
   }
 
   // Update with the actual computed cost
   if (best_node) {
     it2->second = *best_node;
-    return best_node->cost;
+    return best_node->cost_result;
   }
 
   // Remove infinate cycle case
   enode_selection.erase(it2);
-  return std::numeric_limits<double>::infinity();
+  return std::nullopt;
 }
 
 // TODO: can we do everything in a single phase algorithm
@@ -96,10 +109,10 @@ const & > auto ProcessCosts(EGraph<Symbol, Analysis> const &egraph, Func const &
 //    // we also need to handle infinate loops/cycles in the graph. If....
 //  }
 
-template <typename Symbol, typename Analysis>
+template <typename Symbol, typename Analysis, typename CostResult>
 auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
-                         std::unordered_map<EClassId, Cost> const &enode_selection, const EClassId root)
-    -> std::unordered_map<EClassId, int> {
+                         std::unordered_map<EClassId, Selection<CostResult>> const &enode_selection,
+                         const EClassId root) -> std::unordered_map<EClassId, int> {
   auto in_degree = std::unordered_map<EClassId, int>{{root, 0}};
   auto bfs = std::vector{root};
   auto visited = std::unordered_set{root};
@@ -128,8 +141,9 @@ auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
   return in_degree;
 }
 
-template <typename Symbol, typename Analysis>
-auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph, std::unordered_map<EClassId, Cost> const &enode_selection,
+template <typename Symbol, typename Analysis, typename CostResult>
+auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph,
+                     std::unordered_map<EClassId, Selection<CostResult>> const &enode_selection,
                      std::unordered_map<EClassId, int> in_degree) -> std::vector<std::pair<EClassId, ENodeId>> {
   auto result = std::vector<std::pair<EClassId, ENodeId>>{};
   result.reserve(in_degree.size());
@@ -158,16 +172,14 @@ auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph, std::unordered_map<
   return result;
 }
 
-template <typename Symbol, typename Analysis, typename Func>
-requires(std::is_invocable_r_v<double, Func, ENode<Symbol> const &>) struct Extractor {
-  template <typename FuncInner>
-  requires(std::is_invocable_r_v<double, FuncInner, ENode<Symbol> const &>)
-      Extractor(EGraph<Symbol, Analysis> const &egraph, FuncInner &&cost_function)
-      : egraph_(egraph), cost_function_(std::forward<FuncInner>(cost_function)) {}
+template <typename Symbol, typename Analysis, typename CostModel>
+struct Extractor {
+  Extractor(EGraph<Symbol, Analysis> const &egraph, CostModel &&cost_model)
+      : egraph_(egraph), cost_model_(std::forward<CostModel>(cost_model)) {}
 
   auto Extract(EClassId const root_id) -> std::vector<std::pair<EClassId, ENodeId>> {
-    auto enode_selection = std::unordered_map<EClassId, Cost>{};
-    ProcessCosts(egraph_, cost_function_, root_id, enode_selection);
+    auto enode_selection = std::unordered_map<EClassId, Selection<typename CostModel::CostResult>>{};
+    ProcessCosts(egraph_, cost_model_, root_id, enode_selection);
     auto in_degree = CollectDependencies(egraph_, enode_selection, root_id);
     return TopologicalSort(egraph_, enode_selection, std::move(in_degree));
   }
@@ -175,11 +187,10 @@ requires(std::is_invocable_r_v<double, Func, ENode<Symbol> const &>) struct Extr
  private:
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   EGraph<Symbol, Analysis> const &egraph_;
-  Func cost_function_;
+  CostModel cost_model_;
 };
 
-template <typename Symbol, typename Analysis, typename Func>
-requires std::is_invocable_r_v < double, Func, ENode<Symbol>
-const & > Extractor(EGraph<Symbol, Analysis> const &, Func)->Extractor<Symbol, Analysis, Func>;
+// template <typename Symbol, typename Analysis, typename CostModel>
+// Extractor(EGraph<Symbol, Analysis> const &, CostModel) -> Extractor<Symbol, Analysis, CostModel, Func>;
 
 }  // namespace memgraph::planner::core
