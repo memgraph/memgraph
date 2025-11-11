@@ -67,7 +67,7 @@ TEST(ProcessEGraph, SingleLeafNode) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
   auto cost_function = [](ENode<symbol> const &) -> double { return 5.0; };
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
 
   auto cost = ProcessCosts(egraph, cost_function, leaf_class, cheapest_enode);
 
@@ -84,7 +84,7 @@ TEST(ProcessEGraph, SimpleTree) {
   auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
 
   auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
 
   auto cost = ProcessCosts(egraph, cost_function, root_class, cheapest_enode);
 
@@ -100,7 +100,7 @@ TEST(ProcessEGraph, DeepTree) {
   auto [root_class, root_node] = egraph.emplace(symbol::A, {mid_class});
 
   auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
 
   auto cost = ProcessCosts(egraph, cost_function, root_class, cheapest_enode);
 
@@ -117,7 +117,7 @@ TEST(ProcessEGraph, DiamondDAGSharedNode) {
   auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
 
   auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
 
   auto cost = ProcessCosts(egraph, cost_function, root_class, cheapest_enode);
 
@@ -137,7 +137,7 @@ TEST(ProcessEGraph, VariableCostBySymbol) {
   auto [bclass, bnode] = egraph.emplace(symbol::B);
 
   auto cost_function = [](ENode<symbol> const &node) -> double { return (node.symbol() == symbol::A) ? 2.0 : 5.0; };
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
 
   auto cost_a = ProcessCosts(egraph, cost_function, aclass, cheapest_enode);
   auto cost_b = ProcessCosts(egraph, cost_function, bclass, cheapest_enode);
@@ -155,7 +155,7 @@ TEST(ProcessEGraph, SelectsCheapestAmongEquivalents) {
   egraph.rebuild(ctx);
 
   auto cost_function = [](ENode<symbol> const &node) -> double { return (node.symbol() == symbol::A) ? 1.0 : 10.0; };
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
 
   auto cost = ProcessCosts(egraph, cost_function, root, cheapest_enode);
 
@@ -171,7 +171,7 @@ TEST(ProcessEGraph, CostAccumulationWithVariableCosts) {
   auto [root_class, root_node] = egraph.emplace(symbol::A, {leaf1_class, leaf2_class});
 
   auto cost_function = [](ENode<symbol> const &node) -> double { return (node.symbol() == symbol::A) ? 2.0 : 3.0; };
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
 
   auto cost = ProcessCosts(egraph, cost_function, root_class, cheapest_enode);
 
@@ -204,7 +204,7 @@ TEST(ProcessEGraph, CyclicEGraphInfiniteCost) {
   egraph.rebuild(ctx);
 
   auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
 
   // Process the cyclic e-class
   auto cost = ProcessCosts(egraph, cost_function, cyclic_class, cheapest_enode);
@@ -243,7 +243,7 @@ TEST(ProcessEGraph, CyclicEGraphInfiniteCostComplex) {
   egraph.rebuild(ctx);
 
   auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
 
   // Process the cyclic e-class
   auto cost = ProcessCosts(egraph, cost_function, merged_class, cheapest_enode);
@@ -287,7 +287,7 @@ TEST(ProcessEGraph, FullyCyclicEClassInfiniteCost) {
   egraph.rebuild(ctx);
 
   auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
 
   // This should either:
   // 1. Return infinity/max double if all nodes are cyclic
@@ -307,7 +307,7 @@ TEST(ProcessEGraph, FullyCyclicEClassInfiniteCost) {
 TEST(CollectDependencies, SingleLeafNode) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
 
   auto in_degree = CollectDependencies(egraph, cheapest_enode, leaf_class);
@@ -322,7 +322,7 @@ TEST(CollectDependencies, LinearChain) {
   auto [mid_class, mid_node] = egraph.emplace(symbol::B, {leaf_class});
   auto [root_class, root_node] = egraph.emplace(symbol::A, {mid_class});
 
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
   cheapest_enode[mid_class] = {mid_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
@@ -342,7 +342,7 @@ TEST(CollectDependencies, SimpleTree) {
   auto [right_class, right_node] = egraph.emplace(symbol::B);
   auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
@@ -363,7 +363,7 @@ TEST(CollectDependencies, DiamondDAG) {
   auto [right_class, right_node] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
   auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
   cheapest_enode[shared_class] = {shared_node, 1.0};
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
@@ -387,7 +387,7 @@ TEST(CollectDependencies, DiamondDAG) {
 TEST(TopologicalSort, SingleNode) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
-  std::unordered_map<EClassId, Cost> cheapest_enode{};
+  std::unordered_map<EClassId, Selection> cheapest_enode{};
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
   auto in_degree = std::unordered_map<EClassId, int>{{leaf_class, 0}};
   auto result = TopologicalSort(egraph, cheapest_enode, in_degree);
@@ -403,7 +403,7 @@ TEST(TopologicalSort, LinearChainOrdering) {
   auto [mid_class, mid_node] = egraph.emplace(symbol::B, {leaf_class});
   auto [root_class, root_node] = egraph.emplace(symbol::A, {mid_class});
 
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
   cheapest_enode[mid_class] = {mid_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
@@ -426,7 +426,7 @@ TEST(TopologicalSort, SimpleTreeOrdering) {
   auto [right_class, right_node] = egraph.emplace(symbol::B);
   auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
@@ -449,7 +449,7 @@ TEST(TopologicalSort, DiamondTopology) {
   auto [right_class, right_node] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
   auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  std::unordered_map<EClassId, Cost> cheapest_enode;
+  std::unordered_map<EClassId, Selection> cheapest_enode;
   cheapest_enode[shared_class] = {shared_node, 1.0};
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
