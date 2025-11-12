@@ -83,25 +83,53 @@ jobs:
         id: macro-benchmark
         continue-on-error: true
         run: |
-          ./tools/daily-benchmark/loop-macro.sh ${{ github.run_id }} ${{ github.run_number }} $BRANCH_NAME
+          ./tools/loop-benchmark.sh \
+            macro-benchmark \
+            macro_benchmark \
+            .harness_summary \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            macro_benchmark
 
       - name: Run and upload mgbench-supernode
         id: mgbench-supernode
         continue-on-error: true
         run: |
-          ./tools/daily-benchmark/loop-supernode.sh ${{ github.run_id }} ${{ github.run_number }} $BRANCH_NAME
+          ./tools/loop-benchmark.sh \
+            mgbench-supernode \
+            supernode \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
 
       - name: Run and upload mgbench
         id: mgbench
         continue-on-error: true
         run: |
-          ./tools/daily-benchmark/loop-mgbench.sh ${{ github.run_id }} ${{ github.run_number }} $BRANCH_NAME
+          ./tools/loop-benchmark.sh \
+            mgbench \
+            mgbench \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
 
       - name: Run extended planner optimizations mgbench
         id: planner
         continue-on-error: true
         run: |
-          ./tools/daily-benchmark/loop-planner.sh ${{ github.run_id }} ${{ github.run_number }} $BRANCH_NAME
+          ./tools/loop-benchmark.sh \
+            mgbench-planner-optimizations \
+            mgbench-planner-optimizations \
+            benchmark_result_extended.json \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
 
       - name: Stop mgbuild container
         if: always()

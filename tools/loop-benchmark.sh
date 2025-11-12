@@ -1,12 +1,15 @@
 #!/bin/bash
 
+BENCHMARK_COMMAND=$1
+BENCHMARK_NAME=$2
+RESULTS_FILE=$3
+RUN_ID=$4
+RUN_NUMBER=$5
+BRANCH_NAME=$6
+TEST_PATH=${7:-mgbench}
 
-RUN_ID=$1
-RUN_NUMBER=$2
-BRANCH_NAME=$3
-
-if [ -z "$RUN_ID" ] || [ -z "$RUN_NUMBER" ] || [ -z "$BRANCH_NAME" ]; then
-    echo "Usage: $0 <run_id> <run_number> <branch_name>"
+if [ -z "$BENCHMARK_COMMAND" ] || [ -z "$BENCHMARK_NAME" ] || [ -z "$RESULTS_FILE" ] || [ -z "$RUN_ID" ] || [ -z "$RUN_NUMBER" ] || [ -z "$BRANCH_NAME" ]; then
+    echo "Usage: $0 <benchmark_command> <benchmark_name> <results_file> <run_id> <run_number> <branch_name> [test_path]"
     exit 1
 fi
 
@@ -30,7 +33,7 @@ for ((i=1; i<=LOOP_COUNT; i++)); do
         --arch $ARCH \
         --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
         --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-        test-memgraph mgbench-supernode --export-results-file ${DEFAULT_MGBENCH_EXPORT_RESULTS_FILE}; then
+        test-memgraph $BENCHMARK_COMMAND --export-results-file $RESULTS_FILE; then
         FAIL_COUNT=$((FAIL_COUNT + 1))
         continue
     fi
@@ -42,8 +45,8 @@ for ((i=1; i<=LOOP_COUNT; i++)); do
         --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
         --organization-name $MEMGRAPH_ORGANIZATION_NAME \
         test-memgraph upload-to-bench-graph \
-        --benchmark-name "supernode" \
-        --benchmark-results "../../tests/mgbench/${DEFAULT_MGBENCH_EXPORT_RESULTS_FILE}" \
+        --benchmark-name $BENCHMARK_NAME \
+        --benchmark-results "../../tests/${TEST_PATH}/${RESULTS_FILE}" \
         --github-run-id $RUN_ID \
         --github-run-number $RUN_NUMBER \
         --head-branch-name $BRANCH_NAME; then
