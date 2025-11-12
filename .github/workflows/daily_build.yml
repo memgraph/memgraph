@@ -289,7 +289,7 @@ jobs:
   RunISSUTest:
     name: Run ISSU Tests
     needs: [SetupISSUTestInputs]
-    if: ${{ (github.event_name == 'schedule' && always() || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests)) && needs.SetupISSUTestInputs.results.success == 'true' }}
+    if: ${{ (github.event_name == 'schedule' && always() || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests)) && needs.SetupISSUTestInputs.result == 'success' }}
     uses: ./.github/workflows/reusable_issu_test.yaml
     strategy:
       fail-fast: false
