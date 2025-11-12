@@ -1304,35 +1304,37 @@ case $command in
         # set local mirror for Ubuntu
         if [[ "$os" =~ ^"ubuntu".* && "$arch" == "amd" ]]; then
           if [[ "$os" == "ubuntu-22.04" ]]; then
-            mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh 'jammy')"
-            # set custom mirror within build container
-            docker exec -i -u root \
-              -e CUSTOM_MIRROR=$mirror \
-              $build_container \
-            bash -c '
-              if [ -n "$CUSTOM_MIRROR" ]; then
-                sed -E -i \
-                  -e "s#https?://[^ ]*archive\.ubuntu\.com/ubuntu/#${CUSTOM_MIRROR}/#g" \
-                  -e "s#https?://[^ ]*security\.ubuntu\.com/ubuntu/#${CUSTOM_MIRROR}/#g" \
-                  /etc/apt/sources.list
-                apt-get update -qq
-              fi
-            '
+            if mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh 'jammy' 2>/dev/null)"; then
+              # set custom mirror within build container
+              docker exec -i -u root \
+                -e CUSTOM_MIRROR=$mirror \
+                $build_container \
+              bash -c '
+                if [ -n "$CUSTOM_MIRROR" ]; then
+                  sed -E -i \
+                    -e "s#https?://[^ ]*archive\.ubuntu\.com/ubuntu/#${CUSTOM_MIRROR}/#g" \
+                    -e "s#https?://[^ ]*security\.ubuntu\.com/ubuntu/#${CUSTOM_MIRROR}/#g" \
+                    /etc/apt/sources.list
+                  apt-get update -qq
+                fi
+              '
+            fi
           else
-            mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh)"
-            # set custom mirror within build container
-            docker exec -i -u root \
-              -e CUSTOM_MIRROR=$mirror \
-              $build_container \
-            bash -c '
-              if [ -n "$CUSTOM_MIRROR" ]; then
-                sed -E -i \
-                  -e "/^URIs:/ s#https?://[^ ]*archive\.ubuntu\.com#${CUSTOM_MIRROR}#g" \
-                  -e "/^URIs:/ s#https?://security\.ubuntu\.com#${CUSTOM_MIRROR}#g" \
-                  /etc/apt/sources.list.d/ubuntu.sources
-                apt-get update -qq
-              fi
-            '
+            if mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh 2>/dev/null)"; then
+              # set custom mirror within build container
+              docker exec -i -u root \
+                -e CUSTOM_MIRROR=$mirror \
+                $build_container \
+              bash -c '
+                if [ -n "$CUSTOM_MIRROR" ]; then
+                  sed -E -i \
+                    -e "/^URIs:/ s#https?://[^ ]*archive\.ubuntu\.com#${CUSTOM_MIRROR}#g" \
+                    -e "/^URIs:/ s#https?://security\.ubuntu\.com#${CUSTOM_MIRROR}#g" \
+                    /etc/apt/sources.list.d/ubuntu.sources
+                  apt-get update -qq
+                fi
+              '
+            fi
           fi
         fi
       fi

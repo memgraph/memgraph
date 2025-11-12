@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Trap to show what failed
+trap 'echo "Error: Script failed at line $LINENO. Command: $BASH_COMMAND. Exit status: $?" >&2' ERR
+trap 'if [[ $? -ne 0 ]]; then echo "Script exited with status: $?" >&2; fi' EXIT
+
 LP_URL='https://launchpad.net/ubuntu/+archivemirrors'
 SUITE=${1:-'noble'}          # change to your Ubuntu codename
 TIMEOUT=0.2            # seconds per connect attempt
@@ -35,12 +39,21 @@ for base in "${MIRRORS[@]}"; do
   host=${base#*://}
   host=${host%%/*}
 
-  start_ms=$(date +%s%3N)
-  if timeout $TIMEOUT bash -c "exec 3<>/dev/tcp/$host/80"; then
-    elapsed=$(( $(date +%s%3N) - start_ms ))
-    exec 3<&-; exec 3>&-
+  # Skip if host extraction failed
+  if [[ -z "$host" ]]; then
+    continue
+  fi
 
-    if (( elapsed < BEST_TIME )); then
+  # Measure TCP connection latency, handling failures gracefully
+  start_ms=$(date +%s%3N 2>/dev/null || echo "0")
+  if timeout $TIMEOUT bash -c "exec 3<>/dev/tcp/$host/80" 2>/dev/null; then
+    elapsed=$(( $(date +%s%3N 2>/dev/null || echo "0") - start_ms ))
+    # Close file descriptors, ignore errors if already closed
+    exec 3<&- 2>/dev/null || true
+    exec 3>&- 2>/dev/null || true
+
+    # Only update if we got a valid elapsed time
+    if [[ $elapsed -gt 0 ]] && (( elapsed < BEST_TIME )); then
       BEST_TIME=$elapsed
       BEST_URL=$base
     fi
