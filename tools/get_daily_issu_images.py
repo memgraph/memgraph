@@ -18,7 +18,10 @@ def main() -> None:
     """
     Print images to be used in ISSU test
     """
-    date = int(os.getenv("CURRENT_BUILD_DATE"))
+    current_build_date = os.getenv("CURRENT_BUILD_DATE")
+    if current_build_date is None:
+        raise ValueError("CURRENT_BUILD_DATE is not set")
+    date = int(current_build_date)
     mock = os.getenv("MOCK", "false") == "true"
     amd_docker, arm_docker = get_daily_issu_images(date, mock)
 
