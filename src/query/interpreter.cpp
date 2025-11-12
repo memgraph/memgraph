@@ -4942,8 +4942,9 @@ PreparedQuery PrepareEdgeImportModeQuery(ParsedQuery parsed_query, CurrentDB &cu
                        RWType::NONE};
 }
 
-static PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                                CurrentDB &current_db) {
+// NOLINTNEXTLINE
+PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                         CurrentDB &current_db) {
   if (in_explicit_transaction) {
     throw CreateSnapshotInMulticommandTxException();
   }
