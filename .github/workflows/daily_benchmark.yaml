@@ -80,105 +80,28 @@ jobs:
           fi
 
       - name: Run and upload macro benchmarks
+        id: macro-benchmark
+        continue-on-error: true
         run: |
-          for i in {1..${{ env.LOOP_COUNT }}}; do
-            ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os $OS \
-            --arch $ARCH \
-            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-            test-memgraph macro-benchmark
-
-            ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os $OS \
-            --arch $ARCH \
-            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-            test-memgraph upload-to-bench-graph \
-            --benchmark-name "macro_benchmark" \
-            --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
-            --github-run-id ${{ github.run_id }} \
-            --github-run-number ${{ github.run_number }} \
-            --head-branch-name ${{ env.BRANCH_NAME }}
-          done
+          ./tools/daily-benchmark/loop-macro.sh ${{ github.run_id }} ${{ github.run_number }} $BRANCH_NAME
 
       - name: Run and upload mgbench-supernode
+        id: mgbench-supernode
+        continue-on-error: true
         run: |
-          for i in {1..${{ env.LOOP_COUNT }}}; do
-            ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os $OS \
-            --arch $ARCH \
-            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-            test-memgraph mgbench-supernode --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
-
-            ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os $OS \
-            --arch $ARCH \
-            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-            test-memgraph upload-to-bench-graph \
-            --benchmark-name "supernode" \
-            --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
-            --github-run-id "${{ github.run_id }}" \
-            --github-run-number "${{ github.run_number }}" \
-            --head-branch-name "${{ env.BRANCH_NAME }}"
-          done
+          ./tools/daily-benchmark/loop-supernode.sh ${{ github.run_id }} ${{ github.run_number }} $BRANCH_NAME
 
       - name: Run and upload mgbench
+        id: mgbench
+        continue-on-error: true
         run: |
-          for i in {1..${{ env.LOOP_COUNT }}}; do
-            ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os $OS \
-            --arch $ARCH \
-            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-            test-memgraph mgbench --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+          ./tools/daily-benchmark/loop-mgbench.sh ${{ github.run_id }} ${{ github.run_number }} $BRANCH_NAME
 
-            ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os $OS \
-            --arch $ARCH \
-            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-            test-memgraph upload-to-bench-graph \
-            --benchmark-name "mgbench" \
-            --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
-            --github-run-id "${{ github.run_id }}" \
-            --github-run-number "${{ github.run_number }}" \
-            --head-branch-name "${{ env.BRANCH_NAME }}"
-          done
-
-      - name: Run extended planner improvements mgbench
+      - name: Run extended planner optimizations mgbench
+        id: planner
+        continue-on-error: true
         run: |
-          for i in {1..${{ env.LOOP_COUNT }}}; do
-            ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os $OS \
-            --arch $ARCH \
-            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-            test-memgraph mgbench --dataset pokec_planner_optimizations --size medium --export-results-file benchmark_result_extended.json
-
-
-            ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os $OS \
-            --arch $ARCH \
-            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-            test-memgraph upload-to-bench-graph \
-            --benchmark-name "mgbench-planner-optimizations" \
-            --benchmark-results "../../tests/mgbench/benchmark_result_extended.json" \
-            --github-run-id "${{ github.run_id }}" \
-            --github-run-number "${{ github.run_number }}" \
-            --head-branch-name "${{ env.BRANCH_NAME }}"
-          done
+          ./tools/daily-benchmark/loop-planner.sh ${{ github.run_id }} ${{ github.run_number }} $BRANCH_NAME
 
       - name: Stop mgbuild container
         if: always()
@@ -204,3 +127,14 @@ jobs:
             -H "Authorization: token $GITHUB_TOKEN" \
             https://api.github.com/repos/memgraph/infra/dispatches \
             -d "{\"event_type\": \"regression-detection\"}"
+
+      - name: Set Job Status
+        run: |
+          success=${{ steps.macro-benchmark.outcome == 'success' && steps.mgbench-supernode.outcome == 'success' && steps.mgbench.outcome == 'success' && steps.planner.outcome == 'success' }}
+          echo "success=$success" >> $GITHUB_OUTPUT
+          if [ "$success" == "true" ]; then
+            echo "All benchmarks succeeded"
+          else
+            echo "Some benchmarks failed"
+            exit 1
+          fi
