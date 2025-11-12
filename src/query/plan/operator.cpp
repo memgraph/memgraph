@@ -7891,7 +7891,6 @@ class LoadJsonlCursor : public Cursor {
   const UniqueCursorPtr input_cursor_;
   bool did_pull_{false};
   std::optional<JsonlReader> reader_;
-  Row row_;
 
  public:
   LoadJsonlCursor(const LoadJsonl *self, utils::MemoryResource *mem)
@@ -7919,6 +7918,8 @@ class LoadJsonlCursor : public Cursor {
       }
       did_pull_ = true;
     }
+
+    Row row_{mem};
 
     if (!reader_->GetNextRow(row_)) {
       return false;

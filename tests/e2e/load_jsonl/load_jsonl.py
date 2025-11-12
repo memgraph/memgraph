@@ -16,6 +16,30 @@ import pytest
 from common import connect, execute_and_fetch_all, get_file_path
 
 
+# Invalid token is just skipped
+def test_invalid_fields():
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = f"LOAD JSONL FROM '{get_file_path('invalid.jsonl')}' AS row \
+                CREATE (n:N {{id: row.id, name: row.name}})"
+    execute_and_fetch_all(cursor, load_query)
+
+    assert execute_and_fetch_all(cursor, "match (n) where n.id = 1 return n.name")[0][0] == None
+
+    execute_and_fetch_all(cursor, "match (n) detach delete n")
+
+
+# Null is ignored
+def test_null_fields():
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = f"LOAD JSONL FROM '{get_file_path('null.jsonl')}' AS row \
+                CREATE (n:N {{id: row.id, name: row.name}})"
+    execute_and_fetch_all(cursor, load_query)
+
+    assert execute_and_fetch_all(cursor, "match (n) where n.id = 1 return n.name")[0][0] == None
+
+    execute_and_fetch_all(cursor, "match (n) detach delete n")
+
+
 def test_small_file_nodes():
     cursor = connect(host="localhost", port=7687).cursor()
     load_query = f"LOAD JSONL FROM '{get_file_path('test_types.jsonl')}' AS row \

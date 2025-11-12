@@ -105,6 +105,7 @@ void IterateObject(simdjson::ondemand::object &obj, auto &out, memgraph::utils::
     std::string_view key_view;
     // Check for error
     if (UNLIKELY(field.unescaped_key().get(key_view))) continue;
+    // NOLINTNEXTLINE
     TypedValue::TString key{key_view, resource};
 
     auto val = field.value().value();
@@ -122,7 +123,9 @@ struct JsonlReader::impl {
   impl(std::string file, std::pmr::memory_resource *resource) : file_{std::move(file)}, resource_{resource} {
     content_ = simdjson::padded_string::load(file_).value();
 
-    if (UNLIKELY(parser_.iterate_many(content_).get(docs_)))
+    // Parser should be used for one document at a time
+    // This is thread local version of the parser, shouldn't be passed to other threads
+    if (UNLIKELY(simdjson::ondemand::parser::get_parser().iterate_many(content_).get(docs_)))
       throw utils::BasicException("Failed to create iterator over documents for file {}", file_);
 
     it_ = docs_.begin();
@@ -142,13 +145,13 @@ struct JsonlReader::impl {
  private:
   std::string file_;
   std::pmr::memory_resource *resource_;
-  simdjson::ondemand::parser parser_;
   simdjson::padded_string content_;
   simdjson::ondemand::document_stream docs_;
   simdjson::ondemand::document_stream::iterator it_;
 };
 
 JsonlReader::JsonlReader(std::string file, std::pmr::memory_resource *resource)
+    // NOLINTNEXTLINE
     : pimpl_{std::make_unique<JsonlReader::impl>(std::move(file), resource)} {}
 
 JsonlReader::~JsonlReader() {}
