@@ -57,6 +57,8 @@ struct Statistics {
   uint64_t users;          //!< Number of defined users
   uint64_t roles;          //!< Number of defined roles
   uint64_t num_databases;  //!< Number of isolated databases
+  uint64_t num_labels;     //!< Number of distinct labels
+  uint64_t num_edge_types; //!< Number of distinct edge types
   uint64_t indices;        //!< Sum of indices in every database
   uint64_t constraints;    //!< Sum of constraints in every database
   std::array<uint64_t, 3>
@@ -79,6 +81,8 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
   res["streams"] = stats.streams;
   res["users"] = stats.users;
   res["roles"] = stats.roles;
+  res["labels"] = stats.num_labels;
+  res["edge_types"] = stats.num_edge_types;
   res["databases"] = stats.num_databases;
   res["indices"] = stats.indices;
   res["constraints"] = stats.constraints;
@@ -359,6 +363,10 @@ class DbmsHandler {
         using underlying_type = std::underlying_type_t<utils::CompressionLevel>;
         ++stats.property_store_compression_level[static_cast<underlying_type>(
             storage_info.property_store_compression_level)];
+
+        auto storage_acc = db_acc->storage()->Access();
+        stats.num_labels += storage_acc->CountAllPossiblyPresentVertexLabels();
+        stats.num_edge_types += storage_acc->CountAllPossiblyPresentEdgeTypes();
       }
     }
     return stats;

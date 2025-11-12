@@ -325,6 +325,8 @@ def _verify_storage_fields(storage_data: dict) -> bool:
         ("streams", int),  # Sum of streams in every database
         ("users", int),  # Number of defined users
         ("roles", int),  # Number of defined roles
+        ("labels", int),  # Number of distinct labels
+        ("edge_types", int),  # Number of distinct edge types
         ("databases", int),  # Number of isolated databases
         ("indices", int),  # Sum of indices in every database
         ("constraints", int),  # Sum of constraints in every database
