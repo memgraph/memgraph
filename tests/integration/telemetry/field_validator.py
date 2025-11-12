@@ -324,6 +324,7 @@ def _verify_storage_fields(storage_data: dict) -> bool:
         ("triggers", int),  # Sum of triggers in every database
         ("streams", int),  # Sum of streams in every database
         ("users", int),  # Number of defined users
+        ("roles", int),  # Number of defined roles
         ("databases", int),  # Number of isolated databases
         ("indices", int),  # Sum of indices in every database
         ("constraints", int),  # Sum of constraints in every database

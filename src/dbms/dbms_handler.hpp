@@ -55,6 +55,7 @@ struct Statistics {
   uint64_t triggers;       //!< Sum of triggers in every database
   uint64_t streams;        //!< Sum of streams in every database
   uint64_t users;          //!< Number of defined users
+  uint64_t roles;          //!< Number of defined roles
   uint64_t num_databases;  //!< Number of isolated databases
   uint64_t indices;        //!< Sum of indices in every database
   uint64_t constraints;    //!< Sum of constraints in every database
@@ -77,6 +78,7 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
   res["triggers"] = stats.triggers;
   res["streams"] = stats.streams;
   res["users"] = stats.users;
+  res["roles"] = stats.roles;
   res["databases"] = stats.num_databases;
   res["indices"] = stats.indices;
   res["constraints"] = stats.constraints;
