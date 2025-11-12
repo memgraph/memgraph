@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -49,17 +50,18 @@
 namespace memgraph::dbms {
 
 struct Statistics {
-  uint64_t num_vertex;           //!< Sum of vertexes in every database
-  uint64_t num_edges;            //!< Sum of edges in every database
-  uint64_t triggers;             //!< Sum of triggers in every database
-  uint64_t streams;              //!< Sum of streams in every database
-  uint64_t users;                //!< Number of defined users
-  uint64_t roles;                //!< Number of defined roles
-  uint64_t num_labels;           //!< Number of distinct labels
-  uint64_t num_edge_types;       //!< Number of distinct edge types
-  uint64_t num_databases;        //!< Number of isolated databases
-  uint64_t indices;              //!< Sum of indices in every database
-  uint64_t constraints;          //!< Sum of constraints in every database
+  uint64_t num_vertex;                     //!< Sum of vertexes in every database
+  uint64_t num_edges;                      //!< Sum of edges in every database
+  uint64_t triggers;                       //!< Sum of triggers in every database
+  uint64_t streams;                        //!< Sum of streams in every database
+  uint64_t users;                          //!< Number of defined users
+  uint64_t roles;                          //!< Number of defined roles
+  uint64_t num_labels;                     //!< Number of distinct labels
+  uint64_t label_node_count_histogram[8];  //!< Histogram of number of labels having 0, 1-9, 10-99, ..., 10M+ nodes
+  uint64_t num_edge_types;                 //!< Number of distinct edge types
+  uint64_t num_databases;                  //!< Number of isolated databases
+  uint64_t indices;                        //!< Sum of indices in every database
+  uint64_t constraints;                    //!< Sum of constraints in every database
   uint64_t storage_modes[3];     //!< Number of databases in each storage mode [IN_MEM_TX, IN_MEM_ANA, ON_DISK_TX]
   uint64_t isolation_levels[3];  //!< Number of databases in each isolation level [SNAPSHOT, READ_COMM, READ_UNC]
   uint64_t snapshot_enabled;     //!< Number of databases with snapshots enabled
@@ -94,6 +96,11 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
       {utils::CompressionLevelToString(utils::CompressionLevel::LOW), stats.property_store_compression_level[0]},
       {utils::CompressionLevelToString(utils::CompressionLevel::MID), stats.property_store_compression_level[1]},
       {utils::CompressionLevelToString(utils::CompressionLevel::HIGH), stats.property_store_compression_level[2]}};
+  res["label_node_count_histogram"] = {
+      {"0", stats.label_node_count_histogram[0]},           {"1-9", stats.label_node_count_histogram[1]},
+      {"10-99", stats.label_node_count_histogram[2]},       {"100-999", stats.label_node_count_histogram[3]},
+      {"1K-9999", stats.label_node_count_histogram[4]},     {"10K-99999", stats.label_node_count_histogram[5]},
+      {"100K-999999", stats.label_node_count_histogram[6]}, {"1M+", stats.label_node_count_histogram[7]}};
 
   return res;
 }
@@ -363,6 +370,14 @@ class DbmsHandler {
         auto storage_acc = db_acc->storage()->Access();
         stats.num_labels += storage_acc->CountAllPossiblyPresentVertexLabels();
         stats.num_edge_types += storage_acc->CountAllPossiblyPresentEdgeTypes();
+
+        constexpr size_t kMaxHistogramBucket = 7;
+        for (auto const label : storage_acc->ListAllPossiblyPresentVertexLabels()) {
+          auto const count = storage_acc->ApproximateVertexCount(label);
+          size_t const bucket =
+              count == 0 ? 0 : std::min(kMaxHistogramBucket, static_cast<size_t>(std::log10(count)) + 1);
+          ++stats.label_node_count_histogram[bucket];
+        }
       }
     }
     return stats;
