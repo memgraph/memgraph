@@ -123,7 +123,7 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/loop-benchmark.sh \
-            mgbench-planner-optimizations \
+            "mgbench --dataset pokec_planner_optimizations --size medium" \
             mgbench-planner-optimizations \
             benchmark_result_extended.json \
             ${{ github.run_id }} \
