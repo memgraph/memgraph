@@ -23,12 +23,6 @@ module;
 
 module memgraph.query.jsonl.reader;
 
-// TODO: (andi) It would probably be better that we create only once parser anulnd reuse it for all documents and
-// subsequent calls
-// TODO: (andi) Performance improvements
-// TODO: (andi) How to handle uint64_t type here and in LOAD PARQUET clause, ask in the team core?
-// TODO: (andi) Test specific overflow/underflow values
-
 namespace {
 using memgraph::query::TypedValue;
 using simdjson::ondemand::json_type;
