@@ -124,7 +124,7 @@ behavior_for_tag() {
   local v
   v="$(extract_version_from_tag "$tag")"
   if [[ -z "$v" ]]; then
-    echo "auth_pre_upgrade_pre_3.7.cypherl"   # conservative default if we can't parse a version
+    echo "auth_pre_upgrade.cypherl"   # default if we can't parse a version
     return
   fi
 
