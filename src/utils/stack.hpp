@@ -19,9 +19,10 @@
 
 namespace memgraph::utils {
 
-/// This class implements a stack. It is primarily intended for storing
-/// primitive types. This stack is thread-safe. It uses a spin lock to lock all
-/// operations.
+/// This class implements a non-thread-safe stack. It is primarily intended for
+/// storing primitive types. This stack is NOT thread-safe and should only be
+/// used in single-threaded contexts or when external synchronization is
+/// provided.
 ///
 /// The stack stores all objects in memory blocks. That makes it really
 /// efficient in terms of memory allocations. The memory block size is optimized
@@ -79,7 +80,6 @@ class Stack {
   }
 
   void Push(TObj obj) {
-    auto guard = std::lock_guard{lock_};
     if (head_ == nullptr) {
       // Allocate a new block.
       head_ = new Block();
@@ -90,7 +90,7 @@ class Stack {
                 "Block than the block has space!");
       if (head_->used == TSize) {
         // Allocate a new block.
-        Block *block = new Block();
+        auto *block = new Block();
         block->prev = head_;
         head_ = block;
       } else {
@@ -101,7 +101,6 @@ class Stack {
   }
 
   std::optional<TObj> Pop() {
-    auto guard = std::lock_guard{lock_};
     while (true) {
       if (head_ == nullptr) return std::nullopt;
       MG_ASSERT(head_->used <= TSize,
@@ -118,8 +117,50 @@ class Stack {
   }
 
  private:
-  SpinLock lock_;
   Block *head_{nullptr};
+};
+
+/// This class implements a thread-safe stack. It is primarily intended for
+/// storing primitive types. This stack is thread-safe. It uses a spin lock to
+/// lock all operations.
+///
+/// @tparam TObj primitive object that should be stored in the stack
+/// @tparam TSize size of the memory block used
+template <typename TObj, uint64_t TSize>
+class ThreadSafeStack {
+ public:
+  ThreadSafeStack() = default;
+
+  ThreadSafeStack(ThreadSafeStack &&other) noexcept : stack_(std::move(other.stack_)) {}
+  ThreadSafeStack &operator=(ThreadSafeStack &&other) noexcept {
+    stack_ = std::move(other.stack_);
+    return *this;
+  }
+
+  explicit ThreadSafeStack(Stack<TObj, TSize> &&other) noexcept : stack_(std::move(other)) {}
+  ThreadSafeStack &operator=(Stack<TObj, TSize> &&other) noexcept {
+    stack_ = std::move(other);
+    return *this;
+  }
+
+  ThreadSafeStack(const ThreadSafeStack &) = delete;
+  ThreadSafeStack &operator=(const ThreadSafeStack &) = delete;
+
+  ~ThreadSafeStack() = default;
+
+  void Push(TObj obj) {
+    auto guard = std::lock_guard{lock_};
+    stack_.Push(obj);
+  }
+
+  std::optional<TObj> Pop() {
+    auto guard = std::lock_guard{lock_};
+    return stack_.Pop();
+  }
+
+ private:
+  Stack<TObj, TSize> stack_;
+  SpinLock lock_;
 };
 
 }  // namespace memgraph::utils
