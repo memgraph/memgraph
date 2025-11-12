@@ -1304,7 +1304,7 @@ case $command in
         # set local mirror for Ubuntu
         if [[ "$os" =~ ^"ubuntu".* && "$arch" == "amd" ]]; then
           if [[ "$os" == "ubuntu-22.04" ]]; then
-            if mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh 'jammy' 2>/dev/null)"; then
+            if mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh 'jammy')"; then
               # set custom mirror within build container
               docker exec -i -u root \
                 -e CUSTOM_MIRROR=$mirror \
@@ -1320,7 +1320,7 @@ case $command in
               '
             fi
           else
-            if mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh 2>/dev/null)"; then
+            if mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh)"; then
               # set custom mirror within build container
               docker exec -i -u root \
                 -e CUSTOM_MIRROR=$mirror \
