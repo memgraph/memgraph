@@ -489,6 +489,10 @@ class Storage {
 
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
+    size_t CountAllPossiblyPresentVertexLabels() const;
+
+    size_t CountAllPossiblyPresentEdgeTypes() const;
+
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
         LabelId label, CheckCancelFunction cancel_check = neverCancel) = 0;
 
