@@ -626,7 +626,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
         if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
       }
 
-      utils::AtomicMemoryBlock([&]() {
+      utils::AtomicMemoryBlock([&, edge_type = edge_type, opposing_vertex = opposing_vertex, edge_ref = edge_ref]() {
         if (storage_->config_.salient.items.properties_on_edges) {
           auto edge_ptr = edge_ref.ptr;
           // this can happen only if we marked edges for deletion with no nodes,
