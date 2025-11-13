@@ -8,6 +8,8 @@ deactivate_conanrun.sh
 CMakeUserPresets.json
 
 .clangd
+
+# Clojure development
 .clj-kondo/
 .lsp/
 
