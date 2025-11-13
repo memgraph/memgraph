@@ -9,16 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Copyright 2025 Memgraph Ltd.
-//
-// Use of this software is governed by the Business Source License
-// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
-// License, and you may not use this file except in compliance with the Business Source License.
-//
-// As of the Change Date specified in that file, in accordance with
-// the Business Source License, use of this software will be governed
-// by the Apache License, Version 2.0, included in the file
-// licenses/APL.txt.
 #include "query/plan_v2/egraph_converter.hpp"
 
 #include "planner/core/extractor.hpp"
@@ -105,7 +95,8 @@ struct Builder {
 
     if (input->GetTypeInfo() == Produce::kType) {
       auto const &produce = static_pointer_cast<Produce>(input);
-      // TODO: check if its ok to steal from the other produce (Operators make a tree, we are skipping hence unused)
+      // TODO: check if its ok to steal from the other produce (Operators make a
+      // tree, we are skipping hence unused)
       auto named_expressions = produce->named_expressions_;
       named_expressions.emplace_back(named_expression);
       return std::make_shared<Produce>(produce->input(), named_expressions);
@@ -208,7 +199,8 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root) -> std::tuple<std::u
 
   // egraph extraction -> subgraph of the egraph (one Enode per EClass)
   // start for a root
-  // must be able to handle cycles -> Extraction should have no cycles (cycles only useful to aid rewrites)
+  // must be able to handle cycles -> Extraction should have no cycles (cycles
+  // only useful to aid rewrites)
 
   // Subgraph -> LogicalOperator + AST Expressions + Symbol table
   // NOTE: we lost a NamedExpressions name when we did BIND for WITH
