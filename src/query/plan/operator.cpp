@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -8902,29 +8903,37 @@ query::plan::Aggregate::Element query::plan::Aggregate::Element::Clone(query::As
   return object;
 }
 
-ScanChunk::ScanChunk(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view)
-    : ScanAll(input, std::move(output_symbol), view) {}
+ScanChunk::ScanChunk(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view,
+                     Symbol state_symbol)
+    : ScanAll(input, std::move(output_symbol), view), state_symbol_(state_symbol) {}
 
 ACCEPT_WITH_INPUT(ScanChunk)
 
 UniqueCursorPtr ScanChunk::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO
 
-  auto vertices = [](Frame &frame, ExecutionContext &context) -> std::optional<VerticesChunkedIterable::Chunk> {
-    DMG_ASSERT(context.parallel_state, "Missing parallel state in context");
-    return context.parallel_state->GetNextChunk();
+  auto vertices = [state_symbol = state_symbol_, state = std::unique_ptr<ParallelStateOnFrame>()](
+                      Frame &frame,
+                      ExecutionContext & /*context*/) mutable -> std::optional<VerticesChunkedIterable::Chunk> {
+    // Make sure state is valid for duration of the cursor
+    state = ParallelStateOnFrame::PopFromFrame(frame, state_symbol);
+    if (!state) return std::nullopt;
+    return state->GetChunk();
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanChunk");
 }
 
-std::string ScanChunk::ToString() const { return fmt::format("ScanChunk ({})", output_symbol_.name()); }
+std::string ScanChunk::ToString() const {
+  return fmt::format("ScanChunk ({}, state: {})", input_->ToString(), state_symbol_.name());
+}
 
 std::unique_ptr<LogicalOperator> ScanChunk::Clone(AstStorage *storage) const {
   auto object = std::make_unique<ScanChunk>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
   object->view_ = view_;
+  object->state_symbol_ = state_symbol_;
   return object;
 }
 
@@ -8935,19 +8944,31 @@ class ScanParallelCursor : public Cursor {
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), get_chunks_(std::move(get_chunks)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
     auto now = std::chrono::steady_clock::now();
+
+    size_t index = 0;
+    std::shared_ptr<VerticesChunkedIterable> chunks;
     {
-      std::lock_guard lock(mutex_);
+      std::unique_lock lock(mutex_);
       if (index_ == 0 || index_ >= self_.num_threads_) {
         if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
+        chunks_.reset();
         bool res = input_cursor_->Pull(*frame_, context);
         if (!res) return false;
         index_ = 0;
-        if (!get_chunks_(*frame_, context)) return false;
+        chunks_ = std::make_shared<VerticesChunkedIterable>(get_chunks_(*frame_, context));
       }
+      if (chunks_ == nullptr || chunks_->size() == 0) return false;
       frame = *frame_;  // Copy the filled frame
-      index_++;
+      chunks = chunks_;
+      index = index_++;
     }
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    ParallelStateOnFrame::PushToFrame(frame_writer, context.evaluation_context.memory, self_.state_symbol_, chunks,
+                                      index);
+
     auto end = std::chrono::steady_clock::now();
     std::cout << "scanparallel pulling time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - now).count() << "ms" << std::endl;
@@ -8961,6 +8982,7 @@ class ScanParallelCursor : public Cursor {
  private:
   mutable std::mutex mutex_;
   size_t index_{0};
+  std::shared_ptr<typename std::result_of<TChunksFun(Frame &, ExecutionContext &)>::type> chunks_;
   const ScanParallel &self_;
   std::optional<Frame> frame_{std::nullopt};
   const UniqueCursorPtr input_cursor_;
@@ -8970,20 +8992,18 @@ class ScanParallelCursor : public Cursor {
 UniqueCursorPtr ScanParallel::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO
 
-  auto get_chunks = [this](Frame &, ExecutionContext &context) {
+  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+    // Make sure chunks is valid for duration of the cursor
     auto *db = context.db_accessor;
     std::cout << "scanparallel getting " << num_threads_ << " chunks\n";
-    auto chunks = db->ChunkedVertices(view_, num_threads_);
-    const bool has_chunks = chunks.size() > 0;
-    DMG_ASSERT(context.parallel_state, "Missing parallel state in context");
-    context.parallel_state->SetChunks(std::move(chunks));
-    return has_chunks;
+    return db->ChunkedVertices(view_, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
 }
 
-ScanParallel::ScanParallel(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads)
-    : input_(input), view_(view), num_threads_(num_threads) {}
+ScanParallel::ScanParallel(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                           Symbol state_symbol)
+    : input_(input), view_(view), num_threads_(num_threads), state_symbol_(state_symbol) {}
 
 ACCEPT_WITH_INPUT(ScanParallel)
 
@@ -8996,6 +9016,7 @@ std::unique_ptr<LogicalOperator> ScanParallel::Clone(AstStorage *storage) const 
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->view_ = view_;
   object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
   return object;
 }
 
@@ -9081,12 +9102,11 @@ class AggregateParallelCursor : public Cursor {
 
     // TODO Maybe not needed
     context.frame_change_collector = nullptr;
-    if (!context.parallel_state) context.parallel_state = std::make_shared<ParallelState>(self_.num_threads_);
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     auto &main_aggregation = static_cast<AggregateCursor *>(agg_inputs_cursor_[0].get())->aggregation_;
-    auto &aggregations = static_cast<AggregateCursor *>(agg_inputs_cursor_[0].get())->self_.aggregations_;
-    auto &remember = static_cast<AggregateCursor *>(agg_inputs_cursor_[0].get())->self_.remember_;
+    const auto &aggregations = static_cast<AggregateCursor *>(agg_inputs_cursor_[0].get())->self_.aggregations_;
+    const auto &remember = static_cast<AggregateCursor *>(agg_inputs_cursor_[0].get())->self_.remember_;
 
     // Already pulled all, just return next aggregation value
     if (initialized_) {
@@ -9107,19 +9127,76 @@ class AggregateParallelCursor : public Cursor {
 
     initialized_ = true;
 
+    // Make sure auth is thread safe
+    if (context.auth_checker) {
+      context.auth_checker->MakeThreadSafe();
+    }
+
     AbortCheck(context);
 
+    // TODO Handle exceptions from the tasks
     // Call post scan input cursor (initializes the iterators)
     std::atomic_int pull_result = false;
     utils::TaskCollection tasks(agg_inputs_cursor_.size());
+
+    std::vector<std::exception_ptr> exceptions(agg_inputs_cursor_.size(), nullptr);
+    // Store context copies from each branch for unification after execution
+    std::vector<ExecutionContext> branch_contexts(agg_inputs_cursor_.size() - 1);
+    // Store collector copies for each branch (they're not thread-safe, so each branch needs its own)
+    std::vector<std::optional<TriggerContextCollector>> branch_trigger_collectors(agg_inputs_cursor_.size() - 1);
+    std::vector<std::optional<FrameChangeCollector>> branch_frame_collectors(agg_inputs_cursor_.size() - 1);
+
+    // Save the AggregateParallel stats entry pointer and key so we can properly merge branch stats
+    // This ensures the profile tree correctly represents the DAG structure where branches converge
+
+    plan::ProfilingStats *aggregate_parallel_stats = nullptr;
+    const auto current_key = ComputeProfilingKey(this);
+    if (context.stats.key == current_key) {
+      aggregate_parallel_stats = &context.stats;
+    } else {
+      auto &children = context.stats.children;
+      auto it = std::find_if(children.begin(), children.end(),
+                             [current_key](auto &stats) { return stats.key == current_key; });
+      if (it != children.end()) {
+        aggregate_parallel_stats = &(*it);
+      }
+    }
+
     for (size_t i = 1; i < agg_inputs_cursor_.size(); i++) {
       // TODO Frame needs to be copied after the bottom pull (pull from here, copy then schedule)
-      tasks.AddTask([&, i, context_copy = context](utils::Priority /*unused*/) mutable {
+      tasks.AddTask([&, i, context](utils::Priority /*unused*/) mutable {
+        DMG_ASSERT(context.trigger_context_collector == nullptr,
+                   "Trigger context collector must be nullptr in parallel aggregate");
+        OOMExceptionEnabler oom_exception;
+        // Create AggregateParallel entry in branch's stats tree
+        // This ensures the branch builds its profile tree correctly
+        // When merging, we'll merge only the children of this entry into the main context's AggregateParallel entry
+        context.stats_root = nullptr;
+        context.stats = plan::ProfilingStats();
+        SCOPED_PROFILE_OP_BY_REF(self_);
+        DMG_ASSERT(context.auth_checker->IsThreadSafe(), "Auth checker is not thread safe");
         const auto &cursor = agg_inputs_cursor_[i];
-        // TODO: copy the context
+
+        if (context.frame_change_collector != nullptr) {
+          branch_frame_collectors[i - 1].emplace(context.frame_change_collector->get_allocator());
+          context.frame_change_collector = &branch_frame_collectors[i - 1].value();
+        }
+
         auto now = std::chrono::steady_clock::now();
         Frame frame_local(0);  // No need to allocate the frame, it will be copied after the pull
-        pull_result.fetch_add((int)cursor->Pull(frame_local, context_copy));
+
+        try {
+          pull_result.fetch_add((int)cursor->Pull(frame_local, context));
+          // Store the context copy after execution for unification
+          const_cast<std::optional<ScopedProfile> &>(profile).reset();
+          // Force state reset (life extended through the context)
+          branch_contexts[i - 1] = std::move(context);
+        } catch (const std::exception &e) {
+          // Pass expection to the main thread
+          exceptions[i] = std::current_exception();
+          return;
+        }
+
         // cursor->Pull(frame_copy, context_copy);
         auto end = std::chrono::steady_clock::now();
         std::cout << "while pulling time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - now).count()
@@ -9134,10 +9211,24 @@ class AggregateParallelCursor : public Cursor {
 
     // Call the 0th branch
     const auto &cursor = agg_inputs_cursor_[0];
-    pull_result.fetch_add((int)cursor->Pull(frame, context));
+    try {
+      pull_result.fetch_add((int)cursor->Pull(frame, context));
+    } catch (const std::exception &e) {
+      // Wait for the tasks to finish and then rethrow the exception
+      exceptions[0] = std::current_exception();
+    }
 
     tasks.WaitOrSteal();
+
+    if (const auto exception_it = std::find_if(exceptions.begin(), exceptions.end(),
+                                               [](const std::exception_ptr &e) { return e != nullptr; });
+        exception_it != exceptions.end()) {
+      // Just rethrow the first exception
+      std::rethrow_exception(*exception_it);
+    }
     if (pull_result.load() == 0) return false;
+
+    const auto now = std::chrono::steady_clock::now();
 
     // Combine the results of the aggregations from all cursors into main_aggregation
     auto *main_mem = main_aggregation.get_allocator().resource();
@@ -9370,6 +9461,103 @@ class AggregateParallelCursor : public Cursor {
           break;
       }
     }
+
+    // Unify context fields from all branches
+    for (size_t i = 0; i < branch_contexts.size(); i++) {
+      const auto &branch_ctx = branch_contexts[i];
+
+      // Unify number_of_hops: sum across all branches
+      context.number_of_hops += branch_ctx.number_of_hops;
+
+      // Unify execution_stats: sum all counters across branches
+      for (size_t key_idx = 0; key_idx < context.execution_stats.counters.size(); ++key_idx) {
+        context.execution_stats.counters[key_idx] += branch_ctx.execution_stats.counters[key_idx];
+      }
+
+      // Unify evaluation_context.counters: sum counters by key across branches
+      for (const auto &[counter_key, counter_value] : branch_ctx.evaluation_context.counters) {
+        context.evaluation_context.counters[counter_key] += counter_value;
+      }
+
+      // Unify frame_change_collector: merge collected data from branch into main collector
+      if (context.frame_change_collector != nullptr && branch_frame_collectors[i].has_value()) {
+        auto &main_collector = *context.frame_change_collector;
+        const auto &branch_collector = branch_frame_collectors[i].value();
+
+        // Merge caches: combine cached values from branch into main
+        const auto &branch_caches = branch_collector.caches_;
+        auto &main_caches = main_collector.caches_;
+        for (const auto &[key, cached_value] : branch_caches) {
+          auto [it, inserted] = main_caches.emplace(key, cached_value);
+          if (!inserted) {
+            // If key exists in both, merge the cached values (union of sets)
+            for (const auto &value : cached_value.cache_) {
+              it->second.cache_.insert(value);
+            }
+          }
+        }
+
+        // Merge invalidators: combine invalidator lists
+        const auto &branch_invalidators = branch_collector.invalidators_;
+        auto &main_invalidators = main_collector.invalidators_;
+        for (const auto &[symbol_pos, invalidator_list] : branch_invalidators) {
+          auto &main_list = main_invalidators[symbol_pos];
+          main_list.insert(main_list.end(), invalidator_list.begin(), invalidator_list.end());
+        }
+      }
+
+      // Unify profiling stats: merge stats trees
+      if (context.is_profile_query) {
+        // Merge stats by recursively combining stats with the same key
+        std::function<void(plan::ProfilingStats &, const plan::ProfilingStats &)> MergeProfilingStats =
+            [&MergeProfilingStats](plan::ProfilingStats &main_stats, const plan::ProfilingStats &branch_stats) {
+              // Add hits and cycles
+              std::cout << "main_stats.name: " << main_stats.name << std::endl;
+              std::cout << "branch_stats.name: " << branch_stats.name << std::endl;
+              std::cout << "main_stats.num_cycles: " << main_stats.num_cycles << std::endl;
+              std::cout << "branch_stats.num_cycles: " << branch_stats.num_cycles << std::endl;
+              main_stats.actual_hits += branch_stats.actual_hits;
+              main_stats.num_cycles += branch_stats.num_cycles;
+
+              for (int j = 0; j < main_stats.children.size(); j++) {
+                for (int k = 0; k < branch_stats.children.size(); k++) {
+                  auto &main_child = main_stats.children[j];
+                  auto &branch_child = branch_stats.children[k];
+                  MergeProfilingStats(main_child, branch_child);
+                }
+              }
+            };
+
+        if (aggregate_parallel_stats != nullptr && branch_ctx.stats.key == aggregate_parallel_stats->key) {
+          // root is always the same, so we can merge the children
+          // skip updating the root stats, since they are already handled by the main context
+          // Every branch is the same, so we can just update the main branch
+          const_cast<std::optional<ScopedProfile> &>(profile).reset();  // generate stats for the current branch
+          const auto original_num_cycles = aggregate_parallel_stats->num_cycles;
+          MergeProfilingStats(*aggregate_parallel_stats, branch_ctx.stats);
+          std::cout << "original_num_cycles: " << original_num_cycles << std::endl;
+          std::cout << "aggregate_parallel_stats->num_cycles: " << aggregate_parallel_stats->num_cycles << std::endl;
+          std::cout << "ratio: " << (double(original_num_cycles) / double(aggregate_parallel_stats->num_cycles))
+                    << std::endl;
+          std::function<void(plan::ProfilingStats &)> normalize_num_cycles =
+              [ratio = double(original_num_cycles) / double(aggregate_parallel_stats->num_cycles),
+               &normalize_num_cycles, num_threads = agg_inputs_cursor_.size()](plan::ProfilingStats &stats) {
+                std::cout << "name: " << stats.name << std::endl;
+                std::cout << "ratio: " << ratio << std::endl;
+                std::cout << "original_num_cycles: " << stats.num_cycles << std::endl;
+                stats.num_cycles *= ratio;
+                for (auto &node : stats.children) {
+                  normalize_num_cycles(node);
+                }
+              };
+          normalize_num_cycles(*aggregate_parallel_stats);
+        }
+      }
+    }
+
+    const auto end = std::chrono::steady_clock::now();
+    std::cout << "aggregate parallel post-processing time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - now).count() << "ms" << std::endl;
 
     aggregation_it_ = main_aggregation.begin();
     if (aggregation_it_ == main_aggregation.end()) return false;

@@ -2610,7 +2610,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 }
 #endif
 {
-  ctx_.hops_limit = query::HopsLimit{hops_limit};
+  ctx_.hops_limit = query::HopsLimit{.limit = hops_limit};
   ctx_.parallel_execution = parallel_execution;
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
@@ -2886,6 +2886,18 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
 }
 
 namespace {
+std::optional<size_t> EvaluateParallelExecution(CypherQuery *cypher_query,
+                                                PrimitiveLiteralExpressionEvaluator &evaluator) {
+  std::optional<size_t> parallel_execution = std::nullopt;
+  if (cypher_query->pre_query_directives_.parallel_execution_) {
+    parallel_execution = FLAGS_bolt_num_workers;
+    if (cypher_query->pre_query_directives_.num_threads_) {
+      parallel_execution =
+          EvaluateUint(evaluator, cypher_query->pre_query_directives_.num_threads_, "Number of threads");
+    }
+  }
+  return parallel_execution;
+}
 
 PreparedQuery PrepareCypherQuery(
     ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
@@ -2912,16 +2924,6 @@ PreparedQuery PrepareCypherQuery(
   const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->pre_query_directives_.hops_limit_);
   if (hops_limit) {
     spdlog::debug("Running query with hops limit of {}", *hops_limit);
-  }
-
-  // TODO parallel execution
-  std::optional<size_t> parallel_execution = std::nullopt;
-  if (cypher_query->pre_query_directives_.parallel_execution_) {
-    parallel_execution = FLAGS_bolt_num_workers;
-    if (cypher_query->pre_query_directives_.num_threads_) {
-      parallel_execution =
-          EvaluateUint(evaluator, cypher_query->pre_query_directives_.num_threads_, "Number of threads");
-    }
   }
 
   auto clauses = cypher_query->single_query_->clauses_;
@@ -2985,8 +2987,8 @@ PreparedQuery PrepareCypherQuery(
       plan, parsed_query.parameters, is_profile_query, dba, interpreter_context, execution_memory,
       std::move(user_or_role), std::move(stopping_context), dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
       interpreter.query_logger_, trigger_context_collector, memory_limit,
-      frame_change_collector->AnyCaches() ? frame_change_collector : nullptr, hops_limit, parallel_execution,
-      interpreter_context->worker_pool
+      frame_change_collector->AnyCaches() ? frame_change_collector : nullptr, hops_limit, 
+      EvaluateParallelExecution(cypher_query, evaluator), interpreter_context->worker_pool
 #ifdef MG_ENTERPRISE
       ,
       user_resource
@@ -3150,7 +3152,8 @@ PreparedQuery PrepareProfileQuery(
                         stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
                         pull_plan = std::shared_ptr<PullPlanVector>(nullptr), frame_change_collector,
                         stopping_context = std::move(stopping_context), db_acc = *current_db.db_acc_, hops_limit,
-                        &query_logger = interpreter.query_logger_
+                        &query_logger = interpreter.query_logger_,
+                        parallel_execution = EvaluateParallelExecution(cypher_query, evaluator)
 #ifdef MG_ENTERPRISE
                         ,
                         user_resource = std::move(user_resource)
@@ -3162,7 +3165,7 @@ PreparedQuery PrepareProfileQuery(
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
                        std::move(stopping_context), dbms::DatabaseProtector{db_acc}.clone(), query_logger, nullptr,
                        memory_limit, frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,
-                       hops_limit, /*parallel_execution*/ std::nullopt, /* worker_pool */ nullptr
+                       hops_limit, parallel_execution, interpreter_context->worker_pool
 #ifdef MG_ENTERPRISE
                        ,
                        user_resource
@@ -7592,6 +7595,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     has_load_parquet =
         std::ranges::any_of(clauses, [](const auto *clause) { return clause->GetTypeInfo() == LoadParquet::kType; });
     parallel_execution = cypher_query->pre_query_directives_.parallel_execution_;
+  } else if (const auto *profile = utils::Downcast<ProfileQuery>(parsed_query.query)) {
+    parallel_execution = profile->cypher_query_->pre_query_directives_.parallel_execution_;
   }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;

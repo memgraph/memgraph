@@ -22,6 +22,9 @@
 #include "utils/frame_change_id.hpp"
 
 namespace memgraph::query {
+namespace plan {
+class AggregateParallelCursor;
+}
 
 struct CachedSet {
   using allocator_type = utils::Allocator<CachedSet>;
@@ -72,6 +75,8 @@ class FrameChangeCollector {
   using alloc_traits = std::allocator_traits<allocator_type>;
 
  public:
+  // TODO: Make a merge function
+  friend class plan::AggregateParallelCursor;
   explicit FrameChangeCollector(allocator_type alloc = {})
       : inlist_cache_{alloc}, regex_cache_{alloc}, invalidators_{alloc} {}
 

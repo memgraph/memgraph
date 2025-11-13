@@ -295,5 +295,16 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnEdges() const {
   return global_permission.has_value() && static_cast<memgraph::auth::FineGrainedPermission>(
                                               global_permission.value()) == memgraph::auth::kAllPermissions;
 };
+
+void FineGrainedAuthChecker::MakeThreadSafe() const { PopulateCachedPermissions(); }
+bool FineGrainedAuthChecker::IsThreadSafe() const { return IsCachedPermissionsPopulated(); }
+
+void FineGrainedAuthChecker::PopulateCachedPermissions() const {
+  GetCachedLabelPermissions();
+  GetCachedEdgePermissions();
+}
+bool FineGrainedAuthChecker::IsCachedPermissionsPopulated() const {
+  return cached_label_permissions_.has_value() && cached_edge_permissions_.has_value();
+}
 #endif
 }  // namespace memgraph::glue

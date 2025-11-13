@@ -335,6 +335,9 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     }
     aggregate_processed_ = true;
 
+    // TODO This does not work
+    // We need to find the last Scan operator that produces the symbols we need to aggregate on
+
     // Find the last Scan operator in the input branch
     std::shared_ptr<LogicalOperator> last_scan;
     std::shared_ptr<LogicalOperator> scan_parent;
@@ -355,9 +358,11 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     auto post_scan_input = last_scan->input();
     // TODO generic
     auto *scan = dynamic_cast<ScanAll *>(last_scan.get());
-    auto scan_input = std::make_shared<ScanParallel>(post_scan_input, scan->view_, num_threads_);
+    auto state_symbol = symbol_table->CreateAnonymousSymbol();
+    auto scan_input = std::make_shared<ScanParallel>(post_scan_input, scan->view_, num_threads_, state_symbol);
     auto parallel_merge = std::make_shared<ParallelMerge>(scan_input);
-    scan_parent->set_input(std::make_shared<ScanChunk>(parallel_merge, scan->output_symbol_, scan->view_));
+    scan_parent->set_input(
+        std::make_shared<ScanChunk>(parallel_merge, scan->output_symbol_, scan->view_, state_symbol));
 
     // Create AggregateParallel with default num_threads
     auto parallel_agg = std::make_shared<AggregateParallel>(nullptr, prev_ops_.back()->input(),  // op
