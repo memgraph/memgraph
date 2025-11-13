@@ -4,7 +4,7 @@
 Matt James (github.com/mattkjames7)
 
 **Status**
-PROPOSED
+ACCEPTED
 
 **Date**
 2025-11-13
