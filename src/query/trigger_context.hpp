@@ -27,6 +27,9 @@
 #include "utils/concepts.hpp"
 
 namespace memgraph::query {
+namespace plan {
+class AggregateParallelCursor;
+}
 namespace detail {
 template <typename T>
 concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
@@ -216,6 +219,7 @@ class TriggerContext {
 // Collects the information necessary for triggers during a single transaction run.
 class TriggerContextCollector {
  public:
+  friend class plan::AggregateParallelCursor;
   struct HashPairWithAccessor {
     template <detail::ObjectAccessor TAccessor, typename T2>
     size_t operator()(const std::pair<TAccessor, T2> &pair) const {
