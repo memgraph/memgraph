@@ -130,7 +130,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   return false;
 }
 
-enum class WriteResult { SUCCESS, INTERLEAVED, CONFLICT };
+enum class WriteResult : uint8_t { SUCCESS, INTERLEAVED, CONFLICT };
 
 template <typename TObj>
 inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *object, Delta::Action action) {
