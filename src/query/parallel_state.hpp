@@ -11,56 +11,40 @@
 
 #pragma once
 
-#include <mutex>
 #include <optional>
 
+#include "interpret/frame.hpp"
 #include "query/db_accessor.hpp"
 
 namespace memgraph::query {
 
-/// Shared state for coordinating parallel execution branches.
-/// Created by ParallelStart, accessed by ChunkReader and ParallelMerge.
-struct ParallelState {
-  explicit ParallelState(size_t num_threads) : num_threads_(num_threads) {}
+class ParallelStateOnFrame {
+ public:
+  ParallelStateOnFrame(std::shared_ptr<VerticesChunkedIterable> chunks, size_t chunk_index)
+      : chunks_(std::move(chunks)), chunk_index_(chunk_index) {}
 
-  void SetChunks(VerticesChunkedIterable chunks) {
-    std::lock_guard lock(mutex_);
-    chunks_ = std::move(chunks);
-    chunk_index_ = 0;
-    initialized_ = true;
-  }
-
-  bool IsInitialized() const {
-    std::lock_guard lock(mutex_);
-    return initialized_;
-  }
-
-  /// Get the next chunk for the given branch.
-  /// Returns nullopt when all chunks have been distributed.
-  std::optional<VerticesChunkedIterable::Chunk> GetNextChunk() {
-    std::lock_guard lock(mutex_);
-    if (!initialized_ || !chunks_.has_value()) {
+  std::optional<VerticesChunkedIterable::Chunk> GetChunk() {
+    if (chunks_ == nullptr || chunk_index_ >= chunks_->size()) {
       return std::nullopt;
     }
-    if (chunk_index_ >= chunks_->size()) {
-      return std::nullopt;
-    }
-    // Distribute chunks round-robin
-    size_t chunk_idx = chunk_index_++;
-    if (chunk_idx >= chunks_->size()) {
-      return std::nullopt;
-    }
-    return chunks_->get_chunk(chunk_idx);
+    return chunks_->get_chunk(chunk_index_);
   }
 
-  size_t GetNumThreads() const { return num_threads_; }
+  std::shared_ptr<VerticesChunkedIterable> chunks_;
+  size_t chunk_index_;
 
- private:
-  mutable std::mutex mutex_;
-  size_t num_threads_;
-  std::optional<VerticesChunkedIterable> chunks_;
-  size_t chunk_index_{0};
-  bool initialized_{false};
+  static void PushToFrame(FrameWriter &frame_writer, utils::MemoryResource *res, const Symbol &symbol, auto &&...args) {
+    auto *state = new ParallelStateOnFrame(std::forward<decltype(args)>(args)...);
+    TypedValue tv(reinterpret_cast<int64_t>(state), res);
+    frame_writer.Write(symbol, std::move(tv));
+  }
+
+  static auto PopFromFrame(Frame &frame, const Symbol &symbol) -> std::unique_ptr<ParallelStateOnFrame> {
+    auto tv = frame.at(symbol);
+    DMG_ASSERT(tv.type() == TypedValue::Type::Int, "ParallelStateOnFrame must be an int");
+    auto *state = reinterpret_cast<ParallelStateOnFrame *>(tv.ValueInt());
+    return std::unique_ptr<ParallelStateOnFrame>(state);
+  }
 };
 
 }  // namespace memgraph::query
