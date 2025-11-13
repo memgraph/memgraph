@@ -160,7 +160,7 @@ static_assert(std::is_trivially_destructible_v<opt_str>,
 /* Interleaved deltas relax the usual rules of MVCC by allowing certain
  * commutative operations (i.e., edge creations) to be prepended to a delta
  * chain, even in cases where normally this would be a write conflict. Doing so
- * hugely improves performance in edge-write heavy imports, at the expensive
+ * hugely improves performance in edge-write heavy imports, at the expense
  * of increasing delta chain iteration and garbage collection whilst interleaved
  * deltas exist in the chains. */
 enum class DeltaInterleaving : uint8_t { NORMAL, INTERLEAVED };

@@ -1268,7 +1268,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // concern ourselves with them here. We guarantee that any of our deltas
     // with an edge as the upstream object are a monolithic block of deltas
     // belonging to this transaction, and that these terminate in either a
-    // nullptr or another monolithic block belonging to a committed by
+    // nullptr or another monolithic block belonging to a committed but
     // uncollected transaction.
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
@@ -1409,7 +1409,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       // of our subchains. Skip unlinking here, as the later delta (earlier in
       // the transaction_.deltas_ list) will handle the joined chain.
       //
-      // Otherwise, it it safe to proceed with current prev value.
+      // Otherwise, it is safe to proceed with current prev value.
 
       if (actual_prev.type == PreviousPtr::Type::DELTA &&
           actual_prev.delta->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
@@ -2479,7 +2479,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
           auto ts = current->timestamp->load();
 
           if (ts == kAbortedTransactionId) {
-            // Deltas from aborted deltas don't block GC.
+            // Deltas from aborted transactions don't block GC.
             current = current->next.load(std::memory_order_acquire);
             continue;
           }
