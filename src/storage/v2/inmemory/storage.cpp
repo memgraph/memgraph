@@ -248,6 +248,9 @@ class DeltaVertexCache {
       MG_ASSERT(current_prev.type == PreviousPtr::Type::DELTA, "Expected DELTA in vertex delta chain");
 
       auto const prev_ts = current_prev.delta->timestamp->load(std::memory_order_acquire);
+      // If the ts for the previous delta is different than this one's, we know
+      // that they are from different transactions and so this delta is the
+      // head of an interleaved subchain.
       if (delta_ts != prev_ts) {
         if (delta_ts == commit_timestamp_) discovered_subchain_heads.push_back(delta);
 
@@ -2462,6 +2465,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       // and find highest commit timestamp for safe unlinking.
       bool all_contributors_committed = true;
       uint64_t highest_commit_ts = it->commit_timestamp_->load(std::memory_order_acquire);
+      // By tracking visited deltas, we can avoid redundant traversal when
+      // multiple deltas in this transaction share downstream subchains.
       std::unordered_set<const Delta *> visited;
 
       for (const auto &delta : it->deltas_) {
@@ -2474,16 +2479,22 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
           auto ts = current->timestamp->load();
 
           if (ts == kAbortedTransactionId) {
+            // Deltas from aborted deltas don't block GC.
             current = current->next.load(std::memory_order_acquire);
             continue;
           }
 
           if (ts >= kTransactionInitialId) {
+            // If the delta is from a transaction still running, we cannot
+            // safely collect these subchains yet.
             all_contributors_committed = false;
             current = current->next.load(std::memory_order_acquire);
             continue;
           }
 
+          // Track highest commit timestamp among all contributors. We can only
+          // unlink when ALL contributors are inactive, so we must wait until
+          // highest_commit_ts < oldest_active_start_timestamp.
           if (ts > highest_commit_ts) {
             highest_commit_ts = ts;
           }
