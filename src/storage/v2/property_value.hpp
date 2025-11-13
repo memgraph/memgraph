@@ -1480,19 +1480,25 @@ using PropertyValue = PropertyValueImpl<std::pmr::polymorphic_allocator<std::byt
 struct ExtendedPropertyType {
   PropertyValueType type{PropertyValueType::Null};
   TemporalType temporal_type{};
-  EnumTypeId enum_type{};
+  EnumTypeId enum_type;
 
   ExtendedPropertyType() {}
   explicit ExtendedPropertyType(PropertyValueType type) : type{type} {}
   explicit ExtendedPropertyType(TemporalType temporal_type)
       : type{PropertyValueType::TemporalData}, temporal_type{temporal_type} {}
   explicit ExtendedPropertyType(EnumTypeId enum_type) : type{PropertyValueType::Enum}, enum_type{enum_type} {}
-  explicit ExtendedPropertyType(const PropertyValue &val) : type{val.type()} {
-    if (type == PropertyValueType::TemporalData) {
-      temporal_type = val.ValueTemporalData().type;
-    }
-    if (type == PropertyValueType::Enum) {
-      enum_type = val.ValueEnum().type_id();
+  explicit ExtendedPropertyType(const PropertyValue &val) {
+    if (val.IsAnyList()) {
+      // It's not important for user to know the list type, so we set it to List
+      type = PropertyValueType::List;
+    } else {
+      type = val.type();
+      if (type == PropertyValueType::TemporalData) {
+        temporal_type = val.ValueTemporalData().type;
+      }
+      if (type == PropertyValueType::Enum) {
+        enum_type = val.ValueEnum().type_id();
+      }
     }
   }
 

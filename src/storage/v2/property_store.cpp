@@ -1700,25 +1700,7 @@ enum class ExpectedPropertyStatus {
       type = ExtendedPropertyType{PropertyValue::Type::String};
       break;
     case LIST: {
-      auto list_type = reader->ReadUint(Size::INT8);
-      if (!list_type) return ExpectedPropertyStatus::MISSING_DATA;
-      auto list_type_value = static_cast<ListType>(*list_type);
-      switch (list_type_value) {
-        case ListType::PROPERTY_VALUE:
-          type = ExtendedPropertyType{PropertyValue::Type::List};
-          break;
-        case ListType::INT:
-          type = ExtendedPropertyType{PropertyValue::Type::IntList};
-          break;
-        case ListType::DOUBLE:
-          type = ExtendedPropertyType{PropertyValue::Type::DoubleList};
-          break;
-        case ListType::NUMERIC:
-          type = ExtendedPropertyType{PropertyValue::Type::NumericList};
-          break;
-        default:
-          throw PropertyValueException("Invalid list type");
-      }
+      type = ExtendedPropertyType{PropertyValue::Type::List};
       break;
     }
     case MAP:
@@ -1869,25 +1851,7 @@ enum class ExpectedPropertyStatus {
       type = ExtendedPropertyType{PropertyValue::Type::String};
       break;
     case LIST: {
-      auto list_type = reader->ReadUint(Size::INT8);
-      if (!list_type) return std::nullopt;
-      auto list_type_value = static_cast<ListType>(*list_type);
-      switch (list_type_value) {
-        case ListType::PROPERTY_VALUE:
-          type = ExtendedPropertyType{PropertyValue::Type::List};
-          break;
-        case ListType::INT:
-          type = ExtendedPropertyType{PropertyValue::Type::IntList};
-          break;
-        case ListType::DOUBLE:
-          type = ExtendedPropertyType{PropertyValue::Type::DoubleList};
-          break;
-        case ListType::NUMERIC:
-          type = ExtendedPropertyType{PropertyValue::Type::NumericList};
-          break;
-        default:
-          throw PropertyValueException("Invalid list type");
-      }
+      type = ExtendedPropertyType{PropertyValue::Type::List};
       break;
     }
     case MAP:
