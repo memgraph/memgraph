@@ -345,7 +345,7 @@ def str2bool(v):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="FalkorDB Concurrent Query Executor")
+    parser = argparse.ArgumentParser(description="Python client executor")
     parser.add_argument("--vendor", default="memgraph", help="Vendor name for the python client")
     parser.add_argument("--host", default="localhost", help="Database server host")
     parser.add_argument("--port", type=int, default=7687, help="Database server port")

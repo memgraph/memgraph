@@ -2,6 +2,7 @@ behave==1.2.6
 boto3==1.40.59
 chardet==4.0.0
 cryptography==44.0.0
+FalkorDB==1.2.0
 gensim==4.3.3
 gqlalchemy==1.8.0
 idna==2.10
@@ -14,11 +15,13 @@ networkx==2.5.1
 numpy==1.26.4
 parse==1.18.0
 parse-type==0.5.2
+psycopg2-binary==2.9.11
 pulsar-client==3.5.0
 PyJWT==2.10.1
 pymgclient==1.5.1
 pyopenssl==25.1.0
 pytest==7.3.2
+python-arango==8.2.3
 python3-saml==1.16.0
 pytz==2023.3
 pyyaml==6.0.1

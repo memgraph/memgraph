@@ -103,7 +103,7 @@ def get_docker_cpu_usage(container_name):
     if not ret:
         return 0
 
-    cpu_perc = float(ret[0].strip("%")) / 100
+    cpu_perc = float(ret.stdout.replace("\n", "").replace("%", ""))
     return cpu_perc
 
 
@@ -1486,7 +1486,7 @@ class ArangoDBDocker(BaseRunner):
         self._user = "root"
         self._password = ""
         self._database = "_system"
-        self._image = "arangodb/arangodb:latest"
+        self._image = "arangodb:3.12.6"
         _setup_docker_benchmark_network(DOCKER_NETWORK_NAME)
 
     def start_db_init(self, message):

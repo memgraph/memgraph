@@ -221,6 +221,8 @@ class Workload(ABC):
                 return DatabaseLanguage.CYPHER
             case GraphVendors.POSTGRESQL:
                 return DatabaseLanguage.SQL
+            case GraphVendors.ARANGODB:
+                return DatabaseLanguage.AQL
             case _:
                 raise Exception(f"Unknown vendor name {self.benchmark_context.vendor_name} for dataset file extension!")
 
