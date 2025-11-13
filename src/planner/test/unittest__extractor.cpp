@@ -16,6 +16,8 @@
 
 #include <limits>
 
+import memgraph.planner.core.eids;
+
 using namespace memgraph::planner::core;
 
 enum struct symbol : std::uint8_t { A, B, ADD, LITERAL };
@@ -34,10 +36,17 @@ auto Add(EGraph &egraph, EClassId left, EClassId right) {
 }
 
 TEST(Extractor, Thing) {
+  struct CostModel {
+    using CostResult = double;
+
+    static auto operator()(ENode<symbol> const & /* current */, std::span<CostResult const> children) -> CostResult {
+      return 1.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+    }
+  };
+
   auto egraph = EGraph<symbol, analysis>{};
   auto [root_class, root_enode] = egraph.emplace(symbol::A);
-  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
-  auto extractor = Extractor{egraph, cost_function};
+  auto extractor = Extractor{egraph, CostModel{}};
   auto extracted = extractor.Extract(root_class);
   ASSERT_EQ(extracted.size(), 1);
   ASSERT_EQ(extracted[0].first, root_class);
@@ -45,14 +54,22 @@ TEST(Extractor, Thing) {
 }
 
 TEST(Extractor, CheapestRootSelected) {
+  struct CostModel {
+    using CostResult = double;
+
+    static auto operator()(ENode<symbol> const &current, std::span<CostResult const> children) -> CostResult {
+      return (current.symbol() == symbol::A ? 1.0 : 2.0) +
+             std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+    }
+  };
+
   auto egraph = EGraph<symbol, analysis>{};
   auto [aclass, anode] = egraph.emplace(symbol::A);
   auto [bclass, bnode] = egraph.emplace(symbol::B);
   auto root = egraph.merge(aclass, bclass);
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
-  auto cost_function = [](ENode<symbol> const &node) -> double { return (node.symbol() == symbol::A) ? 1.0 : 2.0; };
-  auto extractor = Extractor{egraph, cost_function};
+  auto extractor = Extractor{egraph, CostModel{}};
   auto extracted = extractor.Extract(root);
   ASSERT_EQ(extracted.size(), 1);
   ASSERT_EQ(extracted[0].first, root);
@@ -64,29 +81,44 @@ TEST(Extractor, CheapestRootSelected) {
 // ========================================
 
 TEST(ProcessEGraph, SingleLeafNode) {
+  struct CostModel {
+    using CostResult = double;
+
+    static auto operator()(ENode<symbol> const & /* current */, std::span<CostResult const> children) -> CostResult {
+      return 5.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+    }
+  };
+
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
-  auto cost_function = [](ENode<symbol> const &) -> double { return 5.0; };
-  std::unordered_map<EClassId, Selection> cheapest_enode;
 
-  auto cost = ProcessCosts(egraph, cost_function, leaf_class, cheapest_enode);
+  std::unordered_map<EClassId, Selection<CostModel::CostResult>> cheapest_enode;
+
+  auto cost = ProcessCosts(egraph, CostModel{}, leaf_class, cheapest_enode);
 
   ASSERT_EQ(cost, 5.0);
   ASSERT_EQ(cheapest_enode.size(), 1);
   ASSERT_EQ(cheapest_enode[leaf_class].enode_id, leaf_node);
-  ASSERT_EQ(cheapest_enode[leaf_class].cost, 5.0);
+  ASSERT_EQ(cheapest_enode[leaf_class].cost_result, 5.0);
 }
 
 TEST(ProcessEGraph, SimpleTree) {
+  struct CostModel {
+    using CostResult = double;
+
+    static auto operator()(ENode<symbol> const & /*current*/, std::span<CostResult const> children) -> CostResult {
+      return 1.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+    }
+  };
+
   auto egraph = EGraph<symbol, analysis>{};
   auto [left_class, left_node] = egraph.emplace(symbol::A);
   auto [right_class, right_node] = egraph.emplace(symbol::B);
   auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
-  std::unordered_map<EClassId, Selection> cheapest_enode;
+  std::unordered_map<EClassId, Selection<CostModel::CostResult>> cheapest_enode;
 
-  auto cost = ProcessCosts(egraph, cost_function, root_class, cheapest_enode);
+  auto cost = ProcessCosts(egraph, CostModel{}, root_class, cheapest_enode);
 
   // Cost should be: 1 (root) + 1 (left) + 1 (right) = 3
   ASSERT_EQ(cost, 3.0);
@@ -94,15 +126,21 @@ TEST(ProcessEGraph, SimpleTree) {
 }
 
 TEST(ProcessEGraph, DeepTree) {
+  struct CostModel {
+    using CostResult = double;
+
+    static auto operator()(ENode<symbol> const & /*current*/, std::span<CostResult const> children) -> CostResult {
+      return 1.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+    }
+  };
+
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
   auto [mid_class, mid_node] = egraph.emplace(symbol::B, {leaf_class});
   auto [root_class, root_node] = egraph.emplace(symbol::A, {mid_class});
 
-  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
-  std::unordered_map<EClassId, Selection> cheapest_enode;
-
-  auto cost = ProcessCosts(egraph, cost_function, root_class, cheapest_enode);
+  std::unordered_map<EClassId, Selection<CostModel::CostResult>> cheapest_enode;
+  auto cost = ProcessCosts(egraph, CostModel{}, root_class, cheapest_enode);
 
   // Cost should be: 1 (root) + 1 (mid) + 1 (leaf) = 3
   ASSERT_EQ(cost, 3.0);
@@ -110,43 +148,66 @@ TEST(ProcessEGraph, DeepTree) {
 }
 
 TEST(ProcessEGraph, DiamondDAGSharedNode) {
+  struct CostModel {
+    using CostResult = double;
+
+    static auto operator()(ENode<symbol> const & /*current*/, std::span<CostResult const> children) -> CostResult {
+      return 1.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+    }
+  };
+
   auto egraph = EGraph<symbol, analysis>{};
   auto [shared_class, shared_node] = egraph.emplace(symbol::A);
   auto [left_class, left_node] = egraph.emplace(symbol::B, {shared_class}, 1);    // disambiguator = 1
   auto [right_class, right_node] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
   auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
-  std::unordered_map<EClassId, Selection> cheapest_enode;
-
-  auto cost = ProcessCosts(egraph, cost_function, root_class, cheapest_enode);
+  std::unordered_map<EClassId, Selection<CostModel::CostResult>> cheapest_enode;
+  auto cost = ProcessCosts(egraph, CostModel{}, root_class, cheapest_enode);
 
   // Shared node should only be computed once via memoization
   // Cost: root=1 + (left=1+shared=1) + (right=1+shared=1) = 1+2+2 = 5
   ASSERT_EQ(cost, 5.0);
   ASSERT_EQ(cheapest_enode.size(), 4);
-  ASSERT_EQ(cheapest_enode[shared_class].cost, 1);
-  ASSERT_EQ(cheapest_enode[left_class].cost, 2);
-  ASSERT_EQ(cheapest_enode[right_class].cost, 2);
-  ASSERT_EQ(cheapest_enode[root_class].cost, 5);
+  ASSERT_EQ(cheapest_enode[shared_class].cost_result, 1);
+  ASSERT_EQ(cheapest_enode[left_class].cost_result, 2);
+  ASSERT_EQ(cheapest_enode[right_class].cost_result, 2);
+  ASSERT_EQ(cheapest_enode[root_class].cost_result, 5);
 }
 
 TEST(ProcessEGraph, VariableCostBySymbol) {
+  struct CostModel {
+    using CostResult = double;
+
+    static auto operator()(ENode<symbol> const &current, std::span<CostResult const> children) -> CostResult {
+      return (current.symbol() == symbol::A ? 2.0 : 5.0) +
+             std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+    }
+  };
+
   auto egraph = EGraph<symbol, analysis>{};
   auto [aclass, anode] = egraph.emplace(symbol::A);
   auto [bclass, bnode] = egraph.emplace(symbol::B);
 
-  auto cost_function = [](ENode<symbol> const &node) -> double { return (node.symbol() == symbol::A) ? 2.0 : 5.0; };
-  std::unordered_map<EClassId, Selection> cheapest_enode;
+  std::unordered_map<EClassId, Selection<CostModel::CostResult>> cheapest_enode;
 
-  auto cost_a = ProcessCosts(egraph, cost_function, aclass, cheapest_enode);
-  auto cost_b = ProcessCosts(egraph, cost_function, bclass, cheapest_enode);
+  auto cost_a = ProcessCosts(egraph, CostModel{}, aclass, cheapest_enode);
+  auto cost_b = ProcessCosts(egraph, CostModel{}, bclass, cheapest_enode);
 
   ASSERT_EQ(cost_a, 2.0);
   ASSERT_EQ(cost_b, 5.0);
 }
 
 TEST(ProcessEGraph, SelectsCheapestAmongEquivalents) {
+  struct CostModel {
+    using CostResult = double;
+
+    static auto operator()(ENode<symbol> const &current, std::span<CostResult const> children) -> CostResult {
+      return (current.symbol() == symbol::A ? 1.0 : 10.0) +
+             std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+    }
+  };
+
   auto egraph = EGraph<symbol, analysis>{};
   auto [aclass, anode] = egraph.emplace(symbol::A);
   auto [bclass, bnode] = egraph.emplace(symbol::B);
@@ -154,26 +215,33 @@ TEST(ProcessEGraph, SelectsCheapestAmongEquivalents) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  auto cost_function = [](ENode<symbol> const &node) -> double { return (node.symbol() == symbol::A) ? 1.0 : 10.0; };
-  std::unordered_map<EClassId, Selection> cheapest_enode;
+  std::unordered_map<EClassId, Selection<CostModel::CostResult>> cheapest_enode;
 
-  auto cost = ProcessCosts(egraph, cost_function, root, cheapest_enode);
+  auto cost = ProcessCosts(egraph, CostModel{}, root, cheapest_enode);
 
   ASSERT_EQ(cost, 1.0);
   ASSERT_EQ(cheapest_enode[root].enode_id, anode);
-  ASSERT_EQ(cheapest_enode[root].cost, 1.0);
+  ASSERT_EQ(cheapest_enode[root].cost_result, 1.0);
 }
 
 TEST(ProcessEGraph, CostAccumulationWithVariableCosts) {
+  struct CostModel {
+    using CostResult = double;
+
+    static auto operator()(ENode<symbol> const &current, std::span<CostResult const> children) -> CostResult {
+      return (current.symbol() == symbol::A ? 2.0 : 3.0) +
+             std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+    }
+  };
+
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf1_class, leaf1_node] = egraph.emplace(symbol::A);
   auto [leaf2_class, leaf2_node] = egraph.emplace(symbol::B);
   auto [root_class, root_node] = egraph.emplace(symbol::A, {leaf1_class, leaf2_class});
 
-  auto cost_function = [](ENode<symbol> const &node) -> double { return (node.symbol() == symbol::A) ? 2.0 : 3.0; };
-  std::unordered_map<EClassId, Selection> cheapest_enode;
+  std::unordered_map<EClassId, Selection<CostModel::CostResult>> cheapest_enode;
 
-  auto cost = ProcessCosts(egraph, cost_function, root_class, cheapest_enode);
+  auto cost = ProcessCosts(egraph, CostModel{}, root_class, cheapest_enode);
 
   // Cost: 2 (root, symbol A) + 2 (leaf1, symbol A) + 3 (leaf2, symbol B) = 7
   ASSERT_EQ(cost, 7.0);
@@ -186,6 +254,14 @@ TEST(ProcessEGraph, CyclicEGraphInfiniteCost) {
   // But X_class now contains both LITERAL 1 and the 'ADD' node
   // The 'ADD' node can't be the cheapest because it depends on itself
   // If all e-nodes in the e-class are cyclic, the cost should be infinite
+
+  struct CostModel {
+    using CostResult = double;
+
+    static auto operator()(ENode<symbol> const & /* current */, std::span<CostResult const> children) -> CostResult {
+      return 1.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+    }
+  };
 
   auto egraph = EGraph<symbol, analysis>{};
 
@@ -203,17 +279,16 @@ TEST(ProcessEGraph, CyclicEGraphInfiniteCost) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
-  std::unordered_map<EClassId, Selection> cheapest_enode;
+  std::unordered_map<EClassId, Selection<CostModel::CostResult>> cheapest_enode;
 
   // Process the cyclic e-class
-  auto cost = ProcessCosts(egraph, cost_function, cyclic_class, cheapest_enode);
+  auto cost = ProcessCosts(egraph, CostModel{}, cyclic_class, cheapest_enode);
 
   // The cyclic 'ADD' node should have infinite cost (or very large)
   // The non-cyclic LITERAL node should be selected with cost 1
   ASSERT_EQ(cost, 1.0);
   ASSERT_EQ(cheapest_enode[cyclic_class].enode_id, x_node);
-  ASSERT_EQ(cheapest_enode[cyclic_class].cost, 1.0);
+  ASSERT_EQ(cheapest_enode[cyclic_class].cost_result, 1.0);
 }
 
 TEST(ProcessEGraph, CyclicEGraphInfiniteCostComplex) {
@@ -223,6 +298,14 @@ TEST(ProcessEGraph, CyclicEGraphInfiniteCostComplex) {
   // But X_class now contains both LITERAL 1 and the 'ADD' node
   // The 'ADD' node can't be the cheapest because it depends on itself
   // If all e-nodes in the e-class are cyclic, the cost should be infinite
+
+  struct CostModel {
+    using CostResult = double;
+
+    static auto operator()(ENode<symbol> const & /* current */, std::span<CostResult const> children) -> CostResult {
+      return 1.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+    }
+  };
 
   auto egraph = EGraph<symbol, analysis>{};
 
@@ -242,28 +325,36 @@ TEST(ProcessEGraph, CyclicEGraphInfiniteCostComplex) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
-  std::unordered_map<EClassId, Selection> cheapest_enode;
+  std::unordered_map<EClassId, Selection<CostModel::CostResult>> cheapest_enode;
 
   // Process the cyclic e-class
-  auto cost = ProcessCosts(egraph, cost_function, merged_class, cheapest_enode);
+  auto cost = ProcessCosts(egraph, CostModel{}, merged_class, cheapest_enode);
 
   // The cyclic 'ADD' node should have infinite cost (or very large)
   // The non-cyclic LITERAL node should be selected with cost 1
   ASSERT_EQ(cost, 1.0);
   ASSERT_EQ(cheapest_enode.size(), 2);
   ASSERT_TRUE(cheapest_enode.contains(merged_class));
-  ASSERT_EQ(cheapest_enode[merged_class].cost, 1.0);
+  ASSERT_EQ(cheapest_enode[merged_class].cost_result, 1.0);
   ASSERT_EQ(cheapest_enode[merged_class].enode_id, x_node);
   ASSERT_TRUE(cheapest_enode.contains(zero_class));
-  ASSERT_EQ(cheapest_enode[zero_class].cost, 1.0);
+  ASSERT_EQ(cheapest_enode[zero_class].cost_result, 1.0);
   ASSERT_EQ(cheapest_enode[zero_class].enode_id, zero_node);
 }
 
 TEST(ProcessEGraph, FullyCyclicEClassInfiniteCost) {
   // Test case: All e-nodes in an e-class are cyclic
   // E.g., X contains only (ADD X (LITERAL 1)) and (ADD X (LITERAL 2))
-  // Both ADD nodes reference the e-class they're in, creating unavoidable cycles
+  // Both ADD nodes reference the e-class they're in, creating unavoidable
+  // cycles
+
+  struct CostModel {
+    using CostResult = double;
+
+    static auto operator()(ENode<symbol> const & /* current */, std::span<CostResult const> children) -> CostResult {
+      return 1.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+    }
+  };
 
   auto egraph = EGraph<symbol, analysis>{};
 
@@ -286,13 +377,12 @@ TEST(ProcessEGraph, FullyCyclicEClassInfiniteCost) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
-  std::unordered_map<EClassId, Selection> cheapest_enode;
+  std::unordered_map<EClassId, Selection<CostModel::CostResult>> cheapest_enode;
 
   // This should either:
   // 1. Return infinity/max double if all nodes are cyclic
   // 2. Select the original X node if it still exists in the e-class
-  auto cost = ProcessCosts(egraph, cost_function, fully_cyclic, cheapest_enode);
+  auto cost = ProcessCosts(egraph, CostModel{}, fully_cyclic, cheapest_enode);
 
   // After merges, the original x_node should still be selectable
   // It has cost 1 (no children), while the 'ADD' nodes have infinite cost
@@ -307,7 +397,7 @@ TEST(ProcessEGraph, FullyCyclicEClassInfiniteCost) {
 TEST(CollectDependencies, SingleLeafNode) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
-  std::unordered_map<EClassId, Selection> cheapest_enode;
+  std::unordered_map<EClassId, Selection<double>> cheapest_enode;
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
 
   auto in_degree = CollectDependencies(egraph, cheapest_enode, leaf_class);
@@ -322,7 +412,7 @@ TEST(CollectDependencies, LinearChain) {
   auto [mid_class, mid_node] = egraph.emplace(symbol::B, {leaf_class});
   auto [root_class, root_node] = egraph.emplace(symbol::A, {mid_class});
 
-  std::unordered_map<EClassId, Selection> cheapest_enode;
+  std::unordered_map<EClassId, Selection<double>> cheapest_enode;
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
   cheapest_enode[mid_class] = {mid_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
@@ -342,7 +432,7 @@ TEST(CollectDependencies, SimpleTree) {
   auto [right_class, right_node] = egraph.emplace(symbol::B);
   auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  std::unordered_map<EClassId, Selection> cheapest_enode;
+  std::unordered_map<EClassId, Selection<double>> cheapest_enode;
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
@@ -363,7 +453,7 @@ TEST(CollectDependencies, DiamondDAG) {
   auto [right_class, right_node] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
   auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  std::unordered_map<EClassId, Selection> cheapest_enode;
+  std::unordered_map<EClassId, Selection<double>> cheapest_enode;
   cheapest_enode[shared_class] = {shared_node, 1.0};
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
@@ -387,7 +477,7 @@ TEST(CollectDependencies, DiamondDAG) {
 TEST(TopologicalSort, SingleNode) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node] = egraph.emplace(symbol::A);
-  std::unordered_map<EClassId, Selection> cheapest_enode{};
+  std::unordered_map<EClassId, Selection<double>> cheapest_enode{};
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
   auto in_degree = std::unordered_map<EClassId, int>{{leaf_class, 0}};
   auto result = TopologicalSort(egraph, cheapest_enode, in_degree);
@@ -403,7 +493,7 @@ TEST(TopologicalSort, LinearChainOrdering) {
   auto [mid_class, mid_node] = egraph.emplace(symbol::B, {leaf_class});
   auto [root_class, root_node] = egraph.emplace(symbol::A, {mid_class});
 
-  std::unordered_map<EClassId, Selection> cheapest_enode;
+  std::unordered_map<EClassId, Selection<double>> cheapest_enode;
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
   cheapest_enode[mid_class] = {mid_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
@@ -426,7 +516,7 @@ TEST(TopologicalSort, SimpleTreeOrdering) {
   auto [right_class, right_node] = egraph.emplace(symbol::B);
   auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  std::unordered_map<EClassId, Selection> cheapest_enode;
+  std::unordered_map<EClassId, Selection<double>> cheapest_enode;
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
@@ -449,7 +539,7 @@ TEST(TopologicalSort, DiamondTopology) {
   auto [right_class, right_node] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
   auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  std::unordered_map<EClassId, Selection> cheapest_enode;
+  std::unordered_map<EClassId, Selection<double>> cheapest_enode;
   cheapest_enode[shared_class] = {shared_node, 1.0};
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
@@ -473,14 +563,21 @@ TEST(TopologicalSort, DiamondTopology) {
 // ========================================
 
 TEST(Extractor, IntegrationComplexTree) {
+  struct CostModel {
+    using CostResult = double;
+
+    static auto operator()(ENode<symbol> const & /* current */, std::span<CostResult const> children) -> CostResult {
+      return 1.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+    }
+  };
+
   auto egraph = EGraph<symbol, analysis>{};
   auto [l1_class, l1_node] = egraph.emplace(symbol::A);
   auto [l2_class, l2_node] = egraph.emplace(symbol::B);
   auto [mid_class, mid_node] = egraph.emplace(symbol::A, {l1_class, l2_class});
   auto [root_class, root_node] = egraph.emplace(symbol::B, {mid_class});
 
-  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
-  auto extractor = Extractor{egraph, cost_function};
+  auto extractor = Extractor{egraph, CostModel{}};
   auto extracted = extractor.Extract(root_class);
 
   ASSERT_EQ(extracted.size(), 4);
@@ -490,14 +587,21 @@ TEST(Extractor, IntegrationComplexTree) {
 }
 
 TEST(Extractor, IntegrationDiamondDAG) {
+  struct CostModel {
+    using CostResult = double;
+
+    static auto operator()(ENode<symbol> const & /* current */, std::span<CostResult const> children) -> CostResult {
+      return 1.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+    }
+  };
+
   auto egraph = EGraph<symbol, analysis>{};
   auto [shared_class, shared_node] = egraph.emplace(symbol::A);
   auto [left_class, left_node] = egraph.emplace(symbol::B, {shared_class}, 1);    // disambiguator = 1
   auto [right_class, right_node] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
   auto [root_class, root_node] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  auto cost_function = [](ENode<symbol> const &) -> double { return 1.0; };
-  auto extractor = Extractor{egraph, cost_function};
+  auto extractor = Extractor{egraph, CostModel{}};
   auto extracted = extractor.Extract(root_class);
 
   ASSERT_EQ(extracted.size(), 4);
@@ -507,6 +611,16 @@ TEST(Extractor, IntegrationDiamondDAG) {
 }
 
 TEST(Extractor, IntegrationNestedEquivalence) {
+  struct CostModel {
+    using CostResult = double;
+
+    static auto operator()(ENode<symbol> const &current, std::span<CostResult const> children) -> CostResult {
+      auto base_cost = (current.symbol() == symbol::A ? 1.0 : 5.0);
+      return base_cost +
+             std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+    }
+  };
+
   auto egraph = EGraph<symbol, analysis>{};
   // Create equivalence at leaf level
   auto [a1_class, a1_node] = egraph.emplace(symbol::A);
@@ -520,8 +634,7 @@ TEST(Extractor, IntegrationNestedEquivalence) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  auto cost_function = [](ENode<symbol> const &node) -> double { return (node.symbol() == symbol::A) ? 1.0 : 5.0; };
-  auto extractor = Extractor{egraph, cost_function};
+  auto extractor = Extractor{egraph, CostModel{}};
   auto extracted = extractor.Extract(root);
 
   ASSERT_EQ(extracted.size(), 2);

@@ -33,8 +33,8 @@ struct Selection {
   std::optional<CostResult> cost_result;
 };
 
-// TODO: decouple, calculated cost useful for debugging and for making the selection. But later phases only need the
-// selection that was made.
+// TODO: decouple, calculated cost useful for debugging and for making the
+// selection. But later phases only need the selection that was made.
 template <typename Symbol, typename Analysis, typename CostModel>
 auto ProcessCosts(EGraph<Symbol, Analysis> const &egraph, CostModel const &cost_model, EClassId eclass_id,
                   std::unordered_map<EClassId, Selection<typename CostModel::CostResult>> &enode_selection)
@@ -44,8 +44,8 @@ auto ProcessCosts(EGraph<Symbol, Analysis> const &egraph, CostModel const &cost_
   DMG_ASSERT(!egraph.needs_rebuild(), "to avoid internal cost of getting canonical looking up we should");
 
   if (const auto it = enode_selection.find(eclass_id); it != enode_selection.end()) {
-    // If cost is nullopt, we're currently processing this e-class (cycle detected)
-    // If cost is set, we've already computed it
+    // If cost is nullopt, we're currently processing this e-class (cycle
+    // detected) If cost is set, we've already computed it
     return it->second.cost_result;
   }
 
@@ -64,15 +64,18 @@ auto ProcessCosts(EGraph<Symbol, Analysis> const &egraph, CostModel const &cost_
       auto cost = ProcessCosts(egraph, cost_model, child, enode_selection);
       if (!cost) {
         skip = true;
-        break;
+        // break;
+      } else {
+        children_costs.emplace_back(*cost);
       }
-      children_costs.emplace_back(*cost);
     }
     if (skip) continue;
 
     // auto current_cost =
-    //     std::accumulate(enode.children().begin(), enode.children().end(), std::vector<CostResult>,
-    //                     [&](CostResult acc, EClassId child_eclass_id) -> CostResult {
+    //     std::accumulate(enode.children().begin(), enode.children().end(),
+    //     std::vector<CostResult>,
+    //                     [&](CostResult acc, EClassId child_eclass_id) ->
+    //                     CostResult {
     //                       return  acc +
     //                     });
     auto current_cost = cost_model(enode, children_costs);
@@ -95,17 +98,22 @@ auto ProcessCosts(EGraph<Symbol, Analysis> const &egraph, CostModel const &cost_
 // TODO: can we do everything in a single phase algorithm
 //  template <typename Symbol, typename Analysis, typename Func>
 //    requires std::is_invocable_r_v<double, Func, ENode<Symbol> const &>
-//  auto ExtractMega(EGraph<Symbol, Analysis> const &egraph, Func const &cost_function, EClassId root)
+//  auto ExtractMega(EGraph<Symbol, Analysis> const &egraph, Func const
+//  &cost_function, EClassId root)
 //      -> std::unordered_map<EClassId, Cost> {
 //    // start with root in the queue
 //    // we want to process each enode in eclass
-//    // each enode has children, those eclasses need to be on the queue (make sure only inserted once)
+//    // each enode has children, those eclasses need to be on the queue (make
+//    sure only inserted once)
 //    // We need a counter for each enode (number of children)
-//    // an enode cost can be calculated when all its children have been processed (count is 0)
-//    // process cost, then see if it is the smallest cost for the eclass the enode belongs to...if so update
-//    // Eclass also has a counter for all the enodes it has. Once a enode has been processed, the eclass counter goes
-//    down.
-//    // when the elcass counter is 0, then go to all the parents enodes counters are decremented.
+//    // an enode cost can be calculated when all its children have been
+//    processed (count is 0)
+//    // process cost, then see if it is the smallest cost for the eclass the
+//    enode belongs to...if so update
+//    // Eclass also has a counter for all the enodes it has. Once a enode has
+//    been processed, the eclass counter goes down.
+//    // when the elcass counter is 0, then go to all the parents enodes
+//    counters are decremented.
 //    // we also need to handle infinate loops/cycles in the graph. If....
 //  }
 
@@ -191,6 +199,7 @@ struct Extractor {
 };
 
 // template <typename Symbol, typename Analysis, typename CostModel>
-// Extractor(EGraph<Symbol, Analysis> const &, CostModel) -> Extractor<Symbol, Analysis, CostModel, Func>;
+// Extractor(EGraph<Symbol, Analysis> const &, CostModel) -> Extractor<Symbol,
+// Analysis, CostModel, Func>;
 
 }  // namespace memgraph::planner::core
