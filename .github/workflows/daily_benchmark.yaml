@@ -14,7 +14,7 @@ jobs:
   release_benchmarks:
     name: "Release benchmarks"
     runs-on: [self-hosted, Linux, X64, "${{ github.ref == 'refs/heads/master' && 'benchmark' || 'x86-64-v3' }}"]
-    timeout-minutes: 270
+    timeout-minutes: 330
     #  The timeout above is calculated based on a previous run where the loop count was 100
     #  Rough times per test:
     #  - macro-benchmark: 2.13 minutes
