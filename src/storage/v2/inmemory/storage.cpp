@@ -1225,8 +1225,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  transaction_.EnsureCommitTimestampExists();
-
   // if we have no deltas then no need to do any undo work during Abort
   // note: this check also saves on unnecessary contention on `engine_lock_`
   if (!transaction_.deltas.empty()) {
