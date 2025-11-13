@@ -49,7 +49,7 @@ on:
       s3_dest_dir:
         type: string
         description: "Target dir path in chosen S3 bucket, don't end the path with '/'. For bucket 'deps.memgraph.io' use format 'memgraph/vX.Y.Z'."
-        default: ''        
+        default: ''
 
 jobs:
   CallCreateStagingBranch:
@@ -72,6 +72,7 @@ jobs:
     secrets: inherit
 
   UpdatePRComment:
+    continue-on-error: true  # NOTE: older branches may not have the code to create this comment
     needs: [CallCreateStagingBranch, TriggerPackageWorkflow]
     runs-on: ubuntu-latest
     if: always()
@@ -90,7 +91,7 @@ jobs:
             status="false"
             echo "❌ Package workflow failed"
           fi
-          
+
           python3 ./tools/external-contributions/pr_comment_update.py \
             "${{ needs.CallCreateStagingBranch.outputs.comment_id }}" \
             "${{ github.event.inputs.pr_number }}" \
