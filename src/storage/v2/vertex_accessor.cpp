@@ -1090,11 +1090,8 @@ int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &result_edge
 
   int64_t expanded_count = 0;
   if (hops_limit && hops_limit->IsUsed()) {
-    if (hops_limit->LeftHops() == 0 && static_cast<int64_t>(edges.size()) > 0) {
-      hops_limit->limit_reached = true;
-    } else {
-      expanded_count = std::min(hops_limit->LeftHops(), static_cast<int64_t>(edges.size()));
-      hops_limit->IncrementHopsCount(expanded_count);
+    expanded_count = hops_limit->IncrementHopsCount(edges.size());
+    if (expanded_count > 0) {
       std::copy_n(edges.begin(), expanded_count, std::back_inserter(result_edges));
     }
   } else {
@@ -1114,8 +1111,8 @@ int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
   int64_t expanded_count = 0;
   for (const auto &[edge_type, vertex, edge] : edges) {
     if (hops_limit && hops_limit->IsUsed()) {
-      hops_limit->IncrementHopsCount(1);
-      if (hops_limit->IsLimitReached()) break;
+      auto available_hops = hops_limit->IncrementHopsCount();
+      if (available_hops <= 0) break;
     }
     expanded_count++;
     if (destination && vertex != destination->vertex_) continue;

@@ -11,30 +11,35 @@
 
 #pragma once
 
+#include <algorithm>
+#include <atomic>
 #include <cstdint>
+#include <memory>
 #include <optional>
 
 namespace memgraph::query {
 
 struct HopsLimit {
   std::optional<int64_t> limit{std::nullopt};
-  int64_t hops_counter{0};
-  bool limit_reached{false};
+  std::shared_ptr<std::atomic<int64_t>> hops_counter{std::make_shared<std::atomic<int64_t>>(0)};
+  bool is_limit_reached{false};
 
   bool IsUsed() const { return limit.has_value(); }
 
-  int64_t GetLimit() const { return *limit; }
-  int64_t GetHopsCounter() const { return hops_counter; }
+  int64_t GetLimit() const { return limit.value(); }
+  int64_t GetHopsCounter() const { return hops_counter->load(std::memory_order_acquire); }
 
-  bool IsLimitReached() const { return limit_reached; }
+  bool IsLimitReached() const { return is_limit_reached; }
 
-  int64_t LeftHops() const { return *limit - hops_counter; }
-
-  void IncrementHopsCount(int64_t increment) {
-    if (limit) {
-      hops_counter += increment;
-      limit_reached = hops_counter > *limit;
+  // Return the number of available hops
+  int64_t IncrementHopsCount(int64_t increment = 1) {
+    if (IsUsed()) {
+      auto prev_count = hops_counter->fetch_add(increment, std::memory_order_acq_rel);
+      const auto available_hops = limit.value() - prev_count;
+      is_limit_reached |= (increment > available_hops);
+      return std::min(increment, available_hops);
     }
+    return increment;
   }
 };
 
