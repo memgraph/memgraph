@@ -29,7 +29,7 @@ DEFINE_int32(max_value, 100000000, "Maximum value that should be inserted");
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  memgraph::utils::ThreadSafeStack<uint64_t, 8190> stack;
+  memgraph::utils::Stack<uint64_t, 8190, true> stack;
 
   std::vector<std::thread> threads;
   memgraph::utils::Timer timer;

@@ -11,18 +11,21 @@
 
 #pragma once
 
+#include <algorithm>
+#include <iterator>
 #include <mutex>
 #include <optional>
+#include <type_traits>
+#include <utility>
 
 #include "utils/linux.hpp"
 #include "utils/spin_lock.hpp"
 
 namespace memgraph::utils {
 
-/// This class implements a non-thread-safe stack. It is primarily intended for
-/// storing primitive types. This stack is NOT thread-safe and should only be
-/// used in single-threaded contexts or when external synchronization is
-/// provided.
+/// This class implements a stack. It is primarily intended for
+/// storing primitive types. Thread-safety can be enabled via the `ThreadSafe`
+/// template parameter.
 ///
 /// The stack stores all objects in memory blocks. That makes it really
 /// efficient in terms of memory allocations. The memory block size is optimized
@@ -40,7 +43,8 @@ namespace memgraph::utils {
 ///
 /// @tparam TObj primitive object that should be stored in the stack
 /// @tparam TSize size of the memory block used
-template <typename TObj, uint64_t TSize>
+/// @tparam ThreadSafe if true, the stack will be thread-safe using a spin lock
+template <typename TObj, uint64_t TSize, bool ThreadSafe = false>
 class Stack {
  private:
   struct Block {
@@ -48,6 +52,50 @@ class Stack {
     uint64_t used{0};
     TObj obj[TSize];
   };
+  struct EmptyLock {
+    void lock() {}
+    void unlock() {}
+  };
+
+  void PushImpl(TObj obj) {
+    if (head_ == nullptr) {
+      // Allocate a new block.
+      head_ = new Block();
+    }
+    while (true) {
+      MG_ASSERT(head_->used <= TSize,
+                "utils::Stack has more elements in a "
+                "Block than the block has space!");
+      if (head_->used == TSize) {
+        // Allocate a new block.
+        auto *block = new Block();
+        block->prev = head_;
+        head_ = block;
+      } else {
+        head_->obj[head_->used++] = obj;
+        break;
+      }
+    }
+  }
+
+  std::optional<TObj> PopImpl() {
+    while (true) {
+      if (head_ == nullptr) return std::nullopt;
+      MG_ASSERT(head_->used <= TSize,
+                "utils::Stack has more elements in a "
+                "Block than the block has space!");
+      if (head_->used == 0) {
+        Block *prev = head_->prev;
+        delete head_;
+        head_ = prev;
+      } else {
+        return head_->obj[--head_->used];
+      }
+    }
+  }
+
+  Block *head_{nullptr};
+  [[no_unique_address]] std::conditional_t<ThreadSafe, SpinLock, EmptyLock> lock_;
 
  public:
   Stack() {
@@ -80,87 +128,85 @@ class Stack {
   }
 
   void Push(TObj obj) {
-    if (head_ == nullptr) {
-      // Allocate a new block.
-      head_ = new Block();
-    }
-    while (true) {
-      MG_ASSERT(head_->used <= TSize,
-                "utils::Stack has more elements in a "
-                "Block than the block has space!");
-      if (head_->used == TSize) {
-        // Allocate a new block.
-        auto *block = new Block();
-        block->prev = head_;
-        head_ = block;
-      } else {
-        head_->obj[head_->used++] = obj;
-        break;
-      }
+    if constexpr (ThreadSafe) {
+      auto guard = std::lock_guard{lock_};
+      PushImpl(obj);
+    } else {
+      PushImpl(obj);
     }
   }
 
   std::optional<TObj> Pop() {
-    while (true) {
-      if (head_ == nullptr) return std::nullopt;
-      MG_ASSERT(head_->used <= TSize,
-                "utils::Stack has more elements in a "
-                "Block than the block has space!");
-      if (head_->used == 0) {
-        Block *prev = head_->prev;
-        delete head_;
-        head_ = prev;
-      } else {
-        return head_->obj[--head_->used];
-      }
+    if constexpr (ThreadSafe) {
+      auto guard = std::lock_guard{lock_};
+      return PopImpl();
+    } else {
+      return PopImpl();
     }
   }
 
- private:
-  Block *head_{nullptr};
-};
-
-/// This class implements a thread-safe stack. It is primarily intended for
-/// storing primitive types. This stack is thread-safe. It uses a spin lock to
-/// lock all operations.
-///
-/// @tparam TObj primitive object that should be stored in the stack
-/// @tparam TSize size of the memory block used
-template <typename TObj, uint64_t TSize>
-class ThreadSafeStack {
- public:
-  ThreadSafeStack() = default;
-
-  ThreadSafeStack(ThreadSafeStack &&other) noexcept : stack_(std::move(other.stack_)) {}
-  ThreadSafeStack &operator=(ThreadSafeStack &&other) noexcept {
-    stack_ = std::move(other.stack_);
-    return *this;
+  template <typename Predicate>
+  auto Partition(Predicate &&pred) {
+    return std::partition(begin(), end(), std::forward<Predicate>(pred));
   }
 
-  explicit ThreadSafeStack(Stack<TObj, TSize> &&other) noexcept : stack_(std::move(other)) {}
-  ThreadSafeStack &operator=(Stack<TObj, TSize> &&other) noexcept {
-    stack_ = std::move(other);
-    return *this;
-  }
+  class Iterator {
+   public:
+    using iterator_category = std::forward_iterator_tag;
+    using value_type = TObj;
+    using difference_type = std::ptrdiff_t;
+    using pointer = TObj *;
+    using reference = TObj &;
 
-  ThreadSafeStack(const ThreadSafeStack &) = delete;
-  ThreadSafeStack &operator=(const ThreadSafeStack &) = delete;
+    Iterator() : block_(nullptr), index_(0) {}
 
-  ~ThreadSafeStack() = default;
+    explicit Iterator(Block *block) : block_(block), index_(0) {
+      while (block_ != nullptr && block_->used == 0) {
+        block_ = block_->prev;
+      }
+    }
 
-  void Push(TObj obj) {
-    auto guard = std::lock_guard{lock_};
-    stack_.Push(obj);
-  }
+    reference operator*() {
+      MG_ASSERT(block_ != nullptr && index_ <= block_->used, "Iterator dereference out of bounds!");
+      return block_->obj[index_];
+    }
 
-  std::optional<TObj> Pop() {
-    auto guard = std::lock_guard{lock_};
-    return stack_.Pop();
-  }
+    pointer operator->() { return &(operator*()); }
 
- private:
-  Stack<TObj, TSize> stack_;
-  SpinLock lock_;
+    Iterator &operator++() {
+      if (block_ == nullptr) {
+        return *this;
+      }
+
+      ++index_;
+
+      // Move to next block if current block is exhausted
+      while (block_ != nullptr && index_ >= block_->used) {
+        block_ = block_->prev;
+        index_ = 0;
+      }
+
+      return *this;
+    }
+
+    Iterator operator++(int) {
+      Iterator tmp = *this;
+      ++(*this);
+      return tmp;
+    }
+
+    bool operator==(const Iterator &other) const { return block_ == other.block_ && index_ == other.index_; }
+
+    bool operator!=(const Iterator &other) const { return !(*this == other); }
+
+   private:
+    Block *block_;
+    uint64_t index_;
+  };
+
+  Iterator begin() { return Iterator(head_); }
+
+  Iterator end() { return Iterator(); }
 };
 
 }  // namespace memgraph::utils

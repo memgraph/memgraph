@@ -381,18 +381,15 @@ class SkipListGc final {
       }
       tail = next;
     }
-    TLocalStack leftover;
-    std::optional<TDeleted> item;
-    while ((item = deleted_.Pop())) {
-      if (item->first < last_dead) {
-        size_t bytes = SkipListNodeSize(*item->second);
-        item->second->~TNode();
-        memory_->deallocate(item->second, bytes, SkipListNodeAlign<TObj>());
-      } else {
-        leftover.Push(std::move(*item));
-      }
+    auto partition_point = deleted_.Partition([last_dead](const TDeleted &item) { return item.first < last_dead; });
+    auto it = deleted_.begin();
+    while (it != partition_point) {
+      size_t bytes = SkipListNodeSize(*it->second);
+      it->second->~TNode();
+      memory_->deallocate(it->second, bytes, SkipListNodeAlign<TObj>());
+      ++it;
+      deleted_.Pop();
     }
-    deleted_ = std::move(leftover);
   }
 
   MemoryResource *GetMemoryResource() const { return memory_; }
