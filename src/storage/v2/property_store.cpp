@@ -1700,7 +1700,7 @@ enum class ExpectedPropertyStatus {
       type = ExtendedPropertyType{PropertyValue::Type::String};
       break;
     case LIST: {
-      auto type = ExtendedPropertyType{PropertyValue::Type::List};
+      type = ExtendedPropertyType{PropertyValue::Type::List};
       break;
     }
     case MAP:
