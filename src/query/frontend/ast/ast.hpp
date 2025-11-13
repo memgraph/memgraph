@@ -3294,7 +3294,7 @@ class LoadParquet : public Clause {
   Identifier *row_var_{nullptr};
 
   LoadParquet *Clone(AstStorage *storage) const override {
-    LoadParquet *object = storage->Create<LoadParquet>();
+    auto *object = storage->Create<LoadParquet>();
     object->file_ = file_ ? file_->Clone(storage) : nullptr;
     for (const auto &[key, value] : configs_) {
       object->configs_[key->Clone(storage)] = value->Clone(storage);
@@ -3306,6 +3306,39 @@ class LoadParquet : public Clause {
  protected:
   explicit LoadParquet(Expression *file, Identifier *row_var) : file_(file), row_var_(row_var) {
     DMG_ASSERT(row_var, "LoadParquet cannot take nullptr for identifier");
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class LoadJsonl : public Clause {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  LoadJsonl() = default;
+
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      row_var_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  Expression *file_;
+  Identifier *row_var_{nullptr};
+
+  LoadJsonl *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<LoadJsonl>();
+    object->file_ = file_ ? file_->Clone(storage) : nullptr;
+    object->row_var_ = row_var_ ? row_var_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ protected:
+  explicit LoadJsonl(Expression *file, Identifier *row_var) : file_(file), row_var_(row_var) {
+    DMG_ASSERT(row_var, "LoadJsonl cannot take nullptr for identifier");
   }
 
  private:

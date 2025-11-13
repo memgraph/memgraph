@@ -60,6 +60,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(LoadCsv &) override;
   bool PreVisit(LoadParquet &) override;
   bool PostVisit(LoadParquet &) override;
+  bool PreVisit(LoadJsonl &) override;
+  bool PostVisit(LoadJsonl &) override;
   bool PreVisit(Return &) override;
   bool PostVisit(Return &) override;
   bool PreVisit(With &) override;

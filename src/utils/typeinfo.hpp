@@ -83,6 +83,7 @@ enum class TypeId : uint64_t {
   SET_NESTED_PROPERTY,
   REMOVE_NESTED_PROPERTY,
   LOAD_PARQUET,
+  LOAD_JSONL,
 
   // Replication
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)
@@ -293,6 +294,7 @@ enum class TypeId : uint64_t {
   AST_SHOW_NEXT_SNAPSHOT_QUERY,
   AST_USER_PROFILE_QUERY,
   AST_LOAD_PARQUET,
+  AST_LOAD_JSONL,
 
   // Symbol
   SYMBOL = 4000,

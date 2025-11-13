@@ -103,6 +103,7 @@ INSTANCE                : I N S T A N C E ;
 INSTANCES               : I N S T A N C E S ;
 INTEGER                 : I N T E G E R ;
 ISOLATION               : I S O L A T I O N ;
+JSONL                   : J S O N L ;
 KAFKA                   : K A F K A ;
 LABELS                  : L A B E L S ;
 LAG                     : L A G ;

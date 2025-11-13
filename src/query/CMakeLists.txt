@@ -26,6 +26,7 @@ find_package(antlr4-runtime REQUIRED)
 find_package(antlr4 REQUIRED)
 find_package(cppitertools REQUIRED)
 find_package(range-v3 REQUIRED)
+find_package(simdjson REQUIRED)
 
 add_library(mg-query STATIC)
 target_sources(mg-query
@@ -53,6 +54,7 @@ target_sources(mg-query
     interpret/frame.cpp
     interpreter_context.cpp
     interpreter.cpp
+    jsonl/reader.cpp
     metadata.cpp
     plan/hint_provider.cpp
     plan/operator_type_info.cpp
@@ -85,6 +87,9 @@ target_sources(mg-query
     vertex_accessor.cpp
 
     PUBLIC
+    FILE_SET CXX_MODULES
+    FILES
+    jsonl/reader.cppm
     FILE_SET HEADERS
     FILES
     arrow_parquet/reader.hpp
@@ -136,6 +141,7 @@ target_link_libraries(mg-query
     arrow
     mg-module-support
     mg-cpp-api
+    simdjson::simdjson
 )
 
 if(NOT "${MG_PYTHON_PATH}" STREQUAL "")

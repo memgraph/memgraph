@@ -7,7 +7,7 @@ deactivate_conanbuild.sh
 deactivate_conanrun.sh
 CMakeUserPresets.json
 
-
+.clangd
 *.breakpoint
 *.data
 *.dSYM/
