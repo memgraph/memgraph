@@ -163,7 +163,7 @@ static_assert(std::is_trivially_destructible_v<opt_str>,
  * hugely improves performance in edge-write heavy imports, at the expensive
  * of increasing delta chain iteration and garbage collection whilst interleaved
  * deltas exist in the chains. */
-enum class DeltaInterleaving { NORMAL, INTERLEAVED };
+enum class DeltaInterleaving : uint8_t { NORMAL, INTERLEAVED };
 
 /**
  * By using a tagged pointer for the vertex in a vertex_edge `Delta`, we can
@@ -188,7 +188,6 @@ class TaggedVertexPtr {
 
   void Set(Vertex *vertex, bool is_interleaved = false) {
     uintptr_t vertex_ptr = reinterpret_cast<uintptr_t>(vertex);
-    MG_ASSERT((vertex_ptr & 0x1UL) == 0, "Vertex pointer must be aligned");
     if (is_interleaved) {
       vertex_ptr |= 0x1UL;
     }
