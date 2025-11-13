@@ -206,30 +206,6 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
       db_acc->ttl().Pause();
     });
 
-    std::map<std::string, std::unique_lock<utils::ResourceLock>> snapshot_locks;
-    auto const timer = utils::Timer();
-    while (true) {
-      if (timer.Elapsed() > 10s) {
-        spdlog::error("Failed to take snapshot lock on all DBs within 10s while demoting to replica.");
-        return false;
-      }
-      if (snapshot_locks.size() == dbms_handler_.Count()) {
-        break;
-      }
-
-      dbms_handler_.ForEach([&snapshot_locks](dbms::DatabaseAccess db_acc) {
-        auto const lock_it = snapshot_locks.find(db_acc->name());
-        if (lock_it != snapshot_locks.end()) {
-          return;
-        }
-        auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
-        auto db_lock = std::unique_lock{storage->snapshot_lock_, std::defer_lock};
-        if (db_lock.try_lock()) {
-          snapshot_locks.emplace(db_acc->name(), std::move(db_lock));
-        }
-      });
-    }
-
     return SetReplicationRoleReplica_<true>(locked_repl_state, config, maybe_main_uuid);
   } catch (const utils::TryLockException & /* unused */) {
     return false;
