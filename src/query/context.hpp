@@ -108,6 +108,8 @@ struct ExecutionContext {
   std::optional<size_t> parallel_execution{std::nullopt};  // if set, number of threads to use for parallel execution
   std::shared_ptr<storage::DatabaseProtector> protector;
   bool is_main{true};
+  std::chrono::duration<double> profile_execution_time;
+  SymbolTable symbol_table;
 
   // ============================================================================
   // READ-ONLY SECTION - Only read, never written during execution
@@ -116,17 +118,14 @@ struct ExecutionContext {
   DbAccessor *db_accessor{nullptr};
   utils::PriorityThreadPool *worker_pool{nullptr};
   StoppingContext stopping_context;
-  SymbolTable symbol_table;
-  // Immutable parts of evaluation_context (memory, timestamp, parameters, properties, labels)
-  EvaluationContext evaluation_context;
   TriggerContextCollector *trigger_context_collector{nullptr};
   FrameChangeCollector *frame_change_collector{nullptr};
   std::shared_ptr<QueryUserOrRole> user_or_role;
 #ifdef MG_ENTERPRISE
   std::shared_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
-  // Parallel execution state - set by ParallelStart, read by ChunkReader and ParallelMerge
-  std::shared_ptr<struct ParallelState> parallel_state{nullptr};
+  // Hops limit - modified during edge expansions (hops_counter and limit_reached)
+  HopsLimit hops_limit;
 
   auto commit_args() -> storage::CommitArgs;
 
@@ -139,9 +138,6 @@ struct ExecutionContext {
   // Hops tracking - incremented on every edge expansion
   alignas(64) int64_t number_of_hops{0};
 
-  // Hops limit - modified during edge expansions (hops_counter and limit_reached)
-  alignas(64) HopsLimit hops_limit;
-
   // Execution statistics - incremented for create/delete/update operations
   alignas(64) ExecutionStats execution_stats;
 
@@ -150,13 +146,9 @@ struct ExecutionContext {
   alignas(64) plan::ProfilingStats stats;
   alignas(64) plan::ProfilingStats *stats_root{nullptr};
 
-  // Profile execution time - set once at end of Pull
-  alignas(64) std::chrono::duration<double> profile_execution_time;
-
-  // Mutable parts of evaluation_context (counters and scope)
-  // NOTE: evaluation_context.counters and evaluation_context.scope are modified
-  // during execution, but they're nested in evaluation_context above
-  // For multi-threading, these should be per-thread
+  // Immutable parts of evaluation_context (memory, timestamp, parameters, properties, labels)
+  // Scope and counters are mutable and copied per-thread in parallel execution, with counters merged after execution
+  EvaluationContext evaluation_context;
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

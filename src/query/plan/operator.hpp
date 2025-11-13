@@ -1835,7 +1835,8 @@ class ScanParallel : public memgraph::query::plan::LogicalOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ScanParallel() = default;
-  ScanParallel(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads);
+  ScanParallel(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+               Symbol state_symbol);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
 
@@ -1853,6 +1854,7 @@ class ScanParallel : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<LogicalOperator> input_;
   storage::View view_;
   size_t num_threads_;
+  Symbol state_symbol_;
 };
 
 class ScanChunk : public memgraph::query::plan::ScanAll {
@@ -1861,12 +1863,16 @@ class ScanChunk : public memgraph::query::plan::ScanAll {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ScanChunk() = default;
-  ScanChunk(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view);
+  ScanChunk(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view,
+            Symbol state_symbol);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
 
   std::string ToString() const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+ private:
+  Symbol state_symbol_;
 };
 
 /// Skips a number of Pulls from the input op.
