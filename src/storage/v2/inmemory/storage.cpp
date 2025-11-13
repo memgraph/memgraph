@@ -169,9 +169,9 @@ void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std
     DMG_ASSERT(!IsDeltaInterleaved(delta), "interleaved deltas are not candidates for rapid delta cleanup");
     DMG_ASSERT(
         [&delta]() {
-          Delta *next = delta.next.load();
+          Delta *next = delta.next.load(std::memory_order_acquire);
           if (next == nullptr) return true;
-          auto next_ts = next->timestamp->load();
+          auto next_ts = next->timestamp->load(std::memory_order_acquire);
           return !(next_ts >= kTransactionInitialId && IsDeltaInterleaved(*next));
         }(),
         "downstream active interleaved delta found during rapid cleanup");
@@ -2463,7 +2463,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       // Traverse delta chains once to check if all contributors committed,
       // and find highest commit timestamp for safe unlinking.
       bool all_contributors_committed = true;
-      uint64_t highest_commit_ts = it->commit_timestamp_->load();
+      uint64_t highest_commit_ts = it->commit_timestamp_->load(std::memory_order_acquire);
       std::unordered_set<const Delta *> visited;
 
       for (const auto &delta : it->deltas_) {
@@ -2476,20 +2476,20 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
           auto ts = current->timestamp->load();
 
           if (ts == kAbortedTransactionId) {
-            current = current->next.load();
+            current = current->next.load(std::memory_order_acquire);
             continue;
           }
 
           if (ts >= kTransactionInitialId) {
             all_contributors_committed = false;
-            current = current->next.load();
+            current = current->next.load(std::memory_order_acquire);
             continue;
           }
 
           if (ts > highest_commit_ts) {
             highest_commit_ts = ts;
           }
-          current = current->next.load();
+          current = current->next.load(std::memory_order_acquire);
         }
       }
 

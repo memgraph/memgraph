@@ -830,7 +830,7 @@ class InMemoryStorage final : public Storage {
         : mark_timestamp_{mark_timestamp},
           deltas_{std::move(deltas)},
           commit_timestamp_{std::move(commit_timestamp)},
-          unlinkable_timestamp_{commit_timestamp_ ? commit_timestamp_->load() : 0},
+          unlinkable_timestamp_{commit_timestamp_ ? commit_timestamp_->load(std::memory_order_acquire) : 0},
           transaction_id_{transaction_id} {}
 
     GCDeltas(GCDeltas &&) = default;
