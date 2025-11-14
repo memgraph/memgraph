@@ -205,7 +205,7 @@ jobs:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
-      additional_build_args: "--for-docker${{ matrix.malloc == 'false' && '' || ' --disable-jemalloc' }}"
+      additional_build_args: "--for-docker${{ matrix.malloc == true && ' --disable-jemalloc' || '' }}"
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
