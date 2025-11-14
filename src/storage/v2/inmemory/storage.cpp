@@ -3135,7 +3135,9 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
 
     // Move all snapshot files to the old directory
     auto snapshot_files = durability::GetSnapshotFiles(recovery_.snapshot_directory_);
-    for (const auto &[snapshot_path, snapshot_uuid, _2] : snapshot_files) {
+    for (const auto &snapshot_file : snapshot_files) {
+      auto const &snapshot_path = snapshot_file.path;
+      auto const &snapshot_uuid = snapshot_file.uuid;
       spdlog::trace("Moving snapshot file {}", snapshot_path);
       if (local_path != snapshot_path) {
         file_retainer_.RenameFile(snapshot_path, recovery_.snapshot_directory_ / old_dir / snapshot_path.filename());
@@ -3201,7 +3203,9 @@ std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
   // Add currently available snapshots
   auto snapshot_files = durability::GetSnapshotFiles(recovery_.snapshot_directory_ /*, std::string(storage_uuid())*/);
   std::error_code ec;
-  for (const auto &[snapshot_path, _, start_timestamp] : snapshot_files) {
+  for (const auto &snapshot_file : snapshot_files) {
+    auto const &snapshot_path = snapshot_file.path;
+    auto const &start_timestamp = snapshot_file.start_timestamp;
     // Hacky solution to covert between different clocks
     utils::LocalDateTime write_time_ldt{std::filesystem::last_write_time(snapshot_path, ec) -
                                         std::filesystem::file_time_type::clock::now() +
@@ -3218,8 +3222,7 @@ std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
     res.emplace_back(snapshot_path, start_timestamp, write_time_ldt, size);
   }
 
-  std::sort(res.begin(), res.end(),
-            [](const auto &lhs, const auto &rhs) { return lhs.creation_time > rhs.creation_time; });
+  std::ranges::sort(res, [](const auto &lhs, const auto &rhs) { return lhs.creation_time > rhs.creation_time; });
 
   return res;
 }
