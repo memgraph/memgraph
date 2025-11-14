@@ -5067,7 +5067,7 @@ PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explic
     const auto res = static_cast<storage::InMemoryStorage *>(storage)->ShowSnapshots();
     infos.reserve(res.size());
     for (const auto &info : res) {
-      infos.push_back({TypedValue{info.path.string()}, TypedValue{static_cast<int64_t>(info.start_timestamp)},
+      infos.push_back({TypedValue{info.path.string()}, TypedValue{static_cast<int64_t>(info.durable_timestamp)},
                        TypedValue{info.creation_time.ToStringWTZ()},
                        TypedValue{utils::GetReadableSize(static_cast<double>(info.size))}});
     }

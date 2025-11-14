@@ -39,16 +39,11 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path 
 
 // Used to capture the snapshot's data related to durability
 struct SnapshotDurabilityInfo {
-  explicit SnapshotDurabilityInfo(std::filesystem::path path, std::string uuid, const uint64_t start_timestamp,
-                                  uint64_t const durable_timestamp)
-      : path(std::move(path)),
-        uuid(std::move(uuid)),
-        start_timestamp(start_timestamp),
-        durable_timestamp(durable_timestamp) {}
+  explicit SnapshotDurabilityInfo(std::filesystem::path path, std::string uuid, uint64_t const durable_timestamp)
+      : path(std::move(path)), uuid(std::move(uuid)), durable_timestamp(durable_timestamp) {}
 
   std::filesystem::path path;
   std::string uuid;
-  uint64_t start_timestamp;
   uint64_t durable_timestamp;
 
   auto operator<=>(const SnapshotDurabilityInfo &) const = default;

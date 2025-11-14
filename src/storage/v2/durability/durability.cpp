@@ -141,7 +141,7 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
     try {
       auto info = ReadSnapshotInfo(item.path());
       if (uuid.empty() || info.uuid == uuid) {
-        snapshot_files.emplace_back(item.path(), std::move(info.uuid), info.start_timestamp, info.durable_timestamp);
+        snapshot_files.emplace_back(item.path(), std::move(info.uuid), info.durable_timestamp);
       } else {
         spdlog::warn("Skipping snapshot file '{}' because UUIDs does not match!", item.path());
       }

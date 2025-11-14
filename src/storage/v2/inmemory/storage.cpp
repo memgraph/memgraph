@@ -3186,7 +3186,10 @@ std::optional<SnapshotFileInfo> InMemoryStorage::ShowNextSnapshot() {
   auto lock = std::unique_lock{snapshot_lock_};
   auto next = snapshot_runner_.NextExecution();
   if (next) {
-    return SnapshotFileInfo{recovery_.snapshot_directory_, 0, utils::LocalDateTime{*next}, 0};
+    return SnapshotFileInfo{.path = recovery_.snapshot_directory_,
+                            .durable_timestamp = 0,
+                            .creation_time = utils::LocalDateTime{*next},
+                            .size = 0};
   }
   return std::nullopt;
 }
@@ -3205,7 +3208,7 @@ std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
   std::error_code ec;
   for (const auto &snapshot_file : snapshot_files) {
     auto const &snapshot_path = snapshot_file.path;
-    auto const &start_timestamp = snapshot_file.start_timestamp;
+    auto const &durable_timestamp = snapshot_file.durable_timestamp;
     // Hacky solution to covert between different clocks
     utils::LocalDateTime write_time_ldt{std::filesystem::last_write_time(snapshot_path, ec) -
                                         std::filesystem::file_time_type::clock::now() +
@@ -3219,7 +3222,7 @@ std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
       spdlog::warn("Failed to read file size for {}", snapshot_path);
       size = 0;
     }
-    res.emplace_back(snapshot_path, start_timestamp, write_time_ldt, size);
+    res.emplace_back(snapshot_path, durable_timestamp, write_time_ldt, size);
   }
 
   std::ranges::sort(res, [](const auto &lhs, const auto &rhs) { return lhs.creation_time > rhs.creation_time; });
