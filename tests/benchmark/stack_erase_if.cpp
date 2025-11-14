@@ -76,7 +76,7 @@ class StackEraseIfFixture : public benchmark::Fixture {
   std::vector<TDeleted> original_elements_;
 };
 
-// Old approach: Pop, check, push to leftover stack
+// Manual deletion approach: Pop, check, push to leftover stack
 BENCHMARK_DEFINE_F(StackEraseIfFixture, ManualDeletionApproach)(benchmark::State &state) {
   const auto num_elements = static_cast<uint64_t>(state.range(0));
   const auto ratio = static_cast<double>(state.range(1)) / 100.0;
@@ -100,7 +100,7 @@ BENCHMARK_DEFINE_F(StackEraseIfFixture, ManualDeletionApproach)(benchmark::State
   }
 }
 
-// New approach: EraseIf with deleter
+// EraseIf approach: EraseIf with deleter
 BENCHMARK_DEFINE_F(StackEraseIfFixture, EraseIfApproach)(benchmark::State &state) {
   const auto num_elements = static_cast<uint64_t>(state.range(0));
   const auto ratio = static_cast<double>(state.range(1)) / 100.0;
