@@ -146,7 +146,6 @@ def can_connect_to_github(url="https://www.github.com", timeout=3):
         return False
 
     if result[0] is True:
-        print(f"Can connect to GitHub in {elapsed:.2f} seconds", flush=True, file=sys.stderr)
         return True
     else:
         exc_type = type(exception[0]).__name__ if exception[0] else "Unknown"
