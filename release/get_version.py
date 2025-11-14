@@ -290,7 +290,12 @@ try:
         else:
             # If master is not present locally, the fetch command has to
             # succeed because something else will fail otherwise.
-            get_output("git", "fetch", "origin", "master")
+            if can_connect:
+                get_output("git", "fetch", "origin", "master")
+            else:
+                print("WARNING: Could not connect to GitHub. Unable to fetch master branch.", file=sys.stderr)
+                print("Fatal error while ensuring local master branch.")
+                sys.exit(1)
 except Exception:
     print("Fatal error while ensuring local master branch.")
     sys.exit(1)
