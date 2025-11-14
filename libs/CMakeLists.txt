@@ -220,24 +220,12 @@ add_subdirectory(rapidcheck EXCLUDE_FROM_ALL SYSTEM)
 # Set FETCHCONTENT_SOURCE_DIR_nlohmann_json to point to a local directory
 # containing the extracted nlohmann_json source to enable offline builds
 set(FETCHCONTENT_SOURCE_DIR_nlohmann_json ${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json)
-
-# Create an idempotent patch command that checks if patch is already applied
-# The patch adds "#if (defined(__cpp_exceptions)..." which we can check for
-# PATCH_COMMAND runs in the source directory, so we need to reference the patch file
-# using an absolute path or relative path from the source directory
-set(NLOHMANN_JSON_PATCH_FILE "${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json3.11.3.patch")
-set(NLOHMANN_JSON_PATCH_MARKER "#if (defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND))")
-# Use bash to check if patch is already applied before patching
-set(NLOHMANN_JSON_PATCH_COMMAND
-    bash -c "if ! grep -q '${NLOHMANN_JSON_PATCH_MARKER}' include/nlohmann/json.hpp 2>/dev/null; then patch -p1 < '${NLOHMANN_JSON_PATCH_FILE}' || exit 1; else echo 'Patch already applied, skipping.'; fi"
-)
-
 if(EXISTS "${FETCHCONTENT_SOURCE_DIR_nlohmann_json}")
     # Use local source directory for offline builds
     FetchContent_Declare(
         nlohmann_json
         SOURCE_DIR ${FETCHCONTENT_SOURCE_DIR_nlohmann_json}
-        PATCH_COMMAND ${NLOHMANN_JSON_PATCH_COMMAND}
+        PATCH_COMMAND patch -p1 < "${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json3.11.3.patch" || true
     )
 else()
     # Online build - download from URL
@@ -245,7 +233,7 @@ else()
         nlohmann_json
         URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
         URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d
-        PATCH_COMMAND ${NLOHMANN_JSON_PATCH_COMMAND}
+        PATCH_COMMAND patch -p1 < "${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json3.11.3.patch" || true
         # FIND_PACKAGE_ARGS # maybe needed for FETCHCONTENT_TRY_FIND_PACKAGE_MODE OPT_IN
     )
 endif()
