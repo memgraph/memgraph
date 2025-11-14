@@ -72,6 +72,8 @@ class InMemoryReplicationHandlers {
   // preventing therefore processing of CurrentWalRpc.
   static void AbortPrevTxnIfNeeded(storage::InMemoryStorage *storage);
 
+  static auto TakeSnapshotLock(auto &snapshot_guard, storage::InMemoryStorage *storage) -> bool;
+
   static std::optional<storage::SingleTxnDeltasProcessingResult> ReadAndApplyDeltasSingleTxn(
       storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, uint64_t version, slk::Builder *,
       bool two_phase_commit, bool loading_wal, uint32_t start_batch_counter = 0);

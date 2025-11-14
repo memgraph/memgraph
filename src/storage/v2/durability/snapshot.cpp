@@ -8696,6 +8696,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
   utils::EnsureDirOrDie(snapshot_directory);
 
   // Create snapshot file.
+  // For InMemoryStorage, we always have a value for last_durable_ts_
   auto path = snapshot_directory / MakeSnapshotName(transaction->last_durable_ts_ ? *transaction->last_durable_ts_
                                                                                   : transaction->start_timestamp);
   spdlog::info("Starting snapshot creation to {}", path);

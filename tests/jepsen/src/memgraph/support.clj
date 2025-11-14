@@ -14,6 +14,11 @@
 (def mgpid  (str mgdir "/memgraph.pid"))
 (def sync-after-n-txn (atom 100000))
 
+(defn get-rnd-snapshot-interval-sec
+  "Gets the random snapshot interval sec between 5 and 300 secs."
+  []
+  (+ 5 (rand-int 295)))
+
 (defn start-node!
   [test _]
   (cu/start-daemon!
@@ -25,7 +30,7 @@
    :--also-log-to-stderr
    :--data-recovery-on-startup
    :--storage-wal-enabled
-   :--storage-snapshot-interval-sec 300
+   :--storage-snapshot-interval-sec (get-rnd-snapshot-interval-sec)
    :--data-recovery-on-startup
    :--replication-restore-state-on-startup
    :--storage-wal-file-flush-every-n-tx @sync-after-n-txn

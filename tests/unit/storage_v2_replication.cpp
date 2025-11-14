@@ -48,13 +48,11 @@ using memgraph::replication::ReplicationClientConfig;
 using memgraph::replication::ReplicationHandler;
 using memgraph::replication::ReplicationServerConfig;
 using memgraph::replication_coordination_glue::ReplicationMode;
-using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::storage::Config;
 using memgraph::storage::EdgeAccessor;
 using memgraph::storage::Gid;
 using memgraph::storage::InMemoryStorage;
 using memgraph::storage::PropertyValue;
-using memgraph::storage::Storage;
 using memgraph::storage::View;
 
 // Helper function to create CommitArgs from a DatabaseAccess
@@ -1273,7 +1271,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   // Snapshot (with dirty WALs)
   {
     large_write_to_finalize_wal();
-    ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
+    ASSERT_FALSE(in_mem->CreateSnapshot().HasError());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 1);
     // TODO Currently we prefer WALs over Snapshots when creating the recovery plan
@@ -1287,11 +1285,11 @@ TEST_F(ReplicationTest, RecoverySteps) {
     // Once we are over the allowed number of snapshots, we clean both snapshots and wals
     // Have to make a change to the db so the snapshot doesn't get aborted (to bypass SnapshotDigest)
     create_vertex_and_commit();
-    ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
+    ASSERT_FALSE(in_mem->CreateSnapshot().HasError());
     create_vertex_and_commit();
-    ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
+    ASSERT_FALSE(in_mem->CreateSnapshot().HasError());
     create_vertex_and_commit();
-    ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
+    ASSERT_FALSE(in_mem->CreateSnapshot().HasError());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 1);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
@@ -1422,7 +1420,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
       }
     }
     large_write_to_finalize_wal();
-    ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
+    ASSERT_FALSE(in_mem->CreateSnapshot().HasError());
     large_write_to_finalize_wal();
     large_write_to_finalize_wal();
     large_write_to_finalize_wal();

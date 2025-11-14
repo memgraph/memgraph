@@ -42,11 +42,7 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
   // Connect replication state and storage
   storage->CreateSnapshotHandler(
       [storage = storage.get(), &repl_state]() -> utils::BasicResult<storage::InMemoryStorage::CreateSnapshotError> {
-        // The GetRole should really be done after the Access has been granted.
-        // Holding on to the lock for the duration of CreateSnapshot will cause a deadlock
-        // Not holding the lock might allow a replica to create the snapshot if the role switch is happening
-        const auto role = repl_state.ReadLock()->GetRole();
-        auto result = storage->CreateSnapshot(role);
+        auto result = storage->CreateSnapshot();
         if (result.HasError()) {
           return result.GetError();
         }

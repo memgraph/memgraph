@@ -99,7 +99,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
   }
 
   // Create a snapshot
-  auto snapshot_result = storage->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  auto snapshot_result = storage->CreateSnapshot();
   ASSERT_FALSE(snapshot_result.HasError());
   auto snapshot_path = snapshot_result.GetValue();
 
@@ -111,7 +111,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
   }
 
   // Create another snapshot to have multiple snapshots
-  auto snapshot_result2 = storage->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  auto snapshot_result2 = storage->CreateSnapshot();
   ASSERT_FALSE(snapshot_result2.HasError());
 
   // Verify we have snapshots in the directory
@@ -228,7 +228,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotFromLocalStorage) {
   }
 
   // Create a snapshot
-  auto snapshot_result = storage->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  auto snapshot_result = storage->CreateSnapshot();
   ASSERT_FALSE(snapshot_result.HasError());
 
   // Move the snapshot to the local storage
@@ -255,7 +255,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotFromLocalStorage) {
   }
 
   {
-    auto snapshot_result = storage->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+    auto snapshot_result = storage->CreateSnapshot();
     ASSERT_FALSE(snapshot_result.HasError());
   }
   // Recover from the local snapshot
@@ -328,7 +328,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
   }
 
   // Create a snapshot
-  auto snapshot_result = storage->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  auto snapshot_result = storage->CreateSnapshot();
   ASSERT_FALSE(snapshot_result.HasError());
   auto snapshot_path = snapshot_result.GetValue();
 

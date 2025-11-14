@@ -4361,7 +4361,7 @@ TEST_P(DurabilityTest, CreateSnapshotReturnsPath) {
   }
 
   // Test CreateSnapshot returns path on success
-  auto result = mem_storage->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  auto result = mem_storage->CreateSnapshot();
 
   ASSERT_FALSE(result.HasError()) << "CreateSnapshot should succeed with some data";
 
@@ -4393,11 +4393,7 @@ TEST_P(DurabilityTest, CreateSnapshotReturnsErrorForReplica) {
   memgraph::dbms::Database db{config, repl_state};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+  auto result = mem_storage->CreateSnapshot();
 
-  // Test CreateSnapshot returns error for replica role
-  auto result = mem_storage->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::REPLICA);
-
-  ASSERT_TRUE(result.HasError()) << "CreateSnapshot should fail for replica role";
-  ASSERT_EQ(result.GetError(), memgraph::storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica)
-      << "Should return DisabledForReplica error";
+  ASSERT_FALSE(result.HasError());
 }

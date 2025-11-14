@@ -68,7 +68,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsPathOnSuccess) {
   }
 
   // Test CreateSnapshot returns path on success
-  auto result = mem_storage->CreateSnapshot(ReplicationRole::MAIN);
+  auto result = mem_storage->CreateSnapshot();
 
   ASSERT_FALSE(result.HasError()) << "CreateSnapshot should succeed with some data";
 
@@ -93,12 +93,8 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorForReplica) {
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
-  // Test CreateSnapshot returns error for replica role
-  auto result = mem_storage->CreateSnapshot(ReplicationRole::REPLICA);
-
-  ASSERT_TRUE(result.HasError()) << "CreateSnapshot should fail for replica role";
-  ASSERT_EQ(result.GetError(), memgraph::storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica)
-      << "Should return DisabledForReplica error";
+  auto result = mem_storage->CreateSnapshot();
+  ASSERT_FALSE(result.HasError());
 }
 
 TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
@@ -116,17 +112,17 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
     ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
-  auto result1 = mem_storage->CreateSnapshot(ReplicationRole::MAIN);
+  auto result1 = mem_storage->CreateSnapshot();
   ASSERT_FALSE(result1.HasError()) << "First CreateSnapshot should succeed";
 
   // Try to create another snapshot immediately - should fail with NothingNewToWrite
-  auto result2 = mem_storage->CreateSnapshot(ReplicationRole::MAIN);
+  auto result2 = mem_storage->CreateSnapshot();
   ASSERT_TRUE(result2.HasError()) << "Second CreateSnapshot should fail";
   ASSERT_EQ(result2.GetError(), memgraph::storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite)
       << "Should return NothingNewToWrite error";
 
   // Force another snapshot immediately - should succeed
-  auto result3 = mem_storage->CreateSnapshot(ReplicationRole::MAIN, true);
+  auto result3 = mem_storage->CreateSnapshot(true);
   ASSERT_FALSE(result3.HasError()) << "Third CreateSnapshot should succeed";
 }
 
@@ -146,7 +142,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotPathFormat) {
   }
 
   // Create snapshot and verify path format
-  auto result = mem_storage->CreateSnapshot(ReplicationRole::MAIN);
+  auto result = mem_storage->CreateSnapshot();
   ASSERT_FALSE(result.HasError()) << "CreateSnapshot should succeed";
 
   auto snapshot_path = result.GetValue();
@@ -176,15 +172,8 @@ TEST_F(CreateSnapshotTest, BackwardCompatibilityWithErrorHandling) {
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
   // Test that existing error handling code still works
-  auto result = mem_storage->CreateSnapshot(ReplicationRole::REPLICA);
-
-  // This should work exactly as before - checking for errors
-  if (result.HasError()) {
-    auto error = result.GetError();
-    ASSERT_EQ(error, memgraph::storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica);
-  } else {
-    FAIL() << "Should have returned an error for replica role";
-  }
+  auto result = mem_storage->CreateSnapshot();
+  ASSERT_FALSE(result.HasError());
 }
 
 TEST_F(CreateSnapshotTest, SuccessCaseWithPathRetrieval) {
@@ -203,7 +192,7 @@ TEST_F(CreateSnapshotTest, SuccessCaseWithPathRetrieval) {
   }
 
   // Test the new functionality - getting the path on success
-  auto result = mem_storage->CreateSnapshot(ReplicationRole::MAIN);
+  auto result = mem_storage->CreateSnapshot();
 
   if (result.HasError()) {
     FAIL() << "CreateSnapshot should succeed with data present";
