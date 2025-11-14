@@ -347,11 +347,27 @@ if current_version is None:
             )
         sys.exit(0)
     else:
-        # If API fallback also fails, provide a helpful error message
-        raise Exception(
+        print(
             "Unable to determine version. No local release branches found and could not fetch from original repository. "
             "This repository may need to be updated or may not be a standard Memgraph repository."
         )
+
+        # just use latest version found locally in tags
+        tag = get_output("git", "tag", "|", "grep", "-v", "rc", "|", "tail", "-n", "1")
+        if tag:
+            # regex match for x.y.z format
+            match = re.match(r"^v[0-9]+\.[0-9]+\.[0-9]+$", tag)
+            if match:
+                version_str = match.group(0)[1:]
+            else:
+                # fallback
+                print("WARNING: Unable to determine version from tag. Using fallback version 0.0.0.", file=sys.stderr)
+                version_str = "0.0.0"
+        else:
+            print("WARNING: Unable to determine version from tag. Using fallback version 0.0.0.", file=sys.stderr)
+            version_str = "0.0.0"
+        print(format_version(args.variant, version_str, offering, suffix=args.suffix), end="")
+        sys.exit(0)
 
 version, branch, master_branch_merge = current_version
 distance = int(get_output("git", "rev-list", "--count", "--first-parent", master_branch_merge + ".." + current_hash))
