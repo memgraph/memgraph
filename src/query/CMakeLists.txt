@@ -133,7 +133,7 @@ target_link_libraries(mg-query
     mg-dbms
     mg-events
     PRIVATE
-    arrow
+    arrow::arrow
     mg-module-support
     mg-cpp-api
 )
