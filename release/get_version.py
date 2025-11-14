@@ -126,6 +126,7 @@ def retry(retry_limit, timeout=100):
 
 @retry(3)
 def get_output(*cmd, multiple=False):
+    print(f"Running command: {' '.join(cmd)}")
     shell = any(["|" in x for x in cmd])
     cmd = " ".join(cmd) if shell else cmd
     ret = subprocess.run(cmd, stdout=subprocess.PIPE, check=True, shell=shell)
