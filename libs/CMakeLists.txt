@@ -216,13 +216,27 @@ mark_as_advanced(RC_ENABLE_GTEST RC_ENABLE_GMOCK)
 add_subdirectory(rapidcheck EXCLUDE_FROM_ALL SYSTEM)
 
 # Setup json
-FetchContent_Declare(
-    nlohmann_json
-    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
-    URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d
-    PATCH_COMMAND patch -p1 < "${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json3.11.3.patch"
-    # FIND_PACKAGE_ARGS # maybe needed for FETCHCONTENT_TRY_FIND_PACKAGE_MODE OPT_IN
-)
+# Allow offline builds by checking for local source directory first
+# Set FETCHCONTENT_SOURCE_DIR_nlohmann_json to point to a local directory
+# containing the extracted nlohmann_json source to enable offline builds
+FETCHCONTENT_SOURCE_DIR_nlohmann_json=${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json
+if(EXISTS "${FETCHCONTENT_SOURCE_DIR_nlohmann_json}")
+    # Use local source directory for offline builds
+    FetchContent_Declare(
+        nlohmann_json
+        SOURCE_DIR ${FETCHCONTENT_SOURCE_DIR_nlohmann_json}
+        PATCH_COMMAND patch -p1 < "${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json3.11.3.patch"
+    )
+else()
+    # Online build - download from URL
+    FetchContent_Declare(
+        nlohmann_json
+        URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+        URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d
+        PATCH_COMMAND patch -p1 < "${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json3.11.3.patch"
+        # FIND_PACKAGE_ARGS # maybe needed for FETCHCONTENT_TRY_FIND_PACKAGE_MODE OPT_IN
+    )
+endif()
 FetchContent_MakeAvailable(nlohmann_json)
 
 mg_create_linkable_if_no_cmake(rocksdb STATIC "${MG_TOOLCHAIN_ROOT}/lib/librocksdb.a" "${MG_TOOLCHAIN_ROOT}/include")
