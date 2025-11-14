@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -20,6 +21,7 @@
 #include <optional>
 #include <system_error>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 
 #include "auth/auth.hpp"
@@ -49,14 +51,16 @@
 namespace memgraph::dbms {
 
 struct Statistics {
-  uint64_t num_vertex;           //!< Sum of vertexes in every database
-  uint64_t num_edges;            //!< Sum of edges in every database
-  uint64_t triggers;             //!< Sum of triggers in every database
-  uint64_t streams;              //!< Sum of streams in every database
-  uint64_t users;                //!< Number of defined users
-  uint64_t num_databases;        //!< Number of isolated databases
-  uint64_t indices;              //!< Sum of indices in every database
-  uint64_t constraints;          //!< Sum of constraints in every database
+  uint64_t num_vertex;                     //!< Sum of vertexes in every database
+  uint64_t num_edges;                      //!< Sum of edges in every database
+  uint64_t triggers;                       //!< Sum of triggers in every database
+  uint64_t streams;                        //!< Sum of streams in every database
+  uint64_t users;                          //!< Number of defined users
+  uint64_t roles;                          //!< Number of defined roles
+  uint64_t label_node_count_histogram[7];  //!< Log10 histogram: [0]=1-9, [1]=10-99, ..., [6]=1M+
+  uint64_t num_databases;                  //!< Number of isolated databases
+  uint64_t indices;                        //!< Sum of indices in every database
+  uint64_t constraints;                    //!< Sum of constraints in every database
   uint64_t storage_modes[3];     //!< Number of databases in each storage mode [IN_MEM_TX, IN_MEM_ANA, ON_DISK_TX]
   uint64_t isolation_levels[3];  //!< Number of databases in each isolation level [SNAPSHOT, READ_COMM, READ_UNC]
   uint64_t snapshot_enabled;     //!< Number of databases with snapshots enabled
@@ -73,6 +77,7 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
   res["triggers"] = stats.triggers;
   res["streams"] = stats.streams;
   res["users"] = stats.users;
+  res["roles"] = stats.roles;
   res["databases"] = stats.num_databases;
   res["indices"] = stats.indices;
   res["constraints"] = stats.constraints;
@@ -88,6 +93,11 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
       {utils::CompressionLevelToString(utils::CompressionLevel::LOW), stats.property_store_compression_level[0]},
       {utils::CompressionLevelToString(utils::CompressionLevel::MID), stats.property_store_compression_level[1]},
       {utils::CompressionLevelToString(utils::CompressionLevel::HIGH), stats.property_store_compression_level[2]}};
+  res["label_node_count_histogram"] = {
+      {"1-9", stats.label_node_count_histogram[0]},       {"10-99", stats.label_node_count_histogram[1]},
+      {"100-999", stats.label_node_count_histogram[2]},   {"1K-9999", stats.label_node_count_histogram[3]},
+      {"10K-99999", stats.label_node_count_histogram[4]}, {"100K-999999", stats.label_node_count_histogram[5]},
+      {"1M+", stats.label_node_count_histogram[6]}};
 
   return res;
 }
@@ -353,6 +363,22 @@ class DbmsHandler {
         using underlying_type = std::underlying_type_t<utils::CompressionLevel>;
         ++stats.property_store_compression_level[static_cast<underlying_type>(
             storage_info.property_store_compression_level)];
+
+        auto storage_acc = db_acc->storage()->Access();
+
+        constexpr size_t kMaxHistogramBucket = 6;
+        std::unordered_map<storage::LabelId, uint64_t> label_counts;
+        for (auto &&vertex : storage_acc->Vertices(storage::View::OLD)) {
+          auto const labels_result = vertex.Labels(storage::View::OLD);
+          if (labels_result.HasError()) continue;
+          for (auto const label : *labels_result) {
+            ++label_counts[label];
+          }
+        }
+        for (auto &&[label, count] : label_counts) {
+          std::size_t const bucket = std::min(kMaxHistogramBucket, static_cast<std::size_t>(std::log10(count)));
+          ++stats.label_node_count_histogram[bucket];
+        }
       }
     }
     return stats;

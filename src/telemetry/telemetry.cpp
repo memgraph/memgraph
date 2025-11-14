@@ -191,6 +191,7 @@ void Telemetry::AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::a
   AddCollector("storage", [&dbms_handler, &auth]() -> nlohmann::json {
     auto stats = dbms_handler.Stats();
     stats.users = auth->AllUsers().size();
+    stats.roles = auth->AllRoles().size();
     return ToJson(stats);
   });
 }
