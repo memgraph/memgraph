@@ -15,9 +15,7 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/recovery.hpp"
-#include "storage/v2/transaction.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "utils/uuid.hpp"
 
 namespace memgraph::storage {
 
@@ -105,7 +103,7 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
       spdlog::error("Tried to lock a non-existent snapshot path while obtaining recovery steps.");
       return false;
     }
-    recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{}, std::move(latest_snapshot->path));
+    recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{}, latest_snapshot->path);
     last_durable_timestamp = std::max(last_durable_timestamp, latest_snapshot->start_timestamp);
     return true;
   };
@@ -127,6 +125,11 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
         // We might not need the snapshot if there is no additional information contained in it
 
         auto const snap_start_ts = latest_snapshot->start_timestamp;
+        spdlog::trace("Snapshot start ts: {}. Snapshot durable ts: {}", latest_snapshot->start_timestamp,
+                      latest_snapshot->durable_timestamp);
+
+        MG_ASSERT(latest_snapshot->start_timestamp <= latest_snapshot->durable_timestamp,
+                  "Start timestamp larger than durable timestamp");
 
         if (snap_start_ts <= wal.from_timestamp && wal.seq_num != 0) {
           spdlog::error("Replication steps incomplete; broken data chain.");
@@ -144,7 +147,7 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
       }
     }
 
-    if (wal_chain_info.first_useful_wal < wal_files.size()) {
+    if (wal_chain_info.first_useful_wal < static_cast<int64_t>(wal_files.size())) {
       auto rw = GetRecoveryWalFiles(&locker_acc, wal_files, wal_chain_info.first_useful_wal);
       if (!rw.has_value()) return std::nullopt;
       recovery_steps.emplace_back(std::in_place_type_t<RecoveryWals>{}, std::move(*rw));
@@ -211,7 +214,8 @@ auto GetWalChainInfo(std::vector<durability::WalDurabilityInfo> const &wal_files
 
 auto FirstWalAfterSnapshot(std::vector<durability::WalDurabilityInfo> const &wal_files, uint64_t const snap_start_ts,
                            int64_t first_useful_wal) -> int64_t {
-  while (first_useful_wal < wal_files.size() && wal_files[first_useful_wal].to_timestamp <= snap_start_ts)
+  while (first_useful_wal < static_cast<int64_t>(wal_files.size()) &&
+         wal_files[first_useful_wal].to_timestamp <= snap_start_ts)
     ++first_useful_wal;
   return first_useful_wal;
 }
@@ -221,7 +225,7 @@ auto GetRecoveryWalFiles(utils::FileRetainer::FileLockerAccessor *locker_acc,
     -> std::optional<RecoveryWals> {
   RecoveryWals rw;
   rw.reserve(wal_files.size() - first_useful_wal);
-  for (; first_useful_wal < wal_files.size(); ++first_useful_wal) {
+  for (; first_useful_wal < static_cast<int64_t>(wal_files.size()); ++first_useful_wal) {
     auto const &wal = wal_files[first_useful_wal];
     if (const auto lock_success = locker_acc->AddPath(wal.path); lock_success.HasError()) {
       spdlog::error("Tried to lock a nonexistent WAL path.");
