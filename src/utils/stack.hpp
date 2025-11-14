@@ -56,6 +56,9 @@ class Stack {
     void lock() {}
     void unlock() {}
   };
+  struct NoOpDeleter {
+    void operator()(const TObj & /*unused*/) const {}
+  };
 
   void PushImpl(TObj obj) {
     if (head_ == nullptr) {
@@ -91,6 +94,16 @@ class Stack {
       } else {
         return head_->obj[--head_->used];
       }
+    }
+  }
+
+  template <typename Predicate, typename Deleter = NoOpDeleter>
+  void EraseIfImpl(Predicate &&pred, Deleter &&deleter = NoOpDeleter{}) {
+    if (head_ == nullptr) return;
+    auto partition_point = std::partition(begin(), end(), std::forward<Predicate>(pred));
+    for (auto it = begin(); it != partition_point; ++it) {
+      std::forward<Deleter>(deleter)(*it);
+      PopImpl();
     }
   }
 
@@ -150,6 +163,16 @@ class Stack {
     return std::partition(begin(), end(), std::forward<Predicate>(pred));
   }
 
+  template <typename Predicate, typename Deleter = NoOpDeleter>
+  void EraseIf(Predicate &&pred, Deleter &&deleter = NoOpDeleter{}) {
+    if constexpr (ThreadSafe) {
+      auto guard = std::lock_guard{lock_};
+      EraseIfImpl(std::forward<Predicate>(pred), std::forward<Deleter>(deleter));
+    } else {
+      EraseIfImpl(std::forward<Predicate>(pred), std::forward<Deleter>(deleter));
+    }
+  }
+
   class Iterator {
    public:
     using iterator_category = std::forward_iterator_tag;
@@ -160,10 +183,11 @@ class Stack {
 
     Iterator() : block_(nullptr), index_(0) {}
 
-    explicit Iterator(Block *block) : block_(block), index_(0) {
+    explicit Iterator(Block *block) : block_(block) {
       while (block_ != nullptr && block_->used == 0) {
         block_ = block_->prev;
       }
+      index_ = block_ != nullptr ? block_->used - 1 : 0;
     }
 
     reference operator*() {
@@ -178,12 +202,11 @@ class Stack {
         return *this;
       }
 
-      ++index_;
-
-      // Move to next block if current block is exhausted
-      while (block_ != nullptr && index_ >= block_->used) {
+      if (index_ > 0) {
+        --index_;
+      } else {
         block_ = block_->prev;
-        index_ = 0;
+        index_ = block_ != nullptr ? block_->used - 1 : 0;
       }
 
       return *this;
