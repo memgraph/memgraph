@@ -628,6 +628,8 @@ class Storage {
       return transaction_.active_indices_.CheckIndicesAreReady(required_indices);
     }
 
+    bool TransactionHasSerializationError() const { return transaction_.has_serialization_error; }
+
     // TTL methods
     ttl::TTL &ttl() { return storage_->ttl_; }
 

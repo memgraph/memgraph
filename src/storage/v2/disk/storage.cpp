@@ -1688,7 +1688,7 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
 utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::PrepareForCommitPhase(
     CommitArgs /*commit_args*/) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
-  MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
+  MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;

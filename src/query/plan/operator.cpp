@@ -7289,6 +7289,10 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // TODO: What about cross library boundary exceptions? OMG C++?! <- should be fine since moving to shared libstd
     proc.cb(&proc_args, &graph, result, &proc_memory);
 
+    if (graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
+      static_cast<void>(mgp_result_set_error_msg(result, "Unable to commit due to serialization error."));
+    }
+
     auto leaked_bytes = memory_tracking_resource.GetAllocatedBytes();
     if (leaked_bytes > 0U) {
       spdlog::warn("Query procedure '{}' leaked {} *tracked* bytes", fully_qualified_procedure_name, leaked_bytes);
@@ -7299,6 +7303,10 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     mgp_memory proc_memory{memory};
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
+
+    if (graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
+      static_cast<void>(mgp_result_set_error_msg(result, "Unable to commit due to serialization error."));
+    }
   }
 }
 

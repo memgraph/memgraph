@@ -33,3 +33,9 @@ workloads:
     proc: "tests/e2e/write_procedures/procedures/"
     args: ["write_procedures/read_subgraph.py"]
     <<: *in_memory_cluster
+
+  - name: "Write procedures serialization error"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/write_procedures/procedures/"
+    args: ["write_procedures/serialization_error_handling.py"]
+    <<: *in_memory_cluster
