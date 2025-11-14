@@ -219,7 +219,7 @@ add_subdirectory(rapidcheck EXCLUDE_FROM_ALL SYSTEM)
 # Allow offline builds by checking for local source directory first
 # Set FETCHCONTENT_SOURCE_DIR_nlohmann_json to point to a local directory
 # containing the extracted nlohmann_json source to enable offline builds
-FETCHCONTENT_SOURCE_DIR_nlohmann_json=${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json
+set(FETCHCONTENT_SOURCE_DIR_nlohmann_json ${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json)
 if(EXISTS "${FETCHCONTENT_SOURCE_DIR_nlohmann_json}")
     # Use local source directory for offline builds
     FetchContent_Declare(
