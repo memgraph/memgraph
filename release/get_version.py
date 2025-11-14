@@ -103,9 +103,14 @@ print("Starting get_version.py", flush=True, file=sys.stderr)
 
 def can_connect_to_github(url="https://www.github.com", timeout=3):
     try:
+        t0 = time.time()
         urllib.request.urlopen(url, timeout=timeout)
+        t1 = time.time()
+        print(f"Can connect to GitHub in {t1 - t0} seconds", flush=True, file=sys.stderr)
         return True
     except Exception:
+        t1 = time.time()
+        print(f"Could not connect to GitHub in {t1 - t0} seconds", flush=True, file=sys.stderr)
         return False
 
 
