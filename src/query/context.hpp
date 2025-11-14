@@ -23,9 +23,11 @@
 #include "storage/v2/commit_args.hpp"
 #include "utils/async_timer.hpp"
 #include "utils/counter.hpp"
+#include "utils/priority_thread_pool.hpp"
 
 #include "query/frame_change.hpp"
 #include "query/hops_limit.hpp"
+#include "query/parallel_state.hpp"
 
 namespace memgraph::query {
 
@@ -98,27 +100,55 @@ struct StoppingContext {
 };
 
 struct ExecutionContext {
-  DbAccessor *db_accessor{nullptr};
-  SymbolTable symbol_table;
-  EvaluationContext evaluation_context;
-  StoppingContext stopping_context;
+  // ============================================================================
+  // CONST SECTION - Never modified after initialization
+  // ============================================================================
   bool is_profile_query{false};
+  std::optional<uint64_t> periodic_commit_frequency;
+  std::optional<size_t> parallel_execution{std::nullopt};  // if set, number of threads to use for parallel execution
+  std::shared_ptr<storage::DatabaseProtector> protector;
+  bool is_main{true};
   std::chrono::duration<double> profile_execution_time;
-  plan::ProfilingStats stats;
-  plan::ProfilingStats *stats_root{nullptr};
-  ExecutionStats execution_stats;
+  SymbolTable symbol_table;
+
+  // ============================================================================
+  // READ-ONLY SECTION - Only read, never written during execution
+  // These fields are shared across threads and can be accessed without synchronization
+  // ============================================================================
+  DbAccessor *db_accessor{nullptr};
+  utils::PriorityThreadPool *worker_pool{nullptr};
+  StoppingContext stopping_context;
   TriggerContextCollector *trigger_context_collector{nullptr};
   FrameChangeCollector *frame_change_collector{nullptr};
   std::shared_ptr<QueryUserOrRole> user_or_role;
-  int64_t number_of_hops{0};
-  HopsLimit hops_limit;
-  std::optional<uint64_t> periodic_commit_frequency;
 #ifdef MG_ENTERPRISE
-  std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
+  std::shared_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
-  std::shared_ptr<storage::DatabaseProtector> protector;
-  bool is_main{true};
+  // Hops limit - modified during edge expansions (hops_counter and limit_reached)
+  HopsLimit hops_limit;
+
   auto commit_args() -> storage::CommitArgs;
+
+  // ============================================================================
+  // UPDATE SECTION - Frequently modified during execution
+  // Each field is aligned to its own cache line to prevent false sharing
+  // For multi-threaded execution, each thread should have its own copy of this section
+  // ============================================================================
+
+  // Hops tracking - incremented on every edge expansion
+  alignas(64) int64_t number_of_hops{0};
+
+  // Execution statistics - incremented for create/delete/update operations
+  alignas(64) ExecutionStats execution_stats;
+
+  // Profiling statistics - modified by ScopedProfile (stack-based, push/pop pattern)
+  // NOTE: Not thread-safe - each thread needs its own stats tree
+  alignas(64) plan::ProfilingStats stats;
+  alignas(64) plan::ProfilingStats *stats_root{nullptr};
+
+  // Immutable parts of evaluation_context (memory, timestamp, parameters, properties, labels)
+  // Scope and counters are mutable and copied per-thread in parallel execution, with counters merged after execution
+  EvaluationContext evaluation_context;
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

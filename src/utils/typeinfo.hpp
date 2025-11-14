@@ -40,6 +40,8 @@ enum class TypeId : uint64_t {
   SCAN_ALL_BY_EDGE_PROPERTY_RANGE,
   SCAN_ALL_BY_POINT_DISTANCE,
   SCAN_ALL_BY_POINT_WITHINBBOX,
+  SCAN_CHUNK,
+  SCAN_PARALLEL,
   EXPAND_COMMON,
   SCAN_BY_EDGE_COMMON,
   EXPAND,
@@ -83,6 +85,8 @@ enum class TypeId : uint64_t {
   SET_NESTED_PROPERTY,
   REMOVE_NESTED_PROPERTY,
   LOAD_PARQUET,
+  AGGREGATE_PARALLEL,
+  PARALLEL_MERGE,
 
   // Replication
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)
