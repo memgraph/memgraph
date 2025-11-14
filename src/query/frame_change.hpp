@@ -23,8 +23,8 @@
 
 namespace memgraph::query {
 namespace plan {
-class AggregateParallelCursor;
-}
+class ParallelBranchCursor;
+}  // namespace plan
 
 struct CachedValue {
   using allocator_type = utils::Allocator<CachedValue>;
@@ -75,7 +75,8 @@ class FrameChangeCollector {
   using alloc_traits = std::allocator_traits<allocator_type>;
 
  public:
-  friend class plan::AggregateParallelCursor;
+  // TODO Remove this once we have a proper frame change collector for parallel execution
+  friend class plan::ParallelBranchCursor;
   explicit FrameChangeCollector(allocator_type alloc = {}) : caches_{alloc}, invalidators_{alloc} {}
 
   FrameChangeCollector(const FrameChangeCollector &) = delete;
