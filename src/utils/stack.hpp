@@ -112,10 +112,7 @@ class Stack {
         Block *prev = head_->prev;
         delete head_;
         head_ = prev;
-        continue;
-      }
-
-      if (head_->used <= count_to_erase) {
+      } else if (head_->used <= count_to_erase) {
         count_to_erase -= head_->used;
         head_->used = 0;
       } else {
@@ -176,11 +173,6 @@ class Stack {
     }
   }
 
-  template <typename Predicate>
-  auto Partition(Predicate &&pred) {
-    return std::partition(begin(), end(), std::forward<Predicate>(pred));
-  }
-
   template <typename Predicate, typename Deleter = NoOpDeleter>
   void EraseIf(Predicate &&pred, Deleter &&deleter = NoOpDeleter{}) {
     if constexpr (ThreadSafe) {
@@ -209,7 +201,7 @@ class Stack {
     }
 
     reference operator*() {
-      MG_ASSERT(block_ != nullptr && index_ <= block_->used, "Iterator dereference out of bounds!");
+      DMG_ASSERT(block_ != nullptr && index_ <= block_->used, "Iterator dereference out of bounds!");
       return block_->obj[index_];
     }
 
@@ -238,7 +230,7 @@ class Stack {
 
     bool operator==(const Iterator &other) const { return block_ == other.block_ && index_ == other.index_; }
 
-    bool operator!=(const Iterator &other) const { return !(*this == other); }
+    bool operator!=(const Iterator &other) const { return block_ != other.block_ || index_ != other.index_; }
 
    private:
     Block *block_;

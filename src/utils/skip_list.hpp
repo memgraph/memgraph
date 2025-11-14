@@ -381,15 +381,6 @@ class SkipListGc final {
       }
       tail = next;
     }
-    // auto partition_point = deleted_.Partition([last_dead](const TDeleted &item) { return item.first < last_dead; });
-    // auto it = deleted_.begin();
-    // while (it != partition_point) {
-    //   size_t bytes = SkipListNodeSize(*it->second);
-    //   it->second->~TNode();
-    //   memory_->deallocate(it->second, bytes, SkipListNodeAlign<TObj>());
-    //   ++it;
-    //   deleted_.Pop();
-    // }
     deleted_.EraseIf([last_dead](const TDeleted &item) { return item.first < last_dead; },
                      [this](const TDeleted &item) {
                        size_t bytes = SkipListNodeSize(*item.second);

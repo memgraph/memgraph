@@ -118,27 +118,27 @@ BENCHMARK_DEFINE_F(StackEraseIfFixture, EraseIfApproach)(benchmark::State &state
 
 // Args: (num_elements, deletion_percentage)
 BENCHMARK_REGISTER_F(StackEraseIfFixture, ManualDeletionApproach)
-    ->Args({1000, 25})
-    ->Args({1000, 50})
-    ->Args({1000, 75})
     ->Args({10000, 25})
     ->Args({10000, 50})
     ->Args({10000, 75})
     ->Args({100000, 25})
     ->Args({100000, 50})
     ->Args({100000, 75})
+    ->Args({1000000, 25})
+    ->Args({1000000, 50})
+    ->Args({1000000, 75})
     ->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_REGISTER_F(StackEraseIfFixture, EraseIfApproach)
-    ->Args({1000, 25})
-    ->Args({1000, 50})
-    ->Args({1000, 75})
     ->Args({10000, 25})
     ->Args({10000, 50})
     ->Args({10000, 75})
     ->Args({100000, 25})
     ->Args({100000, 50})
     ->Args({100000, 75})
+    ->Args({1000000, 25})
+    ->Args({1000000, 50})
+    ->Args({1000000, 75})
     ->Unit(benchmark::kMicrosecond);
 
 int main(int argc, char **argv) {
