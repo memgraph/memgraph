@@ -459,6 +459,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
             "VertexAccessors must be from the same transaction in when "
             "creating an edge!");
 
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  auto edge_acc = config_.properties_on_edges ? std::make_optional(mem_storage->edges_.access()) : std::nullopt;
+
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
@@ -491,16 +494,14 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_edge_types_.try_insert(edge_type);
   }
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   auto gid = storage::Gid::FromUint(mem_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
   EdgeRef edge(gid);
-  if (config_.properties_on_edges) {
-    auto acc = mem_storage->edges_.access();
+  if (edge_acc) {
     // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
     auto *delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = acc.insert(Edge(gid, delta));
+    auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
+    MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
     if (delta) {
       delta->prev.Set(&*it);
