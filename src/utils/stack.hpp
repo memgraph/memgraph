@@ -101,9 +101,27 @@ class Stack {
   void EraseIfImpl(Predicate &&pred, Deleter &&deleter = NoOpDeleter{}) {
     if (head_ == nullptr) return;
     auto partition_point = std::partition(begin(), end(), std::forward<Predicate>(pred));
+
+    auto count_to_erase = 0;
     for (auto it = begin(); it != partition_point; ++it) {
       std::forward<Deleter>(deleter)(*it);
-      PopImpl();
+      ++count_to_erase;
+    }
+    while (count_to_erase > 0 && head_ != nullptr) {
+      if (head_->used == 0) {
+        Block *prev = head_->prev;
+        delete head_;
+        head_ = prev;
+        continue;
+      }
+
+      if (head_->used <= count_to_erase) {
+        count_to_erase -= head_->used;
+        head_->used = 0;
+      } else {
+        head_->used -= count_to_erase;
+        count_to_erase = 0;
+      }
     }
   }
 
