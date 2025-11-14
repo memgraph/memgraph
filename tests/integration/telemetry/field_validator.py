@@ -325,8 +325,6 @@ def _verify_storage_fields(storage_data: dict) -> bool:
         ("streams", int),  # Sum of streams in every database
         ("users", int),  # Number of defined users
         ("roles", int),  # Number of defined roles
-        ("labels", int),  # Number of distinct labels
-        ("edge_types", int),  # Number of distinct edge types
         ("databases", int),  # Number of isolated databases
         ("indices", int),  # Sum of indices in every database
         ("constraints", int),  # Sum of constraints in every database
@@ -335,7 +333,7 @@ def _verify_storage_fields(storage_data: dict) -> bool:
         ("durability", dict),  # Durability settings
         ("property_store_compression_enabled", int),  # Number of databases with compression enabled
         ("property_store_compression_level", dict),  # Number of databases with each compression level
-        ("label_node_count_histogram", dict),  # Log_10 histogram of nodes per label
+        ("label_node_count_histogram", dict),  # Histogram of number of labels having 1-9, 10-99, ..., 10M+ nodes
     ]
 
     durability_fields = [

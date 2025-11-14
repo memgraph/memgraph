@@ -22,6 +22,7 @@
 #include <optional>
 #include <system_error>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 
 #include "auth/auth.hpp"
@@ -59,8 +60,8 @@ struct Statistics {
   uint64_t roles;          //!< Number of defined roles
   uint64_t num_databases;  //!< Number of isolated databases
   uint64_t num_labels;     //!< Number of distinct labels
-  std::array<uint64_t, 8>
-      label_node_count_histogram;  //!< Histogram of number of labels having 0, 1-9, 10-99, ..., 10M+ nodes
+  std::array<uint64_t, 7>
+      label_node_count_histogram;  //!< Log10 histogram: [0]=1-9, [1]=10-99, ..., [6]=1M+
   uint64_t num_edge_types; //!< Number of distinct edge types
   uint64_t indices;        //!< Sum of indices in every database
   uint64_t constraints;    //!< Sum of constraints in every database
@@ -84,8 +85,6 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
   res["streams"] = stats.streams;
   res["users"] = stats.users;
   res["roles"] = stats.roles;
-  res["labels"] = stats.num_labels;
-  res["edge_types"] = stats.num_edge_types;
   res["databases"] = stats.num_databases;
   res["indices"] = stats.indices;
   res["constraints"] = stats.constraints;
@@ -102,10 +101,10 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
       {utils::CompressionLevelToString(utils::CompressionLevel::MID), stats.property_store_compression_level[1]},
       {utils::CompressionLevelToString(utils::CompressionLevel::HIGH), stats.property_store_compression_level[2]}};
   res["label_node_count_histogram"] = {
-      {"0", stats.label_node_count_histogram[0]},           {"1-9", stats.label_node_count_histogram[1]},
-      {"10-99", stats.label_node_count_histogram[2]},       {"100-999", stats.label_node_count_histogram[3]},
-      {"1K-9999", stats.label_node_count_histogram[4]},     {"10K-99999", stats.label_node_count_histogram[5]},
-      {"100K-999999", stats.label_node_count_histogram[6]}, {"1M+", stats.label_node_count_histogram[7]}};
+      {"1-9", stats.label_node_count_histogram[0]},       {"10-99", stats.label_node_count_histogram[1]},
+      {"100-999", stats.label_node_count_histogram[2]},   {"1K-9999", stats.label_node_count_histogram[3]},
+      {"10K-99999", stats.label_node_count_histogram[4]}, {"100K-999999", stats.label_node_count_histogram[5]},
+      {"1M+", stats.label_node_count_histogram[6]}};
 
   return res;
 }
@@ -373,14 +372,18 @@ class DbmsHandler {
             storage_info.property_store_compression_level)];
 
         auto storage_acc = db_acc->storage()->Access();
-        stats.num_labels += storage_acc->CountAllPossiblyPresentVertexLabels();
-        stats.num_edge_types += storage_acc->CountAllPossiblyPresentEdgeTypes();
 
-        constexpr size_t kMaxHistogramBucket = 7;
-        for (auto const label : storage_acc->ListAllPossiblyPresentVertexLabels()) {
-          auto const count = storage_acc->ApproximateVertexCount(label);
-          size_t const bucket =
-              count == 0 ? 0 : std::min(kMaxHistogramBucket, static_cast<size_t>(std::log10(count)) + 1);
+        constexpr size_t kMaxHistogramBucket = 6;
+        std::unordered_map<storage::LabelId, uint64_t> label_counts;
+        for (auto &&vertex : storage_acc->Vertices(storage::View::OLD)) {
+          auto const labels_result = vertex.Labels(storage::View::OLD);
+          if (labels_result.HasError()) continue;
+          for (auto const label : *labels_result) {
+            ++label_counts[label];
+          }
+        }
+        for (auto &&[label, count] : label_counts) {
+          std::size_t const bucket = std::min(kMaxHistogramBucket, static_cast<std::size_t>(std::log10(count)));
           ++stats.label_node_count_histogram[bucket];
         }
       }
