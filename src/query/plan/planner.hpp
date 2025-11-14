@@ -89,7 +89,6 @@ class PostProcessor final {
                    if (!value.IsInt() || value.ValueInt() < 0) {
                      throw QueryException("Number of threads must be a non-negative integer");
                    }
-                   std::cout << "Number of threads: " << value.ValueInt() << std::endl;
                    return static_cast<size_t>(value.ValueInt());
                  }
                  return FLAGS_bolt_num_workers;
