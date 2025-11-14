@@ -23,8 +23,8 @@
 
 namespace memgraph::query {
 namespace plan {
-class AggregateParallelCursor;
-}
+class ParallelBranchCursor;
+}  // namespace plan
 
 struct CachedSet {
   using allocator_type = utils::Allocator<CachedSet>;
@@ -76,7 +76,7 @@ class FrameChangeCollector {
 
  public:
   // TODO: Make a merge function
-  friend class plan::AggregateParallelCursor;
+  friend class plan::ParallelBranchCursor;
   explicit FrameChangeCollector(allocator_type alloc = {})
       : inlist_cache_{alloc}, regex_cache_{alloc}, invalidators_{alloc} {}
 
