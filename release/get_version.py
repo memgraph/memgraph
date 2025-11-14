@@ -3,8 +3,10 @@ import argparse
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from functools import wraps
@@ -102,15 +104,54 @@ print("Starting get_version.py", flush=True, file=sys.stderr)
 
 
 def can_connect_to_github(url="https://www.github.com", timeout=3):
-    try:
-        t0 = time.time()
-        urllib.request.urlopen(url, timeout=timeout)
-        t1 = time.time()
-        print(f"Can connect to GitHub in {t1 - t0} seconds", flush=True, file=sys.stderr)
+    """
+    Check if we can connect to GitHub with a proper timeout that includes DNS resolution.
+
+    The issue with urllib.request.urlopen() is that its timeout only applies to the
+    socket connection and reading, not DNS resolution. DNS can take 30+ seconds if
+    the DNS server is unreachable. This function uses a threading-based timeout to
+    ensure the entire operation (including DNS) is bounded.
+    """
+    result = [None]  # Use list to allow modification from nested function
+    exception = [None]
+
+    def connect():
+        try:
+            # Parse URL to get hostname and port
+            from urllib.parse import urlparse
+
+            parsed = urlparse(url)
+            hostname = parsed.hostname
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+            # Use socket.create_connection() which handles DNS resolution with timeout
+            # This is more reliable than urllib.request.urlopen() for timeout control
+            sock = socket.create_connection((hostname, port), timeout=timeout)
+            sock.close()
+            result[0] = True
+        except Exception as e:
+            exception[0] = e
+            result[0] = False
+
+    t0 = time.time()
+    thread = threading.Thread(target=connect, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+
+    t1 = time.time()
+    elapsed = t1 - t0
+
+    if thread.is_alive():
+        # Thread is still running, timeout occurred
+        print(f"Could not connect to GitHub - timeout after {elapsed:.2f} seconds", flush=True, file=sys.stderr)
+        return False
+
+    if result[0] is True:
+        print(f"Can connect to GitHub in {elapsed:.2f} seconds", flush=True, file=sys.stderr)
         return True
-    except Exception:
-        t1 = time.time()
-        print(f"Could not connect to GitHub in {t1 - t0} seconds", flush=True, file=sys.stderr)
+    else:
+        exc_type = type(exception[0]).__name__ if exception[0] else "Unknown"
+        print(f"Could not connect to GitHub in {elapsed:.2f} seconds: {exc_type}", flush=True, file=sys.stderr)
         return False
 
 
@@ -366,7 +407,7 @@ if current_version is None:
         # Calculate distance from master branch as a development version
         try:
             distance = int(get_output("git", "rev-list", "--count", "--first-parent", "origin/master.." + current_hash))
-        except:
+        except Exception:
             distance = 0
 
         if distance == 0:
@@ -386,8 +427,9 @@ if current_version is None:
         sys.exit(0)
     else:
         print(
-            "Unable to determine version. No local release branches found and could not fetch from original repository. "
-            "This repository may need to be updated or may not be a standard Memgraph repository."
+            "Unable to determine version. No local release branches found and could not fetch from "
+            "original repository. This repository may need to be updated or may not be a standard "
+            "Memgraph repository."
         )
 
         # just use latest version found locally in tags
