@@ -792,12 +792,6 @@ class ScanAllCursor : public Cursor {
 
     while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
       if (!input_cursor_->Pull(frame, context)) {
-        std::cout << "called: " << called_ << std::endl;
-        std::cout << "scan pulling time: "
-                  << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
-                                                                           start_time_)
-                         .count()
-                  << "ms" << std::endl;
         return false;
       }
       start_time_ = std::chrono::steady_clock::now();
@@ -8958,8 +8952,6 @@ class ScanParallelCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
-    auto now = std::chrono::steady_clock::now();
-
     size_t index = 0;
     std::shared_ptr<VerticesChunkedIterable> chunks;
     {
@@ -8988,10 +8980,6 @@ class ScanParallelCursor : public Cursor {
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     ParallelStateOnFrame::PushToFrame(frame_writer, context.evaluation_context.memory, self_.state_symbol_, chunks,
                                       index);
-
-    auto end = std::chrono::steady_clock::now();
-    std::cout << "scanparallel pulling time: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - now).count() << "ms" << std::endl;
     return true;
   }
 
@@ -9015,7 +9003,6 @@ UniqueCursorPtr ScanParallel::MakeCursor(utils::MemoryResource *mem) const {
   auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
     // Make sure chunks is valid for duration of the cursor
     auto *db = context.db_accessor;
-    std::cout << "scanparallel getting " << num_threads_ << " chunks\n";
     return db->ChunkedVertices(view_, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
