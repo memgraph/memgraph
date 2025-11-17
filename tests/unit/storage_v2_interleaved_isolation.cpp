@@ -574,3 +574,75 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithAbortedInterleavedTransact
     CompareEdges(edges.GetValue(), std::array{tx6->NameToEdgeType("Edge1")});
   }
 }
+
+TEST(StorageV2InterleavedIsolation, AbortedEdgesNotVisibleDuringAbort) {
+  std::unique_ptr<ms::Storage> storage(std::make_unique<ms::InMemoryStorage>(ms::Config{}));
+
+  ms::Gid v1_gid, v2_gid;
+
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    constexpr int kNumEdges = 500;
+    constexpr int kNumIterations = 10;
+    std::atomic<bool> test_finished{false};
+
+    auto create_edges_then_abort = [&](int writer_id) {
+      for (int iteration = 0; iteration < kNumIterations; ++iteration) {
+        auto acc = storage->Access();
+        auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+        auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
+        ASSERT_TRUE(v1.has_value());
+        ASSERT_TRUE(v2.has_value());
+
+        for (int i = 0; i < kNumEdges; ++i) {
+          auto const edge_name = std::format("E{}_{}", writer_id, i);
+          auto edge = acc->CreateEdge(&*v1, &*v2, acc->NameToEdgeType(edge_name));
+          ASSERT_FALSE(edge.HasError());
+        }
+
+        acc->Abort();
+        acc.reset();
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    };
+
+    std::jthread writer1([&]() {
+      create_edges_then_abort(1);
+      test_finished.store(true, std::memory_order_release);
+    });
+
+    std::jthread writer2([&]() { create_edges_then_abort(2); });
+
+    std::jthread reader([&]() {
+      while (!test_finished.load(std::memory_order_acquire)) {
+        auto acc = storage->Access();
+        auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+        ASSERT_TRUE(v1.has_value());
+        auto edges = v1->OutEdges(ms::View::OLD);
+        if (edges.HasValue()) {
+          int edge_count = edges->edges.size();
+          ASSERT_EQ(edge_count, 0);
+        }
+      }
+    });
+  }
+
+  // New transactions should still see no edges
+  {
+    auto tx_final = storage->Access();
+    auto v1 = tx_final->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    auto edges = v1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    ASSERT_EQ(edges->edges.size(), 0);
+  }
+}
