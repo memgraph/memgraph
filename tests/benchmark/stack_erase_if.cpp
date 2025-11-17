@@ -18,11 +18,11 @@
 #include "utils/stack.hpp"
 
 using TDeleted = std::pair<uint64_t, int *>;
-using TLocalStack = memgraph::utils::Stack<TDeleted, 8191, false>;
-using TThreadSafeStack = memgraph::utils::Stack<TDeleted, 8191, true>;
+using TLocalStack = memgraph::utils::Stack<TDeleted, 8190, false>;
+using TThreadSafeStack = memgraph::utils::Stack<TDeleted, 8190, true>;
 
 namespace {
-void DeleteNode(const int *node) { delete node; }
+inline void DeleteNode(const int *node) { delete node; }
 }  // namespace
 
 class StackEraseIfFixture : public benchmark::Fixture {
@@ -92,7 +92,9 @@ BENCHMARK_DEFINE_F(StackEraseIfFixture, ManualDeletionApproach)(benchmark::State
     std::optional<TDeleted> item;
     while ((item = stack.Pop())) {
       if (item->first < last_dead) {
+        state.PauseTiming();
         DeleteNode(item->second);
+        state.ResumeTiming();
       } else {
         leftover.Push(std::move(*item));
       }
@@ -113,7 +115,11 @@ BENCHMARK_DEFINE_F(StackEraseIfFixture, EraseIfApproach)(benchmark::State &state
     state.ResumeTiming();
 
     stack.EraseIf([last_dead](const TDeleted &item) { return item.first < last_dead; },
-                  [](const TDeleted &item) { DeleteNode(item.second); });
+                  [&](const TDeleted &item) {
+                    state.PauseTiming();
+                    DeleteNode(item.second);
+                    state.ResumeTiming();
+                  });
   }
 }
 

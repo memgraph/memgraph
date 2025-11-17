@@ -59,7 +59,7 @@ constexpr int kSkipListCountEstimateDefaultLayer = 10;
 /// optimized to have block sizes that are a whole multiple of the memory page
 /// size.
 constexpr uint64_t kSkipListGcBlockSize = 8189;
-constexpr uint64_t kSkipListGcStackSize = 8191;
+constexpr uint64_t kSkipListGcStackSize = 8190;
 
 namespace detail {
 

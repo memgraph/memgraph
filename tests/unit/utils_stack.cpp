@@ -13,8 +13,10 @@
 
 #include "utils/stack.hpp"
 
+static constexpr uint64_t kStackSize = 1016;
+
 TEST(Stack, EraseIfSomeElements) {
-  memgraph::utils::Stack<int, 1020, false> stack;
+  memgraph::utils::Stack<int, kStackSize, false> stack;
   for (int i = 0; i < 20; ++i) {
     stack.Push(i);
   }
@@ -35,7 +37,7 @@ TEST(Stack, EraseIfSomeElements) {
 }
 
 TEST(Stack, EraseIfAllElements) {
-  memgraph::utils::Stack<int, 1020, false> stack;
+  memgraph::utils::Stack<int, kStackSize, false> stack;
   for (int i = 0; i < 10; ++i) {
     stack.Push(i);
   }
@@ -47,7 +49,7 @@ TEST(Stack, EraseIfAllElements) {
 }
 
 TEST(Stack, EraseIfNoElements) {
-  memgraph::utils::Stack<int, 1020, false> stack;
+  memgraph::utils::Stack<int, kStackSize, false> stack;
   for (int i = 0; i < 10; ++i) {
     stack.Push(i);
   }
@@ -65,13 +67,13 @@ TEST(Stack, EraseIfNoElements) {
 }
 
 TEST(Stack, EraseIfEmptyStack) {
-  memgraph::utils::Stack<int, 1020, false> stack;
+  memgraph::utils::Stack<int, kStackSize, false> stack;
   stack.EraseIf([](int val) { return val > 5; });
   ASSERT_FALSE(stack.Pop().has_value());
 }
 
 TEST(Stack, EraseIfWithDeleter) {
-  memgraph::utils::Stack<int, 1020, false> stack;
+  memgraph::utils::Stack<int, kStackSize, false> stack;
   for (int i = 0; i < 10; ++i) {
     stack.Push(i);
   }
@@ -100,8 +102,8 @@ TEST(Stack, EraseIfWithDeleter) {
 
 TEST(Stack, EraseIfMultipleBlocks) {
   // Use smaller block size to easily create multiple blocks
-  memgraph::utils::Stack<int, 1020, false> stack;
-  // Push enough elements to fill more than one block (1020 per block)
+  memgraph::utils::Stack<int, kStackSize, false> stack;
+  // Push enough elements to fill more than one block (kStackSize per block)
   const int total_elements = 2500;  // Will create 3 blocks
   for (int i = 0; i < total_elements; ++i) {
     stack.Push(i);
@@ -122,7 +124,7 @@ TEST(Stack, EraseIfMultipleBlocks) {
 }
 
 TEST(Stack, EraseIfMultipleBlocksPartial) {
-  memgraph::utils::Stack<int, 1020, false> stack;
+  memgraph::utils::Stack<int, kStackSize, false> stack;
   const int total_elements = 2500;
   for (int i = 0; i < total_elements; ++i) {
     stack.Push(i);
@@ -143,7 +145,7 @@ TEST(Stack, EraseIfMultipleBlocksPartial) {
 }
 
 TEST(Stack, EraseIfMultipleBlocksWithDeleter) {
-  memgraph::utils::Stack<int, 1020, false> stack;
+  memgraph::utils::Stack<int, kStackSize, false> stack;
   const int total_elements = 2500;
   for (int i = 0; i < total_elements; ++i) {
     stack.Push(i);
@@ -167,7 +169,7 @@ TEST(Stack, EraseIfMultipleBlocksWithDeleter) {
 }
 
 TEST(Stack, EraseIfAllElementsMultipleBlocks) {
-  memgraph::utils::Stack<int, 1020, false> stack;
+  memgraph::utils::Stack<int, kStackSize, false> stack;
   const int total_elements = 2500;
   for (int i = 0; i < total_elements; ++i) {
     stack.Push(i);
