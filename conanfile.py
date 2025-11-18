@@ -2,7 +2,7 @@ import os
 
 from conan import ConanFile
 from conan.errors import ConanException
-from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
+from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain
 
 
 class Memgraph(ConanFile):
@@ -16,6 +16,20 @@ class Memgraph(ConanFile):
     settings = "os", "compiler", "build_type", "arch"
 
     exports_sources = "CMakeLists.txt", "src/*"
+
+    default_options = {
+        "aws-sdk-cpp/*:config": True,
+        "aws-sdk-cpp/*:s3": True,
+        "aws-sdk-cpp/*:monitoring": False,
+        "aws-sdk-cpp/*:text-to-speech": False,
+        "aws-sdk-cpp/*:queues": False,
+        "aws-sdk-cpp/*:sqs": False,
+        "aws-sdk-cpp/*:access-management": False,
+        "aws-sdk-cpp/*:cognito-identity": True,
+        "aws-sdk-cpp/*:iam": False,
+        "aws-sdk-cpp/*:identity-management": True,
+        "aws-sdk-cpp/*:transfer": False,
+    }
 
     # TODO(matt): remove this hack so that builds end up in the subdirectory named after the build type
     # This will require fixing a bunch of the hard-coded paths in the testing code.

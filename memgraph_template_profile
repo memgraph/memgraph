@@ -37,19 +37,3 @@ boost/*:extra_b2_flags=cxxflags=--target=aarch64-unknown-linux-gnu cflags=--targ
 {% elif enable_asan or enable_ubsan %}
 boost/*:extra_b2_flags=cxxflags=--target=x86_64-linux-gnu cflags=--target=x86_64-linux-gnu linkflags=--target=x86_64-linux-gnu
 {% endif %}
-# required for arrow
-aws-sdk-cpp/*:config=True
-aws-sdk-cpp/*:s3=True
-aws-sdk-cpp/*:monitoring=False
-aws-sdk-cpp/*:text-to-speech=False
-aws-sdk-cpp/*:queues=False
-aws-sdk-cpp/*:sqs=False
-aws-sdk-cpp/*:access-management=False
-aws-sdk-cpp/*:cognito-identity=True
-aws-sdk-cpp/*:iam=False
-aws-sdk-cpp/*:identity-management=True
-aws-sdk-cpp/*:transfer=False
-
-[replace_requires]
-# this is to fix conflict in arrow build
-aws-sdk-cpp/1.9.234: aws-sdk-cpp/1.11.619
