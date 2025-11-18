@@ -73,23 +73,6 @@ class Memgraph(ConanFile):
         self.requires("asio/1.34.2")
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
         self.requires("snappy/1.2.1")
-        self.requires(
-            "aws-sdk-cpp/1.11.619",
-            options={
-                "config": True,
-                "s3": True,
-                "monitoring": False,
-                "text-to-speech": False,
-                "queues": False,
-                "sqs": False,
-                "access-management": False,
-                "cognito-identity": True,
-                "iam": False,
-                "identity-management": True,
-                "transfer": False,
-            },
-            override=True,
-        )
         self.requires("arrow/22.0.0", options={"with_s3": True})
 
     def package(self):
