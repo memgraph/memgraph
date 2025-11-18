@@ -74,7 +74,7 @@ class Memgraph(ConanFile):
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
         self.requires("snappy/1.2.1")
         self.requires(
-            "aws-sdk-cpp/1.9.234",
+            "aws-sdk-cpp/1.11.619",
             options={
                 "config": True,
                 "s3": True,
