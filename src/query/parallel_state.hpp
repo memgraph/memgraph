@@ -20,21 +20,39 @@ namespace memgraph::query {
 
 class ParallelStateOnFrame {
  public:
+  // Constructor for vertices
   ParallelStateOnFrame(std::shared_ptr<VerticesChunkedIterable> chunks, size_t chunk_index)
-      : chunks_(std::move(chunks)), chunk_index_(chunk_index) {}
+      : vertices_chunks_(std::move(chunks)), chunk_index_(chunk_index) {}
 
-  std::optional<VerticesChunkedIterable::Chunk> GetChunk() {
-    if (chunks_ == nullptr || chunk_index_ >= chunks_->size()) {
+  // Constructor for edges
+  ParallelStateOnFrame(std::shared_ptr<EdgesChunkedIterable> chunks, size_t chunk_index)
+      : edges_chunks_(std::move(chunks)), chunk_index_(chunk_index) {}
+
+  std::optional<VerticesChunkedIterable::Chunk> GetVerticesChunk() {
+    if (!vertices_chunks_ || chunk_index_ >= vertices_chunks_->size()) {
       return std::nullopt;
     }
-    return chunks_->get_chunk(chunk_index_);
+    return vertices_chunks_->get_chunk(chunk_index_);
   }
 
-  std::shared_ptr<VerticesChunkedIterable> chunks_;
+  std::optional<EdgesChunkedIterable::Chunk> GetEdgesChunk() {
+    if (!edges_chunks_ || chunk_index_ >= edges_chunks_->size()) {
+      return std::nullopt;
+    }
+    return edges_chunks_->get_chunk(chunk_index_);
+  }
+
+  // Legacy method for backward compatibility
+  std::optional<VerticesChunkedIterable::Chunk> GetChunk() { return GetVerticesChunk(); }
+
+  std::shared_ptr<VerticesChunkedIterable> vertices_chunks_;
+  std::shared_ptr<EdgesChunkedIterable> edges_chunks_;
   size_t chunk_index_;
 
-  static void PushToFrame(FrameWriter &frame_writer, utils::MemoryResource *res, const Symbol &symbol, auto &&...args) {
-    auto *state = new ParallelStateOnFrame(std::forward<decltype(args)>(args)...);
+  template <typename ChunksType>
+  static void PushToFrame(FrameWriter &frame_writer, utils::MemoryResource *res, const Symbol &symbol,
+                          std::shared_ptr<ChunksType> chunks, size_t index) {
+    auto *state = new ParallelStateOnFrame(std::move(chunks), index);
     TypedValue tv(reinterpret_cast<int64_t>(state), res);
     frame_writer.Write(symbol, std::move(tv));
   }
