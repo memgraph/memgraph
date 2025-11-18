@@ -53,6 +53,7 @@ class Memgraph(ConanFile):
         self.tool_requires("cmake/4.0.3")
         self.tool_requires("ninja/1.11.1")
         self.tool_requires("ccache/4.12.1")
+        self.tool_requires("m4/1.4.19")
 
     def requirements(self):
         self.requires("bzip2/1.0.8")
@@ -72,7 +73,7 @@ class Memgraph(ConanFile):
         self.requires("range-v3/0.12.0")
         self.requires("asio/1.34.2")
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
-        self.requires("snappy/1.1.9")
+        self.requires("snappy/1.2.1", override=True)
         self.requires("arrow/22.0.0", options={"with_s3": True, "with_snappy": True, "with_mimalloc": False})
 
     def package(self):
