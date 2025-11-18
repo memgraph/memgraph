@@ -213,7 +213,7 @@ constexpr utils::TypeInfo query::plan::ScanParallel::kType{utils::TypeId::SCAN_P
 
 constexpr utils::TypeInfo query::plan::AggregateParallel::kType{.id = utils::TypeId::AGGREGATE_PARALLEL,
                                                                 .name = "AggregateParallel",
-                                                                .superclass = &query::plan::LogicalOperator::kType};
+                                                                .superclass = &query::plan::ParallelMerge::kType};
 
 constexpr utils::TypeInfo query::plan::ParallelMerge::kType{
     .id = utils::TypeId::PARALLEL_MERGE, .name = "ParallelMerge", .superclass = &query::plan::LogicalOperator::kType};

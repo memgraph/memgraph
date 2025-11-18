@@ -361,11 +361,58 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     auto state_symbol = symbol_table->CreateAnonymousSymbol();
     auto scan_input = std::make_shared<ScanParallel>(post_scan_input, scan->view_, num_threads_, state_symbol);
     auto parallel_merge = std::make_shared<ParallelMerge>(scan_input);
-    scan_parent->set_input(
-        std::make_shared<ScanChunk>(parallel_merge, scan->output_symbol_, scan->view_, state_symbol));
+    // scan_parent may be an operator without a single input. Check and handle appropriately.
+    auto scan_chunk = std::make_shared<ScanChunk>(parallel_merge, scan->output_symbol_, scan->view_, state_symbol);
+    if (scan_parent) {
+      if (scan_parent->HasSingleInput()) {
+        scan_parent->set_input(scan_chunk);
+      } else {
+        // NOTE We just go down the left branch.
+        // TODO The whole branch need to be checked, not just the firs op
+        // We would also need to always for parallelization on the left branch.
+        // Handle special case for Union and Cartesian
+        // Try to set the correct child in multi-input operator
+        // Currently handle Union and Cartesian
+        if (auto *union_op = dynamic_cast<Union *>(scan_parent.get())) {
+          // Check which child is last_scan
+          if (union_op->left_op_ && union_op->left_op_.get() == last_scan.get()) {
+            union_op->left_op_ = scan_chunk;
+          } else {
+            throw 1;  // TODO
+          }
+        } else if (auto *cartesian_op = dynamic_cast<Cartesian *>(scan_parent.get())) {
+          if (cartesian_op->left_op_ && cartesian_op->left_op_.get() == last_scan.get()) {
+            cartesian_op->left_op_ = scan_chunk;
+          } else {
+            throw 1;  // TODO
+          }
+        } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(scan_parent.get())) {
+          if (indexed_join_op->main_branch_ && indexed_join_op->main_branch_.get() == last_scan.get()) {
+            indexed_join_op->main_branch_ = scan_chunk;
+          } else {
+            throw 1;  // TODO
+          }
+        } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(scan_parent.get())) {
+          if (hash_join_op->left_op_ && hash_join_op->left_op_.get() == last_scan.get()) {
+            hash_join_op->left_op_ = scan_chunk;
+          } else {
+            throw 1;  // TODO
+          }
+        } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(scan_parent.get())) {
+          if (rollup_apply_op->input_ && rollup_apply_op->input_.get() == last_scan.get()) {
+            rollup_apply_op->input_ = scan_chunk;
+          } else {
+            throw 1;  // TODO
+          }
+        } else {
+          throw 1;  // TODO
+        }
+        // TODO Handle other multi-input operators
+      }
+    }
 
     // Create AggregateParallel with default num_threads
-    auto parallel_agg = std::make_shared<AggregateParallel>(nullptr, prev_ops_.back()->input(),  // op
+    auto parallel_agg = std::make_shared<AggregateParallel>(prev_ops_.back()->input(),  // op
                                                             num_threads_);
 
     // Switch the parent operator (if any) to use AggregateParallel instead of Aggregate
@@ -640,15 +687,18 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     // Set the parent's input to AggregateParallel
     prev_ops_.back()->set_input(input);
   }
-
   // Helper function to find the last Scan operator in a branch
-  // This traverses down the input chain until it finds the deepest Scan operator
-  // The "last" Scan is the one that is deepest in the tree (closest to Once)
+  // This traverses down the input chain until it finds the last Scan operator. This way (the idea is) we parallelize
+  // most elements.
+  // TODO Using the Last or First scan has similar results. Ideally you would parallelize the scan with the most
+  // elements.
   void FindLastScan(std::shared_ptr<LogicalOperator> op, std::shared_ptr<LogicalOperator> &last_scan,
                     std::shared_ptr<LogicalOperator> &scan_parent) {
     // TODO Rewrite to a loop
     auto parent = op;
+    // std::cout << "FindLastScan" << std::endl;
     while (op && op->GetTypeInfo() != Once::kType) {
+      // std::cout << "op: " << op->ToString() << std::endl;
       if (utils::IsSubtype(*op, ScanAll::kType)) {
         last_scan = op;
         scan_parent = parent;
@@ -658,18 +708,27 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
 
       if (op->HasSingleInput()) {
         op = op->input();
+        continue;
       }
 
       // Cartesian is a special case, we need to parallelize the right branch
       if (op->GetTypeInfo() == Cartesian::kType) {
         auto cartesian = std::dynamic_pointer_cast<Cartesian>(op);
-        op = cartesian->right_op_;
-      }
-
-      // TODO Is this correct?
-      if (op->GetTypeInfo() == plan::RollUpApply::kType) {
+        op = cartesian->left_op_;
+      } else if (op->GetTypeInfo() == plan::IndexedJoin::kType) {
+        auto indexed_join = std::dynamic_pointer_cast<plan::IndexedJoin>(op);
+        op = indexed_join->main_branch_;
+      } else if (op->GetTypeInfo() == plan::HashJoin::kType) {
+        auto hash_join = std::dynamic_pointer_cast<plan::HashJoin>(op);
+        op = hash_join->left_op_;
+      } else if (op->GetTypeInfo() == plan::Union::kType) {
+        auto union_ = std::dynamic_pointer_cast<plan::Union>(op);
+        op = union_->left_op_;
+      } else if (op->GetTypeInfo() == plan::RollUpApply::kType) {
         auto rollup = std::dynamic_pointer_cast<plan::RollUpApply>(op);
         op = rollup->input_;
+      } else {
+        throw 1;  // TODO
       }
     }
   }

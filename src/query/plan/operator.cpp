@@ -8930,9 +8930,7 @@ UniqueCursorPtr ScanChunk::MakeCursor(utils::MemoryResource *mem) const {
                                                                 view_, std::move(vertices), "ScanChunk");
 }
 
-std::string ScanChunk::ToString() const {
-  return fmt::format("ScanChunk ({}, state: {})", input_->ToString(), state_symbol_.name());
-}
+std::string ScanChunk::ToString() const { return fmt::format("ScanChunk (state: {})", state_symbol_.name()); }
 
 std::unique_ptr<LogicalOperator> ScanChunk::Clone(AstStorage *storage) const {
   auto object = std::make_unique<ScanChunk>();
@@ -9015,7 +9013,7 @@ ScanParallel::ScanParallel(const std::shared_ptr<LogicalOperator> &input, storag
 ACCEPT_WITH_INPUT(ScanParallel)
 
 std::string ScanParallel::ToString() const {
-  return fmt::format("ScanParallel ({}, threads: {})", input_->ToString(), num_threads_);
+  return fmt::format("ScanParallel (state: {}, threads: {})", state_symbol_.name(), num_threads_);
 }
 
 std::unique_ptr<LogicalOperator> ScanParallel::Clone(AstStorage *storage) const {
@@ -9033,7 +9031,7 @@ ParallelMerge::ParallelMerge(const std::shared_ptr<LogicalOperator> &input) : in
 
 ACCEPT_WITH_INPUT(ParallelMerge)
 
-std::string ParallelMerge::ToString() const { return fmt::format("ParallelMerge ({})", input_->ToString()); }
+std::string ParallelMerge::ToString() const { return "ParallelMerge"; }
 
 std::unique_ptr<LogicalOperator> ParallelMerge::Clone(AstStorage *storage) const {
   auto object = std::make_unique<ParallelMerge>();
@@ -9517,9 +9515,8 @@ class AggregateParallelCursor : public ParallelBranchCursor {
   const AggregateParallel &self_;
 };
 
-AggregateParallel::AggregateParallel(const std::shared_ptr<LogicalOperator> &post_scan_input,
-                                     const std::shared_ptr<LogicalOperator> &agg_inputs, size_t num_threads)
-    : post_scan_input_(post_scan_input), agg_inputs_(agg_inputs), num_threads_(num_threads) {}
+AggregateParallel::AggregateParallel(const std::shared_ptr<LogicalOperator> &agg_inputs, size_t num_threads)
+    : agg_inputs_(agg_inputs), num_threads_(num_threads) {}
 
 UniqueCursorPtr AggregateParallel::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::AggregateOperator);
@@ -9528,7 +9525,6 @@ UniqueCursorPtr AggregateParallel::MakeCursor(utils::MemoryResource *mem) const 
 }
 
 std::vector<Symbol> AggregateParallel::ModifiedSymbols(const SymbolTable &table) const {
-  // auto symbols = post_scan_input_->ModifiedSymbols(table);
   auto symbols = std::vector<Symbol>();
   auto right = agg_inputs_->ModifiedSymbols(table);
   symbols.insert(symbols.end(), right.begin(), right.end());
@@ -9537,7 +9533,6 @@ std::vector<Symbol> AggregateParallel::ModifiedSymbols(const SymbolTable &table)
 
 bool AggregateParallel::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
-    // post_scan_input_->Accept(visitor) &&
     agg_inputs_->Accept(visitor);
   }
   return visitor.PostVisit(*this);

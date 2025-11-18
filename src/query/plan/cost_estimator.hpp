@@ -334,6 +334,42 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   // TODO: Cost estimate ScanAllById?
 
+  bool PostVisit(ScanChunk &) override {
+    // ScanChunk scans a chunk of vertices, similar to ScanAll
+    // Cardinality is already set by the input, we just add cost
+    // TODO Support different scan types
+    IncrementCost(CostParam::kScanAll);
+    return true;
+  }
+
+  bool PostVisit(ScanParallel &) override {
+    // This is just chunking, no cost
+    return true;
+  }
+
+  bool PostVisit(ParallelMerge &) override {
+    // No cost for ParallelMerge
+    return true;
+  }
+
+  bool PreVisit(AggregateParallel &op) override {
+    // Start of parallel execution
+    // Set parallel execution mode for cost calculation
+    in_parallel_execution_ = true;
+    num_threads_ = op.num_threads_;
+    // NOTE No cost for Aggregate (regardless of parallel vs single threaded)
+    // IncrementCost(CostParam::kAggregate);
+    return true;
+  }
+
+  bool PostVisit(AggregateParallel &) override {
+    // End of parallel execution
+    // Reset parallel execution mode for cost calculation
+    in_parallel_execution_ = false;
+    num_threads_ = 1;
+    return true;
+  }
+
   bool PostVisit(Expand &expand) override {
     auto card_param = CardParam::kExpand;
     auto stats = GetStatsFor(expand.input_symbol_);
@@ -528,6 +564,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   // cardinality is a double to k it easier to work with
   double cardinality_{1};
 
+  bool in_parallel_execution_{false};
+  size_t num_threads_{1};
+
   // accessor used for cardinality estimates in ScanAll and ScanAllByLabel
   TDbAccessor *db_accessor_;
   const SymbolTable &table_;
@@ -536,7 +575,14 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   IndexHints index_hints_;
   bool use_index_hints_{false};
 
-  void IncrementCost(double param) { cost_ += std::max(CostParam::kMinimumCost, param * cardinality_); }
+  void IncrementCost(double param) {
+    const auto delta = std::max(CostParam::kMinimumCost, param * cardinality_);
+    if (in_parallel_execution_) {
+      cost_ += delta / num_threads_;
+    } else {
+      cost_ += delta;
+    }
+  }
 
   CostEstimation EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch) {
     CostEstimator<TDbAccessor> cost_estimator(db_accessor_, table_, parameters, index_hints_);

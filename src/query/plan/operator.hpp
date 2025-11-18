@@ -166,6 +166,7 @@ class RemoveNestedProperty;
 class AggregateParallel;
 class ParallelMerge;
 class ScanParallel;
+class ScanChunk;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelProperties, ScanAllById, ScanAllByEdge,
@@ -176,7 +177,7 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
     Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit,
     PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl, AggregateParallel, ScanParallel,
-    ParallelMerge>;
+    ScanChunk, ParallelMerge>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1800,8 +1801,7 @@ class AggregateParallel : public memgraph::query::plan::LogicalOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   AggregateParallel() = default;
-  AggregateParallel(const std::shared_ptr<LogicalOperator> &post_scan_input,
-                    const std::shared_ptr<LogicalOperator> &agg_inputs, size_t num_threads);
+  AggregateParallel(const std::shared_ptr<LogicalOperator> &agg_inputs, size_t num_threads);
 
   UniqueCursorPtr MakeCursor(utils::MemoryResource *mem) const override;
 
@@ -1813,7 +1813,6 @@ class AggregateParallel : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<LogicalOperator> input() const override;
   void set_input(std::shared_ptr<LogicalOperator> input) override;
 
-  std::shared_ptr<memgraph::query::plan::LogicalOperator> post_scan_input_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> agg_inputs_;
   size_t num_threads_;
 
@@ -1821,7 +1820,6 @@ class AggregateParallel : public memgraph::query::plan::LogicalOperator {
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<AggregateParallel>();
-    object->post_scan_input_ = post_scan_input_ ? post_scan_input_->Clone(storage) : nullptr;
     object->agg_inputs_ = agg_inputs_ ? agg_inputs_->Clone(storage) : nullptr;
     object->num_threads_ = num_threads_;
     return object;
