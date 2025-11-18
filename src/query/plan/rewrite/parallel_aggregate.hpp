@@ -342,7 +342,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     std::shared_ptr<LogicalOperator> last_scan;
     std::shared_ptr<LogicalOperator> scan_parent;
     FindLastScan(prev_ops_.back()->input() /* op */, last_scan, scan_parent);
-    if (!last_scan || last_scan->GetTypeInfo() != ScanAll::kType) {
+    if (!last_scan || !utils::IsSubtype(*last_scan, ScanAll::kType)) {
       // No Scan operator found, skip rewriting
       aggregate_processed_ = false;  // TODO Check if this is correct
       prev_ops_.push_back(&op);
@@ -354,14 +354,12 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     // agg_inputs is the entire input branch of Aggregate
     // TODO: last_scan->set_input(nullptr); // Set Once at the end of the parallel scan branch
 
-    // TODO Scan type based on last scan operator
     auto post_scan_input = last_scan->input();
-    // TODO generic
-    auto *scan = dynamic_cast<ScanAll *>(last_scan.get());
     auto state_symbol = symbol_table->CreateAnonymousSymbol();
-    auto scan_input = std::make_shared<ScanParallel>(post_scan_input, scan->view_, num_threads_, state_symbol);
+    auto scan_input = CreateScanParallel(last_scan, post_scan_input, state_symbol);
     auto parallel_merge = std::make_shared<ParallelMerge>(scan_input);
     // scan_parent may be an operator without a single input. Check and handle appropriately.
+    auto *scan = dynamic_cast<ScanAll *>(last_scan.get());
     auto scan_chunk = std::make_shared<ScanChunk>(parallel_merge, scan->output_symbol_, scan->view_, state_symbol);
     if (scan_parent) {
       if (scan_parent->HasSingleInput()) {
@@ -687,6 +685,72 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     // Set the parent's input to AggregateParallel
     prev_ops_.back()->set_input(input);
   }
+  // Helper function to create the appropriate ScanParallel variant based on the scan type
+  std::shared_ptr<ScanParallel> CreateScanParallel(std::shared_ptr<LogicalOperator> scan_op,
+                                                   std::shared_ptr<LogicalOperator> input, Symbol state_symbol) {
+    const auto &scan_type = scan_op->GetTypeInfo();
+    auto *scan_all = dynamic_cast<ScanAll *>(scan_op.get());
+    MG_ASSERT(scan_all, "Expected ScanAll or subtype");
+
+    // Handle vertex scan variants
+    if (scan_type == ScanAll::kType) {
+      return std::make_shared<ScanParallel>(input, scan_all->view_, num_threads_, state_symbol);
+    }
+
+    if (scan_type == ScanAllByLabel::kType) {
+      auto *scan = dynamic_cast<ScanAllByLabel *>(scan_op.get());
+      return std::make_shared<ScanParallelByLabel>(input, scan->view_, num_threads_, state_symbol, scan->label_);
+    }
+
+    if (scan_type == ScanAllByLabelProperties::kType) {
+      auto *scan = dynamic_cast<ScanAllByLabelProperties *>(scan_op.get());
+      return std::make_shared<ScanParallelByLabelProperties>(input, scan->view_, num_threads_, state_symbol,
+                                                             scan->label_, scan->properties_, scan->expression_ranges_);
+    }
+
+    // Handle edge scan variants
+    if (scan_type == ScanAllByEdgeType::kType) {
+      auto *scan = dynamic_cast<ScanAllByEdgeType *>(scan_op.get());
+      return std::make_shared<ScanParallelByEdgeType>(input, scan->view_, num_threads_, state_symbol,
+                                                      scan->common_.edge_types[0]);
+    }
+
+    if (scan_type == ScanAllByEdgeTypeProperty::kType) {
+      auto *scan = dynamic_cast<ScanAllByEdgeTypeProperty *>(scan_op.get());
+      return std::make_shared<ScanParallelByEdgeTypeProperty>(input, scan->view_, num_threads_, state_symbol,
+                                                              scan->common_.edge_types[0], scan->property_);
+    }
+
+    if (scan_type == ScanAllByEdgeTypePropertyRange::kType) {
+      auto *scan = dynamic_cast<ScanAllByEdgeTypePropertyRange *>(scan_op.get());
+      return std::make_shared<ScanParallelByEdgeTypePropertyRange>(input, scan->view_, num_threads_, state_symbol,
+                                                                   scan->common_.edge_types[0], scan->property_,
+                                                                   scan->lower_bound_, scan->upper_bound_);
+    }
+
+    if (scan_type == ScanAllByEdgeProperty::kType) {
+      auto *scan = dynamic_cast<ScanAllByEdgeProperty *>(scan_op.get());
+      return std::make_shared<ScanParallelByEdgeProperty>(input, scan->view_, num_threads_, state_symbol,
+                                                          scan->property_);
+    }
+
+    if (scan_type == ScanAllByEdgePropertyValue::kType) {
+      auto *scan = dynamic_cast<ScanAllByEdgePropertyValue *>(scan_op.get());
+      return std::make_shared<ScanParallelByEdgePropertyValue>(input, scan->view_, num_threads_, state_symbol,
+                                                               scan->property_, scan->expression_);
+    }
+
+    if (scan_type == ScanAllByEdgePropertyRange::kType) {
+      auto *scan = dynamic_cast<ScanAllByEdgePropertyRange *>(scan_op.get());
+      return std::make_shared<ScanParallelByEdgePropertyRange>(input, scan->view_, num_threads_, state_symbol,
+                                                               scan->property_, scan->lower_bound_, scan->upper_bound_);
+    }
+
+    // Fallback to basic ScanParallel for unsupported scan types
+    // (e.g., ScanAllById, ScanAllByEdgeId, ScanAllByPointDistance, ScanAllByPointWithinbbox)
+    return std::make_shared<ScanParallel>(input, scan_all->view_, num_threads_, state_symbol);
+  }
+
   // Helper function to find the last Scan operator in a branch
   // This traverses down the input chain until it finds the last Scan operator. This way (the idea is) we parallelize
   // most elements.
