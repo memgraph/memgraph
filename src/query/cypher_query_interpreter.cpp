@@ -121,8 +121,8 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
     };
 
     if (visitor.GetQueryInfo().is_cacheable) {
-      CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query()),
-                               read_check()};
+      CachedQuery cached_query{
+          std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query()), read_check()};
       it = accessor.insert({hash, std::move(cached_query)}).first;
 
       get_information_from_cache(it->second);
@@ -161,7 +161,7 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
   //       planner may remove need for all symbols (hence we shouldn't waste frame slots that are unused)
   auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
 
-  auto [root, cost] = std::invoke([&] {
+  auto [root, cost, used_ast_storage] = std::invoke([&] {
     // TODO: this is problem multi tenant queries (ATM we assume a single active database for whole query)
     auto vertex_counts = plan::VertexCountCache(db_accessor);
 
@@ -172,17 +172,18 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
 
       // TODO: rewrite
       // TODO: new ast_storage + symbol_table
-      auto [plan, cost] = ConvertToLogicalOperator(egraph, root);  // LogicalOperator + double
-      return std::pair{std::move(plan), cost};
+      auto [plan, cost, new_ast_storage] = ConvertToLogicalOperator(egraph, root);  // LogicalOperator + double
+      return std::tuple{std::move(plan), cost, std::move(new_ast_storage)};
     }
     auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
-    return plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
+    auto [plan, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
+    return std::tuple{std::move(plan), cost, std::move(ast_storage)};
   });
 
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(*root);
-  return std::make_unique<SingleNodeLogicalPlan>(std::move(root), cost, std::move(ast_storage), std::move(symbol_table),
-                                                 rw_type_checker.type);
+  return std::make_unique<SingleNodeLogicalPlan>(
+      std::move(root), cost, std::move(used_ast_storage), std::move(symbol_table), rw_type_checker.type);
 }
 
 std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &stripped_query, AstStorage ast_storage,

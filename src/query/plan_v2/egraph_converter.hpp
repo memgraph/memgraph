@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "frontend/ast/ast_storage.hpp"
 #include "query/plan_v2/egraph.hpp"
 
 namespace memgraph::query::plan {
@@ -19,5 +20,6 @@ class LogicalOperator;
 
 namespace memgraph::query::plan::v2 {
 
-auto ConvertToLogicalOperator(egraph const &e, eclass root) -> std::tuple<std::unique_ptr<LogicalOperator>, double>;
+auto ConvertToLogicalOperator(egraph const &e, eclass root)
+    -> std::tuple<std::unique_ptr<LogicalOperator>, double, AstStorage>;
 }  // namespace memgraph::query::plan::v2

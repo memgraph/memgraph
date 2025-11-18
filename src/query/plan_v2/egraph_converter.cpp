@@ -11,6 +11,8 @@
 
 #include "query/plan_v2/egraph_converter.hpp"
 
+#include <boost/smart_ptr/shared_ptr.hpp>
+
 #include "planner/core/extractor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan_v2/egraph_internal.hpp"
@@ -41,9 +43,9 @@ struct CostModel {
 // Operators -> used once in the build
 // Expression -> can be reused
 using LogicalOperatorPtr = std::shared_ptr<LogicalOperator>;
-using ChildThing = std::variant<LogicalOperatorPtr, Expression *, Symbol, NamedExpression *>;
+using BuildResult = std::variant<LogicalOperatorPtr, Expression *, Symbol, NamedExpression *>;
 using enode_ref = planner::core::ENode<symbol> const &;
-using child_ref = std::reference_wrapper<ChildThing const>;
+using child_ref = std::reference_wrapper<BuildResult const>;
 using children_ref = std::span<child_ref const>;
 
 template <typename T, std::size_t idx>
@@ -62,7 +64,7 @@ auto Validate(child_ref child) -> const T & {
 }
 
 struct Builder {
-  auto Build(enode_ref node, children_ref children) -> ChildThing {
+  auto Build(enode_ref node, children_ref children) -> BuildResult {
 #define X(SYM)      \
   case symbol::SYM: \
     return Build(utils::tag_v<symbol::SYM>, node, children)
@@ -80,11 +82,11 @@ struct Builder {
 #undef X
   }
 
-  auto Build(utils::tag_value<symbol::Once>, enode_ref /*node*/, children_ref /*children*/) -> ChildThing {
+  auto Build(utils::tag_value<symbol::Once>, enode_ref /*node*/, children_ref /*children*/) -> BuildResult {
     return std::make_unique<Once>();
   }
 
-  auto Build(utils::tag_value<symbol::Bind>, enode_ref /*node*/, children_ref children) -> ChildThing {
+  auto Build(utils::tag_value<symbol::Bind>, enode_ref /*node*/, children_ref children) -> BuildResult {
     auto const &input = ExtractAndValidate<LogicalOperatorPtr, 0>(children);
     auto const &sym = ExtractAndValidate<Symbol, 1>(children);
     auto const &expression = ExtractAndValidate<Expression *, 2>(children);
@@ -104,13 +106,13 @@ struct Builder {
     return std::make_shared<Produce>(input, std::vector{named_expression});
   }
 
-  auto Build(utils::tag_value<symbol::Symbol>, enode_ref /*node*/, children_ref /*children*/) -> ChildThing {
+  auto Build(utils::tag_value<symbol::Symbol>, enode_ref /*node*/, children_ref /*children*/) -> BuildResult {
     auto const frame_position = next_frame_position_++;
     // TODO/NOTE: lost user_declared_, type_, and token_position_
     return Symbol{"TODO", frame_position, false /*TODO*/};
   }
 
-  auto Build(utils::tag_value<symbol::Literal>, enode_ref node, children_ref children) -> ChildThing {
+  auto Build(utils::tag_value<symbol::Literal>, enode_ref node, children_ref children) -> BuildResult {
     auto const dis = node.disambiguator();
     auto const it = reverse_literal_store_.find(dis);
     if (it == reverse_literal_store_.end()) [[unlikely]] {
@@ -119,78 +121,96 @@ struct Builder {
     return ast_storage_.Create<PrimitiveLiteral>(it->second);
   }
 
-  auto Build(utils::tag_value<symbol::Identifier>, enode_ref node, children_ref children) -> ChildThing {
+  auto Build(utils::tag_value<symbol::Identifier>, enode_ref node, children_ref children) -> BuildResult {
     auto const &sym = ExtractAndValidate<Symbol, 0>(children);
     auto identifier = ast_storage_.Create<Identifier>(sym.name(), sym.user_declared());
     identifier->MapTo(sym);
     return identifier;
   }
 
-  auto Build(utils::tag_value<symbol::Output>, enode_ref node, children_ref children) -> ChildThing {
+  auto Build(utils::tag_value<symbol::Output>, enode_ref node, children_ref children) -> BuildResult {
     auto const &input = ExtractAndValidate<LogicalOperatorPtr, 0>(children);
     auto named_expressions =
         children | std::views::drop(1) | std::views::transform(Validate<NamedExpression *>) | ranges::to<std::vector>;
     return std::make_shared<Produce>(input, std::move(named_expressions));
   }
 
-  auto Build(utils::tag_value<symbol::NamedOutput>, enode_ref node, children_ref children) -> ChildThing {
+  auto Build(utils::tag_value<symbol::NamedOutput>, enode_ref node, children_ref children) -> BuildResult {
     auto const &sym = ExtractAndValidate<Symbol, 0>(children);
     auto const &expression = ExtractAndValidate<Expression *, 1>(children);
 
+    auto const name_it = reverse_name_store_.find(node.disambiguator());
+    DMG_ASSERT(name_it != reverse_name_store_.end());
+
     // TODO/NOTE: lost token_position_, and is_aliased_
-    auto named_expression = ast_storage_.Create<NamedExpression>(sym.name(), expression);
+    auto named_expression = ast_storage_.Create<NamedExpression>(name_it->second, expression);
     named_expression->MapTo(sym);
     return named_expression;
   }
 
-  auto Build(utils::tag_value<symbol::ParamLookup>, enode_ref node, children_ref children) -> ChildThing {
+  auto Build(utils::tag_value<symbol::ParamLookup>, enode_ref node, children_ref children) -> BuildResult {
     auto const dis = node.disambiguator();
     return ast_storage_.Create<ParameterLookup>(dis);
   }
 
   Builder(std::map<storage::ExternalPropertyValue, uint64_t> const &literal_store,
           std::map<std::string, uint64_t> const &name_store)
-      : literal_store_(literal_store), name_store_(name_store) {}
+      : literal_store_(literal_store), name_store_(name_store) {
+    for (auto const &[val, id] : literal_store_) {
+      reverse_literal_store_[id] = val;
+    }
+
+    for (auto const &[val, id] : name_store_) {
+      reverse_name_store_[id] = val;
+    }
+  }
 
   std::map<storage::ExternalPropertyValue, uint64_t> const &literal_store_;
-  std::map<uint64_t, storage::ExternalPropertyValue> reverse_literal_store_;  // TODO make the reverse mapping
+  std::map<uint64_t, storage::ExternalPropertyValue> reverse_literal_store_;
   std::map<std::string, uint64_t> const &name_store_;
+  std::map<uint64_t, std::string> reverse_name_store_;
 
   AstStorage ast_storage_{};
   int next_frame_position_ = 0;
 };
 
-auto ConvertToLogicalOperator(egraph const &e, eclass root) -> std::tuple<std::unique_ptr<LogicalOperator>, double> {
+auto ConvertToLogicalOperator(egraph const &e, eclass root)
+    -> std::tuple<std::unique_ptr<LogicalOperator>, double, AstStorage> {
   auto const &impl = internal::get_impl(e);
-  // Access the internal egraph through the accessor
-  auto const &internal_egraph = impl.egraph_;
-  auto const &literal_store_ = impl.literal_store_;
-  auto const &name_store_ = impl.name_store_;
 
-  auto extractor = planner::core::Extractor{internal_egraph, CostModel{}};
+  /// STAGE: Extraction from EGraph using CostModel
   auto true_root = internal::to_core_id(root);
-  auto thing = extractor.Extract(true_root);
+  auto selection = planner::core::Extractor{impl.egraph_, CostModel{}}.Extract(true_root);
 
-  // change the order to bottom up
-  std::ranges::reverse(thing);
-
-  auto builder = Builder{literal_store_, name_store_};
-
-  auto dynamic_programming_cache = std::map<planner::core::EClassId, ChildThing>{};
+  /// STAGE: Build selected (LogicalOperator, Expression *, Symbol, NamedExpression *, etc)
+  auto builder = Builder{(impl.literal_store_), (impl.name_store_)};
+  auto build_cache = std::map<planner::core::EClassId, BuildResult>{};
   auto const cache_lookup = [&](const planner::core::EClassId id) {
-    auto const it = dynamic_programming_cache.find(id);
-    DMG_ASSERT(it != dynamic_programming_cache.end(), "Building bottom up we should be able to find our child");
+    auto const it = build_cache.find(id);
+    DMG_ASSERT(it != build_cache.end(), "Building bottom up we should be able to find our child");
     return std::cref(it->second);
   };
-  for (auto [eclass_id, enode_id] : thing) {
-    auto const &enode = internal_egraph.get_enode(enode_id);
-    auto xx = enode.children() | std::views::transform(cache_lookup) | ranges::to<std::vector>;
-    dynamic_programming_cache[eclass_id] = builder.Build(enode, xx);
+  // Use reverse order to build from bottom up
+  // This is so we can use the build_cache
+  auto children_refs = std::vector<child_ref>{};
+  for (auto [eclass_id, enode_id] : std::views::reverse(selection)) {
+    auto const &enode = impl.egraph_.get_enode(enode_id);
+    children_refs.clear();
+    children_refs.reserve(enode.children().size());
+    std::ranges::copy(enode.children() | std::views::transform(cache_lookup), std::back_inserter(children_refs));
+    build_cache[eclass_id] = builder.Build(enode, children_refs);
   }
 
-  auto result = dynamic_programming_cache[true_root];
+  // STAGE: Get the built root as std::unique_ptr<LogicalOperator>
+  auto ptr = std::get_if<LogicalOperatorPtr>(&build_cache[true_root]);
+  if (!ptr) throw QueryException{"Root should be LogicalOperator"};
+  auto &result = *ptr;
+  DMG_ASSERT(result.use_count() == 1, "as root nothing should be using it");
+  LogicalOperator *raw = result.get();
+  result.reset();                                              // Release the shared_ptr's ownership
+  auto unique_result = std::unique_ptr<LogicalOperator>{raw};  // Take ownership
 
-  // TODO: build LogicalOperator
+  return {std::move(unique_result), 0.0, std::move(builder.ast_storage_)};
 
   // egraph extraction -> subgraph of the egraph (one Enode per EClass)
   // start for a root
@@ -209,7 +229,5 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root) -> std::tuple<std::u
   //  (IDENT (SYM 1))
 
   // $a=(IDENT X), (BIND _ X $b) -> MERGE $a, $b
-
-  return {nullptr, 0.0};
 }
 }  // namespace memgraph::query::plan::v2
