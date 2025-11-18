@@ -88,6 +88,7 @@ class Memgraph(ConanFile):
                 "identity-management": True,
                 "transfer": False,
             },
+            override=True,
         )
         self.requires("arrow/22.0.0", options={"with_s3": True})
 
