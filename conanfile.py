@@ -73,7 +73,7 @@ class Memgraph(ConanFile):
         self.requires("asio/1.34.2")
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
         self.requires("snappy/1.2.1")
-        self.requires("arrow/22.0.0", options={"with_s3": True})
+        self.requires("arrow/22.0.0", options={"with_s3": True, "with_snappy": True, "with_mimalloc": False})
 
     def package(self):
         cmake = CMake(self)
