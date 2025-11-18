@@ -161,11 +161,11 @@ struct Builder {
 };
 
 auto ConvertToLogicalOperator(egraph const &e, eclass root) -> std::tuple<std::unique_ptr<LogicalOperator>, double> {
+  auto const &impl = internal::get_impl(e);
   // Access the internal egraph through the accessor
-  auto const &internal_egraph = internal::get_egraph(e);
-  // TODO: Get pimpl we need access to proper versions of:
-  std::map<storage::ExternalPropertyValue, uint64_t> literal_store_;
-  std::map<std::string, uint64_t> name_store_;
+  auto const &internal_egraph = impl.egraph_;
+  auto const &literal_store_ = impl.literal_store_;
+  auto const &name_store_ = impl.name_store_;
 
   auto extractor = planner::core::Extractor{internal_egraph, CostModel{}};
   auto true_root = internal::to_core_id(root);
@@ -177,23 +177,18 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root) -> std::tuple<std::u
   auto builder = Builder{literal_store_, name_store_};
 
   auto dynamic_programming_cache = std::map<planner::core::EClassId, ChildThing>{};
-
+  auto const cache_lookup = [&](const planner::core::EClassId id) {
+    auto const it = dynamic_programming_cache.find(id);
+    DMG_ASSERT(it != dynamic_programming_cache.end(), "Building bottom up we should be able to find our child");
+    return std::cref(it->second);
+  };
   for (auto [eclass_id, enode_id] : thing) {
     auto const &enode = internal_egraph.get_enode(enode_id);
-    // build enode_id
-    auto xx =
-        enode.children() | std::views::transform([&](const planner::core::EClassId id) {
-          const auto it = dynamic_programming_cache.find(id);
-          DMG_ASSERT(it != dynamic_programming_cache.end(), "Building bottom up we should be able to find our child");
-          return std::cref(it->second);
-        }) |
-        ranges::to<std::vector>;
-
-    // track
+    auto xx = enode.children() | std::views::transform(cache_lookup) | ranges::to<std::vector>;
     dynamic_programming_cache[eclass_id] = builder.Build(enode, xx);
   }
 
-  dynamic_programming_cache[true_root];
+  auto result = dynamic_programming_cache[true_root];
 
   // TODO: build LogicalOperator
 

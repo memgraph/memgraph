@@ -12,123 +12,19 @@
 #include "query/plan_v2/egraph.hpp"
 #include "query/plan_v2/egraph_internal.hpp"
 
-#include "planner/core/egraph.hpp"
-
-#include <cstdint>
-
-#include "private_analysis.hpp"
-#include "private_symbol.hpp"
-
-namespace memgraph::query::plan::v2 {
-
-enum struct symbol_flags : std::uint8_t {
-  none = 0b0000'0000,
-  with_children = 0b0100'0000,
-  disambiguated = 0b1000'0000,
-};
-
-constexpr symbol_flags operator|(symbol_flags a, symbol_flags b) {
-  return static_cast<symbol_flags>(static_cast<std::uint8_t>(a) | static_cast<std::uint8_t>(b));
-}
-
-constexpr bool operator&(symbol_flags a, symbol_flags b) {
-  return (static_cast<std::uint8_t>(a) & static_cast<std::uint8_t>(b)) != 0;
-}
-
-using enum symbol_flags;
-inline constexpr symbol_flags symbol_traits_table[] = {
-    disambiguated,                  // Once
-    with_children,                  // Bind
-    disambiguated,                  // Symbol
-    disambiguated,                  // Literal
-    with_children,                  // Identifier
-    with_children,                  // Output
-    with_children | disambiguated,  // NamedOutput
-    disambiguated,                  // ParamLookup
-};
-
-template <symbol S>
-struct symbol_traits {
-  static constexpr auto flags = symbol_traits_table[static_cast<std::uint8_t>(S)];
-  static constexpr auto has_children = flags & with_children;
-  static constexpr auto is_disambiguated = flags & disambiguated;
-};
-
-}  // namespace memgraph::query::plan::v2
-
 using memgraph::planner::core::EGraph;
 
 namespace memgraph::query::plan::v2 {
 
-/// EGRAPH
-struct egraph::impl {
-  impl() = default;
-  impl(impl &&) = default;
-  impl &operator=(impl &&) = default;
-  ~impl() = default;
-
-  template <symbol S, typename... Args>
-  requires(!symbol_traits<S>::is_disambiguated && symbol_traits<S>::has_children) auto make(Args &&...args) -> eclass {
-    auto res =
-        std::array{std::forward<Args>(args)...} |
-        std::ranges::views::transform([](eclass ec) -> planner::core::EClassId { return internal::to_core_id(ec); }) |
-        std::ranges::to<utils::small_vector<planner::core::EClassId>>();
-    return internal::from_core_id(egraph_.emplace(S, std::move(res)).current_eclassid);
-  }
-
-  template <symbol S>
-  requires(!symbol_traits<S>::is_disambiguated &&
-           symbol_traits<S>::has_children) auto make(std::vector<eclass> children) -> eclass {
-    auto res =
-        children |
-        std::ranges::views::transform([](eclass ec) -> planner::core::EClassId { return internal::to_core_id(ec); }) |
-        std::ranges::to<utils::small_vector<planner::core::EClassId>>();
-    return internal::from_core_id(egraph_.emplace(S, std::move(res)).current_eclassid);
-  }
-
-  template <symbol S>
-  requires(symbol_traits<S>::is_disambiguated &&
-           !symbol_traits<S>::has_children) auto make(uint64_t const disambiguator) -> eclass {
-    return internal::from_core_id(
-        egraph_.emplace(S, utils::small_vector<planner::core::EClassId>{}, disambiguator).current_eclassid);
-  }
-
-  template <symbol S, typename... Args>
-  requires(symbol_traits<S>::is_disambiguated &&symbol_traits<S>::has_children) auto make(uint64_t const disambiguator,
-                                                                                          Args &&...args) -> eclass {
-    auto res =
-        std::array{std::forward<Args>(args)...} |
-        std::ranges::views::transform([](eclass ec) -> planner::core::EClassId { return internal::to_core_id(ec); }) |
-        std::ranges::to<utils::small_vector<planner::core::EClassId>>();
-    return internal::from_core_id(egraph_.emplace(S, std::move(res), disambiguator).current_eclassid);
-  }
-
-  auto store_literal(storage::ExternalPropertyValue const &value) -> uint64_t {
-    auto [it, inserted] = literal_store_.try_emplace(value, next_literal_disambiguator_);
-    if (inserted) ++next_literal_disambiguator_;
-    return it->second;
-  }
-
-  auto store_name(std::string_view name) -> uint64_t {
-    auto [it, inserted] = name_store_.try_emplace(std::string{name}, next_name_disambiguator_);
-    if (inserted) ++next_name_disambiguator_;
-    return it->second;
-  }
-
-  EGraph<symbol, analysis> egraph_;
-  uint64_t next_literal_disambiguator_ = 0;
-  uint64_t next_once_disambiguator_ = 0;
-  uint64_t next_name_disambiguator_ = 0;
-  std::map<storage::ExternalPropertyValue, uint64_t> literal_store_;
-  std::map<std::string, uint64_t> name_store_;
-};
-
 egraph::egraph() : pimpl_(std::make_unique<impl>()) {}
+
 egraph::egraph(egraph &&other) noexcept : pimpl_(std::exchange(other.pimpl_, std::make_unique<impl>())) {}
+
 egraph &egraph::operator=(egraph &&other) noexcept {
   std::swap(pimpl_, other.pimpl_);
   return *this;
 }
+
 egraph::~egraph() = default;  // required because pimpl
 
 // NOLINTNEXTLINE(readability-make-member-function-const)
@@ -173,12 +69,8 @@ auto egraph::MakeIdentifier(eclass sym) -> eclass { return pimpl_->make<symbol::
 // Internal accessor implementations
 // ========================================================================
 
-auto internal::get_egraph(egraph const &e) -> memgraph::planner::core::EGraph<symbol, analysis> const & {
-  return e.pimpl_->egraph_;
-}
+auto internal::get_impl(egraph const &e) -> egraph::impl const & { return *e.pimpl_; }
 
-auto internal::get_egraph(egraph &e) -> memgraph::planner::core::EGraph<symbol, analysis> & {
-  return e.pimpl_->egraph_;
-}
+auto internal::get_impl(egraph &e) -> egraph::impl & { return *e.pimpl_; }
 
 }  // namespace memgraph::query::plan::v2
