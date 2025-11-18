@@ -211,6 +211,35 @@ constexpr utils::TypeInfo query::plan::ScanChunk::kType{utils::TypeId::SCAN_CHUN
 constexpr utils::TypeInfo query::plan::ScanParallel::kType{utils::TypeId::SCAN_PARALLEL, "ScanParallel",
                                                            &query::plan::ScanAll::kType};
 
+constexpr utils::TypeInfo query::plan::ScanParallelByLabel::kType{
+    utils::TypeId::SCAN_PARALLEL_BY_LABEL, "ScanParallelByLabel", &query::plan::ScanParallel::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelByLabelProperties::kType{
+    utils::TypeId::SCAN_PARALLEL_BY_LABEL_PROPERTIES, "ScanParallelByLabelProperties",
+    &query::plan::ScanParallel::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelByEdgeType::kType{
+    utils::TypeId::SCAN_PARALLEL_BY_EDGE_TYPE, "ScanParallelByEdgeType", &query::plan::ScanParallel::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelByEdgeTypeProperty::kType{
+    utils::TypeId::SCAN_PARALLEL_BY_EDGE_TYPE_PROPERTY, "ScanParallelByEdgeTypeProperty",
+    &query::plan::ScanParallel::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelByEdgeTypePropertyRange::kType{
+    utils::TypeId::SCAN_PARALLEL_BY_EDGE_TYPE_PROPERTY_RANGE, "ScanParallelByEdgeTypePropertyRange",
+    &query::plan::ScanParallel::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelByEdgeProperty::kType{
+    utils::TypeId::SCAN_PARALLEL_BY_EDGE_PROPERTY, "ScanParallelByEdgeProperty", &query::plan::ScanParallel::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelByEdgePropertyValue::kType{
+    utils::TypeId::SCAN_PARALLEL_BY_EDGE_PROPERTY_VALUE, "ScanParallelByEdgePropertyValue",
+    &query::plan::ScanParallel::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelByEdgePropertyRange::kType{
+    utils::TypeId::SCAN_PARALLEL_BY_EDGE_PROPERTY_RANGE, "ScanParallelByEdgePropertyRange",
+    &query::plan::ScanParallel::kType};
+
 constexpr utils::TypeInfo query::plan::AggregateParallel::kType{.id = utils::TypeId::AGGREGATE_PARALLEL,
                                                                 .name = "AggregateParallel",
                                                                 .superclass = &query::plan::ParallelMerge::kType};

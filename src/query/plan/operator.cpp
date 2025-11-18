@@ -8951,7 +8951,11 @@ class ScanParallelCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
     size_t index = 0;
-    std::shared_ptr<VerticesChunkedIterable> chunks;
+
+    // Use the actual return type from get_chunks_ (can be VerticesChunkedIterable or EdgesChunkedIterable)
+    using ChunksType = typename std::result_of<TChunksFun(Frame &, ExecutionContext &)>::type;
+    std::shared_ptr<ChunksType> chunks;
+
     {
       // Make sure frame is valid no matter how we exit the scope
       auto safe_frame = utils::OnScopeExit{[&]() {
@@ -8968,9 +8972,9 @@ class ScanParallelCursor : public Cursor {
         if (!res) {
           return false;
         }
-        chunks_ = std::make_shared<VerticesChunkedIterable>(get_chunks_(*frame_, context));
+        chunks_ = std::make_shared<ChunksType>(get_chunks_(*frame_, context));
       }
-      if (chunks_ == nullptr) return false;  // Evrything was pulled
+      if (chunks_ == nullptr) return false;  // Everything was pulled
       frame = *frame_;                       // Copy the filled frame
       chunks = chunks_;
       index = index_++;
@@ -9022,6 +9026,355 @@ std::unique_ptr<LogicalOperator> ScanParallel::Clone(AstStorage *storage) const 
   object->view_ = view_;
   object->num_threads_ = num_threads_;
   object->state_symbol_ = state_symbol_;
+  return object;
+}
+
+ScanParallelByLabel::ScanParallelByLabel(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                         size_t num_threads, Symbol state_symbol, storage::LabelId label)
+    : ScanParallel(input, view, num_threads, state_symbol), label_(label) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByLabel)
+
+UniqueCursorPtr ScanParallelByLabel::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+
+  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return db->ChunkedVertices(view_, label_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByLabel::ToString() const {
+  return fmt::format("ScanParallelByLabel (state: {}, threads: {}, label: {})", state_symbol_.name(), num_threads_,
+                     label_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByLabel::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByLabel>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->label_ = label_;
+  return object;
+}
+
+ScanParallelByEdgeType::ScanParallelByEdgeType(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                               size_t num_threads, Symbol state_symbol, storage::EdgeTypeId edge_type)
+    : ScanParallel(input, view, num_threads, state_symbol), edge_type_(edge_type) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgeType)
+
+UniqueCursorPtr ScanParallelByEdgeType::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+
+  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return db->ChunkedEdges(view_, edge_type_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByEdgeType::ToString() const {
+  return fmt::format("ScanParallelByEdgeType (state: {}, threads: {}, edge_type: {})", state_symbol_.name(),
+                     num_threads_, edge_type_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeType::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgeType>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->edge_type_ = edge_type_;
+  return object;
+}
+
+ScanParallelByLabelProperties::ScanParallelByLabelProperties(const std::shared_ptr<LogicalOperator> &input,
+                                                             storage::View view, size_t num_threads,
+                                                             Symbol state_symbol, storage::LabelId label,
+                                                             std::vector<storage::PropertyPath> properties,
+                                                             std::vector<ExpressionRange> expression_ranges)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      label_(label),
+      properties_(std::move(properties)),
+      expression_ranges_(std::move(expression_ranges)) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByLabelProperties)
+
+UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
+                                  nullptr, &context.number_of_hops);
+
+    auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
+    auto prop_value_ranges = expression_ranges_ | rv::transform(to_property_value_range) | ranges::to_vector;
+
+    auto const bound_is_null = [](auto &&range) {
+      return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
+    };
+
+    if (ranges::any_of(prop_value_ranges, bound_is_null)) {
+      // Return empty chunks if bounds are null - need to handle this case
+      // For now, we'll create a dummy chunks object, but this might need special handling
+      return db->ChunkedVertices(view_, label_, properties_, prop_value_ranges, num_threads_);
+    }
+
+    return db->ChunkedVertices(view_, label_, properties_, prop_value_ranges, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByLabelProperties::ToString() const {
+  return fmt::format("ScanParallelByLabelProperties (state: {}, threads: {}, label: {})", state_symbol_.name(),
+                     num_threads_, label_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByLabelProperties::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByLabelProperties>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->label_ = label_;
+  object->properties_ = properties_;
+  object->expression_ranges_ = expression_ranges_ |
+                               rv::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
+                               ranges::to_vector;
+  return object;
+}
+
+ScanParallelByEdgeTypeProperty::ScanParallelByEdgeTypeProperty(const std::shared_ptr<LogicalOperator> &input,
+                                                               storage::View view, size_t num_threads,
+                                                               Symbol state_symbol, storage::EdgeTypeId edge_type,
+                                                               storage::PropertyId property)
+    : ScanParallel(input, view, num_threads, state_symbol), edge_type_(edge_type), property_(property) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgeTypeProperty)
+
+UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+
+  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return db->ChunkedEdges(view_, edge_type_, property_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByEdgeTypeProperty::ToString() const {
+  return fmt::format("ScanParallelByEdgeTypeProperty (state: {}, threads: {}, edge_type: {}, property: {})",
+                     state_symbol_.name(), num_threads_, edge_type_.AsUint(), property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypeProperty::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgeTypeProperty>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->edge_type_ = edge_type_;
+  object->property_ = property_;
+  return object;
+}
+
+ScanParallelByEdgeTypePropertyRange::ScanParallelByEdgeTypePropertyRange(
+    const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads, Symbol state_symbol,
+    storage::EdgeTypeId edge_type, storage::PropertyId property, std::optional<Bound> lower_bound,
+    std::optional<Bound> upper_bound)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      edge_type_(edge_type),
+      property_(property),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgeTypePropertyRange)
+
+UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
+                                  nullptr, &context.number_of_hops);
+
+    auto maybe_lower = TryConvertToBound(lower_bound_, evaluator);
+    auto maybe_upper = TryConvertToBound(upper_bound_, evaluator);
+
+    if (maybe_lower && maybe_lower->value().IsNull()) {
+      // Return empty chunks - need special handling
+      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, num_threads_);
+    }
+    if (maybe_upper && maybe_upper->value().IsNull()) {
+      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, num_threads_);
+    }
+
+    return db->ChunkedEdges(view_, edge_type_, property_, maybe_lower, maybe_upper, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByEdgeTypePropertyRange::ToString() const {
+  return fmt::format("ScanParallelByEdgeTypePropertyRange (state: {}, threads: {}, edge_type: {}, property: {})",
+                     state_symbol_.name(), num_threads_, edge_type_.AsUint(), property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyRange::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgeTypePropertyRange>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->edge_type_ = edge_type_;
+  object->property_ = property_;
+  if (lower_bound_) {
+    object->lower_bound_.emplace(
+        utils::Bound<Expression *>(lower_bound_->value()->Clone(storage), lower_bound_->type()));
+  }
+  if (upper_bound_) {
+    object->upper_bound_.emplace(
+        utils::Bound<Expression *>(upper_bound_->value()->Clone(storage), upper_bound_->type()));
+  }
+  return object;
+}
+
+ScanParallelByEdgeProperty::ScanParallelByEdgeProperty(const std::shared_ptr<LogicalOperator> &input,
+                                                       storage::View view, size_t num_threads, Symbol state_symbol,
+                                                       storage::PropertyId property)
+    : ScanParallel(input, view, num_threads, state_symbol), property_(property) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgeProperty)
+
+UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+
+  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return db->ChunkedEdges(view_, property_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByEdgeProperty::ToString() const {
+  return fmt::format("ScanParallelByEdgeProperty (state: {}, threads: {}, property: {})", state_symbol_.name(),
+                     num_threads_, property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeProperty::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgeProperty>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->property_ = property_;
+  return object;
+}
+
+ScanParallelByEdgePropertyValue::ScanParallelByEdgePropertyValue(const std::shared_ptr<LogicalOperator> &input,
+                                                                 storage::View view, size_t num_threads,
+                                                                 Symbol state_symbol, storage::PropertyId property,
+                                                                 Expression *expression)
+    : ScanParallel(input, view, num_threads, state_symbol), property_(property), expression_(expression) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgePropertyValue)
+
+UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
+                                  nullptr, &context.number_of_hops);
+    auto value = expression_->Accept(evaluator);
+    if (value.IsNull()) {
+      // Return empty chunks - need special handling
+      return db->ChunkedEdges(view_, property_, storage::PropertyValue(), num_threads_);
+    }
+    if (!value.IsPropertyValue()) {
+      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+    }
+    return db->ChunkedEdges(view_, property_,
+                            value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper()),
+                            num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByEdgePropertyValue::ToString() const {
+  return fmt::format("ScanParallelByEdgePropertyValue (state: {}, threads: {}, property: {})", state_symbol_.name(),
+                     num_threads_, property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyValue::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgePropertyValue>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->property_ = property_;
+  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  return object;
+}
+
+ScanParallelByEdgePropertyRange::ScanParallelByEdgePropertyRange(const std::shared_ptr<LogicalOperator> &input,
+                                                                 storage::View view, size_t num_threads,
+                                                                 Symbol state_symbol, storage::PropertyId property,
+                                                                 std::optional<Bound> lower_bound,
+                                                                 std::optional<Bound> upper_bound)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      property_(property),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgePropertyRange)
+
+UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
+                                  nullptr, &context.number_of_hops);
+
+    auto maybe_lower = TryConvertToBound(lower_bound_, evaluator);
+    auto maybe_upper = TryConvertToBound(upper_bound_, evaluator);
+
+    if (maybe_lower && maybe_lower->value().IsNull()) {
+      return db->ChunkedEdges(view_, property_, std::nullopt, std::nullopt, num_threads_);
+    }
+    if (maybe_upper && maybe_upper->value().IsNull()) {
+      return db->ChunkedEdges(view_, property_, std::nullopt, std::nullopt, num_threads_);
+    }
+
+    return db->ChunkedEdges(view_, property_, maybe_lower, maybe_upper, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByEdgePropertyRange::ToString() const {
+  return fmt::format("ScanParallelByEdgePropertyRange (state: {}, threads: {}, property: {})", state_symbol_.name(),
+                     num_threads_, property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyRange::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgePropertyRange>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->property_ = property_;
+  if (lower_bound_) {
+    object->lower_bound_.emplace(
+        utils::Bound<Expression *>(lower_bound_->value()->Clone(storage), lower_bound_->type()));
+  }
+  if (upper_bound_) {
+    object->upper_bound_.emplace(
+        utils::Bound<Expression *>(upper_bound_->value()->Clone(storage), upper_bound_->type()));
+  }
   return object;
 }
 
