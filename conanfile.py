@@ -72,7 +72,7 @@ class Memgraph(ConanFile):
         self.requires("range-v3/0.12.0")
         self.requires("asio/1.34.2")
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
-        self.requires("snappy/1.2.1")
+        self.requires("snappy/1.1.9")
         self.requires("arrow/22.0.0", options={"with_s3": True, "with_snappy": True, "with_mimalloc": False})
 
     def package(self):
