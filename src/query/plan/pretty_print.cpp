@@ -286,6 +286,10 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByEdgePropertyValue & /*unused*/) override;
   bool PreVisit(ScanAllByEdgePropertyRange & /*unused*/) override;
   bool PreVisit(ScanAllByEdgeId & /*unused*/) override;
+  bool PreVisit(ScanChunk & /*unused*/) override;
+  bool PreVisit(ScanParallel & /*unused*/) override;
+  bool PreVisit(ParallelMerge & /*unused*/) override;
+  bool PreVisit(AggregateParallel & /*unused*/) override;
 
   bool PreVisit(EmptyResult & /*unused*/) override;
   bool PreVisit(Produce & /*unused*/) override;
@@ -423,6 +427,34 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgePropertyRange &op) {
 
 bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeId &op) {
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::ScanChunk &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::ScanParallel &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::ParallelMerge &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::AggregateParallel &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
   return true;
 }
 
@@ -818,6 +850,54 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeId &op) {
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
   op.input_->Accept(*this);
   self["input"] = PopOutput();
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanChunk &op) {
+  json self;
+  self["name"] = "ScanChunk";
+  self["output_symbol"] = ToJson(op.output_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallel &op) {
+  json self;
+  self["name"] = "ScanParallel";
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ParallelMerge &op) {
+  json self;
+  self["name"] = "ParallelMerge";
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(AggregateParallel &op) {
+  json self;
+  self["name"] = "AggregateParallel";
+  self["num_threads"] = op.num_threads_;
+
+  op.agg_inputs_->Accept(*this);
+  self["agg_inputs"] = PopOutput();
+
   output_ = std::move(self);
   return false;
 }
