@@ -27,12 +27,12 @@ struct CostModel {
     friend auto operator<(CostResult const &lhs, CostResult const &rhs) { return lhs.cost < rhs.cost; }
   };
 
-  static auto operator()(planner::core::ENode<symbol> const &current, std::span<CostResult const> children)
+  static auto operator()(planner::core::ENode<symbol> const & /*current*/, std::span<CostResult const> children)
       -> CostResult {
     // TODO: build a better cost calculator
     auto children_sum =
         std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val.cost; });
-    return {1.0 + children_sum, 1.0};
+    return {.cost = 1.0 + children_sum, .cardinality = 1.0};
   }
 };
 
@@ -48,23 +48,26 @@ using enode_ref = planner::core::ENode<symbol> const &;
 using child_ref = std::reference_wrapper<BuildResult const>;
 using children_ref = std::span<child_ref const>;
 
+namespace {
 template <typename T, std::size_t idx>
 auto ExtractAndValidate(children_ref children) -> const T & {
   if (children.size() <= idx) throw QueryException{"Planner error, missing child node"};
-  auto ptr = std::get_if<T>(&children[idx].get());
+  const auto *ptr = std::get_if<T>(&children[idx].get());
   if (!ptr) throw QueryException{"Planner error, child node is incorrect type"};
   return *ptr;
 }
 
 template <typename T>
 auto Validate(child_ref child) -> const T & {
-  auto ptr = std::get_if<T>(&child.get());
+  const auto *ptr = std::get_if<T>(&child.get());
   if (!ptr) throw QueryException{"Planner error, child node is incorrect type"};
   return *ptr;
 }
+}  // namespace
 
 struct Builder {
   auto Build(enode_ref node, children_ref children) -> BuildResult {
+    // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define X(SYM)      \
   case symbol::SYM: \
     return Build(utils::tag_v<symbol::SYM>, node, children)
@@ -82,17 +85,18 @@ struct Builder {
 #undef X
   }
 
-  auto Build(utils::tag_value<symbol::Once>, enode_ref /*node*/, children_ref /*children*/) -> BuildResult {
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+  auto Build(utils::tag_value<symbol::Once> /*tag*/, enode_ref /*node*/, children_ref /*children*/) -> BuildResult {
     return std::make_unique<Once>();
   }
 
-  auto Build(utils::tag_value<symbol::Bind>, enode_ref /*node*/, children_ref children) -> BuildResult {
+  auto Build(utils::tag_value<symbol::Bind> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
     auto const &input = ExtractAndValidate<LogicalOperatorPtr, 0>(children);
     auto const &sym = ExtractAndValidate<Symbol, 1>(children);
     auto const &expression = ExtractAndValidate<Expression *, 2>(children);
 
     // TODO/NOTE: lost token_position_, and is_aliased_
-    auto named_expression = ast_storage_.Create<NamedExpression>(sym.name(), expression);
+    auto *named_expression = ast_storage_.Create<NamedExpression>(sym.name(), expression);
     named_expression->MapTo(sym);
 
     if (input->GetTypeInfo() == Produce::kType) {
@@ -106,36 +110,37 @@ struct Builder {
     return std::make_shared<Produce>(input, std::vector{named_expression});
   }
 
-  auto Build(utils::tag_value<symbol::Symbol>, enode_ref /*node*/, children_ref /*children*/) -> BuildResult {
+  auto Build(utils::tag_value<symbol::Symbol> /*tag*/, enode_ref /*node*/, children_ref /*children*/) -> BuildResult {
     auto const frame_position = next_frame_position_++;
     // TODO/NOTE: lost user_declared_, type_, and token_position_
     return Symbol{"TODO", frame_position, false /*TODO*/};
   }
 
-  auto Build(utils::tag_value<symbol::Literal>, enode_ref node, children_ref children) -> BuildResult {
+  auto Build(utils::tag_value<symbol::Literal> /*tag*/, enode_ref node, children_ref /*children*/) -> BuildResult {
     auto const dis = node.disambiguator();
     auto const it = reverse_literal_store_.find(dis);
     if (it == reverse_literal_store_.end()) [[unlikely]] {
-      throw QueryException{"Planner error, child node is incorrect type"};
+      throw QueryException{"Planner error, literal not found in store"};
     }
     return ast_storage_.Create<PrimitiveLiteral>(it->second);
   }
 
-  auto Build(utils::tag_value<symbol::Identifier>, enode_ref node, children_ref children) -> BuildResult {
+  auto Build(utils::tag_value<symbol::Identifier> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
     auto const &sym = ExtractAndValidate<Symbol, 0>(children);
-    auto identifier = ast_storage_.Create<Identifier>(sym.name(), sym.user_declared());
+    auto *identifier = ast_storage_.Create<Identifier>(sym.name(), sym.user_declared());
     identifier->MapTo(sym);
     return identifier;
   }
 
-  auto Build(utils::tag_value<symbol::Output>, enode_ref node, children_ref children) -> BuildResult {
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+  auto Build(utils::tag_value<symbol::Output> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
     auto const &input = ExtractAndValidate<LogicalOperatorPtr, 0>(children);
     auto named_expressions =
         children | std::views::drop(1) | std::views::transform(Validate<NamedExpression *>) | ranges::to<std::vector>;
     return std::make_shared<Produce>(input, std::move(named_expressions));
   }
 
-  auto Build(utils::tag_value<symbol::NamedOutput>, enode_ref node, children_ref children) -> BuildResult {
+  auto Build(utils::tag_value<symbol::NamedOutput> /*tag*/, enode_ref node, children_ref children) -> BuildResult {
     auto const &sym = ExtractAndValidate<Symbol, 0>(children);
     auto const &expression = ExtractAndValidate<Expression *, 1>(children);
 
@@ -143,12 +148,12 @@ struct Builder {
     DMG_ASSERT(name_it != reverse_name_store_.end());
 
     // TODO/NOTE: lost token_position_, and is_aliased_
-    auto named_expression = ast_storage_.Create<NamedExpression>(name_it->second, expression);
+    auto *named_expression = ast_storage_.Create<NamedExpression>(name_it->second, expression);
     named_expression->MapTo(sym);
     return named_expression;
   }
 
-  auto Build(utils::tag_value<symbol::ParamLookup>, enode_ref node, children_ref children) -> BuildResult {
+  auto Build(utils::tag_value<symbol::ParamLookup> /*tag*/, enode_ref node, children_ref /*children*/) -> BuildResult {
     auto const dis = node.disambiguator();
     return ast_storage_.Create<ParameterLookup>(dis);
   }
@@ -156,21 +161,21 @@ struct Builder {
   Builder(std::map<storage::ExternalPropertyValue, uint64_t> const &literal_store,
           std::map<std::string, uint64_t> const &name_store)
       : literal_store_(literal_store), name_store_(name_store) {
-    for (auto const &[val, id] : literal_store_) {
+    for (auto const &[val, id] : literal_store_.get()) {
       reverse_literal_store_[id] = val;
     }
 
-    for (auto const &[val, id] : name_store_) {
+    for (auto const &[val, id] : name_store_.get()) {
       reverse_name_store_[id] = val;
     }
   }
 
-  std::map<storage::ExternalPropertyValue, uint64_t> const &literal_store_;
+  std::reference_wrapper<std::map<storage::ExternalPropertyValue, uint64_t> const> literal_store_;
   std::map<uint64_t, storage::ExternalPropertyValue> reverse_literal_store_;
-  std::map<std::string, uint64_t> const &name_store_;
+  std::reference_wrapper<std::map<std::string, uint64_t> const> name_store_;
   std::map<uint64_t, std::string> reverse_name_store_;
 
-  AstStorage ast_storage_{};
+  AstStorage ast_storage_;
   int next_frame_position_ = 0;
 };
 
@@ -179,8 +184,8 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   auto const &impl = internal::get_impl(e);
 
   /// STAGE: Extraction from EGraph using CostModel
-  auto true_root = internal::to_core_id(root);
-  auto selection = planner::core::Extractor{impl.egraph_, CostModel{}}.Extract(true_root);
+  auto const true_root = internal::to_core_id(root);
+  auto const selection = planner::core::Extractor{impl.egraph_, CostModel{}}.Extract(true_root);
 
   /// STAGE: Build selected (LogicalOperator, Expression *, Symbol, NamedExpression *, etc)
   auto builder = Builder{(impl.literal_store_), (impl.name_store_)};
@@ -202,7 +207,7 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   }
 
   // STAGE: Get the built root as std::unique_ptr<LogicalOperator>
-  auto ptr = std::get_if<LogicalOperatorPtr>(&build_cache[true_root]);
+  auto *ptr = std::get_if<LogicalOperatorPtr>(&build_cache[true_root]);
   if (!ptr) throw QueryException{"Root should be LogicalOperator"};
   auto &result = *ptr;
   DMG_ASSERT(result.use_count() == 1, "as root nothing should be using it");

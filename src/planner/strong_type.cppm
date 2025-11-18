@@ -15,32 +15,13 @@ module;
 
 export module rollbear.strong_type;
 
-// Re-export the entire strong namespace
+// Re-export the strong namespace members that are currently used across the planner module
 export namespace strong {
-using strong::type;
-using strong::type_is;
-
-// Export all the modifiers/skills
-using strong::affine_point;
-using strong::arithmetic;
-using strong::bicrementable;
-using strong::bitarithmetic;
-using strong::boolean;
-using strong::convertible_to;
-using strong::decrementable;
-using strong::difference;
-using strong::equality;
-using strong::formattable;
-using strong::hashable;
-using strong::implicitly_convertible_to;
-using strong::incrementable;
-using strong::indexed;
-using strong::istreamable;
-using strong::iterator;
-using strong::ordered;
-using strong::ostreamable;
-using strong::pointer;
-using strong::range;
-using strong::regular;
-using strong::semiregular;
+using strong::formattable;  // NOLINT (misc-unused-using-decls)
+using strong::hashable;     // NOLINT (misc-unused-using-decls)
+using strong::ordered;      // NOLINT (misc-unused-using-decls)
+using strong::ostreamable;  // NOLINT (misc-unused-using-decls)
+using strong::regular;      // NOLINT (misc-unused-using-decls)
+using strong::type;         // NOLINT (misc-unused-using-decls)
+using strong::type_is;      // NOLINT (misc-unused-using-decls)
 }  // namespace strong

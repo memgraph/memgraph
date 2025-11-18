@@ -88,7 +88,9 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
     result.is_cypher_read = cached_query.is_cypher_read;
   };
 
-  if (true) {
+  // Bypass cache lookup during development - always parse fresh
+  // TODO: Remove this and re-enable caching once query parsing is stable
+  if (true) {  // NOLINT(readability-simplify-boolean-expr)
     try {
       parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.stripped_query().str());
     } catch (const SyntaxException &e) {
@@ -121,8 +123,10 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
     };
 
     if (visitor.GetQueryInfo().is_cacheable) {
-      CachedQuery cached_query{
-          std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query()), read_check()};
+      CachedQuery cached_query{.ast_storage = std::move(ast_storage),
+                               .query = visitor.query(),
+                               .required_privileges = query::GetRequiredPrivileges(visitor.query()),
+                               .is_cypher_read = read_check()};
       it = accessor.insert({hash, std::move(cached_query)}).first;
 
       get_information_from_cache(it->second);

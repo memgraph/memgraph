@@ -12,8 +12,6 @@
 #include "query/plan_v2/egraph.hpp"
 #include "query/plan_v2/egraph_internal.hpp"
 
-using memgraph::planner::core::EGraph;
-
 namespace memgraph::query::plan::v2 {
 
 egraph::egraph() : pimpl_(std::make_unique<impl>()) {}

@@ -17,4 +17,4 @@ export module memgraph.planner.core.constants;
 
 export namespace memgraph::planner::core {
 constexpr size_t REBUILD_BATCH_SIZE = 100;
-}
+}  // namespace memgraph::planner::core
