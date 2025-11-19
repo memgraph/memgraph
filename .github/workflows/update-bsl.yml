@@ -69,4 +69,4 @@ jobs:
             infrastructure
             Docs unnecessary
           draft: false
-          maintainer_can_modify: true
+          maintainer-can-modify: true
