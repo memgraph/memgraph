@@ -421,7 +421,7 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
 
   auto &[deleted_vertices, deleted_edges] = *value;
 
-  // Need to inform the next CollectGarbage call that there are some
+  // Need to inform the next CollectGarbageCollectGarbage call that there are some
   // non-transactional deletions that need to be collected
 
   auto const inform_gc_vertex_deletion = utils::OnScopeExit{[this, &deleted_vertices = deleted_vertices]() {
