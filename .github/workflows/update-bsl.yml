@@ -54,16 +54,14 @@ jobs:
       - name: Update BSL change date
         run: |
           sed -i "s/CHANGE DATE:.*$/CHANGE DATE:            $BSL_DATE/" licenses/BSL.txt
-          git add licenses/BSL.txt
-          git commit -m "Update BSL change date to $BSL_DATE"
-          git push --set-upstream origin $BRANCH_NAME
 
       - name: Create PR
         uses: peter-evans/create-pull-request@v7
         with:
-          title: "Update BSL change date to $BSL_DATE"
-          body: "Update BSL change date to $BSL_DATE"
-          branch: ${{ env.BRANCH_NAME }}
+          commit-message: "Update BSL change date to ${{ env.BSL_DATE }}"
+          title: "Update BSL change date to ${{ env.BSL_DATE }}"
+          body: "Update BSL change date to ${{ env.BSL_DATE }}"
+          branch: "update-bsl-change-date-${{ env.BSL_DATE }}"
           base: master
           labels: |
             infrastructure
