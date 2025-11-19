@@ -343,6 +343,15 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PostVisit(ScanChunkByEdge &) override {
+    // ScanChunkByEdge scans a chunk of edges, similar to ScanAllByEdge
+    // Cardinality is already set by the input, we just add cost
+    // TODO Support different scan types
+    // IncrementCost(CostParam::kScanAllByEdge);
+    // Moving the cost to the ScanParallel
+    return true;
+  }
+
   bool PreVisit(ScanParallel &) override {
     // AggregateParallel is the start of the parallel execution
     // ScanParallel is the end of the parallel execution

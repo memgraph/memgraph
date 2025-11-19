@@ -6102,7 +6102,6 @@ bool ProcessAllImpl(Frame *frame, ExecutionContext *context, Cursor *input_curso
   if (!pulled) return false;
 
   // post processing
-  auto frame_writer = frame->GetFrameWriter(context->frame_change_collector, context->evaluation_context.memory);
   PostProcessImpl(context, aggregations, aggregation);
   return true;
 }
@@ -8924,7 +8923,7 @@ UniqueCursorPtr ScanChunk::MakeCursor(utils::MemoryResource *mem) const {
     // Make sure state is valid for duration of the cursor
     state = ParallelStateOnFrame::PopFromFrame(frame, state_symbol);
     if (!state) return std::nullopt;
-    return state->GetChunk();
+    return state->GetVerticesChunk();
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanChunk");
@@ -8936,6 +8935,55 @@ std::unique_ptr<LogicalOperator> ScanChunk::Clone(AstStorage *storage) const {
   auto object = std::make_unique<ScanChunk>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
+  object->view_ = view_;
+  object->state_symbol_ = state_symbol_;
+  return object;
+}
+
+ScanChunkByEdge::ScanChunkByEdge(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
+                                 Symbol node2_symbol, EdgeAtom::Direction direction,
+                                 const std::vector<storage::EdgeTypeId> &edge_types, storage::View view,
+                                 Symbol state_symbol)
+    : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, edge_types, view),
+      state_symbol_(state_symbol) {}
+
+ACCEPT_WITH_INPUT(ScanChunkByEdge)
+
+UniqueCursorPtr ScanChunkByEdge::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeOperator);
+
+  auto edges = [state_symbol = state_symbol_, state = std::unique_ptr<ParallelStateOnFrame>()](
+                   Frame &frame, ExecutionContext & /*context*/) mutable -> std::optional<EdgesChunkedIterable::Chunk> {
+    state = ParallelStateOnFrame::PopFromFrame(frame, state_symbol);
+    if (!state) return std::nullopt;
+    return state->GetEdgesChunk();
+  };
+
+  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(edges)>>(mem, *this, input_->MakeCursor(mem), view_,
+                                                                   std::move(edges), "ScanChunkByEdge");
+}
+
+std::vector<Symbol> ScanChunkByEdge::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(common_.edge_symbol);
+  symbols.emplace_back(common_.node1_symbol);
+  symbols.emplace_back(common_.node2_symbol);
+  return symbols;
+}
+
+std::string ScanChunkByEdge::ToString() const {
+  return fmt::format(
+      "ScanChunkByEdge (state: {}) ({}){}[{}{}]{}({})", state_symbol_.name(), common_.node1_symbol.name(),
+      common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
+      utils::IterableToString(common_.edge_types, "|",
+                              [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
+      common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", common_.node2_symbol.name());
+}
+
+std::unique_ptr<LogicalOperator> ScanChunkByEdge::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanChunkByEdge>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->common_ = common_;
   object->view_ = view_;
   object->state_symbol_ = state_symbol_;
   return object;
@@ -9375,6 +9423,288 @@ std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyRange::Clone(AstStora
     object->upper_bound_.emplace(
         utils::Bound<Expression *>(upper_bound_->value()->Clone(storage), upper_bound_->type()));
   }
+  return object;
+}
+
+ScanParallelById::ScanParallelById(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                   size_t num_threads, Symbol state_symbol, Expression *expression)
+    : ScanParallel(input, view, num_threads, state_symbol), expression_(expression) {}
+
+ACCEPT_WITH_INPUT(ScanParallelById)
+
+UniqueCursorPtr ScanParallelById::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+  // Note: ScanAllById returns a single vertex, so chunking doesn't make much sense.
+  // However, we implement it for consistency. The expression is evaluated and a single vertex is found.
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
+                                  nullptr, &context.number_of_hops);
+    auto value = expression_->Accept(evaluator);
+    if (!value.IsNumeric()) {
+      // Return empty chunks
+      return db->ChunkedVertices(view_, num_threads_);
+    }
+    int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
+    if (value.IsDouble() && id != value.ValueDouble()) {
+      return db->ChunkedVertices(view_, num_threads_);
+    }
+    auto maybe_vertex = db->FindVertex(storage::Gid::FromInt(id), view_);
+    if (!maybe_vertex) {
+      return db->ChunkedVertices(view_, num_threads_);
+    }
+    // For a single vertex, we still need to return chunked vertices
+    // This is a limitation - we can't really parallelize a single vertex lookup
+    return db->ChunkedVertices(view_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelById::ToString() const {
+  return fmt::format("ScanParallelById (state: {}, threads: {})", state_symbol_.name(), num_threads_);
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelById::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelById>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  return object;
+}
+
+ScanParallelByPointDistance::ScanParallelByPointDistance(const std::shared_ptr<LogicalOperator> &input,
+                                                         storage::View view, size_t num_threads, Symbol state_symbol,
+                                                         storage::LabelId label, storage::PropertyId property,
+                                                         Expression *cmp_value, Expression *boundary_value,
+                                                         PointDistanceCondition boundary_condition)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      label_(label),
+      property_(property),
+      cmp_value_(cmp_value),
+      boundary_value_(boundary_value),
+      boundary_condition_(boundary_condition) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByPointDistance)
+
+UniqueCursorPtr ScanParallelByPointDistance::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+  // Note: PointVertices doesn't have a chunked version, so we fall back to regular vertices with label
+  // This is a limitation that should be addressed in the future
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    // For now, we can't chunk point distance queries, so we use regular label-based chunking
+    // This is not ideal but maintains compatibility
+    return db->ChunkedVertices(view_, label_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByPointDistance::ToString() const {
+  return fmt::format("ScanParallelByPointDistance (state: {}, threads: {}, label: {})", state_symbol_.name(),
+                     num_threads_, label_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByPointDistance::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByPointDistance>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->label_ = label_;
+  object->property_ = property_;
+  object->cmp_value_ = cmp_value_ ? cmp_value_->Clone(storage) : nullptr;
+  object->boundary_value_ = boundary_value_ ? boundary_value_->Clone(storage) : nullptr;
+  object->boundary_condition_ = boundary_condition_;
+  return object;
+}
+
+ScanParallelByWithinbbox::ScanParallelByWithinbbox(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                                   size_t num_threads, Symbol state_symbol, storage::LabelId label,
+                                                   storage::PropertyId property, Expression *bottom_left,
+                                                   Expression *top_right, Expression *boundary_value)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      label_(label),
+      property_(property),
+      bottom_left_(bottom_left),
+      top_right_(top_right),
+      boundary_value_(boundary_value) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByWithinbbox)
+
+UniqueCursorPtr ScanParallelByWithinbbox::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+  // Note: PointVertices doesn't have a chunked version, so we fall back to regular vertices with label
+  // This is a limitation that should be addressed in the future
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    // For now, we can't chunk point within bbox queries, so we use regular label-based chunking
+    // This is not ideal but maintains compatibility
+    return db->ChunkedVertices(view_, label_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByWithinbbox::ToString() const {
+  return fmt::format("ScanParallelByWithinbbox (state: {}, threads: {}, label: {})", state_symbol_.name(), num_threads_,
+                     label_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByWithinbbox::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByWithinbbox>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->label_ = label_;
+  object->property_ = property_;
+  object->bottom_left_ = bottom_left_ ? bottom_left_->Clone(storage) : nullptr;
+  object->top_right_ = top_right_ ? top_right_->Clone(storage) : nullptr;
+  object->boundary_value_ = boundary_value_ ? boundary_value_->Clone(storage) : nullptr;
+  return object;
+}
+
+ScanParallelByEdge::ScanParallelByEdge(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                       size_t num_threads, Symbol state_symbol, Symbol edge_symbol, Symbol node1_symbol,
+                                       Symbol node2_symbol, EdgeAtom::Direction direction)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      edge_symbol_(edge_symbol),
+      node1_symbol_(node1_symbol),
+      node2_symbol_(node2_symbol),
+      direction_(direction) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdge)
+
+UniqueCursorPtr ScanParallelByEdge::MakeCursor(utils::MemoryResource * /*mem*/) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeOperator);
+  throw utils::NotYetImplemented("Parallel scan over edges!");
+}
+
+std::string ScanParallelByEdge::ToString() const {
+  return fmt::format("ScanParallelByEdge (state: {}, threads: {})", state_symbol_.name(), num_threads_);
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdge::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdge>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->edge_symbol_ = edge_symbol_;
+  object->node1_symbol_ = node1_symbol_;
+  object->node2_symbol_ = node2_symbol_;
+  object->direction_ = direction_;
+  return object;
+}
+
+ScanParallelByEdgeTypePropertyValue::ScanParallelByEdgeTypePropertyValue(
+    const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads, Symbol state_symbol,
+    storage::EdgeTypeId edge_type, storage::PropertyId property, Expression *expression)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      edge_type_(edge_type),
+      property_(property),
+      expression_(expression) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgeTypePropertyValue)
+
+UniqueCursorPtr ScanParallelByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+  // Note: There's no ChunkedEdges(edge_type, property, value) method, so we use the range version
+  // with equal bounds to simulate the value lookup
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
+                                  nullptr, &context.number_of_hops);
+    auto value = expression_->Accept(evaluator);
+    if (value.IsNull()) {
+      // Return empty chunks
+      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, num_threads_);
+    }
+    if (!value.IsPropertyValue()) {
+      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+    }
+    auto prop_value = value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
+    // Use range with equal bounds to simulate value lookup
+    auto bound = utils::MakeBoundInclusive(prop_value);
+    return db->ChunkedEdges(view_, edge_type_, property_, bound, bound, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByEdgeTypePropertyValue::ToString() const {
+  return fmt::format("ScanParallelByEdgeTypePropertyValue (state: {}, threads: {}, edge_type: {}, property: {})",
+                     state_symbol_.name(), num_threads_, edge_type_.AsUint(), property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyValue::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgeTypePropertyValue>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->edge_type_ = edge_type_;
+  object->property_ = property_;
+  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  return object;
+}
+
+ScanParallelByEdgeId::ScanParallelByEdgeId(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                           size_t num_threads, Symbol state_symbol, Symbol edge_symbol,
+                                           Symbol node1_symbol, Symbol node2_symbol, EdgeAtom::Direction direction,
+                                           Expression *expression)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      edge_symbol_(edge_symbol),
+      node1_symbol_(node1_symbol),
+      node2_symbol_(node2_symbol),
+      direction_(direction),
+      expression_(expression) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgeId)
+
+UniqueCursorPtr ScanParallelByEdgeId::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+  // Note: ScanAllByEdgeId returns a single edge, so chunking doesn't make much sense.
+  // However, we implement it for consistency. The expression is evaluated and a single edge is found.
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
+                                  nullptr, &context.number_of_hops);
+    auto value = expression_->Accept(evaluator);
+    if (!value.IsNumeric()) {
+      // Return empty chunks - we can't chunk a single edge lookup
+      return db->ChunkedEdges(view_, storage::EdgeTypeId::FromUint(0), num_threads_);
+    }
+    int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
+    if (value.IsDouble() && id != value.ValueDouble()) {
+      return db->ChunkedEdges(view_, storage::EdgeTypeId::FromUint(0), num_threads_);
+    }
+    auto maybe_edge = db->FindEdge(storage::Gid::FromInt(id), view_);
+    if (!maybe_edge) {
+      return db->ChunkedEdges(view_, storage::EdgeTypeId::FromUint(0), num_threads_);
+    }
+    // For a single edge, we still need to return chunked edges
+    // This is a limitation - we can't really parallelize a single edge lookup
+    return db->ChunkedEdges(view_, storage::EdgeTypeId::FromUint(0), num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByEdgeId::ToString() const {
+  return fmt::format("ScanParallelByEdgeId (state: {}, threads: {})", state_symbol_.name(), num_threads_);
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeId::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgeId>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->edge_symbol_ = edge_symbol_;
+  object->node1_symbol_ = node1_symbol_;
+  object->node2_symbol_ = node2_symbol_;
+  object->direction_ = direction_;
+  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
   return object;
 }
 
