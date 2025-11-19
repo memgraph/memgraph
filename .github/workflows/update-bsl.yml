@@ -1,6 +1,7 @@
 name: Update BSL Change Date
 
 on:
+  push:
   workflow_dispatch:
     inputs:
       bsl_date:
