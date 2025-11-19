@@ -163,7 +163,7 @@ inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *ob
   }
 
   // Standard MVCC serialization conflict.
-  transaction->must_abort = true;
+  transaction->has_serialization_error = true;
   return WriteResult::CONFLICT;
 }
 
