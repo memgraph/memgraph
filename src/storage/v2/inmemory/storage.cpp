@@ -459,6 +459,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
             "VertexAccessors must be from the same transaction in when "
             "creating an edge!");
 
+  // It's important to destruct accessors after we unlock the vertices to avoid expensive skip list gc while we hold the
+  // locks
+  std::optional<utils::SkipList<Edge>::Accessor> edge_acc;
+  std::optional<utils::SkipList<EdgeMetadata>::Accessor> edge_metadata_acc;
+
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
@@ -495,19 +500,19 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   auto gid = storage::Gid::FromUint(mem_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    auto acc = mem_storage->edges_.access();
     // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
+    edge_acc = mem_storage->edges_.access();
     auto *delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = acc.insert(Edge(gid, delta));
+    auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
+    MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
     if (delta) {
       delta->prev.Set(&*it);
     }
     if (config_.enable_edges_metadata) {
-      auto acc = mem_storage->edges_metadata_.access();
-      auto [_, inserted] = acc.insert(EdgeMetadata(gid, from->vertex_));
+      edge_metadata_acc = mem_storage->edges_metadata_.access();
+      auto [_, inserted] = edge_metadata_acc->insert(EdgeMetadata(gid, from->vertex_));
       MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
@@ -567,6 +572,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
             "VertexAccessors must be from the same transaction in when "
             "creating an edge!");
 
+  // It's important to destruct accessors after we unlock the vertices to avoid expensive skip list gc while we hold the
+  // locks
+  std::optional<utils::SkipList<Edge>::Accessor> edge_acc;
+  std::optional<utils::SkipList<EdgeMetadata>::Accessor> edge_metadata_acc;
+
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
@@ -597,6 +607,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_edge_types_.try_insert(edge_type);
   }
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // NOTE: When we update the next `edge_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
@@ -604,26 +615,23 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   // that runs single-threadedly and while this instance is set-up to apply
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-
   atomic_fetch_max_explicit(&mem_storage->edge_id_, gid.AsUint() + 1, std::memory_order_acq_rel);
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    auto acc = mem_storage->edges_.access();
-
     // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
+    edge_acc = mem_storage->edges_.access();
     auto *delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = acc.insert(Edge(gid, delta));
+    auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
+    MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
     if (delta) {
       delta->prev.Set(&*it);
     }
     if (config_.enable_edges_metadata) {
-      auto acc = mem_storage->edges_metadata_.access();
-      auto [_, inserted] = acc.insert(EdgeMetadata(gid, from->vertex_));
+      edge_metadata_acc = mem_storage->edges_metadata_.access();
+      auto [_, inserted] = edge_metadata_acc->insert(EdgeMetadata(gid, from->vertex_));
       MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
@@ -749,7 +757,7 @@ void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs() {
 utils::BasicResult<StorageManipulationError> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
     CommitArgs const commit_args) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
-  MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
+  MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 

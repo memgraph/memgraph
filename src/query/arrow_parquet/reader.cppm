@@ -9,14 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
-#include "query/arrow_parquet/parquet_file_config.hpp"
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/vector.hpp"
 
-namespace memgraph::query {
+export module memgraph.query.arrow_parquet.reader;
+
+import memgraph.query.arrow_parquet.parquet_file_config;
+
+export namespace memgraph::query {
 
 using Row = TypedValue::TMap;
 using Header = utils::pmr::vector<TypedValue::TString>;
