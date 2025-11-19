@@ -137,7 +137,7 @@ constexpr auto kDebugQueryPlansSettingKey = "debug-query-plans";
 constexpr auto kDebugQueryPlansGFlagsKey = "debug-query-plans";
 
 constexpr auto kStorageGcAggressiveSettingKey = "storage-gc-aggressive";
-constexpr auto kStorageGcAggressiveGFlagsKey = "storage_gc_aggressive";
+constexpr auto kStorageGcAggressiveGFlagsKey = "storage-gc-aggressive";
 
 constexpr auto kQueryLogDirectorySettingKey = "query-log-directory";
 constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
@@ -167,7 +167,7 @@ std::atomic<bool> hops_limit_partial_results{true};
 std::atomic<bool> cartesian_product_enabled_{true};
 std::atomic<bool> debug_query_plans_{false};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
-std::atomic<bool> storage_gc_aggressive_{true};
+std::atomic<bool> storage_gc_aggressive_{false};
 
 class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
  public:
