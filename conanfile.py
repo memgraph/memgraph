@@ -9,6 +9,8 @@ from conan.tools.sbom import cyclonedx_1_6
 
 required_conan_version = ">=2.0"
 
+required_conan_version = ">=2.0"
+
 
 class Memgraph(ConanFile):
     name = "memgraph"
