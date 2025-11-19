@@ -62,77 +62,103 @@ class Stack {
     void operator()(const TObj & /*unused*/) const {}
   };
 
-  void PushImpl(TObj obj) {
-    if (head_ == nullptr) {
-      // Allocate a new block.
-      head_ = new Block();
-    }
-    while (true) {
-      MG_ASSERT(head_->used <= TSize,
-                "utils::Stack has more elements in a "
-                "Block than the block has space!");
-      if (head_->used == TSize) {
-        // Allocate a new block.
-        auto *block = new Block();
-        block->prev = head_;
-        head_->next = block;
-        head_ = block;
-      } else {
-        head_->obj[head_->used++] = obj;
-        break;
-      }
-    }
-  }
+  class Iterator {
+   public:
+    using iterator_category = std::bidirectional_iterator_tag;
+    using value_type = TObj;
+    using difference_type = std::ptrdiff_t;
+    using pointer = TObj *;
+    using reference = TObj &;
 
-  std::optional<TObj> PopImpl() {
-    while (true) {
-      if (head_ == nullptr) {
-        return std::nullopt;
+    Iterator() : stack_(nullptr), block_(nullptr), index_(0) {}
+
+    Iterator(Stack *stack, Block *block) : stack_(stack), block_(block) {
+      if (block_ != nullptr && block_->used == 0) {
+        block_ = block_->prev;
       }
-      MG_ASSERT(head_->used <= TSize,
-                "utils::Stack has more elements in a "
-                "Block than the block has space!");
-      if (head_->used == 0) {
-        Block *prev = head_->prev;
-        if (prev != nullptr) {
-          prev->next = nullptr;
+      index_ = block_ != nullptr ? block_->used - 1 : 0;
+    }
+
+    reference operator*() {
+      DMG_ASSERT(block_ != nullptr && index_ < block_->used, "Iterator dereference out of bounds!");
+      return block_->obj[index_];
+    }
+
+    pointer operator->() { return &(operator*()); }
+
+    Iterator &operator++() {
+      if (block_ == nullptr) {
+        return *this;
+      }
+
+      if (index_ > 0) {
+        --index_;
+      } else {
+        block_ = block_->prev;
+        index_ = block_ != nullptr ? block_->used - 1 : 0;
+      }
+
+      return *this;
+    }
+
+    Iterator operator++(int) {
+      Iterator tmp = *this;
+      ++(*this);
+      return tmp;
+    }
+
+    Iterator &operator--() {
+      // If we're at end(), find the last (oldest) element
+      if (block_ == nullptr) {
+        if (stack_ != nullptr && stack_->head_ != nullptr) {
+          Block *tail = stack_->head_;
+          while (tail->prev != nullptr) {
+            tail = tail->prev;
+          }
+          if (tail != nullptr) {
+            block_ = tail;
+            index_ = 0;
+          }
         }
-        delete head_;
-        head_ = prev;
-      } else {
-        auto result = head_->obj[--head_->used];
-        return result;
+        return *this;
       }
-    }
-  }
 
-  template <typename Predicate, typename Deleter = NoOpDeleter>
-  void EraseIfImpl(Predicate &&pred, Deleter &&deleter = NoOpDeleter{}) {
-    if (head_ == nullptr) {
-      return;
-    }
-    auto partition_point = std::partition(begin(), end(), std::forward<Predicate>(pred));
-
-    auto count_to_erase = 0;
-    for (auto it = begin(); it != partition_point; ++it) {
-      std::forward<Deleter>(deleter)(*it);
-      ++count_to_erase;
-    }
-    while (count_to_erase > 0 && head_ != nullptr) {
-      if (head_->used <= count_to_erase) {
-        count_to_erase -= head_->used;
-        Block *prev = head_->prev;
-        if (prev != nullptr) {
-          prev->next = nullptr;
+      // Move to a newer element (higher index in same block, or next block)
+      if (index_ < block_->used - 1) {
+        ++index_;
+      } else {
+        // Move to the next (newer) block
+        auto *block = block_->next;
+        if (block != nullptr) {
+          block_ = block;
+          index_ = 0;
         }
-        delete head_;
-        head_ = prev;
-      } else {
-        head_->used -= count_to_erase;
-        count_to_erase = 0;
       }
+
+      return *this;
     }
-  }
+
+    Iterator operator--(int) {
+      Iterator tmp = *this;
+      --(*this);
+      return tmp;
+    }
+
+    bool operator==(const Iterator &other) const {
+      bool result = block_ == other.block_ && index_ == other.index_;
+      return result;
+    }
+
+    bool operator!=(const Iterator &other) const {
+      bool result = block_ != other.block_ || index_ != other.index_;
+      return result;
+    }
+
+   private:
+    Stack *stack_;
+    Block *block_;
+    uint64_t index_;
+  };
 
   Block *head_{nullptr};
   [[no_unique_address]] std::conditional_t<ThreadSafe, SpinLock, EmptyLock> lock_;
@@ -169,126 +195,78 @@ class Stack {
 
   void Push(TObj obj) {
     auto guard = std::lock_guard{lock_};
-    PushImpl(obj);
+    if (head_ == nullptr) {
+      // Allocate a new block.
+      head_ = new Block();
+    }
+    while (true) {
+      MG_ASSERT(head_->used <= TSize,
+                "utils::Stack has more elements in a "
+                "Block than the block has space!");
+      if (head_->used == TSize) {
+        // Allocate a new block.
+        auto *block = new Block();
+        block->prev = head_;
+        head_->next = block;
+        head_ = block;
+      } else {
+        head_->obj[head_->used++] = obj;
+        break;
+      }
+    }
   }
 
   std::optional<TObj> Pop() {
     auto guard = std::lock_guard{lock_};
-    return PopImpl();
+    while (true) {
+      if (head_ == nullptr) {
+        return std::nullopt;
+      }
+      MG_ASSERT(head_->used <= TSize,
+                "utils::Stack has more elements in a "
+                "Block than the block has space!");
+      if (head_->used == 0) {
+        Block *prev = head_->prev;
+        if (prev != nullptr) {
+          prev->next = nullptr;
+        }
+        delete head_;
+        head_ = prev;
+      } else {
+        auto result = head_->obj[--head_->used];
+        return result;
+      }
+    }
   }
 
   template <typename Predicate, typename Deleter = NoOpDeleter>
   void EraseIf(Predicate &&pred, Deleter &&deleter = NoOpDeleter{}) {
     auto guard = std::lock_guard{lock_};
-    EraseIfImpl(std::forward<Predicate>(pred), std::forward<Deleter>(deleter));
+    if (head_ == nullptr) {
+      return;
+    }
+    auto partition_point = std::partition(begin(), end(), std::forward<Predicate>(pred));
+
+    auto count_to_erase = 0;
+    for (auto it = begin(); it != partition_point; ++it) {
+      std::forward<Deleter>(deleter)(*it);
+      ++count_to_erase;
+    }
+    while (count_to_erase > 0 && head_ != nullptr) {
+      if (head_->used <= count_to_erase) {
+        count_to_erase -= head_->used;
+        Block *prev = head_->prev;
+        if (prev != nullptr) {
+          prev->next = nullptr;
+        }
+        delete head_;
+        head_ = prev;
+      } else {
+        head_->used -= count_to_erase;
+        count_to_erase = 0;
+      }
+    }
   }
-
-  class Iterator {
-   public:
-    using iterator_category = std::bidirectional_iterator_tag;
-    using value_type = TObj;
-    using difference_type = std::ptrdiff_t;
-    using pointer = TObj *;
-    using reference = TObj &;
-
-    Iterator() : stack_(nullptr), block_(nullptr), index_(0) {}
-
-    Iterator(Stack *stack, Block *block) : stack_(stack), block_(block) {
-      while (block_ != nullptr && block_->used == 0) {
-        block_ = block_->prev;
-      }
-      index_ = block_ != nullptr ? block_->used - 1 : 0;
-    }
-
-    reference operator*() {
-      DMG_ASSERT(block_ != nullptr && index_ < block_->used, "Iterator dereference out of bounds!");
-      return block_->obj[index_];
-    }
-
-    pointer operator->() { return &(operator*()); }
-
-    Iterator &operator++() {
-      if (block_ == nullptr) {
-        return *this;
-      }
-
-      if (index_ > 0) {
-        --index_;
-      } else {
-        block_ = block_->prev;
-        while (block_ != nullptr && block_->used == 0) {
-          block_ = block_->prev;
-        }
-        index_ = block_ != nullptr ? block_->used - 1 : 0;
-      }
-
-      return *this;
-    }
-
-    Iterator operator++(int) {
-      Iterator tmp = *this;
-      ++(*this);
-      return tmp;
-    }
-
-    Iterator &operator--() {
-      // If we're at end(), find the last (oldest) element
-      if (block_ == nullptr) {
-        if (stack_ != nullptr && stack_->head_ != nullptr) {
-          Block *tail = stack_->head_;
-          while (tail->prev != nullptr) {
-            tail = tail->prev;
-          }
-          while (tail != nullptr && tail->used == 0) {
-            tail = tail->next;
-          }
-          if (tail != nullptr) {
-            block_ = tail;
-            index_ = 0;  // Oldest element in the oldest block
-          }
-        }
-        return *this;
-      }
-
-      // Move to a newer element (higher index in same block, or next block)
-      if (index_ < block_->used - 1) {
-        ++index_;
-      } else {
-        // Move to the next (newer) block
-        auto *block = block_->next;
-        while (block != nullptr && block->used == 0) {
-          block = block->next;
-        }
-        if (block != nullptr) {
-          block_ = block;
-          index_ = 0;
-        }
-      }
-
-      return *this;
-    }
-
-    Iterator operator--(int) {
-      Iterator tmp = *this;
-      --(*this);
-      return tmp;
-    }
-
-    bool operator==(const Iterator &other) const {
-      bool result = block_ == other.block_ && index_ == other.index_;
-      return result;
-    }
-
-    bool operator!=(const Iterator &other) const {
-      bool result = block_ != other.block_ || index_ != other.index_;
-      return result;
-    }
-
-   private:
-    Stack *stack_;
-    Block *block_;
-    uint64_t index_;
-  };
 
   Iterator begin() { return Iterator(this, head_); }
 
