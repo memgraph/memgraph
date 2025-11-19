@@ -198,6 +198,7 @@ void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const uti
   spdlog::error("Received {} with main_id: {} != current_main_uuid: {}", rpc_req, std::string(main_req_id),
                 current_main_uuid.has_value() ? std::string(current_main_uuid.value()) : "");
 }
+
 }  // namespace
 
 TwoPCCache InMemoryReplicationHandlers::two_pc_cache_;
@@ -248,6 +249,26 @@ void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, repl
                             uint64_t const request_version, auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms_handler, data, request_version, req_reader, res_builder);
       });
+}
+
+// Try to take immediately snapshot lock. If we failed, then try to abort snapshot and take the lock
+// again. If we succeeded in taking the lock, return true, otherwise false.
+auto InMemoryReplicationHandlers::TakeSnapshotLock(auto &snapshot_guard, storage::InMemoryStorage *storage) -> bool {
+  if (snapshot_guard.try_lock()) return true;
+
+  spdlog::trace(
+      "Couldn't obtain the snapshot lock because there is an ongoing snapshot creation. Trying to abort snapshot "
+      "creation.");
+
+  // abort_snapshot_ will be reset to false in CreateSnapshot in storage.cpp at the end of its execution with
+  // OnScopeExit block
+  storage->abort_snapshot_.store(true, std::memory_order_release);
+
+  constexpr auto timeout = std::chrono::seconds{10};
+
+  // If after aborting the snapshot we still cannot obtain the snapshot lock, then reply to the main that changes
+  // cannot be accepted
+  return snapshot_guard.try_lock_for(timeout);
 }
 
 void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_handler,
@@ -476,6 +497,16 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+
+  // Creating a snapshot on replica is mutually exclusive with receiving snapshot from main
+  // When receiving a snapshot, replica will clear all its durability files and move them into .old directory
+  // Snapshot lock needs to be hold for the whole duration of the SnapshotHandler
+  auto snapshot_guard = std::unique_lock(storage->snapshot_lock_, std::defer_lock);
+  if (!TakeSnapshotLock(snapshot_guard, storage)) {
+    rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
+    return;
+  }
+
   AbortPrevTxnIfNeeded(storage);
 
   // Backup dir
@@ -493,7 +524,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   auto const curr_wal_files = storage::durability::GetWalFiles(current_wal_directory);
 
   auto const &active_files = file_replication_handler.GetActiveFileNames();
-  MG_ASSERT(active_files.size() == 1, "Received {} snapshot files but expecting only one!", active_files.size());
+  DMG_ASSERT(active_files.size() == 1, "Received {} snapshot files but expecting only one!", active_files.size());
   auto const &src_snapshot_file = active_files[0];
   auto const dst_snapshot_file = current_snapshot_dir / active_files[0].filename();
 
@@ -630,7 +661,16 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
   std::vector<storage::durability::SnapshotDurabilityInfo> old_snapshot_files;
   std::vector<storage::durability::WalDurabilityInfo> old_wal_files;
 
+  // Creating a snapshot on replica is mutually exclusive with force resetting from WalFilesHandler
+  // When doing a force reset, replica will clear all its durability files and move them into .old directory
+  // Snapshot lock needs to be hold for the whole duration of the WalFilesHandler
+  auto snapshot_guard = std::unique_lock(storage->snapshot_lock_, std::defer_lock);
+
   if (req.reset_needed) {
+    if (!TakeSnapshotLock(snapshot_guard, storage)) {
+      rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder);
+      return;
+    }
     {
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
@@ -733,7 +773,16 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
   std::vector<storage::durability::SnapshotDurabilityInfo> old_snapshot_files;
   std::vector<storage::durability::WalDurabilityInfo> old_wal_files;
 
+  // Creating a snapshot on replica is mutually exclusive with force resetting from CurrentWalHandler
+  // When doing a force reset, replica will clear all its durability files and move them into .old directory
+  // Snapshot lock needs to be hold for the whole duration of the CurrentWalHandler
+  auto snapshot_guard = std::unique_lock(storage->snapshot_lock_, std::defer_lock);
+
   if (req.reset_needed) {
+    if (!TakeSnapshotLock(snapshot_guard, storage)) {
+      rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
+      return;
+    }
     {
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
