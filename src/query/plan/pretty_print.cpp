@@ -287,15 +287,22 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByEdgePropertyRange & /*unused*/) override;
   bool PreVisit(ScanAllByEdgeId & /*unused*/) override;
   bool PreVisit(ScanChunk & /*unused*/) override;
+  bool PreVisit(ScanChunkByEdge & /*unused*/) override;
   bool PreVisit(ScanParallel & /*unused*/) override;
+  bool PreVisit(ScanParallelById & /*unused*/) override;
   bool PreVisit(ScanParallelByLabel & /*unused*/) override;
   bool PreVisit(ScanParallelByLabelProperties & /*unused*/) override;
+  bool PreVisit(ScanParallelByPointDistance & /*unused*/) override;
+  bool PreVisit(ScanParallelByWithinbbox & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdge & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgeType & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgeTypeProperty & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeTypePropertyValue & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgeTypePropertyRange & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgeProperty & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgePropertyValue & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgePropertyRange & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeId & /*unused*/) override;
   bool PreVisit(ParallelMerge & /*unused*/) override;
   bool PreVisit(AggregateParallel & /*unused*/) override;
 
@@ -445,7 +452,21 @@ bool PlanPrinter::PreVisit(query::plan::ScanChunk &op) {
   return true;
 }
 
+bool PlanPrinter::PreVisit(query::plan::ScanChunkByEdge &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
 bool PlanPrinter::PreVisit(query::plan::ScanParallel &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::ScanParallelById &op) {
   op.dba_ = dba_;
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
@@ -466,6 +487,27 @@ bool PlanPrinter::PreVisit(query::plan::ScanParallelByLabelProperties &op) {
   return true;
 }
 
+bool PlanPrinter::PreVisit(query::plan::ScanParallelByPointDistance &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::ScanParallelByWithinbbox &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::ScanParallelByEdge &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
 bool PlanPrinter::PreVisit(query::plan::ScanParallelByEdgeType &op) {
   op.dba_ = dba_;
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
@@ -474,6 +516,13 @@ bool PlanPrinter::PreVisit(query::plan::ScanParallelByEdgeType &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::ScanParallelByEdgeTypeProperty &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::ScanParallelByEdgeTypePropertyValue &op) {
   op.dba_ = dba_;
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
@@ -502,6 +551,13 @@ bool PlanPrinter::PreVisit(query::plan::ScanParallelByEdgePropertyValue &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::ScanParallelByEdgePropertyRange &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::ScanParallelByEdgeId &op) {
   op.dba_ = dba_;
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
@@ -930,9 +986,35 @@ bool PlanToJsonVisitor::PreVisit(ScanChunk &op) {
   return false;
 }
 
+bool PlanToJsonVisitor::PreVisit(ScanChunkByEdge &op) {
+  json self;
+  self["name"] = "ScanChunkByEdge";
+  self["output_symbol"] = ToJson(op.common_.edge_symbol);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
 bool PlanToJsonVisitor::PreVisit(ScanParallel &op) {
   json self;
   self["name"] = "ScanParallel";
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelById &op) {
+  json self;
+  self["name"] = "ScanParallelById";
+  self["expression"] = ToJson(op.expression_, *dba_);
   self["num_threads"] = op.num_threads_;
   self["state_symbol"] = ToJson(op.state_symbol_);
 
@@ -973,6 +1055,59 @@ bool PlanToJsonVisitor::PreVisit(ScanParallelByLabelProperties &op) {
   return false;
 }
 
+bool PlanToJsonVisitor::PreVisit(ScanParallelByPointDistance &op) {
+  json self;
+  self["name"] = "ScanParallelByPointDistance";
+  self["label"] = ToJson(op.label_, *dba_);
+  self["property"] = ToJson(op.property_, *dba_);
+  self["cmp_value"] = ToJson(op.cmp_value_, *dba_);
+  self["boundary_value"] = ToJson(op.boundary_value_, *dba_);
+  self["boundary_condition"] = static_cast<int>(op.boundary_condition_);
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByWithinbbox &op) {
+  json self;
+  self["name"] = "ScanParallelByWithinbbox";
+  self["label"] = ToJson(op.label_, *dba_);
+  self["property"] = ToJson(op.property_, *dba_);
+  self["bottom_left"] = ToJson(op.bottom_left_, *dba_);
+  self["top_right"] = ToJson(op.top_right_, *dba_);
+  self["boundary_value"] = ToJson(op.boundary_value_, *dba_);
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByEdge &op) {
+  json self;
+  self["name"] = "ScanParallelByEdge";
+  self["edge_symbol"] = ToJson(op.edge_symbol_);
+  self["node1_symbol"] = ToJson(op.node1_symbol_);
+  self["node2_symbol"] = ToJson(op.node2_symbol_);
+  self["direction"] = static_cast<int>(op.direction_);
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
 bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeType &op) {
   json self;
   self["name"] = "ScanParallelByEdgeType";
@@ -992,6 +1127,22 @@ bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeTypeProperty &op) {
   self["name"] = "ScanParallelByEdgeTypeProperty";
   self["edge_type"] = ToJson(op.edge_type_, *dba_);
   self["property"] = ToJson(op.property_, *dba_);
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeTypePropertyValue &op) {
+  json self;
+  self["name"] = "ScanParallelByEdgeTypePropertyValue";
+  self["edge_type"] = ToJson(op.edge_type_, *dba_);
+  self["property"] = ToJson(op.property_, *dba_);
+  self["expression"] = ToJson(op.expression_, *dba_);
   self["num_threads"] = op.num_threads_;
   self["state_symbol"] = ToJson(op.state_symbol_);
 
@@ -1054,6 +1205,24 @@ bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgePropertyRange &op) {
   self["property"] = ToJson(op.property_, *dba_);
   self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
   self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeId &op) {
+  json self;
+  self["name"] = "ScanParallelByEdgeId";
+  self["edge_symbol"] = ToJson(op.edge_symbol_);
+  self["node1_symbol"] = ToJson(op.node1_symbol_);
+  self["node2_symbol"] = ToJson(op.node2_symbol_);
+  self["direction"] = static_cast<int>(op.direction_);
+  self["expression"] = ToJson(op.expression_, *dba_);
   self["num_threads"] = op.num_threads_;
   self["state_symbol"] = ToJson(op.state_symbol_);
 
