@@ -8,20 +8,20 @@ on:
         description: "BSL change date (format YYYY-DD-MM)"
         required: false
         type: string
-        default: $(date -u +%Y-%d-%m)
+        default: ""
   workflow_call:
     inputs:
       bsl_date:
         description: "BSL change date (format YYYY-DD-MM)"
         required: false
         type: string
-        default: $(date -u +%Y-%d-%m)
+        default: ""
 
-env:
-  BSL_DATE: ${{ inputs.bsl_date }}
+
 
 jobs:
   update_bsl_change_description:
+    name: Update BSL change date
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -38,6 +38,17 @@ jobs:
           BRANCH_NAME="update-bsl-change-date-$BSL_DATE"
           git checkout -b $BRANCH_NAME
           echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
+
+      - name: Set BSL date
+        env:
+            INPUT_BSL_DATE: ${{ inputs.bsl_date }}
+        run: |
+          if [ -z "$INPUT_BSL_DATE" ]; then
+            BSL_DATE="$(date -u +%Y-%d-%m)"
+          else
+            BSL_DATE=$INPUT_BSL_DATE
+          fi
+          echo "BSL_DATE=$BSL_DATE" >> $GITHUB_OUTPUT
 
       - name: Update BSL change date
         run: |
