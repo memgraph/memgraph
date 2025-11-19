@@ -521,10 +521,12 @@ build_memgraph () {
   # Check if a conan profile exists and create one if needed
   docker exec -u mg "$build_container" bash -c "$CMD_START && if [ ! -f \"\$HOME/.conan2/profiles/default\" ]; then conan profile detect; fi"
 
-  # hack for fedora on arm
-  if [[ "$os" == "fedora-42-arm" ]]; then
-    docker exec -u mg "$build_container" bash -c "$CMD_START && export BUILD_TYPE=$build_type && MG_TOOLCHAIN_ROOT=/opt/toolchain-v7 conan install --requires m4/1.4.19 --build=* -pr ./memgraph_template_profile"
-  fi
+  # Modify conan default profile to use C std gnu17 so that m4 can be built
+  docker exec -u mg "$build_container" bash -c "
+    sed -i '/^compiler=gcc/a compiler.cstd=gnu17' ~/.conan2/profiles/default &&
+    echo '[conf]' >> ~/.conan2/profiles/default &&
+    echo 'm4/*:tools.build:cflags=[\"-std=gnu17\"]' >> ~/.conan2/profiles/default
+  "
 
   # Install Conan dependencies
   echo "Installing Conan dependencies..."
