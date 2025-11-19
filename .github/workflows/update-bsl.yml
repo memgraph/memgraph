@@ -53,7 +53,7 @@ jobs:
 
       - name: Update BSL change date
         run: |
-          sed -i "s/CHANGE DATE:.*$/CHANGE DATE: $BSL_DATE/" licenses/BSL.txt
+          sed -i "s/CHANGE DATE:.*$/CHANGE DATE:            $BSL_DATE/" licenses/BSL.txt
           git add licenses/BSL.txt
           git commit -m "Update BSL change date to $BSL_DATE"
           git push --set-upstream origin $BRANCH_NAME
@@ -63,7 +63,7 @@ jobs:
         with:
           title: "Update BSL change date to $BSL_DATE"
           body: "Update BSL change date to $BSL_DATE"
-          branch: $BRANCH_NAME
+          branch: ${{ env.BRANCH_NAME }}
           base: master
           labels: |
             infrastructure
