@@ -181,3 +181,44 @@ TEST(Stack, EraseIfAllElementsMultipleBlocks) {
   // Verify stack is empty
   ASSERT_FALSE(stack.Pop().has_value());
 }
+
+TEST(Stack, IteratorForward) {
+  memgraph::utils::Stack<int, kStackSize, false> stack;
+  for (int i = 0; i < 10; ++i) {
+    stack.Push(i);
+  }
+
+  std::vector<int> iterated;
+  for (auto it = stack.begin(); it != stack.end(); ++it) {
+    iterated.push_back(*it);
+  }
+
+  ASSERT_EQ(iterated.size(), 10);
+  for (size_t i = 0; i < iterated.size(); ++i) {
+    ASSERT_EQ(iterated[i], 9 - static_cast<int>(i));
+  }
+}
+
+TEST(Stack, IteratorBidirectional) {
+  memgraph::utils::Stack<int, kStackSize, false> stack;
+  for (int i = 0; i < 5; ++i) {
+    stack.Push(i);
+  }
+
+  auto it = stack.begin();
+  ASSERT_EQ(*it, 4);
+  ++it;
+  ASSERT_EQ(*it, 3);
+  --it;
+  ASSERT_EQ(*it, 4);
+  ++it;
+  ++it;
+  ASSERT_EQ(*it, 2);
+  --it;
+  ASSERT_EQ(*it, 3);
+}
+
+TEST(Stack, IteratorEmptyStack) {
+  memgraph::utils::Stack<int, kStackSize, false> stack;
+  ASSERT_EQ(stack.begin(), stack.end());
+}
