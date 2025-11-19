@@ -283,7 +283,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     // TODO: move out of storage have one global gc_runner_
     gc_runner_.SetInterval(config_.gc.interval);
-    gc_runner_.Run("Storage GC", [this] { this->FreeMemory({}, true); });
+    gc_runner_.Run("Storage GC", [this] { this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true); });
   }
   if (timestamp_ == kTimestampInitialId) {
     commit_log_.emplace();
@@ -2105,12 +2105,18 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // SetStorageMode will pass its unique_lock of main_lock_. We will use that lock,
   // as reacquiring the lock would cause deadlock. Otherwise, we need to get our own
   // lock.
-  const auto aggressive = main_guard.owns_lock();
-  if (!aggressive) {
-    // Because the garbage collector iterates through the indices and constraints
-    // to clean them up, it must take the main lock for reading to make sure that
-    // the indices and constraints aren't concurrently being modified.
-    main_lock_.lock_shared();
+  if (!main_guard.owns_lock()) {
+    // If aggressive mode is enabled, try to get unique lock first.
+    // Perf note: Do not try to get unique lock if aggressive mode is disabled. GC maybe expensive,
+    // do not assume it is fast, unique lock will blocks all new storage transactions.
+    if (!flags::run_time::GetStorageGcAggressive() || !main_guard.try_lock()) {
+      // Because the garbage collector iterates through the indices and constraints
+      // to clean them up, it must take the main lock for reading to make sure that
+      // the indices and constraints aren't concurrently being modified.
+      main_lock_.lock_shared();
+    }
+  } else {
+    DMG_ASSERT(main_guard.mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
   }
 
   utils::OnScopeExit lock_releaser{[&] {
@@ -2154,7 +2160,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // Deltas from previous GC runs or from aborts can be cleaned up here
     garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
       guard.unlock();
-      if (aggressive or mark_timestamp == oldest_active_start_timestamp) {
+      if (main_guard.owns_lock() || mark_timestamp == oldest_active_start_timestamp) {
         // We know no transaction is active, it is safe to simply delete all the garbage undos
         // Nothing can be reading them
         garbage_undo_buffers.clear();
@@ -2390,7 +2396,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto guard = std::unique_lock{engine_lock_};
     uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
 
-    if (aggressive or mark_timestamp == oldest_active_start_timestamp) {
+    if (main_guard.owns_lock() || mark_timestamp == oldest_active_start_timestamp) {
       guard.unlock();
       // if lucky, there are no active transactions, hence nothing looking at the deltas
       // remove them all now
