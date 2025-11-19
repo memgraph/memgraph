@@ -125,9 +125,6 @@ BENCHMARK_DEFINE_F(StackEraseIfFixture, EraseIfApproach)(benchmark::State &state
 
 // // Args: (num_elements, deletion_percentage)
 // BENCHMARK_REGISTER_F(StackEraseIfFixture, ManualDeletionApproach)
-//     ->Args({10000, 25})
-//     ->Args({10000, 50})
-//     ->Args({10000, 75})
 //     ->Args({100000, 25})
 //     ->Args({100000, 50})
 //     ->Args({100000, 75})
@@ -137,9 +134,6 @@ BENCHMARK_DEFINE_F(StackEraseIfFixture, EraseIfApproach)(benchmark::State &state
 //     ->Unit(benchmark::kMicrosecond);
 
 // BENCHMARK_REGISTER_F(StackEraseIfFixture, EraseIfApproach)
-//     ->Args({10000, 25})
-//     ->Args({10000, 50})
-//     ->Args({10000, 75})
 //     ->Args({100000, 25})
 //     ->Args({100000, 50})
 //     ->Args({100000, 75})
@@ -185,25 +179,15 @@ class StackComparisonFixture : public benchmark::Fixture {
     }
   }
 
-  void RestoreThreadSafeStack() {
+  template <typename TStack>
+  void RestoreStack(TStack &stack) {
     std::optional<TDeleted> item;
-    while ((item = thread_safe_stack.Pop())) {
+    while ((item = stack.Pop())) {
       DeleteNode(item->second);
     }
     for (auto it = original_elements_.rbegin(); it != original_elements_.rend(); ++it) {
       auto *node = new int(*it->second);
-      thread_safe_stack.Push(std::make_pair(it->first, node));
-    }
-  }
-
-  void RestoreLocalStack() {
-    std::optional<TDeleted> item;
-    while ((item = local_stack.Pop())) {
-      DeleteNode(item->second);
-    }
-    for (auto it = original_elements_.rbegin(); it != original_elements_.rend(); ++it) {
-      auto *node = new int(*it->second);
-      local_stack.Push(std::make_pair(it->first, node));
+      stack.Push(std::make_pair(it->first, node));
     }
   }
 
@@ -224,7 +208,7 @@ BENCHMARK_DEFINE_F(StackComparisonFixture, ManualDeletionApproachThreadSafe)(ben
 
   while (state.KeepRunning()) {
     state.PauseTiming();
-    RestoreThreadSafeStack();
+    RestoreStack(thread_safe_stack);
     state.ResumeTiming();
 
     TThreadSafeStack leftover;
@@ -248,7 +232,7 @@ BENCHMARK_DEFINE_F(StackComparisonFixture, EraseIfApproachLocal)(benchmark::Stat
 
   while (state.KeepRunning()) {
     state.PauseTiming();
-    RestoreLocalStack();
+    RestoreStack(local_stack);
     state.ResumeTiming();
 
     local_stack.EraseIf([last_dead](const TDeleted &item) { return item.first < last_dead; },
@@ -258,9 +242,6 @@ BENCHMARK_DEFINE_F(StackComparisonFixture, EraseIfApproachLocal)(benchmark::Stat
 
 // Args: (num_elements, deletion_percentage)
 BENCHMARK_REGISTER_F(StackComparisonFixture, ManualDeletionApproachThreadSafe)
-    ->Args({10000, 25})
-    ->Args({10000, 50})
-    ->Args({10000, 75})
     ->Args({100000, 25})
     ->Args({100000, 50})
     ->Args({100000, 75})
@@ -270,9 +251,6 @@ BENCHMARK_REGISTER_F(StackComparisonFixture, ManualDeletionApproachThreadSafe)
     ->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_REGISTER_F(StackComparisonFixture, EraseIfApproachLocal)
-    ->Args({10000, 25})
-    ->Args({10000, 50})
-    ->Args({10000, 75})
     ->Args({100000, 25})
     ->Args({100000, 50})
     ->Args({100000, 75})

@@ -12,7 +12,6 @@
 #pragma once
 
 #include <algorithm>
-#include <iostream>
 #include <iterator>
 #include <mutex>
 #include <optional>
@@ -36,11 +35,11 @@ namespace memgraph::utils {
 /// `struct Block` a multiple in size of the Linux memory page size.
 ///
 /// This can be calculated using:
-/// sizeof(Block *) * 2 + sizeof(uint64_t) + sizeof(TObj) * TSize \
+/// sizeof(Block *) * 2 + 2 * sizeof(uint64_t) + sizeof(TObj) * TSize \
 ///     == k * kLinuxPageSize
 ///
 /// Which translates to:
-/// 16 + 8 + sizeof(TObj) * TSize == k * 4096
+/// 16 + 16 + sizeof(TObj) * TSize == k * 4096
 ///
 /// @tparam TObj primitive object that should be stored in the stack
 /// @tparam TSize size of the memory block used
@@ -52,7 +51,7 @@ class Stack {
     Block *prev{nullptr};
     Block *next{nullptr};
     uint64_t used{0};
-    uint64_t pad;
+    uint64_t pad;  // Padding to ensure Block size is a multiple of page size
     TObj obj[TSize];
   };
   struct EmptyLock {
@@ -234,15 +233,12 @@ class Stack {
 
     Iterator &operator--() {
       // If we're at end(), find the last (oldest) element
-      // TODO Check
       if (block_ == nullptr) {
         if (stack_ != nullptr && stack_->head_ != nullptr) {
-          // Find the tail (oldest block) by following prev pointers
           Block *tail = stack_->head_;
           while (tail->prev != nullptr) {
             tail = tail->prev;
           }
-          // Skip empty blocks
           while (tail != nullptr && tail->used == 0) {
             tail = tail->next;
           }
