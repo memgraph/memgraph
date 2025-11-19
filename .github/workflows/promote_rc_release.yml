@@ -29,7 +29,8 @@ env:
   rc_dir: memgraph/v${{ github.event.inputs.release_version }}-${{ github.event.inputs.rc_version }}
   release_bucket: ${{ github.event.inputs.test == 'false' && 'download.memgraph.com' || 'deps.memgraph.io' }}
   release_dir: memgraph${{ github.event.inputs.test == 'true' && '-release-test' || '' }}/v${{ github.event.inputs.release_version }}
-  package_rpm: memgraph-${{ github.event.inputs.release_version }}_1-1.x86_64.rpm
+  package_rpm_amd: memgraph-${{ github.event.inputs.release_version }}_1-1.x86_64.rpm
+  package_rpm_arm: memgraph-${{ github.event.inputs.release_version }}_1-1.aarch64.rpm
   package_deb_amd: memgraph_${{ github.event.inputs.release_version }}-1_amd64.deb
   package_deb_arm: memgraph_${{ github.event.inputs.release_version }}-1_arm64.deb
   package_docker: memgraph-${{ github.event.inputs.release_version }}-docker.tar.gz
@@ -67,7 +68,7 @@ jobs:
           - os: debian-13
             arch: arm
             malloc: false
-            build_type: Release 
+            build_type: Release
           - os: fedora-42
             arch: arm
             malloc: false
@@ -100,7 +101,11 @@ jobs:
         run: |
           os=${{ matrix.os }}
           if [[ $os == amzn* || $os == centos* || $os == fedora* || $os == rocky* ]]; then
-            package_name=${package_rpm}
+            if [[ "${{ matrix.arch }}" == "arm" ]]; then
+              package_name=${package_rpm_arm}
+            else
+              package_name=${package_rpm_amd}
+            fi
           elif [[ $os == docker ]]; then
             if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
               package_name=${package_docker_relwithdebinfo}
