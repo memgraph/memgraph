@@ -166,15 +166,22 @@ class RemoveNestedProperty;
 class AggregateParallel;
 class ParallelMerge;
 class ScanParallel;
+class ScanParallelById;
 class ScanParallelByLabel;
 class ScanParallelByLabelProperties;
+class ScanParallelByPointDistance;
+class ScanParallelByWithinbbox;
+class ScanParallelByEdge;
 class ScanParallelByEdgeType;
 class ScanParallelByEdgeTypeProperty;
+class ScanParallelByEdgeTypePropertyValue;
 class ScanParallelByEdgeTypePropertyRange;
 class ScanParallelByEdgeProperty;
 class ScanParallelByEdgePropertyValue;
 class ScanParallelByEdgePropertyRange;
+class ScanParallelByEdgeId;
 class ScanChunk;
+class ScanChunkByEdge;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelProperties, ScanAllById, ScanAllByEdge,
@@ -187,7 +194,7 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl, AggregateParallel, ScanParallel,
     ScanParallelByLabel, ScanParallelByLabelProperties, ScanParallelByEdgeType, ScanParallelByEdgeTypeProperty,
     ScanParallelByEdgeTypePropertyRange, ScanParallelByEdgeProperty, ScanParallelByEdgePropertyValue,
-    ScanParallelByEdgePropertyRange, ScanChunk, ParallelMerge>;
+    ScanParallelByEdgePropertyRange, ScanChunk, ScanChunkByEdge, ParallelMerge>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -2024,6 +2031,137 @@ class ScanParallelByEdgePropertyRange : public memgraph::query::plan::ScanParall
   std::optional<Bound> upper_bound_;
 };
 
+/// Parallel scan variant for vertices by ID.
+class ScanParallelById : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallelById() = default;
+  ScanParallelById(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                   Symbol state_symbol, Expression *expression);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  Expression *expression_;
+};
+
+/// Parallel scan variant for vertices by point distance.
+class ScanParallelByPointDistance : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallelByPointDistance() = default;
+  ScanParallelByPointDistance(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                              Symbol state_symbol, storage::LabelId label, storage::PropertyId property,
+                              Expression *cmp_value, Expression *boundary_value,
+                              PointDistanceCondition boundary_condition);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  storage::LabelId label_;
+  storage::PropertyId property_;
+  Expression *cmp_value_;
+  Expression *boundary_value_;
+  PointDistanceCondition boundary_condition_;
+};
+
+/// Parallel scan variant for vertices by point within bbox.
+class ScanParallelByWithinbbox : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallelByWithinbbox() = default;
+  ScanParallelByWithinbbox(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                           Symbol state_symbol, storage::LabelId label, storage::PropertyId property,
+                           Expression *bottom_left, Expression *top_right, Expression *boundary_value);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  storage::LabelId label_;
+  storage::PropertyId property_;
+  Expression *bottom_left_;
+  Expression *top_right_;
+  Expression *boundary_value_;
+};
+
+/// Parallel scan variant for edges (base edge scan).
+class ScanParallelByEdge : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallelByEdge() = default;
+  ScanParallelByEdge(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                     Symbol state_symbol, Symbol edge_symbol, Symbol node1_symbol, Symbol node2_symbol,
+                     EdgeAtom::Direction direction);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  Symbol edge_symbol_;
+  Symbol node1_symbol_;
+  Symbol node2_symbol_;
+  EdgeAtom::Direction direction_;
+};
+
+/// Parallel scan variant for edges by edge type, property, and value.
+class ScanParallelByEdgeTypePropertyValue : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallelByEdgeTypePropertyValue() = default;
+  ScanParallelByEdgeTypePropertyValue(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                      size_t num_threads, Symbol state_symbol, storage::EdgeTypeId edge_type,
+                                      storage::PropertyId property, Expression *expression);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  storage::EdgeTypeId edge_type_;
+  storage::PropertyId property_;
+  Expression *expression_;
+};
+
+/// Parallel scan variant for edges by edge ID.
+class ScanParallelByEdgeId : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallelByEdgeId() = default;
+  ScanParallelByEdgeId(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                       Symbol state_symbol, Symbol edge_symbol, Symbol node1_symbol, Symbol node2_symbol,
+                       EdgeAtom::Direction direction, Expression *expression);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  Symbol edge_symbol_;
+  Symbol node1_symbol_;
+  Symbol node2_symbol_;
+  EdgeAtom::Direction direction_;
+  Expression *expression_;
+};
+
 class ScanChunk : public memgraph::query::plan::ScanAll {
  public:
   static const utils::TypeInfo kType;
@@ -2034,6 +2172,30 @@ class ScanChunk : public memgraph::query::plan::ScanAll {
             Symbol state_symbol);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+ private:
+  Symbol state_symbol_;
+};
+
+class ScanChunkByEdge : public memgraph::query::plan::ScanAllByEdge {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanChunkByEdge() = default;
+  ScanChunkByEdge(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
+                  Symbol node2_symbol, EdgeAtom::Direction direction,
+                  const std::vector<storage::EdgeTypeId> &edge_types, storage::View view, Symbol state_symbol);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
   std::string ToString() const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;

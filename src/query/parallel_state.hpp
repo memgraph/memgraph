@@ -42,9 +42,6 @@ class ParallelStateOnFrame {
     return edges_chunks_->get_chunk(chunk_index_);
   }
 
-  // Legacy method for backward compatibility
-  std::optional<VerticesChunkedIterable::Chunk> GetChunk() { return GetVerticesChunk(); }
-
   std::shared_ptr<VerticesChunkedIterable> vertices_chunks_;
   std::shared_ptr<EdgesChunkedIterable> edges_chunks_;
   size_t chunk_index_;

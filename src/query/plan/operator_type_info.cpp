@@ -45,31 +45,31 @@ constexpr utils::TypeInfo query::plan::ScanAllById::kType{utils::TypeId::SCAN_AL
 constexpr utils::TypeInfo query::plan::ScanAllByEdge::kType{utils::TypeId::SCAN_ALL_BY_EDGE, "ScanAllByEdge",
                                                             &query::plan::ScanAll::kType};
 
-constexpr utils::TypeInfo query::plan::ScanAllByEdgeType::kType{utils::TypeId::SCAN_ALL_BY_EDGE_TYPE,
-                                                                "ScanAllByEdgeType", &query::plan::ScanAll::kType};
+constexpr utils::TypeInfo query::plan::ScanAllByEdgeType::kType{
+    utils::TypeId::SCAN_ALL_BY_EDGE_TYPE, "ScanAllByEdgeType", &query::plan::ScanAllByEdge::kType};
 
 constexpr utils::TypeInfo query::plan::ScanAllByEdgeTypeProperty::kType{
-    utils::TypeId::SCAN_ALL_BY_EDGE_TYPE_PROPERTY, "ScanAllByEdgeTypeProperty", &query::plan::ScanAll::kType};
+    utils::TypeId::SCAN_ALL_BY_EDGE_TYPE_PROPERTY, "ScanAllByEdgeTypeProperty", &query::plan::ScanAllByEdge::kType};
 
 constexpr utils::TypeInfo query::plan::ScanAllByEdgeTypePropertyValue::kType{
     utils::TypeId::SCAN_ALL_BY_EDGE_TYPE_PROPERTY_VALUE, "ScanAllByEdgeTypePropertyValue",
-    &query::plan::ScanAll::kType};
+    &query::plan::ScanAllByEdge::kType};
 
 constexpr utils::TypeInfo query::plan::ScanAllByEdgeTypePropertyRange::kType{
     utils::TypeId::SCAN_ALL_BY_EDGE_TYPE_PROPERTY_RANGE, "ScanAllByEdgeTypePropertyRange",
-    &query::plan::ScanAll::kType};
+    &query::plan::ScanAllByEdge::kType};
 
 constexpr utils::TypeInfo query::plan::ScanAllByEdgeProperty::kType{
-    utils::TypeId::SCAN_ALL_BY_EDGE_PROPERTY, "ScanAllByEdgeProperty", &query::plan::ScanAll::kType};
+    utils::TypeId::SCAN_ALL_BY_EDGE_PROPERTY, "ScanAllByEdgeProperty", &query::plan::ScanAllByEdge::kType};
 
 constexpr utils::TypeInfo query::plan::ScanAllByEdgePropertyValue::kType{
-    utils::TypeId::SCAN_ALL_BY_EDGE_PROPERTY_VALUE, "ScanAllByEdgePropertyValue", &query::plan::ScanAll::kType};
+    utils::TypeId::SCAN_ALL_BY_EDGE_PROPERTY_VALUE, "ScanAllByEdgePropertyValue", &query::plan::ScanAllByEdge::kType};
 
 constexpr utils::TypeInfo query::plan::ScanAllByEdgePropertyRange::kType{
-    utils::TypeId::SCAN_ALL_BY_EDGE_PROPERTY_RANGE, "ScanAllByEdgePropertyRange", &query::plan::ScanAll::kType};
+    utils::TypeId::SCAN_ALL_BY_EDGE_PROPERTY_RANGE, "ScanAllByEdgePropertyRange", &query::plan::ScanAllByEdge::kType};
 
 constexpr utils::TypeInfo query::plan::ScanAllByEdgeId::kType{utils::TypeId::SCAN_ALL_BY_ID, "ScanAllByEdgeId",
-                                                              &query::plan::ScanAll::kType};
+                                                              &query::plan::ScanAllByEdge::kType};
 
 constexpr utils::TypeInfo query::plan::ExpandCommon::kType{utils::TypeId::EXPAND_COMMON, "ExpandCommon", nullptr};
 constexpr utils::TypeInfo query::plan::ScanByEdgeCommon::kType{utils::TypeId::SCAN_BY_EDGE_COMMON, "ScanByEdgeCommon",
@@ -208,8 +208,14 @@ constexpr utils::TypeInfo query::plan::ScanAllByPointWithinbbox::kType{utils::Ty
 constexpr utils::TypeInfo query::plan::ScanChunk::kType{utils::TypeId::SCAN_CHUNK, "ScanChunk",
                                                         &query::plan::ScanAll::kType};
 
+constexpr utils::TypeInfo query::plan::ScanChunkByEdge::kType{utils::TypeId::SCAN_CHUNK_BY_EDGE, "ScanChunkByEdge",
+                                                              &query::plan::ScanAllByEdge::kType};
+
 constexpr utils::TypeInfo query::plan::ScanParallel::kType{utils::TypeId::SCAN_PARALLEL, "ScanParallel",
                                                            &query::plan::ScanAll::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelById::kType{utils::TypeId::SCAN_PARALLEL_BY_ID, "ScanParallelById",
+                                                               &query::plan::ScanParallel::kType};
 
 constexpr utils::TypeInfo query::plan::ScanParallelByLabel::kType{
     utils::TypeId::SCAN_PARALLEL_BY_LABEL, "ScanParallelByLabel", &query::plan::ScanParallel::kType};
@@ -218,11 +224,24 @@ constexpr utils::TypeInfo query::plan::ScanParallelByLabelProperties::kType{
     utils::TypeId::SCAN_PARALLEL_BY_LABEL_PROPERTIES, "ScanParallelByLabelProperties",
     &query::plan::ScanParallel::kType};
 
+constexpr utils::TypeInfo query::plan::ScanParallelByPointDistance::kType{
+    utils::TypeId::SCAN_PARALLEL_BY_POINT_DISTANCE, "ScanParallelByPointDistance", &query::plan::ScanParallel::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelByWithinbbox::kType{
+    utils::TypeId::SCAN_PARALLEL_BY_POINT_WITHINBBOX, "ScanParallelByWithinbbox", &query::plan::ScanParallel::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelByEdge::kType{
+    utils::TypeId::SCAN_PARALLEL_BY_EDGE, "ScanParallelByEdge", &query::plan::ScanParallel::kType};
+
 constexpr utils::TypeInfo query::plan::ScanParallelByEdgeType::kType{
     utils::TypeId::SCAN_PARALLEL_BY_EDGE_TYPE, "ScanParallelByEdgeType", &query::plan::ScanParallel::kType};
 
 constexpr utils::TypeInfo query::plan::ScanParallelByEdgeTypeProperty::kType{
     utils::TypeId::SCAN_PARALLEL_BY_EDGE_TYPE_PROPERTY, "ScanParallelByEdgeTypeProperty",
+    &query::plan::ScanParallel::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelByEdgeTypePropertyValue::kType{
+    utils::TypeId::SCAN_PARALLEL_BY_EDGE_TYPE_PROPERTY_VALUE, "ScanParallelByEdgeTypePropertyValue",
     &query::plan::ScanParallel::kType};
 
 constexpr utils::TypeInfo query::plan::ScanParallelByEdgeTypePropertyRange::kType{
@@ -239,6 +258,9 @@ constexpr utils::TypeInfo query::plan::ScanParallelByEdgePropertyValue::kType{
 constexpr utils::TypeInfo query::plan::ScanParallelByEdgePropertyRange::kType{
     utils::TypeId::SCAN_PARALLEL_BY_EDGE_PROPERTY_RANGE, "ScanParallelByEdgePropertyRange",
     &query::plan::ScanParallel::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelByEdgeId::kType{
+    utils::TypeId::SCAN_PARALLEL_BY_EDGE_ID, "ScanParallelByEdgeId", &query::plan::ScanParallel::kType};
 
 constexpr utils::TypeInfo query::plan::AggregateParallel::kType{.id = utils::TypeId::AGGREGATE_PARALLEL,
                                                                 .name = "AggregateParallel",
