@@ -32,8 +32,6 @@
 
 #include "csv/parsing.hpp"
 #include "license/license.hpp"
-#include "query/arrow_parquet/parquet_file_config.hpp"
-#include "query/arrow_parquet/reader.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -55,7 +53,6 @@
 #include "utils/algorithm.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
-import memgraph.utils.fnv;
 #include "utils/java_string_formatter.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
@@ -73,6 +70,10 @@ import memgraph.utils.fnv;
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
 #include "vertex_accessor.hpp"
+
+import memgraph.query.arrow_parquet.parquet_file_config;
+import memgraph.query.arrow_parquet.reader;
+import memgraph.utils.fnv;
 
 namespace r = ranges;
 namespace rv = r::views;

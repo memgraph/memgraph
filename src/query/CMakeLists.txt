@@ -85,10 +85,12 @@ target_sources(mg-query
     vertex_accessor.cpp
 
     PUBLIC
+    FILE_SET CXX_MODULES
+    FILES
+    arrow_parquet/parquet_file_config.cppm
+    arrow_parquet/reader.cppm
     FILE_SET HEADERS
     FILES
-    arrow_parquet/reader.hpp
-    arrow_parquet/parquet_file_config.hpp
     dependant_symbol_visitor.hpp
     edge_accessor.hpp
     frontend/ast/ast.hpp

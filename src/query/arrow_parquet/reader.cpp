@@ -9,9 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/arrow_parquet/reader.hpp"
+module;
+
 #include "flags/run_time_configurable.hpp"
-#include "query/arrow_parquet/parquet_file_config.hpp"
 #include "query/typed_value.hpp"
 #include "requests/requests.hpp"
 #include "utils/data_queue.hpp"
@@ -32,6 +32,8 @@
 #include "parquet/arrow/reader.h"
 #include "parquet/properties.h"
 #include "spdlog/spdlog.h"
+
+module memgraph.query.arrow_parquet.reader;
 
 constexpr int64_t batch_rows = 1U << 16U;
 
@@ -658,7 +660,7 @@ ParquetReader::ParquetReader(ParquetFileConfig parquet_file_config, utils::Memor
       auto const file_name = std::filesystem::path{parquet_file_config.file}.filename();
       auto const local_file_path = fmt::format("/tmp/{}", file_name);
       if (requests::CreateAndDownloadFile(parquet_file_config.file, local_file_path)) {
-        utils::OnScopeExit on_exit{[&local_file_path]() { utils::DeleteFile(local_file_path); }};
+        utils::OnScopeExit const on_exit{[&local_file_path]() { utils::DeleteFile(local_file_path); }};
 
         return LoadFileFromDisk(local_file_path);
       }
