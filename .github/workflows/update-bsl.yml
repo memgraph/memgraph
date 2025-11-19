@@ -17,7 +17,7 @@ on:
         type: string
         default: ""
 
-
+run-name: Update BSL change date
 
 jobs:
   update_bsl_change_description:
@@ -44,7 +44,8 @@ jobs:
             INPUT_BSL_DATE: ${{ inputs.bsl_date }}
         run: |
           if [ -z "$INPUT_BSL_DATE" ]; then
-            BSL_DATE="$(date -u +%Y-%d-%m)"
+            # Should be today's date + 4 years
+            BSL_DATE="$(date -u +%Y-%d-%m -d '+4 years')"
           else
             BSL_DATE=$INPUT_BSL_DATE
           fi
