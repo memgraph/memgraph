@@ -9,7 +9,6 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import os
 import sys
 from pathlib import Path
 
@@ -21,6 +20,7 @@ from common import connect, execute_and_fetch_all
 # LocalStack configuration
 # NOTE: If you are testing this locally change localstack-s3 to localhost
 AWS_ENDPOINT_URL = "http://localstack-s3:4566"
+# AWS_ENDPOINT_URL = "http://localhost:4566"
 AWS_ACCESS_KEY_ID = "test"
 AWS_SECRET_ACCESS_KEY = "test"
 AWS_REGION = "us-east-1"
@@ -39,6 +39,17 @@ def test_no_such_file():
     except mgclient.DatabaseError:
         # No such file
         pass
+
+
+def test_http_file():
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = (
+        f"LOAD PARQUET FROM '{AWS_ENDPOINT_URL}/{BUCKET_NAME}/nodes_100.parquet' WITH CONFIG {{'aws_region': '{AWS_REGION}', "
+        f"'aws_access_key': '{AWS_ACCESS_KEY_ID}', 'aws_secret_key': '{AWS_SECRET_ACCESS_KEY}', 'aws_endpoint_url': '{AWS_ENDPOINT_URL}' }} AS row CREATE (n:N {{id: row.id, name: row.name, age: row.age, city: row.city}})"
+    )
+    execute_and_fetch_all(cursor, load_query)
+    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
+    execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 
 def test_small_file_nodes_query_settings():

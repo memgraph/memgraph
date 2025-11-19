@@ -60,4 +60,12 @@ bool CreateAndDownloadFile(const std::string &url, const std::string &path, int 
  */
 auto DownloadToStream(char const *url, std::ostream &os) -> bool;
 
+/**
+ * Downloads content into a stream by calling DownloadToStream.
+
+ * @param url url of the contents
+ * @return std::stringstream containing the content of the fetched file
+ */
+auto UrlToStringStream(const char *url) -> std::stringstream;
+
 }  // namespace memgraph::requests

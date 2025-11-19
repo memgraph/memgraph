@@ -18,6 +18,7 @@
 #include <gflags/gflags.h>
 #include <ctre.hpp>
 
+#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
 #include <nlohmann/json.hpp>
@@ -146,5 +147,13 @@ auto DownloadToStream(char const *url, std::ostream &os) -> bool {
 
   return true;
 }
+
+auto UrlToStringStream(const char *url) -> std::stringstream {
+  auto ss = std::stringstream{};
+  if (!requests::DownloadToStream(url, ss)) {
+    throw utils::BasicException("CSV was unable to be fetched from {}", url);
+  }
+  return ss;
+};
 
 }  // namespace memgraph::requests

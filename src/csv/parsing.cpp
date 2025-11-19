@@ -19,7 +19,6 @@
 #include <ctre.hpp>
 
 #include "requests/requests.hpp"
-#include "utils/file.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/string.hpp"
 
@@ -384,13 +383,6 @@ auto CsvSource::Create(const utils::pmr::string &csv_location) -> CsvSource {
 }
 
 // Helper for UrlCsvSource
-auto urlToStringStream(const char *url) -> std::stringstream {
-  auto ss = std::stringstream{};
-  if (!requests::DownloadToStream(url, ss)) {
-    throw CsvReadException("CSV was unable to be fetched from {}", url);
-  }
-  return ss;
-};
 
-UrlCsvSource::UrlCsvSource(const char *url) : StreamCsvSource{urlToStringStream(url)} {}
+UrlCsvSource::UrlCsvSource(const char *url) : StreamCsvSource{requests::UrlToStringStream(url)} {}
 }  // namespace memgraph::csv

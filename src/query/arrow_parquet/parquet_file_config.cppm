@@ -9,15 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
 #include <map>
 #include <optional>
 #include <string>
 
-namespace memgraph::query {
+export module memgraph.query.arrow_parquet.parquet_file_config;
 
 using namespace std::string_view_literals;
+
+export namespace memgraph::query {
+
 constexpr auto kAwsRegionQuerySetting = "aws_region"sv;
 constexpr auto kAwsAccessKeyQuerySetting = "aws_access_key"sv;
 constexpr auto kAwsSecretKeyQuerySetting = "aws_secret_key"sv;
