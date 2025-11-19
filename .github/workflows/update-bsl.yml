@@ -1,0 +1,59 @@
+name: Update BSL Change Date
+
+on:
+  workflow_dispatch:
+    inputs:
+      bsl_date:
+        description: "BSL change date (format YYYY-DD-MM)"
+        required: false
+        type: string
+        default: $(date -u +%Y-%d-%m)
+  workflow_call:
+    inputs:
+      bsl_date:
+        description: "BSL change date (format YYYY-DD-MM)"
+        required: false
+        type: string
+        default: $(date -u +%Y-%d-%m)
+
+env:
+  BSL_DATE: ${{ inputs.bsl_date }}
+
+jobs:
+  update_bsl_change_description:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: master
+
+      - name: Create branch
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "github-actions@github.com"
+          BRANCH_NAME="update-bsl-change-date-$BSL_DATE"
+          git checkout -b $BRANCH_NAME
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
+
+      - name: Update BSL change date
+        run: |
+          sed -i "s/CHANGE DATE:.*$/CHANGE DATE: $BSL_DATE/" licenses/BSL.txt
+          git add licenses/BSL.txt
+          git commit -m "Update BSL change date to $BSL_DATE"
+          git push origin $BRANCH_NAME
+
+      - name: Create PR
+        uses: peter-evans/create-pr@v7
+        with:
+          title: "Update BSL change date to $BSL_DATE"
+          body: "Update BSL change date to $BSL_DATE"
+          head: $BRANCH_NAME
+          base: master
+          labels: |
+            infrastructure
+            Docs unnecessary
+          draft: false
+          maintainer_can_modify: true
