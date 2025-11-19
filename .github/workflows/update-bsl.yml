@@ -37,7 +37,7 @@ jobs:
           git config user.email "github-actions@github.com"
           BRANCH_NAME="update-bsl-change-date-$BSL_DATE"
           git checkout -b $BRANCH_NAME
-          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
 
       - name: Set BSL date
         env:
@@ -48,14 +48,14 @@ jobs:
           else
             BSL_DATE=$INPUT_BSL_DATE
           fi
-          echo "BSL_DATE=$BSL_DATE" >> $GITHUB_OUTPUT
+          echo "BSL_DATE=$BSL_DATE" >> $GITHUB_ENV
 
       - name: Update BSL change date
         run: |
           sed -i "s/CHANGE DATE:.*$/CHANGE DATE: $BSL_DATE/" licenses/BSL.txt
           git add licenses/BSL.txt
           git commit -m "Update BSL change date to $BSL_DATE"
-          git push origin $BRANCH_NAME
+          git push --set-upstream origin $BRANCH_NAME
 
       - name: Create PR
         uses: peter-evans/create-pull-request@v7
