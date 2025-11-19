@@ -143,6 +143,8 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(ScanChunk & /*unused*/) override { return true; }
   bool PostVisit(ScanChunk & /*unused*/) override { return true; }
+  bool PreVisit(ScanChunkByEdge & /*unused*/) override { return true; }
+  bool PostVisit(ScanChunkByEdge & /*unused*/) override { return true; }
 
   bool PreVisit(ConstructNamedPath & /*unused*/) override { return true; }
   bool PostVisit(ConstructNamedPath & /*unused*/) override { return true; }
@@ -194,17 +196,32 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanParallel & /*unused*/) override { return true; }
   bool PostVisit(ScanParallel & /*unused*/) override { return true; }
 
+  bool PreVisit(ScanParallelById & /*unused*/) override { return true; }
+  bool PostVisit(ScanParallelById & /*unused*/) override { return true; }
+
   bool PreVisit(ScanParallelByLabel & /*unused*/) override { return true; }
   bool PostVisit(ScanParallelByLabel & /*unused*/) override { return true; }
 
   bool PreVisit(ScanParallelByLabelProperties & /*unused*/) override { return true; }
   bool PostVisit(ScanParallelByLabelProperties & /*unused*/) override { return true; }
 
+  bool PreVisit(ScanParallelByPointDistance & /*unused*/) override { return true; }
+  bool PostVisit(ScanParallelByPointDistance & /*unused*/) override { return true; }
+
+  bool PreVisit(ScanParallelByWithinbbox & /*unused*/) override { return true; }
+  bool PostVisit(ScanParallelByWithinbbox & /*unused*/) override { return true; }
+
+  bool PreVisit(ScanParallelByEdge & /*unused*/) override { return true; }
+  bool PostVisit(ScanParallelByEdge & /*unused*/) override { return true; }
+
   bool PreVisit(ScanParallelByEdgeType & /*unused*/) override { return true; }
   bool PostVisit(ScanParallelByEdgeType & /*unused*/) override { return true; }
 
   bool PreVisit(ScanParallelByEdgeTypeProperty & /*unused*/) override { return true; }
   bool PostVisit(ScanParallelByEdgeTypeProperty & /*unused*/) override { return true; }
+
+  bool PreVisit(ScanParallelByEdgeTypePropertyValue & /*unused*/) override { return true; }
+  bool PostVisit(ScanParallelByEdgeTypePropertyValue & /*unused*/) override { return true; }
 
   bool PreVisit(ScanParallelByEdgeTypePropertyRange & /*unused*/) override { return true; }
   bool PostVisit(ScanParallelByEdgeTypePropertyRange & /*unused*/) override { return true; }
@@ -217,6 +234,9 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(ScanParallelByEdgePropertyRange & /*unused*/) override { return true; }
   bool PostVisit(ScanParallelByEdgePropertyRange & /*unused*/) override { return true; }
+
+  bool PreVisit(ScanParallelByEdgeId & /*unused*/) override { return true; }
+  bool PostVisit(ScanParallelByEdgeId & /*unused*/) override { return true; }
 
   bool PreVisit(Skip & /*unused*/) override { return true; }
   bool PostVisit(Skip & /*unused*/) override { return true; }

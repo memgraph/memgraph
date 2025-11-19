@@ -70,15 +70,22 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByPointWithinbbox & /*unused*/) override;
   bool PreVisit(ScanAllByEdgeId & /*unused*/) override;
   bool PreVisit(ScanChunk & /*unused*/) override;
+  bool PreVisit(ScanChunkByEdge & /*unused*/) override;
   bool PreVisit(ScanParallel & /*unused*/) override;
+  bool PreVisit(ScanParallelById & /*unused*/) override;
   bool PreVisit(ScanParallelByLabel & /*unused*/) override;
   bool PreVisit(ScanParallelByLabelProperties & /*unused*/) override;
+  bool PreVisit(ScanParallelByPointDistance & /*unused*/) override;
+  bool PreVisit(ScanParallelByWithinbbox & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdge & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgeType & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgeTypeProperty & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeTypePropertyValue & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgeTypePropertyRange & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgeProperty & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgePropertyValue & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgePropertyRange & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeId & /*unused*/) override;
   bool PreVisit(ParallelMerge & /*unused*/) override;
   bool PreVisit(AggregateParallel & /*unused*/) override;
 
