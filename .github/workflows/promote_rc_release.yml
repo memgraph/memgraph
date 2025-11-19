@@ -22,6 +22,10 @@ on:
         description: "Run in test mode"
         required: false
         type: boolean
+      update_bsl:
+        type: boolean
+        description: "Update BSL change date"
+        default: true
 
 env:
   s3_region: eu-west-1
@@ -281,3 +285,9 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
+
+  TriggerBSLUpdate:
+    if: ${{ github.event.inputs.update_bsl == 'true' }}
+    uses: ./.github/workflows/update-bsl.yml
+    needs: [PromotePackage, PromoteDocker]
+    secrets: inherit
