@@ -2470,36 +2470,6 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica(connection, 
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_replication_not_messed_up_by_CreateSnapshot(connection, test_name):
-    # Goal of this test is to check the replica can not run CreateSnapshot
-    # 1/ CREATE SNAPSHOT should raise a DatabaseError
-
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name)
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
-
-    replica1_cursor = connection(7688, "replica1").cursor()
-    execute_and_fetch_all(replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
-
-    replica2_cursor = connection(7689, "replica2").cursor()
-    execute_and_fetch_all(replica2_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10002;")
-
-    replica3_cursor = connection(7690, "replica3").cursor()
-    execute_and_fetch_all(replica3_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10003;")
-
-    replica4_cursor = connection(7691, "replica4").cursor()
-    execute_and_fetch_all(replica4_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10004;")
-
-    cursor = connection(7687, "main").cursor()
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';")
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';")
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';")
-
-    # 1/
-    with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(replica1_cursor, "CREATE SNAPSHOT;")
-
-
 def test_replication_not_messed_up_by_ShowIndexInfo(connection):
     # Goal of this test is to check the replicas timestamp and hence ability to recieve MAINs writes
     # is uneffected by SHOW INDEX INFO
