@@ -31,6 +31,18 @@ jobs:
           fetch-tags: true
           ref: master
 
+      - name: Set BSL date
+        env:
+          INPUT_BSL_DATE: ${{ inputs.bsl_date }}
+        run: |
+          if [ -z "$INPUT_BSL_DATE" ]; then
+              # Should be today's date + 4 years
+              BSL_DATE="$(date -u +%Y-%d-%m -d '+4 years')"
+          else
+              BSL_DATE=$INPUT_BSL_DATE
+          fi
+          echo "BSL_DATE=$BSL_DATE" >> $GITHUB_ENV
+
       - name: Create branch
         run: |
           git config user.name "GitHub Actions"
@@ -38,18 +50,6 @@ jobs:
           BRANCH_NAME="update-bsl-change-date-$BSL_DATE"
           git checkout -b $BRANCH_NAME
           echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
-
-      - name: Set BSL date
-        env:
-            INPUT_BSL_DATE: ${{ inputs.bsl_date }}
-        run: |
-          if [ -z "$INPUT_BSL_DATE" ]; then
-            # Should be today's date + 4 years
-            BSL_DATE="$(date -u +%Y-%d-%m -d '+4 years')"
-          else
-            BSL_DATE=$INPUT_BSL_DATE
-          fi
-          echo "BSL_DATE=$BSL_DATE" >> $GITHUB_ENV
 
       - name: Update BSL change date
         run: |
@@ -63,7 +63,7 @@ jobs:
         with:
           title: "Update BSL change date to $BSL_DATE"
           body: "Update BSL change date to $BSL_DATE"
-          head: $BRANCH_NAME
+          branch: $BRANCH_NAME
           base: master
           labels: |
             infrastructure
