@@ -43,14 +43,6 @@ jobs:
           fi
           echo "BSL_DATE=$BSL_DATE" >> $GITHUB_ENV
 
-      - name: Create branch
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "github-actions@github.com"
-          BRANCH_NAME="update-bsl-change-date-$BSL_DATE"
-          git checkout -b $BRANCH_NAME
-          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
-
       - name: Update BSL change date
         run: |
           sed -i "s/CHANGE DATE:.*$/CHANGE DATE:            $BSL_DATE/" licenses/BSL.txt
