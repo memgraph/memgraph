@@ -118,7 +118,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
-          --no-conan-cache \
           run
 
       - name: "Build Memgraph binaries"
@@ -129,7 +128,6 @@ jobs:
           --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
           --mgdeps-cache-host ${{ env.mgdeps_cache_host }} \
-          --no-conan-cache \
           build-memgraph ${{ env.ADDITIONAL_BUILD_ARGS }}
 
       - name: "Make package"
@@ -139,7 +137,6 @@ jobs:
           --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
-          --no-conan-cache \
           package-memgraph
 
       - name: "Copy package"
@@ -148,7 +145,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
-          --no-conan-cache \
           copy \
           --package \
           --dest-dir ${{ env.PACKAGE_ARTIFACT_DIR }}
@@ -180,7 +176,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$INPUT_OS" \
           --arch ${{ inputs.arch }} \
-          --no-conan-cache \
           stop --remove
 
       - name: "Create docker image"
