@@ -40,7 +40,6 @@
 #include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "utils/async_timer.hpp"
-#include "utils/skip_list.hpp"
 #include "utils/timer.hpp"
 
 /// REPLICATION ///
