@@ -43,9 +43,14 @@ on:
         type: string
         description: "Git ref to checkout. Default value is the current ref."
         default: ''
+      generate_sbom:
+        type: boolean
+        description: "Should the SBOM be generated. Default value is false."
+        default: false
 
 env:
   TOOLCHAIN: v7
+  GENERATE_SBOM: ${{ inputs.generate_sbom }}
 
 jobs:
   PackageAndUpload:
@@ -149,6 +154,16 @@ jobs:
           --package \
           --dest-dir ${{ env.PACKAGE_ARTIFACT_DIR }}
 
+      - name: "Copy SBOM"
+        if: ${{ env.GENERATE_SBOM == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$INPUT_OS" \
+          --arch ${{ inputs.arch }} \
+          copy \
+          --sbom
+
       - name: "Build heaptrack"
         if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
         run: |
@@ -188,7 +203,20 @@ jobs:
           --build-type ${{ inputs.build_type }} \
           package-docker \
           --src-dir ${{ env.PACKAGE_ARTIFACT_DIR }} \
-          --dest-dir ${{ env.DOCKER_ARTIFACT_DIR }}
+          --dest-dir ${{ env.DOCKER_ARTIFACT_DIR }} \
+          --generate-sbom ${{ env.GENERATE_SBOM }}
+
+      - name: "Generate Build SBOM"
+        if: ${{ env.GENERATE_SBOM == 'true'  && env.FOR_DOCKER == 'false' }}
+        run: |
+          ./tools/sbom/build-sbom.sh
+
+      - name: "Upload SBOM Files"
+        if: ${{ env.GENERATE_SBOM == 'true' }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: memgraph-sbom.zip
+          path: sbom/
 
       - name: "Rename Package"
         if: github.ref == 'refs/heads/master' && !inputs.ref

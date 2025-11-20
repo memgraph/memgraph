@@ -31,14 +31,14 @@ chmod +x syft
 
 # scan the Docker container and combine the reports
 SYFT_FILE_METADATA_SELECTION=none ./syft \
-  scan docker:memgraph/memgraph:${TAG} -o cyclonedx-json > docker-sbom.json
+  scan docker:memgraph/memgraph:${TAG} -o cyclonedx-json > sbom/docker-sbom.json
 
 # combine the reports
 ./cyclonedx merge --input-files \
-  memgraph-build-sbom.json \
-  docker-sbom.json \
+  sbom/memgraph-build-sbom.json \
+  sbom/docker-sbom.json \
   --output-format json \
-  --output-file memgraph-docker-sbom.json
+  --output-file sbom/memgraph-docker-sbom.json
 
 # generate human-readable SBOM table
-python3 tools/sbom/sbom-formatter.py memgraph-docker-sbom.json
+python3 tools/sbom/sbom-formatter.py sbom/memgraph-docker-sbom.json

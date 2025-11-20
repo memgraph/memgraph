@@ -39,11 +39,12 @@ curl -L -o cyclonedx "$CYCLONEDXURL"
 chmod +x cyclonedx
 
 # combine SBOMs
+mkdir -p sbom
 ./cyclonedx merge --input-files \
   build/generators/sbom/memgraph-sbom.cdx.json \
   libs/sbom.json \
   --output-format json \
-  --output-file memgraph-build-sbom.json
+  --output-file sbom/memgraph-build-sbom.json
 
 # create venv for generating human-readable SBOM table
 python3 -m venv tools/sbom/env
@@ -51,4 +52,4 @@ source tools/sbom/env/bin/activate
 pip install rich==13.9.4
 
 # generate human-readable SBOM table
-python3 tools/sbom/sbom-formatter.py memgraph-build-sbom.json
+python3 tools/sbom/sbom-formatter.py sbom/memgraph-build-sbom.json

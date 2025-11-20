@@ -708,8 +708,8 @@ package_docker() {
         shift 2
       ;;
       --generate-sbom)
-        generate_sbom=true
-        shift 1
+        generate_sbom=$2
+        shift 2
       ;;
       *)
         echo "Error: Unknown flag '$1'"
@@ -834,6 +834,13 @@ copy_memgraph() {
           exit 1
         fi
         use_make_install=true
+        shift 1
+      ;;
+      --sbom)
+        artifact="sbom"
+        artifact_name="memgraph-sbom.json"
+        container_artifact_path="$MGBUILD_BUILD_DIR/generators/sbom/$artifact_name"
+        host_dir="$PROJECT_BUILD_DIR/generators/sbom"
         shift 1
       ;;
       *)
