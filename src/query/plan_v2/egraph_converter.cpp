@@ -210,11 +210,9 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   auto *ptr = std::get_if<LogicalOperatorPtr>(&build_cache[true_root]);
   if (!ptr) throw QueryException{"Root should be LogicalOperator"};
   auto &result = *ptr;
-  DMG_ASSERT(result.use_count() == 1, "as root nothing should be using it");
-  LogicalOperator *raw = result.get();
-  result.reset();                                              // Release the shared_ptr's ownership
-  auto unique_result = std::unique_ptr<LogicalOperator>{raw};  // Take ownership
 
+  // TODO: make the rest of query plan root? use a shared_ptr (hence avoid this clone)
+  auto unique_result = result->Clone(&builder.ast_storage_);
   return {std::move(unique_result), 0.0, std::move(builder.ast_storage_)};
 
   // egraph extraction -> subgraph of the egraph (one Enode per EClass)
