@@ -157,6 +157,7 @@ declare -A primary_urls=(
   ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
   ["usearch"]="http://$local_cache_host/git/usearch.git"
   ["arrow"]="http://$local_cache_host/git/arrow.git"
+  ["nlohmann_json"]="http://$local_cache_host/git/nlohmann_json.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -177,6 +178,7 @@ declare -A secondary_urls=(
   ["mgcxx"]="https://github.com/memgraph/mgcxx.git"
   ["usearch"]="https://github.com/unum-cloud/usearch.git"
   ["arrow"]="https://github.com/apache/arrow"
+  ["nlohmann_json"]="https://github.com/nlohmann/json.git"
 )
 
 # Skip download if we are under the latest toolchains (>= 6).
@@ -274,3 +276,7 @@ popd
 # arrow (load parquet)
 arrow_ref="apache-arrow-21.0.0"
 repo_clone_try_double "${primary_urls[arrow]}" "${secondary_urls[arrow]}" "arrow" "$arrow_ref" true
+
+# nlohmann_json
+nlohmann_json_tag="v3.11.3"
+repo_clone_try_double "${primary_urls[nlohmann_json]}" "${secondary_urls[nlohmann_json]}" "nlohmann_json" "$nlohmann_json_tag"
