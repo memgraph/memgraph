@@ -64,6 +64,10 @@ class FineGrainedAuthChecker {
 
   [[nodiscard]] virtual bool HasGlobalPrivilegeOnEdges(
       AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
+
+  [[nodiscard]] virtual bool HasAllGlobalPrivilegesOnVertices() const = 0;
+
+  [[nodiscard]] virtual bool HasAllGlobalPrivilegesOnEdges() const = 0;
 };
 
 class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecker {
@@ -95,6 +99,10 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
   bool HasGlobalPrivilegeOnEdges(const AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
+
+  bool HasAllGlobalPrivilegesOnVertices() const override { return true; }
+
+  bool HasAllGlobalPrivilegesOnEdges() const override { return true; }
 };
 #endif
 

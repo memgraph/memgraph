@@ -749,7 +749,7 @@ void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs() {
 utils::BasicResult<StorageManipulationError> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
     CommitArgs const commit_args) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
-  MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
+  MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
@@ -1866,6 +1866,30 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
   return VerticesIterable(active_indices->Vertices(label, properties, property_ranges, view, storage_, &transaction_));
 }
 
+VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(View view, size_t num_chunks) {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  return VerticesChunkedIterable(
+      AllVerticesChunkedIterable(mem_storage->vertices_.access(), num_chunks, storage_, &transaction_, view));
+}
+
+VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(LabelId label, View view,
+                                                                           size_t num_chunks) {
+  auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices = static_cast<InMemoryLabelIndex::ActiveIndices *>(transaction_.active_indices_.label_.get());
+  return VerticesChunkedIterable(
+      active_indices->ChunkedVertices(label, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
+}
+
+VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
+    LabelId label, std::span<storage::PropertyPath const> properties,
+    std::span<storage::PropertyValueRange const> property_ranges, View view, size_t num_chunks) {
+  auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_.label_properties_.get());
+  return VerticesChunkedIterable(active_indices->ChunkedVertices(
+      label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
+}
+
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
   auto *active_indices =
       static_cast<InMemoryEdgeTypeIndex::ActiveIndices *>(transaction_.active_indices_.edge_type_.get());
@@ -1919,6 +1943,73 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property,
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_.edge_property_.get());
   return EdgesIterable(
       mem_edge_property_active_indices->Edges(property, lower_bound, upper_bound, view, storage_, &transaction_));
+}
+
+EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId edge_type, View view,
+                                                                     size_t num_chunks) {
+  auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
+  auto *active_indices =
+      static_cast<InMemoryEdgeTypeIndex::ActiveIndices *>(transaction_.active_indices_.edge_type_.get());
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type, std::move(vertices_acc), std::move(edges_acc),
+                                                           view, storage_, &transaction_, num_chunks));
+}
+
+EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
+                                                                     View view, size_t num_chunks) {
+  auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
+  auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
+      transaction_.active_indices_.edge_type_properties_.get());
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type, property, std::move(vertices_acc),
+                                                           std::move(edges_acc), std::nullopt, std::nullopt, view,
+                                                           storage_, &transaction_, num_chunks));
+}
+
+EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
+    EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, size_t num_chunks) {
+  auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
+  auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
+      transaction_.active_indices_.edge_type_properties_.get());
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type, property, std::move(vertices_acc),
+                                                           std::move(edges_acc), lower_bound, upper_bound, view,
+                                                           storage_, &transaction_, num_chunks));
+}
+
+EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId property, View view,
+                                                                     size_t num_chunks) {
+  auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
+  auto *active_indices =
+      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_.edge_property_.get());
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(property, std::move(vertices_acc), std::move(edges_acc),
+                                                           std::nullopt, std::nullopt, view, storage_, &transaction_,
+                                                           num_chunks));
+}
+
+EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId property, const PropertyValue &value,
+                                                                     View view, size_t num_chunks) {
+  auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
+  auto *active_indices =
+      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_.edge_property_.get());
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(
+      property, std::move(vertices_acc), std::move(edges_acc), utils::MakeBoundInclusive(value),
+      utils::MakeBoundInclusive(value), view, storage_, &transaction_, num_chunks));
+}
+
+EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
+    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, size_t num_chunks) {
+  auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
+  auto *active_indices =
+      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_.edge_property_.get());
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(property, std::move(vertices_acc), std::move(edges_acc),
+                                                           lower_bound, upper_bound, view, storage_, &transaction_,
+                                                           num_chunks));
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {
@@ -2498,6 +2589,9 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   // The WAL file needs to be updated only if we don't commit immediately.
   needs_wal_update_ = two_phase_commit;
 
+  auto timer = utils::Timer{};
+  constexpr auto delta_cb_timeout = std::chrono::seconds{10};
+
   // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
   //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.
   //            For correctness on the REPLICA side we need to send the metadata deltas first in order to acquire a
@@ -2511,6 +2605,11 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     full_encode_operation(mem_storage->wal_file_->encoder());
     mem_storage->wal_file_->UpdateStats(durability_commit_timestamp);
     replicating_txn.EncodeToReplicas(full_encode_operation);
+    // We send in progress msg every 10s. RPC timeout on main is configured with 30s
+    if (timer.Elapsed<std::chrono::seconds>() >= delta_cb_timeout) {
+      timer.ResetStartTime();
+      commit_args.apply_cb_if_replica_write();
+    }
   };
 
   // Handle metadata deltas
@@ -2826,6 +2925,11 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     append_deltas([&](const Delta &delta, auto *parent, uint64_t durability_commit_timestamp_arg) {
       mem_storage->wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
       replicating_txn.AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
+      // We send in progress msg every 10s. RPC timeout on main is configured with 30s
+      if (timer.Elapsed<std::chrono::seconds>() >= delta_cb_timeout) {
+        timer.ResetStartTime();
+        commit_args.apply_cb_if_replica_write();
+      }
     });
   }
 
@@ -2925,9 +3029,9 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   const auto local_path = recovery_.snapshot_directory_ / path.filename();
   const bool file_in_local_dir = local_path == path;
   if (!file_in_local_dir) {
-    std::filesystem::copy_file(path, local_path, ec);
+    std::filesystem::copy_file(path, local_path, std::filesystem::copy_options::overwrite_existing, ec);
     if (ec) {
-      spdlog::warn("Failed to copy snapshot into local snapshots directory.");
+      spdlog::warn("Failed to copy snapshot into local snapshots directory. Err: {}", ec.message());
       return InMemoryStorage::RecoverSnapshotError::CopyFailure;
     }
   }
@@ -2991,27 +3095,43 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     // Destroying current wal file
     wal_file_.reset();
 
-    std::string old_dir = ".old_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+    constexpr std::string_view old_dir = ".old";
     spdlog::trace("Moving old snapshots and WALs to {}", old_dir);
     std::error_code ec{};
-    std::filesystem::create_directory(recovery_.snapshot_directory_ / old_dir, ec);
+    auto const snapshot_old_dir = recovery_.snapshot_directory_ / old_dir;
+    // Clear old directory
+    if (std::filesystem::exists(snapshot_old_dir)) {
+      std::filesystem::remove_all(snapshot_old_dir);
+    }
+    // Recreate clean old directory
+    std::filesystem::create_directory(snapshot_old_dir, ec);
     if (ec) {
-      spdlog::warn("Failed to create backup snapshot directory; snapshots directory should be cleaned manually.");
+      spdlog::warn(
+          "Failed to create backup snapshot directory; snapshots directory should be cleaned manually. Err: {}",
+          ec.message());
       return InMemoryStorage::RecoverSnapshotError::BackupFailure;
     }
-    std::filesystem::create_directory(recovery_.wal_directory_ / old_dir, ec);
+    auto const wal_old_dir = recovery_.wal_directory_ / old_dir;
+    // Clear old directory
+    if (std::filesystem::exists(wal_old_dir)) {
+      std::filesystem::remove_all(wal_old_dir);
+    }
+    // Recreate clean old directory
+    std::filesystem::create_directory(wal_old_dir, ec);
     if (ec) {
-      spdlog::warn("Failed to create backup WAL directory; WAL directory should be cleaned manually.");
+      spdlog::warn("Failed to create backup WAL directory; WAL directory should be cleaned manually. Err: {}",
+                   ec.message());
       return InMemoryStorage::RecoverSnapshotError::BackupFailure;
     }
 
+    // Move all snapshot files to the old directory
     auto snapshot_files = durability::GetSnapshotFiles(recovery_.snapshot_directory_);
     for (const auto &[snapshot_path, snapshot_uuid, _2] : snapshot_files) {
+      spdlog::trace("Moving snapshot file {}", snapshot_path);
       if (local_path != snapshot_path) {
-        spdlog::trace("Moving snapshot file {}", snapshot_path);
         file_retainer_.RenameFile(snapshot_path, recovery_.snapshot_directory_ / old_dir / snapshot_path.filename());
-      } else if (uuid() != snapshot_uuid) {
-        // This is the recovered snapshot, but it has a different UUID than the current storage UUID
+      } else {
+        // Recovered snapshot
         if (file_in_local_dir) {
           // Used a snapshot for the local storage, back it up before updating the UUID
           std::filesystem::copy_file(snapshot_path, recovery_.snapshot_directory_ / old_dir / snapshot_path.filename(),
@@ -3019,14 +3139,21 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
           if (ec) {
             spdlog::warn(
                 "Failed to copy snapshot file to backup directory; snapshots directory should be cleaned "
-                "manually.");
+                "manually. Err: {}",
+                ec.message());
             return InMemoryStorage::RecoverSnapshotError::BackupFailure;
           }
         }
-        // Rewrite the UUID in the snapshot file
-        durability::OverwriteSnapshotUUID(local_path, uuid());
+        if (uuid() != snapshot_uuid) {
+          // Rewrite the UUID in the snapshot file
+          durability::OverwriteSnapshotUUID(local_path, uuid());
+        }
+        // Generate new name for the snapshot file
+        auto new_name = durability::MakeSnapshotName(recovered_snapshot.snapshot_info.durable_timestamp);
+        file_retainer_.RenameFile(local_path, recovery_.snapshot_directory_ / new_name);
       }
     }
+
     std::filesystem::remove(recovery_.snapshot_directory_ / old_dir, ec);  // remove dir if empty
     auto wal_files = storage::durability::GetWalFiles(recovery_.wal_directory_);
 

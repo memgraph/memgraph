@@ -429,6 +429,11 @@ add_unit_test(small_vector
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(skip_list_range_chunking
+    SOURCES skip_list_range_chunking.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_mask_sensitive_information
     SOURCES utils_mask_sensitive_information.cpp
     LINK_TARGETS mg-utils fmt::fmt
@@ -530,6 +535,11 @@ add_unit_test(storage_v2_acc
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(storage_v2_chunk_iterator
+    SOURCES storage_v2_chunk_iterator.cpp
+    LINK_TARGETS mg-query storage_test_utils
+)
+
 add_unit_test(storage_v2_delta_container
     SOURCES storage_v2_delta_container.cpp
     LINK_TARGETS mg::storage
@@ -557,6 +567,11 @@ add_unit_test(storage_v2_durability_inmemory
 
 add_unit_test(storage_v2_create_snapshot
     SOURCES storage_v2_create_snapshot.cpp
+    LINK_TARGETS mg::storage mg-dbms
+)
+
+add_unit_test(storage_v2_recover_snapshot
+    SOURCES storage_v2_recover_snapshot.cpp
     LINK_TARGETS mg::storage mg-dbms
 )
 

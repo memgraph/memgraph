@@ -3,13 +3,16 @@ args: &args
   - "7687"
   - "--log-level=TRACE"
 
-create_delete_filtering_setup_queries: &create_delete_filtering_setup_queries
+base_setup_queries: &base_setup_queries
   - "CREATE USER admin IDENTIFIED BY 'test';"
   - "CREATE USER user IDENTIFIED BY 'test';"
   - "GRANT ALL PRIVILEGES TO admin;"
   - "GRANT DATABASE * TO admin;"
   - "GRANT ALL PRIVILEGES TO user;"
   - "GRANT DATABASE * TO user;"
+  - "GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;"
+  - "GRANT CREATE, READ, UPDATE, DELETE ON EDGES CONTAINING TYPES * TO admin;"
+  - "CREATE DATABASE clean;"
 
 edge_type_filtering_setup_queries: &edge_type_filtering_setup_queries
   - "CREATE USER admin IDENTIFIED BY 'test';"
@@ -18,24 +21,24 @@ edge_type_filtering_setup_queries: &edge_type_filtering_setup_queries
   - "GRANT DATABASE * TO admin;"
   - "GRANT ALL PRIVILEGES TO user;"
   - "GRANT DATABASE * TO user;"
-  - "GRANT CREATE_DELETE ON LABELS * TO admin;"
-  - "GRANT CREATE_DELETE ON EDGE_TYPES * TO admin;"
+  - "GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;"
+  - "GRANT CREATE, READ, UPDATE, DELETE ON EDGES CONTAINING TYPES * TO admin;"
   - "MERGE (l1:label1 {name: 'test1'});"
-  - "MERGE (l2:label2  {name: 'test2'});"
+  - "MERGE (l2:label2 {name: 'test2'});"
   - "MATCH (l1:label1),(l2:label2) WHERE l1.name = 'test1' AND l2.name = 'test2' CREATE (l1)-[r:edgeType1]->(l2);"
-  - "MERGE (l3:label3  {name: 'test3'});"
+  - "MERGE (l3:label3 {name: 'test3'});"
   - "MATCH (l1:label1),(l3:label3) WHERE l1.name = 'test1' AND l3.name = 'test3' CREATE (l1)-[r:edgeType2]->(l3);"
-  - "MERGE (mix:label3:label1  {name: 'test4'});"
+  - "MERGE (mix:label3:label1 {name: 'test4'});"
   - "MATCH (l1:label1),(mix:label3) WHERE l1.name = 'test1' AND mix.name = 'test4' CREATE (l1)-[r:edgeType2]->(mix);"
   - "CREATE DATABASE clean;"
   - "USE DATABASE clean"
   - "MATCH (n) DETACH DELETE n;"
   - "MERGE (l1:label1 {name: 'test1'});"
-  - "MERGE (l2:label2  {name: 'test2'});"
+  - "MERGE (l2:label2 {name: 'test2'});"
   - "MATCH (l1:label1),(l2:label2) WHERE l1.name = 'test1' AND l2.name = 'test2' CREATE (l1)-[r:edgeType1]->(l2);"
-  - "MERGE (l3:label3  {name: 'test3'});"
+  - "MERGE (l3:label3 {name: 'test3'});"
   - "MATCH (l1:label1),(l3:label3) WHERE l1.name = 'test1' AND l3.name = 'test3' CREATE (l1)-[r:edgeType2]->(l3);"
-  - "MERGE (mix:label3:label1  {name: 'test4'});"
+  - "MERGE (mix:label3:label1 {name: 'test4'});"
   - "MATCH (l1:label1),(mix:label3) WHERE l1.name = 'test1' AND mix.name = 'test4' CREATE (l1)-[r:edgeType2]->(mix);"
   - "USE DATABASE memgraph"
 
@@ -46,6 +49,8 @@ path_filtering_setup_queries: &path_filtering_setup_queries
   - "GRANT DATABASE * TO admin;"
   - "GRANT ALL PRIVILEGES TO user;"
   - "GRANT DATABASE * TO user;"
+  - "GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;"
+  - "GRANT CREATE, READ, UPDATE, DELETE ON EDGES CONTAINING TYPES * TO admin;"
   - "MERGE (a:label0 {id: 0}) MERGE (b:label1 {id: 1}) CREATE (a)-[:edge_type_1 {weight: 6}]->(b);"
   - "MERGE (a:label0 {id: 0}) MERGE (b:label2 {id: 2}) CREATE (a)-[:edge_type_1 {weight: 14}]->(b);"
   - "MERGE (a:label1 {id: 1}) MERGE (b:label2 {id: 2}) CREATE (a)-[:edge_type_2 {weight: 1}]->(b);"
@@ -92,25 +97,15 @@ show_databases_w_user_setup_queries: &show_databases_w_user_setup_queries
   - "DENY DATABASE memgraph FROM user3;"
   - "SET MAIN DATABASE db1 FOR user3"
 
-create_delete_filtering_in_memory_cluster: &create_delete_filtering_in_memory_cluster
+base_cluster: &base_cluster
   cluster:
     main:
       args: *args
       log_file: "fine_grained_access.log"
-      setup_queries: *create_delete_filtering_setup_queries
+      setup_queries: *base_setup_queries
       validation_queries: []
 
-create_delete_filtering_disk_cluster: &create_delete_filtering_disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "disk_fine_grained_access.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *create_delete_filtering_setup_queries
-      validation_queries: []
-
-edge_type_filtering_in_memory_cluster: &edge_type_filtering_in_memory_cluster
+edge_type_filtering_cluster: &edge_type_filtering_cluster
   cluster:
     main:
       args: *args
@@ -118,31 +113,13 @@ edge_type_filtering_in_memory_cluster: &edge_type_filtering_in_memory_cluster
       setup_queries: *edge_type_filtering_setup_queries
       validation_queries: []
 
-edge_type_filtering_disk_cluster: &edge_type_filtering_disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "disk_fine_grained_access.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *edge_type_filtering_setup_queries
-      validation_queries: []
-
-path_filtering_in_memory_cluster: &path_filtering_in_memory_cluster
+path_filtering_cluster: &path_filtering_cluster
   cluster:
     main:
       args: *args
       log_file: "fine_grained_access.log"
       setup_queries: *path_filtering_setup_queries
-
-path_filtering_disk_cluster: &path_filtering_disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "disk_fine_grained_access.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *path_filtering_setup_queries
+      validation_queries: []
 
 show_databases_w_user: &show_databases_w_user
   cluster:
@@ -155,17 +132,17 @@ workloads:
   - name: "Create delete filtering"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/create_delete_filtering_tests.py"]
-    <<: *create_delete_filtering_in_memory_cluster
+    <<: *base_cluster
 
   - name: "EdgeType filtering"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/edge_type_filtering_tests.py"]
-    <<: *edge_type_filtering_in_memory_cluster
+    <<: *edge_type_filtering_cluster
 
   - name: "Path filtering"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/path_filtering_tests.py"]
-    <<: *path_filtering_in_memory_cluster
+    <<: *path_filtering_cluster
 
   - name: "Show databases with users"
     binary: "tests/e2e/pytest_runner.sh"

@@ -149,7 +149,7 @@ auto CreateBackupDirectories(std::filesystem::path const &current_snapshot_dir,
                            .backup_wal_dir = std::move(backup_wal_dir)};
 }
 
-constexpr uint32_t kDeltasBatchProgressSize = 100000;
+constexpr uint32_t kDeltasBatchProgressSize = 100'000;
 
 std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder, const uint64_t version) {
   try {
@@ -909,8 +909,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
     if (!commit_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
       // acc_hint only gets used if we are using an older version of WAL (before v3.5.0)
-      auto true_access_type = access_type.value_or(acc_hint);
-      switch (true_access_type) {
+      switch (auto const true_access_type = access_type.value_or(acc_hint)) {
         case storage::StorageAccessType::READ:
           [[fallthrough]];
         case storage::StorageAccessType::WRITE:
@@ -1187,10 +1186,19 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         },
         [&](WalTransactionEnd const &) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
-          if (!commit_accessor || commit_timestamp != delta_timestamp)
+          if (!commit_accessor || commit_timestamp != delta_timestamp) {
             throw utils::BasicException("Invalid commit data!");
+          }
+
+          // Durability could take some time on replica
+          rpc::SendInProgressMsg(res_builder);
+
+          // We need to check whether the timeout passed as well when replica is making deltas durable
+          auto in_progress_cb = [&]() { rpc::SendInProgressMsg(res_builder); };
+
           auto const ret = commit_accessor->PrepareForCommitPhase(
-              storage::CommitArgs::make_replica_write(commit_timestamp, two_phase_commit));
+              storage::CommitArgs::make_replica_write(commit_timestamp, two_phase_commit, std::move(in_progress_cb)));
+
           if (ret.HasError()) {
             throw utils::BasicException("Committing failed while trying to prepare for commit on replica.");
           }

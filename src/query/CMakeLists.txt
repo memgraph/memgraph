@@ -120,7 +120,6 @@ target_link_libraries(mg-query
     cppitertools::cppitertools
     range-v3::range-v3
     Python3::Python
-    arrow
     mg-integrations-pulsar
     mg-integrations-kafka
     mg::storage
@@ -134,6 +133,7 @@ target_link_libraries(mg-query
     mg-dbms
     mg-events
     PRIVATE
+    arrow
     mg-module-support
     mg-cpp-api
 )

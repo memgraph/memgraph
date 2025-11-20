@@ -827,6 +827,9 @@ class RuleBasedPlanner {
     if (expansion.edge) {
       last_op = GenExpand(std::move(last_op), expansion, symbol_table, bound_symbols, matching, storage, filters,
                           named_paths, new_symbols, view);
+    } else if (!last_op) {
+      // If we hit here: already seen node + it's not a path or expansion
+      last_op = std::make_unique<Once>(std::vector<Symbol>{node1_symbol});
     }
 
     return last_op;

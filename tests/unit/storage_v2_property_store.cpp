@@ -1796,6 +1796,90 @@ TEST(ReadNestedPropertyValue, RetrievesPositionalPointerToNestedPropertyValue) {
 
 //==============================================================================
 
+TEST(PropertyStore, DecodeExpectedPropertyType) {
+  auto const prop1 = PropertyId::FromInt(1);
+  auto const prop2 = PropertyId::FromInt(2);
+  auto const prop3 = PropertyId::FromInt(3);
+  auto const prop4 = PropertyId::FromInt(4);
+  auto const prop5 = PropertyId::FromInt(5);
+  auto const prop6 = PropertyId::FromInt(6);
+  auto const prop7 = PropertyId::FromInt(7);
+  auto const prop8 = PropertyId::FromInt(8);
+  auto const prop9 = PropertyId::FromInt(9);
+  auto const prop10 = PropertyId::FromInt(10);
+  auto const prop11 = PropertyId::FromInt(11);
+  auto const prop12 = PropertyId::FromInt(12);
+  auto const prop13 = PropertyId::FromInt(13);
+  auto const prop14 = PropertyId::FromInt(14);
+
+  {
+    PropertyStore store;
+    std::vector<std::pair<PropertyId, PropertyValue>> data{
+        {prop1, PropertyValue()},
+        {prop2, PropertyValue(true)},
+        {prop3, PropertyValue(42)},
+        {prop4, PropertyValue(3.14)},
+        {prop5, PropertyValue("test")},
+        {prop6, PropertyValue(std::vector<PropertyValue>{PropertyValue(1), PropertyValue(2)})},
+        {prop7, PropertyValue(std::vector<int>{1, 2, 3})},
+        {prop8, PropertyValue(std::vector<double>{1.0, 2.0, 3.0})},
+        {prop9, PropertyValue(std::vector<std::variant<int, double>>{1, 2.0, 3})},
+        {prop10, PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(1)}})},
+        {prop11, PropertyValue(TemporalData(TemporalType::Date, 23))},
+        {prop12, PropertyValue(GetSampleZonedTemporal())},
+        {prop13, PropertyValue(Enum{EnumTypeId{2}, EnumValueId{42}})},
+        {prop14, PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}}},
+    };
+    EXPECT_TRUE(store.InitProperties(data));
+    EXPECT_EQ(store.GetExtendedPropertyType(prop1), ExtendedPropertyType{PropertyValue::Type::Null});
+    EXPECT_EQ(store.GetExtendedPropertyType(prop2), ExtendedPropertyType{PropertyValue::Type::Bool});
+    EXPECT_EQ(store.GetExtendedPropertyType(prop3), ExtendedPropertyType{PropertyValue::Type::Int});
+    EXPECT_EQ(store.GetExtendedPropertyType(prop4), ExtendedPropertyType{PropertyValue::Type::Double});
+    EXPECT_EQ(store.GetExtendedPropertyType(prop5), ExtendedPropertyType{PropertyValue::Type::String});
+    EXPECT_EQ(store.GetExtendedPropertyType(prop6), ExtendedPropertyType{PropertyValue::Type::List});
+    EXPECT_EQ(store.GetExtendedPropertyType(prop7), ExtendedPropertyType{PropertyValue::Type::List});
+    EXPECT_EQ(store.GetExtendedPropertyType(prop8), ExtendedPropertyType{PropertyValue::Type::List});
+    EXPECT_EQ(store.GetExtendedPropertyType(prop9), ExtendedPropertyType{PropertyValue::Type::List});
+    EXPECT_EQ(store.GetExtendedPropertyType(prop10), ExtendedPropertyType{PropertyValue::Type::Map});
+    EXPECT_EQ(store.GetExtendedPropertyType(prop11), ExtendedPropertyType{TemporalType::Date});
+    EXPECT_EQ(store.GetExtendedPropertyType(prop12), ExtendedPropertyType{PropertyValue::Type::ZonedTemporalData});
+    EXPECT_EQ(store.GetExtendedPropertyType(prop13), ExtendedPropertyType{EnumTypeId{2}});
+    EXPECT_EQ(store.GetExtendedPropertyType(prop14), ExtendedPropertyType{PropertyValue::Type::Point2d});
+  }
+
+  {
+    PropertyStore store;
+    std::vector<std::pair<PropertyId, PropertyValue>> data{
+        {prop1, PropertyValue(TemporalData(TemporalType::Date, 23))},
+        {prop2, PropertyValue(TemporalData(TemporalType::LocalDateTime, 2000))},
+    };
+    EXPECT_TRUE(store.InitProperties(data));
+    auto type1 = store.GetExtendedPropertyType(prop1);
+    auto type2 = store.GetExtendedPropertyType(prop2);
+    EXPECT_EQ(type1.type, PropertyValue::Type::TemporalData);
+    EXPECT_EQ(type1.temporal_type, TemporalType::Date);
+    EXPECT_EQ(type2.type, PropertyValue::Type::TemporalData);
+    EXPECT_EQ(type2.temporal_type, TemporalType::LocalDateTime);
+  }
+
+  {
+    PropertyStore store;
+    std::vector<std::pair<PropertyId, PropertyValue>> data{
+        {prop1, PropertyValue(Enum{EnumTypeId{1}, EnumValueId{10}})},
+        {prop2, PropertyValue(Enum{EnumTypeId{5}, EnumValueId{20}})},
+    };
+    EXPECT_TRUE(store.InitProperties(data));
+    auto type1 = store.GetExtendedPropertyType(prop1);
+    auto type2 = store.GetExtendedPropertyType(prop2);
+    EXPECT_EQ(type1.type, PropertyValue::Type::Enum);
+    EXPECT_EQ(type1.enum_type, EnumTypeId{1});
+    EXPECT_EQ(type2.type, PropertyValue::Type::Enum);
+    EXPECT_EQ(type2.enum_type, EnumTypeId{5});
+  }
+}
+
+//==============================================================================
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   int result = RUN_ALL_TESTS();

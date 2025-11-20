@@ -695,11 +695,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return AuthQuery*
    */
-  antlrcpp::Any visitGrantPrivilegesList(MemgraphCypher::GrantPrivilegesListContext *ctx) override;
-
-  /**
-   * @return AuthQuery*
-   */
   antlrcpp::Any visitPrivilegesList(MemgraphCypher::PrivilegesListContext *ctx) override;
 
   /**
@@ -726,7 +721,17 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return std::vector<std::string>
    */
-  antlrcpp::Any visitEntitiesList(MemgraphCypher::EntitiesListContext *ctx) override;
+  antlrcpp::Any visitLabelEntitiesList(MemgraphCypher::LabelEntitiesListContext *ctx) override;
+
+  /**
+   * @return std::vector<std::string>
+   */
+  antlrcpp::Any visitEdgeTypeEntitiesList(MemgraphCypher::EdgeTypeEntitiesListContext *ctx) override;
+
+  /**
+   * @return std::vector<std::string>
+   */
+  antlrcpp::Any visitEdgeTypeEntity(MemgraphCypher::EdgeTypeEntityContext *ctx) override;
 
   /**
    * @return std::string
@@ -739,9 +744,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitGranularPrivilege(MemgraphCypher::GranularPrivilegeContext *ctx) override;
 
   /**
-   * @return std::string
+   * @return std::vector<AuthQuery::FineGrainedPrivilege>
    */
-  antlrcpp::Any visitEntityType(MemgraphCypher::EntityTypeContext *ctx) override;
+  antlrcpp::Any visitGranularPrivilegeList(MemgraphCypher::GranularPrivilegeListContext *ctx) override;
 
   /**
    * @return AuthQuery::Privilege

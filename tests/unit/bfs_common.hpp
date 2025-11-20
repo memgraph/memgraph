@@ -487,39 +487,43 @@ class Database {
     std::vector<std::pair<int, int>> edges_in_result;
     switch (fine_grained_test_type) {
       case FineGrainedTestType::ALL_GRANTED:
-        user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().edge_type_permissions().Grant("*",
-                                                                         memgraph::auth::FineGrainedPermission::READ);
+        user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+        user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
+            memgraph::auth::FineGrainedPermission::READ);
         edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
         break;
       case FineGrainedTestType::ALL_DENIED:
         break;
       case FineGrainedTestType::EDGE_TYPE_A_DENIED:
-        user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().edge_type_permissions().Grant("b",
+        user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+        user.fine_grained_access_handler().edge_type_permissions().Grant({"b"},
                                                                          memgraph::auth::FineGrainedPermission::READ);
         user.fine_grained_access_handler().edge_type_permissions().Grant(
-            "a", memgraph::auth::FineGrainedPermission::NOTHING);
+            {"a"}, memgraph::auth::FineGrainedPermission::NOTHING);
 
         edges_in_result = GetEdgeList(kEdges, direction, {"b"});
         break;
       case FineGrainedTestType::EDGE_TYPE_B_DENIED:
-        user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().edge_type_permissions().Grant("a",
+        user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+        user.fine_grained_access_handler().edge_type_permissions().Grant({"a"},
                                                                          memgraph::auth::FineGrainedPermission::READ);
         user.fine_grained_access_handler().edge_type_permissions().Grant(
-            "b", memgraph::auth::FineGrainedPermission::NOTHING);
+            {"b"}, memgraph::auth::FineGrainedPermission::NOTHING);
 
         edges_in_result = GetEdgeList(kEdges, direction, {"a"});
         break;
       case FineGrainedTestType::LABEL_0_DENIED:
-        user.fine_grained_access_handler().edge_type_permissions().Grant("*",
-                                                                         memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant("3", memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant("4", memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant("0",
+        user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
+            memgraph::auth::FineGrainedPermission::READ);
+        user.fine_grained_access_handler().label_permissions().Grant({"1"},
+                                                                     memgraph::auth::FineGrainedPermission::READ);
+        user.fine_grained_access_handler().label_permissions().Grant({"2"},
+                                                                     memgraph::auth::FineGrainedPermission::READ);
+        user.fine_grained_access_handler().label_permissions().Grant({"3"},
+                                                                     memgraph::auth::FineGrainedPermission::READ);
+        user.fine_grained_access_handler().label_permissions().Grant({"4"},
+                                                                     memgraph::auth::FineGrainedPermission::READ);
+        user.fine_grained_access_handler().label_permissions().Grant({"0"},
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
 
         edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
@@ -528,13 +532,17 @@ class Database {
             edges_in_result.end());
         break;
       case FineGrainedTestType::LABEL_3_DENIED:
-        user.fine_grained_access_handler().edge_type_permissions().Grant("*",
-                                                                         memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant("0", memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant("4", memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant("3",
+        user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
+            memgraph::auth::FineGrainedPermission::READ);
+        user.fine_grained_access_handler().label_permissions().Grant({"0"},
+                                                                     memgraph::auth::FineGrainedPermission::READ);
+        user.fine_grained_access_handler().label_permissions().Grant({"1"},
+                                                                     memgraph::auth::FineGrainedPermission::READ);
+        user.fine_grained_access_handler().label_permissions().Grant({"2"},
+                                                                     memgraph::auth::FineGrainedPermission::READ);
+        user.fine_grained_access_handler().label_permissions().Grant({"4"},
+                                                                     memgraph::auth::FineGrainedPermission::READ);
+        user.fine_grained_access_handler().label_permissions().Grant({"3"},
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
 
         edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});

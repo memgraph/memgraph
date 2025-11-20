@@ -56,6 +56,88 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
+# -- Handle breaking change with multi-label access control ---
+CUTOFF_COMMIT="0ecc78c280bccbe77388af1075f4d26a9f16904b"
+CUTOFF_VERSION="3.7.0"
+
+# echo the commit-ish if present in the tag; empty otherwise
+extract_commit_from_tag() {
+  local tag="$1"
+  # Heuristic: last underscore-separated field looks like a hex SHA (>=7 chars)
+  local last_field="${tag##*_}"
+  if [[ "$last_field" =~ ^[0-9a-fA-F]{7,}$ ]]; then
+    echo "${last_field,,}"   # normalize to lowercase
+  else
+    echo ""
+  fi
+}
+
+# echo the leading X.Y[.Z] from the tag (e.g., 3.6.0 from 3.6.0-relwithdebinfo)
+extract_version_from_tag() {
+  local tag="$1"
+  # Grab leading digits and dots; stops at first non [0-9 or .]
+  local v
+  v="$(sed -E 's/^([0-9]+(\.[0-9]+){1,2}).*/\1/' <<<"$tag")"
+  # Basic sanity (must contain at least one dot)
+  if [[ "$v" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+    echo "$v"
+  else
+    echo ""
+  fi
+}
+
+# return 0 if $1 < $2 (semantic-ish via sort -V), 1 otherwise
+version_lt() {
+  local a="$1" b="$2"
+  # Normalize to three components (X.Y.Z) so 3.7 == 3.7.0
+  norm() {
+    IFS='.' read -r x y z <<<"$1"
+    : "${y:=0}" ; : "${z:=0}"
+    echo "$x.$y.$z"
+  }
+  a="$(norm "$a")"
+  b="$(norm "$b")"
+  local first
+  first="$(printf '%s\n%s\n' "$a" "$b" | sort -V | head -n1)"
+  [[ "$first" == "$a" && "$a" != "$b" ]]
+}
+
+# Main entry: echoes "new" or "old"; returns 0 for "new", 1 for "old"
+behavior_for_tag() {
+  local tag="${1:?docker tag required}"
+
+  local tag_commit
+  tag_commit="$(extract_commit_from_tag "$tag")"
+
+  if [[ -n "$tag_commit" ]]; then
+    # Use git ancestry: is CUTOFF_COMMIT an ancestor of tag_commit?
+    if git merge-base --is-ancestor "$CUTOFF_COMMIT" "$tag_commit"; then
+      echo "auth_pre_upgrade.cypherl"   # tag is at/after the bad commit
+      return
+    else
+      echo "auth_pre_upgrade_pre_3.7.cypherl"   # tag is before the bad commit (or on another branch)
+      return
+    fi
+  fi
+
+  # No commit in tag—fall back to version compare
+  local v
+  v="$(extract_version_from_tag "$tag")"
+  if [[ -z "$v" ]]; then
+    echo "auth_pre_upgrade.cypherl"   # default if we can't parse a version
+    return
+  fi
+
+  if version_lt "$v" "$CUTOFF_VERSION"; then
+    echo "auth_pre_upgrade_pre_3.7.cypherl"   # version is before 3.7.0
+  else
+    echo "auth_pre_upgrade.cypherl"   # 3.7.0 or later
+  fi
+}
+
+auth_pre_upgrade_file=$(behavior_for_tag "$LAST_TAG")
+echo -e "${GREEN}Using auth_pre_upgrade_file: ${auth_pre_upgrade_file}${NC}"
+
 # --- Banner ---
 echo -e "${GREEN}Starting ISSU test:${NC}"
 echo -e "${GREEN}  Last tag: ${LAST_TAG}${NC}"
@@ -280,7 +362,7 @@ kubectl cp setup.cypherl memgraph-coordinator-1-0:/var/lib/memgraph/setup.cypher
 kubectl exec memgraph-coordinator-1-0 -- bash -c "mgconsole < /var/lib/memgraph/setup.cypherl"
 echo "Initialized cluster"
 
-kubectl cp auth_pre_upgrade.cypherl memgraph-data-0-0:/var/lib/memgraph/auth_pre_upgrade.cypherl
+kubectl cp $auth_pre_upgrade_file memgraph-data-0-0:/var/lib/memgraph/auth_pre_upgrade.cypherl
 kubectl exec memgraph-data-0-0 -- bash -c "mgconsole < /var/lib/memgraph/auth_pre_upgrade.cypherl"
 
 kubectl cp pre_upgrade_global.cypherl memgraph-data-0-0:/var/lib/memgraph/pre_upgrade_global.cypherl

@@ -11,33 +11,50 @@ on:
     inputs:
       trigger_mage:
         type: boolean
-        description: "Skips memgraph built, just triggers MAGE build"
-        default: false
+        description: "Trigger MAGE build"
+        default: true
       build_date:
         type: string
-        description: "Build date to trigger MAGE with (only used with trigger_mage option)"
+        description: "Specify build date (YYYYMMDD)"
         required: false
-
-
+      skip_tests:
+        type: boolean
+        description: "Skip tests"
+        default: false
+      skip_package:
+        type: boolean
+        description: "Skip packaging"
+        default: false
+      skip_issu_tests:
+        type: boolean
+        description: "Skip ISSU tests"
+        default: false
+      mock:
+        type: boolean
+        description: "Mock build"
+        default: true
 jobs:
   # this job is used to get the current date at the time when the job is first triggered
   # so that the daily build is sent to the right folder!
   # (we may cross over midnight during build/test)
   CurrentDateJob:
-    if: ${{ !inputs.trigger_mage }}
-    runs-on: [self-hosted]
+    runs-on: [ubuntu-latest]
     outputs:
       current_date: ${{ steps.set_date.outputs.current_date }}
     steps:
       - name: Get current date
         id: set_date
         run: |
-          current_date=$(date -u +'%Y%m%d')
+          if [[ ${{ github.event_name }} == 'workflow_dispatch' && -n "${{ github.event.inputs.build_date }}" ]]; then
+            current_date="${{ github.event.inputs.build_date }}"
+          else
+            current_date=$(date -u +'%Y%m%d')
+          fi
           echo "Current date is: $current_date"
           echo "current_date=$current_date" >> $GITHUB_OUTPUT
 
   TestBuild:
-    if: ${{ !inputs.trigger_mage }}
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_tests) }}
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: 'ubuntu-24.04'
@@ -50,7 +67,7 @@ jobs:
 
 
   DailyPackageArtifact:
-    if: ${{ !inputs.trigger_mage && always() }}
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_package)  }}
     needs: [CurrentDateJob]
     strategy:
       fail-fast: false
@@ -105,12 +122,12 @@ jobs:
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
-      s3_dest_dir: "daily-build/memgraph/${{ needs.CurrentDateJob.outputs.current_date }}"
+      s3_dest_dir: "daily-build/memgraph${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
       additional_build_args: ${{ matrix.additional_build_args }}
     secrets: inherit
 
   DailyDockerArtifact:
-    if: ${{ !inputs.trigger_mage && always() }}
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_package)  }}
     needs: [CurrentDateJob]
     strategy:
       fail-fast: false
@@ -128,11 +145,11 @@ jobs:
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
-      s3_dest_dir: "daily-build/memgraph/${{ needs.CurrentDateJob.outputs.current_date }}"
+      s3_dest_dir: "daily-build/memgraph${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
     secrets: inherit
 
   AggregateBuildTests:
-    if: ${{ !inputs.trigger_mage && always() }}
+    if: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_tests && !inputs.mock)) && always() }}
     needs: [CurrentDateJob,TestBuild,DailyPackageArtifact,DailyDockerArtifact]
     runs-on: [self-hosted]
     steps:
@@ -171,7 +188,7 @@ jobs:
             -d "$payload"
 
   TriggerMageDailyBuild:
-    if: ${{ !inputs.trigger_mage && always() }}
+    if: ${{ github.event_name == 'schedule' && always() }}
     needs: [CurrentDateJob,DailyPackageArtifact]
     runs-on: [self-hosted]
     steps:
@@ -198,7 +215,7 @@ jobs:
             -d "${MAGE_PAYLOAD}"
 
   ManualTriggerMageDailyBuild:
-    if: ${{ inputs.trigger_mage }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.trigger_mage && !inputs.mock }}
     runs-on: [self-hosted]
     steps:
       - name: Build Request Payload
@@ -209,9 +226,10 @@ jobs:
           else
             build_date="${{ github.event.inputs.build_date }}"
           fi
+          export CURRENT_BUILD_DATE="${build_date}"
 
           # now reformat it as JSON
-          payload="{\"date\": ${build_date}}"
+          payload=$(python3 tools/trigger_mage_payload.py)
           echo "MAGE_PAYLOAD=${payload}" >> $GITHUB_ENV
 
       - name: Trigger Daily Builds Page Update
@@ -224,3 +242,65 @@ jobs:
             -H "Authorization: token $GITHUB_TOKEN" \
             https://api.github.com/repos/memgraph/mage/dispatches \
             -d "${MAGE_PAYLOAD}"
+
+
+  SetupISSUTestInputs:
+    name: Setup ISSU Test Inputs
+    needs: [CurrentDateJob, DailyDockerArtifact]
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests) }}
+    runs-on: ubuntu-24.04
+    outputs:
+      amd_image_url: ${{ steps.set_image_urls.outputs.amd_image_url }}
+      arm_image_url: ${{ steps.set_image_urls.outputs.arm_image_url }}
+      last_image_version: ${{ steps.set_last_image_version.outputs.last_image_version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: AWS Login
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Set Image URLs
+        id: set_image_urls
+        env:
+          MOCK: ${{ inputs.mock && 'true' || 'false' }}
+        run: |
+          echo "Setting next image URLs"
+          export CURRENT_BUILD_DATE=${{ needs.CurrentDateJob.outputs.current_date }}
+          read amd_image_url arm_image_url < <(python3 tools/get_daily_issu_images.py)
+          echo "amd_image_url=$amd_image_url" >> $GITHUB_OUTPUT
+          echo "arm_image_url=$arm_image_url" >> $GITHUB_OUTPUT
+          echo "AMD Image URL: $amd_image_url"
+          echo "ARM Image URL: $arm_image_url"
+
+      - name: Set last image version
+        id: set_last_image_version
+        run: |
+          echo "Setting last image version"
+          last_image_version=$(./tools/get_latest_tag.sh)
+          echo "last_image_version=$last_image_version" >> $GITHUB_OUTPUT
+
+  RunISSUTest:
+    name: Run ISSU Tests
+    needs: [SetupISSUTestInputs]
+    if: ${{ (github.event_name == 'schedule' && always() || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests)) && needs.SetupISSUTestInputs.result == 'success' }}
+    uses: ./.github/workflows/reusable_issu_test.yaml
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd
+            next_image: ${{ needs.SetupISSUTestInputs.outputs.amd_image_url }}
+          - arch: arm
+            next_image: ${{ needs.SetupISSUTestInputs.outputs.arm_image_url }}
+    with:
+      last_image: ${{ needs.SetupISSUTestInputs.outputs.last_image_version }}
+      next_image: ${{ matrix.next_image }}
+      arch: ${{ matrix.arch }}
+    secrets: inherit

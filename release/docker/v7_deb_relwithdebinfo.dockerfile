@@ -34,6 +34,9 @@ RUN groupadd -g 103 memgraph && \
 
 COPY "${SOURCE_CODE}" /home/mg/memgraph/src
 
+# Copy the script for launching Memgraph with GDB inside a container. Override the entrypoint to use this script.
+COPY run_with_gdb.sh /usr/lib/memgraph/run_with_gdb.sh
+
 # Install memgraph package
 COPY "${BINARY_NAME}${TARGETARCH}.${EXTENSION}" /
 RUN dpkg -i "${BINARY_NAME}${TARGETARCH}.deb" && rm "${BINARY_NAME}${TARGETARCH}.deb"
