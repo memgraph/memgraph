@@ -746,6 +746,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(LoadJsonl &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(LoadJsonl & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(RollUpApply &op) override {
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
