@@ -79,7 +79,7 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
 
 bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint64_t const timeout_in_seconds) {
   spdlog::trace("Started downloading file: {}", url);
-  utils::OnScopeExit const on_exit{[url]() { spdlog::trace("Finished downloading file: {}", url); }};
+  utils::OnScopeExit const on_exit{[&url]() { spdlog::trace("Finished downloading file: {}", url); }};
   CURL *curl = nullptr;
   CURLcode res = CURLE_UNSUPPORTED_PROTOCOL;
 
