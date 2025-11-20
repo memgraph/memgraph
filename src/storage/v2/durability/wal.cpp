@@ -1019,6 +1019,9 @@ std::optional<RecoveryInfo> LoadWal(
         if (schema_info) old_labels.emplace(vertex->labels);
         vertex->labels.push_back(label_id);
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
+        if (indices->vector_index_.IsLabelInVectorIndex(label_id)) {
+          indices->vector_index_.UpdateOnAddLabel(label_id, &*vertex, name_id_mapper);
+        }
       },
       [&](WalVertexRemoveLabel const &data) {
         const auto vertex = vertex_acc.find(data.gid);
@@ -1033,6 +1036,9 @@ std::optional<RecoveryInfo> LoadWal(
         std::swap(*it, vertex->labels.back());
         vertex->labels.pop_back();
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
+        if (indices->vector_index_.IsLabelInVectorIndex(label_id)) {
+          indices->vector_index_.UpdateOnRemoveLabel(label_id, &*vertex, name_id_mapper);
+        }
       },
       [&](WalVertexSetProperty const &data) {
         const auto vertex = vertex_acc.find(data.gid);

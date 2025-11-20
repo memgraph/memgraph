@@ -101,6 +101,10 @@ class VectorIndex {
   /// @brief Drops all existing indexes.
   void Clear();
 
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper);
+
+  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper);
+
   /// @brief Updates the index when a property is modified on a vertex.
   /// @param property The property that was modified.
   /// @param value The new value of the property.
@@ -171,6 +175,8 @@ class VectorIndex {
                                                              NameIdMapper *name_id_mapper);
 
   bool IsPropertyInVectorIndex(PropertyId property) const;
+
+  bool IsLabelInVectorIndex(LabelId label) const;
 
   /// @brief Gets all properties that have vector indices for the given label.
   /// @param label The label to get the properties for.

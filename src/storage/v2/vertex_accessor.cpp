@@ -174,7 +174,6 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
             return PropertyValue({storage_->name_id_mapper_->NameToId(index_name->second)}, std::move(vec));
           });
           vertex->properties.SetProperty(property_id, vector_index_id);
-          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property_id, old_property_value);
         }
       }
     }
@@ -268,7 +267,6 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
               property_id, ids.empty() ? old_vector_property_value
                                        : old_vertex_property_value);  // we transfer list to property store only if it's
                                                                       // not in any index anymore
-          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property_id, old_vertex_property_value);
         }
       }
     }

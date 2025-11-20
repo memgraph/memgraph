@@ -32,7 +32,7 @@ enum class VectorIndexType : uint8_t {
 /// @param type The VectorIndexType to convert.
 /// @return A string representation of the VectorIndexType.
 /// @throws query::VectorSearchException if the type is unsupported.
-inline constexpr const char *VectorIndexTypeToString(VectorIndexType type) {
+constexpr const char *VectorIndexTypeToString(VectorIndexType type) {
   switch (type) {
     case VectorIndexType::ON_NODES:
       return "label+property_vector";
@@ -109,4 +109,10 @@ PropertyValue GetVectorAsPropertyValue(const std::shared_ptr<utils::Synchronized
 template <typename IndexType, typename KeyType>
 std::vector<float> GetVector(const std::shared_ptr<utils::Synchronized<IndexType, std::shared_mutex>> &index,
                              KeyType key);
+
+/// @brief Converts a PropertyValue list to a vector of floats.
+/// @param value The PropertyValue to convert. Must be a list of numeric values (floats or integers).
+/// @return A vector of float values.
+/// @throws query::VectorSearchException if the value is not a list or contains non-numeric values.
+std::vector<float> ListToVector(const PropertyValue &value);
 }  // namespace memgraph::storage

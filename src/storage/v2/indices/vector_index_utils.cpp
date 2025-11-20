@@ -232,4 +232,26 @@ template std::vector<float> GetVector<mg_vector_index_t, Vertex *>(
 // std::shared_ptr<utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>> &index,
 // VectorEdgeIndex::EdgeIndexEntry &key);
 
+std::vector<float> ListToVector(const PropertyValue &value) {
+  if (value.IsNull()) {
+    return {};
+  }
+  if (value.IsAnyList()) {
+    const auto list_size = value.ListSize();
+    std::vector<float> vector;
+    vector.reserve(list_size);
+    for (auto i = 0; i < list_size; i++) {
+      const auto numeric_value = GetNumericValueAt(value, i);
+      if (!numeric_value) {
+        throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+      }
+      const auto float_value =
+          std::visit([](const auto &val) -> float { return static_cast<float>(val); }, *numeric_value);
+      vector.push_back(float_value);
+    }
+    return vector;
+  }
+  throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+}
+
 }  // namespace memgraph::storage
