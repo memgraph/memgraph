@@ -838,7 +838,7 @@ copy_memgraph() {
       ;;
       --sbom)
         artifact="sbom"
-        artifact_name="memgraph-sbom.json"
+        artifact_name="memgraph-sbom.cdx.json"
         container_artifact_path="$MGBUILD_BUILD_DIR/generators/sbom/$artifact_name"
         host_dir="$PROJECT_BUILD_DIR/generators/sbom"
         shift 1
