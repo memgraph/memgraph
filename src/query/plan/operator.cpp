@@ -71,12 +71,8 @@
 #include "utils/temporal.hpp"
 #include "vertex_accessor.hpp"
 
-<<<<<<< HEAD
 import memgraph.query.arrow_parquet.parquet_file_config;
 import memgraph.query.arrow_parquet.reader;
-=======
-// Includes should be put before import
->>>>>>> fb02cec0a (feat: Use pimpl idiom for compilation, connect e2e example for numeric and string types)
 import memgraph.query.jsonl.reader;
 import memgraph.utils.fnv;
 
