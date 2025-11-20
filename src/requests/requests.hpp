@@ -46,7 +46,7 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
  * @param timeout the timeout that should be used when making the request
  * @return bool true if the request was successful, false otherwise.
  */
-bool CreateAndDownloadFile(const std::string &url, const std::string &path, int timeout_in_seconds = 10);
+bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint64_t timeout_in_seconds = 10);
 
 /**
  * Downloads content into a stream

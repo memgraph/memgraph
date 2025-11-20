@@ -659,7 +659,8 @@ ParquetReader::ParquetReader(ParquetFileConfig parquet_file_config, utils::Memor
     if (url_matcher(parquet_file_config.file)) {
       auto const file_name = std::filesystem::path{parquet_file_config.file}.filename();
       auto const local_file_path = fmt::format("/tmp/{}", file_name);
-      if (requests::CreateAndDownloadFile(parquet_file_config.file, local_file_path)) {
+      if (requests::CreateAndDownloadFile(parquet_file_config.file, local_file_path,
+                                          memgraph::flags::run_time::GetFileDownloadTimeoutSec())) {
         utils::OnScopeExit const on_exit{[&local_file_path]() { utils::DeleteFile(local_file_path); }};
 
         return LoadFileFromDisk(local_file_path);

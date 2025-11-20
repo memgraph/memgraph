@@ -15,6 +15,7 @@ module;
 #include <utility>
 
 #include "ctre.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "requests/requests.hpp"
 #include "simdjson.h"
 #include "spdlog/spdlog.h"
@@ -121,7 +122,7 @@ struct JsonlReader::impl {
     constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
     if (url_matcher(uri_)) {
       local_file_ = fmt::format("/tmp/{}", std::filesystem::path{uri_}.filename());
-      if (!requests::CreateAndDownloadFile(uri_, local_file_)) {
+      if (!requests::CreateAndDownloadFile(uri_, local_file_, memgraph::flags::run_time::GetFileDownloadTimeoutSec())) {
         throw utils::BasicException("Failed to download file {}", uri_);
       }
       content_ = simdjson::padded_string::load(local_file_).value();
@@ -129,7 +130,7 @@ struct JsonlReader::impl {
       content_ = simdjson::padded_string::load(uri_).value();
     }
 
-    if (UNLIKELY(simdjson::ondemand::parser::get_parser().iterate_many(content_).get(docs_))) {
+    if (UNLIKELY(parser_.iterate_many(content_).get(docs_))) {
       throw utils::BasicException("Failed to create iterator over documents for file {}", uri_);
     }
 
@@ -165,6 +166,7 @@ struct JsonlReader::impl {
   // Path where the JSONL file was downloaded
   // Had bugs with std::optional
   std::string local_file_;
+  simdjson::ondemand::parser parser_;
   simdjson::padded_string content_;
   simdjson::ondemand::document_stream docs_;
   simdjson::ondemand::document_stream::iterator it_;

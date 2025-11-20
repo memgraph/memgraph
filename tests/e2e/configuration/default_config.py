@@ -82,6 +82,11 @@ startup_config_dict = {
         "true",
         "Controls whether the database recovers persisted data on startup.",
     ),
+    "file_download_timeout_sec": {
+        "900",
+        "900",
+        "Define file download timeout in seconds whe importing JSONL and Parquet files.",
+    },
     "isolation_level": (
         "SNAPSHOT_ISOLATION",
         "SNAPSHOT_ISOLATION",

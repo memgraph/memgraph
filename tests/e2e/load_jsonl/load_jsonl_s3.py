@@ -20,8 +20,8 @@ from common import connect, execute_and_fetch_all, get_file_path
 
 # LocalStack configuration
 # NOTE: If you are testing this locally change localstack-s3 to localhost
-AWS_ENDPOINT_URL = "http://localstack-s3:4566"
-# AWS_ENDPOINT_URL = "http://localhost:4566"
+# AWS_ENDPOINT_URL = "http://localstack-s3:4566"
+AWS_ENDPOINT_URL = "http://localhost:4566"
 AWS_ACCESS_KEY_ID = "test"
 AWS_SECRET_ACCESS_KEY = "test"
 AWS_REGION = "us-east-1"
@@ -30,6 +30,10 @@ BUCKET_NAME = "deps.memgraph.io"
 
 def test_http_file():
     cursor = connect(host="localhost", port=7687).cursor()
+    setting_query = "set database setting 'file.download_timeout_sec' to '400'"
+    execute_and_fetch_all(cursor, setting_query)
+    res = dict(execute_and_fetch_all(cursor, "show database settings"))
+    assert res["file.download_timeout_sec"] == "400"
     load_query = f"LOAD JSONL FROM '{AWS_ENDPOINT_URL}/{BUCKET_NAME}/test_types.jsonl' AS row CREATE (n:N {{id: row.id, name: row.name, age: row.age, city: row.city}})"
     execute_and_fetch_all(cursor, load_query)
     assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 120

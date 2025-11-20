@@ -108,6 +108,8 @@ DEFINE_string(aws_endpoint_url, "", "Define AWS endpoint url for the AWS integra
 // Storage flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_gc_aggressive, false, "Enable aggressive garbage collection.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_uint64(file_download_timeout_sec, 900, "Define file download timeout whe importing JSONL and Parquet files.");
 
 namespace {
 // Bolt server name
@@ -148,6 +150,7 @@ constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 constexpr auto kSnapshotPeriodicSettingKey = "storage.snapshot.interval";
 constexpr auto kSnapshotPeriodicGFlagsKey = "storage-snapshot-interval";
 
+// AWS configuration
 constexpr auto kAwsRegionSettingKey = "aws.region";
 constexpr auto kAwsRegionGFlagsKey = "aws_region";
 
@@ -159,6 +162,9 @@ constexpr auto kAwsAccessGFlagsKey = "aws_access_key";
 
 constexpr auto kAwsEndpointUrlSettingKey = "aws.endpoint_url";
 constexpr auto kAwsEndpointUrlGFlagsKey = "aws_endpoint_url";
+
+constexpr auto kFileDownloadTimeoutSecSettingKey = "file.download_timeout_sec";
+constexpr auto kFileDownloadTimeoutSecGFlagsKey = "file_download_timeout_sec";
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
@@ -454,10 +460,13 @@ void Initialize() {
         return {};
       });
 
+  // AWS Section
   register_flag(kAwsRegionGFlagsKey, kAwsRegionSettingKey, kRestore);
   register_flag(kAwsAccessGFlagsKey, kAwsAccessSettingKey, kRestore);
   register_flag(kAwsSecretGFlagsKey, kAwsSecretSettingKey, kRestore);
   register_flag(kAwsEndpointUrlGFlagsKey, kAwsEndpointUrlSettingKey, kRestore);
+
+  register_flag(kFileDownloadTimeoutSecGFlagsKey, kFileDownloadTimeoutSecSettingKey, kRestore);
 }
 
 std::string GetServerName() {
@@ -508,6 +517,20 @@ auto GetAwsEndpointUrl() -> std::string {
   std::string endpoint_url;
   gflags::GetCommandLineOption(kAwsEndpointUrlGFlagsKey, &endpoint_url);
   return endpoint_url;
+}
+
+auto GetFileDownloadTimeoutSec() -> uint64_t {
+  std::string str_timeout;
+  gflags::GetCommandLineOption(kFileDownloadTimeoutSecGFlagsKey, &str_timeout);
+  uint64_t timeout_sec{1};
+  auto [ptr, ec] = std::from_chars(str_timeout.data(), str_timeout.data() + str_timeout.size(), timeout_sec);
+  // no error
+  if (ec == std::errc{}) {
+    return timeout_sec;
+  }
+  spdlog::error("Couldn't parse download_timeout_sec value, returning default timeout 900s");
+  constexpr uint64_t default_timeout_sec{900};
+  return default_timeout_sec;
 }
 
 void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
