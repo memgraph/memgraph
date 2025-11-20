@@ -10,20 +10,26 @@ while [[ $# -gt 0 ]]; do
             no_cleanup=true
             shift
         ;;
+        *)
+            echo "Error: Unknown argument '$1'" >&2
+            exit 1
+        ;;
     esac
 done
 
 # check that the build has generated the sbom file
 if [[ ! -f "build/generators/sbom/memgraph-sbom.cdx.json" ]]; then
-    echo "Error: sbom file not found - run conan install first"
+    echo "Error: sbom file not found - run conan install first" >&2
     exit 1
 fi
 
 function cleanup() {
+    exit_status=$?
     if [[ "$no_cleanup" == false ]]; then
         rm -rf tools/sbom/env || true
         rm -f cyclonedx || true
     fi
+    exit $exit_status
 }
 
 trap cleanup EXIT

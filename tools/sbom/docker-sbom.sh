@@ -7,10 +7,12 @@ set -euo pipefail
 TAG=$1
 
 function cleanup() {
+    exit_status=$?
     rm -rf tools/sbom/env || true
     rm -f syft
     rm -f syft.tar.gz
     rm -r cyclonedx
+    exit $exit_status
 }
 
 trap cleanup EXIT
