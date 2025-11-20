@@ -9,12 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/arrow_parquet/reader.hpp"
+module;
+
 #include "flags/run_time_configurable.hpp"
-#include "query/arrow_parquet/parquet_file_config.hpp"
 #include "query/typed_value.hpp"
+#include "requests/requests.hpp"
 #include "utils/data_queue.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/file.hpp"
 #include "utils/temporal.hpp"
 
 #include <chrono>
@@ -26,9 +28,12 @@
 #include "arrow/io/file.h"
 #include "arrow/util/decimal.h"
 #include "arrow/util/float16.h"
+#include "ctre.hpp"
 #include "parquet/arrow/reader.h"
 #include "parquet/properties.h"
 #include "spdlog/spdlog.h"
+
+module memgraph.query.arrow_parquet.reader;
 
 constexpr int64_t batch_rows = 1U << 16U;
 
@@ -210,6 +215,7 @@ auto LoadFileFromDisk(std::string const &file_path) -> std::unique_ptr<parquet::
   arrow_reader_props.set_use_threads(true);
 
   parquet::arrow::FileReaderBuilder reader_builder;
+
   if (auto const status = reader_builder.Open(file, reader_properties); !status.ok()) {
     spdlog::error(status.message());
     return nullptr;
@@ -646,9 +652,27 @@ auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
 
 ParquetReader::ParquetReader(ParquetFileConfig parquet_file_config, utils::MemoryResource *resource) {
   auto file_reader = std::invoke([&]() -> std::unique_ptr<parquet::arrow::FileReader> {
-    if (parquet_file_config.file.starts_with(s3_prefix)) {
+    constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
+    constexpr auto s3_matcher = ctre::starts_with<"s3://">;
+
+    // When using a file that should be downloaded using https or ftp, we first download it and then load it
+    if (url_matcher(parquet_file_config.file)) {
+      auto const file_name = std::filesystem::path{parquet_file_config.file}.filename();
+      auto const local_file_path = fmt::format("/tmp/{}", file_name);
+      if (requests::CreateAndDownloadFile(parquet_file_config.file, local_file_path)) {
+        utils::OnScopeExit const on_exit{[&local_file_path]() { utils::DeleteFile(local_file_path); }};
+
+        return LoadFileFromDisk(local_file_path);
+      }
+      spdlog::error("Couldn't download file {}", parquet_file_config.file);
+      return nullptr;
+    }
+
+    if (s3_matcher(parquet_file_config.file)) {
       return LoadFileFromS3(BuildS3Config(parquet_file_config));
     }
+
+    // Regular file that already exists on disk
     return LoadFileFromDisk(parquet_file_config.file);
   });
 

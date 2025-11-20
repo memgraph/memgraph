@@ -32,8 +32,6 @@
 
 #include "csv/parsing.hpp"
 #include "license/license.hpp"
-#include "query/arrow_parquet/parquet_file_config.hpp"
-#include "query/arrow_parquet/reader.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -55,7 +53,6 @@
 #include "utils/algorithm.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
-import memgraph.utils.fnv;
 #include "utils/java_string_formatter.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
@@ -73,6 +70,11 @@ import memgraph.utils.fnv;
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
 #include "vertex_accessor.hpp"
+
+import memgraph.query.arrow_parquet.parquet_file_config;
+import memgraph.query.arrow_parquet.reader;
+import memgraph.query.jsonl.reader;
+import memgraph.utils.fnv;
 
 namespace r = ranges;
 namespace rv = r::views;
@@ -7887,6 +7889,9 @@ UniqueCursorPtr LoadParquet::MakeCursor(utils::MemoryResource *mem) const {
 
 std::unique_ptr<LogicalOperator> LoadParquet::Clone(AstStorage *storage) const {
   auto object = std::make_unique<LoadParquet>();
+  for (const auto &[key, value] : config_map_) {
+    object->config_map_[key->Clone(storage)] = value->Clone(storage);
+  }
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->file_ = file_ ? file_->Clone(storage) : nullptr;
   object->row_var_ = row_var_;
@@ -7894,6 +7899,89 @@ std::unique_ptr<LogicalOperator> LoadParquet::Clone(AstStorage *storage) const {
 }
 
 std::string LoadParquet::ToString() const { return fmt::format("LoadParquet {{{}}}", row_var_.name()); }
+
+LoadJsonl::LoadJsonl(std::shared_ptr<LogicalOperator> input, Expression *file, Symbol row_var)
+    : input_(input ? input : (std::make_shared<Once>())), file_(file), row_var_(std::move(row_var)) {
+  MG_ASSERT(file_, "Something went wrong - LoadJsonl's member file_ shouldn't be a nullptr");
+}
+
+ACCEPT_WITH_INPUT(LoadJsonl);
+
+class LoadJsonlCursor;
+
+std::vector<Symbol> LoadJsonl::OutputSymbols(const SymbolTable & /*sym_table*/) const { return {row_var_}; };
+
+std::vector<Symbol> LoadJsonl::ModifiedSymbols(const SymbolTable &sym_table) const {
+  auto symbols = input_->ModifiedSymbols(sym_table);
+  symbols.push_back(row_var_);
+  return symbols;
+};
+
+class LoadJsonlCursor : public Cursor {
+  const LoadJsonl *self_;
+  const UniqueCursorPtr input_cursor_;
+  bool did_pull_{false};
+  std::optional<JsonlReader> reader_;
+
+ public:
+  LoadJsonlCursor(const LoadJsonl *self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler const oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(*self_);
+    AbortCheck(context);
+
+    auto *mem = context.evaluation_context.memory;
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+    if (UNLIKELY(!reader_.has_value())) {
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{context.evaluation_context};
+      auto maybe_file = self_->file_->Accept(evaluator).ValueString();
+      reader_.emplace(std::string{maybe_file}, mem);
+    }
+
+    if (input_cursor_->Pull(frame, context)) {
+      if (did_pull_) {
+        throw QueryRuntimeException(
+            "LOAD JSONL can be executed only once, please check if the cardinality of the operator before LOAD JSONL "
+            "is 1");
+      }
+      did_pull_ = true;
+    }
+
+    Row row_{mem};
+
+    if (!reader_->GetNextRow(row_)) {
+      return false;
+    }
+
+    frame_writer.Write(self_->row_var_, TypedValue(std::move(row_), mem));
+
+    if (context.frame_change_collector) {
+      context.frame_change_collector->ResetInListCache(self_->row_var_);
+    }
+
+    return true;
+  }
+
+  void Reset() override { input_cursor_->Reset(); }
+  void Shutdown() override { input_cursor_->Shutdown(); }
+};
+
+UniqueCursorPtr LoadJsonl::MakeCursor(utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<LoadJsonlCursor>(mem, this, mem);
+}
+
+std::unique_ptr<LogicalOperator> LoadJsonl::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<LoadJsonl>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->file_ = file_ ? file_->Clone(storage) : nullptr;
+  object->row_var_ = row_var_;
+  return object;
+}
+
+std::string LoadJsonl::ToString() const { return fmt::format("LoadJsonl {{{}}}", row_var_.name()); }
 
 class ForeachCursor : public Cursor {
  public:

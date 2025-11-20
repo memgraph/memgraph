@@ -336,6 +336,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitLoadParquet(MemgraphCypher::LoadParquetContext *ctx) override;
 
   /**
+   * @return LoadJsonlQuery*
+   */
+  antlrcpp::Any visitLoadJsonl(MemgraphCypher::LoadJsonlContext *ctx) override;
+
+  /**
    * @return FreeMemoryQuery*
    */
   antlrcpp::Any visitFreeMemoryQuery(MemgraphCypher::FreeMemoryQueryContext *ctx) override;
@@ -1336,6 +1341,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     bool is_cacheable{true};
     bool has_load_csv{false};
     bool has_load_parquet{false};
+    bool has_load_jsonl{false};
   };
 
   const auto &GetQueryInfo() const { return query_info_; }

@@ -113,13 +113,7 @@ class InMemoryStorage final : public Storage {
 
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
-  enum class CreateSnapshotError : uint8_t {
-    DisabledForReplica,
-    ReachedMaxNumTries,
-    AbortSnapshot,
-    AlreadyRunning,
-    NothingNewToWrite
-  };
+  enum class CreateSnapshotError : uint8_t { ReachedMaxNumTries, AbortSnapshot, AlreadyRunning, NothingNewToWrite };
   enum class RecoverSnapshotError : uint8_t {
     DisabledForReplica,
     NonEmptyStorage,
@@ -704,8 +698,7 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> CreateSnapshot(
-      memgraph::replication_coordination_glue::ReplicationRole replication_role, bool force = false);
+  utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> CreateSnapshot(bool force = false);
 
   utils::BasicResult<InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
       std::filesystem::path path, bool force,
@@ -781,7 +774,7 @@ class InMemoryStorage final : public Storage {
   std::unique_ptr<utils::OutputFile> lock_file_handle_ = std::make_unique<utils::OutputFile>();
 
   utils::Scheduler snapshot_runner_;
-  std::mutex snapshot_lock_;
+  utils::ResourceLock snapshot_lock_;
   std::atomic_bool snapshot_running_{false};
   std::atomic_bool abort_snapshot_{false};
 

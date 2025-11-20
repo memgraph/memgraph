@@ -169,6 +169,9 @@ constexpr utils::TypeInfo query::plan::LoadCsv::kType{utils::TypeId::LOAD_CSV, "
 constexpr utils::TypeInfo query::plan::LoadParquet::kType{
     .id = utils::TypeId::LOAD_PARQUET, .name = "LoadParquet", .superclass = &query::plan::LogicalOperator::kType};
 
+constexpr utils::TypeInfo query::plan::LoadJsonl::kType{
+    .id = utils::TypeId::LOAD_JSONL, .name = "LoadJsonl", .superclass = &query::plan::LogicalOperator::kType};
+
 constexpr utils::TypeInfo query::plan::Foreach::kType{utils::TypeId::FOREACH, "Foreach",
                                                       &query::plan::LogicalOperator::kType};
 

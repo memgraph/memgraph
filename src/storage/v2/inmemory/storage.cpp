@@ -459,6 +459,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
             "VertexAccessors must be from the same transaction in when "
             "creating an edge!");
 
+  // It's important to destruct accessors after we unlock the vertices to avoid expensive skip list gc while we hold the
+  // locks
+  std::optional<utils::SkipList<Edge>::Accessor> edge_acc;
+  std::optional<utils::SkipList<EdgeMetadata>::Accessor> edge_metadata_acc;
+
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
@@ -495,19 +500,19 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   auto gid = storage::Gid::FromUint(mem_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    auto acc = mem_storage->edges_.access();
     // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
+    edge_acc = mem_storage->edges_.access();
     auto *delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = acc.insert(Edge(gid, delta));
+    auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
+    MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
     if (delta) {
       delta->prev.Set(&*it);
     }
     if (config_.enable_edges_metadata) {
-      auto acc = mem_storage->edges_metadata_.access();
-      auto [_, inserted] = acc.insert(EdgeMetadata(gid, from->vertex_));
+      edge_metadata_acc = mem_storage->edges_metadata_.access();
+      auto [_, inserted] = edge_metadata_acc->insert(EdgeMetadata(gid, from->vertex_));
       MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
@@ -567,6 +572,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
             "VertexAccessors must be from the same transaction in when "
             "creating an edge!");
 
+  // It's important to destruct accessors after we unlock the vertices to avoid expensive skip list gc while we hold the
+  // locks
+  std::optional<utils::SkipList<Edge>::Accessor> edge_acc;
+  std::optional<utils::SkipList<EdgeMetadata>::Accessor> edge_metadata_acc;
+
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
@@ -597,6 +607,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_edge_types_.try_insert(edge_type);
   }
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // NOTE: When we update the next `edge_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
@@ -604,26 +615,23 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   // that runs single-threadedly and while this instance is set-up to apply
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-
   atomic_fetch_max_explicit(&mem_storage->edge_id_, gid.AsUint() + 1, std::memory_order_acq_rel);
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    auto acc = mem_storage->edges_.access();
-
     // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
+    edge_acc = mem_storage->edges_.access();
     auto *delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = acc.insert(Edge(gid, delta));
+    auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
+    MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
     if (delta) {
       delta->prev.Set(&*it);
     }
     if (config_.enable_edges_metadata) {
-      auto acc = mem_storage->edges_metadata_.access();
-      auto [_, inserted] = acc.insert(EdgeMetadata(gid, from->vertex_));
+      edge_metadata_acc = mem_storage->edges_metadata_.access();
+      auto [_, inserted] = edge_metadata_acc->insert(EdgeMetadata(gid, from->vertex_));
       MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
@@ -2948,12 +2956,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> InMemoryStorage::CreateSnapshot(
-    memgraph::replication_coordination_glue::ReplicationRole replication_role, bool force) {
-  using memgraph::replication_coordination_glue::ReplicationRole;
-  if (replication_role == ReplicationRole::REPLICA) {
-    return CreateSnapshotError::DisabledForReplica;
-  }
-
+    bool force) {
   auto abort_reset = utils::OnScopeExit([this]() mutable {
     // Abort is a one shot, reset it to false every time
     abort_snapshot_.store(false, std::memory_order_release);
@@ -2994,7 +2997,11 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> 
 
   // In memory analytical doesn't update last_durable_ts so digest isn't valid
   if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    auto current_digest = SnapshotDigest{epoch, epochHistory, storage_uuid, *transaction->last_durable_ts_};
+    auto current_digest = SnapshotDigest{.epoch_ = epoch,
+                                         .history_ = epochHistory,
+                                         .storage_uuid_ = storage_uuid,
+                                         .last_durable_ts_ = *transaction->last_durable_ts_};
+
     if (!force && last_snapshot_digest_ == current_digest) return CreateSnapshotError::NothingNewToWrite;
     last_snapshot_digest_ = std::move(current_digest);
   }
@@ -3126,7 +3133,9 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
 
     // Move all snapshot files to the old directory
     auto snapshot_files = durability::GetSnapshotFiles(recovery_.snapshot_directory_);
-    for (const auto &[snapshot_path, snapshot_uuid, _2] : snapshot_files) {
+    for (const auto &snapshot_file : snapshot_files) {
+      auto const &snapshot_path = snapshot_file.path;
+      auto const &snapshot_uuid = snapshot_file.uuid;
       spdlog::trace("Moving snapshot file {}", snapshot_path);
       if (local_path != snapshot_path) {
         file_retainer_.RenameFile(snapshot_path, recovery_.snapshot_directory_ / old_dir / snapshot_path.filename());
@@ -3175,7 +3184,10 @@ std::optional<SnapshotFileInfo> InMemoryStorage::ShowNextSnapshot() {
   auto lock = std::unique_lock{snapshot_lock_};
   auto next = snapshot_runner_.NextExecution();
   if (next) {
-    return SnapshotFileInfo{recovery_.snapshot_directory_, 0, utils::LocalDateTime{*next}, 0};
+    return SnapshotFileInfo{.path = recovery_.snapshot_directory_,
+                            .durable_timestamp = 0,
+                            .creation_time = utils::LocalDateTime{*next},
+                            .size = 0};
   }
   return std::nullopt;
 }
@@ -3192,7 +3204,9 @@ std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
   // Add currently available snapshots
   auto snapshot_files = durability::GetSnapshotFiles(recovery_.snapshot_directory_ /*, std::string(storage_uuid())*/);
   std::error_code ec;
-  for (const auto &[snapshot_path, _, start_timestamp] : snapshot_files) {
+  for (const auto &snapshot_file : snapshot_files) {
+    auto const &snapshot_path = snapshot_file.path;
+    auto const &durable_timestamp = snapshot_file.durable_timestamp;
     // Hacky solution to covert between different clocks
     utils::LocalDateTime write_time_ldt{std::filesystem::last_write_time(snapshot_path, ec) -
                                         std::filesystem::file_time_type::clock::now() +
@@ -3206,11 +3220,10 @@ std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
       spdlog::warn("Failed to read file size for {}", snapshot_path);
       size = 0;
     }
-    res.emplace_back(snapshot_path, start_timestamp, write_time_ldt, size);
+    res.emplace_back(snapshot_path, durable_timestamp, write_time_ldt, size);
   }
 
-  std::sort(res.begin(), res.end(),
-            [](const auto &lhs, const auto &rhs) { return lhs.creation_time > rhs.creation_time; });
+  std::ranges::sort(res, [](const auto &lhs, const auto &rhs) { return lhs.creation_time > rhs.creation_time; });
 
   return res;
 }
@@ -3280,9 +3293,6 @@ void InMemoryStorage::CreateSnapshotHandler(
   create_snapshot_handler = [cb = std::move(cb)] {
     if (auto maybe_error = cb(); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
-        case CreateSnapshotError::DisabledForReplica:
-          spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
-          break;
         case CreateSnapshotError::ReachedMaxNumTries:
           spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support.");
           break;

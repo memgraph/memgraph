@@ -14,6 +14,8 @@ services:
       - AWS_DEFAULT_REGION=us-east-1
     networks:
       - package_default
+    profiles:
+      - bridge
 
   localstack-host:
     image: localstack/localstack:latest

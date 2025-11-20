@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 
 #include "utils/timestamp.hpp"
@@ -30,9 +31,9 @@ const std::string kTimestampFormat = "{:04d}{:02d}{:02d}{:02d}{:02d}{:02d}{:06d}
 
 // Generates the name for a snapshot in a well-defined sortable format with the
 // start timestamp appended to the file name.
-inline auto MakeSnapshotName(uint64_t const start_timestamp) -> std::string {
+inline auto MakeSnapshotName(uint64_t const last_durable_ts) -> std::string {
   auto const date_str = utils::Timestamp::Now().ToString(kTimestampFormat);
-  return fmt::format("{}_timestamp_{}", date_str, std::to_string(start_timestamp));
+  return fmt::format("{}_timestamp_{}", date_str, std::to_string(last_durable_ts));
 }
 
 // Generates the name for a WAL file in a well-defined sortable format.
