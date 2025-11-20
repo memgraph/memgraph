@@ -45,7 +45,7 @@ on:
         default: ''
       generate_sbom:
         type: boolean
-        description: "Should the SBOM be generated. Default value is false."
+        description: "Generate SBOM"
         default: false
 
 env:

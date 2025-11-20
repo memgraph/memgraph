@@ -55,7 +55,7 @@ on:
         default: false
       generate_sbom:
         type: boolean
-        description: "Should the SBOM be generated. Default value is false."
+        description: "Generate SBOM"
         default: false
 
   workflow_call:
