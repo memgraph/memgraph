@@ -45,6 +45,7 @@ mkdir -p sbom
   libs/sbom.json \
   --output-format json \
   --output-file sbom/memgraph-build-sbom.json
+echo "Generated SBOM file: sbom/memgraph-build-sbom.json"
 
 # create venv for generating human-readable SBOM table
 python3 -m venv tools/sbom/env
@@ -53,3 +54,4 @@ pip install rich==13.9.4
 
 # generate human-readable SBOM table
 python3 tools/sbom/sbom-formatter.py sbom/memgraph-build-sbom.json
+echo "Generated human-readable SBOM table: sbom/memgraph-build-sbom.txt"
