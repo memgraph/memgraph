@@ -95,7 +95,7 @@ on:
         default: false
       generate_sbom:
         type: boolean
-        description: "Should the SBOM be generated. Default value is false."
+        description: "Generate SBOM"
         default: false
 
 jobs:
@@ -154,7 +154,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   CentOS10:
@@ -172,7 +172,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Debian12:
@@ -190,7 +190,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Debian12-arm:
@@ -208,7 +208,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Debian13:
@@ -226,7 +226,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Debian13-arm:
@@ -244,7 +244,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Docker-v6:
@@ -262,7 +262,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Docker-v6-arm:
@@ -280,7 +280,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Fedora42:
@@ -298,7 +298,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Fedora42-arm:
@@ -316,7 +316,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   RockyLinux10:
@@ -334,7 +334,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Ubuntu22_04:
@@ -352,7 +352,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Ubuntu24_04:
@@ -370,7 +370,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Ubuntu24_04-arm:
@@ -388,7 +388,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Ubuntu24_04-malloc:
@@ -406,5 +406,5 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
