@@ -41,7 +41,7 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
 
   // Connect replication state and storage
   storage->CreateSnapshotHandler(
-      [storage = storage.get(), &repl_state]() -> utils::BasicResult<storage::InMemoryStorage::CreateSnapshotError> {
+      [storage = storage.get()]() -> utils::BasicResult<storage::InMemoryStorage::CreateSnapshotError> {
         auto result = storage->CreateSnapshot();
         if (result.HasError()) {
           return result.GetError();
