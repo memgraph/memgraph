@@ -19,6 +19,20 @@ class Memgraph(ConanFile):
 
     exports_sources = "CMakeLists.txt", "src/*"
 
+    default_options = {
+        "aws-sdk-cpp/*:config": True,
+        "aws-sdk-cpp/*:s3": True,
+        "aws-sdk-cpp/*:monitoring": False,
+        "aws-sdk-cpp/*:text-to-speech": False,
+        "aws-sdk-cpp/*:queues": False,
+        "aws-sdk-cpp/*:sqs": False,
+        "aws-sdk-cpp/*:access-management": False,
+        "aws-sdk-cpp/*:cognito-identity": True,
+        "aws-sdk-cpp/*:iam": False,
+        "aws-sdk-cpp/*:identity-management": True,
+        "aws-sdk-cpp/*:transfer": False,
+    }
+
     # TODO(matt): remove this hack so that builds end up in the subdirectory named after the build type
     # This will require fixing a bunch of the hard-coded paths in the testing code.
     def layout(self):
@@ -84,7 +98,9 @@ class Memgraph(ConanFile):
         self.requires("range-v3/0.12.0")
         self.requires("asio/1.34.2")
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
-        self.requires("snappy/1.2.1")
+        self.requires("snappy/1.2.1", override=True)
+        self.requires("arrow/22.0.0", options={"with_s3": True, "with_snappy": True, "with_mimalloc": False})
+        self.requires("simdjson/4.1.0")
 
     def package(self):
         cmake = CMake(self)

@@ -562,7 +562,7 @@ build_memgraph () {
   echo "Using profile template: $PROFILE_TEMPLATE"
 
   CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE"
-  docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr $PROFILE_TEMPLATE -s build_type=$build_type"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr:h $PROFILE_TEMPLATE -pr:b ./memgraph_build_profile -s build_type=$build_type"
   CMD_START="$CMD_START && source build/generators/conanbuild.sh && $ACTIVATE_CARGO"
 
   # Determine preset name based on build type (Conan generates this automatically)
