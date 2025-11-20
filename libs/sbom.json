@@ -107,6 +107,33 @@
       "properties": [
         { "name": "source.url", "value": "https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz" }
       ]
+    },
+    {
+      "type": "library",
+      "name": "nuraft",
+      "version": "4b148a7e76291898c838a7457eeda2b16f7317ea",
+      "purl": "pkg:github/eBay/NuRaft@4b148a7e76291898c838a7457eeda2b16f7317ea",
+      "properties": [
+        { "name": "source.repo", "value": "https://github.com/eBay/NuRaft.git" }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "gflags",
+      "version": "b37ceb03a0e56c9f15ce80409438a555f8a67b7c",
+      "purl": "pkg:github/memgraph/gflags@b37ceb03a0e56c9f15ce80409438a555f8a67b7c",
+      "properties": [
+        { "name": "source.repo", "value": "https://github.com/memgraph/gflags.git" }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "rocksdb",
+      "version": "8.1.1",
+      "purl": "pkg:github/facebook/rocksdb@v8.1.1",
+      "properties": [
+        { "name": "source.repo", "value": "https://github.com/facebook/rocksdb.git" }
+      ]
     }
   ],
   "dependencies": [
@@ -122,7 +149,10 @@
         "jemalloc",
         "mgcxx",
         "usearch",
-        "nlohmann_json"
+        "nlohmann_json",
+        "nuraft",
+        "gflags",
+        "rocksdb"
       ]
     }
   ]
