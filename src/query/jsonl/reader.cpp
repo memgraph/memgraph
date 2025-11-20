@@ -14,11 +14,14 @@ module;
 #include <string>
 #include <utility>
 
+#include "ctre.hpp"
+#include "requests/requests.hpp"
 #include "simdjson.h"
 #include "spdlog/spdlog.h"
 
 #include "query/typed_value.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/file.hpp"
 #include "utils/likely.hpp"
 
 module memgraph.query.jsonl.reader;
@@ -114,15 +117,35 @@ namespace memgraph::query {
 
 struct JsonlReader::impl {
  public:
-  impl(std::string file, std::pmr::memory_resource *resource) : file_{std::move(file)}, resource_{resource} {
-    content_ = simdjson::padded_string::load(file_).value();
+  impl(std::string uri, std::pmr::memory_resource *resource) : uri_{std::move(uri)}, resource_{resource} {
+    constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
+    if (url_matcher(uri_)) {
+      local_file_ = fmt::format("/tmp/{}", std::filesystem::path{uri_}.filename());
+      if (!requests::CreateAndDownloadFile(uri_, local_file_)) {
+        throw utils::BasicException("Failed to download file {}", uri_);
+      }
+      content_ = simdjson::padded_string::load(local_file_).value();
+    } else {
+      content_ = simdjson::padded_string::load(uri_).value();
+    }
 
-    // Parser should be used for one document at a time
-    // This is thread local version of the parser, shouldn't be passed to other threads
-    if (UNLIKELY(simdjson::ondemand::parser::get_parser().iterate_many(content_).get(docs_)))
-      throw utils::BasicException("Failed to create iterator over documents for file {}", file_);
+    if (UNLIKELY(simdjson::ondemand::parser::get_parser().iterate_many(content_).get(docs_))) {
+      throw utils::BasicException("Failed to create iterator over documents for file {}", uri_);
+    }
 
     it_ = docs_.begin();
+  }
+
+  impl(impl const &) = delete;
+  impl &operator=(impl const &) = delete;
+  impl(impl &&) = delete;
+  impl &operator=(impl &&) = delete;
+
+  ~impl() {
+    // Delete the file we were using for download
+    if (!local_file_.empty()) {
+      utils::DeleteFile(local_file_);
+    }
   }
 
   auto GetNextRow(Row &out) -> bool {
@@ -137,8 +160,11 @@ struct JsonlReader::impl {
   }
 
  private:
-  std::string file_;
+  std::string uri_;
   std::pmr::memory_resource *resource_;
+  // Path where the JSONL file was downloaded
+  // Had bugs with std::optional
+  std::string local_file_;
   simdjson::padded_string content_;
   simdjson::ondemand::document_stream docs_;
   simdjson::ondemand::document_stream::iterator it_;

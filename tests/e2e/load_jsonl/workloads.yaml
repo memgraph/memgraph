@@ -16,3 +16,7 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["load_jsonl/load_jsonl.py"]
     <<: *load_jsonl_in_memory_cluster
+  - name: "LOAD S3 JSONL"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["load_jsonl/load_jsonl_s3.py"]
+    <<: *load_jsonl_in_memory_cluster
