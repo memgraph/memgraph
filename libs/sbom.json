@@ -1,0 +1,129 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2025-11-20T00:00:00Z",
+    "tools": [
+      {
+        "vendor": "memgraph",
+        "name": "manual-sbom",
+        "version": "1.0.0"
+      }
+    ],
+    "component": {
+      "type": "library",
+      "name": "memgraph-external-libs",
+      "version": "1.0.0"
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "name": "rapidcheck",
+      "version": "git-ff6af6fc6831",
+      "purl": "pkg:github/emil-e/rapidcheck@ff6af6fc683159deb51c543b065eba14dfcf329b",
+      "properties": [
+        { "name": "source.repo", "value": "https://github.com/emil-e/rapidcheck.git" }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "libbcrypt",
+      "version": "git-8aa32ad94ebe",
+      "purl": "pkg:github/rg3/libbcrypt@8aa32ad94ebe06b76853b0767c910c9fbf7ccef4",
+      "properties": [
+        { "name": "source.repo", "value": "https://github.com/rg3/libbcrypt" }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "librdkafka",
+      "version": "2.6.1",
+      "purl": "pkg:github/edenhill/librdkafka@v2.6.1",
+      "properties": [
+        { "name": "source.repo", "value": "https://github.com/edenhill/librdkafka.git" }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "protobuf",
+      "version": "3.12.4",
+      "purl": "pkg:github/protocolbuffers/protobuf@v3.12.4",
+      "properties": [
+        { "name": "source.repo", "value": "https://github.com/protocolbuffers/protobuf.git" }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pulsar",
+      "version": "2.8.1",
+      "purl": "pkg:github/apache/pulsar@v2.8.1",
+      "properties": [
+        { "name": "source.repo", "value": "https://github.com/apache/pulsar.git" }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "librdtsc",
+      "version": "0.3",
+      "purl": "pkg:github/gabrieleara/librdtsc@v0.3",
+      "properties": [
+        { "name": "source.repo", "value": "https://github.com/gabrieleara/librdtsc.git" }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "jemalloc",
+      "version": "5.2.1",
+      "purl": "pkg:github/jemalloc/jemalloc@5.2.1",
+      "properties": [
+        { "name": "source.repo", "value": "https://github.com/jemalloc/jemalloc.git" }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "mgcxx",
+      "version": "0.0.10",
+      "purl": "pkg:github/memgraph/mgcxx@v0.0.10",
+      "properties": [
+        { "name": "source.repo", "value": "https://github.com/memgraph/mgcxx.git" }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "usearch",
+      "version": "2.15.3",
+      "purl": "pkg:github/unum-cloud/usearch@v2.15.3",
+      "properties": [
+        { "name": "source.repo", "value": "https://github.com/unum-cloud/usearch.git" }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "nlohmann_json",
+      "version": "3.11.3",
+      "purl": "pkg:github/nlohmann/json@v3.11.3",
+      "properties": [
+        { "name": "source.url", "value": "https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz" }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "memgraph-external-libs",
+      "dependsOn": [
+        "rapidcheck",
+        "libbcrypt",
+        "librdkafka",
+        "protobuf",
+        "pulsar",
+        "librdtsc",
+        "jemalloc",
+        "mgcxx",
+        "usearch",
+        "nlohmann_json"
+      ]
+    }
+  ]
+}
