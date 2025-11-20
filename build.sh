@@ -173,9 +173,6 @@ cmake_var_enabled() {
     return 1
 }
 
-# Use the new combined profile template
-PROFILE_TEMPLATE="./memgraph_template_profile"
-
 # Build sanitizer list from CMAKE_ARGS
 MG_SANITIZERS=""
 declare -A sanitizer_map=(
@@ -190,7 +187,6 @@ for cmake_var in "${!sanitizer_map[@]}"; do
     fi
 done
 
-echo "Using profile template: $PROFILE_TEMPLATE"
 if [[ -n "$MG_SANITIZERS" ]]; then
     echo "Sanitizers enabled: $MG_SANITIZERS"
     export MG_SANITIZERS="$MG_SANITIZERS"
@@ -202,7 +198,8 @@ fi
 MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install \
   . \
   --build=missing \
-  -pr "$PROFILE_TEMPLATE" \
+  -pr:h ./memgraph_template_profile \
+  -pr:b ./memgraph_build_profile \
   -s build_type="$BUILD_TYPE"
 source build/generators/conanbuild.sh
 

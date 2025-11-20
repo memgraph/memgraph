@@ -521,13 +521,6 @@ build_memgraph () {
   # Check if a conan profile exists and create one if needed
   docker exec -u mg "$build_container" bash -c "$CMD_START && if [ ! -f \"\$HOME/.conan2/profiles/default\" ]; then conan profile detect; fi"
 
-  # Modify conan default profile to use C std gnu17 so that m4 can be built
-  docker exec -u mg "$build_container" bash -c "
-    sed -i '/^compiler=gcc/a compiler.cstd=gnu17' ~/.conan2/profiles/default &&
-    echo '[conf]' >> ~/.conan2/profiles/default &&
-    echo 'm4/*:tools.build:cflags=[\"-std=gnu17\"]' >> ~/.conan2/profiles/default
-  "
-
   # Install Conan dependencies
   echo "Installing Conan dependencies..."
   local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version}"
@@ -569,7 +562,7 @@ build_memgraph () {
   echo "Using profile template: $PROFILE_TEMPLATE"
 
   CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE"
-  docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr $PROFILE_TEMPLATE -s build_type=$build_type"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr:h $PROFILE_TEMPLATE -pr:b ./memgraph_build_profile -s build_type=$build_type"
   CMD_START="$CMD_START && source build/generators/conanbuild.sh && $ACTIVATE_CARGO"
 
   # Determine preset name based on build type (Conan generates this automatically)
