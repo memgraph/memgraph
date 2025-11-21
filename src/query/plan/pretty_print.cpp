@@ -1043,7 +1043,7 @@ bool PlanToJsonVisitor::PreVisit(AggregateParallel &op) {
   self["name"] = "AggregateParallel";
   self["num_threads"] = op.num_threads_;
 
-  op.agg_inputs_->Accept(*this);
+  op.input_->Accept(*this);
   self["agg_inputs"] = PopOutput();
 
   output_ = std::move(self);
