@@ -118,7 +118,11 @@ jobs:
 
       - name: Set Additional Build Args
         run: |
-          args="$ADDITIONAL_BUILD_ARGS --disable-testing"
+          if [[ -n "$ADDITIONAL_BUILD_ARGS" ]]; then
+            args="$ADDITIONAL_BUILD_ARGS --disable-testing"
+          else
+            args="--disable-testing"
+          fi
           echo "BUILD_ARGS=$args" >> $GITHUB_ENV
           echo "Final build args: $args"
 
