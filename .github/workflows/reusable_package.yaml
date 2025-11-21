@@ -123,7 +123,6 @@ jobs:
           echo "ADDITIONAL_BUILD_ARGS=$args" >> $GITHUB_ENV
           echo "Final build args: $args"
 
-
       - name: "Spin up mgbuild container"
         run: |
           ./release/package/mgbuild.sh \
@@ -293,7 +292,6 @@ jobs:
         if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
         run: |
           rm -rf release/docker/heaptrack
-
 
       - name: "Clean up Docker"
         if: always()
