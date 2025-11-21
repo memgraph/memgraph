@@ -59,7 +59,7 @@ constexpr int kSkipListCountEstimateDefaultLayer = 10;
 /// optimized to have block sizes that are a whole multiple of the memory page
 /// size.
 constexpr uint64_t kSkipListGcBlockSize = 8189;
-constexpr uint64_t kSkipListGcStackSize = 8191;
+constexpr uint64_t kSkipListGcStackSize = 8190;
 
 namespace detail {
 
@@ -228,7 +228,7 @@ class SkipListGc final {
  private:
   using TNode = SkipListNode<TObj>;
   using TDeleted = std::pair<uint64_t, TNode *>;
-  using TStack = Stack<TDeleted, kSkipListGcStackSize>;
+  using TLocalStack = Stack<TDeleted, kSkipListGcStackSize>;
 
   static constexpr uint64_t kIdsInField = sizeof(uint64_t) * 8;
   static constexpr uint64_t kIdsInBlock = kSkipListGcBlockSize * kIdsInField;
@@ -381,18 +381,12 @@ class SkipListGc final {
       }
       tail = next;
     }
-    TStack leftover;
-    std::optional<TDeleted> item;
-    while ((item = deleted_.Pop())) {
-      if (item->first < last_dead) {
-        size_t bytes = SkipListNodeSize(*item->second);
-        item->second->~TNode();
-        memory_->deallocate(item->second, bytes, SkipListNodeAlign<TObj>());
-      } else {
-        leftover.Push(*item);
-      }
-    }
-    deleted_ = std::move(leftover);
+    deleted_.EraseIf([last_dead](const TDeleted &item) { return item.first < last_dead; },
+                     [this](const TDeleted &item) {
+                       size_t bytes = SkipListNodeSize(*item.second);
+                       item.second->~TNode();
+                       memory_->deallocate(item.second, bytes, SkipListNodeAlign<TObj>());
+                     });
   }
 
   MemoryResource *GetMemoryResource() const { return memory_; }
@@ -433,7 +427,7 @@ class SkipListGc final {
   std::atomic<Block *> head_{nullptr};
   std::atomic<Block *> tail_{nullptr};
   uint64_t last_id_{0};
-  TStack deleted_;
+  TLocalStack deleted_;
 #ifndef NDEBUG
   std::atomic<uint64_t> alive_accessors_{0};
 #endif
