@@ -30,7 +30,8 @@ namespace memgraph::requests {
 namespace {
 
 struct ProgressData {
-  std::optional<std::chrono::steady_clock::time_point> last_tp;
+  std::function<void()> abort_check_;
+  std::optional<std::chrono::steady_clock::time_point> last_tp_;
 };
 
 // Callback function for reporting progress during a file download
@@ -38,6 +39,21 @@ auto DownloadProgressCb(void *clientp, curl_off_t dltotal, curl_off_t dlnow, cur
                         curl_off_t /*ulnow*/) -> int {
   // No need to update the progress
   if (dltotal == 0) return 0;
+
+  constexpr auto kAbortTransferReturnCode = 1;
+  constexpr auto kContinueTransferReturnCode = 0;
+
+  auto *data = static_cast<ProgressData *>(clientp);
+
+  // Catch HintedAbortError and abort the transfer if got the request to terminate the transactions
+  // abort_check_ could be a nullptr
+  if (data->abort_check_) {
+    try {
+      data->abort_check_();
+    } catch (std::exception const &e) {
+      return kAbortTransferReturnCode;
+    }
+  }
 
   static auto counter = utils::ResettableCounter(500);
 
@@ -47,23 +63,21 @@ auto DownloadProgressCb(void *clientp, curl_off_t dltotal, curl_off_t dlnow, cur
     spdlog::trace("Downloaded {:.2f}% of the file", progress);
   }
 
-  auto *data = static_cast<ProgressData *>(clientp);
   auto const now = std::chrono::steady_clock::now();
 
   // If not the first call, check whether it passed more than 10s between callbacks
-  if (LIKELY(data->last_tp.has_value())) {
+  if (LIKELY(data->last_tp_.has_value())) {
     constexpr auto download_timeout = 10;
     // Steady clock guarantees this won't underflow
-    if (now - *(data->last_tp) > std::chrono::seconds{download_timeout}) {
+    if (now - *(data->last_tp_) > std::chrono::seconds{download_timeout}) {
       // Signal to the libcurl that it should abort the transfer
-      return 1;
+      return kAbortTransferReturnCode;
     }
   }
 
-  data->last_tp.emplace(now);
+  data->last_tp_.emplace(now);
 
-  // Everyting is fine
-  return 0;
+  return kContinueTransferReturnCode;
 }
 
 size_t CurlWriteCallback(char * /*ptr*/, size_t /*size*/, size_t nmemb, void * /*userdata*/) { return nmemb; }
@@ -116,7 +130,8 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
   return true;
 }
 
-bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint64_t const connection_timeout) {
+bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint64_t const connection_timeout,
+                           std::function<void()> abort_check) {
   CURL *curl = nullptr;
   CURLcode res = CURLE_UNSUPPORTED_PROTOCOL;
 
@@ -134,7 +149,7 @@ bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint
     return false;
   }
 
-  ProgressData progress_data;
+  ProgressData progress_data{.abort_check_ = std::move(abort_check)};
 
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
@@ -154,12 +169,12 @@ bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint
   res = curl_easy_perform(curl);
 
   if (std::fclose(file) != 0) {
-    spdlog::error("requests: Couldn't successfully close the file {}", path);
+    spdlog::error("Couldn't successfully close the file while downloading file {} {}", url, path);
     return false;
   }
 
   if (res != CURLE_OK) {
-    spdlog::error("requests: Couldn't perform request: {}", curl_easy_strerror(res));
+    spdlog::error("Error happened while downloading file {}: {}", url, curl_easy_strerror(res));
     return false;
   }
 

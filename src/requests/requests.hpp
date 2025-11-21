@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <functional>
 #include <ostream>
 #include <string>
 
@@ -47,7 +48,8 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
  * built-in connection timeout of 300s.
  * @return bool true if the request was successful, false otherwise.
  */
-bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint64_t connection_timeout = 0);
+bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint64_t connection_timeout,
+                           std::function<void()> abort_check = nullptr);
 
 /**
  * Downloads content into a stream
