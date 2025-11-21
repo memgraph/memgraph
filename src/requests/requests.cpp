@@ -23,6 +23,8 @@
 
 #include <nlohmann/json.hpp>
 
+import memgraph.utils.counter;
+
 namespace memgraph::requests {
 
 namespace {

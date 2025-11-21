@@ -11,7 +11,7 @@
 
 #include "gtest/gtest.h"
 
-#include "utils/counter.hpp"
+import memgraph.utils.counter;
 
 using memgraph::utils::ResettableAtomicCounter;
 using memgraph::utils::ResettableCounter;

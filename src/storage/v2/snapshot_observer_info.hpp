@@ -15,8 +15,9 @@
 #include <cstdint>
 #include <memory>
 
-#include "utils/counter.hpp"
 #include "utils/observer.hpp"
+
+import memgraph.utils.counter;
 
 namespace memgraph::storage {
 

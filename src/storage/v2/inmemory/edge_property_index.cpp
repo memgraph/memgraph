@@ -18,7 +18,8 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
-#include "utils/counter.hpp"
+
+import memgraph.utils.counter;
 
 namespace r = ranges;
 namespace rv = r::views;

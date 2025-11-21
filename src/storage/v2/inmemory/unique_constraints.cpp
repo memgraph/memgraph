@@ -16,9 +16,11 @@
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/transaction.hpp"
-#include "utils/counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
+
+import memgraph.utils.counter;
+
 namespace memgraph::storage {
 
 namespace {

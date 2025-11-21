@@ -25,8 +25,9 @@
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_dense.hpp"
 #include "utils/algorithm.hpp"
-#include "utils/counter.hpp"
 #include "utils/synchronized.hpp"
+
+import memgraph.utils.counter;
 
 namespace r = ranges;
 namespace rv = r::views;

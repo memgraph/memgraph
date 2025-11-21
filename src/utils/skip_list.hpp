@@ -13,7 +13,6 @@
 
 #include <spdlog/spdlog.h>
 #include "utils/bound.hpp"
-#include "utils/counter.hpp"
 #include "utils/math.hpp"
 #include "utils/memory.hpp"
 #include "utils/rw_spin_lock.hpp"
@@ -21,6 +20,8 @@
 
 #include <random>
 #include <vector>
+
+import memgraph.utils.counter;
 
 // This code heavily depends on atomic operations. For a more detailed
 // description of how exactly atomic operations work, see:

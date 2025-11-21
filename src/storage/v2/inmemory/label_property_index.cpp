@@ -21,8 +21,9 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
 #include "utils/bound.hpp"
-#include "utils/counter.hpp"
 #include "utils/logging.hpp"
+
+import memgraph.utils.counter;
 
 namespace r = ranges;
 namespace rv = r::views;
