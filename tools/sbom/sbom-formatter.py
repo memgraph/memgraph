@@ -34,7 +34,9 @@ def main():
         name = c.get("name", "")
         ctype = c.get("type", "")
         version = c.get("version", "")
-        rows.append((name, ctype, version))
+        item = (name, ctype, version)
+        if item not in rows:
+            rows.append(item)
 
     # Sort by type, then name
     rows.sort(key=lambda r: (r[1] or "", r[0] or ""))
