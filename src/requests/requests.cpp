@@ -18,16 +18,55 @@
 #include <gflags/gflags.h>
 #include <ctre.hpp>
 
+#include "utils/counter.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/logging.hpp"
+#include "utils/likely.hpp"
 
 #include <nlohmann/json.hpp>
+#include "spdlog/spdlog.h"
 
 namespace memgraph::requests {
 
 namespace {
 
-size_t CurlWriteCallback(char *ptr, size_t size, size_t nmemb, void *userdata) { return nmemb; }
+struct ProgressData {
+  std::optional<std::chrono::steady_clock::time_point> last_tp;
+};
+
+// Callback function for reporting progress during a file download
+auto DownloadProgressCb(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t /*ultotal*/,
+                        curl_off_t /*ulnow*/) -> int {
+  // No need to update the progress
+  if (dltotal == 0) return 0;
+
+  static auto counter = utils::ResettableCounter(500);
+
+  // Don't log too often but log when the file download is complete
+  if (counter() || dlnow == dltotal) {
+    auto const progress = (100.0F * static_cast<float>(dlnow)) / static_cast<float>(dltotal);
+    spdlog::trace("Downloaded {:.2f}% of the file", progress);
+  }
+
+  auto *data = static_cast<ProgressData *>(clientp);
+  auto const now = std::chrono::steady_clock::now();
+
+  // If not the first call, check whether it passed more than 10s between callbacks
+  if (LIKELY(data->last_tp.has_value())) {
+    constexpr auto download_timeout = 10;
+    // Steady clock guarantees this won't underflow
+    if (now - *(data->last_tp) > std::chrono::seconds{download_timeout}) {
+      // Signal to the libcurl that it should abort the transfer
+      return 1;
+    }
+  }
+
+  data->last_tp.emplace(now);
+
+  // Everyting is fine
+  return 0;
+}
+
+size_t CurlWriteCallback(char * /*ptr*/, size_t /*size*/, size_t nmemb, void * /*userdata*/) { return nmemb; }
 
 }  // namespace
 
@@ -37,7 +76,7 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
   CURL *curl = nullptr;
   CURLcode res = CURLE_UNSUPPORTED_PROTOCOL;
 
-  long response_code = 0;
+  auto response_code = 0;
   struct curl_slist *headers = nullptr;
   std::string payload = data.dump();
   std::string user_agent = fmt::format("memgraph/{}", gflags::VersionString());
@@ -81,7 +120,7 @@ bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint
   CURL *curl = nullptr;
   CURLcode res = CURLE_UNSUPPORTED_PROTOCOL;
 
-  std::string user_agent = fmt::format("memgraph/{}", gflags::VersionString());
+  auto const user_agent = fmt::format("memgraph/{}", gflags::VersionString());
 
   curl = curl_easy_init();
   if (!curl) {
@@ -95,6 +134,8 @@ bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint
     return false;
   }
 
+  ProgressData progress_data;
+
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
   // Timeout for establishing a connection
@@ -105,6 +146,10 @@ bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint
   curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent.c_str());
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
   curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10);
+  // Needed so that XFERINFOFUNCTION could work
+  curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0);
+  curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &progress_data);
+  curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, DownloadProgressCb);
 
   res = curl_easy_perform(curl);
 
