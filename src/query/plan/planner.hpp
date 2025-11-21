@@ -76,6 +76,7 @@ class PostProcessor final {
            [&](auto p) { return RewriteWithJoinRewriter(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); } | [&](auto p) {
+             // TODO Move this logic to the RewriteParallelAggregate function
              if (context->query->pre_query_directives_.parallel_execution_) {
                auto get_num_threads = [&]() -> size_t {
                  if (auto *num_threads = context->query->pre_query_directives_.num_threads_) {

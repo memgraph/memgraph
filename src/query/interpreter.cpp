@@ -75,6 +75,7 @@
 #include "query/parameters.hpp"
 #include "query/plan/fmt.hpp"
 #include "query/plan/hint_provider.hpp"
+#include "query/plan/parallel_checker.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
@@ -2968,6 +2969,19 @@ PreparedQuery PrepareCypherQuery(
   }
   AccessorCompliance(*plan, *dba);
   const auto rw_type = plan->rw_type();
+
+  if (cypher_query->pre_query_directives_.parallel_execution_) {
+    plan::ParallelChecker parallel_checker;
+    parallel_checker.CheckParallelized(plan->plan());
+    if (parallel_checker.is_parallelized_) {
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PARALLEL_EXECUTION,
+                                  "Parallel execution enabled.");
+    } else {
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PARALLEL_EXECUTION_FALLBACK,
+                                  "Parallel execution fallback to single threaded execution.");
+    }
+  }
+
   auto output_symbols = plan->plan().OutputSymbols(plan->symbol_table());
   std::vector<std::string> header;
   header.reserve(output_symbols.size());
