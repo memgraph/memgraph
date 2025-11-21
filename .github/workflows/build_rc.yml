@@ -212,6 +212,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: "memgraph/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+      generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.build_type == 'Release' && matrix.arch == 'amd') && true || false }}
     secrets: inherit
 
   TriggerMAGEBuild:
