@@ -1475,7 +1475,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
+  AddMetadataDeltaIfTransactional(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
   return {};
 }
@@ -1504,7 +1504,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
+  AddMetadataDeltaIfTransactional(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   return {};
 }
@@ -1536,7 +1536,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
       [=](uint64_t commit_timestamp) { return mem_edge_type_index->PublishIndex(edge_type, commit_timestamp); });
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_create, edge_type);
+  AddMetadataDeltaIfTransactional(MetadataDelta::edge_index_create, edge_type);
   return {};
 }
 
@@ -1567,7 +1567,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_create, edge_type, property);
+  AddMetadataDeltaIfTransactional(MetadataDelta::edge_property_index_create, edge_type, property);
   return {};
 }
 
@@ -1596,7 +1596,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
       [=](uint64_t commit_timestamp) { return mem_edge_property_index->PublishIndex(property, commit_timestamp); });
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_create, property);
+  AddMetadataDeltaIfTransactional(MetadataDelta::global_edge_property_index_create, property);
   return {};
 }
 
@@ -1612,7 +1612,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
+  AddMetadataDeltaIfTransactional(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
   return {};
 }
@@ -1633,7 +1633,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
+  AddMetadataDeltaIfTransactional(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
 
   return {};
@@ -1651,7 +1651,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!was_dropped) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_drop, edge_type);
+  AddMetadataDeltaIfTransactional(MetadataDelta::edge_index_drop, edge_type);
   return {};
 }
 
@@ -1673,7 +1673,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!was_dropped) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
+  AddMetadataDeltaIfTransactional(MetadataDelta::edge_property_index_drop, edge_type, property);
   return {};
 }
 
@@ -1694,7 +1694,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
+  AddMetadataDeltaIfTransactional(MetadataDelta::global_edge_property_index_drop, property);
   return {};
 }
 
@@ -1706,7 +1706,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::point_index_create, label, property);
+  AddMetadataDeltaIfTransactional(MetadataDelta::point_index_create, label, property);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActivePointIndices);
   return {};
@@ -1720,7 +1720,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!point_index.DropPointIndex(label, property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);
+  AddMetadataDeltaIfTransactional(MetadataDelta::point_index_drop, label, property);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
   return {};
@@ -1737,7 +1737,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (vector_edge_index.IndexExists(spec.index_name) || !vector_index.CreateIndex(spec, vertices_acc)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
+  AddMetadataDeltaIfTransactional(MetadataDelta::vector_index_create, spec);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
   return {};
@@ -1756,7 +1756,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   } else {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_drop, index_name);
+  AddMetadataDeltaIfTransactional(MetadataDelta::vector_index_drop, index_name);
   // We don't care if there is a replication error because on main node the change will go through
   return {};
 }
@@ -1772,7 +1772,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (vector_index.IndexExists(spec.index_name) || !vector_edge_index.CreateIndex(spec, vertices_acc)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::vector_edge_index_create, spec);
+  AddMetadataDeltaIfTransactional(MetadataDelta::vector_edge_index_create, spec);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
   return {};
@@ -1792,7 +1792,7 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
     return StorageExistenceConstraintDefinitionError{violation.value()};
   }
   existence_constraints->InsertConstraint(label, property);
-  transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
+  AddMetadataDeltaIfTransactional(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
 
@@ -1804,7 +1804,7 @@ InMemoryStorage::InMemoryAccessor::DropExistenceConstraint(LabelId label, Proper
   if (!existence_constraints->DropConstraint(label, property)) {
     return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);
+  AddMetadataDeltaIfTransactional(MetadataDelta::existence_constraint_drop, label, property);
   return {};
 }
 
@@ -1821,7 +1821,7 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
   if (ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
     return ret.GetValue();
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
+  AddMetadataDeltaIfTransactional(MetadataDelta::unique_constraint_create, label, properties);
   return UniqueConstraints::CreationStatus::SUCCESS;
 }
 
@@ -1835,7 +1835,7 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_drop, label, properties);
+  AddMetadataDeltaIfTransactional(MetadataDelta::unique_constraint_drop, label, properties);
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
@@ -1853,7 +1853,7 @@ InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyI
     return StorageTypeConstraintDefinitionError{violation.value()};
   }
   type_constraints->InsertConstraint(label, property, kind);
-  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, kind);
+  AddMetadataDeltaIfTransactional(MetadataDelta::type_constraint_create, label, property, kind);
   return {};
 }
 
@@ -1866,7 +1866,7 @@ utils::BasicResult<StorageTypeConstraintDroppingError, void> InMemoryStorage::In
   if (!deleted_constraint) {
     return StorageTypeConstraintDroppingError{ConstraintDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property, kind);
+  AddMetadataDeltaIfTransactional(MetadataDelta::type_constraint_drop, label, property, kind);
   return {};
 }
 
@@ -3533,7 +3533,7 @@ void InMemoryStorage::InMemoryAccessor::DropAllConstraints() {
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) {
   static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get())->SetIndexStats(label, stats);
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_set, label, stats);
+  AddMetadataDeltaIfTransactional(MetadataDelta::label_index_stats_set, label, stats);
 }
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label,
@@ -3541,14 +3541,14 @@ void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &la
                                                       const LabelPropertyIndexStats &stats) {
   static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
       ->SetIndexStats(label, properties, stats);
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label,
-                                      std::vector(properties.begin(), properties.end()), stats);
+  AddMetadataDeltaIfTransactional(MetadataDelta::label_property_index_stats_set, label,
+                                  std::vector(properties.begin(), properties.end()), stats);
 }
 
 bool InMemoryStorage::InMemoryAccessor::DeleteLabelIndexStats(const storage::LabelId &label) {
   auto *in_mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
   auto res = in_mem_label_index->DeleteIndexStats(label);
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_clear, label);
+  AddMetadataDeltaIfTransactional(MetadataDelta::label_index_stats_clear, label);
   return res;
 }
 
@@ -3557,7 +3557,7 @@ InMemoryStorage::InMemoryAccessor::DeleteLabelPropertyIndexStats(const storage::
   auto *in_mem_label_prop_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   auto res = in_mem_label_prop_index->DeleteIndexStats(label);
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_clear, label);
+  AddMetadataDeltaIfTransactional(MetadataDelta::label_property_index_stats_clear, label);
   return res;
 }
 

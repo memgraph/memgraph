@@ -3941,6 +3941,9 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
+  if (current_db.db_acc_->get()->storage()->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    throw utils::BasicException("Text index is not supported in analytical storage mode.");
+  }
   auto *text_index_query = utils::Downcast<TextIndexQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 
@@ -4004,6 +4007,10 @@ PreparedQuery PrepareCreateTextEdgeIndexQuery(ParsedQuery parsed_query, bool in_
                                               std::vector<Notification> *notifications, CurrentDB &current_db) {
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
+  }
+
+  if (current_db.db_acc_->get()->storage()->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    throw utils::BasicException("Text index is not supported in analytical storage mode.");
   }
 
   if (!current_db.db_acc_->get()->config().salient.items.properties_on_edges) {
