@@ -192,6 +192,7 @@ TRANSFORM               : T R A N S F O R M ;
 TRIGGER                 : T R I G G E R ;
 TRIGGERS                : T R I G G E R S ;
 TTL                     : T T L ;
+TYPE                    : T Y P E ;
 TYPES                   : T Y P E S ;
 USAGE                   : U S A G E ;
 UNCOMMITTED             : U N C O M M I T T E D ;

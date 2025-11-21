@@ -6,7 +6,7 @@ import pytest
 
 def reset_and_prepare(admin_cursor):
     common.execute_and_fetch_all(admin_cursor, "REVOKE * ON NODES CONTAINING LABELS * FROM user;")
-    common.execute_and_fetch_all(admin_cursor, "REVOKE * ON EDGES CONTAINING TYPES * FROM user;")
+    common.execute_and_fetch_all(admin_cursor, "REVOKE * ON EDGES OF TYPE * FROM user;")
 
 
 @pytest.mark.parametrize("switch", [False, True])
@@ -15,7 +15,7 @@ def test_all_edge_types_all_labels_granted(switch):
     reset_and_prepare(admin_connection.cursor())
     common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -31,7 +31,7 @@ def test_deny_all_edge_types_and_all_labels(switch):
     reset_and_prepare(admin_connection.cursor())
     common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -47,7 +47,7 @@ def test_revoke_all_edge_types_and_all_labels(switch):
     reset_and_prepare(admin_connection.cursor())
     common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE * ON NODES CONTAINING LABELS * FROM user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE * ON EDGES CONTAINING TYPES * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE * ON EDGES OF TYPE * FROM user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -65,10 +65,8 @@ def test_deny_edge_type(switch):
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label1, :label2, :label3 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES :edgeType2 TO user;")
-    common.execute_and_fetch_all(
-        admin_connection.cursor(), "GRANT NOTHING ON EDGES CONTAINING TYPES :edgeType1 TO user;"
-    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE :edgeType2 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES OF TYPE :edgeType1 TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -87,7 +85,7 @@ def test_denied_node_label(switch):
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label1, :label3 TO user;"
     )
     common.execute_and_fetch_all(
-        admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES :edgeType1, :edgeType2 TO user;"
+        admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE :edgeType1, READ ON EDGES OF TYPE :edgeType2 TO user;"
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label2 TO user;")
     user_connection = common.connect(username="user", password="test")
@@ -108,7 +106,7 @@ def test_denied_one_of_node_label(switch):
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label1, :label2 TO user;"
     )
     common.execute_and_fetch_all(
-        admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES :edgeType1, :edgeType2 TO user;"
+        admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE :edgeType1, READ ON EDGES OF TYPE :edgeType2 TO user;"
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label3 TO user;")
     user_connection = common.connect(username="user", password="test")
@@ -139,7 +137,7 @@ def test_revoke_all_edge_types(switch):
     admin_connection = common.connect(username="admin", password="test")
     reset_and_prepare(admin_connection.cursor())
     common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
-    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE * ON EDGES CONTAINING TYPES * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE * ON EDGES OF TYPE * FROM user;")
     user_connection = common.connect(username="user", password="test")
     if switch:
         common.switch_db(user_connection.cursor())
