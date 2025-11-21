@@ -208,7 +208,7 @@ source build/generators/conanbuild.sh
 PRESET="conan-$(echo "$BUILD_TYPE" | tr '[:upper:]' '[:lower:]')"
 
 # Configure cmake with additional arguments
-cmake --preset $PRESET $CMAKE_ARGS
+MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" cmake --preset $PRESET $CMAKE_ARGS
 
 if [[ "$config_only" = true ]]; then
     exit 0

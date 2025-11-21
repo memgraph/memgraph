@@ -253,15 +253,15 @@ add_compile_definitions(BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
 add_compile_options(
         -Wall
         -Werror=non-virtual-dtor
-        -Werror=unused-private-field
+        #-Werror=unused-private-field
         -Werror=switch
-        -Werror=switch-bool
+        #-Werror=switch-bool
         -Werror=return-type
-        -Werror=return-stack-address
-        -Werror=dangling
-        -Werror=non-power-of-two-alignment
+        -Werror=return-local-addr
+        #-Werror=dangling
+        #-Werror=non-power-of-two-alignment
         -Wno-missing-field-initializers # C++20 designated init, unspecified fields are zero-initialized
-        -Wno-c99-designator
+        #-Wno-c99-designator
         -Werror=implicit-fallthrough
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
 )
