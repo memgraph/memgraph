@@ -118,15 +118,10 @@ jobs:
 
       - name: Set Additional Build Args
         run: |
-          # Always add --disable-testing, handling empty ADDITIONAL_BUILD_ARGS
-          if [[ -z "$ADDITIONAL_BUILD_ARGS" ]]; then
-            echo "BUILD_ARGS=--disable-testing" >> $GITHUB_ENV
-          else
-            # Trim any leading/trailing whitespace and combine
-            trimmed_args=$(echo "$ADDITIONAL_BUILD_ARGS" | xargs)
-            echo "BUILD_ARGS=$trimmed_args --disable-testing" >> $GITHUB_ENV
-          fi
-          echo "Final build args: $BUILD_ARGS"
+          args="${{ inputs.additional_build_args }} --disable-testing"
+          echo "ADDITIONAL_BUILD_ARGS=$args" >> $GITHUB_ENV
+          echo "Final build args: $args"
+
 
       - name: "Spin up mgbuild container"
         run: |
@@ -144,7 +139,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --mgdeps-cache-host $MGDEPS_CACHE_HOST \
-          build-memgraph ${{ env.BUILD_ARGS }}
+          build-memgraph ${{ env.ADDITIONAL_BUILD_ARGS }}
 
       - name: "Make package"
         run: |
