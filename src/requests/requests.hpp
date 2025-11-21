@@ -43,10 +43,11 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
  *
  * @param url url to which to send the request
  * @param path path to the file where the response in writeen
- * @param timeout the timeout that should be used when making the request
+ * @param connection_timeout the timeout that should be used when making the request. The default timeout of 0 would use
+ * built-in connection timeout of 300s.
  * @return bool true if the request was successful, false otherwise.
  */
-bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint64_t timeout_in_seconds = 10);
+bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint64_t connection_timeout = 0);
 
 /**
  * Downloads content into a stream

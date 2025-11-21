@@ -77,11 +77,10 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
   return true;
 }
 
-bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint64_t const timeout_in_seconds) {
+bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint64_t const connection_timeout) {
   CURL *curl = nullptr;
   CURLcode res = CURLE_UNSUPPORTED_PROTOCOL;
 
-  auto response_code = 0;
   std::string user_agent = fmt::format("memgraph/{}", gflags::VersionString());
 
   curl = curl_easy_init();
@@ -90,24 +89,24 @@ bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint
     return false;
   }
 
-  FILE *file = std::fopen(path.c_str(), "w");
+  FILE *file = fopen(path.c_str(), "wb");
   if (!file) {
     spdlog::error("requests: Couldn't open file {} for writing", path);
     return false;
   }
 
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
+  // Timeout for establishing a connection
+  // Includes DNS, all protocol handshakes and negotiations until there is an established connection with the remote
+  // side
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, connection_timeout);
   curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
   curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent.c_str());
-  curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
   curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10);
-  curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
-  curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_in_seconds);
 
   res = curl_easy_perform(curl);
-  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
-  curl_easy_cleanup(curl);
 
   if (std::fclose(file) != 0) {
     spdlog::error("requests: Couldn't successfully close the file {}", path);
@@ -119,10 +118,7 @@ bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint
     return false;
   }
 
-  if (response_code != 200) {
-    spdlog::error("requests: Request response code isn't 200 (received {})!", response_code);
-    return false;
-  }
+  curl_easy_cleanup(curl);
 
   return true;
 }

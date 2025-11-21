@@ -1,7 +1,7 @@
 args: &args
   - "--bolt-port=7687"
   - "--log-level=TRACE"
-  - "--file-download-timeout-sec=300"
+  - "--file-download-conn-timeout-sec=15"
 
 load_jsonl_in_memory_cluster: &load_jsonl_in_memory_cluster
   cluster:

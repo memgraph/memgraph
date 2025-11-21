@@ -136,4 +136,4 @@ DECLARE_string(aws_secret_key);
 DECLARE_string(aws_endpoint_url);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_uint64(file_download_timeout_sec);
+DECLARE_uint64(file_download_conn_timeout_sec);
