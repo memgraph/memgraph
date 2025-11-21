@@ -845,6 +845,9 @@ class InMemoryStorage final : public Storage {
 
   utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> committed_transactions_{};
 
+  // Aborted transactions with interleaved/downstream deltas waiting for safe bulk-free
+  utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> aborted_transactions_{};
+
   // Interleaved delta chains waiting for all contributors to commit
   utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> waiting_gc_deltas_{};
 
