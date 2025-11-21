@@ -182,12 +182,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Aggregate & /*unused*/) override { return true; }
   bool PostVisit(Aggregate & /*unused*/) override { return true; }
 
-  bool PreVisit(AggregateParallel &op) override {
-    if (op.agg_inputs_) {
-      op.agg_inputs_->Accept(*this);
-    }
-    return false;
-  }
+  bool PreVisit(AggregateParallel & /*unused*/) override { return true; }
   bool PostVisit(AggregateParallel & /*unused*/) override { return true; }
 
   bool PreVisit(ParallelMerge & /*unused*/) override { return true; }

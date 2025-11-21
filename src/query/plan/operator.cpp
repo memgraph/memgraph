@@ -10140,7 +10140,7 @@ void UnifyAggregations(auto &branch_aggregations, const auto &aggregations) {
 class AggregateParallelCursor : public ParallelBranchCursor {
  public:
   AggregateParallelCursor(const AggregateParallel &self, utils::MemoryResource *mem)
-      : ParallelBranchCursor(self.agg_inputs_, self.num_threads_, mem), self_(self) {}
+      : ParallelBranchCursor(self.input_, self.num_threads_, mem), self_(self) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -10203,7 +10203,7 @@ class AggregateParallelCursor : public ParallelBranchCursor {
 };
 
 AggregateParallel::AggregateParallel(const std::shared_ptr<LogicalOperator> &agg_inputs, size_t num_threads)
-    : agg_inputs_(agg_inputs), num_threads_(num_threads) {
+    : input_(agg_inputs), num_threads_(num_threads) {
   DMG_ASSERT(dynamic_cast<Aggregate *>(agg_inputs.get()) != nullptr, "Input must be an Aggregate");
   DMG_ASSERT(num_threads > 0, "Number of threads must be greater than 0");
 }
@@ -10216,18 +10216,11 @@ UniqueCursorPtr AggregateParallel::MakeCursor(utils::MemoryResource *mem) const 
 
 std::vector<Symbol> AggregateParallel::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = std::vector<Symbol>();
-  auto right = agg_inputs_->ModifiedSymbols(table);
+  auto right = input_->ModifiedSymbols(table);
   symbols.insert(symbols.end(), right.begin(), right.end());
   return symbols;
 }
 
-bool AggregateParallel::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
-  if (visitor.PreVisit(*this)) {
-    agg_inputs_->Accept(visitor);
-  }
-  return visitor.PostVisit(*this);
-}
-
-WITHOUT_SINGLE_INPUT(AggregateParallel);
+ACCEPT_WITH_INPUT(AggregateParallel);
 
 }  // namespace memgraph::query::plan
