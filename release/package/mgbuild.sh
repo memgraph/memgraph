@@ -1127,12 +1127,6 @@ conan_cache_enabled=$DEFAULT_CONAN_CACHE_ENABLED
 conan_cache_dir=""
 command=""
 build_container=""
-echo "DEBUG: All arguments passed to mgbuild.sh:"
-i=1
-for arg in "$@"; do
-  echo "  [$i]: [$arg]"
-  ((i++))
-done
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --arch)
