@@ -1048,6 +1048,9 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
       return false;
     }
 
+    target_scan = nullptr;
+    scan_parent = nullptr;
+
     std::shared_ptr<LogicalOperator> parent = nullptr;
     std::shared_ptr<LogicalOperator> current = start;
     std::set<Symbol::Position_t> symbols_to_find = required_symbols;
@@ -1058,7 +1061,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
       // The nested Aggregate will be processed when we visit it
       // This prevents trying to parallelize outer Aggregates that depend on inner ones
       if (current->GetTypeInfo() == Aggregate::kType || current->GetTypeInfo() == AggregateParallel::kType) {
-        return false;
+        return target_scan != nullptr;
       }
 
       // Check if this is a Scan that produces any of the symbols we're looking for
@@ -1094,11 +1097,45 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
 
         // Get input symbols for pass-through detection
         std::set<Symbol::Position_t> input_symbol_positions;
-        if (current->HasSingleInput() && current->input()) {
-          auto input_symbols = current->input()->ModifiedSymbols(*symbol_table);
-          for (const auto &sym : input_symbols) {
-            input_symbol_positions.insert(sym.position());
+
+        // For join operators, use the left branch to find symbols
+        if (current->HasSingleInput()) {
+          if (current->input()) {
+            auto input_symbols = current->input()->ModifiedSymbols(*symbol_table);
+            for (const auto &sym : input_symbols) {
+              input_symbol_positions.insert(sym.position());
+            }
           }
+        } else if (auto *cartesian_op = dynamic_cast<Cartesian *>(current.get())) {
+          if (cartesian_op->left_op_) {
+            auto left_symbols = cartesian_op->left_op_->ModifiedSymbols(*symbol_table);
+            for (const auto &sym : left_symbols) {
+              input_symbol_positions.insert(sym.position());
+            }
+          }
+        } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(current.get())) {
+          if (hash_join_op->left_op_) {
+            auto left_symbols = hash_join_op->left_op_->ModifiedSymbols(*symbol_table);
+            for (const auto &sym : left_symbols) {
+              input_symbol_positions.insert(sym.position());
+            }
+          }
+        } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current.get())) {
+          if (indexed_join_op->main_branch_) {
+            auto main_symbols = indexed_join_op->main_branch_->ModifiedSymbols(*symbol_table);
+            for (const auto &sym : main_symbols) {
+              input_symbol_positions.insert(sym.position());
+            }
+          }
+        } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(current.get())) {
+          if (rollup_apply_op->input_) {
+            auto input_symbols = rollup_apply_op->input_->ModifiedSymbols(*symbol_table);
+            for (const auto &sym : input_symbols) {
+              input_symbol_positions.insert(sym.position());
+            }
+          }
+        } else {
+          throw 1;  // TODO
         }
 
         // Update symbols_to_find to include input symbols this operator depends on
@@ -1112,6 +1149,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
           }
         } else if (!input_symbol_positions.empty()) {
           // No expressions found - add all input symbols to continue tracing
+          // For joins, this will be symbols from the left branch only
           for (const auto &sym_pos : input_symbol_positions) {
             new_symbols_to_find.insert(sym_pos);
           }
@@ -1155,6 +1193,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
             }
           }
         } else if (auto *cartesian_op = dynamic_cast<Cartesian *>(current.get())) {
+          // For Cartesian, use the left branch to find the scan to parallelize
           if (cartesian_op->left_op_ &&
               FindScanForSymbols(cartesian_op->left_op_, symbols_to_find, found_scan, found_parent)) {
             if (!target_scan || IsDeeperThan(found_scan, target_scan, start)) {
@@ -1162,14 +1201,8 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
               scan_parent = found_parent ? found_parent : current;
             }
           }
-          if (cartesian_op->right_op_ &&
-              FindScanForSymbols(cartesian_op->right_op_, symbols_to_find, found_scan, found_parent)) {
-            if (!target_scan || IsDeeperThan(found_scan, target_scan, start)) {
-              target_scan = found_scan;
-              scan_parent = found_parent ? found_parent : current;
-            }
-          }
         } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current.get())) {
+          // For IndexedJoin, use the main_branch (left branch) to find the scan to parallelize
           if (indexed_join_op->main_branch_ &&
               FindScanForSymbols(indexed_join_op->main_branch_, symbols_to_find, found_scan, found_parent)) {
             if (!target_scan || IsDeeperThan(found_scan, target_scan, start)) {
@@ -1177,23 +1210,10 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
               scan_parent = found_parent ? found_parent : current;
             }
           }
-          if (indexed_join_op->sub_branch_ &&
-              FindScanForSymbols(indexed_join_op->sub_branch_, symbols_to_find, found_scan, found_parent)) {
-            if (!target_scan || IsDeeperThan(found_scan, target_scan, start)) {
-              target_scan = found_scan;
-              scan_parent = found_parent ? found_parent : current;
-            }
-          }
         } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(current.get())) {
+          // For HashJoin, use the left branch to find the scan to parallelize
           if (hash_join_op->left_op_ &&
               FindScanForSymbols(hash_join_op->left_op_, symbols_to_find, found_scan, found_parent)) {
-            if (!target_scan || IsDeeperThan(found_scan, target_scan, start)) {
-              target_scan = found_scan;
-              scan_parent = found_parent ? found_parent : current;
-            }
-          }
-          if (hash_join_op->right_op_ &&
-              FindScanForSymbols(hash_join_op->right_op_, symbols_to_find, found_scan, found_parent)) {
             if (!target_scan || IsDeeperThan(found_scan, target_scan, start)) {
               target_scan = found_scan;
               scan_parent = found_parent ? found_parent : current;
