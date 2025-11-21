@@ -76,3 +76,6 @@ target_link_libraries(${test_prefix}storage_v2_enum_store_bench mg::storage)
 
 add_benchmark(thread_safe_memory.cpp)
 target_link_libraries(${test_prefix}thread_safe_memory mg-utils)
+
+add_benchmark(stack_erase_if.cpp)
+target_link_libraries(${test_prefix}stack_erase_if mg-utils)
