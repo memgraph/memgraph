@@ -144,7 +144,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --mgdeps-cache-host $MGDEPS_CACHE_HOST \
-          build-memgraph $BUILD_ARGS
+          build-memgraph ${{ env.BUILD_ARGS }}
 
       - name: "Make package"
         run: |
