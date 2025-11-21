@@ -2100,7 +2100,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       const auto result = CreateSnapshot(true);
       if (result.HasError()) {
         throw utils::BasicException("Failed to create snapshot on mode change to IN_MEMORY_TRANSACTIONAL: {}",
-                                    result.GetError());
+                                    CreateSnapshotErrorToString(result.GetError()));
       }
       snapshot_runner_.Resume();
     }
@@ -3308,16 +3308,17 @@ void InMemoryStorage::CreateSnapshotHandler(
     if (auto maybe_error = cb(); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support.");
+          spdlog::warn("Failed to create snapshot. {}. Please contact support.",
+                       CreateSnapshotErrorToString(maybe_error.GetError()));
           break;
         case CreateSnapshotError::AbortSnapshot:
-          spdlog::warn("Failed to create snapshot. The current snapshot needs to be aborted.");
+          spdlog::warn("Failed to create snapshot. {}.", CreateSnapshotErrorToString(maybe_error.GetError()));
           break;
         case CreateSnapshotError::AlreadyRunning:
-          spdlog::info("Skipping snapshot creation. Another snapshot creation is already in progress.");
+          spdlog::info("Skipping snapshot creation. {}.", CreateSnapshotErrorToString(maybe_error.GetError()));
           break;
         case CreateSnapshotError::NothingNewToWrite:
-          spdlog::info("Skipping snapshot creation. Nothing has been written since the last snapshot.");
+          spdlog::info("Skipping snapshot creation. {}.", CreateSnapshotErrorToString(maybe_error.GetError()));
           break;
       }
     }

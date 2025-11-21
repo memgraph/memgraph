@@ -4972,14 +4972,18 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
     if (maybe_path.HasError()) {
       switch (maybe_path.GetError()) {
         case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
+          spdlog::warn("Failed to create snapshot. {}. Please contact support.",
+                       storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.GetError()));
           break;
         case storage::InMemoryStorage::CreateSnapshotError::AbortSnapshot:
-          throw utils::BasicException("Failed to create snapshot. The current snapshot needs to be aborted.");
+          throw utils::BasicException("Failed to create snapshot. {}.",
+                                      storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.GetError()));
         case storage::InMemoryStorage::CreateSnapshotError::AlreadyRunning:
-          throw utils::BasicException("Another snapshot creation is already in progress.");
+          throw utils::BasicException("{}",
+                                      storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.GetError()));
         case storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite:
-          throw utils::BasicException("Nothing has been written since the last snapshot.");
+          throw utils::BasicException("{}",
+                                      storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.GetError()));
       }
     }
     return std::vector<std::vector<TypedValue>>{{TypedValue{maybe_path.GetValue()}}};
