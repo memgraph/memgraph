@@ -6,7 +6,7 @@ import pytest
 
 def reset_permissions(admin_cursor):
     common.execute_and_fetch_all(admin_cursor, "REVOKE * ON NODES CONTAINING LABELS * FROM user;")
-    common.execute_and_fetch_all(admin_cursor, "REVOKE * ON EDGES CONTAINING TYPES * FROM user;")
+    common.execute_and_fetch_all(admin_cursor, "REVOKE * ON EDGES OF TYPE * FROM user;")
 
 
 @pytest.mark.parametrize("switch", [False, True])
@@ -14,7 +14,7 @@ def test_weighted_shortest_path_all_edge_types_all_labels_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
     reset_permissions(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -60,7 +60,7 @@ def test_weighted_shortest_path_all_edge_types_all_labels_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
     reset_permissions(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -79,7 +79,7 @@ def test_weighted_shortest_path_denied_start(switch):
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label1, :label2, :label3, :label4 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label0 TO user;")
     user_connection = common.connect(username="user", password="test")
 
@@ -100,7 +100,7 @@ def test_weighted_shortest_path_denied_destination(switch):
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label0, :label1, :label2, :label3 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label4 TO user;")
     user_connection = common.connect(username="user", password="test")
 
@@ -122,7 +122,7 @@ def test_weighted_shortest_path_denied_label_1(switch):
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label0, :label2, :label3, :label4 TO user;"
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label1 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -166,11 +166,9 @@ def test_weighted_shortest_path_denied_edge_type_3(switch):
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(),
-        "GRANT READ ON EDGES CONTAINING TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;",
+        "GRANT READ ON EDGES OF TYPE :edge_type_1, READ ON EDGES OF TYPE :edge_type_2, READ ON EDGES OF TYPE :edge_type_4 TO user;",
     )
-    common.execute_and_fetch_all(
-        admin_connection.cursor(), "GRANT NOTHING ON EDGES CONTAINING TYPES :edge_type_3 TO user;"
-    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES OF TYPE :edge_type_3 TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -217,7 +215,7 @@ def test_dfs_all_edge_types_all_labels_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
     reset_permissions(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -238,7 +236,7 @@ def test_dfs_all_edge_types_all_labels_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
     reset_permissions(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -255,7 +253,7 @@ def test_dfs_denied_start(switch):
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label1, :label2, :label3, :label4 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label0 TO user;")
     user_connection = common.connect(username="user", password="test")
 
@@ -275,7 +273,7 @@ def test_dfs_denied_destination(switch):
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label0, :label1, :label2, :label3 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label4 TO user;")
     user_connection = common.connect(username="user", password="test")
 
@@ -296,7 +294,7 @@ def test_dfs_denied_label_1(switch):
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label0, :label2, :label3, :label4 TO user;"
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label1 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -320,11 +318,9 @@ def test_dfs_denied_edge_type_3(switch):
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(),
-        "GRANT READ ON EDGES CONTAINING TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;",
+        "GRANT READ ON EDGES OF TYPE :edge_type_1, READ ON EDGES OF TYPE :edge_type_2, READ ON EDGES OF TYPE :edge_type_4 TO user;",
     )
-    common.execute_and_fetch_all(
-        admin_connection.cursor(), "GRANT NOTHING ON EDGES CONTAINING TYPES :edge_type_3 TO user;"
-    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES OF TYPE :edge_type_3 TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -345,7 +341,7 @@ def test_bfs_sts_all_edge_types_all_labels_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
     reset_permissions(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -366,7 +362,7 @@ def test_bfs_sts_all_edge_types_all_labels_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
     reset_permissions(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -385,7 +381,7 @@ def test_bfs_sts_denied_start(switch):
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label1, :label2, :label3, :label4 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label0 TO user;")
     user_connection = common.connect(username="user", password="test")
 
@@ -405,7 +401,7 @@ def test_bfs_sts_denied_destination(switch):
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label0, :label1, :label2, :label3 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label4 TO user;")
     user_connection = common.connect(username="user", password="test")
 
@@ -426,7 +422,7 @@ def test_bfs_sts_denied_label_1(switch):
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label0, :label2, :label3, :label4 TO user;"
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label1 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -448,11 +444,9 @@ def test_bfs_sts_denied_edge_type_3(switch):
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(),
-        "GRANT READ ON EDGES CONTAINING TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;",
+        "GRANT READ ON EDGES OF TYPE :edge_type_1, READ ON EDGES OF TYPE :edge_type_2, READ ON EDGES OF TYPE :edge_type_4 TO user;",
     )
-    common.execute_and_fetch_all(
-        admin_connection.cursor(), "GRANT NOTHING ON EDGES CONTAINING TYPES :edge_type_3 TO user;"
-    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES OF TYPE :edge_type_3 TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -472,7 +466,7 @@ def test_bfs_single_source_all_edge_types_all_labels_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
     reset_permissions(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -493,7 +487,7 @@ def test_bfs_single_source_all_edge_types_all_labels_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
     reset_permissions(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -510,7 +504,7 @@ def test_bfs_single_source_denied_start(switch):
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label1, :label2, :label3, :label4 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label0 TO user;")
     user_connection = common.connect(username="user", password="test")
 
@@ -530,7 +524,7 @@ def test_bfs_single_source_denied_destination(switch):
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label0, :label1, :label2, :label3 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label4 TO user;")
     user_connection = common.connect(username="user", password="test")
 
@@ -551,7 +545,7 @@ def test_bfs_single_source_denied_label_1(switch):
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label0, :label2, :label3, :label4 TO user;"
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label1 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -574,11 +568,9 @@ def test_bfs_single_source_denied_edge_type_3(switch):
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(),
-        "GRANT READ ON EDGES CONTAINING TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;",
+        "GRANT READ ON EDGES OF TYPE :edge_type_1, READ ON EDGES OF TYPE :edge_type_2, READ ON EDGES OF TYPE :edge_type_4 TO user;",
     )
-    common.execute_and_fetch_all(
-        admin_connection.cursor(), "GRANT NOTHING ON EDGES CONTAINING TYPES :edge_type_3 TO user;"
-    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES OF TYPE :edge_type_3 TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -599,7 +591,7 @@ def test_all_shortest_paths_when_all_edge_types_all_labels_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
     reset_permissions(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -645,7 +637,7 @@ def test_all_shortest_paths_when_all_edge_types_all_labels_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
     reset_permissions(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -664,7 +656,7 @@ def test_all_shortest_paths_when_denied_start(switch):
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label1, :label2, :label3, :label4 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label0 TO user;")
     user_connection = common.connect(username="user", password="test")
 
@@ -685,7 +677,7 @@ def test_all_shortest_paths_when_denied_destination(switch):
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label0, :label1, :label2, :label3 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label4 TO user;")
     user_connection = common.connect(username="user", password="test")
 
@@ -707,7 +699,7 @@ def test_all_shortest_paths_when_denied_label_1(switch):
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label0, :label2, :label3, :label4 TO user;"
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label1 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES CONTAINING TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -751,11 +743,9 @@ def test_all_shortest_paths_when_denied_edge_type_3(switch):
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(),
-        "GRANT READ ON EDGES CONTAINING TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;",
+        "GRANT READ ON EDGES OF TYPE :edge_type_1, READ ON EDGES OF TYPE :edge_type_2, READ ON EDGES OF TYPE :edge_type_4 TO user;",
     )
-    common.execute_and_fetch_all(
-        admin_connection.cursor(), "GRANT NOTHING ON EDGES CONTAINING TYPES :edge_type_3 TO user;"
-    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES OF TYPE :edge_type_3 TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:

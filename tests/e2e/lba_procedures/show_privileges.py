@@ -122,13 +122,16 @@ def test_show_privileges_multiple_labels_matching_any():
     execute_and_fetch_all(
         auth_cursor, "GRANT READ ON NODES CONTAINING LABELS :Person, :Employee MATCHING ANY TO test_user;"
     )
-    execute_and_fetch_all(auth_cursor, "GRANT UPDATE ON EDGES CONTAINING TYPES :KNOWS, :MANAGES TO test_user;")
+    execute_and_fetch_all(
+        auth_cursor, "GRANT UPDATE ON EDGES OF TYPE :KNOWS, UPDATE ON EDGES OF TYPE :MANAGES TO test_user;"
+    )
 
     results = execute_and_fetch_all(auth_cursor, "SHOW PRIVILEGES FOR test_user;")
     privilege_strings = [r[0] for r in results]
 
     assert "READ ON NODES CONTAINING LABELS :Employee, :Person MATCHING ANY" in privilege_strings
-    assert "UPDATE ON EDGES CONTAINING TYPES :KNOWS, :MANAGES" in privilege_strings
+    assert "UPDATE ON EDGES OF TYPE :KNOWS" in privilege_strings
+    assert "UPDATE ON EDGES OF TYPE :MANAGES" in privilege_strings
 
     execute_and_fetch_all(auth_cursor, "DROP USER test_user;")
 

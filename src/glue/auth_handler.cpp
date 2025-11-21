@@ -231,7 +231,7 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
       std::vector<std::string> sorted_symbols = rule.symbols | ranges::to_vector;
       ranges::sort(sorted_symbols);
 
-      auto const *entity_type = (permission_type == "LABEL") ? "NODES CONTAINING LABELS" : "EDGES CONTAINING TYPES";
+      auto const *entity_type = (permission_type == "LABEL") ? "NODES CONTAINING LABELS" : "EDGES OF TYPE";
       entity_name = entity_type;
 
       bool first = true;
