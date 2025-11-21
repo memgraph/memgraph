@@ -170,7 +170,7 @@ def only_main_queries(cursor):
     n_exceptions += try_and_count(cursor, f"DENY AUTH, INDEX TO user_name")
     n_exceptions += try_and_count(cursor, f"REVOKE AUTH FROM role_name")
     n_exceptions += try_and_count(cursor, f"GRANT READ ON NODES CONTAINING LABELS :l TO role_name;")
-    n_exceptions += try_and_count(cursor, f"REVOKE * ON EDGES CONTAINING TYPES :e FROM user_name")
+    n_exceptions += try_and_count(cursor, f"REVOKE * ON EDGES OF TYPE :e FROM user_name")
     n_exceptions += try_and_count(cursor, f"GRANT DATABASE memgraph TO user_name;")
     n_exceptions += try_and_count(cursor, f"SET MAIN DATABASE memgraph FOR user_name")
     n_exceptions += try_and_count(cursor, f"DENY DATABASE memgraph FROM user_name;")

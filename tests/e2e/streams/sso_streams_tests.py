@@ -105,13 +105,13 @@ def multi_role_connection(request):
             # Grant privileges
             session.run("GRANT ALL PRIVILEGES TO admin;").consume()
             session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES CONTAINING TYPES * TO admin;").consume()
+            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO admin;").consume()
             session.run("GRANT ALL PRIVILEGES TO architect;").consume()
             session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO architect;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES CONTAINING TYPES * TO architect;").consume()
+            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO architect;").consume()
             session.run("GRANT MATCH, CREATE, STREAM, MULTI_DATABASE_USE TO user;").consume()
             session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO user;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES CONTAINING TYPES * TO user;").consume()
+            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO user;").consume()
 
             # Create databases
             session.run("CREATE DATABASE admin_db;").consume()
