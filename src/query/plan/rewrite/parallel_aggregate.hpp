@@ -376,6 +376,11 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     auto post_scan_input = target_scan->input();
     auto state_symbol = symbol_table->CreateAnonymousSymbol();
     auto scan_input = CreateScanParallel(target_scan, post_scan_input, state_symbol);
+    if (!scan_input) {
+      // Unsupported scan type; try to find another operator to parallelize
+      prev_ops_.push_back(&op);
+      return true;
+    }
     auto parallel_merge = std::make_shared<ParallelMerge>(scan_input);
     // scan_parent may be an operator without a single input. Check and handle appropriately.
     const auto &scan_type = target_scan->GetTypeInfo();
@@ -410,7 +415,8 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
           } else if (union_op->right_op_ && union_op->right_op_.get() == target_scan.get()) {
             union_op->right_op_ = scan_chunk;
           } else {
-            throw 1;  // TODO: Better error handling
+            spdlog::error("Unexpected operator in chain: {}", scan_parent->ToString());
+            return false;
           }
         } else if (auto *cartesian_op = dynamic_cast<Cartesian *>(scan_parent.get())) {
           if (cartesian_op->left_op_ && cartesian_op->left_op_.get() == target_scan.get()) {
@@ -418,7 +424,8 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
           } else if (cartesian_op->right_op_ && cartesian_op->right_op_.get() == target_scan.get()) {
             cartesian_op->right_op_ = scan_chunk;
           } else {
-            throw 1;  // TODO: Better error handling
+            spdlog::error("Unexpected operator in chain: {}", scan_parent->ToString());
+            return false;
           }
         } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(scan_parent.get())) {
           if (indexed_join_op->main_branch_ && indexed_join_op->main_branch_.get() == target_scan.get()) {
@@ -426,7 +433,8 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
           } else if (indexed_join_op->sub_branch_ && indexed_join_op->sub_branch_.get() == target_scan.get()) {
             indexed_join_op->sub_branch_ = scan_chunk;
           } else {
-            throw 1;  // TODO: Better error handling
+            spdlog::error("Unexpected operator in chain: {}", scan_parent->ToString());
+            return false;
           }
         } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(scan_parent.get())) {
           if (hash_join_op->left_op_ && hash_join_op->left_op_.get() == target_scan.get()) {
@@ -434,16 +442,34 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
           } else if (hash_join_op->right_op_ && hash_join_op->right_op_.get() == target_scan.get()) {
             hash_join_op->right_op_ = scan_chunk;
           } else {
-            throw 1;  // TODO: Better error handling
+            spdlog::error("Unexpected operator in chain: {}", scan_parent->ToString());
+            return false;
           }
         } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(scan_parent.get())) {
           if (rollup_apply_op->input_ && rollup_apply_op->input_.get() == target_scan.get()) {
             rollup_apply_op->input_ = scan_chunk;
           } else {
-            throw 1;  // TODO: Better error handling
+            spdlog::error("Unexpected operator in chain: {}", scan_parent->ToString());
+            return false;
           }
+        } else if (dynamic_cast<Once *>(scan_parent.get()) != nullptr) {
+          // Once has no inputs, so it cannot be a parent of a scan
+          spdlog::error("Once operator cannot be a parent of a scan: {}", scan_parent->ToString());
+          return false;
+        } else if (dynamic_cast<OutputTable *>(scan_parent.get()) != nullptr) {
+          // OutputTable has no inputs, so it cannot be a parent of a scan
+          spdlog::error("OutputTable operator cannot be a parent of a scan: {}", scan_parent->ToString());
+          return false;
+        } else if (dynamic_cast<OutputTableStream *>(scan_parent.get()) != nullptr) {
+          // OutputTableStream has no inputs, so it cannot be a parent of a scan
+          spdlog::error("OutputTableStream operator cannot be a parent of a scan: {}", scan_parent->ToString());
+          return false;
         } else {
-          throw 1;  // TODO: Handle other multi-input operators
+          spdlog::error(
+              "Unsupported operator in parallel chain: {}. Please contact Memgraph support as this scenario should not "
+              "happen!",
+              scan_parent->ToString());
+          return false;
         }
       }
     } else {
@@ -882,7 +908,11 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     }
 
     // Unsupported scan type
-    throw 1;  // TODO
+    spdlog::error(
+        "Unsupported scan type in parallel chain: {}. Please contact Memgraph support as this scenario should not "
+        "happen!",
+        scan_type.name);
+    return nullptr;
   }
 
   // Helper function to check if a path from start to target contains only read operators
@@ -944,6 +974,11 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
           if (hash_join_op->right_op_ && IsPathReadOnly(hash_join_op->right_op_, target)) {
             return true;
           }
+          return false;
+        }
+        // Terminal operators with no inputs - cannot have a path to target
+        if (dynamic_cast<Once *>(current.get()) != nullptr || dynamic_cast<OutputTable *>(current.get()) != nullptr ||
+            dynamic_cast<OutputTableStream *>(current.get()) != nullptr) {
           return false;
         }
         // Unknown multi-input operator, be conservative
@@ -1134,8 +1169,17 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
               input_symbol_positions.insert(sym.position());
             }
           }
+        } else if (dynamic_cast<Once *>(current.get()) != nullptr ||
+                   dynamic_cast<OutputTable *>(current.get()) != nullptr ||
+                   dynamic_cast<OutputTableStream *>(current.get()) != nullptr) {
+          // Terminal operators with no inputs - cannot have input symbols
+          // Continue with empty input_symbol_positions
         } else {
-          throw 1;  // TODO
+          spdlog::error(
+              "Unsupported operator in operator chain: {}. Please contact Memgraph support as this scenario should not "
+              "happen!",
+              current->ToString());
+          return false;
         }
 
         // Update symbols_to_find to include input symbols this operator depends on
@@ -1227,6 +1271,11 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
               scan_parent = found_parent ? found_parent : current;
             }
           }
+        } else if (dynamic_cast<Once *>(current.get()) != nullptr ||
+                   dynamic_cast<OutputTable *>(current.get()) != nullptr ||
+                   dynamic_cast<OutputTableStream *>(current.get()) != nullptr) {
+          // Terminal operators with no inputs - cannot contain a scan
+          // Stop traversal
         }
 
         // Stop traversal for multi-input operators (we've checked all branches)
@@ -1321,6 +1370,10 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
           max_depth = std::max(max_depth, depth + 1);
         }
       }
+    } else if (dynamic_cast<Once *>(root.get()) != nullptr || dynamic_cast<OutputTable *>(root.get()) != nullptr ||
+               dynamic_cast<OutputTableStream *>(root.get()) != nullptr) {
+      // Terminal operators with no inputs - cannot contain target
+      return -1;
     }
 
     return max_depth;
@@ -1417,6 +1470,11 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
       if (rollup_apply_op->input_ && ReplaceScanInChain(rollup_apply_op->input_, target_scan, scan_chunk)) {
         return true;
       }
+    } else if (dynamic_cast<Once *>(current.get()) != nullptr ||
+               dynamic_cast<OutputTable *>(current.get()) != nullptr ||
+               dynamic_cast<OutputTableStream *>(current.get()) != nullptr) {
+      // Terminal operators with no inputs - cannot contain target_scan
+      return false;
     } else if (current->HasSingleInput()) {
       // Recursively check the input chain
       return ReplaceScanInChain(current->input(), target_scan, scan_chunk);
