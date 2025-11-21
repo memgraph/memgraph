@@ -2097,6 +2097,11 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
     } else {
       // No need to resume async indexer, it is always running.
       // As IN_MEMORY_TRANSACTIONAL we will now start giving it new work
+      const auto result = CreateSnapshot(true);
+      if (result.HasError()) {
+        throw utils::BasicException("Failed to create snapshot on mode change to IN_MEMORY_TRANSACTIONAL: {}",
+                                    result.GetError());
+      }
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;
