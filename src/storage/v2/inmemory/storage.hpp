@@ -726,18 +726,8 @@ class InMemoryStorage final : public Storage {
   }
 
  private:
-  /// The force parameter determines the behaviour of the garbage collector.
-  /// If it's set to true, it will behave as a global operation, i.e. it can't
-  /// be part of a transaction, and no other transaction can be active at the same time.
-  /// This allows it to delete immediately vertices without worrying that some other
-  /// transaction is possibly using it. If there are active transactions when this method
-  /// is called with force set to true, it will fallback to the same method with the force
-  /// set to false.
-  /// If it's set to false, it will execute in parallel with other transactions, ensuring
-  /// that no object in use can be deleted.
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  template <bool force>
   void CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard, bool periodic);
 
   bool InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch);
