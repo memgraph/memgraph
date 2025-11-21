@@ -12,8 +12,11 @@
 #pragma once
 
 #include <memory>
+#include <set>
 #include <vector>
+#include "query/dependant_symbol_visitor.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan/read_write_type_checker.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query::plan {
@@ -329,42 +332,58 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
   }
 
   bool PreVisit(Aggregate &op) override {
-    // Only process the first Aggregate we encounter
-    if (aggregate_processed_) {
-      return false;
+    // Collect symbols needed by this Aggregate (from group_by and aggregations)
+    std::set<Symbol::Position_t> required_symbols;
+    DependantSymbolVisitor symbol_visitor(required_symbols);
+
+    // Collect symbols from group_by expressions
+    for (auto *group_by_expr : op.group_by_) {
+      if (group_by_expr != nullptr) {
+        group_by_expr->Accept(symbol_visitor);
+      }
     }
-    aggregate_processed_ = true;
 
-    // TODO This does not work
-    // We need to find the last Scan operator that produces the symbols we need to aggregate on
+    // Collect symbols from aggregation expressions
+    for (const auto &agg_elem : op.aggregations_) {
+      if (agg_elem.arg1 != nullptr) {
+        agg_elem.arg1->Accept(symbol_visitor);
+      }
+      if (agg_elem.arg2 != nullptr) {
+        agg_elem.arg2->Accept(symbol_visitor);
+      }
+    }
 
-    // Find the last Scan operator in the input branch
-    std::shared_ptr<LogicalOperator> last_scan;
+    // Find the Scan operator that produces the required symbols
+    std::shared_ptr<LogicalOperator> target_scan;
     std::shared_ptr<LogicalOperator> scan_parent;
-    FindLastScan(prev_ops_.back()->input() /* op */, last_scan, scan_parent);
-    if (!last_scan || !utils::IsSubtype(*last_scan, ScanAll::kType)) {
-      // No Scan operator found, skip rewriting
-      aggregate_processed_ = false;  // TODO Check if this is correct
+    if (!FindScanForSymbols(op.input(), required_symbols, target_scan, scan_parent)) {
+      // No suitable Scan found, skip rewriting
+      prev_ops_.push_back(&op);
+      return true;
+    }
+
+    // Verify the path from Aggregate to Scan is read-only
+    if (!IsPathReadOnly(op.input(), target_scan)) {
+      // Path contains write operators, cannot parallelize
       prev_ops_.push_back(&op);
       return true;
     }
 
     // Create AggregateParallel operator
-    // post_scan_input is everything after the last Scan
+    // post_scan_input is everything after the target Scan
     // agg_inputs is the entire input branch of Aggregate
-    // TODO: last_scan->set_input(nullptr); // Set Once at the end of the parallel scan branch
 
-    auto post_scan_input = last_scan->input();
+    auto post_scan_input = target_scan->input();
     auto state_symbol = symbol_table->CreateAnonymousSymbol();
-    auto scan_input = CreateScanParallel(last_scan, post_scan_input, state_symbol);
+    auto scan_input = CreateScanParallel(target_scan, post_scan_input, state_symbol);
     auto parallel_merge = std::make_shared<ParallelMerge>(scan_input);
     // scan_parent may be an operator without a single input. Check and handle appropriately.
-    const auto &scan_type = last_scan->GetTypeInfo();
+    const auto &scan_type = target_scan->GetTypeInfo();
     std::shared_ptr<LogicalOperator> scan_chunk;
 
     // Check if this is an edge scan type
     if (utils::IsSubtype(scan_type, ScanAllByEdge::kType)) {
-      auto *scan_edge = dynamic_cast<ScanAllByEdge *>(last_scan.get());
+      auto *scan_edge = dynamic_cast<ScanAllByEdge *>(target_scan.get());
       MG_ASSERT(scan_edge, "Expected ScanAllByEdge or subtype");
       scan_chunk = std::make_shared<ScanChunkByEdge>(parallel_merge, scan_edge->common_.edge_symbol,
                                                      scan_edge->common_.node1_symbol, scan_edge->common_.node2_symbol,
@@ -372,55 +391,76 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
                                                      scan_edge->view_, state_symbol);
     } else {
       // Vertex scan - use ScanChunk
-      auto *scan = dynamic_cast<ScanAll *>(last_scan.get());
+      auto *scan = dynamic_cast<ScanAll *>(target_scan.get());
       MG_ASSERT(scan, "Expected ScanAll or subtype");
       scan_chunk = std::make_shared<ScanChunk>(parallel_merge, scan->output_symbol_, scan->view_, state_symbol);
     }
+
+    // Replace the scan with scan_chunk in the operator tree
     if (scan_parent) {
       if (scan_parent->HasSingleInput()) {
         scan_parent->set_input(scan_chunk);
       } else {
-        // NOTE We just go down the left branch.
-        // TODO The whole branch need to be checked, not just the firs op
-        // We would also need to always for parallelization on the left branch.
-        // Handle special case for Union and Cartesian
+        // Handle special case for multi-input operators
         // Try to set the correct child in multi-input operator
-        // Currently handle Union and Cartesian
         if (auto *union_op = dynamic_cast<Union *>(scan_parent.get())) {
-          // Check which child is last_scan
-          if (union_op->left_op_ && union_op->left_op_.get() == last_scan.get()) {
+          // Check which child is target_scan
+          if (union_op->left_op_ && union_op->left_op_.get() == target_scan.get()) {
             union_op->left_op_ = scan_chunk;
+          } else if (union_op->right_op_ && union_op->right_op_.get() == target_scan.get()) {
+            union_op->right_op_ = scan_chunk;
           } else {
-            throw 1;  // TODO
+            throw 1;  // TODO: Better error handling
           }
         } else if (auto *cartesian_op = dynamic_cast<Cartesian *>(scan_parent.get())) {
-          if (cartesian_op->left_op_ && cartesian_op->left_op_.get() == last_scan.get()) {
+          if (cartesian_op->left_op_ && cartesian_op->left_op_.get() == target_scan.get()) {
             cartesian_op->left_op_ = scan_chunk;
+          } else if (cartesian_op->right_op_ && cartesian_op->right_op_.get() == target_scan.get()) {
+            cartesian_op->right_op_ = scan_chunk;
           } else {
-            throw 1;  // TODO
+            throw 1;  // TODO: Better error handling
           }
         } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(scan_parent.get())) {
-          if (indexed_join_op->main_branch_ && indexed_join_op->main_branch_.get() == last_scan.get()) {
+          if (indexed_join_op->main_branch_ && indexed_join_op->main_branch_.get() == target_scan.get()) {
             indexed_join_op->main_branch_ = scan_chunk;
+          } else if (indexed_join_op->sub_branch_ && indexed_join_op->sub_branch_.get() == target_scan.get()) {
+            indexed_join_op->sub_branch_ = scan_chunk;
           } else {
-            throw 1;  // TODO
+            throw 1;  // TODO: Better error handling
           }
         } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(scan_parent.get())) {
-          if (hash_join_op->left_op_ && hash_join_op->left_op_.get() == last_scan.get()) {
+          if (hash_join_op->left_op_ && hash_join_op->left_op_.get() == target_scan.get()) {
             hash_join_op->left_op_ = scan_chunk;
+          } else if (hash_join_op->right_op_ && hash_join_op->right_op_.get() == target_scan.get()) {
+            hash_join_op->right_op_ = scan_chunk;
           } else {
-            throw 1;  // TODO
+            throw 1;  // TODO: Better error handling
           }
         } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(scan_parent.get())) {
-          if (rollup_apply_op->input_ && rollup_apply_op->input_.get() == last_scan.get()) {
+          if (rollup_apply_op->input_ && rollup_apply_op->input_.get() == target_scan.get()) {
             rollup_apply_op->input_ = scan_chunk;
           } else {
-            throw 1;  // TODO
+            throw 1;  // TODO: Better error handling
           }
         } else {
-          throw 1;  // TODO
+          throw 1;  // TODO: Handle other multi-input operators
         }
-        // TODO Handle other multi-input operators
+      }
+    } else {
+      // scan_parent is null, meaning the scan is directly the input of Aggregate
+      // (or the first operator in the chain we're checking)
+      // In this case, we need to replace it in the Aggregate's input
+      if (op.input().get() == target_scan.get()) {
+        // The scan is directly the input of Aggregate
+        // Replace it by setting the Aggregate's input to scan_chunk
+        op.set_input(scan_chunk);
+      } else {
+        // The scan is somewhere in the input chain, find and replace it
+        if (!ReplaceScanInChain(op.input(), target_scan, scan_chunk)) {
+          // If we couldn't find it, something is wrong
+          prev_ops_.push_back(&op);
+          return true;
+        }
       }
     }
 
@@ -437,7 +477,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     // Now push Aggregate to track it for any children it might have
     prev_ops_.push_back(&op);
 
-    return false;  // Only a single rewrite is supported
+    return true;  // Continue visiting to handle nested aggregations
   }
 
   bool PostVisit(Aggregate &) override {
@@ -739,7 +779,6 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
   SymbolTable *symbol_table;
   AstStorage *ast_storage;
   TDbAccessor *db;
-  bool aggregate_processed_{false};
   std::vector<LogicalOperator *> prev_ops_;
   size_t num_threads_;
 
@@ -846,50 +885,524 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     throw 1;  // TODO
   }
 
-  // Helper function to find the last Scan operator in a branch
-  // This traverses down the input chain until it finds the last Scan operator. This way (the idea is) we parallelize
-  // most elements.
-  // TODO Using the Last or First scan has similar results. Ideally you would parallelize the scan with the most
-  // elements.
-  void FindLastScan(std::shared_ptr<LogicalOperator> op, std::shared_ptr<LogicalOperator> &last_scan,
-                    std::shared_ptr<LogicalOperator> &scan_parent) {
-    // TODO Rewrite to a loop
-    auto parent = op;
-    // std::cout << "FindLastScan" << std::endl;
-    while (op && op->GetTypeInfo() != Once::kType) {
-      // std::cout << "op: " << op->ToString() << std::endl;
-      if (utils::IsSubtype(*op, ScanAll::kType)) {
-        last_scan = op;
-        scan_parent = parent;
-      }
-      parent = op;
-      // TODO Handle joins (parallelize a singel scan branch)
+  // Helper function to check if a path from start to target contains only read operators
+  bool IsPathReadOnly(const std::shared_ptr<LogicalOperator> &start, const std::shared_ptr<LogicalOperator> &target) {
+    if (!start || !target) {
+      return false;
+    }
 
-      if (op->HasSingleInput()) {
-        op = op->input();
-        continue;
+    std::shared_ptr<LogicalOperator> current = start;
+    while (current && current != target) {
+      // Check if this operator is read-only
+      ReadWriteTypeChecker checker;
+      current->Accept(checker);
+
+      // Only allow NONE (no DB access) or R (read-only) operators
+      if (checker.type != ReadWriteTypeChecker::RWType::NONE && checker.type != ReadWriteTypeChecker::RWType::R) {
+        return false;
       }
 
-      // Cartesian is a special case, we need to parallelize the right branch
-      if (op->GetTypeInfo() == Cartesian::kType) {
-        auto cartesian = std::dynamic_pointer_cast<Cartesian>(op);
-        op = cartesian->left_op_;
-      } else if (op->GetTypeInfo() == plan::IndexedJoin::kType) {
-        auto indexed_join = std::dynamic_pointer_cast<plan::IndexedJoin>(op);
-        op = indexed_join->main_branch_;
-      } else if (op->GetTypeInfo() == plan::HashJoin::kType) {
-        auto hash_join = std::dynamic_pointer_cast<plan::HashJoin>(op);
-        op = hash_join->left_op_;
-      } else if (op->GetTypeInfo() == plan::Union::kType) {
-        auto union_ = std::dynamic_pointer_cast<plan::Union>(op);
-        op = union_->left_op_;
-      } else if (op->GetTypeInfo() == plan::RollUpApply::kType) {
-        auto rollup = std::dynamic_pointer_cast<plan::RollUpApply>(op);
-        op = rollup->input_;
+      // Traverse down the input chain
+      if (current->HasSingleInput()) {
+        current = current->input();
       } else {
-        throw 1;  // TODO
+        // For multi-input operators, we need to check all branches
+        // For now, we only check the path that leads to target
+        // This is a simplification - ideally we'd check all paths
+        if (auto *union_op = dynamic_cast<Union *>(current.get())) {
+          // Check both branches
+          if (union_op->left_op_ && IsPathReadOnly(union_op->left_op_, target)) {
+            return true;
+          }
+          if (union_op->right_op_ && IsPathReadOnly(union_op->right_op_, target)) {
+            return true;
+          }
+          return false;
+        }
+        if (auto *cartesian_op = dynamic_cast<Cartesian *>(current.get())) {
+          if (cartesian_op->left_op_ && IsPathReadOnly(cartesian_op->left_op_, target)) {
+            return true;
+          }
+          if (cartesian_op->right_op_ && IsPathReadOnly(cartesian_op->right_op_, target)) {
+            return true;
+          }
+          return false;
+        }
+        if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current.get())) {
+          if (indexed_join_op->main_branch_ && IsPathReadOnly(indexed_join_op->main_branch_, target)) {
+            return true;
+          }
+          if (indexed_join_op->sub_branch_ && IsPathReadOnly(indexed_join_op->sub_branch_, target)) {
+            return true;
+          }
+          return false;
+        }
+        if (auto *hash_join_op = dynamic_cast<HashJoin *>(current.get())) {
+          if (hash_join_op->left_op_ && IsPathReadOnly(hash_join_op->left_op_, target)) {
+            return true;
+          }
+          if (hash_join_op->right_op_ && IsPathReadOnly(hash_join_op->right_op_, target)) {
+            return true;
+          }
+          return false;
+        }
+        // Unknown multi-input operator, be conservative
+        return false;
       }
     }
+
+    return current == target;
+  }
+
+  // Helper function to get symbols produced by a Scan operator
+  std::vector<Symbol> GetScanOutputSymbols(const std::shared_ptr<LogicalOperator> &scan) {
+    std::vector<Symbol> symbols;
+
+    if (utils::IsSubtype(*scan, ScanAllByEdge::kType)) {
+      auto *scan_edge = dynamic_cast<ScanAllByEdge *>(scan.get());
+      if (scan_edge != nullptr) {
+        symbols.push_back(scan_edge->common_.edge_symbol);
+        symbols.push_back(scan_edge->common_.node1_symbol);
+        symbols.push_back(scan_edge->common_.node2_symbol);
+        // Also include the output_symbol_ from the base ScanAll
+        symbols.push_back(scan_edge->output_symbol_);
+      }
+    } else if (utils::IsSubtype(*scan, ScanAll::kType)) {
+      auto *scan_all = dynamic_cast<ScanAll *>(scan.get());
+      if (scan_all != nullptr) {
+        symbols.push_back(scan_all->output_symbol_);
+      }
+    }
+
+    return symbols;
+  }
+
+  // Helper function to check if a Scan produces any of the required symbols
+  bool ScanProducesSymbols(const std::shared_ptr<LogicalOperator> &scan,
+                           const std::set<Symbol::Position_t> &required_symbols) {
+    auto scan_symbols = GetScanOutputSymbols(scan);
+    for (const auto &sym : scan_symbols) {
+      if (required_symbols.find(sym.position()) != required_symbols.end()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Helper function to extract input symbols that an operator depends on
+  // Uses DependantSymbolVisitor to analyze expressions generically
+  // Returns the set of input symbols the operator depends on
+  std::set<Symbol::Position_t> ExtractInputSymbolsFromOperator(const std::shared_ptr<LogicalOperator> &op) {
+    std::set<Symbol::Position_t> input_symbols;
+    DependantSymbolVisitor symbol_visitor(input_symbols);
+
+    // Try to extract symbols from operator's expressions
+    // Different operators have expressions in different places
+
+    // Produce: named_expressions
+    if (auto *produce_op = dynamic_cast<Produce *>(op.get())) {
+      for (auto *named_expr : produce_op->named_expressions_) {
+        if (named_expr != nullptr && named_expr->expression_ != nullptr) {
+          named_expr->expression_->Accept(symbol_visitor);
+        }
+      }
+      return input_symbols;
+    }
+
+    // Filter: expression and all_filters
+    if (auto *filter_op = dynamic_cast<Filter *>(op.get())) {
+      if (filter_op->expression_ != nullptr) {
+        filter_op->expression_->Accept(symbol_visitor);
+      }
+      // FilterInfo has an 'expression' field (not 'expression_')
+      for (const auto &filter : filter_op->all_filters_) {
+        if (filter.expression != nullptr) {
+          filter.expression->Accept(symbol_visitor);
+        }
+      }
+      return input_symbols;
+    }
+
+    // For other operators without expressions we can analyze,
+    // return empty set - caller will fall back to using ModifiedSymbols from input
+    return input_symbols;
+  }
+
+  // Helper function to check if an operator produces any of the required symbols
+  bool OperatorProducesSymbols(const std::shared_ptr<LogicalOperator> &op,
+                               const std::set<Symbol::Position_t> &required_symbols) {
+    // Get symbols produced by this operator
+    auto produced_symbols = op->ModifiedSymbols(*symbol_table);
+    return std::ranges::any_of(produced_symbols, [&required_symbols](const Symbol &sym) {
+      return required_symbols.find(sym.position()) != required_symbols.end();
+    });
+  }
+
+  // Helper function to find the Scan operator that produces the required symbols
+  // This traces symbol dependencies backwards through operators
+  // Returns true if a suitable Scan is found, false otherwise
+  bool FindScanForSymbols(std::shared_ptr<LogicalOperator> start, const std::set<Symbol::Position_t> &required_symbols,
+                          std::shared_ptr<LogicalOperator> &target_scan,
+                          std::shared_ptr<LogicalOperator> &scan_parent) {
+    if (!start) {
+      return false;
+    }
+
+    std::shared_ptr<LogicalOperator> parent = nullptr;
+    std::shared_ptr<LogicalOperator> current = start;
+    std::set<Symbol::Position_t> symbols_to_find = required_symbols;
+
+    // Traverse down the input chain, tracing symbol dependencies backwards
+    while (current && current->GetTypeInfo() != Once::kType) {
+      // If we encounter another Aggregate or AggregateParallel, abandon the current one
+      // The nested Aggregate will be processed when we visit it
+      // This prevents trying to parallelize outer Aggregates that depend on inner ones
+      if (current->GetTypeInfo() == Aggregate::kType || current->GetTypeInfo() == AggregateParallel::kType) {
+        return false;
+      }
+
+      // Check if this is a Scan that produces any of the symbols we're looking for
+      if (utils::IsSubtype(*current, ScanAll::kType)) {
+        if (ScanProducesSymbols(current, symbols_to_find)) {
+          target_scan = current;
+          scan_parent = parent;
+          // Continue to find the deepest scan
+        }
+      }
+
+      // Check if this operator's ModifiedSymbols contains any symbols we're looking for
+      // This is the most generic check - works for all operators
+      auto operator_symbols = current->ModifiedSymbols(*symbol_table);
+      std::set<Symbol::Position_t> operator_symbol_positions;
+      for (const auto &sym : operator_symbols) {
+        operator_symbol_positions.insert(sym.position());
+      }
+
+      // Check if operator has any of the symbols we're looking for
+      bool operator_has_symbols = false;
+      for (const auto &sym_pos : symbols_to_find) {
+        if (operator_symbol_positions.find(sym_pos) != operator_symbol_positions.end()) {
+          operator_has_symbols = true;
+          break;
+        }
+      }
+
+      if (operator_has_symbols) {
+        // Try to extract input symbols from operator's expressions
+        // This gives us precise information about what the operator depends on
+        auto extracted_symbols = ExtractInputSymbolsFromOperator(current);
+
+        // Get input symbols for pass-through detection
+        std::set<Symbol::Position_t> input_symbol_positions;
+        if (current->HasSingleInput() && current->input()) {
+          auto input_symbols = current->input()->ModifiedSymbols(*symbol_table);
+          for (const auto &sym : input_symbols) {
+            input_symbol_positions.insert(sym.position());
+          }
+        }
+
+        // Update symbols_to_find to include input symbols this operator depends on
+        std::set<Symbol::Position_t> new_symbols_to_find = symbols_to_find;
+
+        if (!extracted_symbols.empty()) {
+          // We found expressions to analyze - use the extracted symbols
+          // These are the input symbols the operator depends on
+          for (const auto &sym_pos : extracted_symbols) {
+            new_symbols_to_find.insert(sym_pos);
+          }
+        } else if (!input_symbol_positions.empty()) {
+          // No expressions found - add all input symbols to continue tracing
+          for (const auto &sym_pos : input_symbol_positions) {
+            new_symbols_to_find.insert(sym_pos);
+          }
+        }
+
+        // Remove symbols that this operator produces (not passed through)
+        // A symbol is produced if it's in operator's ModifiedSymbols but not in input's
+        for (const auto &sym : operator_symbols) {
+          // If symbol is in our search set and NOT in input, operator produces it
+          if (symbols_to_find.find(sym.position()) != symbols_to_find.end() &&
+              input_symbol_positions.find(sym.position()) == input_symbol_positions.end()) {
+            // Operator produces this symbol - remove it from search
+            new_symbols_to_find.erase(sym.position());
+          }
+        }
+
+        symbols_to_find = new_symbols_to_find;
+      }
+
+      parent = current;
+
+      if (current->HasSingleInput()) {
+        current = current->input();
+      } else {
+        // For multi-input operators, check all branches
+        std::shared_ptr<LogicalOperator> found_scan;
+        std::shared_ptr<LogicalOperator> found_parent;
+
+        if (auto *union_op = dynamic_cast<Union *>(current.get())) {
+          if (union_op->left_op_ && FindScanForSymbols(union_op->left_op_, symbols_to_find, found_scan, found_parent)) {
+            if (!target_scan || IsDeeperThan(found_scan, target_scan, start)) {
+              target_scan = found_scan;
+              scan_parent = found_parent ? found_parent : current;
+            }
+          }
+          if (union_op->right_op_ &&
+              FindScanForSymbols(union_op->right_op_, symbols_to_find, found_scan, found_parent)) {
+            if (!target_scan || IsDeeperThan(found_scan, target_scan, start)) {
+              target_scan = found_scan;
+              scan_parent = found_parent ? found_parent : current;
+            }
+          }
+        } else if (auto *cartesian_op = dynamic_cast<Cartesian *>(current.get())) {
+          if (cartesian_op->left_op_ &&
+              FindScanForSymbols(cartesian_op->left_op_, symbols_to_find, found_scan, found_parent)) {
+            if (!target_scan || IsDeeperThan(found_scan, target_scan, start)) {
+              target_scan = found_scan;
+              scan_parent = found_parent ? found_parent : current;
+            }
+          }
+          if (cartesian_op->right_op_ &&
+              FindScanForSymbols(cartesian_op->right_op_, symbols_to_find, found_scan, found_parent)) {
+            if (!target_scan || IsDeeperThan(found_scan, target_scan, start)) {
+              target_scan = found_scan;
+              scan_parent = found_parent ? found_parent : current;
+            }
+          }
+        } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current.get())) {
+          if (indexed_join_op->main_branch_ &&
+              FindScanForSymbols(indexed_join_op->main_branch_, symbols_to_find, found_scan, found_parent)) {
+            if (!target_scan || IsDeeperThan(found_scan, target_scan, start)) {
+              target_scan = found_scan;
+              scan_parent = found_parent ? found_parent : current;
+            }
+          }
+          if (indexed_join_op->sub_branch_ &&
+              FindScanForSymbols(indexed_join_op->sub_branch_, symbols_to_find, found_scan, found_parent)) {
+            if (!target_scan || IsDeeperThan(found_scan, target_scan, start)) {
+              target_scan = found_scan;
+              scan_parent = found_parent ? found_parent : current;
+            }
+          }
+        } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(current.get())) {
+          if (hash_join_op->left_op_ &&
+              FindScanForSymbols(hash_join_op->left_op_, symbols_to_find, found_scan, found_parent)) {
+            if (!target_scan || IsDeeperThan(found_scan, target_scan, start)) {
+              target_scan = found_scan;
+              scan_parent = found_parent ? found_parent : current;
+            }
+          }
+          if (hash_join_op->right_op_ &&
+              FindScanForSymbols(hash_join_op->right_op_, symbols_to_find, found_scan, found_parent)) {
+            if (!target_scan || IsDeeperThan(found_scan, target_scan, start)) {
+              target_scan = found_scan;
+              scan_parent = found_parent ? found_parent : current;
+            }
+          }
+        } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(current.get())) {
+          if (rollup_apply_op->input_ &&
+              FindScanForSymbols(rollup_apply_op->input_, symbols_to_find, found_scan, found_parent)) {
+            if (!target_scan || IsDeeperThan(found_scan, target_scan, start)) {
+              target_scan = found_scan;
+              scan_parent = found_parent ? found_parent : current;
+            }
+          }
+        }
+
+        // Stop traversal for multi-input operators (we've checked all branches)
+        break;
+      }
+    }
+
+    return target_scan != nullptr;
+  }
+
+  // Helper function to check if scan1 is deeper (closer to Once) than scan2
+  bool IsDeeperThan(const std::shared_ptr<LogicalOperator> &scan1, const std::shared_ptr<LogicalOperator> &scan2,
+                    const std::shared_ptr<LogicalOperator> &root) {
+    // Count depth from root to each scan
+    int depth1 = GetDepth(root, scan1);
+    int depth2 = GetDepth(root, scan2);
+    return depth1 > depth2;
+  }
+
+  // Helper function to get the depth of target from root
+  int GetDepth(const std::shared_ptr<LogicalOperator> &root, const std::shared_ptr<LogicalOperator> &target) {
+    if (!root || !target) {
+      return -1;
+    }
+    if (root == target) {
+      return 0;
+    }
+
+    if (root->HasSingleInput()) {
+      int depth = GetDepth(root->input(), target);
+      return depth >= 0 ? depth + 1 : -1;
+    }
+
+    // For multi-input operators, check all branches
+    int max_depth = -1;
+    if (auto *union_op = dynamic_cast<Union *>(root.get())) {
+      if (union_op->left_op_) {
+        int depth = GetDepth(union_op->left_op_, target);
+        if (depth >= 0) {
+          max_depth = std::max(max_depth, depth + 1);
+        }
+      }
+      if (union_op->right_op_) {
+        int depth = GetDepth(union_op->right_op_, target);
+        if (depth >= 0) {
+          max_depth = std::max(max_depth, depth + 1);
+        }
+      }
+    } else if (auto *cartesian_op = dynamic_cast<Cartesian *>(root.get())) {
+      if (cartesian_op->left_op_) {
+        int depth = GetDepth(cartesian_op->left_op_, target);
+        if (depth >= 0) {
+          max_depth = std::max(max_depth, depth + 1);
+        }
+      }
+      if (cartesian_op->right_op_) {
+        int depth = GetDepth(cartesian_op->right_op_, target);
+        if (depth >= 0) {
+          max_depth = std::max(max_depth, depth + 1);
+        }
+      }
+    } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(root.get())) {
+      if (indexed_join_op->main_branch_) {
+        int depth = GetDepth(indexed_join_op->main_branch_, target);
+        if (depth >= 0) {
+          max_depth = std::max(max_depth, depth + 1);
+        }
+      }
+      if (indexed_join_op->sub_branch_) {
+        int depth = GetDepth(indexed_join_op->sub_branch_, target);
+        if (depth >= 0) {
+          max_depth = std::max(max_depth, depth + 1);
+        }
+      }
+    } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(root.get())) {
+      if (hash_join_op->left_op_) {
+        int depth = GetDepth(hash_join_op->left_op_, target);
+        if (depth >= 0) {
+          max_depth = std::max(max_depth, depth + 1);
+        }
+      }
+      if (hash_join_op->right_op_) {
+        int depth = GetDepth(hash_join_op->right_op_, target);
+        if (depth >= 0) {
+          max_depth = std::max(max_depth, depth + 1);
+        }
+      }
+    } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(root.get())) {
+      if (rollup_apply_op->input_) {
+        int depth = GetDepth(rollup_apply_op->input_, target);
+        if (depth >= 0) {
+          max_depth = std::max(max_depth, depth + 1);
+        }
+      }
+    }
+
+    return max_depth;
+  }
+
+  // Helper function to replace a scan in the input chain when scan_parent is null
+  // This happens when the scan is directly the input of Aggregate or the first operator
+  bool ReplaceScanInChain(const std::shared_ptr<LogicalOperator> &current,
+                          const std::shared_ptr<LogicalOperator> &target_scan,
+                          const std::shared_ptr<LogicalOperator> &scan_chunk) {
+    if (!current) {
+      return false;
+    }
+
+    // Check if current is the target scan
+    if (current.get() == target_scan.get()) {
+      // This shouldn't happen if scan_parent is null, but handle it anyway
+      return false;
+    }
+
+    // Check if current's input is the target scan
+    if (current->HasSingleInput() && current->input().get() == target_scan.get()) {
+      current->set_input(scan_chunk);
+      return true;
+    }
+
+    // For multi-input operators, check all branches
+    if (auto *union_op = dynamic_cast<Union *>(current.get())) {
+      if (union_op->left_op_ && union_op->left_op_.get() == target_scan.get()) {
+        union_op->left_op_ = scan_chunk;
+        return true;
+      }
+      if (union_op->right_op_ && union_op->right_op_.get() == target_scan.get()) {
+        union_op->right_op_ = scan_chunk;
+        return true;
+      }
+      // Recursively check branches
+      if (union_op->left_op_ && ReplaceScanInChain(union_op->left_op_, target_scan, scan_chunk)) {
+        return true;
+      }
+      if (union_op->right_op_ && ReplaceScanInChain(union_op->right_op_, target_scan, scan_chunk)) {
+        return true;
+      }
+    } else if (auto *cartesian_op = dynamic_cast<Cartesian *>(current.get())) {
+      if (cartesian_op->left_op_ && cartesian_op->left_op_.get() == target_scan.get()) {
+        cartesian_op->left_op_ = scan_chunk;
+        return true;
+      }
+      if (cartesian_op->right_op_ && cartesian_op->right_op_.get() == target_scan.get()) {
+        cartesian_op->right_op_ = scan_chunk;
+        return true;
+      }
+      if (cartesian_op->left_op_ && ReplaceScanInChain(cartesian_op->left_op_, target_scan, scan_chunk)) {
+        return true;
+      }
+      if (cartesian_op->right_op_ && ReplaceScanInChain(cartesian_op->right_op_, target_scan, scan_chunk)) {
+        return true;
+      }
+    } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current.get())) {
+      if (indexed_join_op->main_branch_ && indexed_join_op->main_branch_.get() == target_scan.get()) {
+        indexed_join_op->main_branch_ = scan_chunk;
+        return true;
+      }
+      if (indexed_join_op->sub_branch_ && indexed_join_op->sub_branch_.get() == target_scan.get()) {
+        indexed_join_op->sub_branch_ = scan_chunk;
+        return true;
+      }
+      if (indexed_join_op->main_branch_ && ReplaceScanInChain(indexed_join_op->main_branch_, target_scan, scan_chunk)) {
+        return true;
+      }
+      if (indexed_join_op->sub_branch_ && ReplaceScanInChain(indexed_join_op->sub_branch_, target_scan, scan_chunk)) {
+        return true;
+      }
+    } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(current.get())) {
+      if (hash_join_op->left_op_ && hash_join_op->left_op_.get() == target_scan.get()) {
+        hash_join_op->left_op_ = scan_chunk;
+        return true;
+      }
+      if (hash_join_op->right_op_ && hash_join_op->right_op_.get() == target_scan.get()) {
+        hash_join_op->right_op_ = scan_chunk;
+        return true;
+      }
+      if (hash_join_op->left_op_ && ReplaceScanInChain(hash_join_op->left_op_, target_scan, scan_chunk)) {
+        return true;
+      }
+      if (hash_join_op->right_op_ && ReplaceScanInChain(hash_join_op->right_op_, target_scan, scan_chunk)) {
+        return true;
+      }
+    } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(current.get())) {
+      if (rollup_apply_op->input_ && rollup_apply_op->input_.get() == target_scan.get()) {
+        rollup_apply_op->input_ = scan_chunk;
+        return true;
+      }
+      if (rollup_apply_op->input_ && ReplaceScanInChain(rollup_apply_op->input_, target_scan, scan_chunk)) {
+        return true;
+      }
+    } else if (current->HasSingleInput()) {
+      // Recursively check the input chain
+      return ReplaceScanInChain(current->input(), target_scan, scan_chunk);
+    }
+
+    return false;
   }
 };
 
