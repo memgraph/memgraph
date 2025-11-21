@@ -50,6 +50,7 @@ class ParallelStateOnFrame {
   static void PushToFrame(FrameWriter &frame_writer, utils::MemoryResource *res, const Symbol &symbol,
                           std::shared_ptr<ChunksType> chunks, size_t index) {
     auto *state = new ParallelStateOnFrame(std::move(chunks), index);
+    static_assert(sizeof(int64_t) == sizeof(state), "Cannot store ParallelStateOnFrame* in an int64_t");
     TypedValue tv(reinterpret_cast<int64_t>(state), res);
     frame_writer.Write(symbol, std::move(tv));
   }
