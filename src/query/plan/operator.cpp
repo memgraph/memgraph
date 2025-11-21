@@ -8910,7 +8910,9 @@ query::plan::Aggregate::Element query::plan::Aggregate::Element::Clone(query::As
 
 ScanChunk::ScanChunk(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view,
                      Symbol state_symbol)
-    : ScanAll(input, std::move(output_symbol), view), state_symbol_(state_symbol) {}
+    : ScanAll(input, std::move(output_symbol), view), state_symbol_(state_symbol) {
+  DMG_ASSERT(dynamic_cast<ParallelMerge *>(input.get()) != nullptr, "Input must be a ParallelMerge");
+}
 
 ACCEPT_WITH_INPUT(ScanChunk)
 
@@ -9710,7 +9712,9 @@ std::unique_ptr<LogicalOperator> ScanParallelByEdgeId::Clone(AstStorage *storage
 
 class ParallelMergeCursor;
 
-ParallelMerge::ParallelMerge(const std::shared_ptr<LogicalOperator> &input) : input_(input) {}
+ParallelMerge::ParallelMerge(const std::shared_ptr<LogicalOperator> &input) : input_(input) {
+  DMG_ASSERT(dynamic_cast<ScanParallel *>(input.get()) != nullptr, "Input must be a ScanParallel");
+}
 
 ACCEPT_WITH_INPUT(ParallelMerge)
 
@@ -10199,7 +10203,10 @@ class AggregateParallelCursor : public ParallelBranchCursor {
 };
 
 AggregateParallel::AggregateParallel(const std::shared_ptr<LogicalOperator> &agg_inputs, size_t num_threads)
-    : agg_inputs_(agg_inputs), num_threads_(num_threads) {}
+    : agg_inputs_(agg_inputs), num_threads_(num_threads) {
+  DMG_ASSERT(dynamic_cast<Aggregate *>(agg_inputs.get()) != nullptr, "Input must be an Aggregate");
+  DMG_ASSERT(num_threads > 0, "Number of threads must be greater than 0");
+}
 
 UniqueCursorPtr AggregateParallel::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::AggregateOperator);
