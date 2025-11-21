@@ -61,7 +61,7 @@ class Memgraph(ConanFile):
         tc.generate()
 
         # SBOM generation
-        sbom = cyclonedx_1_6(self, name="memgraph", add_build=True, add_tests=True)
+        sbom = cyclonedx_1_6(self, name="memgraph", add_build=False, add_tests=False)
         out_dir = os.path.join(self.generators_folder, "sbom")
         os.makedirs(out_dir, exist_ok=True)
         out_path = os.path.join(out_dir, "memgraph-sbom.cdx.json")
