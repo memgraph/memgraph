@@ -305,11 +305,204 @@ TEST(StorageV2Gc, InterleavedDeltasWithAbortedContributorsAreGarbagedCollected) 
     acc2.reset();
     acc1->Abort();
     acc1.reset();
+    acc0.reset();
 
     ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
   }
 
+  // First GC: moves `waiting_gc_deltas_` to `aborted_transactions_` or
+  // `committed_transactions_`
   {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+
+  // Second GC: committed deltas are unlinked, and all deltas (be they committed
+  // or aborted) move to `garbage_undo_buffers_` for reclamation.
+  {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+
+  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+}
+
+TEST(StorageV2Gc, InterleavedDeltasWithMultipleAbortsAreGarbageCollected) {
+  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
+
+  memgraph::storage::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto acc0 = storage->Access();
+    auto acc1 = storage->Access();
+    auto acc2 = storage->Access();
+
+    auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    auto edge1_result = acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1"));
+    ASSERT_TRUE(edge1_result.HasValue());
+
+    auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    auto edge2_result = acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2"));
+    ASSERT_TRUE(edge2_result.HasValue());
+
+    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+
+    // Both transactions abort - all deltas should be cleaned up
+    acc2->Abort();
+    acc2.reset();
+    acc1->Abort();
+    acc1.reset();
+    acc0.reset();
+
+    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  }
+
+  // First GC: moves from waiting_gc_deltas_ to aborted_transactions_
+  {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+
+  // Second GC: moves to garbage_undo_buffers_
+  {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+
+  // Third GC: frees the deltas
+  {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+
+  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+}
+
+TEST(StorageV2Gc, DownstreamDeltaChainsAreGarbageCollected) {
+  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
+
+  memgraph::storage::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto acc0 = storage->Access();
+    auto acc1 = storage->Access();
+    auto acc2 = storage->Access();
+    auto acc3 = storage->Access();
+
+    // Create three edges to form downstream delta chain: TX1 -> TX2 -> TX3
+    auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1")).HasValue());
+
+    auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2")).HasValue());
+
+    auto v1_t3 = acc3->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t3 = acc3->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
+    ASSERT_TRUE(acc3->CreateEdge(&*v1_t3, &*v2_t3, acc3->NameToEdgeType("Edge3")).HasValue());
+
+    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+
+    // Commit TX1, abort TX2 and TX3
+    // TX3's deltas are downstream from TX2, which are downstream from TX1
+    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    acc1.reset();
+    acc3->Abort();
+    acc3.reset();
+    acc2->Abort();
+    acc2.reset();
+    acc0.reset();
+
+    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  }
+
+  // Multiple GC cycles to process the downstream chain
+  for (int i = 0; i < 4; ++i) {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+
+  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+}
+
+TEST(StorageV2Gc, MixedCommitAbortCommitInterleavedDeltasAreGarbageCollected) {
+  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
+
+  memgraph::storage::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto acc0 = storage->Access();
+    auto acc1 = storage->Access();
+    auto acc2 = storage->Access();
+    auto acc3 = storage->Access();
+
+    // Create interleaved deltas with mixed commit/abort pattern
+    auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1")).HasValue());
+
+    auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2")).HasValue());
+
+    auto v1_t3 = acc3->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t3 = acc3->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
+    ASSERT_TRUE(acc3->CreateEdge(&*v1_t3, &*v2_t3, acc3->NameToEdgeType("Edge3")).HasValue());
+
+    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+
+    // TX1 commits, TX2 aborts, TX3 commits
+    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    acc1.reset();
+    acc2->Abort();
+    acc2.reset();
+    ASSERT_FALSE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    acc3.reset();
+    acc0.reset();
+
+    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  }
+
+  // Multiple GC cycles to handle mixed commit/abort
+  for (int i = 0; i < 4; ++i) {
     auto main_guard = std::unique_lock{storage->main_lock_};
     storage->FreeMemory(std::move(main_guard), false);
   }
