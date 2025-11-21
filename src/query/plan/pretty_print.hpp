@@ -145,9 +145,12 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   /// and printing the branch name.
   void Branch(LogicalOperator &op, const std::string &branch_name = "");
 
+  char StartSymbol() const { return is_parallel_ ? '#' : '*'; }
+
   int64_t depth_{0};
   const DbAccessor *dba_{nullptr};
   std::ostream *out_{nullptr};
+  bool is_parallel_{false};
 };
 
 }  // namespace plan
