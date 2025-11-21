@@ -42,6 +42,7 @@ SYFT_FILE_METADATA_SELECTION=none ./syft \
   --output-format json \
   --output-file sbom/memgraph-docker-sbom.json
 echo "Generated SBOM file: sbom/memgraph-docker-sbom.json"
+rm sbom/docker-sbom.json
 
 # generate human-readable SBOM table
 python3 tools/sbom/sbom-formatter.py sbom/memgraph-docker-sbom.json
