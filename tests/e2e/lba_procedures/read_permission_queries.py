@@ -218,7 +218,7 @@ def test_read_multiple_edge_types(switch):
     execute_and_fetch_all(admin_cursor, "CREATE (:Person)-[:WORKS_WITH]->(:Person);")
 
     execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGES CONTAINING TYPES :KNOWS, :MANAGES TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGES OF TYPE :KNOWS, READ ON EDGES OF TYPE :MANAGES TO user;")
 
     user_connection = connect(username="user", password="test")
     user_cursor = user_connection.cursor()

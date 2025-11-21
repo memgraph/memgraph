@@ -91,41 +91,43 @@ def multi_tenant_setup(request):
             # Admin database - admin has full access
             session.run("USE DATABASE admin_db;").consume()
             session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES CONTAINING TYPES * TO admin;").consume()
+            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO admin;").consume()
 
             # Architect database - architect has full access, admin has full access
             session.run("USE DATABASE architect_db;").consume()
             session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO architect;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES CONTAINING TYPES * TO architect;").consume()
+            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO architect;").consume()
             session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES CONTAINING TYPES * TO admin;").consume()
+            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO admin;").consume()
 
             # User database - user has limited access, admin has full access
             session.run("USE DATABASE user_db;").consume()
             session.run("GRANT UPDATE ON NODES CONTAINING LABELS :Person, :Company, :Product TO user;").consume()
             session.run("GRANT READ ON NODES CONTAINING LABELS :Review, :Audit TO user;").consume()
             session.run(
-                "GRANT CREATE, READ, UPDATE, DELETE ON EDGES CONTAINING TYPES :WORKS_FOR, :OWNS, :REVIEWS TO user;"
+                "GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE :WORKS_FOR, CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE :OWNS, CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE :REVIEWS TO user;"
             ).consume()
-            session.run("GRANT READ ON EDGES CONTAINING TYPES :AUDITS, :ADMIN_ACCESS TO user;").consume()
+            session.run("GRANT READ ON EDGES OF TYPE :AUDITS, READ ON EDGES OF TYPE :ADMIN_ACCESS TO user;").consume()
             session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES CONTAINING TYPES * TO admin;").consume()
+            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO admin;").consume()
 
             # Readonly database - readonly has read-only access, admin has full access
             session.run("USE DATABASE readonly_db;").consume()
             session.run("GRANT READ ON NODES CONTAINING LABELS * TO readonly;").consume()
-            session.run("GRANT READ ON EDGES CONTAINING TYPES * TO readonly;").consume()
+            session.run("GRANT READ ON EDGES OF TYPE * TO readonly;").consume()
             session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES CONTAINING TYPES * TO admin;").consume()
+            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO admin;").consume()
 
             # Limited database - limited has restricted access, admin has full access
             session.run("USE DATABASE limited_db;").consume()
             session.run("GRANT READ ON NODES CONTAINING LABELS :Person, :Company TO limited;").consume()
             session.run("GRANT NOTHING ON NODES CONTAINING LABELS :Audit, :Admin TO limited;").consume()
-            session.run("GRANT READ ON EDGES CONTAINING TYPES :WORKS_FOR, :OWNS TO limited;").consume()
-            session.run("GRANT NOTHING ON EDGES CONTAINING TYPES :AUDITS, :ADMIN_ACCESS TO limited;").consume()
+            session.run("GRANT READ ON EDGES OF TYPE :WORKS_FOR, READ ON EDGES OF TYPE :OWNS TO limited;").consume()
+            session.run(
+                "GRANT NOTHING ON EDGES OF TYPE :AUDITS, NOTHING ON EDGES OF TYPE :ADMIN_ACCESS TO limited;"
+            ).consume()
             session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES CONTAINING TYPES * TO admin;").consume()
+            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO admin;").consume()
 
             # Set main databases for roles
             session.run("SET MAIN DATABASE admin_db FOR admin;").consume()

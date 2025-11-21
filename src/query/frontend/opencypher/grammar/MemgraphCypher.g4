@@ -193,6 +193,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TRIGGER
                       | TRIGGERS
                       | TTL
+                      | TYPE
                       | TYPES
                       | UNCOMMITTED
                       | UNLOCK
@@ -513,12 +514,10 @@ entityPrivilege : granularPrivilegeList ON entityTypeSpec ;
 
 entityTypeSpec
     : NODES CONTAINING LABELS labelEntities=labelEntitiesList matchingClause?
-    | EDGES CONTAINING TYPES edgeTypes=edgeTypeEntitiesList
+    | EDGES OF_TOKEN TYPE edgeType=edgeTypeEntity
     ;
 
 labelEntitiesList : ASTERISK | listOfColonSymbolicNames ;
-
-edgeTypeEntitiesList : ASTERISK | listOfColonSymbolicNames ;
 
 edgeTypeEntity : ASTERISK | colonSymbolicName ;
 

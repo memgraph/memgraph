@@ -2175,8 +2175,8 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
           label_matching_modes.emplace_back(matching_mode);
         }
       }
-    } else if (typeSpec->edgeTypes) {
-      auto value = std::any_cast<std::vector<std::string>>(typeSpec->edgeTypes->accept(this));
+    } else if (typeSpec->edgeType) {
+      auto value = std::any_cast<std::vector<std::string>>(typeSpec->edgeType->accept(this));
 
       for (const auto &key : keys) {
         if (key == AuthQuery::FineGrainedPrivilege::ALL) {
@@ -2243,18 +2243,6 @@ antlrcpp::Any CypherMainVisitor::visitDenyImpersonateUser(MemgraphCypher::DenyIm
  * @return std::vector<std::string>
  */
 antlrcpp::Any CypherMainVisitor::visitLabelEntitiesList(MemgraphCypher::LabelEntitiesListContext *ctx) {
-  std::vector<std::string> entities;
-  if (ctx->listOfColonSymbolicNames()) {
-    return ctx->listOfColonSymbolicNames()->accept(this);
-  }
-  entities.emplace_back("*");
-  return entities;
-}
-
-/**
- * @return std::vector<std::string>
- */
-antlrcpp::Any CypherMainVisitor::visitEdgeTypeEntitiesList(MemgraphCypher::EdgeTypeEntitiesListContext *ctx) {
   std::vector<std::string> entities;
   if (ctx->listOfColonSymbolicNames()) {
     return ctx->listOfColonSymbolicNames()->accept(this);
