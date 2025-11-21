@@ -221,7 +221,7 @@ jobs:
         if: ${{ env.GENERATE_SBOM == 'true' }}
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
-          name: memgraph-sbom.zip
+          name: memgraph-sbom
           path: sbom/
 
       - name: "Rename Package"
