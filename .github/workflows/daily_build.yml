@@ -146,6 +146,7 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: "daily-build/memgraph${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
+      generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.build_type == 'Release' && matrix.arch == 'amd') && true || false }}
     secrets: inherit
 
   AggregateBuildTests:

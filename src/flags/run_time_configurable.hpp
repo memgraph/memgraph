@@ -59,6 +59,13 @@ bool GetCartesianProductEnabled();
 bool GetDebugQueryPlans();
 
 /**
+ * @brief Get the storage GC aggressive value
+ *
+ * @return bool
+ */
+bool GetStorageGcAggressive();
+
+/**
  * @brief Get the current timezone object
  *
  * @return const std::chrono::time_zone*

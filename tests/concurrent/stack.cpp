@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,9 +11,7 @@
 
 #include <atomic>
 #include <chrono>
-#include <cstring>
 #include <iostream>
-#include <random>
 #include <thread>
 #include <vector>
 
@@ -29,16 +27,16 @@ DEFINE_int32(max_value, 100000000, "Maximum value that should be inserted");
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  memgraph::utils::Stack<uint64_t, 8190> stack;
+  memgraph::utils::Stack<uint64_t, 8188, true> stack;
 
   std::vector<std::thread> threads;
   memgraph::utils::Timer timer;
   for (int i = 0; i < kNumThreads; ++i) {
-    threads.push_back(std::thread([&stack, i] {
+    threads.emplace_back([&stack, i] {
       for (uint64_t item = i; item < FLAGS_max_value; item += kNumThreads) {
         stack.Push(item);
       }
-    }));
+    });
   }
 
   std::atomic<bool> run{true};

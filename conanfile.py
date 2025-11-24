@@ -1,8 +1,10 @@
+import json
 import os
 
 from conan import ConanFile
 from conan.errors import ConanException
 from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain
+from conan.tools.sbom import cyclonedx_1_6
 
 
 class Memgraph(ConanFile):
@@ -57,6 +59,16 @@ class Memgraph(ConanFile):
         deps.generate()
         tc = CMakeToolchain(self)
         tc.generate()
+
+        # SBOM generation
+        sbom = cyclonedx_1_6(self, name="memgraph", add_build=False, add_tests=False)
+        out_dir = os.path.join(self.generators_folder, "sbom")
+        os.makedirs(out_dir, exist_ok=True)
+        out_path = os.path.join(out_dir, "memgraph-sbom.cdx.json")
+        with open(out_path, "w") as f:
+            json.dump(sbom, f, indent=2)
+
+        self.output.success(f"CYCLONEDX SBOM CREATED -> {out_path}")
 
     def build(self):
         cmake = CMake(self)

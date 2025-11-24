@@ -298,7 +298,7 @@ def test_can_not_create_edge_when_given_read(switch):
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGES CONTAINING TYPES :new_create_delete_edge_type TO user")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGES OF TYPE :new_create_delete_edge_type TO user")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -316,7 +316,7 @@ def test_can_not_create_edge_when_given_update(switch):
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON EDGES CONTAINING TYPES :new_create_delete_edge_type TO user")
+    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON EDGES OF TYPE :new_create_delete_edge_type TO user")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -336,7 +336,7 @@ def test_can_create_edge_when_given_create(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT READ ON NODES CONTAINING LABELS :create_delete_label_1, :create_delete_label_2, CREATE ON EDGES CONTAINING TYPES :new_create_delete_edge_type, READ ON EDGES CONTAINING TYPES :new_create_delete_edge_type TO user",
+        "GRANT READ ON NODES CONTAINING LABELS :create_delete_label_1, :create_delete_label_2, CREATE ON EDGES OF TYPE :new_create_delete_edge_type, READ ON EDGES OF TYPE :new_create_delete_edge_type TO user",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -374,7 +374,7 @@ def test_can_not_delete_edge_when_given_read(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT READ ON EDGES CONTAINING TYPES :create_delete_edge_type TO user",
+        "GRANT READ ON EDGES OF TYPE :create_delete_edge_type TO user",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -395,7 +395,7 @@ def test_can_not_delete_edge_when_given_update(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT READ ON EDGES CONTAINING TYPES :create_delete_edge_type, UPDATE ON EDGES CONTAINING TYPES :create_delete_edge_type TO user",
+        "GRANT READ ON EDGES OF TYPE :create_delete_edge_type, UPDATE ON EDGES OF TYPE :create_delete_edge_type TO user",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -416,7 +416,7 @@ def test_can_delete_edge_when_given_delete(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT DELETE ON EDGES CONTAINING TYPES :create_delete_edge_type TO user",
+        "GRANT DELETE ON EDGES OF TYPE :create_delete_edge_type TO user",
     )
 
     test_cursor = connect(username="user", password="test").cursor()

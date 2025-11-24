@@ -105,6 +105,10 @@ DEFINE_string(aws_secret_key, "", "Define AWS secret key for the AWS integration
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_string(aws_endpoint_url, "", "Define AWS endpoint url for the AWS integration.");
 
+// Storage flags
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_gc_aggressive, false, "Enable aggressive garbage collection.");
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -131,6 +135,9 @@ constexpr auto kCartesianProductEnabledGFlagsKey = "cartesian-product-enabled";
 
 constexpr auto kDebugQueryPlansSettingKey = "debug-query-plans";
 constexpr auto kDebugQueryPlansGFlagsKey = "debug-query-plans";
+
+constexpr auto kStorageGcAggressiveSettingKey = "storage-gc-aggressive";
+constexpr auto kStorageGcAggressiveGFlagsKey = "storage-gc-aggressive";
 
 constexpr auto kQueryLogDirectorySettingKey = "query-log-directory";
 constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
@@ -160,6 +167,7 @@ std::atomic<bool> hops_limit_partial_results{true};
 std::atomic<bool> cartesian_product_enabled_{true};
 std::atomic<bool> debug_query_plans_{false};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
+std::atomic<bool> storage_gc_aggressive_{false};
 
 class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
  public:
@@ -382,6 +390,13 @@ void Initialize() {
       [](const std::string &val) { debug_query_plans_ = val == "true"; }, ValidBoolStr);
 
   /*
+   * Register storage GC aggressive flag
+   */
+  register_flag(
+      kStorageGcAggressiveGFlagsKey, kStorageGcAggressiveSettingKey, kRestore,
+      [](const std::string &val) { storage_gc_aggressive_ = val == "true"; }, ValidBoolStr);
+
+  /*
    * Register timezone setting
    */
   register_flag(
@@ -459,6 +474,8 @@ bool GetHopsLimitPartialResults() { return hops_limit_partial_results; }
 bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
 
 bool GetDebugQueryPlans() { return debug_query_plans_; }
+
+bool GetStorageGcAggressive() { return storage_gc_aggressive_; }
 
 const std::chrono::time_zone *GetTimezone() { return timezone_; }
 
