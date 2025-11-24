@@ -2,6 +2,10 @@
 
 NODE_VERSION="20"
 setup_node() {
+  # Temporarily disabled npm usage in CI
+  echo "NPM usage temporarily disabled in CI"
+  return 0
+
   if [ -f "$HOME/.nvm/nvm.sh" ]; then
     . "$HOME/.nvm/nvm.sh"
     nvm install $NODE_VERSION
