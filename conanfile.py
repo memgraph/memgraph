@@ -9,8 +9,6 @@ from conan.tools.sbom import cyclonedx_1_6
 
 required_conan_version = ">=2.0"
 
-required_conan_version = ">=2.0"
-
 
 class Memgraph(ConanFile):
     name = "memgraph"
@@ -63,7 +61,7 @@ class Memgraph(ConanFile):
         self.requires("antlr4-cppruntime/4.13.2")
         self.requires("cppitertools/2.2")
         self.requires("ctre/3.10.0")
-        self.requires("abseil/20250814.0")
+        self.requires("abseil/20250512.1")
         self.requires("croncpp/2023.03.30")
         self.requires("range-v3/0.12.0")
         self.requires("asio/1.36.0")
