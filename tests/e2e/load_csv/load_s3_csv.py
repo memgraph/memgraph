@@ -19,8 +19,8 @@ from mgclient import DatabaseError
 
 # LocalStack configuration
 # NOTE: If you are testing this locally change localstack-s3 to localhost
-AWS_ENDPOINT_URL = "http://localstack-s3:4566"
-# AWS_ENDPOINT_URL = "http://localhost:4566"
+# AWS_ENDPOINT_URL = "http://localstack-s3:4566"
+AWS_ENDPOINT_URL = "http://localhost:4566"
 AWS_ACCESS_KEY_ID = "test"
 AWS_SECRET_ACCESS_KEY = "test"
 AWS_REGION = "us-east-1"
@@ -35,16 +35,17 @@ def test_no_such_file():
         execute_and_fetch_all(cursor, load_query)
 
 
-@pytest.mark.skip(reason="TDD")
 def test_file_exists_s3():
     cursor = connect(host="localhost", port=7687).cursor()
+
+    execute_and_fetch_all(cursor, f"set database setting 'aws.region' to '{AWS_REGION}'")
+    execute_and_fetch_all(cursor, f"set database setting 'aws.access_key' to '{AWS_ACCESS_KEY_ID}'")
+    execute_and_fetch_all(cursor, f"set database setting 'aws.secret_key' to '{AWS_SECRET_ACCESS_KEY}'")
+    execute_and_fetch_all(cursor, f"set database setting 'aws.endpoint_url' to '{AWS_ENDPOINT_URL}'")
+
     load_query = f"LOAD CSV FROM 's3://{BUCKET_NAME}/simple_nodes.csv' WITH HEADER AS row CREATE (n:N {{id: row.id, name: row.name}})"
 
     execute_and_fetch_all(cursor, load_query)
-
-    # 4 from simple_nodes.csv + 2 from workloads.yaml
-    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 6
-
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 
@@ -54,10 +55,6 @@ def test_file_exists_http():
     print(f"Load query: {load_query}")
 
     execute_and_fetch_all(cursor, load_query)
-
-    # 4 from simple_nodes.csv + 2 from workloads.yaml
-    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 6
-
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 

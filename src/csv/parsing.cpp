@@ -17,18 +17,51 @@
 #include <string_view>
 
 #include <aws/core/Aws.h>
+#include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/GetObjectRequest.h>
 
 #include <boost/iostreams/filter/bzip2.hpp>
 #include <boost/iostreams/filter/gzip.hpp>
 #include <boost/iostreams/filtering_stream.hpp>
 #include <ctre.hpp>
 
+import memgraph.csv.s3_config;
+
 using PlainStream = boost::iostreams::filtering_istream;
 
 namespace {
 
+// TODO: (andi) Move to AWS utils, make a module
+auto BuildGetObjectRequest(std::string_view bucket_name, std::string_view object_key)
+    -> Aws::S3::Model::GetObjectRequest {
+  Aws::S3::Model::GetObjectRequest request;
+  request.SetBucket(std::string(bucket_name));
+  request.SetKey(std::string(object_key));
+  return request;
+}
+
+// TODO: (andi) Move to AWS utils, write a unit test for it
+auto ExtractBucketAndObjectKey(std::string_view uri) -> std::pair<std::string_view, std::string_view> {
+  constexpr std::string_view s3_prefix = "s3://";
+
+  // Validate and remove prefix
+  if (!uri.starts_with(s3_prefix)) {
+    throw std::invalid_argument("URI must start with s3://");
+  }
+  uri.remove_prefix(s3_prefix.size());
+
+  // Find first slash separating bucket from the object key
+  auto const slash_pos = uri.find('/');
+  if (slash_pos == std::string_view::npos) {
+    throw std::invalid_argument("URI must contain bucket and object key");
+  }
+
+  return {uri.substr(0, slash_pos), uri.substr(slash_pos + 1)};
+}
+
 // Singleton for AWS API initialization
+// TODO: (andi) Would be great to reuse it together with Parquet
 class GlobalS3APIManager {
  public:
   GlobalS3APIManager(GlobalS3APIManager const &) = delete;
@@ -42,9 +75,10 @@ class GlobalS3APIManager {
   }
 
  private:
-  GlobalS3APIManager() {}
+  GlobalS3APIManager() { Aws::InitAPI(options); }
+  ~GlobalS3APIManager() { Aws::ShutdownAPI(options); }
 
-  ~GlobalS3APIManager() {}
+  Aws::SDKOptions options;
 };
 
 enum class CompressionMethod : uint8_t {
@@ -395,7 +429,50 @@ FileCsvSource::FileCsvSource(std::filesystem::path path) : path_(std::move(path)
 }
 std::istream &FileCsvSource::GetStream() { return stream_; }
 
-S3CsvSource::S3CsvSource(utils::pmr::string uri, csv::S3Config const &s3_config) { GlobalS3APIManager::GetInstance(); }
+// TODO: (andi) This will be a generic function for downloading S3 file into a std::stringstream
+S3CsvSource::S3CsvSource(utils::pmr::string uri, csv::S3Config const &s3_config) {
+  if (!s3_config.aws_region.has_value()) {
+    throw CsvReadException(
+        "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} or "
+        "env variable {}",
+        memgraph::csv::kAwsRegionQuerySetting, memgraph::csv::kAwsRegionEnv);
+  }
+
+  if (!s3_config.aws_access_key.has_value()) {
+    throw CsvReadException(
+        "AWS access key configuration parameter not provided. Please provide it through the query, run-time setting {} "
+        "or env variable {}",
+        memgraph::csv::kAwsAccessKeyQuerySetting, memgraph::csv::kAwsAccessKeyEnv);
+  }
+
+  if (!s3_config.aws_secret_key.has_value()) {
+    throw CsvReadException(
+        "AWS secret key configuration parameter not provided. Please provide it through the query, run-time setting {} "
+        "or env variable {}",
+        memgraph::csv::kAwsSecretKeyQuerySetting, memgraph::csv::kAwsSecretKeyEnv);
+  }
+
+  GlobalS3APIManager::GetInstance();
+
+  Aws::Client::ClientConfiguration client_config;
+  client_config.region = *s3_config.aws_region;
+  if (s3_config.aws_endpoint_url.has_value()) {
+    client_config.endpointOverride = *s3_config.aws_endpoint_url;
+  }
+
+  Aws::Auth::AWSCredentials credentials(*s3_config.aws_access_key, *s3_config.aws_secret_key);
+
+  // Use path-style for S3-compatible services (4th param = false)
+  Aws::S3::S3Client s3_client(credentials, client_config, Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                              false);
+
+  auto const outcome = s3_client.GetObject(std::apply(BuildGetObjectRequest, ExtractBucketAndObjectKey(uri)));
+  if (!outcome.IsSuccess()) {
+    throw CsvReadException("Failed to download file {}. Error: {}", uri, outcome.GetError().GetMessage());
+  }
+
+  stream_ << outcome.GetResult().GetBody().rdbuf();
+}
 
 std::istream &S3CsvSource::GetStream() { return stream_; }
 

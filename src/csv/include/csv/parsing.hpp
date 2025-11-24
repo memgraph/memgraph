@@ -60,9 +60,7 @@ class S3CsvSource {
   std::istream &GetStream();
 
  private:
-  // Local path to the downloaded file
-  std::filesystem::path path_;
-  std::ifstream stream_;
+  std::stringstream stream_;
 };
 
 class StreamCsvSource {
