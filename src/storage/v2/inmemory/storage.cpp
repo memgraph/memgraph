@@ -2091,17 +2091,23 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
   if (storage_mode_ != new_storage_mode) {
     // Snapshot thread is already running, but setup periodic execution only if enabled
     if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+      // Existance and unique constraints are not supported in analytical storage mode so we need to forbid changing
+      // storage mode to analytical if there are any of these constraints
+      if (!constraints_.existence_constraints_->empty() || !constraints_.unique_constraints_->empty()) {
+        throw utils::BasicException(
+            "Existance and unique constraints are not supported in analytical storage mode. Please drop them before "
+            "changing storage mode to analytical or use transactional mode.");
+      }
       // Ensure all pending work has been completed before changing to IN_MEMORY_ANALYTICAL
       async_indexer_.CompleteRemaining();
       snapshot_runner_.Pause();
     } else {
       // No need to resume async indexer, it is always running.
       // As IN_MEMORY_TRANSACTIONAL we will now start giving it new work
-      const auto result = CreateSnapshot(true);
-      if (result.HasError()) {
-        throw utils::BasicException("Failed to create snapshot on mode change to IN_MEMORY_TRANSACTIONAL: {}",
-                                    CreateSnapshotErrorToString(result.GetError()));
-      }
+      auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
+      const auto snapshot_path = durability::CreateSnapshot(
+          this, &transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_, &edges_, uuid(),
+          repl_storage_state_.epoch_, repl_storage_state_.history, &file_retainer_, &abort_snapshot_);
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;

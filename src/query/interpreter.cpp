@@ -5736,6 +5736,9 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           throw utils::NotYetImplemented("Node key constraints");
         }
         case Constraint::Type::EXISTS: {
+          if (storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+            throw QueryRuntimeException("Existence constraints are not supported in analytical storage mode.");
+          }
           if (properties.empty() || properties.size() > 1) {
             throw SyntaxException("Exactly one property must be used for existence constraints.");
           }
@@ -5774,6 +5777,9 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           break;
         }
         case Constraint::Type::UNIQUE: {
+          if (storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+            throw QueryRuntimeException("Unique constraints are not supported in analytical storage mode.");
+          }
           std::set<storage::PropertyId> property_set;
           for (const auto &property : properties) {
             property_set.insert(property);
