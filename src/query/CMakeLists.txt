@@ -23,10 +23,14 @@ set_target_properties(mg-module-support  PROPERTIES
 )
 
 find_package(antlr4-runtime REQUIRED)
-find_package(antlr4 REQUIRED)
 find_package(cppitertools REQUIRED)
 find_package(range-v3 REQUIRED)
 find_package(simdjson REQUIRED)
+
+find_program(ANTLR4_EXECUTABLE antlr4 REQUIRED)
+if(NOT ANTLR4_EXECUTABLE)
+    message(FATAL_ERROR "antlr4 executable not found.")
+endif()
 
 add_library(mg-query STATIC)
 target_sources(mg-query
@@ -173,22 +177,12 @@ set(antlr_opencypher_generated_include
     ${opencypher_generated}/MemgraphCypherVisitor.h
 )
 include_directories(${antlr4-runtime_INCLUDE_DIR})
-# Use the correct package folder variable based on build type
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    set(ANTLR4_GENERATOR_PATH "${antlr4_PACKAGE_FOLDER_RELEASE}/res/antlr-complete.jar")
-elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-    set(ANTLR4_GENERATOR_PATH "${antlr4_PACKAGE_FOLDER_RELWITHDEBINFO}/res/antlr-complete.jar")
-elseif(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set(ANTLR4_GENERATOR_PATH "${antlr4_PACKAGE_FOLDER_DEBUG}/res/antlr-complete.jar")
-else()
-    message(FATAL_ERROR "Unsupported build type: ${CMAKE_BUILD_TYPE}")
-endif()
 
 add_custom_command(
     OUTPUT ${antlr_opencypher_generated_src} ${antlr_opencypher_generated_include}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}
     COMMAND
-    java -jar ${ANTLR4_GENERATOR_PATH} -Dlanguage=Cpp -visitor -package antlropencypher -o ${opencypher_generated} ${opencypher_lexer_grammar} ${opencypher_parser_grammar}
+    ${ANTLR4_EXECUTABLE} -Dlanguage=Cpp -visitor -package antlropencypher -o ${opencypher_generated} ${opencypher_lexer_grammar} ${opencypher_parser_grammar}
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     DEPENDS
     ${opencypher_lexer_grammar} ${opencypher_parser_grammar}
