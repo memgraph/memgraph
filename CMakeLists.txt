@@ -408,7 +408,7 @@ if (ASAN)
 endif()
 
 if (TSAN)
-  message(WARNING "Disabling jemalloc as it doesn't work well with ASAN")
+  message(WARNING "Disabling jemalloc as it doesn't work well with TSAN")
   set(ENABLE_JEMALLOC OFF)
   # ThreadSanitizer generally requires all code to be compiled with -fsanitize=thread.
   # If some code (e.g. dynamic libraries) is not compiled with the flag, it can
