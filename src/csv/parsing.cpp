@@ -10,17 +10,17 @@
 // licenses/APL.txt.
 
 #include "csv/parsing.hpp"
+#include "requests/requests.hpp"
+#include "utils/on_scope_exit.hpp"
+#include "utils/string.hpp"
 
 #include <string_view>
 
+#include <aws/core/Aws.h>
 #include <boost/iostreams/filter/bzip2.hpp>
 #include <boost/iostreams/filter/gzip.hpp>
 #include <boost/iostreams/filtering_stream.hpp>
 #include <ctre.hpp>
-
-#include "requests/requests.hpp"
-#include "utils/on_scope_exit.hpp"
-#include "utils/string.hpp"
 
 using PlainStream = boost::iostreams::filtering_istream;
 

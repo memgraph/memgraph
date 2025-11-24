@@ -71,6 +71,34 @@ class Memgraph(ConanFile):
         self.requires("spdlog/1.15.3")
         self.requires("strong_type/v15")
         self.requires("zlib/1.3.1")
+        self.requires("boost/1.86.0")
+        self.requires("antlr4-cppruntime/4.13.2")
+        self.requires("cppitertools/2.2")
+        self.requires("ctre/3.9.0")
+        self.requires("abseil/20250512.1")
+        self.requires("croncpp/2023.03.30")
+        self.requires("range-v3/0.12.0")
+        self.requires("asio/1.34.2")
+        self.requires("mgclient/1.4.3", options={"with_cpp": True})
+        self.requires("snappy/1.2.1", override=True)
+        self.requires("arrow/22.0.0", options={"with_s3": True, "with_snappy": True, "with_mimalloc": False})
+        self.requires("simdjson/4.1.0")
+        self.requires(
+            "aws-sdk-cpp/1.11.692",
+            options={
+                "config": True,
+                "s3": True,
+                "monitoring": False,
+                "queues": False,
+                "sqs": False,
+                "access-management": False,
+                "cognito-identity": True,
+                "iam": False,
+                "identity-management": True,
+                "transfer": False,
+                "text-to-speech": False,
+            },
+        )
 
     def build_requirements(self):
         self.tool_requires("cmake/4.1.2")
