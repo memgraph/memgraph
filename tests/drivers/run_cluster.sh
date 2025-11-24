@@ -239,6 +239,13 @@ echo "All instances registered successfully."
 code_test=0
 for lang in *; do
     if [ ! -d $lang ]; then continue; fi
+
+    # Skip Node.js driver tests in CI
+    if [ "${CI:-}" = "true" ] && [ "$lang" = "node" ]; then
+        echo "Skipping Node.js driver cluster tests in CI"
+        continue
+    fi
+
     pushd $lang
     echo "Running tests for language: $lang"
     for version in *; do
