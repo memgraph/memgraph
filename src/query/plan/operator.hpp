@@ -192,9 +192,11 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
     Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit,
     PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl, AggregateParallel, ScanParallel,
-    ScanParallelByLabel, ScanParallelByLabelProperties, ScanParallelByEdgeType, ScanParallelByEdgeTypeProperty,
-    ScanParallelByEdgeTypePropertyRange, ScanParallelByEdgeProperty, ScanParallelByEdgePropertyValue,
-    ScanParallelByEdgePropertyRange, ScanChunk, ScanChunkByEdge, ParallelMerge>;
+    ScanParallelById, ScanParallelByPointDistance, ScanParallelByLabel, ScanParallelByLabelProperties,
+    ScanParallelByEdgeType, ScanParallelByEdgeTypeProperty, ScanParallelByWithinbbox, ScanParallelByEdge,
+    ScanParallelByEdgeTypePropertyValue, ScanParallelByEdgeTypePropertyRange, ScanParallelByEdgeProperty,
+    ScanParallelByEdgePropertyValue, ScanParallelByEdgeId, ScanParallelByEdgePropertyRange, ScanChunk, ScanChunkByEdge,
+    ParallelMerge>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
