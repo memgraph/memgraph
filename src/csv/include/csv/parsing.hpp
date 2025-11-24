@@ -49,7 +49,7 @@ class FileCsvSource {
 
 class StreamCsvSource {
  public:
-  StreamCsvSource(std::stringstream stream) : stream_{std::move(stream)} {}
+  explicit StreamCsvSource(std::stringstream stream) : stream_{std::move(stream)} {}
   std::istream &GetStream() { return stream_; }
 
  private:
@@ -58,15 +58,15 @@ class StreamCsvSource {
 
 class UrlCsvSource : public StreamCsvSource {
  public:
-  UrlCsvSource(char const *url);
+  explicit UrlCsvSource(char const *url);
 };
 
 class CsvSource {
  public:
   static auto Create(utils::pmr::string const &csv_location) -> CsvSource;
-  CsvSource(FileCsvSource source) : source_{std::move(source)} {}
-  CsvSource(StreamCsvSource source) : source_{std::move(source)} {}
-  CsvSource(UrlCsvSource source) : source_{std::move(source)} {}
+  explicit CsvSource(FileCsvSource source) : source_{std::move(source)} {}
+  explicit CsvSource(StreamCsvSource source) : source_{std::move(source)} {}
+  explicit CsvSource(UrlCsvSource source) : source_{std::move(source)} {}
   std::istream &GetStream();
 
  private:
@@ -87,8 +87,8 @@ class Reader {
 
     bool with_header{false};
     bool ignore_bad{false};
-    std::optional<utils::pmr::string> delimiter{};
-    std::optional<utils::pmr::string> quote{};
+    std::optional<utils::pmr::string> delimiter;
+    std::optional<utils::pmr::string> quote;
   };
 
   using Row = utils::pmr::vector<utils::pmr::string>;
