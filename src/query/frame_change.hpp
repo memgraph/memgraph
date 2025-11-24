@@ -13,6 +13,7 @@
 
 #include <tuple>
 #include <utility>
+#include "frontend/semantic/symbol.hpp"
 #include "query/frontend/ast/query/named_expression.hpp"
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
@@ -72,27 +73,44 @@ class FrameChangeCollector {
   using alloc_traits = std::allocator_traits<allocator_type>;
 
  public:
-  explicit FrameChangeCollector(allocator_type alloc = {}) : caches_{alloc}, invalidators_{alloc} {}
+  explicit FrameChangeCollector(allocator_type alloc = {})
+      : inlist_cache_{alloc}, regex_cache_{alloc}, invalidators_{alloc} {}
 
   FrameChangeCollector(const FrameChangeCollector &) = delete;
   FrameChangeCollector(FrameChangeCollector &&) = delete;
   FrameChangeCollector &operator=(const FrameChangeCollector &) = delete;
   FrameChangeCollector &operator=(FrameChangeCollector &&) noexcept = delete;
 
-  auto get_allocator() const -> allocator_type { return caches_.get_allocator(); }
+  auto get_allocator() const -> allocator_type { return inlist_cache_.get_allocator(); }
 
   auto AddInListKey(utils::FrameChangeId const &key) -> CachedValue & {
     const auto &[it, _] =
-        caches_.emplace(std::piecewise_construct, std::forward_as_tuple(key), std::forward_as_tuple());
+        inlist_cache_.emplace(std::piecewise_construct, std::forward_as_tuple(key), std::forward_as_tuple());
     return it->second;
   }
 
-  bool IsKeyTracked(utils::FrameChangeId const &key) const { return caches_.contains(key); }
+  // This will only happen when walking through the AST to see what is cacheable
+  auto AddRegexKey(utils::FrameChangeId const &key) -> std::optional<std::reference_wrapper<std::regex const>> {
+    const auto &[it, _] = regex_cache_.try_emplace(key, std::nullopt);
+    return std::nullopt;
+  }
 
-  auto TryGetCachedValue(utils::FrameChangeId const &key) const
+  auto AddRegexKey(utils::FrameChangeId const &key, std::regex const &regex)
+      -> std::optional<std::reference_wrapper<std::regex const>> {
+    auto it = regex_cache_.find(key);
+    DMG_ASSERT(it != regex_cache_.cend(), "Regex key should be tracked");
+    it->second = regex;
+    return std::optional{std::cref(*it->second)};
+  }
+
+  bool IsInlistKeyTracked(utils::FrameChangeId const &key) const { return inlist_cache_.contains(key); }
+
+  bool IsRegexKeyTracked(utils::FrameChangeId const &key) const { return regex_cache_.contains(key); }
+
+  auto TryGetInlistCachedValue(utils::FrameChangeId const &key) const
       -> std::optional<std::reference_wrapper<CachedValue const>> {
-    auto const it = caches_.find(key);
-    if (it == caches_.cend()) {
+    auto const it = inlist_cache_.find(key);
+    if (it == inlist_cache_.cend()) {
       return std::nullopt;
     }
     // Empty is considered unpopulated
@@ -102,23 +120,54 @@ class FrameChangeCollector {
     return std::optional{std::cref(it->second)};
   }
 
+  auto TryGetRegexCachedValue(utils::FrameChangeId const &key) const
+      -> std::optional<std::reference_wrapper<std::regex const>> {
+    auto const it = regex_cache_.find(key);
+    if (it == regex_cache_.cend() || !it->second) {
+      return std::nullopt;
+    }
+    return std::optional{std::cref(*it->second)};
+  }
+
+  void ResetCache(Symbol const &symbol) {
+    ResetInListCacheInternal(symbol.position_);
+    ResetRegexCacheInternal(symbol.position_);
+  }
+
+  void ResetCache(NamedExpression const &named_expression) {
+    ResetInListCacheInternal(named_expression.symbol_pos_);
+    ResetRegexCacheInternal(named_expression.symbol_pos_);
+  }
+
   void ResetInListCache(Symbol const &symbol) { ResetInListCacheInternal(symbol.position_); }
 
   void ResetInListCache(NamedExpression const &named_expression) {
     ResetInListCacheInternal(named_expression.symbol_pos_);
   }
 
-  auto GetCachedValue(utils::FrameChangeId const &key) -> CachedValue & {
-    auto const it = caches_.find(key);
-    DMG_ASSERT(it != caches_.cend());
+  auto GetInlistCachedValue(utils::FrameChangeId const &key) -> CachedValue & {
+    auto const it = inlist_cache_.find(key);
+    DMG_ASSERT(it != inlist_cache_.cend());
     return it->second;
   }
 
-  void AddInListInvalidator(utils::FrameChangeId const &key, Symbol::Position_t symbol_pos) {
+  auto GetRegexCachedValue(utils::FrameChangeId const &key) -> std::optional<std::reference_wrapper<std::regex const>> {
+    auto const it = regex_cache_.find(key);
+    if (it == regex_cache_.cend() || !it->second) {
+      return std::nullopt;
+    }
+    return std::optional{std::cref(*it->second)};
+  }
+
+  void AddInvalidator(utils::FrameChangeId const &key, Symbol::Position_t symbol_pos) {
     invalidators_[symbol_pos].push_back(key);
   }
 
-  bool AnyInListCaches() const { return !caches_.empty(); }
+  bool AnyCaches() const { return !inlist_cache_.empty() || !regex_cache_.empty(); }
+
+  bool AnyInListCaches() const { return !inlist_cache_.empty(); }
+
+  bool AnyRegexCaches() const { return !regex_cache_.empty(); }
 
  private:
   void ResetInListCacheInternal(Symbol::Position_t const &symbol_pos) {
@@ -126,13 +175,25 @@ class FrameChangeCollector {
     if (it == invalidators_.cend()) [[likely]]
       return;
     for (auto const &key : it->second) {
-      if (auto const it2 = caches_.find(key); it2 != caches_.cend()) {
+      if (auto const it2 = inlist_cache_.find(key); it2 != inlist_cache_.cend()) {
         it2->second.Reset();
       }
     }
   }
 
-  utils::pmr::unordered_map<utils::FrameChangeId, CachedValue> caches_;
+  void ResetRegexCacheInternal(Symbol::Position_t const &symbol_pos) {
+    auto const it = invalidators_.find(symbol_pos);
+    if (it == invalidators_.cend()) [[likely]]
+      return;
+    for (auto const &key : it->second) {
+      if (auto it2 = regex_cache_.find(key); it2 != regex_cache_.cend()) {
+        it2->second = std::nullopt;
+      }
+    }
+  }
+
+  utils::pmr::unordered_map<utils::FrameChangeId, CachedValue> inlist_cache_;
+  utils::pmr::unordered_map<utils::FrameChangeId, std::optional<std::regex>> regex_cache_;
   utils::pmr::unordered_map<Symbol::Position_t, utils::pmr::vector<utils::FrameChangeId>> invalidators_;
 };
 }  // namespace memgraph::query
