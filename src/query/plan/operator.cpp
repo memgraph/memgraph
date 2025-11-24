@@ -71,7 +71,7 @@
 #include "utils/temporal.hpp"
 #include "vertex_accessor.hpp"
 
-import memgraph.query.arrow_parquet.parquet_file_config;
+import memgraph.query.arrow_parquet.s3_config;
 import memgraph.query.arrow_parquet.reader;
 import memgraph.query.jsonl.reader;
 import memgraph.utils.fnv;
@@ -4911,13 +4911,15 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value,
-                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
-  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-  {value.UpdateProperties(properties)};
-};
+concept AccessorWithProperties =
+    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
+             std::map<storage::PropertyId, storage::PropertyValue> properties) {
+      {
+        value.ClearProperties()
+      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+      { value.SetProperty(property_id, property_value) };
+      { value.UpdateProperties(properties) };
+    };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -6135,7 +6137,7 @@ class AggregateCursor : public Cursor {
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }    // end loop over all aggregations
+    }  // end loop over all aggregations
   }
 
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
@@ -6418,9 +6420,8 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(
-          rv::zip(order_by, output), self_.compare_.lex_cmp(),
-          [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(rv::zip(order_by, output), self_.compare_.lex_cmp(),
+                   [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
@@ -7792,8 +7793,7 @@ class LoadParquetCursor : public Cursor {
 
       // No need to check if maybe_file is std::nullopt, as the parser makes sure
       // we can't get a nullptr for the 'file_' member in the LoadParquet clause
-      reader_.emplace(ParquetFileConfig::FromQueryConfig(std::string{maybe_file}, std::move(*maybe_config_map)), mem,
-                      std::move(abort_check_erased));
+      reader_.emplace(S3Config::FromQueryConfig(std::string{maybe_file}, std::move(*maybe_config_map)), mem);
     }
 
     if (input_cursor_->Pull(frame, context)) {

@@ -2,6 +2,10 @@ add_library(mg-csv STATIC)
 add_library(mg::csv ALIAS mg-csv)
 target_sources(mg-csv
         PUBLIC
+        FILE_SET CXX_MODULES
+        FILES
+        include/csv/s3_config.cppm
+
         FILE_SET HEADERS
         BASE_DIRS include
         FILES include/csv/parsing.hpp

@@ -37,6 +37,9 @@ class CsvReadException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(CsvReadException)
 };
 
+// TODO: (andi) Can you add type family for CSV sources. They should all have a method
+// std::istream &GetStream()
+
 class FileCsvSource {
  public:
   explicit FileCsvSource(std::filesystem::path path);
@@ -47,10 +50,23 @@ class FileCsvSource {
   std::ifstream stream_;
 };
 
+// TODO: (andi) Can you inherit from some other source
+class S3CsvSource {
+ public:
+  explicit S3CsvSource(utils::pmr::string uri);
+
+  std::istream &GetStream();
+
+ private:
+  // Local path to the downloaded file
+  std::filesystem::path path_;
+  std::ifstream stream_;
+};
+
 class StreamCsvSource {
  public:
-  explicit StreamCsvSource(std::stringstream stream) : stream_{std::move(stream)} {}
-  std::istream &GetStream() { return stream_; }
+  explicit StreamCsvSource(std::stringstream stream);
+  std::istream &GetStream();
 
  private:
   std::stringstream stream_;
@@ -61,16 +77,19 @@ class UrlCsvSource : public StreamCsvSource {
   explicit UrlCsvSource(char const *url);
 };
 
+// TODO: (andi) Should also be in some way a connected family
 class CsvSource {
  public:
   static auto Create(utils::pmr::string const &csv_location) -> CsvSource;
   explicit CsvSource(FileCsvSource source) : source_{std::move(source)} {}
   explicit CsvSource(StreamCsvSource source) : source_{std::move(source)} {}
   explicit CsvSource(UrlCsvSource source) : source_{std::move(source)} {}
+  explicit CsvSource(S3CsvSource source) : source_{std::move(source)} {}
+
   std::istream &GetStream();
 
  private:
-  std::variant<FileCsvSource, UrlCsvSource, StreamCsvSource> source_;
+  std::variant<FileCsvSource, UrlCsvSource, StreamCsvSource, S3CsvSource> source_;
 };
 
 class Reader {

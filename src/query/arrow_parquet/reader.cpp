@@ -11,7 +11,6 @@
 
 module;
 
-#include "flags/run_time_configurable.hpp"
 #include "query/typed_value.hpp"
 #include "requests/requests.hpp"
 #include "utils/data_queue.hpp"
@@ -48,10 +47,6 @@ using namespace std::string_view_literals;
 namespace {
 
 constexpr std::string_view s3_prefix = "s3://";
-constexpr auto kAwsAccessKeyEnv = "AWS_ACCESS_KEY";
-constexpr auto kAwsRegionEnv = "AWS_REGION";
-constexpr auto kAwsSecretKeyEnv = "AWS_SECRET_KEY";
-constexpr auto kAwsEndpointUrlEnv = "AWS_ENDPOINT_URL";
 
 class GlobalS3APIManager {
  public:
@@ -82,45 +77,6 @@ class GlobalS3APIManager {
   }
 };
 
-auto BuildS3Config(memgraph::query::ParquetFileConfig &config) -> memgraph::query::ParquetFileConfig {
-  auto get_env_or_empty = [](const char *env_name) -> std::optional<std::string> {
-    if (const auto *const env_val = std::getenv(env_name)) {
-      return std::string{env_val};
-    }
-    return std::nullopt;
-  };
-
-  config.aws_region = config.aws_region
-                          .or_else([&] {
-                            auto setting = memgraph::flags::run_time::GetAwsRegion();
-                            return setting.empty() ? std::nullopt : std::make_optional(std::move(setting));
-                          })
-                          .or_else([&] { return get_env_or_empty(kAwsRegionEnv); });
-
-  config.aws_access_key = config.aws_access_key
-                              .or_else([&] {
-                                auto setting = memgraph::flags::run_time::GetAwsAccessKey();
-                                return setting.empty() ? std::nullopt : std::make_optional(std::move(setting));
-                              })
-                              .or_else([&] { return get_env_or_empty(kAwsAccessKeyEnv); });
-
-  config.aws_secret_key = config.aws_secret_key
-                              .or_else([&] {
-                                auto setting = memgraph::flags::run_time::GetAwsSecretKey();
-                                return setting.empty() ? std::nullopt : std::make_optional(std::move(setting));
-                              })
-                              .or_else([&] { return get_env_or_empty(kAwsSecretKeyEnv); });
-
-  config.aws_endpoint_url = config.aws_endpoint_url
-                                .or_else([&] {
-                                  auto setting = memgraph::flags::run_time::GetAwsEndpointUrl();
-                                  return setting.empty() ? std::nullopt : std::make_optional(std::move(setting));
-                                })
-                                .or_else([&] { return get_env_or_empty(kAwsEndpointUrlEnv); });
-
-  return config;
-}
-
 auto BuildHeader(std::shared_ptr<arrow::Schema> const &schema, memgraph::utils::MemoryResource *resource)
     -> memgraph::query::Header {
   memgraph::query::Header header(resource);
@@ -134,8 +90,7 @@ auto BuildHeader(std::shared_ptr<arrow::Schema> const &schema, memgraph::utils::
 }
 
 // nullptr for error
-auto LoadFileFromS3(memgraph::query::ParquetFileConfig const &s3_config)
-    -> std::unique_ptr<parquet::arrow::FileReader> {
+auto LoadFileFromS3(memgraph::query::S3Config const &s3_config) -> std::unique_ptr<parquet::arrow::FileReader> {
   GlobalS3APIManager::GetInstance();
 
   // Users needs to set aws_region, aws_access_key and aws_secret_key in some way. aws_endpoint_url is optional
@@ -143,7 +98,7 @@ auto LoadFileFromS3(memgraph::query::ParquetFileConfig const &s3_config)
     spdlog::error(
         "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} or "
         "env variable {}",
-        memgraph::query::kAwsRegionQuerySetting, kAwsRegionEnv);
+        memgraph::query::kAwsRegionQuerySetting, memgraph::query::kAwsRegionEnv);
     return nullptr;
   }
 
@@ -151,7 +106,7 @@ auto LoadFileFromS3(memgraph::query::ParquetFileConfig const &s3_config)
     spdlog::error(
         "AWS access key configuration parameter not provided. Please provide it through the query, run-time setting {} "
         "or env variable {}",
-        memgraph::query::kAwsAccessKeyQuerySetting, kAwsAccessKeyEnv);
+        memgraph::query::kAwsAccessKeyQuerySetting, memgraph::query::kAwsAccessKeyEnv);
     return nullptr;
   }
 
@@ -159,7 +114,7 @@ auto LoadFileFromS3(memgraph::query::ParquetFileConfig const &s3_config)
     spdlog::error(
         "AWS secret key configuration parameter not provided. Please provide it through the query, run-time setting {} "
         "or env variable {}",
-        memgraph::query::kAwsSecretKeyQuerySetting, kAwsSecretKeyEnv);
+        memgraph::query::kAwsSecretKeyQuerySetting, memgraph::query::kAwsSecretKeyEnv);
     return nullptr;
   }
 
@@ -650,38 +605,34 @@ auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   return true;
 }
 
-ParquetReader::ParquetReader(ParquetFileConfig parquet_file_config, utils::MemoryResource *resource,
-                             std::function<void()> abort_check) {
+ParquetReader::ParquetReader(S3Config s3_config, utils::MemoryResource *resource) {
   auto file_reader = std::invoke([&]() -> std::unique_ptr<parquet::arrow::FileReader> {
     constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
     constexpr auto s3_matcher = ctre::starts_with<"s3://">;
 
     // When using a file that should be downloaded using https or ftp, we first download it and then load it
-    if (url_matcher(parquet_file_config.file)) {
-      auto const base_path = std::filesystem::path{"/tmp"} / std::filesystem::path{parquet_file_config.file}.filename();
-      auto [local_file_path, file] = utils::CreateUniqueDownloadFile(base_path);
-
-      if (requests::CreateAndDownloadFile(parquet_file_config.file, std::move(file),
-                                          memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
-                                          std::move(abort_check))) {
+    if (url_matcher(s3_config.file)) {
+      auto const file_name = std::filesystem::path{s3_config.file}.filename();
+      auto const local_file_path = fmt::format("/tmp/{}", file_name);
+      if (requests::CreateAndDownloadFile(s3_config.file, local_file_path)) {
         utils::OnScopeExit const on_exit{[&local_file_path]() { utils::DeleteFile(local_file_path); }};
 
         return LoadFileFromDisk(local_file_path);
       }
-      spdlog::error("Couldn't download file {}", parquet_file_config.file);
+      spdlog::error("Couldn't download file {}", s3_config.file);
       return nullptr;
     }
 
-    if (s3_matcher(parquet_file_config.file)) {
-      return LoadFileFromS3(BuildS3Config(parquet_file_config));
+    if (s3_matcher(s3_config.file)) {
+      return LoadFileFromS3(s3_config);
     }
 
     // Regular file that already exists on disk
-    return LoadFileFromDisk(parquet_file_config.file);
+    return LoadFileFromDisk(s3_config.file);
   });
 
   if (!file_reader) {
-    throw utils::BasicException("Failed to load file {}.", parquet_file_config.file);
+    throw utils::BasicException("Failed to load file {}.", s3_config.file);
   }
 
   auto maybe_batch_reader = file_reader->GetRecordBatchReader();

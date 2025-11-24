@@ -24,9 +24,13 @@
 #include <boost/iostreams/filtering_stream.hpp>
 #include <ctre.hpp>
 
+import memgraph.csv.s3_config;
+
 using PlainStream = boost::iostreams::filtering_istream;
 
 namespace {
+
+// Singleton for AWS API initialization
 class GlobalS3APIManager {
  public:
   GlobalS3APIManager(GlobalS3APIManager const &) = delete;
@@ -393,19 +397,36 @@ FileCsvSource::FileCsvSource(std::filesystem::path path) : path_(std::move(path)
 }
 std::istream &FileCsvSource::GetStream() { return stream_; }
 
+S3CsvSource::S3CsvSource(utils::pmr::string uri) {
+  GlobalS3APIManager::GetInstance();
+  csv::S3Config config;
+}
+
+std::istream &S3CsvSource::GetStream() { return stream_; }
+
+UrlCsvSource::UrlCsvSource(const char *url) : StreamCsvSource{requests::UrlToStringStream(url)} {}
+
+StreamCsvSource::StreamCsvSource(std::stringstream stream) : stream_{std::move(stream)} {}
+
+std::istream &StreamCsvSource::GetStream() { return stream_; }
+
+auto CsvSource::Create(const utils::pmr::string &csv_location) -> CsvSource {
+  constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
+  constexpr auto s3_matcher = ctre::starts_with<"s3://">;
+
+  if (url_matcher(csv_location)) {
+    return CsvSource{csv::UrlCsvSource{csv_location.c_str()}};
+  }
+
+  if (s3_matcher(csv_location)) {
+    return CsvSource{csv::S3CsvSource{csv_location}};
+  }
+
+  return CsvSource{csv::FileCsvSource{csv_location}};
+}
+
 std::istream &CsvSource::GetStream() {
   return *std::visit([](auto &&source) { return std::addressof(source.GetStream()); }, source_);
 }
 
-auto CsvSource::Create(const utils::pmr::string &csv_location) -> CsvSource {
-  constexpr auto protocol_matcher = ctre::starts_with<"(https?|ftp)://">;
-  if (protocol_matcher(csv_location)) {
-    return CsvSource{csv::UrlCsvSource{csv_location.c_str()}};
-  }
-  return CsvSource{csv::FileCsvSource{csv_location}};
-}
-
-// Helper for UrlCsvSource
-
-UrlCsvSource::UrlCsvSource(const char *url) : StreamCsvSource{requests::UrlToStringStream(url)} {}
 }  // namespace memgraph::csv

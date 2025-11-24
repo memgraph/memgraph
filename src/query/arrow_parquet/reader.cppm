@@ -19,7 +19,7 @@ module;
 
 export module memgraph.query.arrow_parquet.reader;
 
-import memgraph.query.arrow_parquet.parquet_file_config;
+import memgraph.query.arrow_parquet.s3_config;
 
 export namespace memgraph::query {
 
@@ -28,8 +28,7 @@ using Header = utils::pmr::vector<TypedValue::TString>;
 
 class ParquetReader {
  public:
-  explicit ParquetReader(ParquetFileConfig parquet_file_config, utils::MemoryResource *resource,
-                         std::function<void()> abort_check);
+  explicit ParquetReader(S3Config s3_config, utils::MemoryResource *resource);
   ~ParquetReader();
 
   ParquetReader(ParquetReader const &other) = delete;
