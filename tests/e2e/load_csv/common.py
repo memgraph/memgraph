@@ -9,8 +9,28 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import os
+import typing
+from pathlib import Path
+
+import mgclient
 import pytest
 from gqlalchemy import Memgraph
+
+
+def connect(**kwargs) -> mgclient.Connection:
+    connection = mgclient.connect(**kwargs)
+    connection.autocommit = True
+    return connection
+
+
+def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
+    cursor.execute(query, params)
+    return cursor.fetchall()
+
+
+def get_file_path(file: str) -> str:
+    return os.path.join(Path(__file__).parent.absolute(), file)
 
 
 @pytest.fixture
