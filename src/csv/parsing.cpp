@@ -460,11 +460,11 @@ S3CsvSource::S3CsvSource(utils::pmr::string uri, csv::S3Config const &s3_config)
     client_config.endpointOverride = *s3_config.aws_endpoint_url;
   }
 
-  Aws::Auth::AWSCredentials credentials(*s3_config.aws_access_key, *s3_config.aws_secret_key);
+  Aws::Auth::AWSCredentials const credentials(*s3_config.aws_access_key, *s3_config.aws_secret_key);
 
   // Use path-style for S3-compatible services (4th param = false)
-  Aws::S3::S3Client s3_client(credentials, client_config, Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-                              false);
+  Aws::S3::S3Client const s3_client(credentials, client_config,
+                                    Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
 
   auto const outcome = s3_client.GetObject(std::apply(BuildGetObjectRequest, ExtractBucketAndObjectKey(uri)));
   if (!outcome.IsSuccess()) {
