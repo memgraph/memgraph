@@ -9,7 +9,6 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import datetime
 import os
 import shutil
 import sys
@@ -651,6 +650,42 @@ def test_recover_snapshot_uuid_and_name_update(global_snapshot):
     assert os.path.exists(old_snapshots_dir), ".old directory should exist"
     old_files = os.listdir(old_snapshots_dir)
     assert original_filename in old_files, "Original snapshot should be backed up in .old directory"
+
+    interactive_mg_runner.kill_all()
+
+
+def test_snapshot_on_mode_change_analytical_to_transactional():
+    data_directory = tempfile.TemporaryDirectory()
+    snapshots_dir = data_directory.name + "/snapshots"
+
+    interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
+    connection = connect(host="localhost", port=7687)
+    cursor = connection.cursor()
+
+    execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_ANALYTICAL;")
+    execute_and_fetch_all(cursor, "CREATE (:Node {id: 1, name: 'first'});")
+    execute_and_fetch_all(cursor, "CREATE (:Node {id: 2, name: 'second'});")
+    execute_and_fetch_all(cursor, "CREATE (:Node {id: 3, name: 'third'});")
+
+    result = execute_and_fetch_all(cursor, "MATCH (n:Node) RETURN count(n) as count;")
+    assert result[0][0] == 3, "Expected 3 nodes before mode change"
+
+    execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_TRANSACTIONAL;")
+
+    interactive_mg_runner.kill_all()
+
+    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+    connection = connect(host="localhost", port=7687)
+    cursor = connection.cursor()
+
+    result = execute_and_fetch_all(cursor, "MATCH (n:Node) RETURN count(n) as count;")
+    assert result[0][0] == 3, "Expected 3 nodes after recovery"
+
+    result = execute_and_fetch_all(cursor, "MATCH (n:Node) RETURN n.id, n.name ORDER BY n.id;")
+    assert len(result) == 3, "Expected 3 nodes in result"
+    assert result[0][0] == 1 and result[0][1] == "first"
+    assert result[1][0] == 2 and result[1][1] == "second"
+    assert result[2][0] == 3 and result[2][1] == "third"
 
     interactive_mg_runner.kill_all()
 
