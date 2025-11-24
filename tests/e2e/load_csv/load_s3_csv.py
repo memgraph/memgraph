@@ -19,8 +19,8 @@ from mgclient import DatabaseError
 
 # LocalStack configuration
 # NOTE: If you are testing this locally change localstack-s3 to localhost
-# AWS_ENDPOINT_URL = "http://localstack-s3:4566"
-AWS_ENDPOINT_URL = "http://localhost:4566"
+AWS_ENDPOINT_URL = "http://localstack-s3:4566"
+# AWS_ENDPOINT_URL = "http://localhost:4566"
 AWS_ACCESS_KEY_ID = "test"
 AWS_SECRET_ACCESS_KEY = "test"
 AWS_REGION = "us-east-1"
