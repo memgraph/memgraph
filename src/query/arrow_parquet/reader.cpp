@@ -16,6 +16,7 @@ module;
 #include "utils/data_queue.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
+#include "utils/pmr/string.hpp"
 #include "utils/temporal.hpp"
 
 #include <chrono>
@@ -90,7 +91,8 @@ auto BuildHeader(std::shared_ptr<arrow::Schema> const &schema, memgraph::utils::
 }
 
 // nullptr for error
-auto LoadFileFromS3(memgraph::query::S3Config const &s3_config) -> std::unique_ptr<parquet::arrow::FileReader> {
+auto LoadFileFromS3(memgraph::utils::pmr::string const &file, memgraph::query::S3Config const &s3_config)
+    -> std::unique_ptr<parquet::arrow::FileReader> {
   GlobalS3APIManager::GetInstance();
 
   // Users needs to set aws_region, aws_access_key and aws_secret_key in some way. aws_endpoint_url is optional
@@ -133,8 +135,8 @@ auto LoadFileFromS3(memgraph::query::S3Config const &s3_config) -> std::unique_p
 
   auto const &s3_fs = *maybe_s3_fs;
 
-  auto const uri_wo_prefix = s3_config.file.substr(s3_prefix.size());
-  auto rnd_acc_file = s3_fs->OpenInputFile(uri_wo_prefix);
+  auto const uri_wo_prefix = file.substr(s3_prefix.size());
+  auto rnd_acc_file = s3_fs->OpenInputFile(std::string{uri_wo_prefix});
   if (!rnd_acc_file.ok()) {
     spdlog::error(rnd_acc_file.status().message());
     return nullptr;
@@ -151,7 +153,7 @@ auto LoadFileFromS3(memgraph::query::S3Config const &s3_config) -> std::unique_p
 }
 
 // nullptr for error
-auto LoadFileFromDisk(std::string const &file_path) -> std::unique_ptr<parquet::arrow::FileReader> {
+auto LoadFileFromDisk(std::string file_path) -> std::unique_ptr<parquet::arrow::FileReader> {
   arrow::MemoryPool *pool = arrow::default_memory_pool();
 
   auto maybe_file = arrow::io::ReadableFile::Open(file_path, pool);
@@ -605,34 +607,34 @@ auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   return true;
 }
 
-ParquetReader::ParquetReader(S3Config s3_config, utils::MemoryResource *resource) {
+ParquetReader::ParquetReader(utils::pmr::string const &file, S3Config s3_config, utils::MemoryResource *resource) {
   auto file_reader = std::invoke([&]() -> std::unique_ptr<parquet::arrow::FileReader> {
     constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
     constexpr auto s3_matcher = ctre::starts_with<"s3://">;
 
     // When using a file that should be downloaded using https or ftp, we first download it and then load it
-    if (url_matcher(s3_config.file)) {
-      auto const file_name = std::filesystem::path{s3_config.file}.filename();
+    if (url_matcher(file)) {
+      auto const file_name = std::filesystem::path{file}.filename();
       auto const local_file_path = fmt::format("/tmp/{}", file_name);
-      if (requests::CreateAndDownloadFile(s3_config.file, local_file_path)) {
+      if (requests::CreateAndDownloadFile(std::string{file}, local_file_path)) {
         utils::OnScopeExit const on_exit{[&local_file_path]() { utils::DeleteFile(local_file_path); }};
 
         return LoadFileFromDisk(local_file_path);
       }
-      spdlog::error("Couldn't download file {}", s3_config.file);
+      spdlog::error("Couldn't download file {}", file);
       return nullptr;
     }
 
-    if (s3_matcher(s3_config.file)) {
-      return LoadFileFromS3(s3_config);
+    if (s3_matcher(file)) {
+      return LoadFileFromS3(file, s3_config);
     }
 
     // Regular file that already exists on disk
-    return LoadFileFromDisk(s3_config.file);
+    return LoadFileFromDisk(std::string{file});
   });
 
   if (!file_reader) {
-    throw utils::BasicException("Failed to load file {}.", s3_config.file);
+    throw utils::BasicException("Failed to load file {}.", file);
   }
 
   auto maybe_batch_reader = file_reader->GetRecordBatchReader();

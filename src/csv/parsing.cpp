@@ -24,8 +24,6 @@
 #include <boost/iostreams/filtering_stream.hpp>
 #include <ctre.hpp>
 
-import memgraph.csv.s3_config;
-
 using PlainStream = boost::iostreams::filtering_istream;
 
 namespace {
@@ -397,10 +395,7 @@ FileCsvSource::FileCsvSource(std::filesystem::path path) : path_(std::move(path)
 }
 std::istream &FileCsvSource::GetStream() { return stream_; }
 
-S3CsvSource::S3CsvSource(utils::pmr::string uri) {
-  GlobalS3APIManager::GetInstance();
-  csv::S3Config config;
-}
+S3CsvSource::S3CsvSource(utils::pmr::string uri, csv::S3Config const &s3_config) { GlobalS3APIManager::GetInstance(); }
 
 std::istream &S3CsvSource::GetStream() { return stream_; }
 
@@ -410,7 +405,7 @@ StreamCsvSource::StreamCsvSource(std::stringstream stream) : stream_{std::move(s
 
 std::istream &StreamCsvSource::GetStream() { return stream_; }
 
-auto CsvSource::Create(const utils::pmr::string &csv_location) -> CsvSource {
+auto CsvSource::Create(const utils::pmr::string &csv_location, std::optional<csv::S3Config> s3_cfg) -> CsvSource {
   constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
   constexpr auto s3_matcher = ctre::starts_with<"s3://">;
 
@@ -419,7 +414,8 @@ auto CsvSource::Create(const utils::pmr::string &csv_location) -> CsvSource {
   }
 
   if (s3_matcher(csv_location)) {
-    return CsvSource{csv::S3CsvSource{csv_location}};
+    DMG_ASSERT(s3_cfg.has_value(), "S3Config doesn't have a value");
+    return CsvSource{S3CsvSource{csv_location, *s3_cfg}};
   }
 
   return CsvSource{csv::FileCsvSource{csv_location}};

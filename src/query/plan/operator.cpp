@@ -26,6 +26,7 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
+#include "ctre.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/common.hpp"
 #include "spdlog/spdlog.h"
@@ -7607,13 +7608,13 @@ TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header,
 class LoadCsvCursor : public Cursor {
   const LoadCsv *self_;
   const UniqueCursorPtr input_cursor_;
-  bool did_pull_;
-  std::optional<csv::Reader> reader_{};
+  bool did_pull_{false};
+  std::optional<csv::Reader> reader_;
   std::optional<utils::pmr::string> nullif_;
 
  public:
   LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)), did_pull_{false} {}
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -7673,10 +7674,19 @@ class LoadCsvCursor : public Cursor {
     auto maybe_delim = ToOptionalString(&evaluator, self_->delimiter_);
     auto maybe_quote = ToOptionalString(&evaluator, self_->quote_);
 
+    // TODO: (andi) This will be parsed
+    std::map<std::string, std::string, std::less<>> query_config;
+    constexpr auto s3_matcher = ctre::starts_with<"s3://">;
+
+    std::optional<csv::S3Config> s3_config;
+    if (s3_matcher(*maybe_file)) {
+      s3_config.emplace(csv::S3Config::Build(std::move(query_config)));
+    }
+
     // No need to check if maybe_file is std::nullopt, as the parser makes sure
     // we can't get a nullptr for the 'file_' member in the LoadCsv clause.
     return csv::Reader(
-        csv::CsvSource::Create(*maybe_file),
+        csv::CsvSource::Create(*maybe_file, std::move(s3_config)),
         csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
         eval_context->memory);
   }
@@ -7793,7 +7803,7 @@ class LoadParquetCursor : public Cursor {
 
       // No need to check if maybe_file is std::nullopt, as the parser makes sure
       // we can't get a nullptr for the 'file_' member in the LoadParquet clause
-      reader_.emplace(S3Config::FromQueryConfig(std::string{maybe_file}, std::move(*maybe_config_map)), mem);
+      reader_.emplace(maybe_file, S3Config::Build(std::move(*maybe_config_map)), mem);
     }
 
     if (input_cursor_->Pull(frame, context)) {

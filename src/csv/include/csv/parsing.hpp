@@ -30,6 +30,8 @@
 #include "utils/pmr/vector.hpp"
 #include "utils/result.hpp"
 
+import memgraph.csv.s3_config;
+
 namespace memgraph::csv {
 
 class CsvReadException : public utils::BasicException {
@@ -53,7 +55,7 @@ class FileCsvSource {
 // TODO: (andi) Can you inherit from some other source
 class S3CsvSource {
  public:
-  explicit S3CsvSource(utils::pmr::string uri);
+  explicit S3CsvSource(utils::pmr::string uri, csv::S3Config const &s3_config);
 
   std::istream &GetStream();
 
@@ -80,7 +82,7 @@ class UrlCsvSource : public StreamCsvSource {
 // TODO: (andi) Should also be in some way a connected family
 class CsvSource {
  public:
-  static auto Create(utils::pmr::string const &csv_location) -> CsvSource;
+  static auto Create(utils::pmr::string const &csv_location, std::optional<csv::S3Config> s3_cfg) -> CsvSource;
   explicit CsvSource(FileCsvSource source) : source_{std::move(source)} {}
   explicit CsvSource(StreamCsvSource source) : source_{std::move(source)} {}
   explicit CsvSource(UrlCsvSource source) : source_{std::move(source)} {}

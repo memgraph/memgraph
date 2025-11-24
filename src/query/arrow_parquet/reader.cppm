@@ -15,6 +15,7 @@ module;
 
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
+#include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
 
 export module memgraph.query.arrow_parquet.reader;
@@ -28,7 +29,7 @@ using Header = utils::pmr::vector<TypedValue::TString>;
 
 class ParquetReader {
  public:
-  explicit ParquetReader(S3Config s3_config, utils::MemoryResource *resource);
+  explicit ParquetReader(utils::pmr::string const &file, S3Config s3_config, utils::MemoryResource *resource);
   ~ParquetReader();
 
   ParquetReader(ParquetReader const &other) = delete;
