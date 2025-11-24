@@ -6,5 +6,5 @@ cd "$DIR"
 
 # Temporarily disabled npm usage in CI
 echo "NPM usage temporarily disabled in CI"
-return 0
+exit 0
 "$DIR"/e2e/graphql/setup.sh
