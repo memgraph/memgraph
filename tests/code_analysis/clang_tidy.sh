@@ -8,6 +8,10 @@ THREADS=${THREADS:-$(nproc)}
 # Directories to exclude from clang-tidy analysis
 EXCLUSIONS=":!src/planner/test :!src/planner/bench"
 VENV_DIR="${VENV_DIR:-env}"
+# until https://github.com/conan-io/conan/issues/19285 is fixed
+CLASSPATH=
+DYLD_LIBRARY_PATH=
+LD_LIBRARY_PATH=
 
 if [[ "$#" -gt 0 ]]; then
   case "$1" in
