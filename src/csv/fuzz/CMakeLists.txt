@@ -1,5 +1,5 @@
 add_executable(fuzz_csv EXCLUDE_FROM_ALL)
 target_sources(fuzz_csv PRIVATE fuzz_reader.cpp)
-target_link_libraries(fuzz_csv PUBLIC mg::csv)
+target_link_libraries(fuzz_csv PRIVATE mg::csv)
 target_compile_options(fuzz_csv PRIVATE -fsanitize=fuzzer)
 target_link_libraries(fuzz_csv PRIVATE -fsanitize=fuzzer)

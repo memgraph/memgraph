@@ -15,6 +15,7 @@
 
 #include "utils/pmr/string.hpp"
 
+// NOLINTNEXTLINE
 import memgraph.csv.parsing;
 
 namespace mg = memgraph;
