@@ -66,9 +66,6 @@ std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, E
   return limit * memory_scale;
 }
 
-// can't constexpr???
-static const std::regex empty_regex("");
-
 TypedValue ExpressionEvaluator::Visit(RegexMatch &regex_match) {
   auto target_string_value = regex_match.string_expr_->Accept(*this);
   if (target_string_value.IsNull()) {
@@ -81,13 +78,22 @@ TypedValue ExpressionEvaluator::Visit(RegexMatch &regex_match) {
     return TypedValue(ctx_->memory);
   }
 
-  auto get_regex_literal = [this, &regex_match]() -> TypedValue {
-    ReferenceExpressionEvaluator reference_expression_evaluator{frame_, ctx_};
-    auto const *regex_ptr = regex_match.regex_->Accept(reference_expression_evaluator);
-    if (regex_ptr == nullptr) {
-      return regex_match.regex_->Accept(*this);
+  auto valid_regex_str = [&](TypedValue const &regex) {
+    if (regex.IsNull()) {
+      return false;
     }
-    return *regex_ptr;
+    if (regex.type() != TypedValue::Type::String) {
+      throw QueryRuntimeException("Regular expression must evaluate to a string, got {}.", regex.type());
+    }
+    return true;
+  };
+
+  auto build_regex = [](std::pmr::string const &str) {
+    try {
+      return std::regex{str};
+    } catch (const std::regex_error &e) {
+      throw QueryRuntimeException("Regex error in '{}': {}", str, e.what());
+    }
   };
 
   if (frame_change_collector_) {
@@ -97,19 +103,13 @@ TypedValue ExpressionEvaluator::Visit(RegexMatch &regex_match) {
       if (!cached_value_ref) {
         // Check only first time if everything is okay, later when we use
         // cache there is no need to check again as we did check first time
-        const auto regex_str = get_regex_literal();
-        if (regex_str.IsNull()) {
+        const auto regex_str = regex_match.regex_->Accept(*this);
+
+        if (!valid_regex_str(regex_str)) {
           return TypedValue(ctx_->memory);
         }
-        if (regex_str.type() != TypedValue::Type::String) {
-          throw QueryRuntimeException("Regular expression must evaluate to a string, got {}.", regex_str.type());
-        }
-        try {
-          auto cached_value = frame_change_collector_->AddRegexKey(cached_id, std::regex(regex_str.ValueString()));
-          cached_value_ref = cached_value;
-        } catch (const std::regex_error &e) {
-          throw QueryRuntimeException("Regex error in '{}': {}", regex_str.ValueString(), e.what());
-        }
+        auto cached_value = frame_change_collector_->AddRegexKey(cached_id, build_regex(regex_str.ValueString()));
+        cached_value_ref = cached_value;
       }
       return TypedValue(std::regex_match(target_string_value.ValueString(), cached_value_ref->get()), ctx_->memory);
     }
@@ -117,21 +117,11 @@ TypedValue ExpressionEvaluator::Visit(RegexMatch &regex_match) {
 
   // When caching is not an option, we need to evaluate regex literal every time
   auto regex_value = regex_match.regex_->Accept(*this);
-  if (regex_value.IsNull()) {
+  if (!valid_regex_str(regex_value)) {
     return TypedValue(ctx_->memory);
   }
-  if (regex_value.type() != TypedValue::Type::String) {
-    throw QueryRuntimeException("Regular expression must evaluate to a string, got {}.", regex_value.type());
-  }
-
-  try {
-    std::regex const regex(regex_value.ValueString());
-    return TypedValue(std::regex_match(target_string_value.ValueString(), regex), ctx_->memory);
-  } catch (const std::regex_error &e) {
-    throw QueryRuntimeException("Regex error in '{}': {}", regex_value.ValueString(), e.what());
-  }
-
-  return TypedValue(ctx_->memory);
+  return TypedValue(std::regex_match(target_string_value.ValueString(), build_regex(regex_value.ValueString())),
+                    ctx_->memory);
 }
 
 TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup) {

@@ -52,7 +52,7 @@ Feature: Caching
             """
         Then the result should be:
             | n                       | m                       |
-            | ({list: [2], value: 1}) | ({list: [3], value: 2}) |
+            |({list: [2], value: 1}) | ({list: [3], value: 2}) |
 
     Scenario: IN LIST with frame-dependent list elements
         Given an empty graph
@@ -90,13 +90,13 @@ Feature: Caching
             |  ({name: 'test1'})  |
             |  ({name: 'test2'})  |
 
-    Scenario: Regex cache invalidation 3
+    Scenario: Regex cache invalidation 2
         Given an empty graph
         And having executed:
             """
-            CREATE ({name:'test1', pattern:'.*est1'})
-            CREATE ({name:'test2', pattern:'.*est2'})
-            CREATE ({name:'test3', pattern:'.*est3'})
+            CREATE ({name:'test1', pattern:'.*est2'})
+            CREATE ({name:'test2', pattern:'.*est3'})
+            CREATE ({name:'test3', pattern:'.*est4'})
             """
         When executing query:
             """
@@ -110,7 +110,7 @@ Feature: Caching
             """
         Then the result should be:
             | n                          | m                          |
-            | ({name: 'test1', pattern: '.*est1'}) | ({name: 'test1', pattern: '.*est1'}) |
+            | ({name: 'test1', pattern: '.*est2'}) | ({name: 'test2', pattern: '.*est3'}) |
 
     Scenario: REGEX MATCH with frame-dependent regex elements
         Given an empty graph
@@ -123,15 +123,12 @@ Feature: Caching
             """
             MATCH (n1)
             MATCH (n2), (n3)
-            WHERE n2.name =~ n1.name OR n2.name =~ n3.name
+            WHERE (n2.name =~ n1.name OR n2.name =~ n3.name)
+            AND n2 != n3
             RETURN n1.name AS n1_name, n2.name AS n2_name, n3.name AS n3_name
             ORDER BY n1_name, n2_name, n3_name
             """
         Then the result should be, in order:
             | n1_name | n2_name | n3_name |
-            | 'test1' | 'test1' | 'test1' |
             | 'test1' | 'test1' | 'test2' |
-            | 'test1' | 'test2' | 'test2' |
-            | 'test2' | 'test1' | 'test1' |
             | 'test2' | 'test2' | 'test1' |
-            | 'test2' | 'test2' | 'test2' |

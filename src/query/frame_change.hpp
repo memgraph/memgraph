@@ -23,33 +23,33 @@
 
 namespace memgraph::query {
 
-struct CachedValue {
-  using allocator_type = utils::Allocator<CachedValue>;
+struct CachedSet {
+  using allocator_type = utils::Allocator<CachedSet>;
   using alloc_traits = std::allocator_traits<allocator_type>;
 
   // Cached value, this can be probably templateized
   absl::flat_hash_set<TypedValue, absl::DefaultHashContainerHash<TypedValue>, TypedValue::BoolEqual, allocator_type>
       cache_;
 
-  explicit CachedValue(allocator_type alloc) : cache_{alloc} {}
-  CachedValue(const CachedValue &other, allocator_type alloc) : cache_(other.cache_, alloc) {}
-  CachedValue(CachedValue &&other, allocator_type alloc) : cache_(std::move(other.cache_), alloc) {}
+  explicit CachedSet(allocator_type alloc) : cache_{alloc} {}
+  CachedSet(const CachedSet &other, allocator_type alloc) : cache_(other.cache_, alloc) {}
+  CachedSet(CachedSet &&other, allocator_type alloc) : cache_(std::move(other.cache_), alloc) {}
 
-  CachedValue(CachedValue &&other) noexcept : CachedValue(std::move(other), other.get_allocator()) {}
+  CachedSet(CachedSet &&other) noexcept : CachedSet(std::move(other), other.get_allocator()) {}
 
-  CachedValue(const CachedValue &other)
-      : CachedValue(other, alloc_traits::select_on_container_copy_construction(other.get_allocator())) {}
+  CachedSet(const CachedSet &other)
+      : CachedSet(other, alloc_traits::select_on_container_copy_construction(other.get_allocator())) {}
 
   auto get_allocator() const -> allocator_type { return cache_.get_allocator(); }
 
-  CachedValue &operator=(const CachedValue &) = delete;
-  CachedValue &operator=(CachedValue &&) = delete;
+  CachedSet &operator=(const CachedSet &) = delete;
+  CachedSet &operator=(CachedSet &&) = delete;
 
-  ~CachedValue() = default;
+  ~CachedSet() = default;
 
   void Reset() { cache_.clear(); }
 
-  bool CacheValue(const TypedValue &maybe_list) {
+  bool SetValue(const TypedValue &maybe_list) {
     if (!maybe_list.IsList()) {
       return false;
     }
@@ -61,7 +61,7 @@ struct CachedValue {
   }
 
   // Func to check if cache_ contains value
-  bool ContainsValue(const TypedValue &value) const { return cache_.contains(value); }
+  bool Contains(const TypedValue &value) const { return cache_.contains(value); }
 };
 
 // Class tracks keys for which user can cache values which help with faster search or faster retrieval
@@ -83,7 +83,7 @@ class FrameChangeCollector {
 
   auto get_allocator() const -> allocator_type { return inlist_cache_.get_allocator(); }
 
-  auto AddInListKey(utils::FrameChangeId const &key) -> CachedValue & {
+  auto AddInListKey(utils::FrameChangeId const &key) -> CachedSet & {
     const auto &[it, _] =
         inlist_cache_.emplace(std::piecewise_construct, std::forward_as_tuple(key), std::forward_as_tuple());
     return it->second;
@@ -108,7 +108,7 @@ class FrameChangeCollector {
   bool IsRegexKeyTracked(utils::FrameChangeId const &key) const { return regex_cache_.contains(key); }
 
   auto TryGetInlistCachedValue(utils::FrameChangeId const &key) const
-      -> std::optional<std::reference_wrapper<CachedValue const>> {
+      -> std::optional<std::reference_wrapper<CachedSet const>> {
     auto const it = inlist_cache_.find(key);
     if (it == inlist_cache_.cend()) {
       return std::nullopt;
@@ -123,7 +123,11 @@ class FrameChangeCollector {
   auto TryGetRegexCachedValue(utils::FrameChangeId const &key) const
       -> std::optional<std::reference_wrapper<std::regex const>> {
     auto const it = regex_cache_.find(key);
-    if (it == regex_cache_.cend() || !it->second) {  // nullopt if tracked but not populated
+    if (it == regex_cache_.cend()) {
+      return std::nullopt;
+    }
+    // nullopt if tracked but not populated
+    if (!it->second.has_value()) {
       return std::nullopt;
     }
     return std::optional{std::cref(*it->second)};
@@ -145,7 +149,7 @@ class FrameChangeCollector {
     ResetInListCacheInternal(named_expression.symbol_pos_);
   }
 
-  auto GetInlistCachedValue(utils::FrameChangeId const &key) -> CachedValue & {
+  auto GetInlistCachedValue(utils::FrameChangeId const &key) -> CachedSet & {
     auto const it = inlist_cache_.find(key);
     DMG_ASSERT(it != inlist_cache_.cend());
     return it->second;
@@ -192,7 +196,7 @@ class FrameChangeCollector {
     }
   }
 
-  utils::pmr::unordered_map<utils::FrameChangeId, CachedValue> inlist_cache_;
+  utils::pmr::unordered_map<utils::FrameChangeId, CachedSet> inlist_cache_;
   utils::pmr::unordered_map<utils::FrameChangeId, std::optional<std::regex>> regex_cache_;
   utils::pmr::unordered_map<Symbol::Position_t, utils::pmr::vector<utils::FrameChangeId>> invalidators_;
 };

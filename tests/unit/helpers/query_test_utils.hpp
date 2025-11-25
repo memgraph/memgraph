@@ -191,7 +191,7 @@ struct QueryEvaluationComponent {
 
   // Helper to get cached value reference for InList
   auto GetInlistCachedValue(const memgraph::utils::FrameChangeId &cached_id) const
-      -> std::optional<std::reference_wrapper<const CachedValue>> {
+      -> std::optional<std::reference_wrapper<const CachedSet>> {
     return frame_change_collector.TryGetInlistCachedValue(cached_id);
   }
 
@@ -220,10 +220,10 @@ struct QueryEvaluationComponent {
 
     const auto &cached_value = cached_value_ref->get();
     for (const auto &value : should_contain) {
-      EXPECT_TRUE(cached_value.ContainsValue(value)) << "Cache missing expected value";
+      EXPECT_TRUE(cached_value.Contains(value)) << "Cache missing expected value";
     }
     for (const auto &value : should_not_contain) {
-      EXPECT_FALSE(cached_value.ContainsValue(value)) << "Cache contains unexpected value";
+      EXPECT_FALSE(cached_value.Contains(value)) << "Cache contains unexpected value";
     }
   }
 

@@ -359,16 +359,16 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           }
           auto &cached_value = frame_change_collector_->GetInlistCachedValue(cached_id);
           // Don't move here because we don't want to remove the element from the frame
-          cached_value.CacheValue(list);
+          cached_value.SetValue(list);
           cached_value_ref = std::cref(cached_value);
         }
         const auto &cached_value = cached_value_ref->get();
 
-        if (cached_value.ContainsValue(literal)) {
+        if (cached_value.Contains(literal)) {
           return TypedValue(true, ctx_->memory);
         }
         // has null
-        if (cached_value.ContainsValue(TypedValue(ctx_->memory))) {
+        if (cached_value.Contains(TypedValue(ctx_->memory))) {
           return TypedValue(ctx_->memory);
         }
         return TypedValue(false, ctx_->memory);

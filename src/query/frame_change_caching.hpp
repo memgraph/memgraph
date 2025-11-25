@@ -28,43 +28,44 @@ namespace memgraph::query {
 inline void PrepareCaching(const AstStorage &ast_storage, FrameChangeCollector *frame_change_collector) {
   if (!frame_change_collector) return;
 
+  auto process_inlist = [&](InListOperator const &tree) {
+    const auto cached_id = utils::GetFrameChangeId(tree);
+
+    auto dependencies = std::set<Symbol::Position_t>{};
+    auto visitor = DependantSymbolVisitor(dependencies);
+    tree.expression2_->Accept(visitor);
+
+    if (visitor.is_cacheable()) {
+      // This InListOperator can be processed into a set and cached
+      frame_change_collector->AddInListKey(cached_id);
+      // If any dependency changes then the cache must be invalidated
+      for (auto const symbol_pos : dependencies) {
+        frame_change_collector->AddInvalidator(cached_id, symbol_pos);
+      }
+    }
+  };
+
+  auto process_regexMatch = [&](const RegexMatch &tree) {
+    const auto cached_id = utils::GetFrameChangeId(tree);
+
+    auto dependencies = std::set<Symbol::Position_t>{};
+    auto visitor = DependantSymbolVisitor(dependencies);
+    tree.regex_->Accept(visitor);
+
+    if (visitor.is_cacheable()) {
+      frame_change_collector->AddRegexKey(cached_id);
+      for (auto const symbol_pos : dependencies) {
+        frame_change_collector->AddInvalidator(cached_id, symbol_pos);
+      }
+    }
+  };
+
   for (const auto &tree : ast_storage.storage_) {
-    if (tree->GetTypeInfo() != InListOperator::kType && tree->GetTypeInfo() != RegexMatch::kType) {
-      continue;
-    }
-
-    if (tree->GetTypeInfo() == InListOperator::kType) {
-      auto *in_list_operator = utils::Downcast<InListOperator>(tree.get());
-      const auto cached_id = utils::GetFrameChangeId(*in_list_operator);
-
-      auto dependencies = std::set<Symbol::Position_t>{};
-      auto visitor = DependantSymbolVisitor(dependencies);
-      in_list_operator->expression2_->Accept(visitor);
-
-      if (visitor.is_cacheable()) {
-        // This InListOperator can be processed into a set and cached
-        frame_change_collector->AddInListKey(cached_id);
-        // If any dependency changes then the cache must be invalidated
-        for (auto const symbol_pos : dependencies) {
-          frame_change_collector->AddInvalidator(cached_id, symbol_pos);
-        }
-      }
-    }
-
-    if (tree->GetTypeInfo() == RegexMatch::kType) {
-      auto *regex_match = utils::Downcast<RegexMatch>(tree.get());
-      const auto cached_id = utils::GetFrameChangeId(*regex_match);
-
-      auto dependencies = std::set<Symbol::Position_t>{};
-      auto visitor = DependantSymbolVisitor(dependencies);
-      regex_match->regex_->Accept(visitor);
-
-      if (visitor.is_cacheable()) {
-        frame_change_collector->AddRegexKey(cached_id);
-        for (auto const symbol_pos : dependencies) {
-          frame_change_collector->AddInvalidator(cached_id, symbol_pos);
-        }
-      }
+    auto const type = tree->GetTypeInfo();
+    if (type == InListOperator::kType) {
+      process_inlist(static_cast<InListOperator &>(*tree));
+    } else if (type == RegexMatch::kType) {
+      process_regexMatch(static_cast<RegexMatch &>(*tree));
     }
   }
 }

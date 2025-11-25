@@ -180,7 +180,8 @@ TEST_F(CacheTest, RegexCacheInvalidation) {
 }
 
 TEST_F(CacheTest, SharedRegexCache) {
-  // Build: text1 =~ regex_var AND text2 =~ regex_var
+  // Build: text1 =~ regex_var
+  // Also:  text2 =~ regex_var
   auto [text1_id, text1_symbol] = builder.CreateIdentifier("text1");
   auto [text2_id, text2_symbol] = builder.CreateIdentifier("text2");
   auto [regex_id, regex_symbol] = builder.CreateIdentifier("regex_var");
@@ -195,12 +196,14 @@ TEST_F(CacheTest, SharedRegexCache) {
   auto result1 =
       evaluator.Eval(regex_match1, {{text1_symbol, TypedValue("text")}, {regex_symbol, TypedValue(".*ext")}});
   EXPECT_TRUE(result1.ValueBool());
+
+  // Both expressions share same cache
   evaluator.ExpectCachePopulated(regex_match1);
+  evaluator.ExpectCachePopulated(regex_match2);
 
   auto result2 =
       evaluator.Eval(regex_match2, {{text2_symbol, TypedValue("next")}, {regex_symbol, TypedValue(".*ext")}});
   EXPECT_TRUE(result2.ValueBool());
-  evaluator.ExpectCachePopulated(regex_match2);
 
   evaluator.frame_change_collector.ResetCache(regex_symbol);
   evaluator.ExpectCacheNotPopulated(regex_match1, "First regex cache should be cleared");
