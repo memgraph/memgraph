@@ -143,3 +143,6 @@ undocumented:
   - "version"
   - "organization_name"
   - "license_key"
+  - "auth_module_executable"
+  - "bolt_session_inactivity_timeout"
+  - "storage_parallel_index_recovery"
