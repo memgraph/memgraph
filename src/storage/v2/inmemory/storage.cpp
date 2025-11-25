@@ -2138,6 +2138,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       const auto snapshot_path = durability::CreateSnapshot(
           this, &transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_, &edges_, uuid(),
           repl_storage_state_.epoch_, repl_storage_state_.history, &file_retainer_, &abort_snapshot_);
+      commit_log_->MarkFinished(transaction.start_timestamp);
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;
