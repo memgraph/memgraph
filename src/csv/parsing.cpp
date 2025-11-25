@@ -422,7 +422,8 @@ S3CsvSource::S3CsvSource(utils::pmr::string uri, utils::S3Config const &s3_confi
   Aws::S3::S3Client const s3_client(credentials, client_config,
                                     Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
 
-  auto const outcome = s3_client.GetObject(std::apply(utils::BuildGetObjectRequest, ExtractBucketAndObjectKey(uri)));
+  auto const outcome =
+      s3_client.GetObject(std::apply(utils::BuildGetObjectRequest, utils::ExtractBucketAndObjectKey(uri)));
   if (!outcome.IsSuccess()) {
     throw CsvReadException("Failed to download file {}. Error: {}", uri, outcome.GetError().GetMessage());
   }
