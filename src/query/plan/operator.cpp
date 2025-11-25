@@ -9836,19 +9836,18 @@ class ParallelBranchCursor : public Cursor {
     for (size_t i = 1; i < branch_cursors_.size(); i++) {
       tasks.AddTask([&, i, context, main_thread = std::this_thread::get_id(),
                      mem_tracking = memgraph::memory::CrossThreadMemoryTracking()](utils::Priority /*unused*/) mutable {
-        utils::Timer timer;
-        DMG_ASSERT(context.trigger_context_collector == nullptr,
-                   "Trigger context collector must be nullptr in parallel execution");
         OOMExceptionEnabler oom_exception;
-        mem_tracking.StartTracking();  // automatically stops
-
         // Create parallel operator entry in branch's stats tree
         context.stats_root = nullptr;
         context.stats = plan::ProfilingStats();
         SCOPED_PROFILE_OP_BY_REF(self);
+
+        utils::Timer timer;
+        DMG_ASSERT(context.trigger_context_collector == nullptr,
+                   "Trigger context collector must be nullptr in parallel execution");
+        mem_tracking.StartTracking();  // automatically stops
         DMG_ASSERT(context.auth_checker->IsThreadSafe(), "Auth checker is not thread safe");
         const auto &cursor = branch_cursors_[i];
-
         if (context.frame_change_collector != nullptr) {
           branch_frame_collectors[i - 1].emplace(context.frame_change_collector->get_allocator());
           context.frame_change_collector = &branch_frame_collectors[i - 1].value();
@@ -9869,7 +9868,14 @@ class ParallelBranchCursor : public Cursor {
           }
           branch_contexts[i - 1] = std::move(context);
         } catch (const std::exception &e) {
-          // Pass exception to the main thread
+          // Stop all other threads
+          DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
+          if (context.stopping_context.exception_occurred->load(std::memory_order_acquire)) {
+            // Exception already occurred, skip this thread
+            return;
+          }
+          // Set exception occurred flag and pass exception to the main thread
+          context.stopping_context.exception_occurred->store(true, std::memory_order_release);
           exceptions[i] = std::current_exception();
           return;
         }
@@ -9881,13 +9887,18 @@ class ParallelBranchCursor : public Cursor {
       context.worker_pool->ScheduledCollection(tasks);
     }
 
+    // TODO Reuse the same logic as each thread
     // Execute branch 0 on the main thread
     const auto &cursor = branch_cursors_[0];
     try {
       pull_result.fetch_add((int)cursor->Pull(frame, context));
     } catch (const std::exception &e) {
-      // Wait for the tasks to finish and then rethrow the exception
-      exceptions[0] = std::current_exception();
+      DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
+      if (!context.stopping_context.exception_occurred->load(std::memory_order_acquire)) {
+        // Exception occurred on the main thread, set flag and pass exception to the main thread
+        context.stopping_context.exception_occurred->store(true, std::memory_order_release);
+        exceptions[0] = std::current_exception();
+      }
     }
 
     tasks.WaitOrSteal();

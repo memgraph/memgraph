@@ -201,6 +201,9 @@ enum class AbortReason : uint8_t {
 
   // the transaction timeout has been reached. Either via "--query-execution-timeout-sec", or a per-transaction timeout
   TIMEOUT = 3,
+
+  // an exception occurred in the transaction (used for parallel execution)
+  EXCEPTION = 4,
 };
 
 // This one is inherited from RetryBasicException and will be treated as
@@ -223,6 +226,10 @@ class HintedAbortError : public RetryBasicException {
         return "Transaction was asked to abort because of database shutdown."sv;
       case AbortReason::TIMEOUT:
         return "Transaction was asked to abort because of transaction timeout."sv;
+      case AbortReason::EXCEPTION:
+        return "Transaction was asked to abort because of an exception occurred. Please contact Memgraph support as "
+               "this scenario "
+               "should not happen!"sv;
       default:
         // should never happen
         return "Transaction was asked to abort for an unknown reason."sv;
