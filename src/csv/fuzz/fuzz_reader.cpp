@@ -13,7 +13,7 @@
 #include <optional>
 #include <sstream>
 
-#include "utils/string.hpp"
+#include "utils/pmr/string.hpp"
 
 import memgraph.csv.parsing;
 
@@ -59,7 +59,7 @@ extern "C" int LLVMFuzzerTestOneInput(std::uint8_t const *data, std::size_t size
   // build CSV source
   auto ss = std::stringstream{};
   ss.write(reinterpret_cast<char const *>(&data[quote_end]), static_cast<std::streamsize>(remaining));
-  auto source = csv::StreamCsvSource{std::move(ss)};
+  auto source = csv::CsvSource{csv::StreamCsvSource{std::move(ss)}};
 
   // #############################################################################################################
   try {
