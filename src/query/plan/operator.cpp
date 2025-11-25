@@ -73,7 +73,6 @@
 #include "vertex_accessor.hpp"
 
 import memgraph.csv.parsing;
-import memgraph.query.arrow_parquet.s3_config;
 import memgraph.query.arrow_parquet.reader;
 import memgraph.query.jsonl.reader;
 import memgraph.utils.aws;
@@ -7808,15 +7807,15 @@ class LoadParquetCursor : public Cursor {
 
       if (maybe_config_map->size() > 4) {
         throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
-                                    kAwsAccessKeyQuerySetting, kAwsAccessKeyQuerySetting, kAwsSecretKeyQuerySetting,
-                                    kAwsEndpointUrlQuerySetting);
+                                    utils::kAwsAccessKeyQuerySetting, utils::kAwsAccessKeyQuerySetting,
+                                    utils::kAwsSecretKeyQuerySetting, utils::kAwsEndpointUrlQuerySetting);
       }
 
       auto abort_check_erased = context.stopping_context.MakeMaybeAborter(1);
 
       // No need to check if maybe_file is std::nullopt, as the parser makes sure
       // we can't get a nullptr for the 'file_' member in the LoadParquet clause
-      reader_.emplace(maybe_file, S3Config::Build(std::move(*maybe_config_map)), mem);
+      reader_.emplace(maybe_file, utils::S3Config::Build(std::move(*maybe_config_map), BuildRunTimeS3Config()), mem);
     }
 
     if (input_cursor_->Pull(frame, context)) {

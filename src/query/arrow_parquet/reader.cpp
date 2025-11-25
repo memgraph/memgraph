@@ -91,7 +91,7 @@ auto BuildHeader(std::shared_ptr<arrow::Schema> const &schema, memgraph::utils::
 }
 
 // nullptr for error
-auto LoadFileFromS3(memgraph::utils::pmr::string const &file, memgraph::query::S3Config const &s3_config)
+auto LoadFileFromS3(memgraph::utils::pmr::string const &file, memgraph::utils::S3Config const &s3_config)
     -> std::unique_ptr<parquet::arrow::FileReader> {
   GlobalS3APIManager::GetInstance();
 
@@ -100,7 +100,7 @@ auto LoadFileFromS3(memgraph::utils::pmr::string const &file, memgraph::query::S
     spdlog::error(
         "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} or "
         "env variable {}",
-        memgraph::query::kAwsRegionQuerySetting, memgraph::query::kAwsRegionEnv);
+        memgraph::utils::kAwsRegionQuerySetting, memgraph::utils::kAwsRegionEnv);
     return nullptr;
   }
 
@@ -108,7 +108,7 @@ auto LoadFileFromS3(memgraph::utils::pmr::string const &file, memgraph::query::S
     spdlog::error(
         "AWS access key configuration parameter not provided. Please provide it through the query, run-time setting {} "
         "or env variable {}",
-        memgraph::query::kAwsAccessKeyQuerySetting, memgraph::query::kAwsAccessKeyEnv);
+        memgraph::utils::kAwsAccessKeyQuerySetting, memgraph::utils::kAwsAccessKeyEnv);
     return nullptr;
   }
 
@@ -116,7 +116,7 @@ auto LoadFileFromS3(memgraph::utils::pmr::string const &file, memgraph::query::S
     spdlog::error(
         "AWS secret key configuration parameter not provided. Please provide it through the query, run-time setting {} "
         "or env variable {}",
-        memgraph::query::kAwsSecretKeyQuerySetting, memgraph::query::kAwsSecretKeyEnv);
+        memgraph::utils::kAwsSecretKeyQuerySetting, memgraph::utils::kAwsSecretKeyEnv);
     return nullptr;
   }
 
@@ -607,7 +607,8 @@ auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   return true;
 }
 
-ParquetReader::ParquetReader(utils::pmr::string const &file, S3Config s3_config, utils::MemoryResource *resource) {
+ParquetReader::ParquetReader(utils::pmr::string const &file, utils::S3Config s3_config,
+                             utils::MemoryResource *resource) {
   auto file_reader = std::invoke([&]() -> std::unique_ptr<parquet::arrow::FileReader> {
     constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
     constexpr auto s3_matcher = ctre::starts_with<"s3://">;

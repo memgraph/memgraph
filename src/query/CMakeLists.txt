@@ -93,7 +93,6 @@ target_sources(mg-query
     PUBLIC
     FILE_SET CXX_MODULES
     FILES
-    arrow_parquet/s3_config.cppm
     arrow_parquet/reader.cppm
     jsonl/reader.cppm
     FILE_SET HEADERS
