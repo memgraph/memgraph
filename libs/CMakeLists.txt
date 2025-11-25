@@ -15,7 +15,6 @@ set(GFLAGS_NOTHREADS OFF)
 # NOTE: config/generate.py depends on the gflags help XML format.
 find_package(gflags REQUIRED)
 find_package(fmt REQUIRED)
-find_package(ZLIB REQUIRED)
 find_package(spdlog REQUIRED)
 
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR})
