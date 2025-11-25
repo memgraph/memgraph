@@ -417,6 +417,8 @@ class InMemoryStorage final : public Storage {
     // independently of PrepareForCommitPhase.
     void FinalizeCommitPhase(uint64_t durability_commit_timestamp);
 
+    void FinalizeCommitPhaseInAnalytical();
+
     /// @throw std::bad_alloc
     void Abort() override;
 

@@ -763,9 +763,14 @@ utils::BasicResult<StorageManipulationError> InMemoryStorage::InMemoryAccessor::
 
   // TODO: duplicated transaction finalization in md_deltas and deltas processing cases
   if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
-    // We don't have to update the commit timestamp here because no one reads
-    // it.
-    mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+    if (storage_->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
+      // If we are in analytical we still have work to do in order for transaction changes to be visible.
+      FinalizeCommitPhaseInAnalytical();
+    } else {
+      // We don't have to update the commit timestamp here because no one reads
+      // it.
+      mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+    }
     return {};
   }
 
@@ -887,6 +892,31 @@ utils::BasicResult<StorageManipulationError> InMemoryStorage::InMemoryAccessor::
       });
   DMG_ASSERT(res, "The commit was not applied!");
   return *std::move(res);
+}
+
+void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhaseInAnalytical() {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  transaction_.EnsureCommitTimestampExists();
+
+  auto engine_guard = std::unique_lock{storage_->engine_lock_};
+  commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
+
+  if (config_.enable_schema_info) {
+    mem_storage->schema_info_.ProcessTransaction(transaction_.schema_diff_, transaction_.post_process_,
+                                                 transaction_.start_timestamp, transaction_.transaction_id,
+                                                 mem_storage->config_.salient.items.properties_on_edges);
+  }
+  MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+  transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+
+  // Install the new point index, if needed
+  mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
+                                                          transaction_.point_index_ctx_);
+
+  // Call other callbacks that publish/install upon commit
+  transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
+  mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+  is_transaction_active_ = false;
 }
 
 void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp) {

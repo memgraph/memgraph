@@ -656,8 +656,6 @@ def test_recover_snapshot_uuid_and_name_update(global_snapshot):
 
 def test_snapshot_on_mode_change_analytical_to_transactional():
     data_directory = tempfile.TemporaryDirectory()
-    snapshots_dir = data_directory.name + "/snapshots"
-
     interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
     connection = connect(host="localhost", port=7687)
     cursor = connection.cursor()
