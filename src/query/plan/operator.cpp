@@ -75,6 +75,7 @@
 #include "utils/readable_size.hpp"
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
+#include "utils/timer.hpp"
 #include "vertex_accessor.hpp"
 
 import memgraph.csv.parsing;
@@ -9831,23 +9832,10 @@ class ParallelBranchCursor : public Cursor {
     std::vector<std::optional<TriggerContextCollector>> branch_trigger_collectors(branch_cursors_.size() - 1);
     std::vector<std::optional<FrameChangeCollector>> branch_frame_collectors(branch_cursors_.size() - 1);
 
-    // Save the parallel operator stats entry pointer and key so we can properly merge branch stats
-    plan::ProfilingStats *parallel_stats = nullptr;
-    const auto current_key = ComputeProfilingKey(this);
-    if (context.stats.key == current_key) {
-      parallel_stats = &context.stats;
-    } else {
-      auto &children = context.stats.children;
-      auto it = std::find_if(children.begin(), children.end(),
-                             [current_key](auto &stats) { return stats.key == current_key; });
-      if (it != children.end()) {
-        parallel_stats = &(*it);
-      }
-    }
-
     // Execute branches 1..N in parallel
     for (size_t i = 1; i < branch_cursors_.size(); i++) {
-      tasks.AddTask([&, i, context](utils::Priority /*unused*/) mutable {
+      tasks.AddTask([&, i, context, main_thread = std::this_thread::get_id()](utils::Priority /*unused*/) mutable {
+        utils::Timer timer;
         DMG_ASSERT(context.trigger_context_collector == nullptr,
                    "Trigger context collector must be nullptr in parallel execution");
         OOMExceptionEnabler oom_exception;
@@ -9871,6 +9859,11 @@ class ParallelBranchCursor : public Cursor {
           // Store the context copy after execution for unification
           // Force state reset (life extended through the context)
           const_cast<std::optional<ScopedProfile> &>(profile).reset();
+          if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen
+            // NOTE: Parallle operators have to PullAll, so no need to worry about switching threads (at the bolt level)
+            // Main thread is handled by the higher level
+            context.profile_execution_time += timer.Elapsed();
+          }
           branch_contexts[i - 1] = std::move(context);
         } catch (const std::exception &e) {
           // Pass exception to the main thread
@@ -9911,7 +9904,7 @@ class ParallelBranchCursor : public Cursor {
     post_pull_func(frame, context);
 
     // Unify context fields from all branches
-    UnifyContexts(context, branch_contexts, branch_frame_collectors, parallel_stats, std::move(profile));
+    UnifyContexts(context, branch_contexts, branch_frame_collectors, std::move(profile));
 
     return true;
   }
@@ -9919,12 +9912,43 @@ class ParallelBranchCursor : public Cursor {
   /**
    * Unify context fields from all branches into the main context.
    */
-  void UnifyContexts(ExecutionContext &context, const std::vector<ExecutionContext> &branch_contexts,
-                     const std::vector<std::optional<FrameChangeCollector>> &branch_frame_collectors,
-                     plan::ProfilingStats *parallel_stats, auto &&profile) {
-    for (size_t i = 0; i < branch_contexts.size(); i++) {
-      const auto &branch_ctx = branch_contexts[i];
+  void UnifyContexts(ExecutionContext &context, std::vector<ExecutionContext> &branch_contexts,
+                     const std::vector<std::optional<FrameChangeCollector>> &branch_frame_collectors, auto &&profile) {
+    plan::ProfilingStats *parallel_stats = context.stats_root;  // save before resetting the profile
+    const_cast<std::optional<ScopedProfile> &>(profile).reset();
 
+    // Helper to find all ancestors of a stats node
+    auto FindAncestors = [](plan::ProfilingStats &root,
+                            plan::ProfilingStats *target) -> std::vector<plan::ProfilingStats *> {
+      std::vector<plan::ProfilingStats *> ancestors;
+      std::function<bool(plan::ProfilingStats &, plan::ProfilingStats *)> FindPath =
+          [&FindPath, &ancestors, target](plan::ProfilingStats &current, plan::ProfilingStats *parent) -> bool {
+        if (&current == target) {
+          // Found the target - add the parent to ancestors if it exists
+          if (parent != nullptr) ancestors.push_back(parent);
+          return true;  // Found it
+        }
+        for (auto &child : current.children) {
+          if (FindPath(child, &current)) {
+            if (parent != nullptr) ancestors.push_back(parent);
+            return true;
+          }
+        }
+        return false;
+      };
+      FindPath(root, nullptr);
+      return ancestors;
+    };
+
+    // Find ancestors once (they don't change during merging)
+    std::vector<plan::ProfilingStats *> ancestors;
+    if (context.is_profile_query && parallel_stats != nullptr) {
+      ancestors = FindAncestors(context.stats, parallel_stats);
+    }
+
+    size_t branch_index = 0;  // 0th branch is localy ran and uses the main context
+    for (auto &branch_ctx : branch_contexts) {
+      branch_index++;
       // Unify number_of_hops: sum across all branches
       context.number_of_hops += branch_ctx.number_of_hops;
 
@@ -9939,9 +9963,9 @@ class ParallelBranchCursor : public Cursor {
       }
 
       // Unify frame_change_collector: merge collected data from branch into main collector
-      if (context.frame_change_collector != nullptr && branch_frame_collectors[i].has_value()) {
+      if (context.frame_change_collector != nullptr && branch_frame_collectors[branch_index].has_value()) {
         auto &main_collector = *context.frame_change_collector;
-        const auto &branch_collector = branch_frame_collectors[i].value();
+        const auto &branch_collector = branch_frame_collectors[branch_index].value();
 
         // Merge caches: combine cached values from branch into main
         const auto &branch_caches = branch_collector.caches_;
@@ -9967,37 +9991,37 @@ class ParallelBranchCursor : public Cursor {
 
       // Unify profiling stats: merge stats trees
       if (context.is_profile_query && parallel_stats != nullptr && branch_ctx.stats.key == parallel_stats->key) {
+        // Update CPU time
+        context.profile_execution_time += branch_ctx.profile_execution_time;
         // Merge stats by recursively combining stats with the same key
-        std::function<void(plan::ProfilingStats &, const plan::ProfilingStats &)> MergeProfilingStats =
-            [&MergeProfilingStats](plan::ProfilingStats &main_stats, const plan::ProfilingStats &branch_stats) {
+        std::function<void(plan::ProfilingStats &, plan::ProfilingStats &)> MergeProfilingStats =
+            [&MergeProfilingStats](plan::ProfilingStats &main_stats, plan::ProfilingStats &branch_stats) {
               // Add hits and cycles
               main_stats.actual_hits += branch_stats.actual_hits;
               main_stats.num_cycles += branch_stats.num_cycles;
 
-              for (int j = 0; j < main_stats.children.size(); j++) {
-                for (int k = 0; k < branch_stats.children.size(); k++) {
-                  auto &main_child = main_stats.children[j];
-                  auto &branch_child = branch_stats.children[k];
+              if (main_stats.children.size() < branch_stats.children.size()) {
+                std::swap(main_stats.children, branch_stats.children);
+                // throw std::runtime_error(
+                //     "Main stats children size is less than branch stats children size");  // TODO Fix this
+              }
+
+              for (int j = 0; j < branch_stats.children.size(); j++) {
+                auto &main_child = main_stats.children[j];
+                auto &branch_child = branch_stats.children[j];
+                if (main_child.name == branch_child.name) {
                   MergeProfilingStats(main_child, branch_child);
+                } else {
+                  throw std::runtime_error("Main child or branch child name mismatch");  // TODO Fix this
                 }
               }
             };
-
-        // root is always the same, so we can merge the children
-        // skip updating the root stats, since they are already handled by the main context
-        // Every branch is the same, so we can just update the main branch
-        const_cast<std::optional<ScopedProfile> &>(profile).reset();
-        const auto original_num_cycles = parallel_stats->num_cycles;
+        // Merge stats trees
         MergeProfilingStats(*parallel_stats, branch_ctx.stats);
-        std::function<void(plan::ProfilingStats &)> normalize_num_cycles =
-            [ratio = double(original_num_cycles) / double(parallel_stats->num_cycles), &normalize_num_cycles,
-             num_threads = branch_cursors_.size()](plan::ProfilingStats &stats) {
-              stats.num_cycles = stats.num_cycles * ratio;
-              for (auto &node : stats.children) {
-                normalize_num_cycles(node);
-              }
-            };
-        normalize_num_cycles(*parallel_stats);
+        // Add the branch's delta cycles to all ancestor stats
+        for (auto *ancestor : ancestors) {
+          ancestor->num_cycles += branch_ctx.stats.num_cycles;
+        }
       }
     }
   }

@@ -108,7 +108,7 @@ struct ExecutionContext {
   std::optional<size_t> parallel_execution{std::nullopt};  // if set, number of threads to use for parallel execution
   std::shared_ptr<storage::DatabaseProtector> protector;
   bool is_main{true};
-  std::chrono::duration<double> profile_execution_time;
+  std::chrono::duration<double> profile_execution_time{0};
   SymbolTable symbol_table;
 
   // ============================================================================

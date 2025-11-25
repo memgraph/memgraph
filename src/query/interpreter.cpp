@@ -2611,6 +2611,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 }
 #endif
 {
+  ctx_.profile_execution_time = std::chrono::duration<double>(0.0);
   ctx_.hops_limit = query::HopsLimit{.limit = hops_limit};
   ctx_.parallel_execution = parallel_execution;
   ctx_.db_accessor = dba;
@@ -2743,7 +2744,8 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     summary->insert_or_assign("stats", std::move(stats));
   }
   cursor_->Shutdown();
-  ctx_.profile_execution_time = execution_time_;
+  // NOTE: += because each thread adds its own execution time to the total execution time
+  ctx_.profile_execution_time += execution_time_;
 
   if (!flags::run_time::GetHopsLimitPartialResults() && ctx_.hops_limit.IsLimitReached()) {
     throw QueryException("Query exceeded the maximum number of hops.");
