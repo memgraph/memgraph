@@ -15,7 +15,8 @@ module;
 #include <optional>
 #include <string>
 
-#include "aws/core/Aws.h"
+#include <aws/core/Aws.h>
+#include <aws/s3/model/GetObjectRequest.h>
 
 export module memgraph.utils.aws;
 
@@ -63,7 +64,7 @@ struct S3Config {
 
     // Priority: query_config > runtime flags > environment variables
     config.aws_region = extract_from_map(query_config, kAwsRegionQuerySetting)
-                            .or_else([&] { return extract_from_map(run_time_config, kAwsSecretKeyQuerySetting); })
+                            .or_else([&] { return extract_from_map(run_time_config, kAwsRegionQuerySetting); })
                             .or_else([&] { return get_env(kAwsRegionEnv); });
 
     config.aws_access_key = extract_from_map(query_config, kAwsAccessKeyQuerySetting)
@@ -102,5 +103,31 @@ class GlobalS3APIManager {
 
   Aws::SDKOptions options;
 };
+
+auto BuildGetObjectRequest(std::string_view bucket_name, std::string_view object_key)
+    -> Aws::S3::Model::GetObjectRequest {
+  Aws::S3::Model::GetObjectRequest request;
+  request.SetBucket(std::string(bucket_name));
+  request.SetKey(std::string(object_key));
+  return request;
+}
+
+auto ExtractBucketAndObjectKey(std::string_view uri) -> std::pair<std::string_view, std::string_view> {
+  constexpr std::string_view s3_prefix = "s3://";
+
+  // Validate and remove prefix
+  if (!uri.starts_with(s3_prefix)) {
+    throw std::invalid_argument("URI must start with s3://");
+  }
+  uri.remove_prefix(s3_prefix.size());
+
+  // Find first slash separating bucket from the object key
+  auto const slash_pos = uri.find('/');
+  if (slash_pos == std::string_view::npos || slash_pos == uri.size() - 1) {
+    throw std::invalid_argument("URI must contain bucket and object key");
+  }
+
+  return {uri.substr(0, slash_pos), uri.substr(slash_pos + 1)};
+}
 
 }  // namespace memgraph::utils

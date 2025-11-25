@@ -320,6 +320,12 @@ add_unit_test(utils_algorithm
     LINK_TARGETS mg-utils
 )
 
+
+add_unit_test(utils_aws
+    SOURCES utils_aws.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_barrier
     SOURCES utils_barrier.cpp
     LINK_TARGETS mg-utils

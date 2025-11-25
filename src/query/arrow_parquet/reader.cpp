@@ -49,6 +49,9 @@ namespace {
 
 constexpr std::string_view s3_prefix = "s3://";
 
+// NOTE: This is very similar to the GlobalS3APIManager from utils.aws.cppm but not completely the same.
+// Arrow has an adapter for S3 library and that adapter does more things during the initialization than
+// AWS's InitAPI.
 class GlobalS3APIManager {
  public:
   GlobalS3APIManager(const GlobalS3APIManager &) = delete;
