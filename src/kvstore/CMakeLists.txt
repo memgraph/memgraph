@@ -1,5 +1,4 @@
 find_package(gflags REQUIRED)
-find_package(ZLIB REQUIRED)
 
 add_library(mg-kvstore STATIC kvstore.cpp)
 add_library(mg::kvstore ALIAS mg-kvstore)
