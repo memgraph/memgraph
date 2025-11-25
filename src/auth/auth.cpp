@@ -111,20 +111,17 @@ std::unordered_map<std::string, std::string> ModuleMappingsToMap(std::string_vie
 
 // DEPRECATED FLAGS
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
-DEFINE_VALIDATED_HIDDEN_string(
-    auth_module_executable, "", "Absolute path to the auth module executable that should be used.", {
-      spdlog::warn(
-          "The auth-module-executable flag is deprecated and superseded by auth-module-mappings. "
-          "To switch to the up-to-date flag, start Memgraph with auth-module-mappings=basic:{your module's path}.");
-      if (value.empty()) return true;
-      // Check the file status, following symlinks.
-      auto status = std::filesystem::status(value);
-      if (!std::filesystem::is_regular_file(status)) {
-        std::cerr << "The auth module path doesn't exist or isn't a file!\n";
-        return false;
-      }
-      return true;
-    });
+DEFINE_VALIDATED_HIDDEN_string(auth_module_executable, "",
+                               "Absolute path to the auth module executable that should be used.", {
+                                 if (value.empty()) return true;
+                                 // Check the file status, following symlinks.
+                                 auto status = std::filesystem::status(value);
+                                 if (!std::filesystem::is_regular_file(status)) {
+                                   std::cerr << "The auth module path doesn't exist or isn't a file!\n";
+                                   return false;
+                                 }
+                                 return true;
+                               });
 namespace memgraph::auth {
 
 const Auth::Epoch Auth::kStartEpoch = 1;

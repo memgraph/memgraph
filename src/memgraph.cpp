@@ -16,6 +16,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
@@ -71,6 +72,7 @@
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
 
+#include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
 
@@ -88,6 +90,23 @@ constexpr const char *kMgBoltPort = "MEMGRAPH_BOLT_PORT";
 constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES";
 
 constexpr uint64_t kMgVmMaxMapCount = 262144;
+
+void WarnDeprecatedFlags() {
+  auto warn_if_set = [](std::string_view name, std::string_view message) {
+    const auto info = gflags::GetCommandLineFlagInfoOrDie(std::string{name}.c_str());
+    if (!info.is_default) spdlog::warn("{}", message);
+  };
+
+  warn_if_set("auth_module_executable",
+              "The auth-module-executable flag is deprecated and superseded by auth-module-mappings. "
+              "To switch to the up-to-date flag, start Memgraph with auth-module-mappings=basic:{your module's path}.");
+  warn_if_set("bolt_session_inactivity_timeout",
+              "The bolt_session_inactivity_timeout flag is deprecated. The feature has been removed, inactivity "
+              "timeout is not supported as of v3.0.");
+  warn_if_set("storage_parallel_index_recovery",
+              "storage_parallel_index_recovery flag is deprecated. Check storage_mode_parallel_schema_recovery for "
+              "more details.");
+}
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
 void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbms::DatabaseAccess &db_acc,
@@ -171,6 +190,7 @@ int main(int argc, char **argv) {
   // overwrite the config.
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  WarnDeprecatedFlags();
 
   if (FLAGS_h) {
     gflags::ShowUsageWithFlags(argv[0]);
