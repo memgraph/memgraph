@@ -13,7 +13,6 @@
 
 #include <tuple>
 #include <utility>
-#include "frontend/semantic/symbol.hpp"
 #include "query/frontend/ast/query/named_expression.hpp"
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
@@ -80,6 +79,7 @@ class FrameChangeCollector {
   FrameChangeCollector(FrameChangeCollector &&) = delete;
   FrameChangeCollector &operator=(const FrameChangeCollector &) = delete;
   FrameChangeCollector &operator=(FrameChangeCollector &&) noexcept = delete;
+  ~FrameChangeCollector() = default;
 
   auto get_allocator() const -> allocator_type { return inlist_cache_.get_allocator(); }
 
@@ -91,7 +91,7 @@ class FrameChangeCollector {
 
   // This will only happen when walking through the AST to see what is cacheable
   auto AddRegexKey(utils::FrameChangeId const &key) -> std::optional<std::reference_wrapper<std::regex const>> {
-    const auto &[it, _] = regex_cache_.try_emplace(key, std::nullopt);
+    regex_cache_.try_emplace(key, std::nullopt);
     return std::nullopt;
   }
 
@@ -123,7 +123,7 @@ class FrameChangeCollector {
   auto TryGetRegexCachedValue(utils::FrameChangeId const &key) const
       -> std::optional<std::reference_wrapper<std::regex const>> {
     auto const it = regex_cache_.find(key);
-    if (it == regex_cache_.cend() || !it->second) {
+    if (it == regex_cache_.cend() || !it->second) {  // nullopt if tracked but not populated
       return std::nullopt;
     }
     return std::optional{std::cref(*it->second)};
@@ -160,7 +160,7 @@ class FrameChangeCollector {
   }
 
   void AddInvalidator(utils::FrameChangeId const &key, Symbol::Position_t symbol_pos) {
-    invalidators_[symbol_pos].push_back(key);
+    invalidators_[symbol_pos].emplace_back(key);
   }
 
   bool AnyCaches() const { return !inlist_cache_.empty() || !regex_cache_.empty(); }
@@ -187,7 +187,7 @@ class FrameChangeCollector {
       return;
     for (auto const &key : it->second) {
       if (auto it2 = regex_cache_.find(key); it2 != regex_cache_.cend()) {
-        it2->second = std::nullopt;
+        it2->second = std::nullopt;  // tracked but not populated
       }
     }
   }

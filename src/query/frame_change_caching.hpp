@@ -60,8 +60,6 @@ inline void PrepareCaching(const AstStorage &ast_storage, FrameChangeCollector *
       regex_match->regex_->Accept(visitor);
 
       if (visitor.is_cacheable()) {
-        // key is added just so we know the cache is not empty
-        // TODO: better way
         frame_change_collector->AddRegexKey(cached_id);
         for (auto const symbol_pos : dependencies) {
           frame_change_collector->AddInvalidator(cached_id, symbol_pos);
