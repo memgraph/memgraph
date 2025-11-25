@@ -27,11 +27,12 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 #include "ctre.hpp"
-#include "memory/query_memory_control.hpp"
-#include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
+#include "flags/run_time_configurable.hpp"
 #include "license/license.hpp"
+#include "memory/query_memory_control.hpp"
+#include "query/common.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -7604,6 +7605,16 @@ TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header,
   return {std::move(m), mem};
 }
 
+// Builds a map of run-time settings
+auto BuildRunTimeS3Config() -> std::map<std::string, std::string, std::less<>> {
+  std::map<std::string, std::string, std::less<>> config;
+  config.emplace(csv::kAwsRegionQuerySetting, memgraph::flags::run_time::GetAwsRegion());
+  config.emplace(csv::kAwsAccessKeyQuerySetting, memgraph::flags::run_time::GetAwsAccessKey());
+  config.emplace(csv::kAwsSecretKeyQuerySetting, memgraph::flags::run_time::GetAwsSecretKey());
+  config.emplace(csv::kAwsEndpointUrlQuerySetting, memgraph::flags::run_time::GetAwsEndpointUrl());
+  return config;
+}
+
 }  // namespace
 
 class LoadCsvCursor : public Cursor {
@@ -7677,11 +7688,12 @@ class LoadCsvCursor : public Cursor {
 
     // TODO: (andi) This will be parsed
     std::map<std::string, std::string, std::less<>> query_config;
+
     constexpr auto s3_matcher = ctre::starts_with<"s3://">;
 
     std::optional<csv::S3Config> s3_config;
     if (s3_matcher(*maybe_file)) {
-      s3_config.emplace(csv::S3Config::Build(std::move(query_config)));
+      s3_config.emplace(csv::S3Config::Build(std::move(query_config), BuildRunTimeS3Config()));
     }
 
     // No need to check if maybe_file is std::nullopt, as the parser makes sure

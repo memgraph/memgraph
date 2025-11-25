@@ -15,16 +15,10 @@ module;
 #include <optional>
 #include <string>
 
-#include "flags/run_time_configurable.hpp"
-
-// TODO: (andi) This is a copy of the s3_config for arrow_parquet
-// Need to have only a single copy of this file
-
 export module memgraph.csv.s3_config;
 
 using namespace std::string_view_literals;
 
-// TODO: (andi) This will become memgraph::utils
 export namespace memgraph::csv {
 
 constexpr auto kAwsRegionQuerySetting = "aws_region"sv;
@@ -44,13 +38,15 @@ struct S3Config {
   std::optional<std::string> aws_endpoint_url;
 
   // Query settings -> run_time flags -> env variables
-  static auto Build(std::map<std::string, std::string, std::less<>> query_config) -> S3Config {
+  static auto Build(std::map<std::string, std::string, std::less<>> query_config,
+                    std::map<std::string, std::string, std::less<>> run_time_config) -> S3Config {
     S3Config config;
 
-    // Helper to extract value from map
-    auto extract_from_map = [&](std::string_view key) -> std::optional<std::string> {
-      if (auto it = query_config.find(key); it != query_config.end()) {
-        return std::move(it->second);
+    // C++26 get
+    auto extract_from_map = [](std::map<std::string, std::string, std::less<>> const &config,
+                               std::string_view key) -> std::optional<std::string> {
+      if (auto it = config.find(key); it != config.end()) {
+        return it->second;
       }
       return std::nullopt;
     };
@@ -63,28 +59,23 @@ struct S3Config {
       return std::nullopt;
     };
 
-    // Helper to get runtime flag (returns optional to avoid empty string checks)
-    auto get_flag = [](auto &&flag_getter) -> std::optional<std::string> {
-      auto value = flag_getter();
-      return value.empty() ? std::nullopt : std::make_optional(std::move(value));
-    };
-
     // Priority: query_config > runtime flags > environment variables
-    config.aws_region = extract_from_map(kAwsRegionQuerySetting)
-                            .or_else([&] { return get_flag(memgraph::flags::run_time::GetAwsRegion); })
+    config.aws_region = extract_from_map(query_config, kAwsRegionQuerySetting)
+                            .or_else([&] { return extract_from_map(run_time_config, kAwsSecretKeyQuerySetting); })
                             .or_else([&] { return get_env(kAwsRegionEnv); });
 
-    config.aws_access_key = extract_from_map(kAwsAccessKeyQuerySetting)
-                                .or_else([&] { return get_flag(memgraph::flags::run_time::GetAwsAccessKey); })
+    config.aws_access_key = extract_from_map(query_config, kAwsAccessKeyQuerySetting)
+                                .or_else([&] { return extract_from_map(run_time_config, kAwsAccessKeyQuerySetting); })
                                 .or_else([&] { return get_env(kAwsAccessKeyEnv); });
 
-    config.aws_secret_key = extract_from_map(kAwsSecretKeyQuerySetting)
-                                .or_else([&] { return get_flag(memgraph::flags::run_time::GetAwsSecretKey); })
+    config.aws_secret_key = extract_from_map(query_config, kAwsSecretKeyQuerySetting)
+                                .or_else([&] { return extract_from_map(run_time_config, kAwsSecretKeyQuerySetting); })
                                 .or_else([&] { return get_env(kAwsSecretKeyEnv); });
 
-    config.aws_endpoint_url = extract_from_map(kAwsEndpointUrlQuerySetting)
-                                  .or_else([&] { return get_flag(memgraph::flags::run_time::GetAwsEndpointUrl); })
-                                  .or_else([&] { return get_env(kAwsEndpointUrlEnv); });
+    config.aws_endpoint_url =
+        extract_from_map(query_config, kAwsEndpointUrlQuerySetting)
+            .or_else([&] { return extract_from_map(run_time_config, kAwsEndpointUrlQuerySetting); })
+            .or_else([&] { return get_env(kAwsEndpointUrlEnv); });
 
     return config;
   }
