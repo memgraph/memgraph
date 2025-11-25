@@ -105,8 +105,7 @@ TypedValue ExpressionEvaluator::Visit(RegexMatch &regex_match) {
           throw QueryRuntimeException("Regular expression must evaluate to a string, got {}.", regex_str.type());
         }
         try {
-          std::regex const regex(regex_str.ValueString());
-          auto cached_value = frame_change_collector_->AddRegexKey(cached_id, regex);
+          auto cached_value = frame_change_collector_->AddRegexKey(cached_id, std::regex(regex_str.ValueString()));
           cached_value_ref = cached_value;
         } catch (const std::regex_error &e) {
           throw QueryRuntimeException("Regex error in '{}': {}", regex_str.ValueString(), e.what());

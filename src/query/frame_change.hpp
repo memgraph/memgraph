@@ -95,11 +95,11 @@ class FrameChangeCollector {
     return std::nullopt;
   }
 
-  auto AddRegexKey(utils::FrameChangeId const &key, std::regex const &regex)
+  auto AddRegexKey(utils::FrameChangeId const &key, std::regex regex)
       -> std::optional<std::reference_wrapper<std::regex const>> {
     auto it = regex_cache_.find(key);
     DMG_ASSERT(it != regex_cache_.cend(), "Regex key should be tracked");
-    it->second = regex;
+    it->second = std::move(regex);
     return std::optional{std::cref(*it->second)};
   }
 
