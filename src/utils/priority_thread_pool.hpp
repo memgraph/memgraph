@@ -67,7 +67,7 @@ class HotMask {
   const uint16_t n_groups_;
 };
 
-using TaskSignature = std::function<void(utils::Priority)>;
+using TaskSignature = std::move_only_function<void(utils::Priority)>;
 
 // Collection of tasks that can be executed by the thread pool
 // The idea is to batch tasks and have the ability to wait on them
