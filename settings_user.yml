@@ -1,0 +1,8 @@
+os:
+  Linux:
+    distro: [null, Any]
+compiler:
+  clang:
+    asan: [null, True]
+    ubsan: [null, True]
+    tsan: [null, True]
