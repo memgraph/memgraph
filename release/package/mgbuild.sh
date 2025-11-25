@@ -558,13 +558,15 @@ build_memgraph () {
     docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add artifactory $conan_remote"
   fi
 
+  # Install our config
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan config install ./conan_config"
+
   # Install Conan dependencies
   echo "Installing Conan dependencies..."
   local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version}"
   local EXPORT_BUILD_TYPE="export BUILD_TYPE=$build_type"
 
   # Determine profile template based on sanitizer flags
-  local PROFILE_TEMPLATE="./memgraph_template_profile"
   local DASAN_ENABLED=false
   local DUBSAN_ENABLED=false
 
@@ -596,10 +598,8 @@ build_memgraph () {
     echo "No sanitizers enabled"
   fi
 
-  echo "Using profile template: $PROFILE_TEMPLATE"
-
   CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE"
-  docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr:h $PROFILE_TEMPLATE -pr:b ./memgraph_build_profile -s build_type=$build_type -s os=Linux -s os.distro=$os"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type  -s os=Linux -s os.distro=$os"
   CMD_START="$CMD_START && source build/generators/conanbuild.sh && $ACTIVATE_CARGO"
 
   # Determine preset name based on build type (Conan generates this automatically)

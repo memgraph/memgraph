@@ -154,16 +154,8 @@ if [ ! -f "$HOME/.conan2/profiles/default" ]; then
     conan profile detect
 fi
 
-# Install custom settings for package isolation
-if [ -f "settings_user.yml" ]; then
-    mkdir -p "$HOME/.conan2"
-    if ! cmp -s settings_user.yml "$HOME/.conan2/settings_user.yml" 2>/dev/null; then
-        echo "Installing custom Conan settings for package isolation"
-        cp settings_user.yml "$HOME/.conan2/settings_user.yml"
-    fi
-else
-    echo "Warning: settings_user.yml not found - package isolation may not work correctly"
-fi
+# Install custom conan settings
+conan config install conan_config
 
 # fetch libs that aren't provided by conan yet
 if [ "$skip_init" = false ]; then
@@ -209,8 +201,8 @@ fi
 MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install \
   . \
   --build=missing \
-  -pr:h ./memgraph_template_profile \
-  -pr:b ./memgraph_build_profile \
+  -pr:h memgraph_template_profile \
+  -pr:b memgraph_build_profile \
   -s build_type="$BUILD_TYPE"
 
 export CLASSPATH=
