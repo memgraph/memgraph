@@ -267,9 +267,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
   // Operators with branches that could contain Aggregate
   bool PreVisit(Merge &op) override {
     prev_ops_.push_back(&op);
-    op.input()->Accept(*this);
-    // Note: merge_match_ branch could also contain Aggregate, but we handle the input branch here
-    return false;
+    return op.input()->Accept(*this) && op.merge_match_->Accept(*this) && op.merge_create_->Accept(*this);
   }
   bool PostVisit(Merge &) override {
     prev_ops_.pop_back();
@@ -278,9 +276,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
 
   bool PreVisit(Optional &op) override {
     prev_ops_.push_back(&op);
-    op.input()->Accept(*this);
-    // Note: optional_ branch could also contain Aggregate, but we handle the input branch here
-    return false;
+    return op.input()->Accept(*this) && op.optional_->Accept(*this);
   }
   bool PostVisit(Optional &) override {
     prev_ops_.pop_back();
@@ -289,31 +285,16 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
 
   bool PreVisit(Foreach &op) override {
     prev_ops_.push_back(&op);
-    op.input()->Accept(*this);
-    // Note: update_clauses_ branch could also contain Aggregate
-    return false;
+    return op.input()->Accept(*this) && op.update_clauses_->Accept(*this);
   }
   bool PostVisit(Foreach &) override {
     prev_ops_.pop_back();
     return true;
   }
 
-  bool PreVisit(Apply &op) override {
-    prev_ops_.push_back(&op);
-    op.input()->Accept(*this);
-    // Note: subquery_ branch could also contain Aggregate
-    return false;
-  }
-  bool PostVisit(Apply &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
   bool PreVisit(RollUpApply &op) override {
     prev_ops_.push_back(&op);
-    op.input()->Accept(*this);
-    // Note: list_collection_branch_ could also contain Aggregate
-    return false;
+    return op.input()->Accept(*this) && op.list_collection_branch_->Accept(*this);
   }
   bool PostVisit(RollUpApply &) override {
     prev_ops_.pop_back();
@@ -322,11 +303,18 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
 
   bool PreVisit(PeriodicSubquery &op) override {
     prev_ops_.push_back(&op);
-    op.input()->Accept(*this);
-    // Note: subquery_ branch could also contain Aggregate
-    return false;
+    return op.input()->Accept(*this) && op.subquery_->Accept(*this);
   }
   bool PostVisit(PeriodicSubquery &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(Apply &op) override {
+    prev_ops_.push_back(&op);
+    return op.input()->Accept(*this) && op.subquery_->Accept(*this);
+  }
+  bool PostVisit(Apply &) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -482,7 +470,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
         op.set_input(scan_chunk);
       } else {
         // The scan is somewhere in the input chain, find and replace it
-        if (!ReplaceScanInChain(op.input(), target_scan, scan_chunk)) {
+        if (!ReplaceScanInChain(prev_ops_.back()->input() /* op */, target_scan, scan_chunk)) {
           // If we couldn't find it, something is wrong
           prev_ops_.push_back(&op);
           return true;
@@ -491,8 +479,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     }
 
     // Create AggregateParallel with default num_threads
-    auto parallel_agg = std::make_shared<AggregateParallel>(prev_ops_.back()->input(),  // op
-                                                            num_threads_);
+    auto parallel_agg = std::make_shared<AggregateParallel>(prev_ops_.back()->input() /*op */, num_threads_);
 
     // Switch the parent operator (if any) to use AggregateParallel instead of Aggregate
     // This makes: Parent -> AggregateParallel instead of Parent -> Aggregate
@@ -696,9 +683,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
 
   bool PreVisit(Cartesian &op) override {
     prev_ops_.push_back(&op);
-    op.left_op_->Accept(*this);
-    op.right_op_->Accept(*this);
-    return false;
+    return op.left_op_->Accept(*this) && op.right_op_->Accept(*this);
   }
   bool PostVisit(Cartesian &) override {
     prev_ops_.pop_back();
@@ -707,9 +692,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
 
   bool PreVisit(HashJoin &op) override {
     prev_ops_.push_back(&op);
-    op.left_op_->Accept(*this);
-    op.right_op_->Accept(*this);
-    return false;
+    return op.left_op_->Accept(*this) && op.right_op_->Accept(*this);
   }
   bool PostVisit(HashJoin &) override {
     prev_ops_.pop_back();
@@ -718,9 +701,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
 
   bool PreVisit(IndexedJoin &op) override {
     prev_ops_.push_back(&op);
-    op.main_branch_->Accept(*this);
-    op.sub_branch_->Accept(*this);
-    return false;
+    return op.main_branch_->Accept(*this) && op.sub_branch_->Accept(*this);
   }
   bool PostVisit(IndexedJoin &) override {
     prev_ops_.pop_back();
@@ -1400,21 +1381,18 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
       return true;
     }
 
-    // For multi-input operators, check all branches
+    // Recursively check the input chain
+    if (current->HasSingleInput()) [[likely]] {
+      // Recursively check the input chain
+      return ReplaceScanInChain(current->input(), target_scan, scan_chunk);
+    }
+    // For multi-input operators, check only main branch
     if (auto *union_op = dynamic_cast<Union *>(current.get())) {
       if (union_op->left_op_ && union_op->left_op_.get() == target_scan.get()) {
         union_op->left_op_ = scan_chunk;
         return true;
       }
-      if (union_op->right_op_ && union_op->right_op_.get() == target_scan.get()) {
-        union_op->right_op_ = scan_chunk;
-        return true;
-      }
-      // Recursively check branches
-      if (union_op->left_op_ && ReplaceScanInChain(union_op->left_op_, target_scan, scan_chunk)) {
-        return true;
-      }
-      if (union_op->right_op_ && ReplaceScanInChain(union_op->right_op_, target_scan, scan_chunk)) {
+      if (ReplaceScanInChain(union_op->left_op_, target_scan, scan_chunk)) {
         return true;
       }
     } else if (auto *cartesian_op = dynamic_cast<Cartesian *>(current.get())) {
@@ -1422,14 +1400,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
         cartesian_op->left_op_ = scan_chunk;
         return true;
       }
-      if (cartesian_op->right_op_ && cartesian_op->right_op_.get() == target_scan.get()) {
-        cartesian_op->right_op_ = scan_chunk;
-        return true;
-      }
-      if (cartesian_op->left_op_ && ReplaceScanInChain(cartesian_op->left_op_, target_scan, scan_chunk)) {
-        return true;
-      }
-      if (cartesian_op->right_op_ && ReplaceScanInChain(cartesian_op->right_op_, target_scan, scan_chunk)) {
+      if (ReplaceScanInChain(cartesian_op->left_op_, target_scan, scan_chunk)) {
         return true;
       }
     } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current.get())) {
@@ -1437,14 +1408,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
         indexed_join_op->main_branch_ = scan_chunk;
         return true;
       }
-      if (indexed_join_op->sub_branch_ && indexed_join_op->sub_branch_.get() == target_scan.get()) {
-        indexed_join_op->sub_branch_ = scan_chunk;
-        return true;
-      }
-      if (indexed_join_op->main_branch_ && ReplaceScanInChain(indexed_join_op->main_branch_, target_scan, scan_chunk)) {
-        return true;
-      }
-      if (indexed_join_op->sub_branch_ && ReplaceScanInChain(indexed_join_op->sub_branch_, target_scan, scan_chunk)) {
+      if (ReplaceScanInChain(indexed_join_op->main_branch_, target_scan, scan_chunk)) {
         return true;
       }
     } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(current.get())) {
@@ -1452,14 +1416,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
         hash_join_op->left_op_ = scan_chunk;
         return true;
       }
-      if (hash_join_op->right_op_ && hash_join_op->right_op_.get() == target_scan.get()) {
-        hash_join_op->right_op_ = scan_chunk;
-        return true;
-      }
-      if (hash_join_op->left_op_ && ReplaceScanInChain(hash_join_op->left_op_, target_scan, scan_chunk)) {
-        return true;
-      }
-      if (hash_join_op->right_op_ && ReplaceScanInChain(hash_join_op->right_op_, target_scan, scan_chunk)) {
+      if (ReplaceScanInChain(hash_join_op->left_op_, target_scan, scan_chunk)) {
         return true;
       }
     } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(current.get())) {
@@ -1467,7 +1424,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
         rollup_apply_op->input_ = scan_chunk;
         return true;
       }
-      if (rollup_apply_op->input_ && ReplaceScanInChain(rollup_apply_op->input_, target_scan, scan_chunk)) {
+      if (ReplaceScanInChain(rollup_apply_op->input_, target_scan, scan_chunk)) {
         return true;
       }
     } else if (dynamic_cast<Once *>(current.get()) != nullptr ||
@@ -1475,9 +1432,6 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
                dynamic_cast<OutputTableStream *>(current.get()) != nullptr) {
       // Terminal operators with no inputs - cannot contain target_scan
       return false;
-    } else if (current->HasSingleInput()) {
-      // Recursively check the input chain
-      return ReplaceScanInChain(current->input(), target_scan, scan_chunk);
     }
 
     return false;
