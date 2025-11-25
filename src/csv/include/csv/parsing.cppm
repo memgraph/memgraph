@@ -34,6 +34,14 @@ export module memgraph.csv.parsing;
 
 import memgraph.csv.s3_config;
 
+namespace {
+template <typename T>
+concept Streamable = requires(T t) {
+  { t.GetStream() } -> std::convertible_to<std::istream &>;
+};
+
+}  // namespace
+
 export namespace memgraph::csv {
 
 class CsvReadException : public utils::BasicException {
@@ -75,13 +83,16 @@ class UrlCsvSource : public StreamCsvSource {
   explicit UrlCsvSource(char const *url);
 };
 
+static_assert(Streamable<FileCsvSource>);
+static_assert(Streamable<S3CsvSource>);
+static_assert(Streamable<UrlCsvSource>);
+static_assert(Streamable<StreamCsvSource>);
+
 class CsvSource {
  public:
   static auto Create(utils::pmr::string const &csv_location, std::optional<csv::S3Config> s3_cfg) -> CsvSource;
-  explicit CsvSource(FileCsvSource source) : source_{std::move(source)} {}
-  explicit CsvSource(StreamCsvSource source) : source_{std::move(source)} {}
-  explicit CsvSource(UrlCsvSource source) : source_{std::move(source)} {}
-  explicit CsvSource(S3CsvSource source) : source_{std::move(source)} {}
+  template <Streamable T>
+  explicit CsvSource(T source) : source_{std::move(source)} {}
 
   std::istream &GetStream();
 

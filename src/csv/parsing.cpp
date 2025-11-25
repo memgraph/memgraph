@@ -488,6 +488,11 @@ StreamCsvSource::StreamCsvSource(std::stringstream stream) : stream_{std::move(s
 
 std::istream &StreamCsvSource::GetStream() { return stream_; }
 
+template memgraph::csv::CsvSource::CsvSource(memgraph::csv::FileCsvSource);
+template memgraph::csv::CsvSource::CsvSource(memgraph::csv::UrlCsvSource);
+template memgraph::csv::CsvSource::CsvSource(memgraph::csv::StreamCsvSource);
+template memgraph::csv::CsvSource::CsvSource(memgraph::csv::S3CsvSource);
+
 auto CsvSource::Create(const utils::pmr::string &csv_location, std::optional<csv::S3Config> s3_cfg) -> CsvSource {
   constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
   constexpr auto s3_matcher = ctre::starts_with<"s3://">;
