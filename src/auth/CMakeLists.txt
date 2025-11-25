@@ -19,7 +19,6 @@ target_link_libraries(mg-auth mg-utils mg-kvstore mg-license mg::system mg-repli
 target_link_libraries(mg-auth ${Seccomp_LIBRARIES})
 target_include_directories(mg-auth SYSTEM PRIVATE ${Seccomp_INCLUDE_DIRS})
 
-find_package(OpenSSL REQUIRED)
 target_link_libraries(mg-auth openssl::openssl)
 
 # Install reference auth modules and their configuration files.

@@ -22,7 +22,6 @@ target_precompile_headers(memgraph_unit_main PRIVATE
 add_library(storage_test_utils storage_test_utils.cpp)
 target_link_libraries(storage_test_utils mg::storage)
 
-find_package(OpenSSL REQUIRED)
 find_package(Boost REQUIRED CONFIG COMPONENTS filesystem)
 
 # Test integrations-kafka
