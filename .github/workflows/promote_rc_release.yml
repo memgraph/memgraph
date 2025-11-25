@@ -130,17 +130,17 @@ jobs:
               package_name=${package_deb_arm}
             fi
           fi
+          if [[ "${{ matrix.malloc }}" == "true" ]]; then
+            os="${os}-malloc"
+          fi
           if [[ "${{ matrix.arch }}" == "arm" ]]; then
             os="${os}-aarch64"
           fi
           if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
             os="${os}-relwithdebinfo"
           fi
-          if [[ "${{ matrix.malloc }}" == "false" ]]; then
-            echo "package_path=${os}/${package_name}" >> $GITHUB_ENV
-          else
-            echo "package_path=${os}-malloc/${package_name}" >> $GITHUB_ENV
-          fi
+          echo "package_path=${os}/${package_name}" >> $GITHUB_ENV
+
 
       - name: Check if rc package for this build exists
         run: |
@@ -195,7 +195,7 @@ jobs:
           os_arm="docker-aarch64"
           if [[ "${{ matrix.malloc }}" == "true" ]]; then
             os_x86="${os_x86}-malloc"
-            os_arm="${os_arm}-malloc"
+            os_arm="$docker-malloc-aarch64"  # TODO(matt): reorder this in packaging workflow
           fi
           if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
             package="${package_docker_relwithdebinfo}"
