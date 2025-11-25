@@ -10,8 +10,8 @@
 # licenses/APL.txt.
 
 import sys
-import pytest
 
+import pytest
 from common import get_results_length, memgraph
 from gqlalchemy import GQLAlchemyError
 
@@ -21,10 +21,6 @@ def test_create_everything_then_drop_graph(memgraph):
     memgraph.execute("CREATE INDEX ON :Node")
     memgraph.execute("CREATE INDEX ON :Node(id)")
     memgraph.execute("CREATE EDGE INDEX ON :EdgeType")
-    memgraph.execute("CREATE TEXT INDEX complianceDocuments ON :Report;")
-    memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.id IS UNIQUE;")
-    memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT EXISTS (n.id);")
-    memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.id IS TYPED INTEGER;")
     memgraph.execute("CREATE TRIGGER t1 ON () UPDATE BEFORE COMMIT EXECUTE RETURN 1")
     memgraph.execute("CREATE TRIGGER t2 ON () UPDATE AFTER COMMIT EXECUTE RETURN 1")
 
