@@ -9,13 +9,13 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import os
 import sys
 from pathlib import Path
 
 import boto3
 import pytest
 from common import connect, execute_and_fetch_all, get_file_path
+from mgclient import DatabaseError
 
 # LocalStack configuration
 # NOTE: If you are testing this locally change localstack-s3 to localhost
@@ -25,6 +25,20 @@ AWS_ACCESS_KEY_ID = "test"
 AWS_SECRET_ACCESS_KEY = "test"
 AWS_REGION = "us-east-1"
 BUCKET_NAME = "deps.memgraph.io"
+
+
+def test_invalid_setting():
+    cursor = connect(host="localhost", port=7687).cursor()
+    SETTING_KEY = "file.download_conn_timeout_sec"
+    setting_query = f"set database setting '{SETTING_KEY}' to '-400'"
+    # Should throw exception because of -400
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(cursor, setting_query)
+
+    setting_query = f"set database setting '{SETTING_KEY}' to 'abc'"
+    # Should throw exception because of abc
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(cursor, setting_query)
 
 
 def test_http_file():

@@ -175,6 +175,7 @@ std::atomic<bool> cartesian_product_enabled_{true};
 std::atomic<bool> debug_query_plans_{false};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 std::atomic<bool> storage_gc_aggressive_{false};
+std::atomic<uint64_t> file_download_conn_timeout_sec_;
 
 class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
  public:
@@ -467,7 +468,21 @@ void Initialize() {
   register_flag(kAwsSecretGFlagsKey, kAwsSecretSettingKey, kRestore);
   register_flag(kAwsEndpointUrlGFlagsKey, kAwsEndpointUrlSettingKey, kRestore);
 
-  register_flag(kFileDownloadConnTimeoutSecGFlagsKey, kFileDownloadConnTimeoutSecSettingKey, kRestore);
+  register_flag(
+      kFileDownloadConnTimeoutSecGFlagsKey, kFileDownloadConnTimeoutSecSettingKey, kRestore,
+      [](std::string_view val) {
+        file_download_conn_timeout_sec_ = utils::ParseStringToUint64(val);  // throw exception if not ok
+      },
+      [](auto in) -> utils::Settings::ValidatorResult {
+        try {
+          utils::ParseStringToUint64(in);
+          return {};
+        } catch (utils::ParseException const &e) {
+          return {"Input for file_download_connection_timeout_sec cannot be parsed as uint64_t"};
+        }
+      }
+
+  );
 }
 
 std::string GetServerName() {
@@ -520,19 +535,7 @@ auto GetAwsEndpointUrl() -> std::string {
   return endpoint_url;
 }
 
-auto GetFileDownloadConnTimeoutSec() -> uint64_t {
-  std::string str_timeout;
-  gflags::GetCommandLineOption(kFileDownloadConnTimeoutSecGFlagsKey, &str_timeout);
-  uint64_t timeout_sec{1};
-  auto [ptr, ec] = std::from_chars(str_timeout.data(), str_timeout.data() + str_timeout.size(), timeout_sec);
-  // no error
-  if (ec == std::errc{}) {
-    return timeout_sec;
-  }
-  spdlog::error("Couldn't parse file_download_conn_timeout_sec value, returning default timeout 10s");
-  constexpr uint64_t default_timeout_sec{10};
-  return default_timeout_sec;
-}
+auto GetFileDownloadConnTimeoutSec() -> uint64_t { return file_download_conn_timeout_sec_; }
 
 void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
   snapshot_periodic_.Attach(observer);

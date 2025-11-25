@@ -55,7 +55,7 @@ auto DownloadProgressCb(void *clientp, curl_off_t dltotal, curl_off_t dlnow, cur
     }
   }
 
-  static auto counter = utils::ResettableCounter(500);
+  static thread_local auto counter = utils::ResettableCounter(500);
 
   // Don't log too often but log when the file download is complete
   if (counter() || dlnow == dltotal) {
