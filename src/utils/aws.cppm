@@ -15,11 +15,11 @@ module;
 #include <optional>
 #include <string>
 
-export module memgraph.csv.s3_config;
+export module memgraph.utils.aws;
 
 using namespace std::string_view_literals;
 
-export namespace memgraph::csv {
+export namespace memgraph::utils {
 
 constexpr auto kAwsRegionQuerySetting = "aws_region"sv;
 constexpr auto kAwsAccessKeyQuerySetting = "aws_access_key"sv;
@@ -81,4 +81,4 @@ struct S3Config {
   }
 };
 
-}  // namespace memgraph::csv
+}  // namespace memgraph::utils

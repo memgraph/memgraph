@@ -32,7 +32,7 @@ module;
 
 export module memgraph.csv.parsing;
 
-import memgraph.csv.s3_config;
+import memgraph.utils.aws;
 
 namespace {
 template <typename T>
@@ -61,7 +61,7 @@ class FileCsvSource {
 
 class S3CsvSource {
  public:
-  explicit S3CsvSource(utils::pmr::string uri, csv::S3Config const &s3_config);
+  explicit S3CsvSource(utils::pmr::string uri, utils::S3Config const &s3_config);
 
   std::istream &GetStream();
 
@@ -90,7 +90,7 @@ static_assert(Streamable<StreamCsvSource>);
 
 class CsvSource {
  public:
-  static auto Create(utils::pmr::string const &csv_location, std::optional<csv::S3Config> s3_cfg) -> CsvSource;
+  static auto Create(utils::pmr::string const &csv_location, std::optional<utils::S3Config> s3_cfg) -> CsvSource;
   template <Streamable T>
   explicit CsvSource(T source) : source_{std::move(source)} {}
 

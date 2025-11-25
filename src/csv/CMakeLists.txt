@@ -5,7 +5,6 @@ target_sources(mg-csv
         FILE_SET CXX_MODULES
         FILES
         include/csv/parsing.cppm
-        include/csv/s3_config.cppm
 
         FILE_SET HEADERS
         BASE_DIRS include

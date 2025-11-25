@@ -4,6 +4,7 @@ add_library(mg::utils ALIAS mg-utils)
 target_sources(mg-utils
     PUBLIC
     FILE_SET CXX_MODULES FILES
+    aws.cppm
     fnv.cppm
 
     PRIVATE

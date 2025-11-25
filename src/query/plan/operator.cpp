@@ -73,10 +73,10 @@
 #include "vertex_accessor.hpp"
 
 import memgraph.csv.parsing;
-import memgraph.csv.s3_config;
 import memgraph.query.arrow_parquet.s3_config;
 import memgraph.query.arrow_parquet.reader;
 import memgraph.query.jsonl.reader;
+import memgraph.utils.aws;
 import memgraph.utils.fnv;
 
 namespace r = ranges;
@@ -7608,10 +7608,10 @@ TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header,
 // Builds a map of run-time settings
 auto BuildRunTimeS3Config() -> std::map<std::string, std::string, std::less<>> {
   std::map<std::string, std::string, std::less<>> config;
-  config.emplace(csv::kAwsRegionQuerySetting, memgraph::flags::run_time::GetAwsRegion());
-  config.emplace(csv::kAwsAccessKeyQuerySetting, memgraph::flags::run_time::GetAwsAccessKey());
-  config.emplace(csv::kAwsSecretKeyQuerySetting, memgraph::flags::run_time::GetAwsSecretKey());
-  config.emplace(csv::kAwsEndpointUrlQuerySetting, memgraph::flags::run_time::GetAwsEndpointUrl());
+  config.emplace(utils::kAwsRegionQuerySetting, memgraph::flags::run_time::GetAwsRegion());
+  config.emplace(utils::kAwsAccessKeyQuerySetting, memgraph::flags::run_time::GetAwsAccessKey());
+  config.emplace(utils::kAwsSecretKeyQuerySetting, memgraph::flags::run_time::GetAwsSecretKey());
+  config.emplace(utils::kAwsEndpointUrlQuerySetting, memgraph::flags::run_time::GetAwsEndpointUrl());
   return config;
 }
 
@@ -7691,9 +7691,9 @@ class LoadCsvCursor : public Cursor {
 
     constexpr auto s3_matcher = ctre::starts_with<"s3://">;
 
-    std::optional<csv::S3Config> s3_config;
+    std::optional<utils::S3Config> s3_config;
     if (s3_matcher(*maybe_file)) {
-      s3_config.emplace(csv::S3Config::Build(std::move(query_config), BuildRunTimeS3Config()));
+      s3_config.emplace(utils::S3Config::Build(std::move(query_config), BuildRunTimeS3Config()));
     }
 
     // No need to check if maybe_file is std::nullopt, as the parser makes sure

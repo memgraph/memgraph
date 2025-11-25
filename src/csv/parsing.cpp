@@ -31,8 +31,7 @@ module;
 #include <ctre.hpp>
 
 module memgraph.csv.parsing;
-
-import memgraph.csv.s3_config;
+import memgraph.utils.aws;
 
 using PlainStream = boost::iostreams::filtering_istream;
 
@@ -436,26 +435,26 @@ FileCsvSource::FileCsvSource(std::filesystem::path path) : path_(std::move(path)
 std::istream &FileCsvSource::GetStream() { return stream_; }
 
 // TODO: (andi) This will be a generic function for downloading S3 file into a std::stringstream
-S3CsvSource::S3CsvSource(utils::pmr::string uri, csv::S3Config const &s3_config) {
+S3CsvSource::S3CsvSource(utils::pmr::string uri, utils::S3Config const &s3_config) {
   if (!s3_config.aws_region.has_value()) {
     throw CsvReadException(
         "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} or "
         "env variable {}",
-        memgraph::csv::kAwsRegionQuerySetting, memgraph::csv::kAwsRegionEnv);
+        memgraph::utils::kAwsRegionQuerySetting, memgraph::utils::kAwsRegionEnv);
   }
 
   if (!s3_config.aws_access_key.has_value()) {
     throw CsvReadException(
         "AWS access key configuration parameter not provided. Please provide it through the query, run-time setting {} "
         "or env variable {}",
-        memgraph::csv::kAwsAccessKeyQuerySetting, memgraph::csv::kAwsAccessKeyEnv);
+        memgraph::utils::kAwsAccessKeyQuerySetting, memgraph::utils::kAwsAccessKeyEnv);
   }
 
   if (!s3_config.aws_secret_key.has_value()) {
     throw CsvReadException(
         "AWS secret key configuration parameter not provided. Please provide it through the query, run-time setting {} "
         "or env variable {}",
-        memgraph::csv::kAwsSecretKeyQuerySetting, memgraph::csv::kAwsSecretKeyEnv);
+        memgraph::utils::kAwsSecretKeyQuerySetting, memgraph::utils::kAwsSecretKeyEnv);
   }
 
   GlobalS3APIManager::GetInstance();
@@ -493,7 +492,7 @@ template memgraph::csv::CsvSource::CsvSource(memgraph::csv::UrlCsvSource);
 template memgraph::csv::CsvSource::CsvSource(memgraph::csv::StreamCsvSource);
 template memgraph::csv::CsvSource::CsvSource(memgraph::csv::S3CsvSource);
 
-auto CsvSource::Create(const utils::pmr::string &csv_location, std::optional<csv::S3Config> s3_cfg) -> CsvSource {
+auto CsvSource::Create(const utils::pmr::string &csv_location, std::optional<utils::S3Config> s3_cfg) -> CsvSource {
   constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
   constexpr auto s3_matcher = ctre::starts_with<"s3://">;
 
