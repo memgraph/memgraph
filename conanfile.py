@@ -119,6 +119,17 @@ class Memgraph(ConanFile):
         deps = CMakeDeps(self)
         deps.generate()
         tc = CMakeToolchain(self)
+
+        # Automatically set sanitizer CMake flags based on compiler settings
+        if self.settings.get_safe("compiler.asan"):
+            tc.cache_variables["ASAN"] = "ON"
+
+        if self.settings.get_safe("compiler.ubsan"):
+            tc.cache_variables["UBSAN"] = "ON"
+
+        if self.settings.get_safe("compiler.tsan"):
+            tc.cache_variables["TSAN"] = "ON"
+
         tc.generate()
 
         # SBOM generation
