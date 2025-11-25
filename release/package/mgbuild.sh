@@ -562,6 +562,9 @@ build_memgraph () {
     docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add artifactory $conan_remote"
   fi
 
+  # Install our config
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan config install ./conan_config"
+
   # Install Conan dependencies
   echo "Installing Conan dependencies..."
   local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version}"
