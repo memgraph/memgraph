@@ -69,6 +69,7 @@ class Memgraph(ConanFile):
         self.requires("snappy/1.2.1", override=True)
         self.requires("arrow/22.0.0", options={"with_s3": True, "with_snappy": True, "with_mimalloc": False})
         self.requires("simdjson/4.2.2")
+        self.requires("libcurl/8.16.0")
 
     def build_requirements(self):
         self.tool_requires("cmake/4.1.2")
