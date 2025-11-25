@@ -15,6 +15,8 @@ module;
 #include <optional>
 #include <string>
 
+#include "aws/core/Aws.h"
+
 export module memgraph.utils.aws;
 
 using namespace std::string_view_literals;
@@ -79,6 +81,26 @@ struct S3Config {
 
     return config;
   }
+};
+
+// Singleton for AWS API initialization
+class GlobalS3APIManager {
+ public:
+  GlobalS3APIManager(GlobalS3APIManager const &) = delete;
+  GlobalS3APIManager &operator=(GlobalS3APIManager const &) = delete;
+  GlobalS3APIManager(GlobalS3APIManager &&) = delete;
+  GlobalS3APIManager &operator=(GlobalS3APIManager &&) = delete;
+
+  static auto GetInstance() -> GlobalS3APIManager & {
+    static GlobalS3APIManager instance;
+    return instance;
+  }
+
+ private:
+  GlobalS3APIManager() { Aws::InitAPI(options); }
+  ~GlobalS3APIManager() { Aws::ShutdownAPI(options); }
+
+  Aws::SDKOptions options;
 };
 
 }  // namespace memgraph::utils

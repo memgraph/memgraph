@@ -65,27 +65,6 @@ auto ExtractBucketAndObjectKey(std::string_view uri) -> std::pair<std::string_vi
   return {uri.substr(0, slash_pos), uri.substr(slash_pos + 1)};
 }
 
-// Singleton for AWS API initialization
-// TODO: (andi) Would be great to reuse it together with Parquet
-class GlobalS3APIManager {
- public:
-  GlobalS3APIManager(GlobalS3APIManager const &) = delete;
-  GlobalS3APIManager &operator=(GlobalS3APIManager const &) = delete;
-  GlobalS3APIManager(GlobalS3APIManager &&) = delete;
-  GlobalS3APIManager &operator=(GlobalS3APIManager &&) = delete;
-
-  static auto GetInstance() -> GlobalS3APIManager & {
-    static GlobalS3APIManager instance;
-    return instance;
-  }
-
- private:
-  GlobalS3APIManager() { Aws::InitAPI(options); }
-  ~GlobalS3APIManager() { Aws::ShutdownAPI(options); }
-
-  Aws::SDKOptions options;
-};
-
 enum class CompressionMethod : uint8_t {
   NONE,
   GZip,
@@ -457,7 +436,7 @@ S3CsvSource::S3CsvSource(utils::pmr::string uri, utils::S3Config const &s3_confi
         memgraph::utils::kAwsSecretKeyQuerySetting, memgraph::utils::kAwsSecretKeyEnv);
   }
 
-  GlobalS3APIManager::GetInstance();
+  utils::GlobalS3APIManager::GetInstance();
 
   Aws::Client::ClientConfiguration client_config;
   client_config.region = *s3_config.aws_region;
