@@ -7189,7 +7189,10 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(FreeMemoryQuery & /*unused*/) override {}
   void Visit(StreamQuery & /*unused*/) override {}
   void Visit(IsolationLevelQuery & /*unused*/) override {}
-  void Visit(StorageModeQuery & /*unused*/) override {}
+  void Visit(
+      StorageModeQuery & /*unused*/) override { /*StorageModeQuery will be handled at the Database level and due to it's
+                                                   specific handling, it will take care of the access itself.*/
+  }
   void Visit(CreateSnapshotQuery & /*unused*/)
       override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/
   }

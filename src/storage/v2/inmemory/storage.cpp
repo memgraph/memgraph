@@ -2113,7 +2113,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
-  std::unique_lock main_guard{main_lock_};
+  auto unique_accessor = UniqueAccess();
   MG_ASSERT(
       (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
       (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL ||
@@ -2134,15 +2134,13 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
     } else {
       // No need to resume async indexer, it is always running.
       // As IN_MEMORY_TRANSACTIONAL we will now start giving it new work
-      auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
       const auto snapshot_path = durability::CreateSnapshot(
-          this, &transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_, &edges_, uuid(),
-          repl_storage_state_.epoch_, repl_storage_state_.history, &file_retainer_, &abort_snapshot_);
-      commit_log_->MarkFinished(transaction.start_timestamp);
+          this, unique_accessor->GetTransaction(), recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
+          &edges_, uuid(), repl_storage_state_.epoch_, repl_storage_state_.history, &file_retainer_, &abort_snapshot_);
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;
-    FreeMemory(std::move(main_guard), false);
+    FreeMemory(std::unique_lock{main_lock_, std::adopt_lock}, false);
   }
 }
 
