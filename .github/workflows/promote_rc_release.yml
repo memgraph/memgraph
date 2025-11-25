@@ -195,7 +195,7 @@ jobs:
           os_arm="docker-aarch64"
           if [[ "${{ matrix.malloc }}" == "true" ]]; then
             os_x86="${os_x86}-malloc"
-            os_arm="$docker-malloc-aarch64"  # TODO(matt): reorder this in packaging workflow
+            os_arm="docker-malloc-aarch64"  # TODO(matt): reorder this in packaging workflow
           fi
           if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
             package="${package_docker_relwithdebinfo}"
