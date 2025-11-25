@@ -9829,16 +9829,19 @@ class ParallelBranchCursor : public Cursor {
     // Store context copies from each branch for unification after execution
     std::vector<ExecutionContext> branch_contexts(branch_cursors_.size() - 1);
     // Store collector copies for each branch (they're not thread-safe, so each branch needs its own)
-    std::vector<std::optional<TriggerContextCollector>> branch_trigger_collectors(branch_cursors_.size() - 1);
+    std::vector<std::optional<TriggerContextCollector>> branch_trigger_collectors(branch_cursors_.size() - 1);  // TODO
     std::vector<std::optional<FrameChangeCollector>> branch_frame_collectors(branch_cursors_.size() - 1);
 
     // Execute branches 1..N in parallel
     for (size_t i = 1; i < branch_cursors_.size(); i++) {
-      tasks.AddTask([&, i, context, main_thread = std::this_thread::get_id()](utils::Priority /*unused*/) mutable {
+      tasks.AddTask([&, i, context, main_thread = std::this_thread::get_id(),
+                     mem_tracking = memgraph::memory::CrossThreadMemoryTracking()](utils::Priority /*unused*/) mutable {
         utils::Timer timer;
         DMG_ASSERT(context.trigger_context_collector == nullptr,
                    "Trigger context collector must be nullptr in parallel execution");
         OOMExceptionEnabler oom_exception;
+        mem_tracking.StartTracking();  // automatically stops
+
         // Create parallel operator entry in branch's stats tree
         context.stats_root = nullptr;
         context.stats = plan::ProfilingStats();
