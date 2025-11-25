@@ -17,7 +17,6 @@
 #include "auth/auth.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
-#include "csv/parsing.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "disk_test_utils.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -43,6 +42,8 @@
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
 #include "utils/synchronized.hpp"
+
+import memgraph.csv.parsing;
 
 namespace {
 std::set<std::string> GetDirs(auto path) {

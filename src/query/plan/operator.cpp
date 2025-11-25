@@ -31,7 +31,6 @@
 #include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
-#include "csv/parsing.hpp"
 #include "license/license.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -72,6 +71,8 @@
 #include "utils/temporal.hpp"
 #include "vertex_accessor.hpp"
 
+import memgraph.csv.parsing;
+import memgraph.csv.s3_config;
 import memgraph.query.arrow_parquet.s3_config;
 import memgraph.query.arrow_parquet.reader;
 import memgraph.query.jsonl.reader;

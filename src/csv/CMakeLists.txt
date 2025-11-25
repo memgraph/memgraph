@@ -4,11 +4,12 @@ target_sources(mg-csv
         PUBLIC
         FILE_SET CXX_MODULES
         FILES
+        include/csv/parsing.cppm
         include/csv/s3_config.cppm
 
         FILE_SET HEADERS
         BASE_DIRS include
-        FILES include/csv/parsing.hpp
+        FILES
 
         PRIVATE
         parsing.cpp

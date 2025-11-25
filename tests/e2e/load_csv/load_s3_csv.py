@@ -27,7 +27,7 @@ AWS_REGION = "us-east-1"
 BUCKET_NAME = "deps.memgraph.io"
 
 
-def test_no_such_file():
+def test_no_file_s3():
     cursor = connect(host="localhost", port=7687).cursor()
     load_query = f"LOAD CSV FROM 's3://{BUCKET_NAME}/nodes_no_file.csv' WITH HEADER AS row CREATE (n:N {{id: row.id, name: row.name}})"
     print(f"Load query: {load_query}")

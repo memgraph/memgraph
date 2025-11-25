@@ -9,9 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "csv/parsing.hpp"
+module;
+
 #include "requests/requests.hpp"
+#include "utils/memory.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/pmr/string.hpp"
+#include "utils/pmr/vector.hpp"
 #include "utils/string.hpp"
 
 #include <string_view>
@@ -25,6 +29,8 @@
 #include <boost/iostreams/filter/gzip.hpp>
 #include <boost/iostreams/filtering_stream.hpp>
 #include <ctre.hpp>
+
+module memgraph.csv.parsing;
 
 import memgraph.csv.s3_config;
 

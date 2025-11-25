@@ -16,7 +16,7 @@
  *
  */
 
-#pragma once
+module;
 
 #include <cstdint>
 #include <filesystem>
@@ -30,17 +30,16 @@
 #include "utils/pmr/vector.hpp"
 #include "utils/result.hpp"
 
+export module memgraph.csv.parsing;
+
 import memgraph.csv.s3_config;
 
-namespace memgraph::csv {
+export namespace memgraph::csv {
 
 class CsvReadException : public utils::BasicException {
   using utils::BasicException::BasicException;
   SPECIALIZE_GET_EXCEPTION_NAME(CsvReadException)
 };
-
-// TODO: (andi) Can you add type family for CSV sources. They should all have a method
-// std::istream &GetStream()
 
 class FileCsvSource {
  public:
@@ -52,7 +51,6 @@ class FileCsvSource {
   std::ifstream stream_;
 };
 
-// TODO: (andi) Can you inherit from some other source
 class S3CsvSource {
  public:
   explicit S3CsvSource(utils::pmr::string uri, csv::S3Config const &s3_config);
@@ -77,7 +75,6 @@ class UrlCsvSource : public StreamCsvSource {
   explicit UrlCsvSource(char const *url);
 };
 
-// TODO: (andi) Should also be in some way a connected family
 class CsvSource {
  public:
   static auto Create(utils::pmr::string const &csv_location, std::optional<csv::S3Config> s3_cfg) -> CsvSource;
