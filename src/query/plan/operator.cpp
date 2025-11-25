@@ -7821,7 +7821,7 @@ class LoadParquetCursor : public Cursor {
                                     kAwsEndpointUrlQuerySetting);
       }
 
-      auto abort_check_erased = [&context]() -> void { AbortCheck(context); };
+      auto abort_check_erased = context.stopping_context.MakeMaybeAborter(1);
 
       // No need to check if maybe_file is std::nullopt, as the parser makes sure
       // we can't get a nullptr for the 'file_' member in the LoadParquet clause

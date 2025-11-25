@@ -75,6 +75,109 @@ void CreateFiles(const fs::path &path) {
   fs::permissions(path / "existing_file_000", fs::perms::none);
 }
 
+class GetUniqueDownloadPathTest : public testing::Test {
+ protected:
+  void SetUp() override {
+    test_dir_ = std::filesystem::temp_directory_path() / "get_unique_path_test";
+    std::filesystem::create_directories(test_dir_);
+  }
+  void TearDown() override {
+    if (std::filesystem::exists(test_dir_)) {
+      std::filesystem::remove_all(test_dir_);
+    }
+  }
+
+  // Creates empty file
+  static void CreateFile(std::filesystem::path const &path) {
+    std::ofstream file(path);
+    file.close();
+  }
+
+  std::filesystem::path test_dir_;
+};
+
+using memgraph::utils::GetUniqueDownloadPath;
+
+TEST_F(GetUniqueDownloadPathTest, CreateFirstAttempt) {
+  auto const path = test_dir_ / "nonexistent.csv";
+  ASSERT_EQ(path, GetUniqueDownloadPath(path));
+}
+
+TEST_F(GetUniqueDownloadPathTest, CreateSecondAttempt) {
+  auto const path = test_dir_ / "file.csv";
+  CreateFile(path);
+  auto const new_path = test_dir_ / "file_1.csv";
+  ASSERT_EQ(new_path, GetUniqueDownloadPath(path));
+}
+
+TEST_F(GetUniqueDownloadPathTest, MultipleFilesExist) {
+  auto base = test_dir_ / "file.txt";
+  CreateFile(base);
+  CreateFile(test_dir_ / "file_1.txt");
+  CreateFile(test_dir_ / "file_2.txt");
+
+  auto result = GetUniqueDownloadPath(base);
+
+  EXPECT_EQ(result, test_dir_ / "file_3.txt");
+}
+
+TEST_F(GetUniqueDownloadPathTest, GapInSequence) {
+  auto base = test_dir_ / "file.txt";
+  CreateFile(base);
+  CreateFile(test_dir_ / "file_1.txt");
+  // Skip file_2.txt
+  CreateFile(test_dir_ / "file_3.txt");
+
+  auto result = GetUniqueDownloadPath(base);
+
+  // Should return _2 since _1 exists but _2 doesn't
+  EXPECT_EQ(result, test_dir_ / "file_2.txt");
+}
+
+TEST_F(GetUniqueDownloadPathTest, NoExtension) {
+  auto base = test_dir_ / "file";
+  CreateFile(base);
+
+  auto result = GetUniqueDownloadPath(base);
+
+  EXPECT_EQ(result, test_dir_ / "file_1");
+}
+
+TEST_F(GetUniqueDownloadPathTest, MultipleExtensions) {
+  auto base = test_dir_ / "archive.tar.gz";
+  CreateFile(base);
+
+  auto result = GetUniqueDownloadPath(base);
+
+  EXPECT_EQ(result, test_dir_ / "archive.tar_1.gz");
+}
+
+TEST_F(GetUniqueDownloadPathTest, LargeSequenceNumber) {
+  auto base = test_dir_ / "file.txt";
+  CreateFile(base);
+
+  // Create files up to _99
+  for (int i = 1; i <= 99; ++i) {
+    CreateFile(test_dir_ / std::format("file_{}.txt", i));
+  }
+
+  auto result = GetUniqueDownloadPath(base);
+
+  EXPECT_EQ(result, test_dir_ / "file_100.txt");
+}
+
+TEST_F(GetUniqueDownloadPathTest, MaxSuffixReached) {
+  auto base = test_dir_ / "file.txt";
+  CreateFile(base);
+
+  // Create files up to and including _10000
+  for (int i = 1; i <= 10000; ++i) {
+    CreateFile(test_dir_ / std::format("file_{}.txt", i));
+  }
+
+  EXPECT_THROW(GetUniqueDownloadPath(base), memgraph::utils::BasicException);
+}
+
 class UtilsFileTest : public ::testing::Test {
  public:
   void SetUp() override {
