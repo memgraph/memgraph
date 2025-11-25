@@ -102,8 +102,8 @@ add_unit_test(query_expression_evaluator
     LINK_TARGETS mg-query
 )
 
-add_unit_test(query_inlist_cache
-    SOURCES query_inlist_cache.cpp
+add_unit_test(query_cache
+    SOURCES query_cache.cpp
     LINK_TARGETS mg-query
 )
 
