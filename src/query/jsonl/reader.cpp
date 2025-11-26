@@ -147,7 +147,7 @@ struct JsonlReader::impl {
   void InitSimdjsonContent(std::function<void()> abort_check) {
     constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
     if (url_matcher(uri_)) {
-      auto const base_path = std::filesystem::path{"tmp"} / std::filesystem::path{uri_}.filename();
+      auto const base_path = std::filesystem::path{"/tmp"} / std::filesystem::path{uri_}.filename();
       local_file_ = utils::GetUniqueDownloadPath(base_path);
       if (!requests::CreateAndDownloadFile(
               uri_, local_file_, memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(), std::move(abort_check))) {
