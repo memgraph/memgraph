@@ -114,6 +114,21 @@ class InMemoryStorage final : public Storage {
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
   enum class CreateSnapshotError : uint8_t { ReachedMaxNumTries, AbortSnapshot, AlreadyRunning, NothingNewToWrite };
+  static const char *CreateSnapshotErrorToString(CreateSnapshotError error) {
+    switch (error) {
+      using enum CreateSnapshotError;
+      case ReachedMaxNumTries:
+        return "Reached max number of tries";
+      case AbortSnapshot:
+        return "The current snapshot needs to be aborted";
+      case AlreadyRunning:
+        return "Another snapshot creation is already in progress";
+      case NothingNewToWrite:
+        return "Nothing has been written since the last snapshot";
+      default:
+        return "Unknown error";
+    }
+  }
   enum class RecoverSnapshotError : uint8_t {
     DisabledForReplica,
     NonEmptyStorage,
@@ -402,6 +417,8 @@ class InMemoryStorage final : public Storage {
     // independently of PrepareForCommitPhase.
     void FinalizeCommitPhase(uint64_t durability_commit_timestamp);
 
+    void FinalizeCommitPhaseInAnalytical();
+
     /// @throw std::bad_alloc
     void Abort() override;
 
@@ -585,15 +602,15 @@ class InMemoryStorage final : public Storage {
       if (repl_args.is_main) {
         storage_->ttl_.Resume();
       }
-      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::ENABLE,
-                                          std::nullopt, std::nullopt, false);
+      AddMetadataDeltaIfTransactional(MetadataDelta::ttl_operation, durability::TtlOperationType::ENABLE, std::nullopt,
+                                      std::nullopt, false);
     }
 
     void StopTtl() override {
       DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
       storage_->ttl_.Pause();
-      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::STOP,
-                                          std::nullopt, std::nullopt, false);
+      AddMetadataDeltaIfTransactional(MetadataDelta::ttl_operation, durability::TtlOperationType::STOP, std::nullopt,
+                                      std::nullopt, false);
     }
 
     void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info, TTLReplicationArgs repl_args = {}) override {
@@ -631,8 +648,8 @@ class InMemoryStorage final : public Storage {
       // Configure TTL
       if (!ttl.Running()) ttl.Configure(ttl_info.should_run_edge_ttl);
       ttl.SetInterval(ttl_info.period, ttl_info.start_time);
-      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::CONFIGURE,
-                                          ttl_info.period, ttl_info.start_time, ttl_info.should_run_edge_ttl);
+      AddMetadataDeltaIfTransactional(MetadataDelta::ttl_operation, durability::TtlOperationType::CONFIGURE,
+                                      ttl_info.period, ttl_info.start_time, ttl_info.should_run_edge_ttl);
     }
 
     void DisableTtl(TTLReplicationArgs repl_args = {}) override {
@@ -653,8 +670,8 @@ class InMemoryStorage final : public Storage {
 
       ttl.Disable();
 
-      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::DISABLE,
-                                          std::nullopt, std::nullopt, false);
+      AddMetadataDeltaIfTransactional(MetadataDelta::ttl_operation, durability::TtlOperationType::DISABLE, std::nullopt,
+                                      std::nullopt, false);
     }
 
     storage::ttl::TtlInfo GetTtlConfig() const override { return storage_->ttl_.Config(); }

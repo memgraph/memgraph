@@ -763,9 +763,14 @@ utils::BasicResult<StorageManipulationError> InMemoryStorage::InMemoryAccessor::
 
   // TODO: duplicated transaction finalization in md_deltas and deltas processing cases
   if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
-    // We don't have to update the commit timestamp here because no one reads
-    // it.
-    mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+    if (storage_->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
+      // If we are in analytical we still have work to do in order for transaction changes to be visible.
+      FinalizeCommitPhaseInAnalytical();
+    } else {
+      // We don't have to update the commit timestamp here because no one reads
+      // it.
+      mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+    }
     return {};
   }
 
@@ -887,6 +892,31 @@ utils::BasicResult<StorageManipulationError> InMemoryStorage::InMemoryAccessor::
       });
   DMG_ASSERT(res, "The commit was not applied!");
   return *std::move(res);
+}
+
+void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhaseInAnalytical() {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  transaction_.EnsureCommitTimestampExists();
+
+  auto engine_guard = std::unique_lock{storage_->engine_lock_};
+  commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
+
+  if (config_.enable_schema_info) {
+    mem_storage->schema_info_.ProcessTransaction(transaction_.schema_diff_, transaction_.post_process_,
+                                                 transaction_.start_timestamp, transaction_.transaction_id,
+                                                 mem_storage->config_.salient.items.properties_on_edges);
+  }
+  MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+  transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+
+  // Install the new point index, if needed
+  mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
+                                                          transaction_.point_index_ctx_);
+
+  // Call other callbacks that publish/install upon commit
+  transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
+  mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+  is_transaction_active_ = false;
 }
 
 void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp) {
@@ -1475,7 +1505,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
+  AddMetadataDeltaIfTransactional(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
   return {};
 }
@@ -1504,7 +1534,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
+  AddMetadataDeltaIfTransactional(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   return {};
 }
@@ -1536,7 +1566,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
       [=](uint64_t commit_timestamp) { return mem_edge_type_index->PublishIndex(edge_type, commit_timestamp); });
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_create, edge_type);
+  AddMetadataDeltaIfTransactional(MetadataDelta::edge_index_create, edge_type);
   return {};
 }
 
@@ -1567,7 +1597,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_create, edge_type, property);
+  AddMetadataDeltaIfTransactional(MetadataDelta::edge_property_index_create, edge_type, property);
   return {};
 }
 
@@ -1596,7 +1626,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
       [=](uint64_t commit_timestamp) { return mem_edge_property_index->PublishIndex(property, commit_timestamp); });
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_create, property);
+  AddMetadataDeltaIfTransactional(MetadataDelta::global_edge_property_index_create, property);
   return {};
 }
 
@@ -1612,7 +1642,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
+  AddMetadataDeltaIfTransactional(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
   return {};
 }
@@ -1633,7 +1663,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
+  AddMetadataDeltaIfTransactional(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
 
   return {};
@@ -1651,7 +1681,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!was_dropped) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_drop, edge_type);
+  AddMetadataDeltaIfTransactional(MetadataDelta::edge_index_drop, edge_type);
   return {};
 }
 
@@ -1673,7 +1703,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!was_dropped) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
+  AddMetadataDeltaIfTransactional(MetadataDelta::edge_property_index_drop, edge_type, property);
   return {};
 }
 
@@ -1694,7 +1724,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
-  transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
+  AddMetadataDeltaIfTransactional(MetadataDelta::global_edge_property_index_drop, property);
   return {};
 }
 
@@ -1706,7 +1736,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::point_index_create, label, property);
+  AddMetadataDeltaIfTransactional(MetadataDelta::point_index_create, label, property);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActivePointIndices);
   return {};
@@ -1720,7 +1750,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!point_index.DropPointIndex(label, property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);
+  AddMetadataDeltaIfTransactional(MetadataDelta::point_index_drop, label, property);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
   return {};
@@ -1737,7 +1767,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (vector_edge_index.IndexExists(spec.index_name) || !vector_index.CreateIndex(spec, vertices_acc)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
+  AddMetadataDeltaIfTransactional(MetadataDelta::vector_index_create, spec);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
   return {};
@@ -1756,7 +1786,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   } else {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_drop, index_name);
+  AddMetadataDeltaIfTransactional(MetadataDelta::vector_index_drop, index_name);
   // We don't care if there is a replication error because on main node the change will go through
   return {};
 }
@@ -1772,7 +1802,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (vector_index.IndexExists(spec.index_name) || !vector_edge_index.CreateIndex(spec, vertices_acc)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::vector_edge_index_create, spec);
+  AddMetadataDeltaIfTransactional(MetadataDelta::vector_edge_index_create, spec);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
   return {};
@@ -1792,7 +1822,7 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
     return StorageExistenceConstraintDefinitionError{violation.value()};
   }
   existence_constraints->InsertConstraint(label, property);
-  transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
+  AddMetadataDeltaIfTransactional(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
 
@@ -1804,7 +1834,7 @@ InMemoryStorage::InMemoryAccessor::DropExistenceConstraint(LabelId label, Proper
   if (!existence_constraints->DropConstraint(label, property)) {
     return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);
+  AddMetadataDeltaIfTransactional(MetadataDelta::existence_constraint_drop, label, property);
   return {};
 }
 
@@ -1821,7 +1851,7 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
   if (ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
     return ret.GetValue();
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
+  AddMetadataDeltaIfTransactional(MetadataDelta::unique_constraint_create, label, properties);
   return UniqueConstraints::CreationStatus::SUCCESS;
 }
 
@@ -1835,7 +1865,7 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_drop, label, properties);
+  AddMetadataDeltaIfTransactional(MetadataDelta::unique_constraint_drop, label, properties);
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
@@ -1853,7 +1883,7 @@ InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyI
     return StorageTypeConstraintDefinitionError{violation.value()};
   }
   type_constraints->InsertConstraint(label, property, kind);
-  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, kind);
+  AddMetadataDeltaIfTransactional(MetadataDelta::type_constraint_create, label, property, kind);
   return {};
 }
 
@@ -1866,7 +1896,7 @@ utils::BasicResult<StorageTypeConstraintDroppingError, void> InMemoryStorage::In
   if (!deleted_constraint) {
     return StorageTypeConstraintDroppingError{ConstraintDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property, kind);
+  AddMetadataDeltaIfTransactional(MetadataDelta::type_constraint_drop, label, property, kind);
   return {};
 }
 
@@ -2083,7 +2113,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
-  std::unique_lock main_guard{main_lock_};
+  auto unique_accessor = UniqueAccess();
   MG_ASSERT(
       (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
       (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL ||
@@ -2091,16 +2121,26 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
   if (storage_mode_ != new_storage_mode) {
     // Snapshot thread is already running, but setup periodic execution only if enabled
     if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+      // Existance and unique constraints are not supported in analytical storage mode so we need to forbid changing
+      // storage mode to analytical if there are any of these constraints
+      if (!constraints_.existence_constraints_->empty() || !constraints_.unique_constraints_->empty()) {
+        throw utils::BasicException(
+            "Existance and unique constraints are not supported in analytical storage mode. Please drop them before "
+            "changing storage mode to analytical or use transactional mode.");
+      }
       // Ensure all pending work has been completed before changing to IN_MEMORY_ANALYTICAL
       async_indexer_.CompleteRemaining();
       snapshot_runner_.Pause();
     } else {
       // No need to resume async indexer, it is always running.
       // As IN_MEMORY_TRANSACTIONAL we will now start giving it new work
+      const auto snapshot_path = durability::CreateSnapshot(
+          this, unique_accessor->GetTransaction(), recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
+          &edges_, uuid(), repl_storage_state_.epoch_, repl_storage_state_.history, &file_retainer_, &abort_snapshot_);
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;
-    FreeMemory(std::move(main_guard), false);
+    FreeMemory(std::unique_lock{main_lock_, std::adopt_lock}, false);
   }
 }
 
@@ -3295,16 +3335,17 @@ void InMemoryStorage::CreateSnapshotHandler(
     if (auto maybe_error = cb(); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support.");
+          spdlog::warn("Failed to create snapshot. {}. Please contact support.",
+                       CreateSnapshotErrorToString(maybe_error.GetError()));
           break;
         case CreateSnapshotError::AbortSnapshot:
-          spdlog::warn("Failed to create snapshot. The current snapshot needs to be aborted.");
+          spdlog::warn("Failed to create snapshot. {}.", CreateSnapshotErrorToString(maybe_error.GetError()));
           break;
         case CreateSnapshotError::AlreadyRunning:
-          spdlog::info("Skipping snapshot creation. Another snapshot creation is already in progress.");
+          spdlog::info("Skipping snapshot creation. {}.", CreateSnapshotErrorToString(maybe_error.GetError()));
           break;
         case CreateSnapshotError::NothingNewToWrite:
-          spdlog::info("Skipping snapshot creation. Nothing has been written since the last snapshot.");
+          spdlog::info("Skipping snapshot creation. {}.", CreateSnapshotErrorToString(maybe_error.GetError()));
           break;
       }
     }
@@ -3525,7 +3566,7 @@ void InMemoryStorage::InMemoryAccessor::DropAllConstraints() {
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) {
   static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get())->SetIndexStats(label, stats);
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_set, label, stats);
+  AddMetadataDeltaIfTransactional(MetadataDelta::label_index_stats_set, label, stats);
 }
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label,
@@ -3533,14 +3574,14 @@ void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &la
                                                       const LabelPropertyIndexStats &stats) {
   static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
       ->SetIndexStats(label, properties, stats);
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label,
-                                      std::vector(properties.begin(), properties.end()), stats);
+  AddMetadataDeltaIfTransactional(MetadataDelta::label_property_index_stats_set, label,
+                                  std::vector(properties.begin(), properties.end()), stats);
 }
 
 bool InMemoryStorage::InMemoryAccessor::DeleteLabelIndexStats(const storage::LabelId &label) {
   auto *in_mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
   auto res = in_mem_label_index->DeleteIndexStats(label);
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_clear, label);
+  AddMetadataDeltaIfTransactional(MetadataDelta::label_index_stats_clear, label);
   return res;
 }
 
@@ -3549,7 +3590,7 @@ InMemoryStorage::InMemoryAccessor::DeleteLabelPropertyIndexStats(const storage::
   auto *in_mem_label_prop_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   auto res = in_mem_label_prop_index->DeleteIndexStats(label);
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_clear, label);
+  AddMetadataDeltaIfTransactional(MetadataDelta::label_property_index_stats_clear, label);
   return res;
 }
 

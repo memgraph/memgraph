@@ -293,5 +293,26 @@ def test_delta_release_on_unique_constraint_error(memgraph):
     assert unreleased_delta_objects_actual == 0
 
 
+def test_cant_change_to_analytical_mode_with_constraints(memgraph):
+    memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT EXISTS (n.prop);")
+    with pytest.raises(GQLAlchemyError):
+        memgraph.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
+
+    memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT EXISTS (n.prop);")
+    memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.prop IS UNIQUE;")
+    with pytest.raises(GQLAlchemyError):
+        memgraph.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
+
+
+def test_cant_create_constraints_in_analytical_mode(memgraph):
+    memgraph.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
+
+    with pytest.raises(GQLAlchemyError):
+        memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT EXISTS (n.prop);")
+
+    with pytest.raises(GQLAlchemyError):
+        memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.prop IS UNIQUE;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

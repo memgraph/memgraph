@@ -374,8 +374,8 @@ class DiskStorage final : public Storage {
     // TTL management methods
     void StartTtl(TTLReplicationArgs /*repl_args*/ = {}) override {
       storage_->ttl_.Resume();
-      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::ENABLE,
-                                          std::nullopt, std::nullopt, false);
+      AddMetadataDeltaIfTransactional(MetadataDelta::ttl_operation, durability::TtlOperationType::ENABLE, std::nullopt,
+                                      std::nullopt, false);
     }
 
     void DisableTtl(TTLReplicationArgs /*repl_args*/ = {}) override {
@@ -398,14 +398,14 @@ class DiskStorage final : public Storage {
 
       storage_->ttl_.Disable();
 
-      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::DISABLE,
-                                          std::nullopt, std::nullopt, false);
+      AddMetadataDeltaIfTransactional(MetadataDelta::ttl_operation, durability::TtlOperationType::DISABLE, std::nullopt,
+                                      std::nullopt, false);
     }
 
     void StopTtl() override {
       storage_->ttl_.Pause();
-      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::STOP,
-                                          std::nullopt, std::nullopt, false);
+      AddMetadataDeltaIfTransactional(MetadataDelta::ttl_operation, durability::TtlOperationType::STOP, std::nullopt,
+                                      std::nullopt, false);
     }
 
     void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info, TTLReplicationArgs /*repl_args*/ = {}) override {
@@ -422,8 +422,8 @@ class DiskStorage final : public Storage {
       // Configure TTL
       if (!storage_->ttl_.Running()) storage_->ttl_.Configure(ttl_info.should_run_edge_ttl);
       storage_->ttl_.SetInterval(ttl_info.period, ttl_info.start_time);
-      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::CONFIGURE,
-                                          ttl_info.period, ttl_info.start_time, ttl_info.should_run_edge_ttl);
+      AddMetadataDeltaIfTransactional(MetadataDelta::ttl_operation, durability::TtlOperationType::CONFIGURE,
+                                      ttl_info.period, ttl_info.start_time, ttl_info.should_run_edge_ttl);
     }
 
     storage::ttl::TtlInfo GetTtlConfig() const override { return storage_->ttl_.Config(); }

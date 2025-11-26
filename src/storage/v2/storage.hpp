@@ -570,7 +570,7 @@ class Storage {
         -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
       auto res = storage_->enum_store_.RegisterEnum(name, values);
       if (res.HasValue()) {
-        transaction_.md_deltas.emplace_back(MetadataDelta::enum_create, res.GetValue());
+        AddMetadataDeltaIfTransactional(MetadataDelta::enum_create, res.GetValue());
       }
       return res;
     }
@@ -579,7 +579,7 @@ class Storage {
         -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
       auto res = storage_->enum_store_.AddValue(name, value);
       if (res.HasValue()) {
-        transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_add, res.GetValue());
+        AddMetadataDeltaIfTransactional(MetadataDelta::enum_alter_add, res.GetValue());
       }
       return res;
     }
@@ -588,7 +588,7 @@ class Storage {
         -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
       auto res = storage_->enum_store_.UpdateValue(name, old_value, new_value);
       if (res.HasValue()) {
-        transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_update, res.GetValue(), std::string{old_value});
+        AddMetadataDeltaIfTransactional(MetadataDelta::enum_alter_update, res.GetValue(), std::string{old_value});
       }
       return res;
     }
@@ -665,6 +665,13 @@ class Storage {
     Result<std::vector<VertexAccessor>> TryDeleteVertices(const std::unordered_set<Vertex *> &vertices,
                                                           std::optional<SchemaInfo::ModifyingAccessor> &schema_acc);
     void MarkEdgeAsDeleted(Edge *edge);
+
+    template <typename... Args>
+    void AddMetadataDeltaIfTransactional(Args &&...args) {
+      if (IsTransactional(storage_->storage_mode_)) {
+        transaction_.md_deltas.emplace_back(std::forward<Args>(args)...);
+      }
+    }
 
    private:
     StorageMode creation_storage_mode_;

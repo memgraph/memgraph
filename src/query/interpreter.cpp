@@ -3941,6 +3941,9 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
+  if (current_db.db_acc_->get()->storage()->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    throw utils::BasicException("Text index is not supported in analytical storage mode.");
+  }
   auto *text_index_query = utils::Downcast<TextIndexQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 
@@ -4004,6 +4007,10 @@ PreparedQuery PrepareCreateTextEdgeIndexQuery(ParsedQuery parsed_query, bool in_
                                               std::vector<Notification> *notifications, CurrentDB &current_db) {
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
+  }
+
+  if (current_db.db_acc_->get()->storage()->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    throw utils::BasicException("Text index is not supported in analytical storage mode.");
   }
 
   if (!current_db.db_acc_->get()->config().salient.items.properties_on_edges) {
@@ -4965,14 +4972,18 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
     if (maybe_path.HasError()) {
       switch (maybe_path.GetError()) {
         case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
+          spdlog::warn("Failed to create snapshot. {}. Please contact support.",
+                       storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.GetError()));
           break;
         case storage::InMemoryStorage::CreateSnapshotError::AbortSnapshot:
-          throw utils::BasicException("Failed to create snapshot. The current snapshot needs to be aborted.");
+          throw utils::BasicException("Failed to create snapshot. {}.",
+                                      storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.GetError()));
         case storage::InMemoryStorage::CreateSnapshotError::AlreadyRunning:
-          throw utils::BasicException("Another snapshot creation is already in progress.");
+          throw utils::BasicException("{}",
+                                      storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.GetError()));
         case storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite:
-          throw utils::BasicException("Nothing has been written since the last snapshot.");
+          throw utils::BasicException("{}",
+                                      storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.GetError()));
       }
     }
     return std::vector<std::vector<TypedValue>>{{TypedValue{maybe_path.GetValue()}}};
@@ -5725,6 +5736,9 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           throw utils::NotYetImplemented("Node key constraints");
         }
         case Constraint::Type::EXISTS: {
+          if (storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+            throw QueryRuntimeException("Existence constraints are not supported in analytical storage mode.");
+          }
           if (properties.empty() || properties.size() > 1) {
             throw SyntaxException("Exactly one property must be used for existence constraints.");
           }
@@ -5763,6 +5777,9 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           break;
         }
         case Constraint::Type::UNIQUE: {
+          if (storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+            throw QueryRuntimeException("Unique constraints are not supported in analytical storage mode.");
+          }
           std::set<storage::PropertyId> property_set;
           for (const auto &property : properties) {
             property_set.insert(property);
@@ -7172,7 +7189,10 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(FreeMemoryQuery & /*unused*/) override {}
   void Visit(StreamQuery & /*unused*/) override {}
   void Visit(IsolationLevelQuery & /*unused*/) override {}
-  void Visit(StorageModeQuery & /*unused*/) override {}
+  void Visit(
+      StorageModeQuery & /*unused*/) override { /*StorageModeQuery will be handled at the Database level and due to it's
+                                                   specific handling, it will take care of the access itself.*/
+  }
   void Visit(CreateSnapshotQuery & /*unused*/)
       override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/
   }
