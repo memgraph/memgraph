@@ -1213,42 +1213,14 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 MG_ASSERT(it != vertex->labels.end(), "Invalid database state!");
                 std::swap(*it, *vertex->labels.rbegin());
                 vertex->labels.pop_back();
-
                 index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
-
-                // // we have to remove the vertex from the vector index if this label is indexed and vertex has
-                // // needed property
-                // const auto &vector_properties = index_abort_processor.vector_.l2p.find(current->label.value);
-                // if (vector_properties != index_abort_processor.vector_.l2p.end()) {
-                //   // label is in the vector index
-                //   for (const auto &property : vector_properties->second) {
-                //     if (vertex->properties.HasProperty(property)) {
-                //       // it has to be removed from the index
-                //       vector_label_property_cleanup[LabelPropKey{current->label.value,
-                //       property}].emplace_back(vertex);
-                //     }
-                //   }
-                // }
                 break;
               }
               case Delta::Action::ADD_LABEL: {
                 auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
                 MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
                 vertex->labels.push_back(current->label.value);
-                // we have to add the vertex to the vector index if this label is indexed and vertex has needed
-                // property
-                // const auto &vector_properties = index_abort_processor.vector_.l2p.find(current->label.value);
-                // if (vector_properties != index_abort_processor.vector_.l2p.end()) {
-                //   // label is in the vector index
-                //   for (const auto &property : vector_properties->second) {
-                //     auto current_value = vertex->properties.GetProperty(property);
-                //     if (!current_value.IsNull()) {
-                //       // it has to be added to the index
-                //       vector_label_property_restore[LabelPropKey{current->label.value, property}].emplace_back(
-                //           std::move(current_value), vertex);
-                //     }
-                //   }
-                // }
+                index_abort_processor.CollectOnLabelAddition(current->label.value, vertex);
                 break;
               }
               case Delta::Action::SET_PROPERTY: {
@@ -1256,7 +1228,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 // For property label index
                 //  check if we care about the property, this will return all the labels and then get current property
                 //  value
-                index_abort_processor.CollectOnPropertyChange(current->property.key, vertex);
+                index_abort_processor.CollectOnPropertyChange(current->property.key, *current->property.value, vertex);
                 // Setting the correct value
                 vertex->properties.SetProperty(current->property.key, *current->property.value);
                 break;

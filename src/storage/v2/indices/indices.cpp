@@ -112,13 +112,13 @@ Indices::Indices(const Config &config, StorageMode storage_mode)
 }
 
 Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_indices) const {
-  return {active_indices.label_->GetAbortProcessor(),
-          active_indices.label_properties_->GetAbortProcessor(),
-          active_indices.edge_type_->GetAbortProcessor(),
-          active_indices.edge_type_properties_->GetAbortProcessor(),
-          active_indices.edge_property_->GetAbortProcessor(),
-          vector_index_.Analysis(),
-          vector_edge_index_.Analysis()};
+  return AbortProcessor{.label_ = active_indices.label_->GetAbortProcessor(),
+                        .label_properties_ = active_indices.label_properties_->GetAbortProcessor(),
+                        .edge_type_ = active_indices.edge_type_->GetAbortProcessor(),
+                        .edge_type_property_ = active_indices.edge_type_properties_->GetAbortProcessor(),
+                        .edge_property_ = active_indices.edge_property_->GetAbortProcessor(),
+                        .vector_ = vector_index_.GetAbortProcessor(),
+                        .vector_edge_ = vector_edge_index_.Analysis()};
 }
 
 void Indices::AbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
@@ -129,10 +129,16 @@ void Indices::AbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex 
 void Indices::AbortProcessor::CollectOnLabelRemoval(LabelId labelId, Vertex *vertex) {
   label_.CollectOnLabelRemoval(labelId, vertex);
   label_properties_.CollectOnLabelRemoval(labelId, vertex);
+  vector_.CollectOnLabelRemoval(labelId, vertex);
 }
 
-void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex *vertex) {
+void Indices::AbortProcessor::CollectOnLabelAddition(LabelId labelId, Vertex *vertex) {
+  vector_.CollectOnLabelAddition(labelId, vertex);
+}
+void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value,
+                                                      Vertex *vertex) {
   label_properties_.CollectOnPropertyChange(propId, vertex);
+  vector_.CollectOnPropertyChange(propId, old_value, vertex);
 }
 
 void Indices::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex,

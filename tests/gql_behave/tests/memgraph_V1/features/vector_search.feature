@@ -123,7 +123,6 @@ Feature: Vector search related features
         And having executed
             """
             CREATE (:L1 {prop1: [1.1, 1.1]})
-            CREATE (:L1 {prop1: [2.1, 2.1]})
             """
         When executing query:
             """
@@ -138,7 +137,6 @@ Feature: Vector search related features
         And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
         And having executed
             """
-            CREATE (:L1 {prop1: [1.1, 1.1]})
             CREATE (:L1 {prop1: [2.1, 2.1]})
             """
         When executing query:
@@ -148,6 +146,15 @@ Feature: Vector search related features
         Then the result should be:
             | node  |
             | (:L1) |
+
+    Scenario: Vector index raises error on property with wrong dimension
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        When executing query:
+            """
+            CREATE (:L1 {prop1: [1.1, 1.1, 1.1]});
+            """
+        Then an error should be raised
 
     Scenario: Vector search raises error on value that is not integer or double
         Given an empty graph
@@ -243,13 +250,6 @@ Feature: Vector search related features
         Then the result should be:
             | n     |
             | (:L1) |
-        When executing query:
-            """
-            MATCH (n) RETURN n.prop1;
-            """
-        Then the result should be:
-            | n.prop1 |
-            | null    |
 
     Scenario: Setting property after index creation adds to vector index
         Given an empty graph

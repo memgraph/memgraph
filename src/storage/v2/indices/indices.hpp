@@ -55,14 +55,15 @@ struct Indices {
     EdgeTypeIndex::AbortProcessor edge_type_;
     EdgeTypePropertyIndex::AbortProcessor edge_type_property_;
     EdgePropertyIndex::AbortProcessor edge_property_;
-    // TODO: point? Nothing to abort, it gets build in Commit
+    // TODO: point? Nothing to abort, it gets built in Commit
     // TODO: text?
-    VectorIndex::IndexStats vector_;
+    VectorIndex::AbortProcessor vector_;
     VectorEdgeIndex::IndexStats vector_edge_;
 
     void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
     void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
-    void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
+    void CollectOnLabelAddition(LabelId labelId, Vertex *vertex);
+    void CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value, Vertex *vertex);
     void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
                                  Edge *edge);
     bool IsInterestingEdgeProperty(PropertyId property);

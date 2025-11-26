@@ -72,9 +72,19 @@ struct VectorIndexRecoveryInfo {
 /// to hide implementation details.
 class VectorIndex {
  public:
-  struct IndexStats {
+  using LabelToAdd = std::set<LabelId>;
+  using LabelToRemove = std::set<LabelId>;
+  using PropertyToAbort = std::map<PropertyId, PropertyValue>;
+  using AbortableInfo = std::map<Vertex *, std::tuple<LabelToAdd, LabelToRemove, PropertyToAbort>>;
+  struct AbortProcessor {
     std::map<LabelId, std::vector<PropertyId>> l2p;
     std::map<PropertyId, std::vector<LabelId>> p2l;
+
+    void CollectOnLabelRemoval(LabelId label, Vertex *vertex);
+    void CollectOnLabelAddition(LabelId label, Vertex *vertex);
+    void CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value, Vertex *vertex);
+
+    AbortableInfo cleanup_collection;
   };
 
   using VectorSearchNodeResults = std::vector<std::tuple<Vertex *, double, double>>;
@@ -158,9 +168,9 @@ class VectorIndex {
   /// @param token A stop token to allow for cancellation of the operation.
   void RemoveObsoleteEntries(std::stop_token token) const;
 
-  /// @brief Returns the index statistics.
-  /// @return The index statistics.
-  IndexStats Analysis() const;
+  /// @brief Returns an abort processor snapshot used during transaction abort.
+  /// @return AbortProcessor containing label/property mappings for vector indices.
+  AbortProcessor GetAbortProcessor() const;
 
   /// @brief Checks if a vector index exists for the given name.
   /// @param index_name The name of the index to check.

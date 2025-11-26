@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <cstdint>
 #include <ranges>
 #include <shared_mutex>
@@ -244,7 +245,9 @@ void VectorIndex::UpdateOnSetProperty(const PropertyValue &new_value, Vertex *ve
                                       const PropertyValue &old_value) {
   const auto &index_ids = new_value.IsVectorIndexId() ? new_value.ValueVectorIndexIds() : std::vector<uint64_t>{};
   if (old_value.IsVectorIndexId()) {
-    // perform cleanup for old ids
+    // perform cleanup for old ids -> if we have difference between old and new ids it means that vector is removed from
+    // some index
+    // TODO: can we return after cleanup?
     const auto &old_ids = old_value.ValueVectorIndexIds();
     auto old_ids_to_remove = old_ids | rv::filter([&](const auto &old_id) { return !r::contains(index_ids, old_id); }) |
                              r::to<std::vector>();
@@ -280,6 +283,7 @@ void VectorIndex::UpdateOnSetProperty(const PropertyValue &new_value, Vertex *ve
       continue;
     }
     if (spec.dimension != vector_property.size()) {
+      // TODO: is this safe if we have one index that fits and other doesn't?
       throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
     }
     auto locked_index = mg_index->MutableSharedLock();
@@ -446,8 +450,8 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
   }
 }
 
-VectorIndex::IndexStats VectorIndex::Analysis() const {
-  IndexStats res{};
+VectorIndex::AbortProcessor VectorIndex::GetAbortProcessor() const {
+  AbortProcessor res{};
   for (const auto &[label_prop, _] : pimpl->index_) {
     const auto label = label_prop.label();
     const auto property = label_prop.property();
@@ -455,6 +459,33 @@ VectorIndex::IndexStats VectorIndex::Analysis() const {
     res.p2l[property].emplace_back(label);
   }
   return res;
+}
+
+void VectorIndex::AbortProcessor::CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
+  const auto &properties = l2p.find(label);
+  auto has_any_property = [&](const auto &property) { return vertex->properties.HasProperty(property); };
+  if (properties == l2p.end() || !r::any_of(properties->second, has_any_property)) return;
+  auto &[label_to_add, label_to_remove, _] = cleanup_collection[vertex];
+  label_to_remove.insert(label);
+  label_to_add.erase(label);
+}
+
+void VectorIndex::AbortProcessor::CollectOnLabelAddition(LabelId label, Vertex *vertex) {
+  const auto &properties = l2p.find(label);
+  auto has_any_property = [&](const auto &property) { return vertex->properties.HasProperty(property); };
+  if (properties == l2p.end() || !r::any_of(properties->second, has_any_property)) return;
+  auto &[label_to_add, label_to_remove, _] = cleanup_collection[vertex];
+  label_to_add.insert(label);
+  label_to_remove.erase(label);
+}
+
+void VectorIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value,
+                                                          Vertex *vertex) {
+  const auto &labels = p2l.find(propId);
+  auto has_any_label = [&](const auto &label) { return utils::Contains(vertex->labels, label); };
+  if (labels == p2l.end() || !r::any_of(labels->second, has_any_label)) return;
+  auto &[_, _, property_to_abort] = cleanup_collection[vertex];
+  property_to_abort[propId] = old_value;
 }
 
 bool VectorIndex::IndexExists(std::string_view index_name) const {
