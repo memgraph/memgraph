@@ -72,13 +72,18 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
   auto current_values_equal_to_value = std::vector<bool>{};
   const Delta *delta = nullptr;
   {
-    auto const guard = std::shared_lock{vertex.lock};
+    auto guard = std::shared_lock{vertex.lock};
     delta = vertex.delta;
     deleted = vertex.deleted;
     if (!delta && deleted) return false;
     has_label = std::ranges::contains(vertex.labels, label);
     if (!delta && !has_label) return false;
     current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
+
+    // If vertex has interleaved deltas, hold lock while applying them
+    if (!vertex.has_interleaved_deltas) {
+      guard.unlock();
+    }
   }
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -382,19 +387,25 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
     delta = vertex.delta;
     has_label = std::ranges::contains(vertex.labels, label);
     properties = props.Extract(vertex.properties);
-  }
-  // Create and drop index will always use snapshot isolation
-  if (delta) {
-    ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
-      // clang-format off
-      DeltaDispatch(delta, utils::ChainedOverloaded{
-        Exists_ActionMethod(exists),
-        Deleted_ActionMethod(deleted),
-        HasLabel_ActionMethod(has_label, label),
-        PropertyValuesUpdate_ActionMethod(props, properties)
+
+    // If vertex has interleaved deltas, hold lock while applying them
+    if (!vertex.has_interleaved_deltas) {
+      guard.unlock();
+    }
+
+    // Create and drop index will always use snapshot isolation
+    if (delta) {
+      ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
+        // clang-format off
+        DeltaDispatch(delta, utils::ChainedOverloaded{
+          Exists_ActionMethod(exists),
+          Deleted_ActionMethod(deleted),
+          HasLabel_ActionMethod(has_label, label),
+          PropertyValuesUpdate_ActionMethod(props, properties)
+        });
+        // clang-format on
       });
-      // clang-format on
-    });
+    }
   }
   if (!exists || deleted || !has_label) {
     return;
