@@ -20,7 +20,9 @@ module;
 #include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/GetObjectRequest.h>
+#include <aws/transfer/TransferManager.h>
 
+#include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 
 export module memgraph.utils.aws;
@@ -44,6 +46,32 @@ struct S3Config {
   std::optional<std::string> aws_access_key;
   std::optional<std::string> aws_secret_key;
   std::optional<std::string> aws_endpoint_url;
+
+  void Validate() const {
+    if (!aws_region.has_value()) {
+      throw BasicException(
+          "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} "
+          "or "
+          "env variable {}",
+          kAwsRegionQuerySetting, kAwsRegionEnv);
+    }
+
+    if (!aws_access_key.has_value()) {
+      throw BasicException(
+          "AWS access key configuration parameter not provided. Please provide it through the query, run-time setting "
+          "{} "
+          "or env variable {}",
+          kAwsAccessKeyQuerySetting, kAwsAccessKeyEnv);
+    }
+
+    if (!aws_secret_key.has_value()) {
+      throw BasicException(
+          "AWS secret key configuration parameter not provided. Please provide it through the query, run-time setting "
+          "{} "
+          "or env variable {}",
+          kAwsSecretKeyQuerySetting, kAwsSecretKeyEnv);
+    }
+  }
 
   // Query settings -> run_time flags -> env variables
   static auto Build(std::map<std::string, std::string, std::less<>> query_config,
@@ -110,6 +138,16 @@ class GlobalS3APIManager {
   Aws::SDKOptions options;
 };
 
+auto BuildClientConfiguration(std::string const &aws_region, std::optional<std::string> const &aws_endpoint_url)
+    -> Aws::Client::ClientConfiguration {
+  Aws::Client::ClientConfiguration client_config;
+  client_config.region = aws_region;
+  if (aws_endpoint_url.has_value()) {
+    client_config.endpointOverride = *aws_endpoint_url;
+  }
+  return client_config;
+}
+
 // Builds a GetObjectRequest for AWS S3 library from the bucket_name and object_key
 auto BuildGetObjectRequest(std::string_view bucket_name, std::string_view object_key)
     -> Aws::S3::Model::GetObjectRequest {
@@ -137,49 +175,51 @@ auto ExtractBucketAndObjectKey(std::string_view uri) -> std::pair<std::string_vi
   return {uri.substr(0, slash_pos), uri.substr(slash_pos + 1)};
 }
 
-// Writes the content of uri into ostream
-void GetS3Object(std::string uri, S3Config const &s3_config, std::ostream &ostream) {
-  if (!s3_config.aws_region.has_value()) {
-    throw BasicException(
-        "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} or "
-        "env variable {}",
-        kAwsRegionQuerySetting, kAwsRegionEnv);
-  }
-
-  if (!s3_config.aws_access_key.has_value()) {
-    throw BasicException(
-        "AWS access key configuration parameter not provided. Please provide it through the query, run-time setting {} "
-        "or env variable {}",
-        kAwsAccessKeyQuerySetting, kAwsAccessKeyEnv);
-  }
-
-  if (!s3_config.aws_secret_key.has_value()) {
-    throw BasicException(
-        "AWS secret key configuration parameter not provided. Please provide it through the query, run-time setting {} "
-        "or env variable {}",
-        kAwsSecretKeyQuerySetting, kAwsSecretKeyEnv);
-  }
-
-  GlobalS3APIManager::GetInstance();
-
-  Aws::Client::ClientConfiguration client_config;
-  client_config.region = *s3_config.aws_region;
-  if (s3_config.aws_endpoint_url.has_value()) {
-    client_config.endpointOverride = *s3_config.aws_endpoint_url;
-  }
-
+auto GetS3ObjectOutcome(std::string uri, S3Config const &s3_config) -> Aws::S3::Model::GetObjectOutcome {
   Aws::Auth::AWSCredentials const credentials(*s3_config.aws_access_key, *s3_config.aws_secret_key);
-
   // Use path-style for S3-compatible services (4th param = false)
-  Aws::S3::S3Client const s3_client(credentials, client_config,
+  Aws::S3::S3Client const s3_client(credentials,
+                                    BuildClientConfiguration(*s3_config.aws_region, s3_config.aws_endpoint_url),
                                     Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
 
-  auto const outcome = s3_client.GetObject(std::apply(BuildGetObjectRequest, ExtractBucketAndObjectKey(uri)));
-
+  auto outcome = s3_client.GetObject(std::apply(BuildGetObjectRequest, ExtractBucketAndObjectKey(uri)));
   if (!outcome.IsSuccess()) {
     throw BasicException("Failed to get object from S3 {}. Error: {}", uri, outcome.GetError().GetMessage());
   }
-  ostream << outcome.GetResult().GetBody().rdbuf();
+
+  return outcome;
+}
+
+// Writes the content of the S3 object from the uri into ostream
+void GetS3Object(std::string uri, S3Config const &s3_config, std::ostream &ostream) {
+  s3_config.Validate();
+  GlobalS3APIManager::GetInstance();
+  ostream << GetS3ObjectOutcome(std::move(uri), s3_config).GetResult().GetBody().rdbuf();
+}
+
+// Writes the content of the S3 object from the uri into a file on the local disk
+void GetS3Object(std::string uri, S3Config const &s3_config, std::string local_file_path) {
+  s3_config.Validate();
+  GlobalS3APIManager::GetInstance();
+
+  Aws::Auth::AWSCredentials const credentials(*s3_config.aws_access_key, *s3_config.aws_secret_key);
+  auto const s3_client = std::make_shared<Aws::S3::S3Client>(
+      credentials, BuildClientConfiguration(*s3_config.aws_region, s3_config.aws_endpoint_url),
+      Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
+
+  Aws::Utils::Threading::DefaultExecutor executor;
+  Aws::Transfer::TransferManagerConfiguration config(&executor);
+  config.s3Client = s3_client;
+
+  auto const transfer_manager = Aws::Transfer::TransferManager::Create(config);
+  auto const [bucket_name, object_key] = ExtractBucketAndObjectKey(uri);
+  auto const transfer_handle =
+      transfer_manager->DownloadFile(Aws::String{bucket_name}, Aws::String{object_key}, Aws::String{local_file_path});
+  transfer_handle->WaitUntilFinished();
+  bool success = transfer_handle->GetStatus() == Aws::Transfer::TransferStatus::COMPLETED;
+  if (success) {
+    spdlog::trace("Downloaded {} bytes of the file {}", transfer_handle->GetBytesTotalSize(), uri);
+  }
 }
 
 }  // namespace memgraph::utils

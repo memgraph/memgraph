@@ -43,7 +43,7 @@ def test_file_exists_s3():
     execute_and_fetch_all(cursor, f"set database setting 'aws.secret_key' to '{AWS_SECRET_ACCESS_KEY}'")
     execute_and_fetch_all(cursor, f"set database setting 'aws.endpoint_url' to '{AWS_ENDPOINT_URL}'")
 
-    load_query = f"LOAD CSV FROM 's3://{BUCKET_NAME}/simple_nodes.csv' WITH HEADER AS row CREATE (n:N {{id: row.id, name: row.name}})"
+    load_query = f"LOAD CSV FROM 's3://{BUCKET_NAME}/simple_nodes.csv' WITH CONFIG {{'aws_region': '{AWS_REGION}', 'aws_access_key': '{AWS_ACCESS_KEY_ID}', 'aws_secret_key': '{AWS_SECRET_ACCESS_KEY}', 'aws_endpoint_url': '{AWS_ENDPOINT_URL}' }} WITH HEADER AS row CREATE (n:N {{id: row.id, name: row.name}})"
 
     execute_and_fetch_all(cursor, load_query)
     execute_and_fetch_all(cursor, "match (n) detach delete n")

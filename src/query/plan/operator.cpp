@@ -7912,9 +7912,18 @@ class LoadJsonlCursor : public Cursor {
       auto evaluator = PrimitiveLiteralExpressionEvaluator{context.evaluation_context};
       auto maybe_file = self_->file_->Accept(evaluator).ValueString();
 
+      constexpr auto s3_matcher = ctre::starts_with<"s3://">;
+      // TODO: (andi) Add query capabilities
+      std::map<std::string, std::string, std::less<>> query_config_map;
+
+      std::optional<utils::S3Config> s3_config;
+      if (s3_matcher(maybe_file)) {
+        s3_config.emplace(utils::S3Config::Build(std::move(query_config_map), BuildRunTimeS3Config()));
+      }
+
       auto abort_check_erased = context.stopping_context.MakeMaybeAborter(1);
 
-      reader_.emplace(std::string{maybe_file}, mem, std::move(abort_check_erased));
+      reader_.emplace(std::string{maybe_file}, std::move(s3_config), mem, std::move(abort_check_erased));
     }
 
     if (input_cursor_->Pull(frame, context)) {

@@ -48,7 +48,7 @@ class Memgraph(ConanFile):
         "aws-sdk-cpp/*:cognito-identity": True,
         "aws-sdk-cpp/*:iam": False,
         "aws-sdk-cpp/*:identity-management": True,
-        "aws-sdk-cpp/*:transfer": False,
+        "aws-sdk-cpp/*:transfer": True,
     }
 
     def requirements(self):
@@ -95,7 +95,7 @@ class Memgraph(ConanFile):
                 "cognito-identity": True,
                 "iam": False,
                 "identity-management": True,
-                "transfer": False,
+                "transfer": True,
                 "text-to-speech": False,
             },
         )

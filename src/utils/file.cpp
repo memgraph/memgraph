@@ -20,6 +20,7 @@
 #include <mutex>
 #include <type_traits>
 
+#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::utils {

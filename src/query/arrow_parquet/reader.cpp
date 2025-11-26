@@ -98,31 +98,7 @@ auto BuildHeader(std::shared_ptr<arrow::Schema> const &schema, memgraph::utils::
 auto LoadFileFromS3(memgraph::utils::pmr::string const &file, memgraph::utils::S3Config const &s3_config)
     -> std::unique_ptr<parquet::arrow::FileReader> {
   GlobalS3APIManager::GetInstance();
-
-  // Users needs to set aws_region, aws_access_key and aws_secret_key in some way. aws_endpoint_url is optional
-  if (!s3_config.aws_region.has_value()) {
-    spdlog::error(
-        "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} or "
-        "env variable {}",
-        memgraph::utils::kAwsRegionQuerySetting, memgraph::utils::kAwsRegionEnv);
-    return nullptr;
-  }
-
-  if (!s3_config.aws_access_key.has_value()) {
-    spdlog::error(
-        "AWS access key configuration parameter not provided. Please provide it through the query, run-time setting {} "
-        "or env variable {}",
-        memgraph::utils::kAwsAccessKeyQuerySetting, memgraph::utils::kAwsAccessKeyEnv);
-    return nullptr;
-  }
-
-  if (!s3_config.aws_secret_key.has_value()) {
-    spdlog::error(
-        "AWS secret key configuration parameter not provided. Please provide it through the query, run-time setting {} "
-        "or env variable {}",
-        memgraph::utils::kAwsSecretKeyQuerySetting, memgraph::utils::kAwsSecretKeyEnv);
-    return nullptr;
-  }
+  s3_config.Validate();
 
   auto s3_options = arrow::fs::S3Options::FromAccessKey(*s3_config.aws_access_key, *s3_config.aws_secret_key);
   s3_options.region = *s3_config.aws_region;
@@ -633,7 +609,12 @@ ParquetReader::ParquetReader(utils::pmr::string const &uri, utils::S3Config s3_c
     }
 
     if (s3_matcher(uri)) {
-      return LoadFileFromS3(uri, s3_config);
+      try {
+        return LoadFileFromS3(uri, s3_config);
+      } catch (utils::BasicException const &e) {
+        spdlog::error(e.what());
+        return nullptr;
+      }
     }
 
     // Regular file that already exists on disk

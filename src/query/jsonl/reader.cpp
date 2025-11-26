@@ -28,6 +28,8 @@ module;
 
 module memgraph.query.jsonl.reader;
 
+import memgraph.utils.aws;
+
 namespace {
 using memgraph::query::TypedValue;
 using simdjson::ondemand::json_type;
@@ -119,9 +121,10 @@ namespace memgraph::query {
 
 struct JsonlReader::impl {
  public:
-  impl(std::string uri, std::pmr::memory_resource *resource, std::function<void()> abort_check)
+  impl(std::string uri, std::optional<utils::S3Config> s3_cfg, std::pmr::memory_resource *resource,
+       std::function<void()> abort_check)
       : uri_{std::move(uri)}, resource_{resource} {
-    InitSimdjsonContent(std::move(abort_check));
+    InitSimdjsonContent(std::move(s3_cfg), std::move(abort_check));
 
     if (UNLIKELY(parser_.iterate_many(content_).get(docs_))) {
       throw utils::BasicException("Failed to create iterator over documents for file {}", uri_);
@@ -135,28 +138,33 @@ struct JsonlReader::impl {
   impl(impl &&) = delete;
   impl &operator=(impl &&) = delete;
 
-  ~impl() {
-    // Delete the file we were using for download
-    if (!local_file_.empty()) {
-      utils::DeleteFile(local_file_);
-    }
-  }
+  ~impl() = default;
 
   // Performs file download if necessary before loading the file from disk
-
-  void InitSimdjsonContent(std::function<void()> abort_check) {
+  void InitSimdjsonContent(std::optional<utils::S3Config> s3_cfg, std::function<void()> abort_check) {
     constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
+    constexpr auto s3_matcher = ctre::starts_with<"s3://">;
+
+    auto const build_base_path = [&]() -> std::filesystem::path {
+      return std::filesystem::path{"/tmp"} / std::filesystem::path{uri_}.filename();
+    };
+
     if (url_matcher(uri_)) {
-      auto const base_path = std::filesystem::path{"/tmp"} / std::filesystem::path{uri_}.filename();
-      auto [new_path, file] = utils::CreateUniqueDownloadFile(base_path);
-      local_file_ = std::move(new_path);
+      auto [new_path, file] = utils::CreateUniqueDownloadFile(build_base_path());
 
       if (!requests::CreateAndDownloadFile(uri_, std::move(file),
                                            memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
                                            std::move(abort_check))) {
         throw utils::BasicException("Failed to download file {}", uri_);
       }
-      content_ = simdjson::padded_string::load(local_file_).value();
+      content_ = simdjson::padded_string::load(new_path.string()).value();
+      utils::DeleteFile(new_path);
+    } else if (s3_matcher(uri_)) {
+      DMG_ASSERT(s3_cfg.has_value(), "S3Config doesn't have a value");
+      auto const new_path = utils::CreateUniqueDownloadFile(build_base_path()).first;
+      utils::GetS3Object(uri_, *s3_cfg, new_path.string());
+      content_ = simdjson::padded_string::load(new_path.string()).value();
+      utils::DeleteFile(new_path);
     } else {
       content_ = simdjson::padded_string::load(uri_).value();
     }
@@ -176,19 +184,17 @@ struct JsonlReader::impl {
  private:
   std::string uri_;
   std::pmr::memory_resource *resource_;
-
-  // Path where the JSONL file was downloaded
-  // Had bugs with std::optional
-  std::string local_file_;
   simdjson::ondemand::parser parser_;
   simdjson::padded_string content_;
   simdjson::ondemand::document_stream docs_;
   simdjson::ondemand::document_stream::iterator it_;
 };
 
-JsonlReader::JsonlReader(std::string file, std::pmr::memory_resource *resource, std::function<void()> abort_check)
+JsonlReader::JsonlReader(std::string file, std::optional<utils::S3Config> s3_cfg, std::pmr::memory_resource *resource,
+                         std::function<void()> abort_check)
     // NOLINTNEXTLINE
-    : pimpl_{std::make_unique<JsonlReader::impl>(std::move(file), resource, std::move(abort_check))} {}
+    : pimpl_{
+          std::make_unique<JsonlReader::impl>(std::move(file), std::move(s3_cfg), resource, std::move(abort_check))} {}
 
 JsonlReader::~JsonlReader() {}
 
