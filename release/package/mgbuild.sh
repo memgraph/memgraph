@@ -1257,7 +1257,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$conan_cache_dir" ]]; then
-  conan_cache_dir="$HOME/.conan2-${os}-${arch}"
+  conan_cache_dir="$HOME/.conan2-ci"
 fi
 
 if [[ "$os" != "all" ]]; then
