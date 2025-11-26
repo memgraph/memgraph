@@ -80,7 +80,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
     bool attached = true;
     Delta *delta = nullptr;
     {
-      ReadGuard guard(from_vertex_);
+      ReadGuard const guard(from_vertex_);
       // Initialize deleted by checking if out edges contain edge_
       attached = std::ranges::any_of(from_vertex_->out_edges,
                                      [&](const auto &out_edge) { return std::get<EdgeRef>(out_edge) == edge_; });
@@ -117,7 +117,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
     bool deleted = true;
     Delta *delta = nullptr;
     {
-      ReadGuard guard(edge_.ptr);
+      ReadGuard const guard(edge_.ptr);
       deleted = edge_.ptr->deleted;
       delta = edge_.ptr->delta;
     }
@@ -358,7 +358,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   std::optional<PropertyValue> value;
   Delta *delta = nullptr;
   {
-    ReadGuard guard(edge_.ptr);
+    ReadGuard const guard(edge_.ptr);
     deleted = edge_.ptr->deleted;
     value.emplace(edge_.ptr->properties.GetProperty(property));
     delta = edge_.ptr->delta;
@@ -422,7 +422,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   std::map<PropertyId, PropertyValue> properties;
   Delta *delta = nullptr;
   {
-    ReadGuard guard(edge_.ptr);
+    ReadGuard const guard(edge_.ptr);
     deleted = edge_.ptr->deleted;
     properties = edge_.ptr->properties.Properties();
     delta = edge_.ptr->delta;
@@ -475,7 +475,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyId
   property_values.reserve(properties.size());
   Delta *delta = nullptr;
   {
-    ReadGuard guard(edge_.ptr);
+    ReadGuard const guard(edge_.ptr);
     deleted = edge_.ptr->deleted;
     auto property_paths = properties |
                           rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |

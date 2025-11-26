@@ -98,7 +98,7 @@ std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transac
   bool deleted = false;
   Delta *delta = nullptr;
   {
-    VertexReadGuard guard(vertex);
+    VertexReadGuard const guard(vertex);
     deleted = vertex->deleted;
     delta = vertex->delta;
   }
@@ -298,7 +298,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   bool has_label = false;
   Delta *delta = nullptr;
   {
-    VertexReadGuard guard(vertex_);
+    VertexReadGuard const guard(vertex_);
     deleted = vertex_->deleted;
     has_label = std::ranges::contains(vertex_->labels, label);
     delta = vertex_->delta;
@@ -345,7 +345,7 @@ Result<utils::small_vector<LabelId>> VertexAccessor::Labels(View view) const {
   utils::small_vector<LabelId> labels;
   Delta *delta = nullptr;
   {
-    VertexReadGuard guard(vertex_);
+    VertexReadGuard const guard(vertex_);
     deleted = vertex_->deleted;
     labels = vertex_->labels;
     delta = vertex_->delta;
@@ -661,7 +661,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   Delta *delta = nullptr;
 
   auto value = std::invoke([&]() -> PropertyValue {
-    VertexReadGuard guard(vertex_);
+    VertexReadGuard const guard(vertex_);
     deleted = vertex_->deleted;
     delta = vertex_->delta;
     auto prop_value = vertex_->properties.GetProperty(
@@ -709,7 +709,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
 
 Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view) const {
   {
-    VertexReadGuard guard(vertex_);
+    VertexReadGuard const guard(vertex_);
     Delta *delta = vertex_->delta;
     if (!delta) {
       return vertex_->properties.PropertySize(property);
@@ -733,7 +733,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   std::map<PropertyId, PropertyValue> properties;
   Delta *delta = nullptr;
   {
-    VertexReadGuard guard(vertex_);
+    VertexReadGuard const guard(vertex_);
     deleted = vertex_->deleted;
     properties = vertex_->properties.Properties(IndexedPropertyDecoder<Vertex>{
         .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
@@ -784,7 +784,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByProperty
   property_values.reserve(properties.size());
   Delta *delta = nullptr;
   {
-    VertexReadGuard guard(vertex_);
+    VertexReadGuard const guard(vertex_);
     deleted = vertex_->deleted;
     auto property_paths = properties |
                           rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
@@ -1074,7 +1074,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
   size_t degree = 0;
   Delta *delta = nullptr;
   {
-    VertexReadGuard guard(vertex_);
+    VertexReadGuard const guard(vertex_);
     deleted = vertex_->deleted;
     degree = vertex_->in_edges.size();
     delta = vertex_->delta;
@@ -1130,7 +1130,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   size_t degree = 0;
   Delta *delta = nullptr;
   {
-    VertexReadGuard guard(vertex_);
+    VertexReadGuard const guard(vertex_);
     deleted = vertex_->deleted;
     degree = vertex_->out_edges.size();
     delta = vertex_->delta;
