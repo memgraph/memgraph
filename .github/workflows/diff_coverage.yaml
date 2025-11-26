@@ -36,6 +36,7 @@ env:
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
   TOOLCHAIN: v7
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
 
 jobs:
   core:
@@ -87,6 +88,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --no-ccache \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph --init-only
 
       - name: Run python code analysis
@@ -107,6 +109,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --no-ccache \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph --coverage --asan --ubsan
 
       - name: Initialize tests
@@ -203,6 +206,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --no-ccache \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph --cmake-only --community
 
       - name: Run clang-tidy
@@ -274,6 +278,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --no-ccache \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph --cmake-only
 
       - name: Run clang-tidy

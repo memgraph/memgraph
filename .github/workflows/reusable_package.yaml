@@ -61,6 +61,7 @@ env:
   S3_REGION: ${{ inputs.s3_region }}
   S3_DEST_DIR: ${{ inputs.s3_dest_dir }}
   REF: ${{ inputs.ref }}
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
 
 jobs:
   PackageAndUpload:
@@ -138,6 +139,7 @@ jobs:
           --os "$OS" \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph $ADDITIONAL_BUILD_ARGS
 
       - name: "Make package"

@@ -49,6 +49,7 @@ env:
   OS: ${{ inputs.os }}
   TOOLCHAIN: v7
   DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
 
 jobs:
   core:
@@ -84,6 +85,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph
 
       - name: Initialize tests
@@ -211,6 +213,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph
 
       - name: Initialize tests
@@ -328,6 +331,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph
 
       - name: Initialize tests
@@ -442,6 +446,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph
 
       - name: Initialize tests
@@ -564,6 +569,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph
 
       - name: Initialize tests
