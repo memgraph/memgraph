@@ -7536,7 +7536,8 @@ std::string CallProcedure::ToString() const {
                      utils::IterableToString(result_symbols_, ", ", [](const auto &sym) { return sym.name(); }));
 }
 
-LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool with_header, bool ignore_bad,
+LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file,
+                 std::unordered_map<Expression *, Expression *> config_map, bool with_header, bool ignore_bad,
                  Expression *delimiter, Expression *quote, Expression *nullif, Symbol row_var)
     : input_(input ? input : (std::make_shared<Once>())),
       file_(file),
@@ -7545,7 +7546,8 @@ LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool 
       delimiter_(delimiter),
       quote_(quote),
       nullif_(nullif),
-      row_var_(std::move(row_var)) {
+      row_var_(std::move(row_var)),
+      config_map_(std::move(config_map)) {
   MG_ASSERT(file_, "Something went wrong - '{}' member file_ shouldn't be a nullptr", __func__);
 }
 
@@ -7562,6 +7564,27 @@ std::vector<Symbol> LoadCsv::ModifiedSymbols(const SymbolTable &sym_table) const
 };
 
 namespace {
+
+auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
+                    ExpressionVisitor<TypedValue> &evaluator)
+    -> std::optional<std::map<std::string, std::string, std::less<>>> {
+  if (std::ranges::any_of(config_map, [&evaluator](const auto &entry) {
+        auto key_expr = entry.first->Accept(evaluator);
+        auto value_expr = entry.second->Accept(evaluator);
+        return !key_expr.IsString() || !value_expr.IsString();
+      })) {
+    spdlog::error("Config map must contain only string keys and values!");
+    return std::nullopt;
+  }
+
+  return rv::all(config_map) | rv::transform([&evaluator](const auto &entry) {
+           auto key_expr = entry.first->Accept(evaluator);
+           auto value_expr = entry.second->Accept(evaluator);
+           return std::pair{key_expr.ValueString(), value_expr.ValueString()};
+         }) |
+         ranges::to<std::map<std::string, std::string, std::less<>>>;
+}
+
 // copy-pasted from interpreter.cpp
 TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluator *eval) {
   return expression ? expression->Accept(*eval) : TypedValue(eval->GetMemoryResource());
@@ -7685,14 +7708,23 @@ class LoadCsvCursor : public Cursor {
     auto maybe_delim = ToOptionalString(&evaluator, self_->delimiter_);
     auto maybe_quote = ToOptionalString(&evaluator, self_->quote_);
 
-    // TODO: (andi) This will be parsed
-    std::map<std::string, std::string, std::less<>> query_config;
+    auto maybe_config_map = ParseConfigMap(self_->config_map_, evaluator);
+
+    if (!maybe_config_map) {
+      throw QueryRuntimeException("Failed to parse config map for LOAD PARQUET clause!");
+    }
+
+    if (maybe_config_map->size() > 4) {
+      throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
+                                  utils::kAwsAccessKeyQuerySetting, utils::kAwsAccessKeyQuerySetting,
+                                  utils::kAwsSecretKeyQuerySetting, utils::kAwsEndpointUrlQuerySetting);
+    }
 
     constexpr auto s3_matcher = ctre::starts_with<"s3://">;
 
     std::optional<utils::S3Config> s3_config;
     if (s3_matcher(*maybe_file)) {
-      s3_config.emplace(utils::S3Config::Build(std::move(query_config), BuildRunTimeS3Config()));
+      s3_config.emplace(utils::S3Config::Build(std::move(*maybe_config_map), BuildRunTimeS3Config()));
     }
 
     // No need to check if maybe_file is std::nullopt, as the parser makes sure
@@ -7731,29 +7763,6 @@ std::unique_ptr<LogicalOperator> LoadCsv::Clone(AstStorage *storage) const {
 }
 
 std::string LoadCsv::ToString() const { return fmt::format("LoadCsv {{{}}}", row_var_.name()); };
-
-namespace {
-
-auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
-                    PrimitiveLiteralExpressionEvaluator &evaluator)
-    -> std::optional<std::map<std::string, std::string, std::less<>>> {
-  if (std::ranges::any_of(config_map, [&evaluator](const auto &entry) {
-        auto key_expr = entry.first->Accept(evaluator);
-        auto value_expr = entry.second->Accept(evaluator);
-        return !key_expr.IsString() || !value_expr.IsString();
-      })) {
-    spdlog::error("Config map must contain only string keys and values!");
-    return std::nullopt;
-  }
-
-  return rv::all(config_map) | rv::transform([&evaluator](const auto &entry) {
-           auto key_expr = entry.first->Accept(evaluator);
-           auto value_expr = entry.second->Accept(evaluator);
-           return std::pair{key_expr.ValueString(), value_expr.ValueString()};
-         }) |
-         ranges::to<std::map<std::string, std::string, std::less<>>>;
-}
-}  // namespace
 
 LoadParquet::LoadParquet(std::shared_ptr<LogicalOperator> input, Expression *file,
                          std::unordered_map<Expression *, Expression *> config_map, Symbol row_var)

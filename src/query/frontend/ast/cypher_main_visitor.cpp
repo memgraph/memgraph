@@ -876,9 +876,9 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
 
   // handle header options
   // Don't have to check for ctx->HEADER(), as it's a mandatory token.
-  // Just need to check if ctx->WITH() is not nullptr - otherwise, we have a
-  // ctx->NO() and ctx->HEADER() present.
-  load_csv->with_header_ = ctx->WITH() != nullptr;
+  // Just need to check if ctx->WITH0) is not nullptr
+  // Index 0 is needed because there are 2 WITH
+  load_csv->with_header_ = ctx->WITH(0) != nullptr;
 
   // handle skip bad row option
   load_csv->ignore_bad_ = ctx->IGNORE() && ctx->BAD();
@@ -904,6 +904,10 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
     } else {
       throw SemanticException("Quote should be a string literal");
     }
+  }
+
+  if (ctx->configsMap) {
+    load_csv->configs_ = std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
   }
 
   // handle row variable
