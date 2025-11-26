@@ -9004,7 +9004,7 @@ class ScanParallelCursor : public Cursor {
     size_t index = 0;
 
     // Use the actual return type from get_chunks_ (can be VerticesChunkedIterable or EdgesChunkedIterable)
-    using ChunksType = typename std::result_of<TChunksFun(Frame &, ExecutionContext &)>::type;
+    using ChunksType = std::invoke_result_t<TChunksFun, Frame &, ExecutionContext &>;
     std::shared_ptr<ChunksType> chunks;
 
     {
@@ -9015,18 +9015,22 @@ class ScanParallelCursor : public Cursor {
         }
       }};
       std::unique_lock lock(mutex_);
+
+      if (all_pulled_) return false;  // Everything was pulled
+
       if (index_ == 0 || index_ >= self_.num_threads_) {
-        index_ = 0;
         if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
         chunks_.reset();
         bool res = input_cursor_->Pull(*frame_, context);
         if (!res) {
+          all_pulled_ = true;
           return false;
         }
+        index_ = 0;
         chunks_ = std::make_shared<ChunksType>(get_chunks_(*frame_, context));
       }
-      if (chunks_ == nullptr) return false;  // Everything was pulled
-      frame = *frame_;                       // Copy the filled frame
+
+      frame = *frame_;  // Copy the filled frame
       chunks = chunks_;
       index = index_++;
     }
@@ -9048,6 +9052,7 @@ class ScanParallelCursor : public Cursor {
   std::optional<Frame> frame_{std::nullopt};
   const UniqueCursorPtr input_cursor_;
   TChunksFun get_chunks_;
+  bool all_pulled_{false};
 };
 
 UniqueCursorPtr ScanParallel::MakeCursor(utils::MemoryResource *mem) const {
@@ -9738,14 +9743,31 @@ UniqueCursorPtr ParallelMerge::MakeCursor(utils::MemoryResource *mem) const {
 class ParallelMergeCursor : public Cursor {
  public:
   ParallelMergeCursor(const ParallelMerge &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(std::invoke([&]() {
-          if (!plan_creation_helper_) {
-            plan_creation_helper_ = self_.input_->MakeCursor(mem);
+      : self_(self),
+        collection_scheduler_(std::invoke([&]() -> std::shared_ptr<utils::CollectionScheduler> {
+          return std::exchange(plan_creation_helper_.collection_scheduler_, nullptr);
+        })),
+        input_cursor_(std::invoke([&]() {
+          if (!plan_creation_helper_.cursor_) {
+            plan_creation_helper_.cursor_ = self_.input_->MakeCursor(mem);
           }
-          return plan_creation_helper_;
+          return plan_creation_helper_.cursor_;
         })) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override { return input_cursor_->Pull(frame, context); }
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    auto res = input_cursor_->Pull(frame, context);
+
+    // Source aggregation cannot schedule collection unitl we made a first pass through the query
+    // Otherwise all would block on the first scan parallel operator and wait until (potentially) evrything has been
+    // pulled We would fallback to single threaded execution for all subsequent parallel operators. This is hacky, but
+    // it works. The real solution is to convert cursors into coroutines and yield here.
+    if (collection_scheduler_) {
+      // Scheduler paralle work for this section
+      collection_scheduler_->Trigger();
+      collection_scheduler_.reset();
+    }
+    return res;
+  }
 
   void Shutdown() override {
     if (input_cursor_) input_cursor_->Shutdown();
@@ -9759,17 +9781,30 @@ class ParallelMergeCursor : public Cursor {
   static void ResetPlanCreationHelper() { plan_creation_helper_.reset(); }
 
   struct PlanCreationHelper {
-    PlanCreationHelper() { ParallelMergeCursor::ResetPlanCreationHelper(); }
+    PlanCreationHelper(std::shared_ptr<utils::CollectionScheduler> collection_scheduler) {
+      ParallelMergeCursor::plan_creation_helper_.reset();
+      ParallelMergeCursor::plan_creation_helper_.collection_scheduler_ = collection_scheduler;
+    }
     ~PlanCreationHelper() { ParallelMergeCursor::ResetPlanCreationHelper(); }
+  };
+
+  struct CreationHelper {
+    void reset() {
+      cursor_.reset();
+      collection_scheduler_.reset();
+    }
+    std::shared_ptr<Cursor> cursor_{nullptr};
+    std::shared_ptr<utils::CollectionScheduler> collection_scheduler_{nullptr};
   };
 
  private:
   const ParallelMerge &self_;
-  static thread_local std::shared_ptr<Cursor> plan_creation_helper_;
+  static thread_local CreationHelper plan_creation_helper_;
+  std::shared_ptr<utils::CollectionScheduler> collection_scheduler_{nullptr};
   std::shared_ptr<Cursor> input_cursor_;
 };
 
-thread_local std::shared_ptr<Cursor> ParallelMergeCursor::plan_creation_helper_ = nullptr;
+thread_local ParallelMergeCursor::CreationHelper ParallelMergeCursor::plan_creation_helper_{nullptr};
 
 /**
  * Generic base class for parallel branch execution.
@@ -9780,8 +9815,9 @@ class ParallelBranchCursor : public Cursor {
  public:
   ParallelBranchCursor(const std::shared_ptr<LogicalOperator> &branch_input, size_t num_threads,
                        utils::MemoryResource *mem)
-      : branch_cursors_(std::invoke([&]() {
-          ParallelMergeCursor::PlanCreationHelper helper;
+      : collection_scheduler_(std::make_shared<utils::CollectionScheduler>(nullptr, nullptr)),
+        branch_cursors_(std::invoke([&]() {
+          ParallelMergeCursor::PlanCreationHelper helper{collection_scheduler_};
           std::vector<UniqueCursorPtr> cursors;
           const auto effective_num_threads = std::min(num_threads, static_cast<size_t>(FLAGS_bolt_num_workers));
           cursors.reserve(effective_num_threads);
@@ -9862,7 +9898,7 @@ class ParallelBranchCursor : public Cursor {
           // Force state reset (life extended through the context)
           const_cast<std::optional<ScopedProfile> &>(profile).reset();
           if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen
-            // NOTE: Parallle operators have to PullAll, so no need to worry about switching threads (at the bolt level)
+            // NOTE: Parallel operators have to PullAll, so no need to worry about switching threads (at the bolt level)
             // Main thread is handled by the higher level
             context.profile_execution_time += timer.Elapsed();
           }
@@ -9882,10 +9918,8 @@ class ParallelBranchCursor : public Cursor {
       });
     }
 
-    // Schedule the tasks
-    if (context.worker_pool) {
-      context.worker_pool->ScheduledCollection(tasks);
-    }
+    collection_scheduler_->SetCollection(std::make_shared<utils::TaskCollection>(std::move(tasks)));
+    collection_scheduler_->SetPool(context.worker_pool);
 
     // TODO Reuse the same logic as each thread
     // Execute branch 0 on the main thread
@@ -9901,7 +9935,7 @@ class ParallelBranchCursor : public Cursor {
       }
     }
 
-    tasks.WaitOrSteal();
+    collection_scheduler_->WaitOrSteal();
 
     // Check for exceptions
     if (const auto exception_it = std::find_if(exceptions.begin(), exceptions.end(),
@@ -10040,6 +10074,7 @@ class ParallelBranchCursor : public Cursor {
     }
   }
 
+  std::shared_ptr<utils::CollectionScheduler> collection_scheduler_;
   const std::vector<UniqueCursorPtr> branch_cursors_;
 };
 
