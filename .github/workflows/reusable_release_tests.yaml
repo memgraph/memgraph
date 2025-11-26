@@ -47,7 +47,7 @@ env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   BUILD_TYPE: ${{ inputs.build_type }}
-
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
 jobs:
   community_build:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -84,6 +84,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph --community
 
       - name: Initialize tests
@@ -159,6 +160,7 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads $THREADS \
           --no-ccache \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph --coverage
 
       - name: Initialize tests
@@ -248,6 +250,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph
 
       - name: Initialize tests
@@ -360,6 +363,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph
 
       - name: Initialize tests
@@ -432,6 +436,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph --disable-jemalloc
 
       - name: Initialize tests
@@ -535,6 +540,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph
 
       - name: Initialize tests
@@ -646,6 +652,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph
 
       - name: Initialize tests
@@ -736,6 +743,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph
 
       - name: Initialize tests
@@ -835,6 +843,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph
 
       - name: Initialize tests
@@ -960,6 +969,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph
 
       - name: Copy memgraph binary
@@ -1071,6 +1081,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph
 
       - name: Initialize tests
@@ -1158,6 +1169,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph
 
       - name: Initialize tests

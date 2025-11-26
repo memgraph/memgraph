@@ -24,6 +24,7 @@ env:
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: 'debian-12'
   TOOLCHAIN: 'v7'
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
 
 jobs:
   core:
@@ -65,7 +66,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --no-conan-cache \
+          --conan-remote $CONAN_REMOTE \
           build-memgraph
 
       - name: Copy memgraph binary
