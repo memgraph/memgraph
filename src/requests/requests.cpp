@@ -174,7 +174,7 @@ bool CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file, ui
   return true;
 }
 
-auto DownloadToStream(char const *url, std::ostream &os) -> bool {
+auto DownloadToStream(std::string_view url, std::ostream &os) -> bool {
   constexpr auto WriteCallback = [](char *ptr, size_t size, size_t nmemb, std::ostream *os) -> size_t {
     auto const totalSize = static_cast<std::streamsize>(size * nmemb);
     os->write(ptr, totalSize);
@@ -205,7 +205,7 @@ auto DownloadToStream(char const *url, std::ostream &os) -> bool {
   return true;
 }
 
-auto UrlToStringStream(const char *url) -> std::stringstream {
+auto UrlToStringStream(std::string_view url) -> std::stringstream {
   auto ss = std::stringstream{};
   if (!requests::DownloadToStream(url, ss)) {
     throw utils::BasicException("CSV was unable to be fetched from {}", url);

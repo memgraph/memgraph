@@ -63,7 +63,7 @@ bool CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file, ui
  * @param os an output stream
  * @return bool true if the request was successful, false otherwise.
  */
-auto DownloadToStream(char const *url, std::ostream &os) -> bool;
+auto DownloadToStream(std::string_view url, std::ostream &os) -> bool;
 
 /**
  * Downloads content into a stream by calling DownloadToStream.
@@ -71,6 +71,6 @@ auto DownloadToStream(char const *url, std::ostream &os) -> bool;
  * @param url url of the contents
  * @return std::stringstream containing the content of the fetched file
  */
-auto UrlToStringStream(const char *url) -> std::stringstream;
+auto UrlToStringStream(std::string_view url) -> std::stringstream;
 
 }  // namespace memgraph::requests

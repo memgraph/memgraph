@@ -61,7 +61,7 @@ class FileCsvSource {
 
 class S3CsvSource {
  public:
-  explicit S3CsvSource(utils::pmr::string uri, utils::S3Config const &s3_config);
+  explicit S3CsvSource(std::string uri, utils::S3Config const &s3_config);
 
   std::istream &GetStream();
 
@@ -80,7 +80,7 @@ class StreamCsvSource {
 
 class UrlCsvSource : public StreamCsvSource {
  public:
-  explicit UrlCsvSource(char const *url);
+  explicit UrlCsvSource(std::string url);
 };
 
 static_assert(Streamable<FileCsvSource>);
@@ -90,7 +90,7 @@ static_assert(Streamable<StreamCsvSource>);
 
 class CsvSource {
  public:
-  static auto Create(utils::pmr::string const &csv_location, std::optional<utils::S3Config> s3_cfg) -> CsvSource;
+  static auto Create(std::string csv_location, std::optional<utils::S3Config> s3_cfg) -> CsvSource;
   template <Streamable T>
   explicit CsvSource(T source) : source_{std::move(source)} {}
 

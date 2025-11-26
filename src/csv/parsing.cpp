@@ -385,55 +385,13 @@ FileCsvSource::FileCsvSource(std::filesystem::path path) : path_(std::move(path)
 }
 std::istream &FileCsvSource::GetStream() { return stream_; }
 
-// TODO: (andi) This will be a generic function for downloading S3 file into a std::stringstream
-S3CsvSource::S3CsvSource(utils::pmr::string uri, utils::S3Config const &s3_config) {
-  if (!s3_config.aws_region.has_value()) {
-    throw CsvReadException(
-        "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} or "
-        "env variable {}",
-        memgraph::utils::kAwsRegionQuerySetting, memgraph::utils::kAwsRegionEnv);
-  }
-
-  if (!s3_config.aws_access_key.has_value()) {
-    throw CsvReadException(
-        "AWS access key configuration parameter not provided. Please provide it through the query, run-time setting {} "
-        "or env variable {}",
-        memgraph::utils::kAwsAccessKeyQuerySetting, memgraph::utils::kAwsAccessKeyEnv);
-  }
-
-  if (!s3_config.aws_secret_key.has_value()) {
-    throw CsvReadException(
-        "AWS secret key configuration parameter not provided. Please provide it through the query, run-time setting {} "
-        "or env variable {}",
-        memgraph::utils::kAwsSecretKeyQuerySetting, memgraph::utils::kAwsSecretKeyEnv);
-  }
-
-  utils::GlobalS3APIManager::GetInstance();
-
-  Aws::Client::ClientConfiguration client_config;
-  client_config.region = *s3_config.aws_region;
-  if (s3_config.aws_endpoint_url.has_value()) {
-    client_config.endpointOverride = *s3_config.aws_endpoint_url;
-  }
-
-  Aws::Auth::AWSCredentials const credentials(*s3_config.aws_access_key, *s3_config.aws_secret_key);
-
-  // Use path-style for S3-compatible services (4th param = false)
-  Aws::S3::S3Client const s3_client(credentials, client_config,
-                                    Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
-
-  auto const outcome =
-      s3_client.GetObject(std::apply(utils::BuildGetObjectRequest, utils::ExtractBucketAndObjectKey(uri)));
-  if (!outcome.IsSuccess()) {
-    throw CsvReadException("Failed to download file {}. Error: {}", uri, outcome.GetError().GetMessage());
-  }
-
-  stream_ << outcome.GetResult().GetBody().rdbuf();
+S3CsvSource::S3CsvSource(std::string uri, utils::S3Config const &s3_config) {
+  utils::GetS3Object(std::move(uri), s3_config, stream_);
 }
 
 std::istream &S3CsvSource::GetStream() { return stream_; }
 
-UrlCsvSource::UrlCsvSource(const char *url) : StreamCsvSource{requests::UrlToStringStream(url)} {}
+UrlCsvSource::UrlCsvSource(std::string url) : StreamCsvSource{requests::UrlToStringStream(std::move(url))} {}
 
 StreamCsvSource::StreamCsvSource(std::stringstream stream) : stream_{std::move(stream)} {}
 
@@ -444,20 +402,20 @@ template memgraph::csv::CsvSource::CsvSource(memgraph::csv::UrlCsvSource);
 template memgraph::csv::CsvSource::CsvSource(memgraph::csv::StreamCsvSource);
 template memgraph::csv::CsvSource::CsvSource(memgraph::csv::S3CsvSource);
 
-auto CsvSource::Create(const utils::pmr::string &csv_location, std::optional<utils::S3Config> s3_cfg) -> CsvSource {
+auto CsvSource::Create(std::string csv_location, std::optional<utils::S3Config> s3_cfg) -> CsvSource {
   constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
   constexpr auto s3_matcher = ctre::starts_with<"s3://">;
 
   if (url_matcher(csv_location)) {
-    return CsvSource{csv::UrlCsvSource{csv_location.c_str()}};
+    return CsvSource{csv::UrlCsvSource{std::move(csv_location)}};
   }
 
   if (s3_matcher(csv_location)) {
     DMG_ASSERT(s3_cfg.has_value(), "S3Config doesn't have a value");
-    return CsvSource{S3CsvSource{csv_location, *s3_cfg}};
+    return CsvSource{S3CsvSource{std::move(csv_location), *s3_cfg}};
   }
 
-  return CsvSource{csv::FileCsvSource{csv_location}};
+  return CsvSource{csv::FileCsvSource{std::move(csv_location)}};
 }
 
 std::istream &CsvSource::GetStream() {

@@ -13,10 +13,15 @@ module;
 
 #include <map>
 #include <optional>
+#include <ostream>
 #include <string>
 
 #include <aws/core/Aws.h>
+#include <aws/core/auth/AWSCredentialsProvider.h>
+#include <aws/s3/S3Client.h>
 #include <aws/s3/model/GetObjectRequest.h>
+
+#include "utils/exceptions.hpp"
 
 export module memgraph.utils.aws;
 
@@ -92,6 +97,7 @@ class GlobalS3APIManager {
   GlobalS3APIManager(GlobalS3APIManager &&) = delete;
   GlobalS3APIManager &operator=(GlobalS3APIManager &&) = delete;
 
+  // Initialize AWS's API if not already initialized
   static auto GetInstance() -> GlobalS3APIManager & {
     static GlobalS3APIManager instance;
     return instance;
@@ -104,6 +110,7 @@ class GlobalS3APIManager {
   Aws::SDKOptions options;
 };
 
+// Builds a GetObjectRequest for AWS S3 library from the bucket_name and object_key
 auto BuildGetObjectRequest(std::string_view bucket_name, std::string_view object_key)
     -> Aws::S3::Model::GetObjectRequest {
   Aws::S3::Model::GetObjectRequest request;
@@ -128,6 +135,51 @@ auto ExtractBucketAndObjectKey(std::string_view uri) -> std::pair<std::string_vi
   }
 
   return {uri.substr(0, slash_pos), uri.substr(slash_pos + 1)};
+}
+
+// Writes the content of uri into ostream
+void GetS3Object(std::string uri, S3Config const &s3_config, std::ostream &ostream) {
+  if (!s3_config.aws_region.has_value()) {
+    throw BasicException(
+        "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} or "
+        "env variable {}",
+        kAwsRegionQuerySetting, kAwsRegionEnv);
+  }
+
+  if (!s3_config.aws_access_key.has_value()) {
+    throw BasicException(
+        "AWS access key configuration parameter not provided. Please provide it through the query, run-time setting {} "
+        "or env variable {}",
+        kAwsAccessKeyQuerySetting, kAwsAccessKeyEnv);
+  }
+
+  if (!s3_config.aws_secret_key.has_value()) {
+    throw BasicException(
+        "AWS secret key configuration parameter not provided. Please provide it through the query, run-time setting {} "
+        "or env variable {}",
+        kAwsSecretKeyQuerySetting, kAwsSecretKeyEnv);
+  }
+
+  GlobalS3APIManager::GetInstance();
+
+  Aws::Client::ClientConfiguration client_config;
+  client_config.region = *s3_config.aws_region;
+  if (s3_config.aws_endpoint_url.has_value()) {
+    client_config.endpointOverride = *s3_config.aws_endpoint_url;
+  }
+
+  Aws::Auth::AWSCredentials const credentials(*s3_config.aws_access_key, *s3_config.aws_secret_key);
+
+  // Use path-style for S3-compatible services (4th param = false)
+  Aws::S3::S3Client const s3_client(credentials, client_config,
+                                    Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
+
+  auto const outcome = s3_client.GetObject(std::apply(BuildGetObjectRequest, ExtractBucketAndObjectKey(uri)));
+
+  if (!outcome.IsSuccess()) {
+    throw BasicException("Failed to get object from S3 {}. Error: {}", uri, outcome.GetError().GetMessage());
+  }
+  ostream << outcome.GetResult().GetBody().rdbuf();
 }
 
 }  // namespace memgraph::utils
