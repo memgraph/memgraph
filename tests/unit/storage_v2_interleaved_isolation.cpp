@@ -621,6 +621,8 @@ TEST(StorageV2InterleavedIsolation, AbortedEdgesNotVisibleDuringAbort) {
     });
 
     std::jthread writer2([&]() { create_edges_then_abort(2); });
+    std::jthread writer3([&]() { create_edges_then_abort(3); });
+    std::jthread writer4([&]() { create_edges_then_abort(4); });
 
     std::jthread reader([&]() {
       while (!test_finished.load(std::memory_order_acquire)) {
