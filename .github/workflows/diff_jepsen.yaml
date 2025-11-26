@@ -25,6 +25,8 @@ env:
   OS: 'debian-12'
   TOOLCHAIN: 'v7'
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+  CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+  CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
 
 jobs:
   core:
@@ -66,8 +68,10 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          build-memgraph \
           --conan-remote $CONAN_REMOTE \
-          build-memgraph
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Copy memgraph binary
         run: |
