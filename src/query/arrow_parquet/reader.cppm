@@ -29,7 +29,8 @@ using Header = utils::pmr::vector<TypedValue::TString>;
 
 class ParquetReader {
  public:
-  explicit ParquetReader(utils::pmr::string const &file, utils::S3Config s3_config, utils::MemoryResource *resource);
+  explicit ParquetReader(utils::pmr::string const &uri, utils::S3Config s3_config, utils::MemoryResource *resource,
+                         std::function<void()> abort_check);
   ~ParquetReader();
 
   ParquetReader(ParquetReader const &other) = delete;

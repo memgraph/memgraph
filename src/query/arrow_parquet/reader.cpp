@@ -11,6 +11,7 @@
 
 module;
 
+#include "flags/run_time_configurable.hpp"
 #include "query/typed_value.hpp"
 #include "requests/requests.hpp"
 #include "utils/data_queue.hpp"
@@ -610,35 +611,37 @@ auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   return true;
 }
 
-ParquetReader::ParquetReader(utils::pmr::string const &file, utils::S3Config s3_config,
-                             utils::MemoryResource *resource) {
+ParquetReader::ParquetReader(utils::pmr::string const &uri, utils::S3Config s3_config, utils::MemoryResource *resource,
+                             std::function<void()> abort_check) {
   auto file_reader = std::invoke([&]() -> std::unique_ptr<parquet::arrow::FileReader> {
     constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
     constexpr auto s3_matcher = ctre::starts_with<"s3://">;
 
     // When using a file that should be downloaded using https or ftp, we first download it and then load it
-    if (url_matcher(file)) {
-      auto const file_name = std::filesystem::path{file}.filename();
-      auto const local_file_path = fmt::format("/tmp/{}", file_name);
-      if (requests::CreateAndDownloadFile(std::string{file}, local_file_path)) {
+    if (url_matcher(uri)) {
+      auto const base_path = std::filesystem::path{"/tmp"} / std::filesystem::path{uri}.filename();
+      auto [local_file_path, file] = utils::CreateUniqueDownloadFile(base_path);
+      if (requests::CreateAndDownloadFile(std::string{uri}, std::move(file),
+                                          memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
+                                          std::move(abort_check))) {
         utils::OnScopeExit const on_exit{[&local_file_path]() { utils::DeleteFile(local_file_path); }};
 
         return LoadFileFromDisk(local_file_path);
       }
-      spdlog::error("Couldn't download file {}", file);
+      spdlog::error("Couldn't download file {}", uri);
       return nullptr;
     }
 
-    if (s3_matcher(file)) {
-      return LoadFileFromS3(file, s3_config);
+    if (s3_matcher(uri)) {
+      return LoadFileFromS3(uri, s3_config);
     }
 
     // Regular file that already exists on disk
-    return LoadFileFromDisk(std::string{file});
+    return LoadFileFromDisk(std::string{uri});
   });
 
   if (!file_reader) {
-    throw utils::BasicException("Failed to load file {}.", file);
+    throw utils::BasicException("Failed to load file {}.", uri);
   }
 
   auto maybe_batch_reader = file_reader->GetRecordBatchReader();
