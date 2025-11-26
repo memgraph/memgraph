@@ -7821,9 +7821,12 @@ class LoadParquetCursor : public Cursor {
                                     kAwsEndpointUrlQuerySetting);
       }
 
+      auto abort_check_erased = context.stopping_context.MakeMaybeAborter(1);
+
       // No need to check if maybe_file is std::nullopt, as the parser makes sure
       // we can't get a nullptr for the 'file_' member in the LoadParquet clause
-      reader_.emplace(ParquetFileConfig::FromQueryConfig(std::string{maybe_file}, std::move(*maybe_config_map)), mem);
+      reader_.emplace(ParquetFileConfig::FromQueryConfig(std::string{maybe_file}, std::move(*maybe_config_map)), mem,
+                      std::move(abort_check_erased));
     }
 
     if (input_cursor_->Pull(frame, context)) {
@@ -7914,7 +7917,10 @@ class LoadJsonlCursor : public Cursor {
     if (UNLIKELY(!reader_.has_value())) {
       auto evaluator = PrimitiveLiteralExpressionEvaluator{context.evaluation_context};
       auto maybe_file = self_->file_->Accept(evaluator).ValueString();
-      reader_.emplace(std::string{maybe_file}, mem);
+
+      auto abort_check_erased = context.stopping_context.MakeMaybeAborter(1);
+
+      reader_.emplace(std::string{maybe_file}, mem, std::move(abort_check_erased));
     }
 
     if (input_cursor_->Pull(frame, context)) {

@@ -18,12 +18,47 @@
 #include <cstring>
 #include <fstream>
 #include <mutex>
-#include <shared_mutex>
 #include <type_traits>
 
 #include "utils/logging.hpp"
 
 namespace memgraph::utils {
+
+auto CreateUniqueDownloadFile(std::filesystem::path const &base_path)
+    -> std::pair<std::filesystem::path, FileUniquePtr> {
+  // w for writing
+  // b for binary
+  // x for exclusive access
+  constexpr auto file_mode = "wbx";
+
+  // Try without suffix
+  FileUniquePtr file(std::fopen(base_path.string().data(), file_mode), &std::fclose);
+
+  if (file) {
+    return std::make_pair(base_path, std::move(file));
+  }
+
+  auto const stem = base_path.stem();
+  auto const ext = base_path.extension();
+  auto const parent = base_path.parent_path();
+
+  auto suffix = 1;
+  // We don't want more than 10k files with the same name
+  constexpr auto max_suffix = 10'000;
+
+  std::filesystem::path new_path;
+
+  do {
+    new_path = parent / std::format("{}_{}{}", stem.string(), suffix, ext.string());
+    FileUniquePtr file(std::fopen(new_path.string().data(), file_mode), &std::fclose);
+    if (file) {
+      return std::make_pair(new_path, std::move(file));
+    }
+  } while (suffix++ < max_suffix);
+
+  throw utils::BasicException("More than 10k files with the same name. File {} won't be downloaded.",
+                              base_path.string());
+}
 
 std::filesystem::path GetExecutablePath() { return std::filesystem::read_symlink("/proc/self/exe"); }
 

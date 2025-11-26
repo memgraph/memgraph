@@ -11,14 +11,19 @@
 
 module;
 
+#include <functional>
 #include <string>
 #include <utility>
 
+#include "ctre.hpp"
+#include "flags/run_time_configurable.hpp"
+#include "requests/requests.hpp"
 #include "simdjson.h"
 #include "spdlog/spdlog.h"
 
 #include "query/typed_value.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/file.hpp"
 #include "utils/likely.hpp"
 
 module memgraph.query.jsonl.reader;
@@ -114,15 +119,47 @@ namespace memgraph::query {
 
 struct JsonlReader::impl {
  public:
-  impl(std::string file, std::pmr::memory_resource *resource) : file_{std::move(file)}, resource_{resource} {
-    content_ = simdjson::padded_string::load(file_).value();
+  impl(std::string uri, std::pmr::memory_resource *resource, std::function<void()> abort_check)
+      : uri_{std::move(uri)}, resource_{resource} {
+    InitSimdjsonContent(std::move(abort_check));
 
-    // Parser should be used for one document at a time
-    // This is thread local version of the parser, shouldn't be passed to other threads
-    if (UNLIKELY(simdjson::ondemand::parser::get_parser().iterate_many(content_).get(docs_)))
-      throw utils::BasicException("Failed to create iterator over documents for file {}", file_);
+    if (UNLIKELY(parser_.iterate_many(content_).get(docs_))) {
+      throw utils::BasicException("Failed to create iterator over documents for file {}", uri_);
+    }
 
     it_ = docs_.begin();
+  }
+
+  impl(impl const &) = delete;
+  impl &operator=(impl const &) = delete;
+  impl(impl &&) = delete;
+  impl &operator=(impl &&) = delete;
+
+  ~impl() {
+    // Delete the file we were using for download
+    if (!local_file_.empty()) {
+      utils::DeleteFile(local_file_);
+    }
+  }
+
+  // Performs file download if necessary before loading the file from disk
+
+  void InitSimdjsonContent(std::function<void()> abort_check) {
+    constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
+    if (url_matcher(uri_)) {
+      auto const base_path = std::filesystem::path{"/tmp"} / std::filesystem::path{uri_}.filename();
+      auto [new_path, file] = utils::CreateUniqueDownloadFile(base_path);
+      local_file_ = std::move(new_path);
+
+      if (!requests::CreateAndDownloadFile(uri_, std::move(file),
+                                           memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
+                                           std::move(abort_check))) {
+        throw utils::BasicException("Failed to download file {}", uri_);
+      }
+      content_ = simdjson::padded_string::load(local_file_).value();
+    } else {
+      content_ = simdjson::padded_string::load(uri_).value();
+    }
   }
 
   auto GetNextRow(Row &out) -> bool {
@@ -137,16 +174,21 @@ struct JsonlReader::impl {
   }
 
  private:
-  std::string file_;
+  std::string uri_;
   std::pmr::memory_resource *resource_;
+
+  // Path where the JSONL file was downloaded
+  // Had bugs with std::optional
+  std::string local_file_;
+  simdjson::ondemand::parser parser_;
   simdjson::padded_string content_;
   simdjson::ondemand::document_stream docs_;
   simdjson::ondemand::document_stream::iterator it_;
 };
 
-JsonlReader::JsonlReader(std::string file, std::pmr::memory_resource *resource)
+JsonlReader::JsonlReader(std::string file, std::pmr::memory_resource *resource, std::function<void()> abort_check)
     // NOLINTNEXTLINE
-    : pimpl_{std::make_unique<JsonlReader::impl>(std::move(file), resource)} {}
+    : pimpl_{std::make_unique<JsonlReader::impl>(std::move(file), resource, std::move(abort_check))} {}
 
 JsonlReader::~JsonlReader() {}
 
