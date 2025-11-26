@@ -800,22 +800,94 @@ TEST(StorageV2Gc, RapidGcOutOfOrderCommitTimestamps) {
   }
 }
 
-// Tests for abort with interleaved deltas - verifying internal state after abort
-// Case 1: tx10 aborting with no interleaved deltas
-// Chain: (v)-[tx10]-[tx10]
-// After abort: vertex->delta should be nullptr, vertex->out_edges should be empty
-TEST(StorageV2Gc, AbortNoInterleavedDeltas_Case1) {
+// Tests state after aborting tx1 when we have the following chain:
+// (v1)-[tx1]-[tx1]
+TEST(StorageV2Gc, AbortsWithWithNoInterleavedDeltas) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access();
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
+    auto tx0 = storage->Access();
+    auto v1 = tx0->CreateVertex();
+    auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto tx1 = storage->Access();
+    auto v1 = tx1->FindVertex(v1_gid, ms::View::OLD);
+    auto v2 = tx1->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+
+    ASSERT_TRUE(tx1->CreateEdge(&*v1, &*v2, tx1->NameToEdgeType("EDGE1")).HasValue());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1, &*v2, tx1->NameToEdgeType("EDGE2")).HasValue());
+
+    ASSERT_NE(v1->vertex_->delta, nullptr);
+    ASSERT_EQ(v1->vertex_->out_edges.size(), 2);
+
+    tx1->Abort();
+  }
+
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    auto v2 = acc->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+    EXPECT_EQ(v1->vertex_->out_edges.size(), 0);
+    EXPECT_EQ(v2->vertex_->in_edges.size(), 0);
+    EXPECT_EQ(v1->vertex_->delta, nullptr);
+    EXPECT_EQ(v2->vertex_->delta, nullptr);
+  }
+}
+
+//==============================================================================
+// Following tests all peek at internal state of vertices before, during, or
+// after Abort(). As such, they "bypass" isolation and visibility to directly
+// assert what we expect in terms of deltas and vertex state.
+
+// Tests state after aborting tx2 when we have the following chain:
+// (v1)-[tx2 intr]-[tx2 intr]-[tx1]
+TEST(StorageV2Gc, AbortsWhenDeltasAreInterleaved) {
+  auto storage = std::make_unique<ms::InMemoryStorage>(
+      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto tx0 = storage->Access();
+    auto v1 = tx0->CreateVertex();
+    auto v2 = tx0->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto tx1 = storage->Access();
+    auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).HasValue());
+
+    auto const *delta_v1_t1_head = v1_t1->vertex_->delta;
+
+    auto tx2 = storage->Access();
+    auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).HasValue());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE3")).HasValue());
+
+    ASSERT_EQ(v1_t2->vertex_->out_edges.size(), 3);
+
+    tx2->Abort();
+
+    ASSERT_EQ(v1_t1->vertex_->delta, delta_v1_t1_head);
+    ASSERT_EQ(v1_t1->vertex_->out_edges.size(), 1);
+
+    ASSERT_FALSE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -823,537 +895,357 @@ TEST(StorageV2Gc, AbortNoInterleavedDeltas_Case1) {
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
-
-    auto edge1 = acc->CreateEdge(&*v1, &*v2, acc->NameToEdgeType("Edge1"));
-    ASSERT_TRUE(edge1.HasValue());
-    auto edge2 = acc->CreateEdge(&*v1, &*v2, acc->NameToEdgeType("Edge2"));
-    ASSERT_TRUE(edge2.HasValue());
-
-    // Before abort: vertex should have deltas and out_edges
-    ASSERT_NE(v1->vertex_->delta, nullptr);
-    ASSERT_EQ(v1->vertex_->out_edges.size(), 2);
-
-    acc->Abort();
-
-    // After abort: vertex->delta should be nullptr, out_edges should be empty
-    EXPECT_EQ(v1->vertex_->delta, nullptr);
-    EXPECT_EQ(v1->vertex_->out_edges.size(), 0);
+    EXPECT_EQ(v1->vertex_->out_edges.size(), 1);
+    EXPECT_EQ(v2->vertex_->in_edges.size(), 1);
+    EXPECT_NE(v1->vertex_->delta, nullptr);
+    EXPECT_NE(v2->vertex_->delta, nullptr);
   }
 }
 
-// Case 2: tx10 aborting with interleaved deltas, has downstream deltas from other tx
-// Chain: (v)-[tx10 intr]-[tx10 intr]-[tx9]
-// After tx10 abort: vertex->delta should point to tx9's delta, out_edges should only have tx9's edge
-TEST(StorageV2Gc, AbortWithDownstreamInterleaved_Case2) {
+// Tests state after aborting tx1 when we have the following chain:
+// (v)-[tx2 intr]-[tx1]-[tx1]
+TEST(StorageV2Gc, AbortsWithUpstreamInterleavedDeltas) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access();
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
+    auto tx0 = storage->Access();
+    auto v1 = tx0->CreateVertex();
+    auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
-    // tx9 starts first, creates edge first (will be downstream in delta chain)
-    auto acc9 = storage->Access();
-    auto v1_t9 = acc9->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t9 = acc9->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t9.has_value() && v2_t9.has_value());
-    auto edge9 = acc9->CreateEdge(&*v1_t9, &*v2_t9, acc9->NameToEdgeType("Edge9"));
-    ASSERT_TRUE(edge9.HasValue());
+    auto tx1 = storage->Access();
+    auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1A")).HasValue());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1B")).HasValue());
 
-    // tx10 starts after, creates edges (will be at head, interleaved above tx9)
-    auto acc10 = storage->Access();
-    auto v1_t10 = acc10->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t10 = acc10->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t10.has_value() && v2_t10.has_value());
-    auto edge10a = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10a"));
-    ASSERT_TRUE(edge10a.HasValue());
-    auto edge10b = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10b"));
-    ASSERT_TRUE(edge10b.HasValue());
+    auto tx2 = storage->Access();
+    auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).HasValue());
 
-    // Chain is now: (v1)-[tx10]-[tx10]-[tx9]
-    // tx10 is at head, tx9 is downstream
-    ms::Delta *tx9_delta = v1_t9->vertex_->delta->next.load()->next.load();
-    ASSERT_NE(tx9_delta, nullptr);
+    auto *delta_v1_t2 = v1_t2->vertex_->delta;
+    ASSERT_NE(delta_v1_t2, nullptr);
+    ASSERT_EQ(v1_t1->vertex_->out_edges.size(), 3);
 
-    // Before abort: 3 edges
-    ASSERT_EQ(v1_t10->vertex_->out_edges.size(), 3);
+    tx1->Abort();
 
-    // tx10 aborts
-    acc10->Abort();
+    EXPECT_EQ(v1_t2->vertex_->delta, delta_v1_t2);
+    EXPECT_EQ(v1_t2->vertex_->out_edges.size(), 1);
 
-    // After abort: vertex->delta should point to tx9's delta
-    EXPECT_EQ(v1_t9->vertex_->delta, tx9_delta);
-    // out_edges should only have tx9's edge
-    EXPECT_EQ(v1_t9->vertex_->out_edges.size(), 1);
+    ASSERT_FALSE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
 
-    // tx9 commits
-    ASSERT_FALSE(acc9->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+    EXPECT_EQ(v1->vertex_->out_edges.size(), 1);
+    EXPECT_EQ(v2->vertex_->in_edges.size(), 1);
+    EXPECT_NE(v1->vertex_->delta, nullptr);
+    EXPECT_NE(v2->vertex_->delta, nullptr);
   }
 }
 
-// Case 3: tx10 aborting with upstream interleaved deltas from other tx
-// Chain: (v)-[tx9 intr]-[tx10]-[tx10]
-// After tx10 abort: vertex->delta should still point to tx9's delta, out_edges should only have tx9's edge
-TEST(StorageV2Gc, AbortWithUpstreamInterleaved_Case3) {
+// Tests state after aborting tx2 when we have the following chain:
+// (v)-[tx3 intr]-[tx2 intr]-[tx2 intr]-[tx1]
+TEST(StorageV2Gc, AbortsWithUpstreamAndDownstreamInterleavedDeltas) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access();
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
+    auto tx0 = storage->Access();
+    auto v1 = tx0->CreateVertex();
+    auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
-    // tx10 starts first, creates edges first (will be downstream in delta chain)
-    auto acc10 = storage->Access();
-    auto v1_t10 = acc10->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t10 = acc10->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t10.has_value() && v2_t10.has_value());
-    auto edge10a = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10a"));
-    ASSERT_TRUE(edge10a.HasValue());
-    auto edge10b = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10b"));
-    ASSERT_TRUE(edge10b.HasValue());
+    auto tx1 = storage->Access();
+    auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).HasValue());
 
-    // tx9 starts after, creates edge (will be at head, interleaved above tx10)
-    auto acc9 = storage->Access();
-    auto v1_t9 = acc9->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t9 = acc9->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t9.has_value() && v2_t9.has_value());
-    auto edge9 = acc9->CreateEdge(&*v1_t9, &*v2_t9, acc9->NameToEdgeType("Edge9"));
-    ASSERT_TRUE(edge9.HasValue());
+    auto tx2 = storage->Access();
+    auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2A")).HasValue());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2B")).HasValue());
 
-    // Chain is now: (v1)-[tx9]-[tx10]-[tx10]
-    // tx9 is at head, tx10 is downstream
-    ms::Delta *tx9_delta = v1_t9->vertex_->delta;
-    ASSERT_NE(tx9_delta, nullptr);
+    auto tx3 = storage->Access();
+    auto v1_t3 = tx3->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t3 = tx3->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
+    ASSERT_TRUE(tx3->CreateEdge(&*v1_t3, &*v2_t3, tx3->NameToEdgeType("EDGE3")).HasValue());
 
-    // Before abort: 3 edges
-    ASSERT_EQ(v1_t10->vertex_->out_edges.size(), 3);
+    auto *delta_v1_t3 = v1_t3->vertex_->delta;
+    ASSERT_NE(delta_v1_t3, nullptr);
+    ASSERT_EQ(v1_t2->vertex_->out_edges.size(), 4);
 
-    // tx10 aborts
-    acc10->Abort();
+    tx2->Abort();
 
-    // After abort: vertex->delta should still point to tx9's delta (tx9 owns head)
-    EXPECT_EQ(v1_t9->vertex_->delta, tx9_delta);
-    // out_edges should only have tx9's edge (tx10's edges removed)
-    EXPECT_EQ(v1_t9->vertex_->out_edges.size(), 1);
+    EXPECT_EQ(v1_t3->vertex_->delta, delta_v1_t3);
+    EXPECT_EQ(v1_t3->vertex_->out_edges.size(), 2);
 
-    // tx9 commits
-    ASSERT_FALSE(acc9->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_FALSE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_FALSE(tx3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+    EXPECT_EQ(v1->vertex_->out_edges.size(), 2);
+    EXPECT_EQ(v2->vertex_->in_edges.size(), 2);
+    EXPECT_NE(v1->vertex_->delta, nullptr);
+    EXPECT_NE(v2->vertex_->delta, nullptr);
   }
 }
 
-// Case 4: tx10 aborting with both upstream and downstream interleaved deltas
-// Chain: (v)-[tx9 intr]-[tx10 intr]-[tx10 intr]-[tx8]
-// After tx10 abort: vertex->delta should still point to tx9, out_edges should have tx9's and tx8's edges
-TEST(StorageV2Gc, AbortWithUpstreamAndDownstreamInterleaved_Case4) {
+// Tests state after aborting tx2 when we have the following chain:
+// (v)-[tx3 intr]-[tx2 intr]-[tx2 intr]-[tx1 committed]
+TEST(StorageV2Gc, AbortsWithCommittedDownstreamDeltas) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access();
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
+    auto tx0 = storage->Access();
+    auto v1 = tx0->CreateVertex();
+    auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
-    // tx8 starts first, creates edge (will be most downstream)
-    auto acc8 = storage->Access();
-    auto v1_t8 = acc8->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t8 = acc8->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t8.has_value() && v2_t8.has_value());
-    auto edge8 = acc8->CreateEdge(&*v1_t8, &*v2_t8, acc8->NameToEdgeType("Edge8"));
-    ASSERT_TRUE(edge8.HasValue());
+    auto tx1 = storage->Access();
+    auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).HasValue());
+    ASSERT_FALSE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
 
-    // tx10 starts, creates edges (will be in middle)
-    auto acc10 = storage->Access();
-    auto v1_t10 = acc10->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t10 = acc10->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t10.has_value() && v2_t10.has_value());
-    auto edge10a = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10a"));
-    ASSERT_TRUE(edge10a.HasValue());
-    auto edge10b = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10b"));
-    ASSERT_TRUE(edge10b.HasValue());
+  {
+    auto tx2 = storage->Access();
+    auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2A")).HasValue());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2B")).HasValue());
 
-    // tx9 starts last, creates edge (will be at head)
-    auto acc9 = storage->Access();
-    auto v1_t9 = acc9->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t9 = acc9->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t9.has_value() && v2_t9.has_value());
-    auto edge9 = acc9->CreateEdge(&*v1_t9, &*v2_t9, acc9->NameToEdgeType("Edge9"));
-    ASSERT_TRUE(edge9.HasValue());
+    auto tx3 = storage->Access();
+    auto v1_t3 = tx3->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t3 = tx3->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
+    ASSERT_TRUE(tx3->CreateEdge(&*v1_t3, &*v2_t3, tx3->NameToEdgeType("EDGE3")).HasValue());
 
-    // Chain is now: (v1)-[tx9]-[tx10]-[tx10]-[tx8]
-    ms::Delta *tx9_delta = v1_t9->vertex_->delta;
-    ASSERT_NE(tx9_delta, nullptr);
+    auto *delta_v1_t3 = v1_t3->vertex_->delta;
+    ASSERT_NE(delta_v1_t3, nullptr);
+    ASSERT_EQ(v1_t2->vertex_->out_edges.size(), 4);
 
-    // Before abort: 4 edges
-    ASSERT_EQ(v1_t10->vertex_->out_edges.size(), 4);
+    tx2->Abort();
 
-    // tx10 aborts
-    acc10->Abort();
+    EXPECT_EQ(v1_t3->vertex_->delta, delta_v1_t3);
+    EXPECT_EQ(v1_t3->vertex_->out_edges.size(), 2);
 
-    // After abort: vertex->delta should still point to tx9's delta
-    EXPECT_EQ(v1_t9->vertex_->delta, tx9_delta);
-    // out_edges should have tx9's and tx8's edges (tx10's removed)
-    EXPECT_EQ(v1_t9->vertex_->out_edges.size(), 2);
+    ASSERT_FALSE(tx3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
 
-    // tx8 and tx9 commit
-    ASSERT_FALSE(acc8->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-    ASSERT_FALSE(acc9->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+    EXPECT_EQ(v1->vertex_->out_edges.size(), 2);
+    EXPECT_EQ(v2->vertex_->in_edges.size(), 2);
+    EXPECT_NE(v1->vertex_->delta, nullptr);
+    EXPECT_NE(v2->vertex_->delta, nullptr);
   }
 }
 
-// Case 5: Same as case 4 but tx8 is already committed
-// Chain: (v)-[tx9 intr]-[tx10 intr]-[tx10 intr]-[tx8 committed]
-// After tx10 abort: out_edges should have tx9's and tx8's edges
-TEST(StorageV2Gc, AbortWithUpstreamAndCommittedDownstream_Case5) {
+// Tests state after aborting tx1 when we have the following chain:
+// (v)-[tx2 intr]-[tx1]-[tx1]
+TEST(StorageV2Gc, AbortsAtEndOfInterleavedChain) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access();
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
+    auto tx0 = storage->Access();
+    auto v1 = tx0->CreateVertex();
+    auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-  }
-
-  // tx8 creates and commits edge first
-  {
-    auto acc8 = storage->Access();
-    auto v1_t8 = acc8->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t8 = acc8->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t8.has_value() && v2_t8.has_value());
-    auto edge8 = acc8->CreateEdge(&*v1_t8, &*v2_t8, acc8->NameToEdgeType("Edge8"));
-    ASSERT_TRUE(edge8.HasValue());
-    ASSERT_FALSE(acc8->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
-    // tx10 starts, creates edges (will be in middle)
-    auto acc10 = storage->Access();
-    auto v1_t10 = acc10->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t10 = acc10->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t10.has_value() && v2_t10.has_value());
-    auto edge10a = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10a"));
-    ASSERT_TRUE(edge10a.HasValue());
-    auto edge10b = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10b"));
-    ASSERT_TRUE(edge10b.HasValue());
+    auto tx1 = storage->Access();
+    auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1A")).HasValue());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1B")).HasValue());
 
-    // tx9 starts, creates edge (will be at head)
-    auto acc9 = storage->Access();
-    auto v1_t9 = acc9->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t9 = acc9->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t9.has_value() && v2_t9.has_value());
-    auto edge9 = acc9->CreateEdge(&*v1_t9, &*v2_t9, acc9->NameToEdgeType("Edge9"));
-    ASSERT_TRUE(edge9.HasValue());
+    auto tx2 = storage->Access();
+    auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).HasValue());
 
-    // Chain is now: (v1)-[tx9]-[tx10]-[tx10]-[tx8 committed]
-    ms::Delta *tx9_delta = v1_t9->vertex_->delta;
-    ASSERT_NE(tx9_delta, nullptr);
+    auto *delta_v1_t2 = v1_t2->vertex_->delta;
+    ASSERT_NE(delta_v1_t2, nullptr);
+    ASSERT_EQ(v1_t1->vertex_->out_edges.size(), 3);
 
-    // Before abort: 4 edges
-    ASSERT_EQ(v1_t10->vertex_->out_edges.size(), 4);
+    tx1->Abort();
 
-    // tx10 aborts
-    acc10->Abort();
+    EXPECT_EQ(v1_t2->vertex_->delta, delta_v1_t2);
+    EXPECT_EQ(v1_t2->vertex_->out_edges.size(), 1);
 
-    // After abort: vertex->delta should still point to tx9's delta
-    EXPECT_EQ(v1_t9->vertex_->delta, tx9_delta);
-    // out_edges should have tx9's and tx8's edges (tx10's removed)
-    EXPECT_EQ(v1_t9->vertex_->out_edges.size(), 2);
+    ASSERT_FALSE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
 
-    // tx9 commits
-    ASSERT_FALSE(acc9->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+    EXPECT_EQ(v1->vertex_->out_edges.size(), 1);
+    EXPECT_EQ(v2->vertex_->in_edges.size(), 1);
+    EXPECT_NE(v1->vertex_->delta, nullptr);
+    EXPECT_NE(v2->vertex_->delta, nullptr);
   }
 }
 
-// Case 6: Abort at end of chain
-// Chain: (v)-[tx9]-[tx10]-[tx10]
-// After tx10 abort: vertex->delta should still point to tx9, out_edges should only have tx9's edge
-TEST(StorageV2Gc, AbortAtEndOfChain_Case6) {
+// Tests state after aborting tx1 when we have the following chain:
+// (v)-[tx3 intr]-[tx2 intr]-[tx1]-[tx1]
+TEST(StorageV2Gc, AbortsWithMultipleTransactionsPrepending) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access();
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
+    auto tx0 = storage->Access();
+    auto v1 = tx0->CreateVertex();
+    auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
-    // tx10 starts first, creates edges (will be at head initially)
-    auto acc10 = storage->Access();
-    auto v1_t10 = acc10->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t10 = acc10->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t10.has_value() && v2_t10.has_value());
-    auto edge10a = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10a"));
-    ASSERT_TRUE(edge10a.HasValue());
-    auto edge10b = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10b"));
-    ASSERT_TRUE(edge10b.HasValue());
+    auto tx1 = storage->Access();
+    auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1A")).HasValue());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1B")).HasValue());
 
-    // tx9 starts after, creates edge (will prepend, becoming upstream)
-    auto acc9 = storage->Access();
-    auto v1_t9 = acc9->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t9 = acc9->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t9.has_value() && v2_t9.has_value());
-    auto edge9 = acc9->CreateEdge(&*v1_t9, &*v2_t9, acc9->NameToEdgeType("Edge9"));
-    ASSERT_TRUE(edge9.HasValue());
+    auto tx2 = storage->Access();
+    auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).HasValue());
 
-    // Chain is now: (v1)-[tx9]-[tx10]-[tx10]
-    ms::Delta *tx9_delta = v1_t9->vertex_->delta;
-    ASSERT_NE(tx9_delta, nullptr);
+    auto tx3 = storage->Access();
+    auto v1_t3 = tx3->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t3 = tx3->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
+    ASSERT_TRUE(tx3->CreateEdge(&*v1_t3, &*v2_t3, tx3->NameToEdgeType("EDGE3")).HasValue());
 
-    // Before abort: 3 edges
-    ASSERT_EQ(v1_t10->vertex_->out_edges.size(), 3);
+    ASSERT_EQ(v1_t1->vertex_->out_edges.size(), 4);
 
-    // tx10 aborts
-    acc10->Abort();
+    tx1->Abort();
 
-    // After abort: vertex->delta should still point to tx9's delta
-    EXPECT_EQ(v1_t9->vertex_->delta, tx9_delta);
-    // out_edges should only have tx9's edge (tx10's edges removed)
-    EXPECT_EQ(v1_t9->vertex_->out_edges.size(), 1);
+    EXPECT_EQ(v1_t3->vertex_->out_edges.size(), 2);
 
-    // tx9 commits
-    ASSERT_FALSE(acc9->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_FALSE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_FALSE(tx3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+    EXPECT_EQ(v1->vertex_->out_edges.size(), 2);
+    EXPECT_EQ(v2->vertex_->in_edges.size(), 2);
+    EXPECT_NE(v1->vertex_->delta, nullptr);
+    EXPECT_NE(v2->vertex_->delta, nullptr);
   }
 }
 
-// Case 7: Single delta abort with upstream interleaved
-// Chain: (v)-[tx9]-[tx10]
-// After tx10 abort: vertex->delta should still point to tx9, out_edges should only have tx9's edge
-TEST(StorageV2Gc, AbortSingleDeltaWithUpstream_Case7) {
+// Tests state after aborting tx1 and tx2 when we have the following chain:
+// (v)-[tx2 intr]-[tx1 intr]-[tx1 intr]-[tx0]
+TEST(StorageV2Gc, AbortsTwoTransactions) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access();
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
+    auto tx0 = storage->Access();
+    auto v1 = tx0->CreateVertex();
+    auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
-    // tx10 starts first, creates single edge
-    auto acc10 = storage->Access();
-    auto v1_t10 = acc10->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t10 = acc10->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t10.has_value() && v2_t10.has_value());
-    auto edge10 = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10"));
-    ASSERT_TRUE(edge10.HasValue());
+    auto tx0 = storage->Access();
+    auto v1_t0 = tx0->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t0 = tx0->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t0.has_value() && v2_t0.has_value());
+    ASSERT_TRUE(tx0->CreateEdge(&*v1_t0, &*v2_t0, tx0->NameToEdgeType("EDGE0")).HasValue());
 
-    // tx9 starts after, creates edge (will prepend)
-    auto acc9 = storage->Access();
-    auto v1_t9 = acc9->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t9 = acc9->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t9.has_value() && v2_t9.has_value());
-    auto edge9 = acc9->CreateEdge(&*v1_t9, &*v2_t9, acc9->NameToEdgeType("Edge9"));
-    ASSERT_TRUE(edge9.HasValue());
+    auto tx1 = storage->Access();
+    auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1A")).HasValue());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1B")).HasValue());
 
-    // Chain is now: (v1)-[tx9]-[tx10]
-    ms::Delta *tx9_delta = v1_t9->vertex_->delta;
-    ASSERT_NE(tx9_delta, nullptr);
+    auto tx2 = storage->Access();
+    auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).HasValue());
 
-    // Before abort: 2 edges
-    ASSERT_EQ(v1_t10->vertex_->out_edges.size(), 2);
+    ASSERT_EQ(v1_t2->vertex_->out_edges.size(), 4);
 
-    // tx10 aborts
-    acc10->Abort();
+    tx1->Abort();
+    tx2->Abort();
 
-    // After abort: vertex->delta should still point to tx9's delta
-    EXPECT_EQ(v1_t9->vertex_->delta, tx9_delta);
-    // out_edges should only have tx9's edge
-    EXPECT_EQ(v1_t9->vertex_->out_edges.size(), 1);
+    EXPECT_EQ(v1_t0->vertex_->out_edges.size(), 1);
 
-    // tx9 commits
-    ASSERT_FALSE(acc9->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
-}
 
-// Case 8: Multiple transactions prepending during abort
-// Chain starts: (v)-[tx10]-[tx10]
-// tx11 prepends: (v)-[tx11]-[tx10]-[tx10]
-// tx12 prepends: (v)-[tx12]-[tx11]-[tx10]-[tx10]
-// After tx10 abort: (v)-[tx12]-[tx11]
-TEST(StorageV2Gc, AbortWithMultiplePrepends_Case8) {
-  auto storage = std::make_unique<ms::InMemoryStorage>(
-      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
-
-  ms::Gid v1_gid, v2_gid;
   {
     auto acc = storage->Access();
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
-    v1_gid = v1.Gid();
-    v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-  }
-
-  {
-    // tx10 starts first, creates edges
-    auto acc10 = storage->Access();
-    auto v1_t10 = acc10->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t10 = acc10->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t10.has_value() && v2_t10.has_value());
-    auto edge10a = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10a"));
-    ASSERT_TRUE(edge10a.HasValue());
-    auto edge10b = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10b"));
-    ASSERT_TRUE(edge10b.HasValue());
-
-    // tx11 starts, prepends edge
-    auto acc11 = storage->Access();
-    auto v1_t11 = acc11->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t11 = acc11->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t11.has_value() && v2_t11.has_value());
-    auto edge11 = acc11->CreateEdge(&*v1_t11, &*v2_t11, acc11->NameToEdgeType("Edge11"));
-    ASSERT_TRUE(edge11.HasValue());
-
-    // tx12 starts, prepends edge
-    auto acc12 = storage->Access();
-    auto v1_t12 = acc12->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t12 = acc12->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t12.has_value() && v2_t12.has_value());
-    auto edge12 = acc12->CreateEdge(&*v1_t12, &*v2_t12, acc12->NameToEdgeType("Edge12"));
-    ASSERT_TRUE(edge12.HasValue());
-
-    // Chain is now: (v1)-[tx12]-[tx11]-[tx10]-[tx10]
-    ASSERT_EQ(v1_t10->vertex_->out_edges.size(), 4);
-
-    // tx10 aborts
-    acc10->Abort();
-
-    // After abort: out_edges should have tx12's and tx11's edges only
-    EXPECT_EQ(v1_t12->vertex_->out_edges.size(), 2);
-
-    // tx11 and tx12 commit
-    ASSERT_FALSE(acc11->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-    ASSERT_FALSE(acc12->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-  }
-}
-
-// Case 9: Two transactions aborting concurrently from same chain
-// Chain: (v)-[tx11]-[tx10]-[tx10]-[tx9]
-// tx10 and tx11 both abort
-// After both aborts: (v)-[tx9], out_edges should only have tx9's edge
-TEST(StorageV2Gc, ConcurrentAborts_Case9) {
-  auto storage = std::make_unique<ms::InMemoryStorage>(
-      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
-
-  ms::Gid v1_gid, v2_gid;
-  {
-    auto acc = storage->Access();
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
-    v1_gid = v1.Gid();
-    v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-  }
-
-  {
-    // tx9 starts first
-    auto acc9 = storage->Access();
-    auto v1_t9 = acc9->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t9 = acc9->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t9.has_value() && v2_t9.has_value());
-    auto edge9 = acc9->CreateEdge(&*v1_t9, &*v2_t9, acc9->NameToEdgeType("Edge9"));
-    ASSERT_TRUE(edge9.HasValue());
-
-    // tx10 starts, creates edges
-    auto acc10 = storage->Access();
-    auto v1_t10 = acc10->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t10 = acc10->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t10.has_value() && v2_t10.has_value());
-    auto edge10a = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10a"));
-    ASSERT_TRUE(edge10a.HasValue());
-    auto edge10b = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10b"));
-    ASSERT_TRUE(edge10b.HasValue());
-
-    // tx11 starts, prepends edge
-    auto acc11 = storage->Access();
-    auto v1_t11 = acc11->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t11 = acc11->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t11.has_value() && v2_t11.has_value());
-    auto edge11 = acc11->CreateEdge(&*v1_t11, &*v2_t11, acc11->NameToEdgeType("Edge11"));
-    ASSERT_TRUE(edge11.HasValue());
-
-    // Chain is now: (v1)-[tx11]-[tx10]-[tx10]-[tx9]
-    ASSERT_EQ(v1_t11->vertex_->out_edges.size(), 4);
-
-    // Both tx10 and tx11 abort
-    acc10->Abort();
-    acc11->Abort();
-
-    // After both aborts: out_edges should only have tx9's edge
-    EXPECT_EQ(v1_t9->vertex_->out_edges.size(), 1);
-
-    // tx9 commits
-    ASSERT_FALSE(acc9->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-  }
-}
-
-// Case 10: Abort all deltas in chain (nothing left)
-// Chain: (v)-[tx10]-[tx10]
-// After tx10 abort: vertex->delta should be nullptr, out_edges empty
-TEST(StorageV2Gc, AbortAllDeltas_Case10) {
-  auto storage = std::make_unique<ms::InMemoryStorage>(
-      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
-
-  ms::Gid v1_gid, v2_gid;
-  {
-    auto acc = storage->Access();
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
-    v1_gid = v1.Gid();
-    v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-  }
-
-  {
-    auto acc10 = storage->Access();
-    auto v1_t10 = acc10->FindVertex(v1_gid, ms::View::OLD);
-    auto v2_t10 = acc10->FindVertex(v2_gid, ms::View::OLD);
-    ASSERT_TRUE(v1_t10.has_value() && v2_t10.has_value());
-    auto edge10a = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10a"));
-    ASSERT_TRUE(edge10a.HasValue());
-    auto edge10b = acc10->CreateEdge(&*v1_t10, &*v2_t10, acc10->NameToEdgeType("Edge10b"));
-    ASSERT_TRUE(edge10b.HasValue());
-
-    // Before abort: 2 edges, deltas present
-    ASSERT_EQ(v1_t10->vertex_->out_edges.size(), 2);
-    ASSERT_NE(v1_t10->vertex_->delta, nullptr);
-
-    // tx10 aborts
-    acc10->Abort();
-
-    // After abort: no deltas, no edges
-    EXPECT_EQ(v1_t10->vertex_->delta, nullptr);
-    EXPECT_EQ(v1_t10->vertex_->out_edges.size(), 0);
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+    EXPECT_EQ(v1->vertex_->out_edges.size(), 1);
+    EXPECT_EQ(v2->vertex_->in_edges.size(), 1);
+    EXPECT_NE(v1->vertex_->delta, nullptr);
+    EXPECT_NE(v2->vertex_->delta, nullptr);
   }
 }
