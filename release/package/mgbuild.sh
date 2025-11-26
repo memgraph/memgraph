@@ -559,7 +559,7 @@ build_memgraph () {
   # Set Conan remote if specified
   if [[ -n "$conan_remote" ]]; then
     echo "Setting Conan remote to $conan_remote"
-    docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add artifactory $conan_remote"
+    docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add artifactory $conan_remote --force"
   fi
 
   # Install our config
