@@ -22,6 +22,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "utils/exceptions.hpp"
@@ -29,32 +30,10 @@
 
 namespace memgraph::utils {
 
-inline auto GetUniqueDownloadPath(std::filesystem::path const &base_path) -> std::filesystem::path {
-  if (!std::filesystem::exists(base_path)) {
-    return base_path;
-  }
+using FileUniquePtr = std::unique_ptr<FILE, decltype(&std::fclose)>;
 
-  auto const stem = base_path.stem();
-  auto const ext = base_path.extension();
-  auto const parent = base_path.parent_path();
-
-  auto suffix = 1;
-  // We don't want more than 10k files with the same name
-  constexpr auto max_suffix = 10'000;
-
-  std::filesystem::path new_path;
-
-  do {
-    new_path = parent / std::format("{}_{}{}", stem.string(), suffix, ext.string());
-  } while (std::filesystem::exists(new_path) && suffix++ < max_suffix);
-
-  if (suffix > max_suffix) {
-    throw utils::BasicException("More than 10k files with the same name. File {} won't be downloaded.",
-                                base_path.string());
-  }
-
-  return new_path;
-}
+auto CreateUniqueDownloadFile(std::filesystem::path const &base_path)
+    -> std::pair<std::filesystem::path, FileUniquePtr>;
 
 /// Get the path of the current executable.
 ///

@@ -14,6 +14,7 @@
 #include <map>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -96,18 +97,35 @@ class GetUniqueDownloadPathTest : public testing::Test {
   std::filesystem::path test_dir_;
 };
 
-using memgraph::utils::GetUniqueDownloadPath;
+using memgraph::utils::CreateUniqueDownloadFile;
+
+TEST_F(GetUniqueDownloadPathTest, ThreadSafeFiles) {
+  auto const path = test_dir_ / "thread.csv";
+  // hardware_concurrency can return 0, should be considered only a hint
+  auto const num_threads = std::max(std::thread::hardware_concurrency(), 8U);
+
+  std::vector<std::filesystem::path> storage(num_threads);
+  for (auto i = 0U; i < num_threads; i++) {
+    std::jthread exec{
+        [&path, thread_id = i, &storage]() { storage[thread_id] = CreateUniqueDownloadFile(path).first; }};
+  }
+
+  std::unordered_set<std::filesystem::path> checker;
+  for (auto const &path : storage) {
+    ASSERT_TRUE(checker.insert(path).second);
+  }
+}
 
 TEST_F(GetUniqueDownloadPathTest, CreateFirstAttempt) {
   auto const path = test_dir_ / "nonexistent.csv";
-  ASSERT_EQ(path, GetUniqueDownloadPath(path));
+  ASSERT_EQ(path, CreateUniqueDownloadFile(path).first);
 }
 
 TEST_F(GetUniqueDownloadPathTest, CreateSecondAttempt) {
   auto const path = test_dir_ / "file.csv";
   CreateFile(path);
   auto const new_path = test_dir_ / "file_1.csv";
-  ASSERT_EQ(new_path, GetUniqueDownloadPath(path));
+  ASSERT_EQ(new_path, CreateUniqueDownloadFile(path).first);
 }
 
 TEST_F(GetUniqueDownloadPathTest, MultipleFilesExist) {
@@ -116,7 +134,7 @@ TEST_F(GetUniqueDownloadPathTest, MultipleFilesExist) {
   CreateFile(test_dir_ / "file_1.txt");
   CreateFile(test_dir_ / "file_2.txt");
 
-  auto result = GetUniqueDownloadPath(base);
+  auto result = CreateUniqueDownloadFile(base).first;
 
   EXPECT_EQ(result, test_dir_ / "file_3.txt");
 }
@@ -128,7 +146,7 @@ TEST_F(GetUniqueDownloadPathTest, GapInSequence) {
   // Skip file_2.txt
   CreateFile(test_dir_ / "file_3.txt");
 
-  auto result = GetUniqueDownloadPath(base);
+  auto result = CreateUniqueDownloadFile(base).first;
 
   // Should return _2 since _1 exists but _2 doesn't
   EXPECT_EQ(result, test_dir_ / "file_2.txt");
@@ -138,7 +156,7 @@ TEST_F(GetUniqueDownloadPathTest, NoExtension) {
   auto base = test_dir_ / "file";
   CreateFile(base);
 
-  auto result = GetUniqueDownloadPath(base);
+  auto result = CreateUniqueDownloadFile(base).first;
 
   EXPECT_EQ(result, test_dir_ / "file_1");
 }
@@ -147,7 +165,7 @@ TEST_F(GetUniqueDownloadPathTest, MultipleExtensions) {
   auto base = test_dir_ / "archive.tar.gz";
   CreateFile(base);
 
-  auto result = GetUniqueDownloadPath(base);
+  auto result = CreateUniqueDownloadFile(base).first;
 
   EXPECT_EQ(result, test_dir_ / "archive.tar_1.gz");
 }
@@ -161,7 +179,7 @@ TEST_F(GetUniqueDownloadPathTest, LargeSequenceNumber) {
     CreateFile(test_dir_ / std::format("file_{}.txt", i));
   }
 
-  auto result = GetUniqueDownloadPath(base);
+  auto result = CreateUniqueDownloadFile(base).first;
 
   EXPECT_EQ(result, test_dir_ / "file_100.txt");
 }
@@ -175,7 +193,7 @@ TEST_F(GetUniqueDownloadPathTest, MaxSuffixReached) {
     CreateFile(test_dir_ / std::format("file_{}.txt", i));
   }
 
-  EXPECT_THROW(GetUniqueDownloadPath(base), memgraph::utils::BasicException);
+  EXPECT_THROW(CreateUniqueDownloadFile(base), memgraph::utils::BasicException);
 }
 
 class UtilsFileTest : public ::testing::Test {

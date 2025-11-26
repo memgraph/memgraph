@@ -148,9 +148,12 @@ struct JsonlReader::impl {
     constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
     if (url_matcher(uri_)) {
       auto const base_path = std::filesystem::path{"/tmp"} / std::filesystem::path{uri_}.filename();
-      local_file_ = utils::GetUniqueDownloadPath(base_path);
-      if (!requests::CreateAndDownloadFile(
-              uri_, local_file_, memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(), std::move(abort_check))) {
+      auto [new_path, file] = utils::CreateUniqueDownloadFile(base_path);
+      local_file_ = std::move(new_path);
+
+      if (!requests::CreateAndDownloadFile(uri_, std::move(file),
+                                           memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
+                                           std::move(abort_check))) {
         throw utils::BasicException("Failed to download file {}", uri_);
       }
       content_ = simdjson::padded_string::load(local_file_).value();

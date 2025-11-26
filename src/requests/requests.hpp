@@ -17,6 +17,8 @@
 
 #include <nlohmann/json_fwd.hpp>
 
+#include "utils/file.hpp"
+
 namespace memgraph::requests {
 
 /**
@@ -43,12 +45,12 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
  * to the given `path`.
  *
  * @param url url to which to send the request
- * @param path path to the file where the response in writeen
+ * @param file utils::FileUniquePtr= unique_ptr<FILE> with custom fclose deleter
  * @param connection_timeout the timeout that should be used when making the request. The default timeout of 0 would use
  * built-in connection timeout of 300s.
  * @return bool true if the request was successful, false otherwise.
  */
-bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint64_t connection_timeout,
+bool CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file, uint64_t connection_timeout,
                            std::function<void()> abort_check = nullptr);
 
 /**

@@ -24,6 +24,7 @@
 
 #include <nlohmann/json.hpp>
 #include "spdlog/spdlog.h"
+#include "utils/logging.hpp"
 
 namespace memgraph::requests {
 
@@ -130,7 +131,8 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
   return true;
 }
 
-bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint64_t const connection_timeout,
+// File will be destroyed when it goes out of scope by calling std::fclose
+bool CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file, uint64_t const connection_timeout,
                            std::function<void()> abort_check) {
   CURL *curl = nullptr;
   CURLcode res = CURLE_UNSUPPORTED_PROTOCOL;
@@ -143,16 +145,10 @@ bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint
     return false;
   }
 
-  FILE *file = fopen(path.c_str(), "wb");
-  if (!file) {
-    spdlog::error("requests: Couldn't open file {} for writing", path);
-    return false;
-  }
-
   ProgressData progress_data{.abort_check_ = std::move(abort_check)};
 
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-  curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, file.get());
   // Timeout for establishing a connection
   // Includes DNS, all protocol handshakes and negotiations until there is an established connection with the remote
   // side
@@ -167,11 +163,6 @@ bool CreateAndDownloadFile(const std::string &url, const std::string &path, uint
   curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, DownloadProgressCb);
 
   res = curl_easy_perform(curl);
-
-  if (std::fclose(file) != 0) {
-    spdlog::error("Couldn't successfully close the file while downloading file {} {}", url, path);
-    return false;
-  }
 
   if (res != CURLE_OK) {
     spdlog::error("Error happened while downloading file {}: {}", url, curl_easy_strerror(res));

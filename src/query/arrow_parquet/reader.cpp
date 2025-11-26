@@ -659,8 +659,9 @@ ParquetReader::ParquetReader(ParquetFileConfig parquet_file_config, utils::Memor
     // When using a file that should be downloaded using https or ftp, we first download it and then load it
     if (url_matcher(parquet_file_config.file)) {
       auto const base_path = std::filesystem::path{"/tmp"} / std::filesystem::path{parquet_file_config.file}.filename();
-      auto const local_file_path = utils::GetUniqueDownloadPath(base_path);
-      if (requests::CreateAndDownloadFile(parquet_file_config.file, local_file_path,
+      auto [local_file_path, file] = utils::CreateUniqueDownloadFile(base_path);
+
+      if (requests::CreateAndDownloadFile(parquet_file_config.file, std::move(file),
                                           memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
                                           std::move(abort_check))) {
         utils::OnScopeExit const on_exit{[&local_file_path]() { utils::DeleteFile(local_file_path); }};
