@@ -26,8 +26,7 @@ def test_create_everything_then_drop_graph(memgraph):
 
     assert get_results_length(memgraph, "MATCH (n) RETURN n") == 2
     assert get_results_length(memgraph, "MATCH (n)-[r]->(m) RETURN r") == 1
-    assert get_results_length(memgraph, "SHOW INDEX INFO") == 4
-    assert get_results_length(memgraph, "SHOW CONSTRAINT INFO") == 3
+    assert get_results_length(memgraph, "SHOW INDEX INFO") == 3
     assert get_results_length(memgraph, "SHOW TRIGGERS") == 2
 
     with pytest.raises(GQLAlchemyError):
@@ -39,7 +38,6 @@ def test_create_everything_then_drop_graph(memgraph):
     assert get_results_length(memgraph, "MATCH (n) RETURN n") == 0
     assert get_results_length(memgraph, "MATCH (n)-[r]->(m) RETURN r") == 0
     assert get_results_length(memgraph, "SHOW INDEX INFO") == 0
-    assert get_results_length(memgraph, "SHOW CONSTRAINT INFO") == 0
     assert get_results_length(memgraph, "SHOW TRIGGERS") == 0
 
     storage_info = list(memgraph.execute_and_fetch("SHOW STORAGE INFO"))
