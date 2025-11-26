@@ -570,6 +570,10 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   if (body.has_pattern_comprehension()) {
     auto list_collection_datas = body.pattern_comprehension_data();
     for (auto &list_collection_data : list_collection_datas) {
+      // pattern comprehensions in WHERE clauses don't have their op set, only those in RETURN/WITH bodies do
+      if (!list_collection_data.op) {
+        continue;
+      }
       auto list_collection_symbols = list_collection_data.op->ModifiedSymbols(body.symbol_table());
       last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(list_collection_data.op),
                                               list_collection_symbols, list_collection_data.result_symbol);

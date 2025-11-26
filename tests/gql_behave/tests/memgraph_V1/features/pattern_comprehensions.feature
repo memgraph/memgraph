@@ -47,3 +47,15 @@ Feature: Pattern comprehensions
             | [[[2]]]                 |
             | [[[3]]]                 |
             | [[[]]]                  |
+
+    Scenario: Pattern comprehension in where
+        Given an empty graph
+        When executing query:
+            """
+            WITH 1 AS a
+            WHERE [(b)--() | b] = []
+            RETURN *;
+            """
+        Then the result should be:
+            | a  |
+            | 1  |
