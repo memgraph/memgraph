@@ -216,8 +216,7 @@ void GetS3Object(std::string uri, S3Config const &s3_config, std::string local_f
   auto const transfer_handle =
       transfer_manager->DownloadFile(Aws::String{bucket_name}, Aws::String{object_key}, Aws::String{local_file_path});
   transfer_handle->WaitUntilFinished();
-  bool success = transfer_handle->GetStatus() == Aws::Transfer::TransferStatus::COMPLETED;
-  if (success) {
+  if (transfer_handle->GetStatus() == Aws::Transfer::TransferStatus::COMPLETED) {
     spdlog::trace("Downloaded {} bytes of the file {}", transfer_handle->GetBytesTotalSize(), uri);
   }
 }

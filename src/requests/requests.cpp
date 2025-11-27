@@ -182,6 +182,7 @@ auto DownloadToStream(std::string_view url, std::ostream &os) -> bool {
   };
 
   auto *curl_handle{curl_easy_init()};
+  // NOLINTNEXTLINE
   curl_easy_setopt(curl_handle, CURLOPT_URL, url.data());
   curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, +WriteCallback);
   curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, &os);

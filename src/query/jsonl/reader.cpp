@@ -192,8 +192,8 @@ struct JsonlReader::impl {
 
 JsonlReader::JsonlReader(std::string file, std::optional<utils::S3Config> s3_cfg, std::pmr::memory_resource *resource,
                          std::function<void()> abort_check)
-    // NOLINTNEXTLINE
     : pimpl_{
+          // NOLINTNEXTLINE
           std::make_unique<JsonlReader::impl>(std::move(file), std::move(s3_cfg), resource, std::move(abort_check))} {}
 
 JsonlReader::~JsonlReader() {}
