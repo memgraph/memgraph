@@ -23,7 +23,7 @@
 namespace memgraph::storage {
 
 struct Vertex {
-  Vertex(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
+  Vertex(Gid gid, Delta *delta) : gid(gid), delta(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT ||
                   delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
@@ -40,8 +40,8 @@ struct Vertex {
 
   PropertyStore properties;
   mutable utils::RWSpinLock lock;
-  bool deleted;
-  bool has_interleaved_deltas{false};
+  bool deleted{false};
+  bool has_uncommitted_interleaved_deltas{false};
   // uint16_t PAD;
 
   Delta *delta;
