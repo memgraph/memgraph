@@ -24,12 +24,13 @@
 #include "coordination/logger_wrapper.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/utils.hpp"
-#include "utils/counter.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
+
+import memgraph.utils.counter;
 
 namespace {
 constexpr std::string_view kStateMgrDurabilityPath = "network";

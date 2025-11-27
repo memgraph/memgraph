@@ -22,10 +22,11 @@
 #include "query/trigger.hpp"
 #include "storage/v2/commit_args.hpp"
 #include "utils/async_timer.hpp"
-#include "utils/counter.hpp"
 
 #include "query/frame_change.hpp"
 #include "query/hops_limit.hpp"
+
+import memgraph.utils.counter;
 
 namespace memgraph::query {
 

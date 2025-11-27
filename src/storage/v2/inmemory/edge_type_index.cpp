@@ -15,7 +15,8 @@
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-#include "utils/counter.hpp"
+
+import memgraph.utils.counter;
 
 namespace r = ranges;
 namespace rv = r::views;

@@ -26,6 +26,8 @@
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 
+import memgraph.utils.counter;
+
 namespace memgraph::requests {
 
 namespace {

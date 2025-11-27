@@ -9,18 +9,20 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
 #include <atomic>
 #include <cstdint>
 #include <stdexcept>
 
-namespace memgraph::utils {
+export module memgraph.utils.counter;
+
+export namespace memgraph::utils {
 
 /// A resettable counter, every Nth call returns true
 
 struct ResettableCounter {
-  ResettableCounter(std::size_t N) : counter_{N}, orig_{N} {}
+  explicit ResettableCounter(std::size_t N) : counter_{N}, orig_{N} {}
   bool operator()() const {
     --counter_;
     if (counter_ != 0) return false;
