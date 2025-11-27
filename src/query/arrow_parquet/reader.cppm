@@ -11,6 +11,8 @@
 
 module;
 
+#include <functional>
+
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/vector.hpp"
@@ -26,7 +28,8 @@ using Header = utils::pmr::vector<TypedValue::TString>;
 
 class ParquetReader {
  public:
-  explicit ParquetReader(ParquetFileConfig parquet_file_config, utils::MemoryResource *resource);
+  explicit ParquetReader(ParquetFileConfig parquet_file_config, utils::MemoryResource *resource,
+                         std::function<void()> abort_check);
   ~ParquetReader();
 
   ParquetReader(ParquetReader const &other) = delete;

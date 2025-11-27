@@ -650,16 +650,20 @@ auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   return true;
 }
 
-ParquetReader::ParquetReader(ParquetFileConfig parquet_file_config, utils::MemoryResource *resource) {
+ParquetReader::ParquetReader(ParquetFileConfig parquet_file_config, utils::MemoryResource *resource,
+                             std::function<void()> abort_check) {
   auto file_reader = std::invoke([&]() -> std::unique_ptr<parquet::arrow::FileReader> {
     constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
     constexpr auto s3_matcher = ctre::starts_with<"s3://">;
 
     // When using a file that should be downloaded using https or ftp, we first download it and then load it
     if (url_matcher(parquet_file_config.file)) {
-      auto const file_name = std::filesystem::path{parquet_file_config.file}.filename();
-      auto const local_file_path = fmt::format("/tmp/{}", file_name);
-      if (requests::CreateAndDownloadFile(parquet_file_config.file, local_file_path)) {
+      auto const base_path = std::filesystem::path{"/tmp"} / std::filesystem::path{parquet_file_config.file}.filename();
+      auto [local_file_path, file] = utils::CreateUniqueDownloadFile(base_path);
+
+      if (requests::CreateAndDownloadFile(parquet_file_config.file, std::move(file),
+                                          memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
+                                          std::move(abort_check))) {
         utils::OnScopeExit const on_exit{[&local_file_path]() { utils::DeleteFile(local_file_path); }};
 
         return LoadFileFromDisk(local_file_path);

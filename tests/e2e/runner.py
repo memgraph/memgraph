@@ -29,6 +29,10 @@ BUILD_DIR = os.path.join(PROJECT_DIR, "build")
 
 log = logging.getLogger("memgraph.tests.e2e")
 
+DISABLE_NODE = os.getenv("DISABLE_NODE", "false") == "true"
+if DISABLE_NODE:
+    log.info("Skipping node setup because DISABLE_NODE is set to true")
+
 
 def load_args():
     parser = ArgumentParser()
@@ -59,6 +63,9 @@ def load_workloads(root_directory):
     for file in search_path.rglob("workloads.yaml"):
         # 8.03.2024. - Skip streams e2e tests
         if str(file).endswith("/streams/workloads.yaml"):
+            continue
+
+        if str(file).endswith("/graphql/workloads.yaml") and DISABLE_NODE:
             continue
         with open(file, "r") as f:
             workloads.extend(yaml.load(f, Loader=yaml.FullLoader)["workloads"])

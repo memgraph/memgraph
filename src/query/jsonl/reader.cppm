@@ -11,7 +11,9 @@
 
 module;
 
+#include <functional>
 #include <string>
+
 #include "query/typed_value.hpp"
 
 export module memgraph.query.jsonl.reader;
@@ -21,7 +23,7 @@ using Row = TypedValue::TMap;
 
 class JsonlReader {
  public:
-  explicit JsonlReader(std::string file, std::pmr::memory_resource *resource);
+  explicit JsonlReader(std::string file, std::pmr::memory_resource *resource, std::function<void()> abort_check);
   ~JsonlReader();
 
   JsonlReader(JsonlReader const &other) = delete;

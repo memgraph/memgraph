@@ -1,7 +1,13 @@
 #!/bin/bash
 
+DISABLE_NODE=${DISABLE_NODE:-false}
+
 NODE_VERSION="20"
 setup_node() {
+  if [ "$DISABLE_NODE" = "true" ]; then
+    echo "Skipping node setup because DISABLE_NODE is set to true"
+    return 0
+  fi
   if [ -f "$HOME/.nvm/nvm.sh" ]; then
     . "$HOME/.nvm/nvm.sh"
     nvm install $NODE_VERSION

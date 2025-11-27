@@ -76,6 +76,7 @@ DEFAULT_MGDEPS_CACHE_HOST="mgdeps-cache"
 DEFAULT_MGDEPS_CACHE_PORT="8000"
 DEFAULT_CCACHE_ENABLED="true"
 DEFAULT_CONAN_CACHE_ENABLED="true"
+DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -633,7 +634,7 @@ build_memgraph () {
 init_tests() {
   echo "Initializing tests..."
   # we need to add the ~/.local/bin to the path
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && export PATH=\$PATH:\$HOME/.local/bin && ./init-test --ci"
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && export PATH=\$PATH:\$HOME/.local/bin && export DISABLE_NODE=$DISABLE_NODE && ./init-test --ci"
   echo "...Done"
 }
 
@@ -939,10 +940,10 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure'
     ;;
     drivers)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR "'&& ./tests/drivers/run.sh'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && export DISABLE_NODE=$DISABLE_NODE "'&& ./tests/drivers/run.sh'
     ;;
     drivers-high-availability)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN"'&& ./tests/drivers/run_cluster.sh'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && export DISABLE_NODE=$DISABLE_NODE "'&& ./tests/drivers/run_cluster.sh'
     ;;
     integration)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && tests/integration/run.sh"
@@ -1061,7 +1062,7 @@ test_memgraph() {
       docker exec -u root $build_container bash -c "apt-get update && apt-get install -y lsof" # TODO(matt): install within mgbuild container
       docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
       docker exec -u mg $build_container bash -c "pip install --break-system-packages --user networkx==2.5.1"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/e2e && ./run.sh"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/e2e && export DISABLE_NODE=$DISABLE_NODE && ./run.sh"
     ;;
     query_modules_e2e)
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.

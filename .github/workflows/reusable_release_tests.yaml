@@ -748,7 +748,7 @@ jobs:
 
       - name: Ensure localstack is up
         run: |
-          cd tests/e2e/load_parquet/localstack
+          cd tests/e2e/localstack
           docker compose --profile bridge up -d
 
       # This step will be skipped because the e2e stream tests have been disabled
@@ -773,7 +773,7 @@ jobs:
 
       - name: Ensure localstack is down
         run: |
-          cd tests/e2e/load_parquet/localstack
+          cd tests/e2e/localstack
           docker compose down
 
       # Same as two steps prior

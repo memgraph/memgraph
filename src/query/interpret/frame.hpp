@@ -48,7 +48,7 @@ struct FrameWriter {
   auto Modify(const Symbol &symbol, Func f) -> std::invoke_result_t<Func, TypedValue &>;
 
  private:
-  void ResetInListCache(const Symbol &symbol);
+  void ResetCache(const Symbol &symbol);
 
   Frame &frame_;
   FrameChangeCollector *frame_change_collector_;
@@ -83,7 +83,7 @@ class Frame {
 template <typename Func>
 auto FrameWriter::Modify(const Symbol &symbol, Func f) -> std::invoke_result_t<Func, TypedValue &> {
   auto &value = frame_.elems_[symbol.position()];
-  ResetInListCache(symbol);
+  ResetCache(symbol);
   return f(value);
 }
 

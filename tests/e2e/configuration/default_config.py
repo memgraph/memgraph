@@ -82,6 +82,11 @@ startup_config_dict = {
         "true",
         "Controls whether the database recovers persisted data on startup.",
     ),
+    "file_download_conn_timeout_sec": (
+        "10",
+        "10",
+        "Define a timeout for establishing a connection with a remote server during a file download.",
+    ),
     "isolation_level": (
         "SNAPSHOT_ISOLATION",
         "SNAPSHOT_ISOLATION",
