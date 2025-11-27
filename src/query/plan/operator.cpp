@@ -7710,7 +7710,7 @@ class LoadCsvCursor : public Cursor {
     auto maybe_config_map = ParseConfigMap(self_->config_map_, evaluator);
 
     if (!maybe_config_map) {
-      throw QueryRuntimeException("Failed to parse config map for LOAD PARQUET clause!");
+      throw QueryRuntimeException("Failed to parse config map for LOAD CSV clause!");
     }
 
     if (maybe_config_map->size() > 4) {
