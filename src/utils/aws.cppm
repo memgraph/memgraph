@@ -23,6 +23,7 @@ module;
 #include <aws/transfer/TransferManager.h>
 
 #include "spdlog/spdlog.h"
+#include "utils/counter.hpp"
 #include "utils/exceptions.hpp"
 
 export module memgraph.utils.aws;
@@ -183,9 +184,12 @@ auto GetS3ObjectOutcome(std::string uri, S3Config const &s3_config) -> Aws::S3::
                                     Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
 
   auto outcome = s3_client.GetObject(std::apply(BuildGetObjectRequest, ExtractBucketAndObjectKey(uri)));
+
   if (!outcome.IsSuccess()) {
     throw BasicException("Failed to get object from S3 {}. Error: {}", uri, outcome.GetError().GetMessage());
   }
+
+  spdlog::trace("File {} successfully downloaded. ", uri);
 
   return outcome;
 }
@@ -209,6 +213,16 @@ void GetS3Object(std::string uri, S3Config const &s3_config, std::string local_f
 
   Aws::Utils::Threading::DefaultExecutor executor;
   Aws::Transfer::TransferManagerConfiguration config(&executor);
+  config.downloadProgressCallback = [](const Aws::Transfer::TransferManager *mgr,
+                                       const std::shared_ptr<const Aws::Transfer::TransferHandle> &handle) {
+    static thread_local auto counter = ResettableCounter(500);
+    if (counter()) {
+      auto progress =
+          static_cast<double>(handle->GetBytesTransferred()) * 100.0 / static_cast<double>(handle->GetBytesTotalSize());
+      spdlog::trace("Downloaded {:.2f}% of the file", progress);
+    }
+  };
+
   config.s3Client = s3_client;
 
   auto const transfer_manager = Aws::Transfer::TransferManager::Create(config);
@@ -218,6 +232,9 @@ void GetS3Object(std::string uri, S3Config const &s3_config, std::string local_f
   transfer_handle->WaitUntilFinished();
   if (transfer_handle->GetStatus() == Aws::Transfer::TransferStatus::COMPLETED) {
     spdlog::trace("Downloaded {} bytes of the file {}", transfer_handle->GetBytesTotalSize(), uri);
+  } else {
+    throw utils::BasicException("Error occurred while downloading file {}. Error: {}", uri,
+                                transfer_handle->GetLastError().GetMessage());
   }
 }
 
