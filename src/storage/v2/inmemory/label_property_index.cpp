@@ -81,7 +81,7 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
     current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
 
     // If vertex has interleaved deltas, hold lock while applying them
-    if (!vertex.has_interleaved_deltas) {
+    if (!vertex.has_uncommitted_interleaved_deltas) {
       guard.unlock();
     }
   }
@@ -389,7 +389,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
     properties = props.Extract(vertex.properties);
 
     // If vertex has interleaved deltas, hold lock while applying them
-    if (!vertex.has_interleaved_deltas) {
+    if (!vertex.has_uncommitted_interleaved_deltas) {
       guard.unlock();
     }
 

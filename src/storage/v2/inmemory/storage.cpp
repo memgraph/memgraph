@@ -163,6 +163,18 @@ class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::util
   memgraph::utils::Scheduler *scheduler_;
 };
 
+bool HasUncommittedInterleavedDeltas(Vertex const *vertex) {
+  Delta *delta = vertex->delta;
+  while (delta != nullptr) {
+    auto ts = delta->timestamp->load(std::memory_order_acquire);
+    if (ts >= kTransactionInitialId && IsDeltaInterleaved(*delta)) {
+      return true;
+    }
+    delta = delta->next.load(std::memory_order_acquire);
+  }
+  return false;
+}
+
 void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std::list<Gid> &current_deleted_edges,
                            std::list<Gid> &current_deleted_vertices, IndexPerformanceTracker &impact_tracker) {
   for (auto &delta : deltas) {
@@ -648,7 +660,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   if (from_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
   if (from_result == WriteResult::INTERLEAVED) {
     transaction_.has_interleaved_deltas = true;
-    from_vertex->has_interleaved_deltas = true;
+    from_vertex->has_uncommitted_interleaved_deltas = true;
   }
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
@@ -658,7 +670,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     if (to_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
     if (to_result == WriteResult::INTERLEAVED) {
       transaction_.has_interleaved_deltas = true;
-      to_vertex->has_interleaved_deltas = true;
+      to_vertex->has_uncommitted_interleaved_deltas = true;
     }
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
@@ -776,7 +788,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   if (from_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
   if (from_result == WriteResult::INTERLEAVED) {
     transaction_.has_interleaved_deltas = true;
-    from_vertex->has_interleaved_deltas = true;
+    from_vertex->has_uncommitted_interleaved_deltas = true;
   }
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
@@ -786,7 +798,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     if (to_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
     if (to_result == WriteResult::INTERLEAVED) {
       transaction_.has_interleaved_deltas = true;
-      to_vertex->has_interleaved_deltas = true;
+      to_vertex->has_uncommitted_interleaved_deltas = true;
     }
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
@@ -1093,6 +1105,33 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
 
   MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
   transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+
+  // If the transaction had interleaved deltas, we should re-establish the
+  // `has_uncommitted_interleaved_deltas` flag on any vertices we've touched
+  if (transaction_.has_interleaved_deltas) {
+    std::unordered_set<Vertex *> vertices_to_check;
+    for (Delta const &delta : transaction_.deltas) {
+      auto prev = delta.prev.Get();
+      if (prev.type == PreviousPtr::Type::VERTEX) {
+        vertices_to_check.insert(prev.vertex);
+      } else if (prev.type == PreviousPtr::Type::DELTA) {
+        while (prev.type == PreviousPtr::Type::DELTA) {
+          prev = prev.delta->prev.Get();
+        }
+        if (prev.type == PreviousPtr::Type::VERTEX) {
+          vertices_to_check.insert(prev.vertex);
+        }
+      }
+    }
+
+    // NOLINTNEXTLINE(bugprone-nondeterministic-pointer-iteration-order)
+    for (Vertex *vertex : vertices_to_check) {
+      auto guard = std::unique_lock{vertex->lock};
+      if (vertex->has_uncommitted_interleaved_deltas) {
+        vertex->has_uncommitted_interleaved_deltas = HasUncommittedInterleavedDeltas(vertex);
+      }
+    }
+  }
 
 #ifndef NDEBUG
   auto const prev = mem_storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
@@ -1523,19 +1562,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         }
       }
 
-      // @TODO reimplement this...
-      // Check if there are any remaining interleaved deltas and clear flag if not
-      // Be conservative - only clear if we're certain there are none
-      // bool has_interleaved = false;
-      // Delta *check = vertex->delta;
-      // while (check != nullptr) {
-      //   if (IsDeltaInterleaved(*check)) {
-      //     has_interleaved = true;
-      //     break;
-      //   }
-      //   check = check->next.load(std::memory_order_acquire);
-      // }
-      // vertex->has_interleaved_deltas = has_interleaved;
+      if (vertex->has_uncommitted_interleaved_deltas) {
+        vertex->has_uncommitted_interleaved_deltas = HasUncommittedInterleavedDeltas(vertex);
+      }
     };
 
     DeltaVertexCache delta_vertex_cache{transaction_.transaction_id};
@@ -2664,6 +2693,11 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
               continue;
             }
             vertex->delta = nullptr;
+
+            if (vertex->has_uncommitted_interleaved_deltas) {
+              vertex->has_uncommitted_interleaved_deltas = false;
+            }
+
             if (vertex->deleted) {
               DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
               current_deleted_vertices.push_back(vertex->gid);
