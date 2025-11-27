@@ -87,23 +87,25 @@ void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation c
                               storage->PropertyToName(*violation.properties.begin()));
 }
 
-// Manages lock lifetime based on whether vertex currently has interleaved
-// deltas. Any transaction that has created interleaved deltas may abort and
-// have to remove deltas from the middle of the delta chain. When a vertex has
-// these deltas in its chain, this read lock must be held both when we read the
-// `vertex.delta` AND continue to be held whilst we walk the delta chain. For
-// vertices with no interleaved deltas, this uses the shorter lock duration of
-// just reading `vertex.delta` under lock.
+// Manages lock lifetime based on whether vertex currently has uncommitted
+// interleaved deltas. Any transaction that has created interleaved deltas may
+// abort and have to remove deltas from the middle of the delta chain. When a
+// vertex has these uncommitted interleaved deltas in its chain, this read lock
+// must be held both when we read the `vertex.delta` AND continue to be held
+// whilst we walk the delta chain. For vertices with no uncommitted interleaved
+// deltas, this uses the shorter lock duration of just reading `vertex.delta`
+// under lock.
 class VertexReadLock {
  public:
   explicit VertexReadLock(memgraph::storage::Vertex const *vertex)
-      : lock_{vertex->lock, std::defer_lock}, has_interleaved_deltas_{vertex->has_interleaved_deltas} {}
+      : lock_{vertex->lock, std::defer_lock},
+        has_uncommitted_interleaved_deltas_{vertex->has_uncommitted_interleaved_deltas} {}
 
   class SnapshotGuard {
    public:
     explicit SnapshotGuard(VertexReadLock *manager) : manager_{manager} {}
     ~SnapshotGuard() {
-      if (!manager_->has_interleaved_deltas_) {
+      if (!manager_->has_uncommitted_interleaved_deltas_) {
         manager_->lock_.unlock();
       }
     }
@@ -124,7 +126,7 @@ class VertexReadLock {
 
  private:
   std::shared_lock<memgraph::utils::RWSpinLock> lock_;
-  bool has_interleaved_deltas_;
+  bool has_uncommitted_interleaved_deltas_;
 };
 
 }  // namespace

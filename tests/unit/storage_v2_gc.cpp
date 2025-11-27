@@ -1249,3 +1249,157 @@ TEST(StorageV2Gc, AbortsTwoTransactions) {
     EXPECT_NE(v2->vertex_->delta, nullptr);
   }
 }
+
+TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedAfterAbort) {
+  auto storage = std::make_unique<ms::InMemoryStorage>(
+      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto tx0 = storage->Access();
+    auto v1 = tx0->CreateVertex();
+    auto v2 = tx0->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto tx1 = storage->Access();
+    auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).HasValue());
+
+    auto tx2 = storage->Access();
+    auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).HasValue());
+
+    {
+      auto const guard = std::shared_lock{v1_t2->vertex_->lock};
+      ASSERT_TRUE(v1_t2->vertex_->has_uncommitted_interleaved_deltas);
+    }
+
+    tx2->Abort();
+
+    {
+      auto const guard = std::shared_lock{v1_t2->vertex_->lock};
+      ASSERT_FALSE(v1_t2->vertex_->has_uncommitted_interleaved_deltas);
+    }
+
+    ASSERT_FALSE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    EXPECT_FALSE(v1->vertex_->has_uncommitted_interleaved_deltas);
+  }
+}
+
+TEST(StorageV2Gc, HasInterleavedDeltasFlagRemainsAfterPartialAbort) {
+  auto storage = std::make_unique<ms::InMemoryStorage>(
+      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto tx0 = storage->Access();
+    auto v1 = tx0->CreateVertex();
+    auto v2 = tx0->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto tx1 = storage->Access();
+    auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).HasValue());
+
+    auto tx2 = storage->Access();
+    auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).HasValue());
+
+    auto tx3 = storage->Access();
+    auto v1_t3 = tx3->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t3 = tx3->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
+    ASSERT_TRUE(tx3->CreateEdge(&*v1_t3, &*v2_t3, tx3->NameToEdgeType("EDGE3")).HasValue());
+
+    {
+      auto const guard = std::shared_lock{v1_t3->vertex_->lock};
+      ASSERT_TRUE(v1_t3->vertex_->has_uncommitted_interleaved_deltas);
+    }
+
+    tx2->Abort();
+
+    {
+      auto const guard = std::shared_lock{v1_t3->vertex_->lock};
+      ASSERT_TRUE(v1_t3->vertex_->has_uncommitted_interleaved_deltas);
+    }
+
+    ASSERT_FALSE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_FALSE(tx3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    auto const guard = std::shared_lock{v1->vertex_->lock};
+    ASSERT_FALSE(v1->vertex_->has_uncommitted_interleaved_deltas);
+  }
+}
+
+TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedWhenAllDeltasRemoved) {
+  auto storage = std::make_unique<ms::InMemoryStorage>(
+      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto tx0 = storage->Access();
+    auto v1 = tx0->CreateVertex();
+    auto v2 = tx0->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto tx1 = storage->Access();
+    auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).HasValue());
+
+    auto tx2 = storage->Access();
+    auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).HasValue());
+
+    {
+      auto const guard = std::shared_lock{v1_t2->vertex_->lock};
+      ASSERT_TRUE(v1_t2->vertex_->has_uncommitted_interleaved_deltas);
+    }
+
+    tx2->Abort();
+    tx1->Abort();
+  }
+
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    EXPECT_EQ(v1->vertex_->delta, nullptr);
+    auto const guard = std::shared_lock{v1->vertex_->lock};
+    ASSERT_FALSE(v1->vertex_->has_uncommitted_interleaved_deltas);
+  }
+}
