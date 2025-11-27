@@ -86,6 +86,47 @@ void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation c
                               storage->LabelToName(violation.label),
                               storage->PropertyToName(*violation.properties.begin()));
 }
+
+// Manages lock lifetime based on whether vertex currently has interleaved
+// deltas. Any transaction that has created interleaved deltas may abort and
+// have to remove deltas from the middle of the delta chain. When a vertex has
+// these deltas in its chain, this read lock must be held both when we read the
+// `vertex.delta` AND continue to be held whilst we walk the delta chain. For
+// vertices with no interleaved deltas, this uses the shorter lock duration of
+// just reading `vertex.delta` under lock.
+class VertexReadLock {
+ public:
+  explicit VertexReadLock(memgraph::storage::Vertex const *vertex)
+      : lock_{vertex->lock, std::defer_lock}, has_interleaved_deltas_{vertex->has_interleaved_deltas} {}
+
+  class SnapshotGuard {
+   public:
+    explicit SnapshotGuard(VertexReadLock *manager) : manager_{manager} {}
+    ~SnapshotGuard() {
+      if (!manager_->has_interleaved_deltas_) {
+        manager_->lock_.unlock();
+      }
+    }
+
+    SnapshotGuard(SnapshotGuard const &) = delete;
+    SnapshotGuard(SnapshotGuard &&) = delete;
+    SnapshotGuard &operator=(SnapshotGuard const &) = delete;
+    SnapshotGuard &operator=(SnapshotGuard &&) = delete;
+
+   private:
+    VertexReadLock *manager_;
+  };
+
+  SnapshotGuard AcquireLock() {
+    lock_.lock();
+    return SnapshotGuard{this};
+  }
+
+ private:
+  std::shared_lock<memgraph::utils::RWSpinLock> lock_;
+  bool has_interleaved_deltas_;
+};
+
 }  // namespace
 
 namespace detail {
@@ -93,8 +134,9 @@ std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transac
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
+  VertexReadLock read_lock(vertex);
   {
-    VertexReadGuard const guard(vertex);
+    auto const guard = read_lock.AcquireLock();
     deleted = vertex->deleted;
     delta = vertex->delta;
   }
@@ -294,8 +336,9 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   bool deleted = false;
   bool has_label = false;
   Delta *delta = nullptr;
+  VertexReadLock read_lock{vertex_};
   {
-    VertexReadGuard const guard(vertex_);
+    auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted;
     has_label = std::ranges::contains(vertex_->labels, label);
     delta = vertex_->delta;
@@ -341,8 +384,9 @@ Result<utils::small_vector<LabelId>> VertexAccessor::Labels(View view) const {
   bool deleted = false;
   utils::small_vector<LabelId> labels;
   Delta *delta = nullptr;
+  VertexReadLock read_lock{vertex_};
   {
-    VertexReadGuard const guard(vertex_);
+    auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted;
     labels = vertex_->labels;
     delta = vertex_->delta;
@@ -628,8 +672,9 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
+  VertexReadLock read_lock{vertex_};
   auto value = std::invoke([&]() -> PropertyValue {
-    VertexReadGuard const guard(vertex_);
+    auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted;
     delta = vertex_->delta;
     return vertex_->properties.GetProperty(property);
@@ -673,7 +718,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
 
 Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view) const {
   {
-    VertexReadGuard const guard(vertex_);
+    auto guard = std::shared_lock{vertex_->lock};
     Delta *delta = vertex_->delta;
     if (!delta) {
       return vertex_->properties.PropertySize(property);
@@ -696,8 +741,9 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   bool deleted = false;
   std::map<PropertyId, PropertyValue> properties;
   Delta *delta = nullptr;
+  VertexReadLock read_lock{vertex_};
   {
-    VertexReadGuard const guard(vertex_);
+    auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted;
     properties = vertex_->properties.Properties();
     delta = vertex_->delta;
@@ -746,8 +792,9 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByProperty
   std::vector<PropertyValue> property_values;
   property_values.reserve(properties.size());
   Delta *delta = nullptr;
+  VertexReadLock read_lock{vertex_};
   {
-    VertexReadGuard const guard(vertex_);
+    auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted;
     auto property_paths = properties |
                           rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
@@ -860,7 +907,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
     if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
     if (deleted) return std::unexpected{Error::DELETED_OBJECT};
-    bool edges_modified_in_tx = !vertex_->in_edges.empty();
+    bool const edges_modified_in_tx = !vertex_->in_edges.empty();
 
     disk_edges = disk_storage->InEdges(this, edge_types, destination, transaction_, view, hops_limit);
     if (view == View::OLD && !edges_modified_in_tx) {
@@ -875,8 +922,9 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   auto in_edges = edge_store{};
   Delta *delta = nullptr;
   int64_t expanded_count = 0;
-  VertexReadGuard guard(vertex_);
+  VertexReadLock read_lock{vertex_};
   {
+    auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted;
     if (edge_types.empty() && !destination) {
       expanded_count = HandleExpansionsWithoutEdgeTypes(in_edges, hops_limit, EdgeDirection::IN);
@@ -884,7 +932,6 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
       expanded_count = HandleExpansionsWithEdgeTypes(in_edges, edge_types, destination, hops_limit, EdgeDirection::IN);
     }
     delta = vertex_->delta;
-    guard.unlock_if_not_interleaved();
   }
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -964,8 +1011,9 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   auto out_edges = edge_store{};
   Delta *delta = nullptr;
   int64_t expanded_count = 0;
-  VertexReadGuard guard(vertex_);
+  VertexReadLock read_lock{vertex_};
   {
+    auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted;
     if (edge_types.empty() && !destination) {
       expanded_count = HandleExpansionsWithoutEdgeTypes(out_edges, hops_limit, EdgeDirection::OUT);
@@ -974,7 +1022,6 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
           HandleExpansionsWithEdgeTypes(out_edges, edge_types, destination, hops_limit, EdgeDirection::OUT);
     }
     delta = vertex_->delta;
-    guard.unlock_if_not_interleaved();
   }
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -1036,8 +1083,9 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
   bool deleted = false;
   size_t degree = 0;
   Delta *delta = nullptr;
+  VertexReadLock read_lock{vertex_};
   {
-    VertexReadGuard const guard(vertex_);
+    auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted;
     degree = vertex_->in_edges.size();
     delta = vertex_->delta;
@@ -1092,8 +1140,9 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   bool deleted = false;
   size_t degree = 0;
   Delta *delta = nullptr;
+  VertexReadLock read_lock{vertex_};
   {
-    VertexReadGuard const guard(vertex_);
+    auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted;
     degree = vertex_->out_edges.size();
     delta = vertex_->delta;
