@@ -213,7 +213,7 @@ void GetS3Object(std::string uri, S3Config const &s3_config, std::string local_f
 
   Aws::Utils::Threading::DefaultExecutor executor;
   Aws::Transfer::TransferManagerConfiguration config(&executor);
-  config.downloadProgressCallback = [](const Aws::Transfer::TransferManager *mgr,
+  config.downloadProgressCallback = [](const Aws::Transfer::TransferManager * /*mgr*/,
                                        const std::shared_ptr<const Aws::Transfer::TransferHandle> &handle) {
     static thread_local auto counter = ResettableCounter(500);
     if (counter()) {
