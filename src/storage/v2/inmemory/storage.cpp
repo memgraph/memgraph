@@ -1538,18 +1538,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       // vertex->has_interleaved_deltas = has_interleaved;
     };
 
-    // Helper to find vertex from a delta by walking up the chain
-    // @TODO use cache
-    auto find_vertex_from_delta = [](Delta const *delta) -> Vertex * {
-      while (true) {
-        auto prev = delta->prev.Get();
-        if (prev.type == PreviousPtr::Type::VERTEX) {
-          return prev.vertex;
-        }
-        MG_ASSERT(prev.type == PreviousPtr::Type::DELTA, "Expected DELTA or VERTEX in chain");
-        delta = prev.delta;
-      }
-    };
+    DeltaVertexCache delta_vertex_cache{transaction_.transaction_id};
 
     for (Delta &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
@@ -1569,7 +1558,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           // and must wait in `waiting_gc_deltas_` until all contributor transactions
           // are finished.
           if (prev.delta->timestamp->load(std::memory_order_acquire) != transaction_.transaction_id) {
-            Vertex *vertex = find_vertex_from_delta(&delta);
+            Vertex *vertex = delta_vertex_cache.GetVertexFromDelta(&delta);
             auto guard = std::unique_lock{vertex->lock};
             process_vertex_deltas(vertex, &delta, false);
           }
