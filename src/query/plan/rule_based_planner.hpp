@@ -281,7 +281,8 @@ class RuleBasedPlanner {
           } else if (auto *load_jsonl = utils::Downcast<query::LoadJsonl>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_jsonl->row_var_);
             context.bound_symbols.insert(row_sym);
-            input_op = std::make_unique<plan::LoadJsonl>(std::move(input_op), load_jsonl->file_, row_sym);
+            input_op = std::make_unique<plan::LoadJsonl>(std::move(input_op), load_jsonl->file_, load_jsonl->configs_,
+                                                         row_sym);
           } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
             context.is_write_query = true;
             input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,

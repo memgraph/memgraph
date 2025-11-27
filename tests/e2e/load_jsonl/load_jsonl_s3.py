@@ -27,6 +27,20 @@ AWS_REGION = "us-east-1"
 BUCKET_NAME = "deps.memgraph.io"
 
 
+def test_file_exists_s3_with_config():
+    cursor = connect(host="localhost", port=7687).cursor()
+
+    execute_and_fetch_all(cursor, f"set database setting 'aws.region' to '{AWS_REGION}'")
+    execute_and_fetch_all(cursor, f"set database setting 'aws.access_key' to '{AWS_ACCESS_KEY_ID}'")
+    execute_and_fetch_all(cursor, f"set database setting 'aws.secret_key' to '{AWS_SECRET_ACCESS_KEY}'")
+    execute_and_fetch_all(cursor, f"set database setting 'aws.endpoint_url' to '{AWS_ENDPOINT_URL}'")
+
+    load_query = f"LOAD JSONL FROM 's3://{BUCKET_NAME}/test_types.jsonl' WITH CONFIG {{'aws_region': '{AWS_REGION}', 'aws_access_key': '{AWS_ACCESS_KEY_ID}', 'aws_secret_key': '{AWS_SECRET_ACCESS_KEY}', 'aws_endpoint_url': '{AWS_ENDPOINT_URL}' }} AS row CREATE (n:N {{id: row.id, name: row.name}})"
+
+    execute_and_fetch_all(cursor, load_query)
+    execute_and_fetch_all(cursor, "match (n) detach delete n")
+
+
 def test_file_exists_s3():
     cursor = connect(host="localhost", port=7687).cursor()
 

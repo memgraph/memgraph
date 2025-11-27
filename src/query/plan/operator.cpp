@@ -7873,8 +7873,12 @@ std::unique_ptr<LogicalOperator> LoadParquet::Clone(AstStorage *storage) const {
 
 std::string LoadParquet::ToString() const { return fmt::format("LoadParquet {{{}}}", row_var_.name()); }
 
-LoadJsonl::LoadJsonl(std::shared_ptr<LogicalOperator> input, Expression *file, Symbol row_var)
-    : input_(input ? input : (std::make_shared<Once>())), file_(file), row_var_(std::move(row_var)) {
+LoadJsonl::LoadJsonl(std::shared_ptr<LogicalOperator> input, Expression *file,
+                     std::unordered_map<Expression *, Expression *> config_map, Symbol row_var)
+    : input_(input ? input : (std::make_shared<Once>())),
+      file_(file),
+      row_var_(std::move(row_var)),
+      config_map_(std::move(config_map)) {
   MG_ASSERT(file_, "Something went wrong - LoadJsonl's member file_ shouldn't be a nullptr");
 }
 
@@ -7913,12 +7917,22 @@ class LoadJsonlCursor : public Cursor {
       auto maybe_file = self_->file_->Accept(evaluator).ValueString();
 
       constexpr auto s3_matcher = ctre::starts_with<"s3://">;
-      // TODO: (andi) Add query capabilities
-      std::map<std::string, std::string, std::less<>> query_config_map;
+
+      auto maybe_config_map = ParseConfigMap(self_->config_map_, evaluator);
+
+      if (!maybe_config_map) {
+        throw QueryRuntimeException("Failed to parse config map for LOAD JSONL clause!");
+      }
+
+      if (maybe_config_map->size() > 4) {
+        throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
+                                    utils::kAwsAccessKeyQuerySetting, utils::kAwsAccessKeyQuerySetting,
+                                    utils::kAwsSecretKeyQuerySetting, utils::kAwsEndpointUrlQuerySetting);
+      }
 
       std::optional<utils::S3Config> s3_config;
       if (s3_matcher(maybe_file)) {
-        s3_config.emplace(utils::S3Config::Build(std::move(query_config_map), BuildRunTimeS3Config()));
+        s3_config.emplace(utils::S3Config::Build(std::move(*maybe_config_map), BuildRunTimeS3Config()));
       }
 
       auto abort_check_erased = context.stopping_context.MakeMaybeAborter(1);

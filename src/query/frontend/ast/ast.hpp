@@ -3332,11 +3332,15 @@ class LoadJsonl : public Clause {
 
   Expression *file_;
   Identifier *row_var_{nullptr};
+  std::unordered_map<Expression *, Expression *> configs_;
 
   LoadJsonl *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<LoadJsonl>();
     object->file_ = file_ ? file_->Clone(storage) : nullptr;
     object->row_var_ = row_var_ ? row_var_->Clone(storage) : nullptr;
+    for (auto const &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
     return object;
   }
 

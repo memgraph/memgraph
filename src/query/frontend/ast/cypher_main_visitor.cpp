@@ -958,6 +958,10 @@ antlrcpp::Any CypherMainVisitor::visitLoadJsonl(MemgraphCypher::LoadJsonlContext
   load_jsonl->row_var_ =
       storage_->Create<Identifier>(std::any_cast<std::string>(ctx->rowVar()->variable()->accept(this)));
 
+  if (ctx->configsMap) {
+    load_jsonl->configs_ = std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
+  }
+
   return load_jsonl;
 }
 

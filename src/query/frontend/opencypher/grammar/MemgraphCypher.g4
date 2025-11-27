@@ -411,7 +411,7 @@ loadCsv : LOAD CSV FROM csvFile
 
 loadParquet : LOAD PARQUET FROM parquetFile ( WITH CONFIG configsMap=configMap ) ? AS rowVar ;
 
-loadJsonl : LOAD JSONL FROM jsonlFile AS rowVar ;
+loadJsonl : LOAD JSONL FROM jsonlFile ( WITH CONFIG configsMap=configMap ) ? AS rowVar ;
 
 csvFile : literal | parameter ;
 
