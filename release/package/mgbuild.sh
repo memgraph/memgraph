@@ -755,7 +755,7 @@ copy_memgraph() {
   local host_dir="$PROJECT_BUILD_DIR"
   local host_dir_override=""
   local artifact_name_override=""
-  local use_make_install=false
+  local use_cmake_install=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -830,10 +830,10 @@ copy_memgraph() {
       ;;
       --use-make-install)
         if [[ "$artifact" != "binary" ]]; then
-          echo -e "Error: Only the --binary artifact can be installed using ninja install"
+          echo -e "Error: Only the --binary artifact can be installed using cmake install"
           exit 1
         fi
-        use_make_install=true
+        use_cmake_install=true
         shift 1
       ;;
       --sbom)
@@ -858,19 +858,28 @@ copy_memgraph() {
     artifact_name=$artifact_name_override
   fi
 
-  # If using make install, handle it differently
-  if [[ "$use_make_install" == "true" ]]; then
-    local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-    local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
+  # If using cmake install, handle it differently
+  if [[ "$use_cmake_install" == "true" ]]; then
+    # Initialize variables that conanbuild.sh appends to (required for set -u shells)
+    local INIT_CONAN_ENV="export CLASSPATH= LD_LIBRARY_PATH= DYLD_LIBRARY_PATH="
+    local ACTIVATE_CONAN_BUILDENV="source $MGBUILD_BUILD_DIR/generators/conanbuild.sh"
 
     # Create a temporary staging directory in the container
     local staging_dir="/tmp/memgraph-staging"
     docker exec -u mg "$build_container" bash -c "mkdir -p $staging_dir"
 
-    echo "Installing Memgraph using ninja install with DESTDIR=$staging_dir..."
-    docker exec -u mg "$build_container" bash -c "cd $MGBUILD_BUILD_DIR && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && DESTDIR=$staging_dir ninja install"
+    # NOTE: We use DESTDIR instead of --prefix because some install rules use absolute paths
+    # which --prefix doesn't redirect. DESTDIR prepends to ALL paths. Absolute path installs:
+    #   - /etc/memgraph/memgraph.conf (src/CMakeLists.txt)
+    #   - /etc/memgraph/apoc_compatibility_mappings.json (src/CMakeLists.txt)
+    #   - /etc/logrotate.d/memgraph (src/CMakeLists.txt)
+    #   - /lib/systemd/system (release/CMakeLists.txt)
+    #   - /etc/memgraph/auth_module/ldap.example.yaml (src/auth/CMakeLists.txt)
+    echo "Installing Memgraph using cmake --install with DESTDIR=$staging_dir..."
+    docker exec -u mg "$build_container" bash -c "$INIT_CONAN_ENV && $ACTIVATE_CONAN_BUILDENV && DESTDIR=$staging_dir cmake --install $MGBUILD_BUILD_DIR"
 
     # Copy the staged installation from container to host
+    # DESTDIR prepends to the install prefix (/usr/local), so files are at $staging_dir/usr/local/lib/memgraph/
     echo "Copying installed files from staging directory to $host_dir..."
     mkdir -p "$host_dir"
     docker cp "$build_container:$staging_dir/usr/local/lib/memgraph/." "$host_dir/"

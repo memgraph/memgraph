@@ -28,6 +28,8 @@ install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/ldap.py
         DESTINATION lib/memgraph/auth_module)
 install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/saml.py
         DESTINATION lib/memgraph/auth_module)
+# TODO: This absolute path is inconsistent with sibling files which use relative paths.
+# Consider changing to: DESTINATION lib/memgraph/auth_module
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/ldap.example.yaml
         DESTINATION /etc/memgraph/auth_module)
 install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/requirements.txt
