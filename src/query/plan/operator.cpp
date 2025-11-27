@@ -4401,9 +4401,6 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::NEW, context.frame_change_collector, &context.number_of_hops);
     for (auto *named_expr : self_.named_expressions_) {
-      if (context.frame_change_collector) {
-        context.frame_change_collector->ResetInListCache(*named_expr);
-      }
       named_expr->Accept(evaluator);
     }
     return true;
@@ -5728,9 +5725,6 @@ class AccumulateCursor : public Cursor {
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     auto row_it = (cache_it_++)->begin();
     for (const Symbol &symbol : self_.symbols_) {
-      if (context.frame_change_collector) {
-        context.frame_change_collector->ResetInListCache(symbol);
-      }
       frame_writer.Write(symbol, *row_it++);
     }
     return true;
@@ -5833,17 +5827,11 @@ class AggregateCursor : public Cursor {
         // place default aggregation values on the frame
         for (const auto &elem : self_.aggregations_) {
           frame_writer.Write(elem.output_sym, DefaultAggregationOpValue(elem, pull_memory));
-          if (context.frame_change_collector) {
-            context.frame_change_collector->ResetInListCache(elem.output_sym);
-          }
         }
 
         // place null as remember values on the frame
         for (const Symbol &remember_sym : self_.remember_) {
           frame_writer.Write(remember_sym, TypedValue(pull_memory));
-          if (context.frame_change_collector) {
-            context.frame_change_collector->ResetInListCache(remember_sym);
-          }
         }
         return true;
       }
@@ -6453,9 +6441,6 @@ class OrderByCursor : public Cursor {
     auto output_sym_it = self_.output_symbols_.begin();
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     for (TypedValue &output : *cache_it_) {
-      if (context.frame_change_collector) {
-        context.frame_change_collector->ResetInListCache(*output_sym_it);
-      }
       frame_writer.Write(*output_sym_it++, std::move(output));
     }
     cache_it_++;
@@ -6734,9 +6719,6 @@ class UnwindCursor : public Cursor {
       if (input_value_it_ == input_value_.end()) continue;
 
       frame_writer.Write(self_.output_symbol_, std::move(*input_value_it_++));
-      if (context.frame_change_collector) {
-        context.frame_change_collector->ResetInListCache(self_.output_symbol_);
-      }
       return true;
     }
   }
@@ -6990,9 +6972,6 @@ class CartesianCursor : public Cursor {
     auto restore_frame = [&frame_writer, &context](const auto &symbols, const auto &restore_from) {
       for (const auto &symbol : symbols) {
         frame_writer.Write(symbol, restore_from[symbol.position()]);
-        if (context.frame_change_collector) {
-          context.frame_change_collector->ResetInListCache(symbol);
-        }
       }
     };
 
@@ -7086,9 +7065,6 @@ class OutputTableCursor : public Cursor {
     if (current_row_ < rows_.size()) {
       for (size_t i = 0; i < self_.output_symbols_.size(); ++i) {
         frame_writer.Write(self_.output_symbols_[i], rows_[current_row_][i]);
-        if (context.frame_change_collector) {
-          context.frame_change_collector->ResetInListCache(self_.output_symbols_[i]);
-        }
       }
       current_row_++;
       return true;
@@ -7145,9 +7121,6 @@ class OutputTableStreamCursor : public Cursor {
       MG_ASSERT(row->size() == self_->output_symbols_.size(), "Wrong number of columns in row!");
       for (size_t i = 0; i < self_->output_symbols_.size(); ++i) {
         frame_writer.Write(self_->output_symbols_[i], row->at(i));
-        if (context.frame_change_collector) {
-          context.frame_change_collector->ResetInListCache(self_->output_symbols_[i]);
-        }
       }
       return true;
     }
@@ -7445,9 +7418,6 @@ class CallProcedureCursor : public Cursor {
     auto &values = result_row_it_->values;
     for (int i = 0; i < self_->result_fields_.size(); ++i) {
       frame_writer.Write(self_->result_symbols_[i], std::move(values[i]));
-      if (context.frame_change_collector) {
-        context.frame_change_collector->ResetInListCache(self_->result_symbols_[i]);
-      }
     }
     ++result_row_it_;
     if (!result_.is_transactional) {
@@ -7685,9 +7655,6 @@ class LoadCsvCursor : public Cursor {
           CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory),
                            nullif_));
     }
-    if (context.frame_change_collector) {
-      context.frame_change_collector->ResetInListCache(self_->row_var_);
-    }
     return true;
   }
 
@@ -7851,10 +7818,6 @@ class LoadParquetCursor : public Cursor {
       }
     });
 
-    if (context.frame_change_collector) {
-      context.frame_change_collector->ResetInListCache(self_->row_var_);
-    }
-
     return true;
   }
 
@@ -7939,10 +7902,6 @@ class LoadJsonlCursor : public Cursor {
     }
 
     frame_writer.Write(self_->row_var_, TypedValue(std::move(row_), mem));
-
-    if (context.frame_change_collector) {
-      context.frame_change_collector->ResetInListCache(self_->row_var_);
-    }
 
     return true;
   }
@@ -8256,9 +8215,6 @@ class HashJoinCursor : public Cursor {
     auto restore_frame = [&frame_writer, &context](const auto &symbols, const auto &restore_from) {
       for (const auto &symbol : symbols) {
         frame_writer.Write(symbol, restore_from[symbol.position()]);
-        if (context.frame_change_collector) {
-          context.frame_change_collector->ResetInListCache(symbol);
-        }
       }
     };
 
@@ -8415,11 +8371,6 @@ class RollUpApplyCursor : public Cursor {
       while (list_collection_cursor_->Pull(frame, context)) {
         // collect values from the list collection branch
         result.ValueList().emplace_back(frame[self_.list_collection_symbol_]);
-      }
-
-      // Clear frame change collector
-      if (context.frame_change_collector) {
-        context.frame_change_collector->ResetInListCache(self_.list_collection_symbol_);
       }
 
       frame_writer.Write(self_.result_symbol_, result);
