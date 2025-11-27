@@ -241,23 +241,8 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, NameIdMappe
 }
 
 // TODO: unify this with the other UpdateIndex method
-void VectorIndex::UpdateOnSetProperty(const PropertyValue &new_value, Vertex *vertex, NameIdMapper *name_id_mapper,
-                                      const PropertyValue &old_value) {
+void VectorIndex::UpdateOnSetProperty(const PropertyValue &new_value, Vertex *vertex, NameIdMapper *name_id_mapper) {
   const auto &index_ids = new_value.IsVectorIndexId() ? new_value.ValueVectorIndexIds() : std::vector<uint64_t>{};
-  if (old_value.IsVectorIndexId()) {
-    // perform cleanup for old ids -> if we have difference between old and new ids it means that vector is removed from
-    // some index
-    // TODO: can we return after cleanup?
-    const auto &old_ids = old_value.ValueVectorIndexIds();
-    auto old_ids_to_remove = old_ids | rv::filter([&](const auto &old_id) { return !r::contains(index_ids, old_id); }) |
-                             r::to<std::vector>();
-    for (const auto &old_id : old_ids_to_remove) {
-      auto label_prop = pimpl->index_name_to_label_prop_.at(name_id_mapper->IdToName(old_id));
-      auto &[mg_index, _] = pimpl->index_.at(label_prop);
-      auto locked_index = mg_index->MutableSharedLock();
-      locked_index->remove(vertex);
-    }
-  }
   for (const auto &index_id : index_ids) {
     auto index_name = name_id_mapper->IdToName(index_id);
     auto label_prop = pimpl->index_name_to_label_prop_.at(index_name);
@@ -461,6 +446,27 @@ VectorIndex::AbortProcessor VectorIndex::GetAbortProcessor() const {
   return res;
 }
 
+void VectorIndex::AbortEntries(NameIdMapper *name_id_mapper, AbortableInfo &cleanup_collection) {
+  for (auto &[vertex, info] : cleanup_collection) {
+    auto &[labels_to_add, labels_to_remove, property_to_abort] = info;
+    for (const auto &label : labels_to_remove) {
+      UpdateOnRemoveLabel(label, vertex, name_id_mapper);
+    }
+    for (const auto &label : labels_to_add) {
+      UpdateOnAddLabel(label, vertex, name_id_mapper);
+    }
+    for (const auto &[property, value] : property_to_abort) {
+      if (value.IsVectorIndexId()) {
+        UpdateOnSetProperty(value, vertex, name_id_mapper);
+      } else {
+        for (const auto &index_name : GetLabels(property)) {
+          RemoveVertexFromIndex(vertex, index_name.second);
+        }
+      }
+    }
+  }
+}
+
 void VectorIndex::AbortProcessor::CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
   const auto &properties = l2p.find(label);
   auto has_any_property = [&](const auto &property) { return vertex->properties.HasProperty(property); };
@@ -528,6 +534,27 @@ std::unordered_map<PropertyId, std::string> VectorIndex::GetProperties(LabelId l
     return it->second;
   }
   return {};
+}
+
+std::unordered_map<LabelId, std::string> VectorIndex::GetLabels(PropertyId property) const {
+  std::unordered_map<LabelId, std::string> result;
+  for (const auto &[label, properties] : pimpl->label_to_index_) {
+    if (utils::Contains(properties, property)) {
+      result[label] = properties.at(property);
+    }
+  }
+  return result;
+}
+
+void VectorIndex::RemoveVertexFromIndex(Vertex *vertex, std::string_view index_name) {
+  auto it = pimpl->index_name_to_label_prop_.find(index_name);
+  if (it == pimpl->index_name_to_label_prop_.end()) {
+    throw query::VectorSearchException(
+        fmt::format("Error in removing vertex from index: index name {} does not exist.", index_name));
+  }
+  auto &[mg_index, _] = pimpl->index_.at(it->second);
+  auto locked_index = mg_index->MutableSharedLock();
+  locked_index->remove(vertex);
 }
 
 }  // namespace memgraph::storage

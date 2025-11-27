@@ -1051,8 +1051,7 @@ std::optional<RecoveryInfo> LoadWal(
           schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(property_value)}, old_type);
         }
         if (indices->vector_index_.IsPropertyInVectorIndex(property_id)) {
-          const auto old_property_value = vertex->properties.GetProperty(property_id);
-          indices->vector_index_.UpdateOnSetProperty(property_value, &*vertex, name_id_mapper, old_property_value);
+          indices->vector_index_.UpdateOnSetProperty(property_value, &*vertex, name_id_mapper);
         }
         vertex->properties.SetProperty(property_id, property_value);
       },

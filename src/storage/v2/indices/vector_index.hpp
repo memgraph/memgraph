@@ -119,8 +119,9 @@ class VectorIndex {
   /// @param property The property that was modified.
   /// @param value The new value of the property.
   /// @param vertex The vertex on which the property was modified.
-  void UpdateOnSetProperty(const PropertyValue &new_value, Vertex *vertex, NameIdMapper *name_id_mapper,
-                           const PropertyValue &old_value);
+  void UpdateOnSetProperty(const PropertyValue &new_value, Vertex *vertex, NameIdMapper *name_id_mapper);
+
+  void AbortEntries(NameIdMapper *name_id_mapper, AbortableInfo &cleanup_collection);
 
   /// @brief Updates the index when a property is modified on a vertex.
   /// @param value The new value of the property.
@@ -192,6 +193,10 @@ class VectorIndex {
   /// @param label The label to get the properties for.
   /// @return A map of property ids to index names.
   std::unordered_map<PropertyId, std::string> GetProperties(LabelId label) const;
+
+  std::unordered_map<LabelId, std::string> GetLabels(PropertyId property) const;
+
+  void RemoveVertexFromIndex(Vertex *vertex, std::string_view index_name);
 
  private:
   /// @brief Gets all label-property combinations that match the given vertex and property.

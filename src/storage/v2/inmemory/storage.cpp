@@ -1347,14 +1347,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     /// this is because they point into vertices skip_list
 
     // Cleanup INDICES
-    index_abort_processor.Process(storage_->indices_, transaction_.active_indices_, transaction_.start_timestamp);
-
-    // for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
-    //   storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);
-    // }
-    // for (auto const &[label_prop, prop_vertices] : vector_label_property_restore) {
-    //   storage_->indices_.vector_index_.RestoreEntries(label_prop, prop_vertices);
-    // }
+    index_abort_processor.Process(storage_->indices_, transaction_.active_indices_, transaction_.start_timestamp,
+                                  storage_->name_id_mapper_.get());
     for (auto const &[edge_type_prop, prop_edges] : vector_edge_type_property_restore) {
       storage_->indices_.vector_edge_index_.RestoreEntries(edge_type_prop, prop_edges);
     }

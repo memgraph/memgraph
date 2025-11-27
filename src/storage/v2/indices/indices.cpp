@@ -163,11 +163,13 @@ bool Indices::AbortProcessor::IsInterestingEdgeProperty(PropertyId property) {
   return edge_type_property_.IsInteresting(property) || edge_property_.IsInteresting(property);
 }
 
-void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp) {
+void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp,
+                                      NameIdMapper *name_id_mapper) {
   active_indices.label_->AbortEntries(label_.cleanup_collection_, start_timestamp);
   active_indices.label_properties_->AbortEntries(label_properties_.cleanup_collection, start_timestamp);
   active_indices.edge_type_->AbortEntries(edge_type_.cleanup_collection_, start_timestamp);
   active_indices.edge_type_properties_->AbortEntries(edge_type_property_.cleanup_collection_, start_timestamp);
   active_indices.edge_property_->AbortEntries(edge_property_.cleanup_collection_, start_timestamp);
+  indices.vector_index_.AbortEntries(name_id_mapper, vector_.cleanup_collection);
 }
 }  // namespace memgraph::storage

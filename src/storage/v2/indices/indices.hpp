@@ -68,7 +68,8 @@ struct Indices {
                                  Edge *edge);
     bool IsInterestingEdgeProperty(PropertyId property);
 
-    void Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp);
+    void Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp,
+                 NameIdMapper *name_id_mapper);
   };
 
   auto GetAbortProcessor(ActiveIndices const &active_indices) const -> AbortProcessor;

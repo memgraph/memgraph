@@ -410,8 +410,10 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
           vertex, storage_->name_id_mapper_->IdToName(new_value.ValueVectorIndexIds().front()));
       if (skip_duplicate_write && old_value_vector == new_value.ValueVectorIndexList()) return true;
       old_value = vertex->properties.GetProperty(property);
-      storage_->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, storage_->name_id_mapper_.get(),
-                                                           old_value);
+      if (old_value.IsVectorIndexId()) {
+        old_value.ValueVectorIndexList() = std::move(old_value_vector);
+      }
+      storage_->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, storage_->name_id_mapper_.get());
       vertex->properties.SetProperty(property, new_value);
     } else {
       old_value = vertex->properties.GetProperty(property);
@@ -481,8 +483,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
     for (const auto &[property, new_value] : properties) {
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
       // TODO: defer until once all properties have been set, to make fewer entries ?
-      storage->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, storage->name_id_mapper_.get(),
-                                                          PropertyValue{});
+      storage->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, storage->name_id_mapper_.get());
       transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
@@ -598,8 +599,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
     auto new_value = PropertyValue();
     for (const auto &[property, old_value] : *properties) {
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
-      storage->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, storage->name_id_mapper_.get(),
-                                                          PropertyValue{});
+      storage->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, storage->name_id_mapper_.get());
       storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction, storage->name_id_mapper_.get());
       transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
       if (schema_acc) {
