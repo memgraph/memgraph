@@ -28,30 +28,6 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/variant_helpers.hpp"
 
-namespace {
-// Helper class to manage locks during delta reads.
-// For vertices with interleaved deltas, holds the lock for the entire duration.
-// For edges (which don't have interleaved deltas), releases lock after copying state.
-template <typename T>
-class ReadGuard {
- public:
-  explicit ReadGuard(T const *obj) : guard_(obj->lock) {
-    if constexpr (requires { obj->has_interleaved_deltas; }) {
-      has_interleaved_ = obj->has_interleaved_deltas;
-      if (!has_interleaved_) {
-        guard_.unlock();
-      }
-    } else {
-      guard_.unlock();
-    }
-  }
-
- private:
-  std::shared_lock<memgraph::utils::RWSpinLock> guard_;
-  bool has_interleaved_{false};
-};
-}  // namespace
-
 namespace r = ranges;
 namespace rv = r::views;
 
@@ -80,7 +56,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
     bool attached = true;
     Delta *delta = nullptr;
     {
-      ReadGuard const guard(from_vertex_);
+      auto guard = std::shared_lock{from_vertex_->lock};
       // Initialize deleted by checking if out edges contain edge_
       attached = std::ranges::any_of(from_vertex_->out_edges,
                                      [&](const auto &out_edge) { return std::get<EdgeRef>(out_edge) == edge_; });
@@ -117,7 +93,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
     bool deleted = true;
     Delta *delta = nullptr;
     {
-      ReadGuard const guard(edge_.ptr);
+      auto guard = std::shared_lock{edge_.ptr->lock};
       deleted = edge_.ptr->deleted;
       delta = edge_.ptr->delta;
     }
@@ -358,7 +334,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   std::optional<PropertyValue> value;
   Delta *delta = nullptr;
   {
-    ReadGuard const guard(edge_.ptr);
+    auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted;
     value.emplace(edge_.ptr->properties.GetProperty(property));
     delta = edge_.ptr->delta;
@@ -422,7 +398,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   std::map<PropertyId, PropertyValue> properties;
   Delta *delta = nullptr;
   {
-    ReadGuard const guard(edge_.ptr);
+    auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted;
     properties = edge_.ptr->properties.Properties();
     delta = edge_.ptr->delta;
@@ -475,7 +451,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyId
   property_values.reserve(properties.size());
   Delta *delta = nullptr;
   {
-    ReadGuard const guard(edge_.ptr);
+    auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted;
     auto property_paths = properties |
                           rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
