@@ -61,7 +61,6 @@ find_package(Boost REQUIRED CONFIG)
 find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
-find_package(ZLIB REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(croncpp REQUIRED)
 

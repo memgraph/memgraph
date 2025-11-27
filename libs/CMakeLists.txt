@@ -9,14 +9,12 @@ if(NPROC EQUAL 0)
   set(NPROC 1)
 endif()
 
-find_package(BZip2 REQUIRED)
 find_package(Threads REQUIRED)
 set(GFLAGS_NOTHREADS OFF)
 
 # NOTE: config/generate.py depends on the gflags help XML format.
 find_package(gflags REQUIRED)
 find_package(fmt REQUIRED)
-find_package(ZLIB REQUIRED)
 find_package(spdlog REQUIRED)
 
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR})
@@ -355,7 +353,6 @@ macro(build_nuraft)
 endmacro()
 mg_build_if_needed(build_nuraft "nuraft")
 mg_create_linkable_if_no_cmake(nuraft STATIC "${MG_TOOLCHAIN_ROOT}/lib/libnuraft.a" "${MG_TOOLCHAIN_ROOT}/include")
-find_package(OpenSSL REQUIRED)
 target_link_libraries(nuraft INTERFACE openssl::openssl)
 
 # Always build mgcxx locally (not from toolchain)
