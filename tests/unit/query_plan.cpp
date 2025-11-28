@@ -2733,6 +2733,10 @@ TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInOrderBy) {
                        ExpectOrderBy());
 }
 
+// Note: Nested pattern comprehensions (e.g., RETURN [()--() | [()--() | 1]] AS x) are supported.
+// The functionality is tested via E2E tests. The plan structure for nested pattern comprehensions
+// involves nested RollUpApply operators which are complex to verify in unit tests.
+
 TYPED_TEST(TestPlanner, RangeFilterNoIndex1) {
   // Test MATCH (n:Label) WHERE 1 < n.prop < 10 RETURN n
   FakeDbAccessor dba;

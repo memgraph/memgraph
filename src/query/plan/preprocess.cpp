@@ -1194,6 +1194,11 @@ void PatternVisitor::Visit(PatternComprehension &op) {
     filter.pattern_comprehension_matchings = nested_visitor.getPatternComprehensionMatchings();
   }
 
+  // Visit the result expression to find nested pattern comprehensions
+  PatternVisitor result_visitor(symbol_table_, storage_);
+  op.resultExpr_->Accept(result_visitor);
+  matching.nested_pattern_comprehensions = result_visitor.getPatternComprehensionMatchings();
+
   // This is the NamedExpression for the anonoymous list that got built
   matching.result_expr = storage_.Create<NamedExpression>(symbol_table_.at(op).name(), op.resultExpr_);
   matching.result_expr->MapTo(symbol_table_.at(op));

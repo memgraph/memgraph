@@ -226,10 +226,7 @@ class RuleBasedPlanner {
 
         for (const auto &[name, matchings] : single_query_part.pattern_comprehension_matchings) {
           for (auto const &matching : matchings) {
-            std::unique_ptr<LogicalOperator> new_input;
-            MatchContext match_ctx{matching, *context.symbol_table, context.bound_symbols};
-            new_input = PlanMatching(match_ctx, std::move(new_input));
-            new_input = std::make_unique<Produce>(std::move(new_input), std::vector{matching.result_expr});
+            auto new_input = PlanPatternComprehension(matching, *context.symbol_table, context.bound_symbols);
             pattern_comprehension_ops.pc_data_return_with_[name].emplace_back(std::move(new_input),
                                                                               matching.result_symbol);
           }
@@ -237,20 +234,14 @@ class RuleBasedPlanner {
 
         for (const auto &[where, matchings] : single_query_part.pattern_comprehension_matchings_where) {
           for (auto const &matching : matchings) {
-            std::unique_ptr<LogicalOperator> new_input;
-            MatchContext match_ctx{matching, *context.symbol_table, context.bound_symbols};
-            new_input = PlanMatching(match_ctx, std::move(new_input));
-            new_input = std::make_unique<Produce>(std::move(new_input), std::vector{matching.result_expr});
+            auto new_input = PlanPatternComprehension(matching, *context.symbol_table, context.bound_symbols);
             pattern_comprehension_ops.pc_data_where_[where].emplace_back(std::move(new_input), matching.result_symbol);
           }
         }
 
         for (const auto &[order_by_expr, matchings] : single_query_part.pattern_comprehension_matchings_order_by) {
           for (auto const &matching : matchings) {
-            std::unique_ptr<LogicalOperator> new_input;
-            MatchContext match_ctx{matching, *context.symbol_table, context.bound_symbols};
-            new_input = PlanMatching(match_ctx, std::move(new_input));
-            new_input = std::make_unique<Produce>(std::move(new_input), std::vector{matching.result_expr});
+            auto new_input = PlanPatternComprehension(matching, *context.symbol_table, context.bound_symbols);
             pattern_comprehension_ops.pc_data_order_by_[order_by_expr].emplace_back(std::move(new_input),
                                                                                     matching.result_symbol);
           }
@@ -355,6 +346,28 @@ class RuleBasedPlanner {
   }
 
  private:
+  /// @brief Recursively plans a pattern comprehension including any nested pattern comprehensions.
+  /// For nested pattern comprehensions (e.g., [()--() | [()--() | 1]]), the inner pattern
+  /// comprehension is planned first and wrapped with RollUpApply before the outer one's Produce.
+  std::unique_ptr<LogicalOperator> PlanPatternComprehension(const PatternComprehensionMatching &matching,
+                                                            SymbolTable &symbol_table,
+                                                            std::unordered_set<Symbol> &bound_symbols) {
+    std::unique_ptr<LogicalOperator> new_input;
+    MatchContext match_ctx{matching, symbol_table, bound_symbols};
+    new_input = PlanMatching(match_ctx, std::move(new_input));
+
+    // Handle nested pattern comprehensions in the result expression
+    for (const auto &nested : matching.nested_pattern_comprehensions) {
+      auto nested_op = PlanPatternComprehension(nested, symbol_table, bound_symbols);
+      auto nested_symbols = nested_op->ModifiedSymbols(symbol_table);
+      new_input = std::make_unique<RollUpApply>(std::move(new_input), std::move(nested_op), nested_symbols,
+                                                nested.result_symbol);
+    }
+
+    new_input = std::make_unique<Produce>(std::move(new_input), std::vector{matching.result_expr});
+    return new_input;
+  }
+
   TPlanningContext *context_;
 
   storage::LabelId GetLabel(const LabelIx &label) { return context_->db->NameToLabel(label.name); }

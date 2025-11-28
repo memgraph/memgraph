@@ -764,7 +764,9 @@ inline auto Filters::IdFilters(const Symbol &symbol) const -> std::vector<Filter
 struct PatternComprehensionMatching : Matching {
   /// Pattern comprehension result named expression
   NamedExpression *result_expr = nullptr;
-  Symbol result_symbol;  //
+  Symbol result_symbol;
+  /// Nested pattern comprehensions found in the result expression
+  std::vector<PatternComprehensionMatching> nested_pattern_comprehensions;
 };
 
 /// @brief Represents a read (+ write) part of a query. Parts are split on

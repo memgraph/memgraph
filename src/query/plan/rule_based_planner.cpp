@@ -492,18 +492,27 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(PatternComprehension & /*unused*/) override {
-    aggregations_start_index_ = has_aggregation_.size();
+    aggregations_start_index_stack_.push_back(has_aggregation_.size());
     return true;
   }
 
   bool PostVisit(PatternComprehension &pattern_comprehension) override {
+    MG_ASSERT(!aggregations_start_index_stack_.empty(), "Pattern comprehension start index stack is empty");
+    auto aggregations_start_index = aggregations_start_index_stack_.back();
+    aggregations_start_index_stack_.pop_back();
+
     bool has_aggr = false;
-    for (auto i = has_aggregation_.size(); i > aggregations_start_index_; --i) {
+    for (auto i = has_aggregation_.size(); i > aggregations_start_index; --i) {
       has_aggr |= has_aggregation_.back();
       has_aggregation_.pop_back();
     }
     has_aggregation_.emplace_back(has_aggr);
-    pattern_comprehension_datas_.emplace_back(&pattern_comprehension, symbol_table_.at(pattern_comprehension));
+
+    // Only add top-level pattern comprehensions to pattern_comprehension_datas_.
+    // Nested pattern comprehensions are handled inside their parent's operator tree.
+    if (aggregations_start_index_stack_.empty()) {
+      pattern_comprehension_datas_.emplace_back(&pattern_comprehension, symbol_table_.at(pattern_comprehension));
+    }
     return true;
   }
 
@@ -589,7 +598,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   std::list<bool> has_aggregation_;
   std::vector<NamedExpression *> named_expressions_;
   std::vector<PatternComprehensionData> pattern_comprehension_datas_;
-  size_t aggregations_start_index_ = 0;
+  // Stack of aggregation start indices for nested pattern comprehensions
+  std::vector<size_t> aggregations_start_index_stack_;
 };
 
 std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> input_op, bool advance_command,
