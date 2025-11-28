@@ -75,8 +75,6 @@ class FrameChangeCollector {
   using alloc_traits = std::allocator_traits<allocator_type>;
 
  public:
-  // TODO: Make a merge function
-  friend class plan::ParallelBranchCursor;
   explicit FrameChangeCollector(allocator_type alloc = {})
       : inlist_cache_{alloc}, regex_cache_{alloc}, invalidators_{alloc} {}
 
@@ -170,6 +168,39 @@ class FrameChangeCollector {
 
   void AddInvalidator(utils::FrameChangeId const &key, Symbol::Position_t symbol_pos) {
     invalidators_[symbol_pos].emplace_back(key);
+  }
+
+  // Merge data from another FrameChangeCollector into this one
+  void MergeFrom(const FrameChangeCollector &other) {
+    // Merge inlist_cache_: combine cached values (union of sets)
+    for (const auto &[key, cached_set] : other.inlist_cache_) {
+      auto [it, inserted] = inlist_cache_.emplace(key, CachedSet(get_allocator()));
+      // Merge the cached values (union of sets) - works for both new and existing keys
+      for (const auto &value : cached_set.cache_) {
+        it->second.cache_.insert(value);
+      }
+    }
+
+    // Merge regex_cache_: if key doesn't exist in main, insert it
+    // If it exists and main doesn't have a value but branch does, use branch's value
+    for (const auto &[key, regex_opt] : other.regex_cache_) {
+      auto [it, inserted] = regex_cache_.emplace(key, std::nullopt);
+      if (!inserted) {
+        // Key exists in both - if main doesn't have a value but branch does, use branch's value
+        if (!it->second.has_value() && regex_opt.has_value()) {
+          it->second = regex_opt;
+        }
+      } else {
+        // Key didn't exist in main, copy from branch
+        it->second = regex_opt;
+      }
+    }
+
+    // Merge invalidators_: combine invalidator lists
+    for (const auto &[symbol_pos, invalidator_list] : other.invalidators_) {
+      auto &main_list = invalidators_[symbol_pos];
+      main_list.insert(main_list.end(), invalidator_list.begin(), invalidator_list.end());
+    }
   }
 
   bool AnyCaches() const { return !inlist_cache_.empty() || !regex_cache_.empty(); }
