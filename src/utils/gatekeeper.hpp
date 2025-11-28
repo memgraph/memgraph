@@ -216,8 +216,8 @@ struct Gatekeeper {
         {
           auto guard = std::unique_lock{owner_->mutex_};
           --owner_->count_;
+          owner_->cv_.notify_all();
         }
-        owner_->cv_.notify_all();
       }
       owner_ = nullptr;
     }
