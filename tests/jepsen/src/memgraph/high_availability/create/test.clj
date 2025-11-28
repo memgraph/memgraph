@@ -33,7 +33,12 @@
 (def added-coordinator-instances? (atom false))
 (def main-set? (atom false))
 
-(def batch-size 5000)
+; By modifying batch-size, we are testing the configuration in a different replication sitauations.
+; Each situation won't last equally because of a different number of deltas.
+(def batch-size
+  "Number of nodes to import in the batch."
+  (rand-nth [100 1000 5000 10000 50000])
+  )
 
 (def delay-requests-sec 5)
 (defn hamming-sim
