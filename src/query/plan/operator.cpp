@@ -4925,15 +4925,13 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties =
-    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
-             std::map<storage::PropertyId, storage::PropertyValue> properties) {
-      {
-        value.ClearProperties()
-      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-      { value.SetProperty(property_id, property_value) };
-      { value.UpdateProperties(properties) };
-    };
+concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
+                                          storage::PropertyValue property_value,
+                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
+  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  {value.SetProperty(property_id, property_value)};
+  {value.UpdateProperties(properties)};
+};
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -5997,7 +5995,7 @@ void UpdateImpl(ExpressionEvaluator *evaluator, auto *agg_value, const auto &agg
         value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
         break;
     }  // end switch over Aggregation::Op enum
-  }  // end loop over all aggregations
+  }    // end loop over all aggregations
 }
 
 void ProcessOneImpl(const Frame &frame, ExpressionEvaluator *evaluator, const std::vector<Expression *> &group_by,
@@ -6469,8 +6467,9 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(rv::zip(order_by, output), self_.compare_.lex_cmp(),
-                   [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(
+          rv::zip(order_by, output), self_.compare_.lex_cmp(),
+          [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
@@ -10043,29 +10042,7 @@ class ParallelBranchCursor : public Cursor {
 
       // Unify frame_change_collector: merge collected data from branch into main collector
       if (context.frame_change_collector != nullptr && branch_frame_collectors[branch_index].has_value()) {
-        auto &main_collector = *context.frame_change_collector;
-        const auto &branch_collector = branch_frame_collectors[branch_index].value();
-
-        // Merge caches: combine cached values from branch into main
-        const auto &branch_caches = branch_collector.caches_;
-        auto &main_caches = main_collector.caches_;
-        for (const auto &[key, cached_value] : branch_caches) {
-          auto [it, inserted] = main_caches.emplace(key, cached_value);
-          if (!inserted) {
-            // If key exists in both, merge the cached values (union of sets)
-            for (const auto &value : cached_value.cache_) {
-              it->second.cache_.insert(value);
-            }
-          }
-        }
-
-        // Merge invalidators: combine invalidator lists
-        const auto &branch_invalidators = branch_collector.invalidators_;
-        auto &main_invalidators = main_collector.invalidators_;
-        for (const auto &[symbol_pos, invalidator_list] : branch_invalidators) {
-          auto &main_list = main_invalidators[symbol_pos];
-          main_list.insert(main_list.end(), invalidator_list.begin(), invalidator_list.end());
-        }
+        context.frame_change_collector->MergeFrom(branch_frame_collectors[branch_index].value());
       }
 
       // Unify trigger_context_collector: merge collected trigger data from branch into main collector
