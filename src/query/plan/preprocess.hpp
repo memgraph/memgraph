@@ -764,7 +764,7 @@ inline auto Filters::IdFilters(const Symbol &symbol) const -> std::vector<Filter
 struct PatternComprehensionMatching : Matching {
   /// Pattern comprehension result named expression
   NamedExpression *result_expr = nullptr;
-  Symbol result_symbol;
+  Symbol result_symbol;  //
 };
 
 /// @brief Represents a read (+ write) part of a query. Parts are split on
@@ -816,6 +816,8 @@ struct SingleQueryPart {
   /// @c PatternComprehension clause itself inside `remaining_clauses`. The reason is that we
   /// need to have access to other parts of the clause, such as pattern, filter clauses.
   std::unordered_map<std::string, PatternComprehensionMatching> pattern_comprehension_matchings{};
+
+  std::unordered_map<Expression *, std::vector<PatternComprehensionMatching>> pattern_comprehension_matchings_where{};
 
   /// @brief All the remaining clauses (without @c Match).
   std::vector<Clause *> remaining_clauses{};

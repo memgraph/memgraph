@@ -1156,9 +1156,17 @@ static void ParseReturnBody(query::ReturnBody &retBody, AstStorage &storage, Sym
     expr->Accept(visitor);
     auto pattern_comprehension_matchings = visitor.getPatternComprehensionMatchings();
     for (auto &matching : pattern_comprehension_matchings) {
+      // TODO: BUG last matching wins...but there could be more than one per NE
       matchings.emplace(expr->name_, matching);
     }
   }
+}
+
+static void ParseWhere(query::Where &where, AstStorage &storage, SymbolTable &symbol_table,
+                       std::unordered_map<Expression *, std::vector<PatternComprehensionMatching>> &matchings) {
+  PatternVisitor visitor(symbol_table, storage);
+  where.expression_->Accept(visitor);
+  matchings[where.expression_].assign_range(visitor.getPatternComprehensionMatchings());
 }
 
 void PatternVisitor::Visit(NamedExpression &op) { op.expression_->Accept(*this); }
@@ -1175,6 +1183,7 @@ void PatternVisitor::Visit(PatternComprehension &op) {
     filter.pattern_comprehension_matchings = nested_visitor.getPatternComprehensionMatchings();
   }
 
+  // This is the NamedExpression for the anonoymous list that got built
   matching.result_expr = storage_.Create<NamedExpression>(symbol_table_.at(op).name(), op.resultExpr_);
   matching.result_expr->MapTo(symbol_table_.at(op));
   matching.result_symbol = symbol_table_.at(op);
@@ -1215,6 +1224,9 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         ParseForeach(*foreach, *query_part, storage, symbol_table);
       } else if (auto *with = utils::Downcast<With>(clause)) {
         ParseReturnBody(with->body_, storage, symbol_table, query_part->pattern_comprehension_matchings);
+        if (with->where_) {
+          ParseWhere(*with->where_, storage, symbol_table, query_part->pattern_comprehension_matchings_where);
+        }
         query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();
       } else if (utils::IsSubtype(*clause, query::Unwind::kType) ||

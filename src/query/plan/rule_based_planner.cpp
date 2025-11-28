@@ -50,7 +50,7 @@ bool IsConstantLiteral(const Expression *expression) {
 class ReturnBodyContext : public HierarchicalTreeVisitor {
  public:
   ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols,
-                    AstStorage &storage, PatternComprehensionDataMap &pc_ops, Where *where = nullptr)
+                    AstStorage &storage, XXX &pc_ops, Where *where = nullptr)
       : body_(body), symbol_table_(symbol_table), bound_symbols_(bound_symbols), storage_(storage), where_(where) {
     // Collect symbols from named expressions.
     output_symbols_.reserve(body_.named_expressions.size());
@@ -67,7 +67,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       named_expressions_.emplace_back(named_expr);
 
       // Pattern comprehension can be filled during named expression traversion
-      if (auto it = pc_ops.find(named_expr->name_); it != pc_ops.end()) {
+      if (auto it = pc_ops.pc_data_named_.find(named_expr->name_); it != pc_ops.pc_data_named_.end()) {
         auto &curr_pc = pattern_comprehension_datas_[pattern_comprehension_index];
         if (!curr_pc.pattern_comprehension) {
           throw SemanticException(
@@ -75,11 +75,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
         }
 
         curr_pc.op = std::move(it->second.op);
-        pc_ops.erase(it);
+        pc_ops.pc_data_named_.erase(it);
         ++pattern_comprehension_index;
       }
     }
-    if (!pc_ops.empty()) {
+    if (!pc_ops.pc_data_named_.empty()) {
       throw SemanticException("Unexpected pattern comprehensions left in named expressions! Please contact support.");
     }
 
@@ -103,6 +103,22 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       }
       if (where) {
         where->Accept(*this);
+
+        if (auto it = pc_ops.pc_data_unnamed_.find(where_->expression_); it != pc_ops.pc_data_unnamed_.end()) {
+          auto &curr_pc = pattern_comprehension_datas_[pattern_comprehension_index];
+          if (!curr_pc.pattern_comprehension) {
+            throw SemanticException(
+                "Pattern comprehension matched to where expression was not initialiazed! Please contact support.");
+          }
+
+          curr_pc.op = std::move(it->second.op);
+          pc_ops.pc_data_unnamed_.erase(it);
+          ++pattern_comprehension_index;
+        }
+        if (!pc_ops.pc_data_unnamed_.empty()) {
+          throw SemanticException(
+              "Unexpected pattern comprehensions left in where expressions! Please contact support.");
+        }
       }
       MG_ASSERT(aggregations_.empty(), "Unexpected aggregations in ORDER BY or WHERE");
     }
@@ -643,8 +659,7 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
 }
 
 std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQueryPart> &single_query_parts,
-                                                   SymbolTable &symbol_table, AstStorage &storage,
-                                                   PatternComprehensionDataMap &pc_ops) {
+                                                   SymbolTable &symbol_table, AstStorage &storage, XXX &pc_ops) {
   const auto &query = single_query_parts[0];
 
   if (!query.matching.expansions.empty() || query.remaining_clauses.empty()) {
@@ -652,7 +667,7 @@ std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQuery
   }
 
   if (std::unordered_set<Symbol> bound_symbols; auto *with = utils::Downcast<query::With>(query.remaining_clauses[0])) {
-    auto input_op = impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, pc_ops, nullptr);
+    auto input_op = impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, pc_ops, nullptr, false);
     return bound_symbols;
   }
 
@@ -684,8 +699,7 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           PatternComprehensionDataMap &pc_ops, Expression *commit_frequency,
-                                           bool in_exists_subquery) {
+                                           XXX &pc_ops, Expression *commit_frequency, bool in_exists_subquery) {
   // In existential subqueries, we should omit any return clauses as per Neo4j documentation
   if (in_exists_subquery) {
     return input_op;
@@ -706,9 +720,8 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
-                                         std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                         PatternComprehensionDataMap &pc_ops, Expression *commit_frequency,
-                                         bool in_exists_subquery) {
+                                         std::unordered_set<Symbol> &bound_symbols, AstStorage &storage, XXX &pc_ops,
+                                         Expression *commit_frequency, bool in_exists_subquery) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
   // optional Filter. In case of update and aggregation, we want to accumulate
   // first, so that when aggregating, we get the latest results. Similar to
