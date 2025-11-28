@@ -191,9 +191,6 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanParallel & /*unused*/) override { return true; }
   bool PostVisit(ScanParallel & /*unused*/) override { return true; }
 
-  bool PreVisit(ScanParallelById & /*unused*/) override { return true; }
-  bool PostVisit(ScanParallelById & /*unused*/) override { return true; }
-
   bool PreVisit(ScanParallelByLabel & /*unused*/) override { return true; }
   bool PostVisit(ScanParallelByLabel & /*unused*/) override { return true; }
 
