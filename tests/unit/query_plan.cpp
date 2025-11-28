@@ -2551,12 +2551,11 @@ TYPED_TEST(TestPlanner, PatternComprehensionStandalonePattern) {
 }
 
 TYPED_TEST(TestPlanner, PatternComprehensionInWithWhere) {
-  // Test WITH 1 AS a WHERE length([()--() | 1]) = 0 RETURN *
+  // Test WITH 1 AS a WHERE [()--() | 1] = [] RETURN a
   // This tests that pattern comprehensions in WHERE clauses of WITH statements are handled correctly
   auto *pattern_comp =
       PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
-  auto *length_call = FN("length", pattern_comp);
-  auto *where_expr = EQ(length_call, LITERAL(0));
+  auto *where_expr = EQ(pattern_comp, LIST());
 
   auto *query = QUERY(SINGLE_QUERY(WITH(NEXPR("a", LITERAL(1))), WHERE(where_expr), RETURN("a")));
 
@@ -2614,8 +2613,30 @@ TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithWhere) {
                        ExpectFilter(), ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, SinglePatternComprehensionInWithNamedExpression) {
+  // Test WITH [()--() | 1] AS a RETURN a
+  // This tests that a single pattern comprehension in a WITH named expression is handled correctly
+  auto *pattern_comp =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
+
+  auto *query = QUERY(SINGLE_QUERY(WITH(NEXPR("a", pattern_comp)), RETURN("a")));
+
+  // Plan structure: Once -> RollUpApply -> Produce (WITH) -> Produce (RETURN)
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops;
+  input_ops.push_back(std::make_unique<ExpectOnce>());
+
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops;
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectProduce(),
+                       ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithNamedExpression) {
-  // Test WITH [()--() | 1] + [()--() | 1] AS a RETURN *
+  // Test WITH [()--() | 1] + [()--() | 1] AS a RETURN a
   // This tests that multiple pattern comprehensions in a single named expression are handled correctly
   auto *pattern_comp1 =
       PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
@@ -2650,16 +2671,16 @@ TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithNamedExpression) {
                        ExpectProduce());
 }
 
-TYPED_TEST(TestPlanner, PatternComprehensionInOrderBy) {
-  // Test WITH 1 AS x ORDER BY length([()--() | 1]) RETURN x
+TYPED_TEST(TestPlanner, SinglePatternComprehensionInOrderBy) {
+  // Test RETURN 1 AS x ORDER BY length([()--() | 1])
   // This tests that pattern comprehensions in ORDER BY clauses are handled correctly
   auto *pattern_comp =
       PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
   auto *length_call = FN("length", pattern_comp);
 
-  auto *query = QUERY(SINGLE_QUERY(WITH(NEXPR("x", LITERAL(1)), ORDER_BY(length_call)), RETURN("x")));
+  auto *query = QUERY(SINGLE_QUERY(RETURN(NEXPR("x", LITERAL(1)), ORDER_BY(length_call))));
 
-  // Plan structure: Once -> RollUpApply -> Produce (WITH) -> OrderBy -> Produce (RETURN)
+  // Plan structure: Once -> RollUpApply -> Produce -> OrderBy
   // The RollUpApply evaluates the pattern comprehension in the ORDER BY clause
   std::list<std::unique_ptr<BaseOpChecker>> input_ops;
   input_ops.push_back(std::make_unique<ExpectOnce>());
@@ -2672,7 +2693,44 @@ TYPED_TEST(TestPlanner, PatternComprehensionInOrderBy) {
   pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
 
   CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectProduce(),
-                       ExpectOrderBy(), ExpectProduce());
+                       ExpectOrderBy());
+}
+
+TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInOrderBy) {
+  // Test RETURN 1 AS x ORDER BY length([()--() | 1] + [()--() | 1])
+  // This tests that multiple pattern comprehensions in ORDER BY clauses are handled correctly
+  auto *pattern_comp1 =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
+  auto *pattern_comp2 =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon4"), EDGE("anon5"), NODE("anon6")), nullptr, LITERAL(1));
+  auto *add_expr = ADD(pattern_comp1, pattern_comp2);
+  auto *length_call = FN("length", add_expr);
+
+  auto *query = QUERY(SINGLE_QUERY(RETURN(NEXPR("x", LITERAL(1)), ORDER_BY(length_call))));
+
+  // Plan structure: Once -> RollUpApply (first PC) -> RollUpApply (second PC) -> Produce -> OrderBy
+  // First RollUpApply
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops1;
+  input_ops1.push_back(std::make_unique<ExpectOnce>());
+
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops1;
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectProduce>());
+
+  // Second RollUpApply (input is the first RollUpApply)
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops2;
+  input_ops2.push_back(std::make_unique<ExpectRollUpApply>(input_ops1, pattern_comp_branch_ops1));
+
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops2;
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops2, pattern_comp_branch_ops2), ExpectProduce(),
+                       ExpectOrderBy());
 }
 
 TYPED_TEST(TestPlanner, RangeFilterNoIndex1) {
