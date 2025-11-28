@@ -214,9 +214,6 @@ constexpr utils::TypeInfo query::plan::ScanChunkByEdge::kType{utils::TypeId::SCA
 constexpr utils::TypeInfo query::plan::ScanParallel::kType{utils::TypeId::SCAN_PARALLEL, "ScanParallel",
                                                            &query::plan::ScanAll::kType};
 
-constexpr utils::TypeInfo query::plan::ScanParallelById::kType{utils::TypeId::SCAN_PARALLEL_BY_ID, "ScanParallelById",
-                                                               &query::plan::ScanParallel::kType};
-
 constexpr utils::TypeInfo query::plan::ScanParallelByLabel::kType{
     utils::TypeId::SCAN_PARALLEL_BY_LABEL, "ScanParallelByLabel", &query::plan::ScanParallel::kType};
 

@@ -38,7 +38,6 @@ struct ParallelChecker : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(AggregateParallel &) override;
   bool PreVisit(ParallelMerge &) override;
   bool PreVisit(ScanParallel &) override;
-  bool PreVisit(ScanParallelById &) override;
   bool PreVisit(ScanParallelByLabel &) override;
   bool PreVisit(ScanParallelByLabelProperties &) override;
   bool PreVisit(ScanParallelByPointDistance &) override;
