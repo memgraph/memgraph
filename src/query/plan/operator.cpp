@@ -50,6 +50,7 @@
 #include "query/plan/scoped_profile.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
@@ -9866,7 +9867,7 @@ class ParallelBranchCursor : public Cursor {
     // Store context copies from each branch for unification after execution
     std::vector<ExecutionContext> branch_contexts(branch_cursors_.size() - 1);
     // Store collector copies for each branch (they're not thread-safe, so each branch needs its own)
-    std::vector<std::optional<TriggerContextCollector>> branch_trigger_collectors(branch_cursors_.size() - 1);  // TODO
+    std::vector<std::optional<TriggerContextCollector>> branch_trigger_collectors(branch_cursors_.size() - 1);
     std::vector<std::optional<FrameChangeCollector>> branch_frame_collectors(branch_cursors_.size() - 1);
 
     // Execute branches 1..N in parallel
@@ -9880,14 +9881,17 @@ class ParallelBranchCursor : public Cursor {
         SCOPED_PROFILE_OP_BY_REF(self);
 
         utils::Timer timer;
-        DMG_ASSERT(context.trigger_context_collector == nullptr,
-                   "Trigger context collector must be nullptr in parallel execution");
         mem_tracking.StartTracking();  // automatically stops
         DMG_ASSERT(context.auth_checker->IsThreadSafe(), "Auth checker is not thread safe");
         const auto &cursor = branch_cursors_[i];
         if (context.frame_change_collector != nullptr) {
           branch_frame_collectors[i - 1].emplace(context.frame_change_collector->get_allocator());
           context.frame_change_collector = &branch_frame_collectors[i - 1].value();
+        }
+        if (context.trigger_context_collector != nullptr) {
+          // Create a copy of the main trigger context collector for this branch
+          branch_trigger_collectors[i - 1].emplace(*context.trigger_context_collector);
+          context.trigger_context_collector = &branch_trigger_collectors[i - 1].value();
         }
 
         // TODO Could crash if there is nothing to pull
@@ -9953,7 +9957,7 @@ class ParallelBranchCursor : public Cursor {
     post_pull_func(frame, context);
 
     // Unify context fields from all branches
-    UnifyContexts(context, branch_contexts, branch_frame_collectors, std::move(profile));
+    UnifyContexts(context, branch_contexts, branch_trigger_collectors, branch_frame_collectors, std::move(profile));
 
     return true;
   }
@@ -9962,6 +9966,7 @@ class ParallelBranchCursor : public Cursor {
    * Unify context fields from all branches into the main context.
    */
   void UnifyContexts(ExecutionContext &context, std::vector<ExecutionContext> &branch_contexts,
+                     const std::vector<std::optional<TriggerContextCollector>> &branch_trigger_collectors,
                      const std::vector<std::optional<FrameChangeCollector>> &branch_frame_collectors, auto &&profile) {
     plan::ProfilingStats *parallel_stats = context.stats_root;  // save before resetting the profile
     const_cast<std::optional<ScopedProfile> &>(profile).reset();
@@ -10036,6 +10041,11 @@ class ParallelBranchCursor : public Cursor {
           auto &main_list = main_invalidators[symbol_pos];
           main_list.insert(main_list.end(), invalidator_list.begin(), invalidator_list.end());
         }
+      }
+
+      // Unify trigger_context_collector: merge collected trigger data from branch into main collector
+      if (context.trigger_context_collector != nullptr && branch_trigger_collectors[branch_index].has_value()) {
+        context.trigger_context_collector->MergeFrom(branch_trigger_collectors[branch_index].value());
       }
 
       // Unify profiling stats: merge stats trees
