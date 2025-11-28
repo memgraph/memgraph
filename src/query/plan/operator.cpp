@@ -9861,37 +9861,41 @@ class ParallelBranchCursor : public Cursor {
     AbortCheck(context);
 
     std::atomic_int pull_result = 0;
-    utils::TaskCollection tasks(branch_cursors_.size());
+    const auto num_branches = branch_cursors_.size();
+    const auto num_branches_without_main = num_branches - 1;
 
-    std::vector<std::exception_ptr> exceptions(branch_cursors_.size(), nullptr);
+    utils::TaskCollection tasks(num_branches);
+    std::vector<std::exception_ptr> exceptions(num_branches, nullptr);
     // Store context copies from each branch for unification after execution
-    std::vector<ExecutionContext> branch_contexts(branch_cursors_.size() - 1);
+    std::vector<ExecutionContext> branch_contexts(num_branches_without_main);
     // Store collector copies for each branch (they're not thread-safe, so each branch needs its own)
-    std::vector<std::optional<TriggerContextCollector>> branch_trigger_collectors(branch_cursors_.size() - 1);
-    std::vector<std::optional<FrameChangeCollector>> branch_frame_collectors(branch_cursors_.size() - 1);
+    std::vector<std::optional<TriggerContextCollector>> branch_trigger_collectors(num_branches_without_main);
+    std::vector<std::optional<FrameChangeCollector>> branch_frame_collectors(num_branches_without_main);
 
     // Execute branches 1..N in parallel
-    for (size_t i = 1; i < branch_cursors_.size(); i++) {
+    for (size_t i = 1; i < num_branches; i++) {
       tasks.AddTask([&, i, context, main_thread = std::this_thread::get_id(),
                      mem_tracking = memgraph::memory::CrossThreadMemoryTracking()](utils::Priority /*unused*/) mutable {
         OOMExceptionEnabler oom_exception;
+        utils::Timer timer;
+        mem_tracking.StartTracking();  // automatically stops
         // Create parallel operator entry in branch's stats tree
         context.stats_root = nullptr;
         context.stats = plan::ProfilingStats();
         SCOPED_PROFILE_OP_BY_REF(self);
 
-        utils::Timer timer;
-        mem_tracking.StartTracking();  // automatically stops
         DMG_ASSERT(context.auth_checker->IsThreadSafe(), "Auth checker is not thread safe");
         const auto &cursor = branch_cursors_[i];
+        const auto metadata_i = i - 1;
         if (context.frame_change_collector != nullptr) {
-          branch_frame_collectors[i - 1].emplace(context.frame_change_collector->get_allocator());
-          context.frame_change_collector = &branch_frame_collectors[i - 1].value();
+          auto &collector =
+              branch_frame_collectors[metadata_i].emplace(context.frame_change_collector->get_allocator());
+          context.frame_change_collector = &collector;
         }
         if (context.trigger_context_collector != nullptr) {
           // Create a copy of the main trigger context collector for this branch
-          branch_trigger_collectors[i - 1].emplace(*context.trigger_context_collector);
-          context.trigger_context_collector = &branch_trigger_collectors[i - 1].value();
+          auto &collector = branch_trigger_collectors[metadata_i].emplace(*context.trigger_context_collector);
+          context.trigger_context_collector = &collector;
         }
 
         // TODO Could crash if there is nothing to pull
@@ -9907,7 +9911,7 @@ class ParallelBranchCursor : public Cursor {
             // Main thread is handled by the higher level
             context.profile_execution_time += timer.Elapsed();
           }
-          branch_contexts[i - 1] = std::move(context);
+          branch_contexts[metadata_i] = std::move(context);
         } catch (const std::exception &e) {
           // Stop all other threads
           DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
@@ -10000,9 +10004,13 @@ class ParallelBranchCursor : public Cursor {
       ancestors = FindAncestors(context.stats, parallel_stats);
     }
 
-    size_t branch_index = 0;  // 0th branch is localy ran and uses the main context
-    for (auto &branch_ctx : branch_contexts) {
-      branch_index++;
+    DMG_ASSERT(branch_contexts.size() == branch_frame_collectors.size() &&
+                   branch_contexts.size() == branch_trigger_collectors.size(),
+               "Branch contexts, frame collectors and trigger collectors must have the same size");
+
+    // Unify context fields from all branches into the main context
+    for (size_t branch_index = 0; branch_index < branch_contexts.size(); branch_index++) {
+      auto &branch_ctx = branch_contexts[branch_index];
       // Unify number_of_hops: sum across all branches
       context.number_of_hops += branch_ctx.number_of_hops;
 
