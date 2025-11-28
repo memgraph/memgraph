@@ -111,3 +111,13 @@ Feature: Pattern comprehensions
         Then the result should be:
             | a |
             | 1 |
+
+   Scenario: Pattern comprehension in CALL subquery WITH WHERE
+        Given an empty graph
+        When executing query:
+            """
+            CALL { WITH 1 AS a WHERE [()--() | 1] = [] RETURN a } RETURN a
+            """
+        Then the result should be:
+            | a |
+            | 1 |

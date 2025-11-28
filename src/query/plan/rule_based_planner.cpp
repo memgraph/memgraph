@@ -51,7 +51,13 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
  public:
   ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols,
                     AstStorage &storage, PatternComprehensionOps &pc_ops, Where *where = nullptr)
-      : body_(body), symbol_table_(symbol_table), bound_symbols_(bound_symbols), storage_(storage), where_(where) {
+      : body_(body),
+        symbol_table_(symbol_table),
+        bound_symbols_(bound_symbols),
+        storage_(storage),
+        where_(where),
+        has_pattern_comprehension_ops_(!pc_ops.pc_data_return_with_.empty() || !pc_ops.pc_data_where_.empty() ||
+                                       !pc_ops.pc_data_order_by_.empty()) {
     // Collect symbols from named expressions.
     output_symbols_.reserve(body_.named_expressions.size());
     if (body.all_identifiers) {
@@ -510,7 +516,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
     // Only add top-level pattern comprehensions to pattern_comprehension_datas_.
     // Nested pattern comprehensions are handled inside their parent's operator tree.
-    if (aggregations_start_index_stack_.empty()) {
+    // Also skip if we don't have pattern comprehension ops (e.g., when analyzing bound
+    // symbols in GetSubqueryBoundSymbols) - the actual planning will handle them later.
+    if (aggregations_start_index_stack_.empty() && has_pattern_comprehension_ops_) {
       pattern_comprehension_datas_.emplace_back(&pattern_comprehension, symbol_table_.at(pattern_comprehension));
     }
     return true;
@@ -600,6 +608,10 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   std::vector<PatternComprehensionData> pattern_comprehension_datas_;
   // Stack of aggregation start indices for nested pattern comprehensions
   std::vector<size_t> aggregations_start_index_stack_;
+  // Flag indicating if we have pattern comprehension operators to assign.
+  // When false (e.g., in GetSubqueryBoundSymbols), we skip tracking pattern
+  // comprehensions since they'll be handled during actual subquery planning.
+  bool has_pattern_comprehension_ops_ = false;
 };
 
 std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> input_op, bool advance_command,
