@@ -1032,10 +1032,14 @@ class RuleBasedPlanner {
         impl::GetSubqueryBoundSymbols(subquery->query_parts[0].single_query_parts, symbol_table, storage, pc_ops);
 
     auto subquery_op = Plan(*subquery);
+    auto subquery_bound_symbols = subquery_op->OutputSymbols(*context_->symbol_table);
 
     context_->bound_symbols.clear();
     context_->bound_symbols.insert(std::make_move_iterator(outer_scope_bound_symbols.begin()),
                                    std::make_move_iterator(outer_scope_bound_symbols.end()));
+
+    context_->bound_symbols.insert(std::make_move_iterator(subquery_bound_symbols.begin()),
+                                   std::make_move_iterator(subquery_bound_symbols.end()));
 
     auto subquery_has_return = true;
     if (subquery_op->GetTypeInfo() == EmptyResult::kType) {
