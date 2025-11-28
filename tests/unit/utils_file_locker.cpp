@@ -302,16 +302,9 @@ TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
   // setup random number generator
   std::random_device r;
 
-  std::default_random_engine engine(r());
-  std::uniform_int_distribution<int> random_short_wait(1, 10);
-  std::uniform_int_distribution<int> random_wait(1, 100);
-  std::uniform_int_distribution<int> file_distribution(0, files_number - 1);
-
   const auto sleep_for = [&](int milliseconds) {
     std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
   };
-
-  const auto random_file = [&]() { return testing_directory / fmt::format("{}", file_distribution(engine)); };
 
   memgraph::utils::FileRetainer file_retainer;
 
@@ -322,7 +315,13 @@ TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
   std::vector<std::thread> accessor_threads;
   accessor_threads.reserve(thread_num);
   for (auto i = 0; i < thread_num - 1; ++i) {
-    accessor_threads.emplace_back([&]() {
+    accessor_threads.emplace_back([&, seed = r()]() {
+      std::default_random_engine engine{seed};
+      std::uniform_int_distribution<int> random_short_wait{1, 10};
+      std::uniform_int_distribution<int> random_wait{1, 100};
+      std::uniform_int_distribution<int> file_distribution{0, files_number - 1};
+      auto const random_file = [&]() { return testing_directory / fmt::format("{}", file_distribution(engine)); };
+
       sleep_for(random_wait(engine));
 
       std::vector<std::filesystem::path> locked_files;
@@ -349,7 +348,12 @@ TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
   }
 
   std::vector<std::filesystem::path> deleted_files;
-  auto deleter = std::thread([&]() {
+  auto deleter = std::thread([&, seed = r()]() {
+    std::default_random_engine engine{seed};
+    std::uniform_int_distribution<int> random_short_wait{1, 10};
+    std::uniform_int_distribution<int> file_distribution{0, files_number - 1};
+    auto const random_file = [&]() { return testing_directory / fmt::format("{}", file_distribution(engine)); };
+
     sleep_for(random_short_wait(engine));
     for (auto i = 0; i < file_delete_num; ++i) {
       auto file = random_file();
