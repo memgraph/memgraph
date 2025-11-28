@@ -335,6 +335,194 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   // TODO: Cost estimate ScanAllById?
 
+  bool PostVisit(ScanChunk &) override {
+    // ScanChunk scans a chunk of vertices, similar to ScanAll
+    // Cardinality is already set by the input, we just add cost
+    // TODO Support different scan types
+    // IncrementCost(CostParam::kScanAll);
+    // Moving the cost to the ScanParallel
+    return true;
+  }
+
+  bool PostVisit(ScanChunkByEdge &) override {
+    // ScanChunkByEdge scans a chunk of edges, similar to ScanAllByEdge
+    // Cardinality is already set by the input, we just add cost
+    // TODO Support different scan types
+    // IncrementCost(CostParam::kScanAllByEdge);
+    // Moving the cost to the ScanParallel
+    return true;
+  }
+
+  bool PreVisit(ScanParallel &) override {
+    // AggregateParallel is the start of the parallel execution
+    // ScanParallel is the end of the parallel execution
+    in_parallel_execution_ = false;
+    // This is just chunking, no cost
+    return true;
+  }
+
+  bool PostVisit(ScanParallel &) override {
+    // Reuse logic from ScanAll
+    cardinality_ *= db_accessor_->VerticesCount();
+    IncrementCost(CostParam::kScanAll);
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByLabel &op) override {
+    // Reuse logic from ScanAllByLabel
+    auto index_stats = db_accessor_->GetIndexStats(op.label_);
+    if (index_stats.has_value()) {
+      // Note: ScanParallel doesn't have output_symbol_, so we can't save stats
+      // This is okay since ScanParallel is just for chunking
+    }
+
+    cardinality_ *= db_accessor_->VerticesCount(op.label_);
+    if (index_hints_.HasLabelIndex(db_accessor_, op.label_)) {
+      use_index_hints_ = true;
+    }
+
+    IncrementCost(CostParam::kScanAllByLabel);
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByLabelProperties &op) override {
+    // Reuse logic from ScanAllByLabelProperties
+    auto index_stats = db_accessor_->GetIndexStats(op.label_, op.properties_);
+    if (index_stats.has_value()) {
+      // Note: ScanParallel doesn't have output_symbol_, so we can't save stats
+    }
+
+    auto maybe_propertyvalue_ranges =
+        op.expression_ranges_ | ranges::views::transform([&](ExpressionRange const &er) {
+          return er.ResolveAtPlantime(parameters, db_accessor_->GetStorageAccessor()->GetNameIdMapper());
+        }) |
+        ranges::to_vector;
+
+    auto factor = std::invoke([&]() -> double {
+      if (ranges::none_of(maybe_propertyvalue_ranges, [](auto &&pvr) { return pvr == std::nullopt; })) {
+        auto propertyvalue_ranges = maybe_propertyvalue_ranges |
+                                    ranges::views::transform([](auto &&optional) { return *optional; }) |
+                                    ranges::to_vector;
+
+        return db_accessor_->VerticesCount(op.label_, op.properties_, propertyvalue_ranges);
+      } else {
+        return db_accessor_->VerticesCount(op.label_, op.properties_) * CardParam::kFilter;
+      }
+    });
+
+    cardinality_ *= factor;
+
+    if (index_hints_.HasLabelPropertiesIndex(db_accessor_, op.label_, op.properties_)) {
+      use_index_hints_ = true;
+    }
+
+    IncrementCost(CostParam::kScanAllByLabelProperties);
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByEdgeType &op) override {
+    // Reuse logic from ScanAllByEdgeType
+    cardinality_ *= db_accessor_->EdgesCount(op.edge_type_);
+    IncrementCost(CostParam::kScanAllByEdgeType);
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByEdgeTypeProperty &op) override {
+    // Reuse logic from ScanAllByEdgeTypeProperty
+    const auto factor = db_accessor_->EdgesCount(op.edge_type_, op.property_);
+    cardinality_ *= factor;
+
+    IncrementCost(CostParam::kScanAllByEdgeTypeProperty);
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByEdgeTypePropertyRange &op) override {
+    // Reuse logic from ScanAllByEdgeTypePropertyRange
+    auto lower = BoundToPropertyValue(op.lower_bound_);
+    auto upper = BoundToPropertyValue(op.upper_bound_);
+
+    int64_t factor = 1;
+    if (upper || lower)
+      factor = db_accessor_->EdgesCount(op.edge_type_, op.property_, lower, upper);
+    else
+      factor = db_accessor_->EdgesCount(op.edge_type_, op.property_);
+
+    if ((op.upper_bound_ && !upper) || (op.lower_bound_ && !lower)) factor *= CardParam::kFilter;
+
+    cardinality_ *= factor;
+
+    IncrementCost(CostParam::kScanAllByEdgeTypePropertyRange);
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByEdgeProperty &op) override {
+    // Reuse logic from ScanAllByEdgeProperty
+    const auto factor = db_accessor_->EdgesCount(op.property_);
+    cardinality_ *= factor;
+
+    IncrementCost(CostParam::kScanAllByEdgeProperty);
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByEdgePropertyValue &op) override {
+    // Reuse logic from ScanAllByEdgePropertyValue
+    auto intermediate_property_value = ConstPropertyValue(op.expression_);
+    double factor = 1.0;
+    if (intermediate_property_value) {
+      factor = db_accessor_->EdgesCount(
+          op.property_, storage::ToPropertyValue(*intermediate_property_value,
+                                                 db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+    } else {
+      factor = db_accessor_->EdgesCount(op.property_) * CardParam::kFilter;
+    }
+    cardinality_ *= factor;
+
+    IncrementCost(CostParam::kScanAllByEdgePropertyValue);
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByEdgePropertyRange &op) override {
+    // Reuse logic from ScanAllByEdgePropertyRange
+    auto lower = BoundToPropertyValue(op.lower_bound_);
+    auto upper = BoundToPropertyValue(op.upper_bound_);
+
+    int64_t factor = 1;
+    if (upper || lower)
+      factor = db_accessor_->EdgesCount(op.property_, lower, upper);
+    else
+      factor = db_accessor_->EdgesCount(op.property_);
+
+    if ((op.upper_bound_ && !upper) || (op.lower_bound_ && !lower)) factor *= CardParam::kFilter;
+
+    cardinality_ *= factor;
+
+    IncrementCost(CostParam::kScanAllByEdgePropertyRange);
+    return true;
+  }
+
+  bool PostVisit(ParallelMerge &) override {
+    // No cost for ParallelMerge
+    return true;
+  }
+
+  bool PreVisit(AggregateParallel &op) override {
+    // Start of parallel execution
+    // Set parallel execution mode for cost calculation
+    in_parallel_execution_ = true;
+    num_threads_ = op.num_threads_;
+    // NOTE No cost for Aggregate (regardless of parallel vs single threaded)
+    // IncrementCost(CostParam::kAggregate);
+    return true;
+  }
+
+  bool PostVisit(AggregateParallel &) override {
+    // End of parallel execution
+    // Reset parallel execution mode for cost calculation
+    in_parallel_execution_ = false;
+    num_threads_ = 1;
+    return true;
+  }
+
   bool PostVisit(Expand &expand) override {
     auto card_param = CardParam::kExpand;
     auto stats = GetStatsFor(expand.input_symbol_);
@@ -530,6 +718,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   // cardinality is a double to k it easier to work with
   double cardinality_{1};
 
+  bool in_parallel_execution_{false};
+  size_t num_threads_{1};
+
   // accessor used for cardinality estimates in ScanAll and ScanAllByLabel
   TDbAccessor *db_accessor_;
   const SymbolTable &table_;
@@ -538,7 +729,14 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   IndexHints index_hints_;
   bool use_index_hints_{false};
 
-  void IncrementCost(double param) { cost_ += std::max(CostParam::kMinimumCost, param * cardinality_); }
+  void IncrementCost(double param) {
+    const auto delta = std::max(CostParam::kMinimumCost, param * cardinality_);
+    if (in_parallel_execution_) {
+      cost_ += delta / num_threads_;
+    } else {
+      cost_ += delta;
+    }
+  }
 
   CostEstimation EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch) {
     CostEstimator<TDbAccessor> cost_estimator(db_accessor_, table_, parameters, index_hints_);
@@ -555,8 +753,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   // converts an optional ScanAll range bound into a property value
   // if the bound is present and is a constant expression convertible to
   // a property value. otherwise returns nullopt
-  std::optional<utils::Bound<storage::PropertyValue>> BoundToPropertyValue(
-      std::optional<ScanAllByEdgeTypePropertyRange::Bound> bound) {
+  template <typename BoundType>
+  std::optional<utils::Bound<storage::PropertyValue>> BoundToPropertyValue(std::optional<BoundType> bound) {
     if (bound) {
       auto intermediate_property_value = ConstPropertyValue(bound->value());
       if (intermediate_property_value)
