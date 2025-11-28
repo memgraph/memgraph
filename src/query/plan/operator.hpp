@@ -166,7 +166,6 @@ class RemoveNestedProperty;
 class AggregateParallel;
 class ParallelMerge;
 class ScanParallel;
-class ScanParallelById;
 class ScanParallelByLabel;
 class ScanParallelByLabelProperties;
 class ScanParallelByPointDistance;
@@ -192,11 +191,10 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
     Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit,
     PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl, AggregateParallel, ScanParallel,
-    ScanParallelById, ScanParallelByPointDistance, ScanParallelByLabel, ScanParallelByLabelProperties,
-    ScanParallelByEdgeType, ScanParallelByEdgeTypeProperty, ScanParallelByWithinbbox, ScanParallelByEdge,
-    ScanParallelByEdgeTypePropertyValue, ScanParallelByEdgeTypePropertyRange, ScanParallelByEdgeProperty,
-    ScanParallelByEdgePropertyValue, ScanParallelByEdgeId, ScanParallelByEdgePropertyRange, ScanChunk, ScanChunkByEdge,
-    ParallelMerge>;
+    ScanParallelByPointDistance, ScanParallelByLabel, ScanParallelByLabelProperties, ScanParallelByEdgeType,
+    ScanParallelByEdgeTypeProperty, ScanParallelByWithinbbox, ScanParallelByEdge, ScanParallelByEdgeTypePropertyValue,
+    ScanParallelByEdgeTypePropertyRange, ScanParallelByEdgeProperty, ScanParallelByEdgePropertyValue,
+    ScanParallelByEdgeId, ScanParallelByEdgePropertyRange, ScanChunk, ScanChunkByEdge, ParallelMerge>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -2031,24 +2029,6 @@ class ScanParallelByEdgePropertyRange : public memgraph::query::plan::ScanParall
   storage::PropertyId property_;
   std::optional<Bound> lower_bound_;
   std::optional<Bound> upper_bound_;
-};
-
-/// Parallel scan variant for vertices by ID.
-class ScanParallelById : public memgraph::query::plan::ScanParallel {
- public:
-  static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
-
-  ScanParallelById() = default;
-  ScanParallelById(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
-                   Symbol state_symbol, Expression *expression);
-  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
-
-  std::string ToString() const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
-
-  Expression *expression_;
 };
 
 /// Parallel scan variant for vertices by point distance.
