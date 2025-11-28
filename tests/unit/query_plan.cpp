@@ -2577,17 +2577,15 @@ TYPED_TEST(TestPlanner, PatternComprehensionInWithWhere) {
 }
 
 TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithWhere) {
-  // Test WITH 1 AS a WHERE length([(b)--() | 1]) = 0 AND length([(b)--() | 1]) = 0 RETURN *
+  // Test WITH 1 AS a WHERE [(b)--() | 1] = [(c)--() | 1] RETURN *
   // This tests that multiple pattern comprehensions in WHERE clauses are handled correctly
   auto *pattern_comp1 =
       PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("b"), EDGE("anon1"), NODE("anon2")), nullptr, LITERAL(1));
-  auto *length_call1 = FN("length", pattern_comp1);
 
   auto *pattern_comp2 =
-      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("b"), EDGE("anon4"), NODE("anon5")), nullptr, LITERAL(1));
-  auto *length_call2 = FN("length", pattern_comp2);
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("c"), EDGE("anon3"), NODE("anon4")), nullptr, LITERAL(1));
 
-  auto *where_expr = AND(EQ(length_call1, LITERAL(0)), EQ(length_call2, LITERAL(0)));
+  auto *where_expr = EQ(pattern_comp1, pattern_comp2);
 
   auto *query = QUERY(SINGLE_QUERY(WITH(NEXPR("a", LITERAL(1))), WHERE(where_expr), RETURN("a")));
 
@@ -2614,6 +2612,42 @@ TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithWhere) {
 
   CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops2, pattern_comp_branch_ops2), ExpectProduce(),
                        ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithNamedExpression) {
+  // Test WITH [(b)--() | 1] + [(c)--() | 1] AS a RETURN *
+  // This tests that multiple pattern comprehensions in a single named expression are handled correctly
+  auto *pattern_comp1 =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("b"), EDGE("anon1"), NODE("anon2")), nullptr, LITERAL(1));
+  auto *pattern_comp2 =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("c"), EDGE("anon3"), NODE("anon4")), nullptr, LITERAL(1));
+  auto *add_expr = ADD(pattern_comp1, pattern_comp2);
+
+  auto *query = QUERY(SINGLE_QUERY(WITH(NEXPR("a", add_expr)), RETURN("a")));
+
+  // Plan structure: Once -> RollUpApply (first PC) -> RollUpApply (second PC) -> Produce (WITH) -> Produce (RETURN)
+  // First RollUpApply
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops1;
+  input_ops1.push_back(std::make_unique<ExpectOnce>());
+
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops1;
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectProduce>());
+
+  // Second RollUpApply (input is the first RollUpApply)
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops2;
+  input_ops2.push_back(std::make_unique<ExpectRollUpApply>(input_ops1, pattern_comp_branch_ops1));
+
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops2;
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops2, pattern_comp_branch_ops2), ExpectProduce(),
+                       ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, RangeFilterNoIndex1) {

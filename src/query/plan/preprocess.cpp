@@ -1150,14 +1150,13 @@ static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, A
 }
 
 static void ParseReturnBody(query::ReturnBody &retBody, AstStorage &storage, SymbolTable &symbol_table,
-                            std::unordered_map<std::string, PatternComprehensionMatching> &matchings) {
+                            std::unordered_map<std::string, std::vector<PatternComprehensionMatching>> &matchings) {
   for (auto *expr : retBody.named_expressions) {
     PatternVisitor visitor(symbol_table, storage);
     expr->Accept(visitor);
     auto pattern_comprehension_matchings = visitor.getPatternComprehensionMatchings();
     for (auto &matching : pattern_comprehension_matchings) {
-      // TODO: BUG last matching wins...but there could be more than one per NE
-      matchings.emplace(expr->name_, matching);
+      matchings[expr->name_].push_back(matching);
     }
   }
 }

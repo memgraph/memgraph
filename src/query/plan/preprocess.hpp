@@ -815,7 +815,7 @@ struct SingleQueryPart {
   /// Storing the normalized pattern of a @c PatternComprehension does not preclude storing the
   /// @c PatternComprehension clause itself inside `remaining_clauses`. The reason is that we
   /// need to have access to other parts of the clause, such as pattern, filter clauses.
-  std::unordered_map<std::string, PatternComprehensionMatching> pattern_comprehension_matchings{};
+  std::unordered_map<std::string, std::vector<PatternComprehensionMatching>> pattern_comprehension_matchings{};
 
   std::unordered_map<Expression *, std::vector<PatternComprehensionMatching>> pattern_comprehension_matchings_where{};
 

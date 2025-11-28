@@ -41,7 +41,7 @@ struct PatternComprehensionData {
   std::shared_ptr<LogicalOperator> op;
   Symbol result_symbol;
 };
-using PatternComprehensionDataMap = std::unordered_map<std::string, PatternComprehensionData>;
+using PatternComprehensionDataMap = std::unordered_map<std::string, std::vector<PatternComprehensionData>>;
 using PatternComprehensionDataMapWhere = std::unordered_map<Expression *, std::vector<PatternComprehensionData>>;
 
 struct XXX {
@@ -220,13 +220,14 @@ class RuleBasedPlanner {
 
         XXX xxx;
 
-        for (const auto &matching : single_query_part.pattern_comprehension_matchings) {
-          std::unique_ptr<LogicalOperator> new_input;
-          MatchContext match_ctx{matching.second, *context.symbol_table, context.bound_symbols};
-          new_input = PlanMatching(match_ctx, std::move(new_input));
-          new_input = std::make_unique<Produce>(std::move(new_input), std::vector{matching.second.result_expr});
-          xxx.pc_data_named_.emplace(matching.first,
-                                     PatternComprehensionData(std::move(new_input), matching.second.result_symbol));
+        for (const auto &[name, matchings] : single_query_part.pattern_comprehension_matchings) {
+          for (auto const &matching : matchings) {
+            std::unique_ptr<LogicalOperator> new_input;
+            MatchContext match_ctx{matching, *context.symbol_table, context.bound_symbols};
+            new_input = PlanMatching(match_ctx, std::move(new_input));
+            new_input = std::make_unique<Produce>(std::move(new_input), std::vector{matching.result_expr});
+            xxx.pc_data_named_[name].emplace_back(std::move(new_input), matching.result_symbol);
+          }
         }
 
         for (const auto &[where, matchings] : single_query_part.pattern_comprehension_matchings_where) {
