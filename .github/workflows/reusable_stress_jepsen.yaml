@@ -20,6 +20,11 @@ on:
         description: "Duration of Jepsen test (in seconds)"
         required: true
         default: "7200"
+      num-tenants:
+        type: string
+        description: "Number of tenants used in the HA Jepsen test"
+        required: true
+        default: "5"
 
 
 env:
@@ -100,7 +105,7 @@ jobs:
           trap "kill $CLEANUP_PID" EXIT
 
           if [[ "${{ inputs.mt }}" == "true" ]]; then
-            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $NODES_NO --num-tenants 3 --recovery-time 600 --nemesis-start-sleep 480"
+            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $NODES_NO --num-tenants ${{ inputs.num-tenants }} --recovery-time 600 --nemesis-start-sleep 480"
           else
             ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $NODES_NO --recovery-time 600 --nemesis-start-sleep 25"
           fi
