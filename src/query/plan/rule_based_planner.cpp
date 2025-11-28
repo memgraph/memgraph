@@ -103,7 +103,27 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       // have prevented any aggregations from appearing here.
       for (const auto &order_pair : body.order_by) {
         order_pair.expression->Accept(*this);
+
+        // Handle pattern comprehensions in ORDER BY expressions
+        if (auto it = pc_ops.pc_data_order_by_.find(order_pair.expression); it != pc_ops.pc_data_order_by_.end()) {
+          for (auto &pc_data : it->second) {
+            auto &curr_pc = pattern_comprehension_datas_[pattern_comprehension_index];
+            if (!curr_pc.pattern_comprehension) {
+              throw SemanticException(
+                  "Pattern comprehension matched to order by expression was not initialiazed! Please contact support.");
+            }
+
+            curr_pc.op = std::move(pc_data.op);
+            ++pattern_comprehension_index;
+          }
+          pc_ops.pc_data_order_by_.erase(it);
+        }
       }
+      if (!pc_ops.pc_data_order_by_.empty()) {
+        throw SemanticException(
+            "Unexpected pattern comprehensions left in order by expressions! Please contact support.");
+      }
+
       if (where) {
         where->Accept(*this);
 
@@ -674,7 +694,12 @@ std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQuery
   }
 
   if (std::unordered_set<Symbol> bound_symbols; auto *with = utils::Downcast<query::With>(query.remaining_clauses[0])) {
-    auto input_op = impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, pc_ops, nullptr, false);
+    // Use empty PatternComprehensionOps since we're only analyzing bound symbols here,
+    // not actually building the query plan. Pattern comprehensions will be handled
+    // when the subquery is fully planned later.
+    PatternComprehensionOps empty_pc_ops;
+    auto input_op =
+        impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, empty_pc_ops, nullptr, false);
     return bound_symbols;
   }
 

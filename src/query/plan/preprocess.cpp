@@ -1168,6 +1168,18 @@ static void ParseWhere(query::Where &where, AstStorage &storage, SymbolTable &sy
   matchings[where.expression_].assign_range(visitor.getPatternComprehensionMatchings());
 }
 
+static void ParseOrderBy(query::ReturnBody &body, AstStorage &storage, SymbolTable &symbol_table,
+                         std::unordered_map<Expression *, std::vector<PatternComprehensionMatching>> &matchings) {
+  for (const auto &order_pair : body.order_by) {
+    PatternVisitor visitor(symbol_table, storage);
+    order_pair.expression->Accept(visitor);
+    auto pattern_comprehension_matchings = visitor.getPatternComprehensionMatchings();
+    if (!pattern_comprehension_matchings.empty()) {
+      matchings[order_pair.expression].assign_range(pattern_comprehension_matchings);
+    }
+  }
+}
+
 void PatternVisitor::Visit(NamedExpression &op) { op.expression_->Accept(*this); }
 
 void PatternVisitor::Visit(PatternComprehension &op) {
@@ -1226,6 +1238,9 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         if (with->where_) {
           ParseWhere(*with->where_, storage, symbol_table, query_part->pattern_comprehension_matchings_where);
         }
+        if (!with->body_.order_by.empty()) {
+          ParseOrderBy(with->body_, storage, symbol_table, query_part->pattern_comprehension_matchings_order_by);
+        }
         query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();
       } else if (utils::IsSubtype(*clause, query::Unwind::kType) ||
@@ -1237,6 +1252,9 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         query_part = &query_parts.back();
       } else if (auto *ret = utils::Downcast<Return>(clause)) {
         ParseReturnBody(ret->body_, storage, symbol_table, query_part->pattern_comprehension_matchings);
+        if (!ret->body_.order_by.empty()) {
+          ParseOrderBy(ret->body_, storage, symbol_table, query_part->pattern_comprehension_matchings_order_by);
+        }
         return query_parts;
       }
     }

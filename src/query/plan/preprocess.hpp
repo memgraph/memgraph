@@ -819,6 +819,9 @@ struct SingleQueryPart {
 
   std::unordered_map<Expression *, std::vector<PatternComprehensionMatching>> pattern_comprehension_matchings_where{};
 
+  std::unordered_map<Expression *, std::vector<PatternComprehensionMatching>>
+      pattern_comprehension_matchings_order_by{};
+
   /// @brief All the remaining clauses (without @c Match).
   std::vector<Clause *> remaining_clauses{};
   /// The subqueries vector are all the subqueries in this query part ordered in a list by

@@ -47,6 +47,7 @@ using PatternComprehensionDataMapWhere = std::unordered_map<Expression *, std::v
 struct PatternComprehensionOps {
   PatternComprehensionDataMap pc_data_return_with_;
   PatternComprehensionDataMapWhere pc_data_where_;
+  PatternComprehensionDataMapWhere pc_data_order_by_;
 };
 
 /// @brief Context which contains variables commonly used during planning.
@@ -241,6 +242,17 @@ class RuleBasedPlanner {
             new_input = PlanMatching(match_ctx, std::move(new_input));
             new_input = std::make_unique<Produce>(std::move(new_input), std::vector{matching.result_expr});
             pattern_comprehension_ops.pc_data_where_[where].emplace_back(std::move(new_input), matching.result_symbol);
+          }
+        }
+
+        for (const auto &[order_by_expr, matchings] : single_query_part.pattern_comprehension_matchings_order_by) {
+          for (auto const &matching : matchings) {
+            std::unique_ptr<LogicalOperator> new_input;
+            MatchContext match_ctx{matching, *context.symbol_table, context.bound_symbols};
+            new_input = PlanMatching(match_ctx, std::move(new_input));
+            new_input = std::make_unique<Produce>(std::move(new_input), std::vector{matching.result_expr});
+            pattern_comprehension_ops.pc_data_order_by_[order_by_expr].emplace_back(std::move(new_input),
+                                                                                    matching.result_symbol);
           }
         }
 
