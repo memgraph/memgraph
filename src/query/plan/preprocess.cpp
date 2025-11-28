@@ -1133,33 +1133,102 @@ void PatternVisitor::Visit(Exists &op) {
 
 std::vector<FilterMatching> PatternVisitor::getFilterMatchings() { return filter_matchings_; }
 
-std::vector<PatternComprehensionMatching> PatternVisitor::getPatternComprehensionMatchings() {
+PatternComprehensionMatchings PatternVisitor::getPatternComprehensionMatchings() {
   return pattern_comprehension_matchings_;
 }
 
-static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
-                         SymbolTable &symbol_table) {
+namespace {
+
+// Helper to parse pattern comprehensions from expressions in pattern properties (for CREATE/MERGE)
+void ParsePatternProperties(const std::vector<Pattern *> &patterns, AstStorage &storage, SymbolTable &symbol_table,
+                            PatternComprehensionMatchings &matchings) {
+  for (auto *pattern : patterns) {
+    for (auto *atom : pattern->atoms_) {
+      if (auto *node = utils::Downcast<NodeAtom>(atom)) {
+        if (auto *props = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node->properties_)) {
+          for (auto &[_, expr] : *props) {
+            PatternVisitor visitor(symbol_table, storage);
+            expr->Accept(visitor);
+            matchings.append_range(visitor.getPatternComprehensionMatchings());
+          }
+        }
+      } else if (auto *edge = utils::Downcast<EdgeAtom>(atom)) {
+        if (auto *props = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&edge->properties_)) {
+          for (auto &[_, expr] : *props) {
+            PatternVisitor visitor(symbol_table, storage);
+            expr->Accept(visitor);
+            matchings.append_range(visitor.getPatternComprehensionMatchings());
+          }
+        }
+      }
+    }
+  }
+}
+
+// Helper to parse pattern comprehensions from SET clause expressions
+void ParseSetClauses(const std::vector<Clause *> &clauses, AstStorage &storage, SymbolTable &symbol_table,
+                     PatternComprehensionMatchings &matchings) {
+  for (auto *clause : clauses) {
+    if (auto *set = utils::Downcast<SetProperty>(clause)) {
+      PatternVisitor visitor(symbol_table, storage);
+      set->expression_->Accept(visitor);
+      matchings.append_range(visitor.getPatternComprehensionMatchings());
+    } else if (auto *set = utils::Downcast<SetProperties>(clause)) {
+      PatternVisitor visitor(symbol_table, storage);
+      set->expression_->Accept(visitor);
+      matchings.append_range(visitor.getPatternComprehensionMatchings());
+    }
+  }
+}
+
+void ParseForeach(Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage, SymbolTable &symbol_table) {
+  // Parse pattern comprehensions in the FOREACH list expression
+  PatternVisitor visitor(symbol_table, storage);
+  foreach
+    .named_expression_->expression_->Accept(visitor);
+  query_part.pattern_comprehension_matchings.append_range(visitor.getPatternComprehensionMatchings());
+
   for (auto *clause : foreach.clauses_) {
-    if (auto *merge = utils::Downcast<query::Merge>(clause)) {
+    if (auto *merge = utils::Downcast<Merge>(clause)) {
       query_part.merge_matching.emplace_back(Matching{});
       AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part.merge_matching.back());
-    } else if (auto *nested = utils::Downcast<query::Foreach>(clause)) {
+    } else if (auto *nested = utils::Downcast<Foreach>(clause)) {
       ParseForeach(*nested, query_part, storage, symbol_table);
     }
   }
 }
 
-static void ParseReturnBody(query::ReturnBody &retBody, AstStorage &storage, SymbolTable &symbol_table,
-                            std::unordered_map<std::string, PatternComprehensionMatching> &matchings) {
-  for (auto *expr : retBody.named_expressions) {
+void ParseReturnBody(ReturnBody &retBody, AstStorage &storage, SymbolTable &symbol_table,
+                     PatternComprehensionMatchings &matchings) {
+  for (auto *const expr : retBody.named_expressions) {
     PatternVisitor visitor(symbol_table, storage);
     expr->Accept(visitor);
-    auto pattern_comprehension_matchings = visitor.getPatternComprehensionMatchings();
-    for (auto &matching : pattern_comprehension_matchings) {
-      matchings.emplace(expr->name_, matching);
-    }
+    matchings.append_range(visitor.getPatternComprehensionMatchings());
+  }
+  for (const auto &[_, expression] : retBody.order_by) {
+    PatternVisitor visitor(symbol_table, storage);
+    expression->Accept(visitor);
+    matchings.append_range(visitor.getPatternComprehensionMatchings());
+  }
+  if (retBody.skip) {
+    PatternVisitor visitor(symbol_table, storage);
+    retBody.skip->Accept(visitor);
+    matchings.append_range(visitor.getPatternComprehensionMatchings());
+  }
+  if (retBody.limit) {
+    PatternVisitor visitor(symbol_table, storage);
+    retBody.limit->Accept(visitor);
+    matchings.append_range(visitor.getPatternComprehensionMatchings());
   }
 }
+
+void ParseWhere(const Where &where, AstStorage &storage, SymbolTable &symbol_table,
+                PatternComprehensionMatchings &matchings) {
+  PatternVisitor visitor(symbol_table, storage);
+  where.expression_->Accept(visitor);
+  matchings.append_range(visitor.getPatternComprehensionMatchings());
+}
+}  // namespace
 
 void PatternVisitor::Visit(NamedExpression &op) { op.expression_->Accept(*this); }
 
@@ -1175,9 +1244,21 @@ void PatternVisitor::Visit(PatternComprehension &op) {
     filter.pattern_comprehension_matchings = nested_visitor.getPatternComprehensionMatchings();
   }
 
+  // Visit the result expression to find nested pattern comprehensions
+  PatternVisitor result_visitor(symbol_table_, storage_);
+  op.resultExpr_->Accept(result_visitor);
+  matching.nested_pattern_comprehensions = result_visitor.getPatternComprehensionMatchings();
+
+  // This is the NamedExpression for the anonymous list that got built
   matching.result_expr = storage_.Create<NamedExpression>(symbol_table_.at(op).name(), op.resultExpr_);
   matching.result_expr->MapTo(symbol_table_.at(op));
   matching.result_symbol = symbol_table_.at(op);
+
+  // Store all expansion symbols - we'll determine which are external at planning time
+  // by checking which ones are already in bound_symbols.
+  // External symbols = expansion_symbols that are already bound (i.e., come from outer scope)
+  // This is checked at planning time, not here, so we just copy all expansion_symbols.
+  matching.external_symbols = matching.expansion_symbols;
 
   pattern_comprehension_matchings_.push_back(std::move(matching));
 }
@@ -1205,22 +1286,49 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
       }
     } else {
       query_part->remaining_clauses.push_back(clause);
-      if (auto *merge = utils::Downcast<query::Merge>(clause)) {
+      if (auto *create = utils::Downcast<Create>(clause)) {
+        // Parse pattern comprehensions from CREATE clause properties
+        ParsePatternProperties(create->patterns_, storage, symbol_table, query_part->pattern_comprehension_matchings);
+      } else if (auto *merge = utils::Downcast<Merge>(clause)) {
         query_part->merge_matching.emplace_back(Matching{});
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
-      } else if (auto *call_subquery = utils::Downcast<query::CallSubquery>(clause)) {
+        // Parse pattern comprehensions from MERGE pattern properties
+        ParsePatternProperties({merge->pattern_}, storage, symbol_table, query_part->pattern_comprehension_matchings);
+        // Parse pattern comprehensions from ON CREATE SET / ON MATCH SET clauses
+        ParseSetClauses(merge->on_create_, storage, symbol_table, query_part->pattern_comprehension_matchings);
+        ParseSetClauses(merge->on_match_, storage, symbol_table, query_part->pattern_comprehension_matchings);
+      } else if (auto *set = utils::Downcast<SetProperty>(clause)) {
+        // Parse pattern comprehensions from SET property expression
+        PatternVisitor visitor(symbol_table, storage);
+        set->expression_->Accept(visitor);
+        query_part->pattern_comprehension_matchings.append_range(visitor.getPatternComprehensionMatchings());
+      } else if (auto *set = utils::Downcast<SetProperties>(clause)) {
+        // Parse pattern comprehensions from SET properties expression
+        PatternVisitor visitor(symbol_table, storage);
+        set->expression_->Accept(visitor);
+        query_part->pattern_comprehension_matchings.append_range(visitor.getPatternComprehensionMatchings());
+      } else if (auto *call_subquery = utils::Downcast<CallSubquery>(clause)) {
         query_part->subqueries.emplace_back(
             std::make_shared<QueryParts>(CollectQueryParts(symbol_table, storage, call_subquery->cypher_query_, true)));
-      } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
+      } else if (auto *foreach = utils::Downcast<Foreach>(clause)) {
         ParseForeach(*foreach, *query_part, storage, symbol_table);
       } else if (auto *with = utils::Downcast<With>(clause)) {
         ParseReturnBody(with->body_, storage, symbol_table, query_part->pattern_comprehension_matchings);
+        if (with->where_) {
+          ParseWhere(*with->where_, storage, symbol_table, query_part->pattern_comprehension_matchings);
+        }
         query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();
-      } else if (utils::IsSubtype(*clause, query::Unwind::kType) ||
-                 utils::IsSubtype(*clause, query::CallProcedure::kType) ||
-                 utils::IsSubtype(*clause, query::LoadCsv::kType) || utils::IsSubtype(*clause, LoadParquet::kType) ||
-                 utils::IsSubtype(*clause, LoadJsonl::kType)) {
+      } else if (auto *unwind = utils::Downcast<Unwind>(clause)) {
+        // Parse pattern comprehensions in the UNWIND expression
+        PatternVisitor visitor(symbol_table, storage);
+        unwind->named_expression_->expression_->Accept(visitor);
+        query_part->pattern_comprehension_matchings.append_range(visitor.getPatternComprehensionMatchings());
+        // This query part is done, continue with a new one.
+        query_parts.emplace_back(SingleQueryPart{});
+        query_part = &query_parts.back();
+      } else if (utils::IsSubtype(*clause, CallProcedure::kType) || utils::IsSubtype(*clause, LoadCsv::kType) ||
+                 utils::IsSubtype(*clause, LoadParquet::kType) || utils::IsSubtype(*clause, LoadJsonl::kType)) {
         // This query part is done, continue with a new one.
         query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();

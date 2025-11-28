@@ -209,6 +209,7 @@ enum class SplitExpressionMode { AND, OR };
 
 struct PatternComprehensionMatching;
 struct FilterMatching;
+using PatternComprehensionMatchings = std::vector<PatternComprehensionMatching>;
 
 enum class PatternFilterType { EXISTS_PATTERN, EXISTS_SUBQUERY };
 
@@ -409,7 +410,7 @@ class PatternVisitor : public ExpressionVisitor<void> {
   void Visit(EnumValueAccess &op) override {}
 
   std::vector<FilterMatching> getFilterMatchings();
-  std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings();
+  PatternComprehensionMatchings getPatternComprehensionMatchings();
 
   SymbolTable &symbol_table_;
   AstStorage &storage_;
@@ -419,7 +420,7 @@ class PatternVisitor : public ExpressionVisitor<void> {
   std::vector<FilterMatching> filter_matchings_;
 
   /// Collection of matchings in the pattern comprehension being analyzed.
-  std::vector<PatternComprehensionMatching> pattern_comprehension_matchings_;
+  PatternComprehensionMatchings pattern_comprehension_matchings_;
 };
 
 /// Stores the symbols and expression used to filter a property.
@@ -563,7 +564,7 @@ struct FilterInfo {
   /// Matchings for filters that include patterns
   /// NOTE: The vector is not defined here because FilterMatching is forward declared above.
   std::vector<FilterMatching> matchings;
-  std::vector<PatternComprehensionMatching> pattern_comprehension_matchings;
+  PatternComprehensionMatchings pattern_comprehension_matchings;
   /// Information for Type::Point filtering.
   std::optional<PointFilter> point_filter{};
 };
@@ -765,6 +766,12 @@ struct PatternComprehensionMatching : Matching {
   /// Pattern comprehension result named expression
   NamedExpression *result_expr = nullptr;
   Symbol result_symbol;
+  /// Nested pattern comprehensions found in the result expression
+  PatternComprehensionMatchings nested_pattern_comprehensions;
+  /// External symbols that this pattern comprehension depends on.
+  /// These must be bound before the comprehension can be planned.
+  /// (Symbols with user_declared=true from expansion_symbols and filters)
+  std::unordered_set<Symbol> external_symbols;
 };
 
 /// @brief Represents a read (+ write) part of a query. Parts are split on
@@ -810,12 +817,12 @@ struct SingleQueryPart {
   /// to be processed in the same order by the semantics of the `RuleBasedPlanner`.
   std::vector<Matching> merge_matching{};
 
-  /// @brief @c NamedExpression name to @c PatternComprehensionMatching for each pattern comprehension.
+  /// @brief @c Expression to @c PatternComprehensionMatchings for each pattern comprehension.
   ///
   /// Storing the normalized pattern of a @c PatternComprehension does not preclude storing the
   /// @c PatternComprehension clause itself inside `remaining_clauses`. The reason is that we
   /// need to have access to other parts of the clause, such as pattern, filter clauses.
-  std::unordered_map<std::string, PatternComprehensionMatching> pattern_comprehension_matchings{};
+  PatternComprehensionMatchings pattern_comprehension_matchings;
 
   /// @brief All the remaining clauses (without @c Match).
   std::vector<Clause *> remaining_clauses{};
