@@ -1154,10 +1154,7 @@ static void ParseReturnBody(query::ReturnBody &retBody, AstStorage &storage, Sym
   for (auto *expr : retBody.named_expressions) {
     PatternVisitor visitor(symbol_table, storage);
     expr->Accept(visitor);
-    auto pattern_comprehension_matchings = visitor.getPatternComprehensionMatchings();
-    for (auto &matching : pattern_comprehension_matchings) {
-      matchings[expr->name_].push_back(matching);
-    }
+    matchings[expr->name_].append_range(visitor.getPatternComprehensionMatchings());
   }
 }
 
@@ -1173,10 +1170,7 @@ static void ParseOrderBy(query::ReturnBody &body, AstStorage &storage, SymbolTab
   for (const auto &order_pair : body.order_by) {
     PatternVisitor visitor(symbol_table, storage);
     order_pair.expression->Accept(visitor);
-    auto pattern_comprehension_matchings = visitor.getPatternComprehensionMatchings();
-    if (!pattern_comprehension_matchings.empty()) {
-      matchings[order_pair.expression].assign_range(pattern_comprehension_matchings);
-    }
+    matchings[order_pair.expression].assign_range(visitor.getPatternComprehensionMatchings());
   }
 }
 
@@ -1199,7 +1193,7 @@ void PatternVisitor::Visit(PatternComprehension &op) {
   op.resultExpr_->Accept(result_visitor);
   matching.nested_pattern_comprehensions = result_visitor.getPatternComprehensionMatchings();
 
-  // This is the NamedExpression for the anonoymous list that got built
+  // This is the NamedExpression for the anonymous list that got built
   matching.result_expr = storage_.Create<NamedExpression>(symbol_table_.at(op).name(), op.resultExpr_);
   matching.result_expr->MapTo(symbol_table_.at(op));
   matching.result_symbol = symbol_table_.at(op);

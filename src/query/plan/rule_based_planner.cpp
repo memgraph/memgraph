@@ -56,7 +56,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
         bound_symbols_(bound_symbols),
         storage_(storage),
         where_(where),
-        has_pattern_comprehension_ops_(!pc_ops.pc_data_return_with_.empty() || !pc_ops.pc_data_where_.empty() ||
+        has_pattern_comprehension_ops_(!pc_ops.pc_data_named_expr_.empty() || !pc_ops.pc_data_where_.empty() ||
                                        !pc_ops.pc_data_order_by_.empty()) {
     // Collect symbols from named expressions.
     output_symbols_.reserve(body_.named_expressions.size());
@@ -73,22 +73,22 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       named_expressions_.emplace_back(named_expr);
 
       // Pattern comprehension can be filled during named expression traversion
-      if (auto it = pc_ops.pc_data_return_with_.find(named_expr->name_); it != pc_ops.pc_data_return_with_.end()) {
+      if (auto it = pc_ops.pc_data_named_expr_.find(named_expr->name_); it != pc_ops.pc_data_named_expr_.end()) {
         // Process all pattern comprehensions for this named expression
         for (auto &pc_data : it->second) {
           auto &curr_pc = pattern_comprehension_datas_[pattern_comprehension_index];
           if (!curr_pc.pattern_comprehension) {
             throw SemanticException(
-                "Pattern comprehension matched to name was not initialiazed! Please contact support.");
+                "Pattern comprehension matched to name was not initialized! Please contact support.");
           }
 
           curr_pc.op = std::move(pc_data.op);
           ++pattern_comprehension_index;
         }
-        pc_ops.pc_data_return_with_.erase(it);
+        pc_ops.pc_data_named_expr_.erase(it);
       }
     }
-    if (!pc_ops.pc_data_return_with_.empty()) {
+    if (!pc_ops.pc_data_named_expr_.empty()) {
       throw SemanticException("Unexpected pattern comprehensions left in named expressions! Please contact support.");
     }
 
@@ -116,7 +116,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
             auto &curr_pc = pattern_comprehension_datas_[pattern_comprehension_index];
             if (!curr_pc.pattern_comprehension) {
               throw SemanticException(
-                  "Pattern comprehension matched to order by expression was not initialiazed! Please contact support.");
+                  "Pattern comprehension matched to order by expression was not initialized! Please contact support.");
             }
 
             curr_pc.op = std::move(pc_data.op);
@@ -139,7 +139,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
             auto &curr_pc = pattern_comprehension_datas_[pattern_comprehension_index];
             if (!curr_pc.pattern_comprehension) {
               throw SemanticException(
-                  "Pattern comprehension matched to where expression was not initialiazed! Please contact support.");
+                  "Pattern comprehension matched to where expression was not initialized! Please contact support.");
             }
 
             curr_pc.op = std::move(pc_data.op);

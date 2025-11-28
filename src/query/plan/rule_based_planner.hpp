@@ -45,7 +45,7 @@ using PatternComprehensionDataMap = std::unordered_map<std::string, std::vector<
 using PatternComprehensionDataMapWhere = std::unordered_map<Expression *, std::vector<PatternComprehensionData>>;
 
 struct PatternComprehensionOps {
-  PatternComprehensionDataMap pc_data_return_with_;
+  PatternComprehensionDataMap pc_data_named_expr_;
   PatternComprehensionDataMapWhere pc_data_where_;
   PatternComprehensionDataMapWhere pc_data_order_by_;
 };
@@ -227,8 +227,8 @@ class RuleBasedPlanner {
         for (const auto &[name, matchings] : single_query_part.pattern_comprehension_matchings) {
           for (auto const &matching : matchings) {
             auto new_input = PlanPatternComprehension(matching, *context.symbol_table, context.bound_symbols);
-            pattern_comprehension_ops.pc_data_return_with_[name].emplace_back(std::move(new_input),
-                                                                              matching.result_symbol);
+            pattern_comprehension_ops.pc_data_named_expr_[name].emplace_back(std::move(new_input),
+                                                                             matching.result_symbol);
           }
         }
 
