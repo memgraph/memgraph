@@ -56,8 +56,6 @@ struct S3Config {
           "env variable {}",
           kAwsRegionQuerySetting, kAwsRegionEnv);
     }
-    spdlog::trace("AWS region: {}", *aws_region);
-
     if (!aws_access_key.has_value()) {
       throw BasicException(
           "AWS access key configuration parameter not provided. Please provide it through the query, run-time setting "
@@ -65,7 +63,6 @@ struct S3Config {
           "or env variable {}",
           kAwsAccessKeyQuerySetting, kAwsAccessKeyEnv);
     }
-    spdlog::trace("AWS ACC KEY: {}", *aws_access_key);
 
     if (!aws_secret_key.has_value()) {
       throw BasicException(
@@ -74,7 +71,6 @@ struct S3Config {
           "or env variable {}",
           kAwsSecretKeyQuerySetting, kAwsSecretKeyEnv);
     }
-    spdlog::trace("AWS SEC KEY: {}", *aws_secret_key);
   }
 
   // Query settings -> run_time flags -> env variables
