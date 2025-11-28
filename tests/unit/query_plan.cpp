@@ -2551,10 +2551,10 @@ TYPED_TEST(TestPlanner, PatternComprehensionStandalonePattern) {
 }
 
 TYPED_TEST(TestPlanner, PatternComprehensionInWithWhere) {
-  // Test WITH 1 AS a WHERE length([(b)--() | 1]) = 0 RETURN *
+  // Test WITH 1 AS a WHERE length([()--() | 1]) = 0 RETURN *
   // This tests that pattern comprehensions in WHERE clauses of WITH statements are handled correctly
   auto *pattern_comp =
-      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("b"), EDGE("anon1"), NODE("anon2")), nullptr, LITERAL(1));
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
   auto *length_call = FN("length", pattern_comp);
   auto *where_expr = EQ(length_call, LITERAL(0));
 
@@ -2577,13 +2577,13 @@ TYPED_TEST(TestPlanner, PatternComprehensionInWithWhere) {
 }
 
 TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithWhere) {
-  // Test WITH 1 AS a WHERE [(b)--() | 1] = [(c)--() | 1] RETURN *
+  // Test WITH 1 AS a WHERE [()--() | 1] = [()--() | 1] RETURN *
   // This tests that multiple pattern comprehensions in WHERE clauses are handled correctly
   auto *pattern_comp1 =
-      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("b"), EDGE("anon1"), NODE("anon2")), nullptr, LITERAL(1));
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
 
   auto *pattern_comp2 =
-      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("c"), EDGE("anon3"), NODE("anon4")), nullptr, LITERAL(1));
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon4"), EDGE("anon5"), NODE("anon6")), nullptr, LITERAL(1));
 
   auto *where_expr = EQ(pattern_comp1, pattern_comp2);
 
@@ -2615,12 +2615,12 @@ TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithWhere) {
 }
 
 TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithNamedExpression) {
-  // Test WITH [(b)--() | 1] + [(c)--() | 1] AS a RETURN *
+  // Test WITH [()--() | 1] + [()--() | 1] AS a RETURN *
   // This tests that multiple pattern comprehensions in a single named expression are handled correctly
   auto *pattern_comp1 =
-      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("b"), EDGE("anon1"), NODE("anon2")), nullptr, LITERAL(1));
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
   auto *pattern_comp2 =
-      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("c"), EDGE("anon3"), NODE("anon4")), nullptr, LITERAL(1));
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon4"), EDGE("anon5"), NODE("anon6")), nullptr, LITERAL(1));
   auto *add_expr = ADD(pattern_comp1, pattern_comp2);
 
   auto *query = QUERY(SINGLE_QUERY(WITH(NEXPR("a", add_expr)), RETURN("a")));
