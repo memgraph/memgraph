@@ -405,6 +405,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   auto const set_property_impl = [this, transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
                                   skip_duplicate_write, &schema_acc]() {
+    // TODO(@DavIvek): What if this throws before adding a delta?
     if (new_value.IsVectorIndexId()) {
       auto old_value_vector = storage_->indices_.vector_index_.GetVectorProperty(
           vertex, storage_->name_id_mapper_->IdToName(new_value.ValueVectorIndexIds().front()));

@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <unordered_map>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
@@ -58,7 +59,7 @@ struct VectorIndexSpec {
 
 struct VectorIndexRecoveryInfo {
   VectorIndexSpec spec;
-  std::vector<std::vector<float>> vectors;
+  std::unordered_map<Gid, std::vector<float>> index_entries;
 };
 
 /// @class VectorIndex
@@ -102,6 +103,18 @@ class VectorIndex {
   bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                    NameIdMapper *name_id_mapper,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+
+  static void UpdateRecoveryInfoOnLabelAddition(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper,
+                                                std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
+
+  static void UpdateRecoveryInfoOnLabelRemoval(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper,
+                                               std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
+
+  static void UpdateRecoveryInfoOnPropertyChange(PropertyId property, PropertyValue &value, Vertex *vertex,
+                                                 std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
+
+  void RecoverIndexEntries(const VectorIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
+                           NameIdMapper *name_id_mapper);
 
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.

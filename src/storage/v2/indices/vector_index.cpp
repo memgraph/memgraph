@@ -11,10 +11,12 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <range/v3/algorithm/find_if.hpp>
 #include <ranges>
 #include <shared_mutex>
 #include <stop_token>
 #include <string_view>
+#include <usearch/index_plugins.hpp>
 
 #include "flags/bolt.hpp"
 #include "query/exceptions.hpp"
@@ -72,7 +74,6 @@ struct VectorIndex::Impl {
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
 VectorIndex::~VectorIndex() = default;
 
-// TODO: add name_id_mapper here in order to set correct property to property store
 bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                               NameIdMapper *name_id_mapper,
                               std::optional<SnapshotObserverInfo> const & /*snapshot_info*/) {
@@ -101,45 +102,71 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
           fmt::format("Failed to create vector index {}", spec.index_name, ". Failed to reserve memory for the index"));
     }
 
-    // Update the index with the vertices
-    for (auto &vertex : vertices) {
-      if (!utils::Contains(vertex.labels, spec.label_id)) {
-        continue;
-      }
-      auto property = vertex.properties.GetProperty(spec.property);
-      if (property.IsNull()) {
-        continue;
-      }
-      if (!property.IsAnyList()) {
-        throw query::VectorSearchException("Vector index property must be a list.");
-      }
-      const auto vector_size = property.ListSize();
-      std::vector<float> vector;
-      vector.reserve(vector_size);
-      for (auto i = 0; i < vector_size; i++) {
-        const auto numeric_value = GetNumericValueAt(property, i);
-        if (!numeric_value) {
-          throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+    // Update the index with the vertices in parallel using skip list chunks
+    const auto num_workers = static_cast<std::size_t>(FLAGS_bolt_num_workers);
+    auto chunks = vertices.create_chunks(num_workers);
+
+    // Resizing the underlying index is not thread-safe, so protect it with a mutex.
+    std::exception_ptr first_exception;
+    std::mutex exception_mutex;
+    std::vector<std::jthread> workers;
+    workers.reserve(chunks.size());
+
+    for (auto &chunk_idx : chunks) {
+      workers.emplace_back([&] {
+        try {
+          auto &chunk = chunk_idx;
+          for (auto &vertex : chunk) {
+            if (!utils::Contains(vertex.labels, spec.label_id)) {
+              continue;
+            }
+            auto property = vertex.properties.GetProperty(spec.property);
+            if (property.IsNull()) {
+              continue;
+            }
+            if (!property.IsAnyList()) {
+              throw query::VectorSearchException("Vector index property must be a list.");
+            }
+            const auto vector_size = property.ListSize();
+            std::vector<float> vector;
+            vector.reserve(vector_size);
+            for (auto i = 0; i < vector_size; i++) {
+              const auto numeric_value = GetNumericValueAt(property, i);
+              if (!numeric_value) {
+                throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+              }
+              const auto float_value =
+                  std::visit([](const auto &val) -> float { return static_cast<float>(val); }, *numeric_value);
+              vector.push_back(float_value);
+            }
+            if (vector_size != spec.dimension) {
+              throw query::VectorSearchException(
+                  "Vector index property must have the same number of dimensions as the index.");
+            }
+            const auto is_index_full =
+                mg_vector_index.index.size() == mg_vector_index.index.capacity();  // TODO: do we want to resize here?
+            if (is_index_full) {
+              throw query::VectorSearchException("Vector index is full. Try creating index with larger capacity.");
+            }
+
+            mg_vector_index.index.add(&vertex, vector.data());
+            auto index_id = name_id_mapper->NameToId(spec.index_name);
+            vertex.properties.SetProperty(spec.property, PropertyValue({index_id}, std::vector<float>{}));
+          }
+        } catch (...) {
+          std::lock_guard guard(exception_mutex);
+          if (!first_exception) {
+            first_exception = std::current_exception();
+          }
         }
-        const auto float_value =
-            std::visit([](const auto &val) -> float { return static_cast<float>(val); }, *numeric_value);
-        vector.push_back(float_value);
-      }
-      if (vector_size != spec.dimension) {
-        throw query::VectorSearchException(
-            "Vector index property must have the same number of dimensions as the index.");
-      }
-      auto is_index_full = mg_vector_index.index.size() == mg_vector_index.index.capacity();
-      if (is_index_full) {
-        const auto new_size = spec.resize_coefficient * mg_vector_index.index.capacity();
-        const unum::usearch::index_limits_t new_limits(new_size, FLAGS_bolt_num_workers);
-        if (!mg_vector_index.index.try_reserve(new_limits)) {
-          throw query::VectorSearchException("Failed to resize vector index.");
-        }
-      }
-      mg_vector_index.index.add(&vertex, vector.data());
-      auto index_id = name_id_mapper->NameToId(spec.index_name);
-      vertex.properties.SetProperty(spec.property, PropertyValue({index_id}, std::vector<float>{}));
+      });
+    }
+
+    for (auto &worker : workers) {
+      worker.join();
+    }
+    if (first_exception) {
+      std::rethrow_exception(first_exception);
     }
     pimpl->index_.try_emplace(
         label_prop, IndexItem{.mg_index = std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(
@@ -153,6 +180,78 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
     throw;
   }
   return true;
+}
+
+void VectorIndex::RecoverIndexEntries(const VectorIndexRecoveryInfo &recovery_info,
+                                      utils::SkipList<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  // Firstly, create the index
+  const auto &spec = recovery_info.spec;
+  const auto label_prop = LabelPropKey{spec.label_id, spec.property};
+  if (pimpl->index_.contains(label_prop) || pimpl->index_name_to_label_prop_.contains(spec.index_name)) {
+    throw query::VectorSearchException("Given vector index already exists.");
+  }
+  const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
+  auto mg_vector_index = mg_vector_index_t::make(metric);
+  if (!mg_vector_index) {
+    throw query::VectorSearchException(fmt::format("Failed to create vector index {}, error message: {}",
+                                                   spec.index_name, mg_vector_index.error.what()));
+  }
+  pimpl->index_name_to_label_prop_.try_emplace(spec.index_name, label_prop);
+  pimpl->label_to_index_[spec.label_id].emplace(spec.property, spec.index_name);
+  if (mg_vector_index.index.try_reserve(unum::usearch::index_limits_t(spec.capacity, FLAGS_bolt_num_workers))) {
+    spdlog::info("Created vector index {}", spec.index_name);
+  } else {
+    throw query::VectorSearchException(
+        fmt::format("Failed to create vector index {}", spec.index_name, ". Failed to reserve memory for the index"));
+  }
+  // Secondly, recover index entries in parallel using skip list chunks
+  const auto num_workers = static_cast<std::size_t>(FLAGS_bolt_num_workers);
+  auto chunks = vertices.create_chunks(num_workers);
+  std::vector<std::jthread> workers;
+  workers.reserve(chunks.size());
+  std::exception_ptr first_exception;
+  std::mutex exception_mutex;
+  for (const auto &[idx, chunk] : rv::enumerate(chunks)) {
+    workers.emplace_back([&, idx] {
+      try {
+        for (auto &vertex : chunk) {
+          if (auto it = recovery_info.index_entries.find(vertex.gid); it != recovery_info.index_entries.end()) {
+            const auto &vector = it->second;
+            if (!vector.empty()) {
+              mg_vector_index.index.add(&vertex, vector.data(), idx, false);
+            }
+          } else {
+            // Maybe the index didn't existed yet, so we need to check labels and properties in order to add the vertex
+            // to the index
+            if (utils::Contains(vertex.labels, spec.label_id) &&
+                r::contains(vertex.properties.ExtractPropertyIds(), spec.property)) {
+              auto index_id = name_id_mapper->NameToId(spec.index_name);
+              auto vector_property = vertex.properties.GetProperty(spec.property);
+              auto vec = ListToVector(vector_property);
+              mg_vector_index.index.add(&vertex, vec.data(), idx, false);
+              vertex.properties.SetProperty(spec.property, PropertyValue({index_id}, std::vector<float>{}));
+            }
+          }
+        }
+      } catch (...) {
+        std::lock_guard guard(exception_mutex);
+        if (!first_exception) {
+          first_exception = std::current_exception();
+        }
+      }
+    });
+  }
+  for (auto &worker : workers) {
+    worker.join();
+  }
+  if (first_exception) {
+    std::rethrow_exception(first_exception);
+  }
+  pimpl->index_.try_emplace(
+      label_prop, IndexItem{.mg_index = std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(
+                                std::move(mg_vector_index.index)),
+                            .spec = spec});
 }
 
 bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices) {
@@ -176,7 +275,6 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
 }
 
 void VectorIndex::Clear() {
-  // TODO: Is this enough or we should go through all nodes with this index?
   pimpl->index_name_to_label_prop_.clear();
   pimpl->index_.clear();
   pimpl->label_to_index_.clear();
@@ -187,6 +285,109 @@ std::vector<LabelPropKey> VectorIndex::GetMatchingLabelProps(std::span<LabelId c
   auto has_property = [&](const auto &label_prop) { return utils::Contains(properties, label_prop.property()); };
   auto has_label = [&](const auto &label_prop) { return utils::Contains(labels, label_prop.label()); };
   return pimpl->index_ | rv::keys | rv::filter(has_label) | rv::filter(has_property) | r::to<std::vector>();
+}
+
+void VectorIndex::UpdateRecoveryInfoOnLabelAddition(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper,
+                                                    std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
+  auto matching_indices = std::invoke([&]() {
+    std::vector<VectorIndexRecoveryInfo *> indices;
+    indices.reserve(recovery_info_vec.size());
+    for (auto &recovery_info : recovery_info_vec) {
+      if (recovery_info.spec.label_id == label) {
+        indices.push_back(&recovery_info);
+      }
+    }
+    return indices;
+  });
+  if (matching_indices.empty()) {
+    return;
+  }
+  auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  for (auto *recovery_info : matching_indices) {
+    if (r::contains(vertex_properties, recovery_info->spec.property)) {
+      auto vector_to_add = std::invoke([&]() {
+        auto old_property_value = vertex->properties.GetProperty(recovery_info->spec.property);
+        if (old_property_value.IsVectorIndexId()) {
+          auto &ids = old_property_value.ValueVectorIndexIds();
+          ids.push_back(name_id_mapper->NameToId(recovery_info->spec.index_name));
+          vertex->properties.SetProperty(recovery_info->spec.property, old_property_value);
+          // vector is already in the recovery info vector and not on the node
+          auto vector = std::invoke([&]() {
+            for (auto &recovery_info : recovery_info_vec) {
+              if (recovery_info.spec.index_name == name_id_mapper->IdToName(ids.front())) {
+                if (auto it = recovery_info.index_entries.find(vertex->gid); it != recovery_info.index_entries.end()) {
+                  return it->second;
+                }
+                throw query::VectorSearchException(
+                    fmt::format("Vector index {} not found in recovery info.", name_id_mapper->IdToName(ids.front())));
+              }
+            }
+            throw query::VectorSearchException(
+                fmt::format("Vector index {} not found in recovery info.", name_id_mapper->IdToName(ids.front())));
+          });
+          return vector;
+        }
+
+        auto vec = ListToVector(old_property_value);
+        vertex->properties.SetProperty(
+            recovery_info->spec.property,
+            PropertyValue({name_id_mapper->NameToId(recovery_info->spec.index_name)}, std::vector<float>{}));
+        return vec;
+      });
+      recovery_info->index_entries.emplace(vertex->gid, std::move(vector_to_add));
+    }
+  }
+}
+
+void VectorIndex::UpdateRecoveryInfoOnLabelRemoval(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper,
+                                                   std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
+  auto matching_indices = std::invoke([&]() {
+    std::vector<VectorIndexRecoveryInfo *> indices;
+    indices.reserve(recovery_info_vec.size());
+    for (auto &recovery_info : recovery_info_vec) {
+      if (recovery_info.spec.label_id == label) {
+        indices.push_back(&recovery_info);
+      }
+    }
+    return indices;
+  });
+  if (matching_indices.empty()) {
+    return;
+  }
+  auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  for (auto *recovery_info : matching_indices) {
+    if (r::contains(vertex_properties, recovery_info->spec.property)) {
+      auto old_property_value = vertex->properties.GetProperty(recovery_info->spec.property);
+      auto &ids = old_property_value.ValueVectorIndexIds();
+      ids.erase(r::remove(ids, name_id_mapper->NameToId(recovery_info->spec.index_name)), ids.end());
+      if (ids.empty()) {
+        // put it back on the node
+        if (auto it = recovery_info->index_entries.find(vertex->gid); it != recovery_info->index_entries.end()) {
+          auto &vector_property = it->second;
+          auto double_vector = vector_property | rv::transform([](float value) { return static_cast<double>(value); }) |
+                               r::to<std::vector<double>>();
+          vertex->properties.SetProperty(recovery_info->spec.property, PropertyValue(std::move(double_vector)));
+        } else {
+          throw query::VectorSearchException(
+              fmt::format("Vector index {} not found in recovery info.", name_id_mapper->IdToName(ids.front())));
+        }
+      } else {
+        vertex->properties.SetProperty(recovery_info->spec.property, old_property_value);
+      }
+      recovery_info->index_entries.erase(vertex->gid);
+    }
+  }
+}
+
+void VectorIndex::UpdateRecoveryInfoOnPropertyChange(PropertyId property, PropertyValue &value, Vertex *vertex,
+                                                     std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
+  // Property has to be in the index because it was stored as VectorIndexId
+  for (auto &recovery_info : recovery_info_vec) {
+    if (recovery_info.spec.property == property && r::contains(vertex->labels, recovery_info.spec.label_id)) {
+      DMG_ASSERT(value.IsVectorIndexId(), "Property value must be a vector index id");
+      recovery_info.index_entries[vertex->gid] = value.ValueVectorIndexList();
+    }
+  }
 }
 
 void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper) {
@@ -423,7 +624,7 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
     auto &[mg_index, spec] = index_item;
     auto locked_index = mg_index->MutableSharedLock();
     std::vector<Vertex *> vertices_to_remove(locked_index->size());
-    locked_index->export_keys(vertices_to_remove.data(), 0, locked_index->size());
+    locked_index->export_keys(vertices_to_remove.data(), 0, locked_index->size());  // TODO(@DavIvek): not safe
 
     auto deleted = vertices_to_remove | rv::filter([](const Vertex *vertex) {
                      auto guard = std::shared_lock{vertex->lock};
@@ -490,7 +691,7 @@ void VectorIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, con
   const auto &labels = p2l.find(propId);
   auto has_any_label = [&](const auto &label) { return utils::Contains(vertex->labels, label); };
   if (labels == p2l.end() || !r::any_of(labels->second, has_any_label)) return;
-  auto &[_, _, property_to_abort] = cleanup_collection[vertex];
+  auto &[_, label_to_remove, property_to_abort] = cleanup_collection[vertex];
   property_to_abort[propId] = old_value;
 }
 

@@ -1019,9 +1019,8 @@ std::optional<RecoveryInfo> LoadWal(
         if (schema_info) old_labels.emplace(vertex->labels);
         vertex->labels.push_back(label_id);
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
-        if (indices->vector_index_.IsLabelInVectorIndex(label_id)) {
-          indices->vector_index_.UpdateOnAddLabel(label_id, &*vertex, name_id_mapper);
-        }
+        VectorIndex::UpdateRecoveryInfoOnLabelAddition(label_id, &*vertex, name_id_mapper,
+                                                       indices_constraints->indices.vector_indices);
       },
       [&](WalVertexRemoveLabel const &data) {
         const auto vertex = vertex_acc.find(data.gid);
@@ -1036,23 +1035,21 @@ std::optional<RecoveryInfo> LoadWal(
         std::swap(*it, vertex->labels.back());
         vertex->labels.pop_back();
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
-        if (indices->vector_index_.IsLabelInVectorIndex(label_id)) {
-          indices->vector_index_.UpdateOnRemoveLabel(label_id, &*vertex, name_id_mapper);
-        }
+        VectorIndex::UpdateRecoveryInfoOnLabelRemoval(label_id, &*vertex, name_id_mapper,
+                                                      indices_constraints->indices.vector_indices);
       },
       [&](WalVertexSetProperty const &data) {
         const auto vertex = vertex_acc.find(data.gid);
         if (vertex == vertex_acc.end())
           throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        const auto property_value = ToPropertyValue(data.value, name_id_mapper);
+        auto property_value = ToPropertyValue(data.value, name_id_mapper);
         if (schema_info) {
           const auto old_type = vertex->properties.GetExtendedPropertyType(property_id);
           schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(property_value)}, old_type);
         }
-        if (indices->vector_index_.IsPropertyInVectorIndex(property_id)) {
-          indices->vector_index_.UpdateOnSetProperty(property_value, &*vertex, name_id_mapper);
-        }
+        VectorIndex::UpdateRecoveryInfoOnPropertyChange(property_id, property_value, &*vertex,
+                                                        indices_constraints->indices.vector_indices);
         vertex->properties.SetProperty(property_id, property_value);
       },
       [&](WalEdgeCreate const &data) {
@@ -1398,16 +1395,16 @@ std::optional<RecoveryInfo> LoadWal(
         const auto unum_metric_kind = MetricFromName(data.metric_kind);
         const auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
                                                   : unum::usearch::scalar_kind_t::f32_k;
-        auto vertices_acc = vertices->access();
-        indices->vector_index_.CreateIndex(VectorIndexSpec{.index_name = data.index_name,
-                                                           .label_id = label_id,
-                                                           .property = property_id,
-                                                           .metric_kind = unum_metric_kind,
-                                                           .dimension = data.dimension,
-                                                           .resize_coefficient = data.resize_coefficient,
-                                                           .capacity = data.capacity,
-                                                           .scalar_kind = scalar_kind},
-                                           vertices_acc, name_id_mapper);
+        auto spec = VectorIndexSpec{.index_name = data.index_name,
+                                    .label_id = label_id,
+                                    .property = property_id,
+                                    .metric_kind = unum_metric_kind,
+                                    .dimension = data.dimension,
+                                    .resize_coefficient = data.resize_coefficient,
+                                    .capacity = data.capacity,
+                                    .scalar_kind = scalar_kind};
+        indices_constraints->indices.vector_indices.emplace_back(
+            VectorIndexRecoveryInfo{.spec = spec, .index_entries = std::unordered_map<Gid, std::vector<float>>{}});
       },
       [&](WalVectorEdgeIndexCreate const &data) {
         const auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
