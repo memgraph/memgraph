@@ -23,7 +23,6 @@ namespace memgraph::query::plan {
 PRE_VISIT_PARALLEL(AggregateParallel)
 PRE_VISIT_PARALLEL(ParallelMerge)
 PRE_VISIT_PARALLEL(ScanParallel)
-PRE_VISIT_PARALLEL(ScanParallelById)
 PRE_VISIT_PARALLEL(ScanParallelByLabel)
 PRE_VISIT_PARALLEL(ScanParallelByLabelProperties)
 PRE_VISIT_PARALLEL(ScanParallelByPointDistance)

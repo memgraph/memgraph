@@ -726,15 +726,6 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     return true;
   }
 
-  bool PreVisit(ScanParallelById &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-  bool PostVisit(ScanParallelById &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
   bool PreVisit(ScanParallelByPointDistance &op) override {
     prev_ops_.push_back(&op);
     return true;
@@ -812,8 +803,8 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
       return std::make_shared<ScanParallel>(input, scan_all->view_, num_threads_, state_symbol);
     }
     if (scan_type == ScanAllById::kType) {
-      auto *scan = dynamic_cast<ScanAllById *>(scan_op.get());
-      return std::make_shared<ScanParallelById>(input, scan->view_, num_threads_, state_symbol, scan->expression_);
+      // ScanAllById returns a single vertex, so we can't parallelize it
+      return nullptr;
     }
     if (scan_type == ScanAllByLabel::kType) {
       auto *scan = dynamic_cast<ScanAllByLabel *>(scan_op.get());
