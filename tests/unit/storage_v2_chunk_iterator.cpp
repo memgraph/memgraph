@@ -2414,7 +2414,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingConcurrentOperations) {
   ProcessChunksInParallel(
       edges,
       [&total_processed](const auto &edge) {
-        static int local_count = 0;
+        static std::atomic<int> local_count{0};
         local_count++;
         if (local_count % 50 == 0) {
           // Make sure the iterator and insertions are interleaved
@@ -2985,7 +2985,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingConcurrentOperat
   ProcessChunksInParallel(
       edges,
       [&total_processed, this](const auto &edge) {
-        static int local_count = 0;
+        static std::atomic<int> local_count{0};
         local_count++;
         // Verify property value is within the specified range
         auto property_value = edge.GetProperty(this->property_id_, View::OLD);

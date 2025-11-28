@@ -1,0 +1,3 @@
+# False positive: crossbeam-channel uses lock-free channel operations that
+# TSAN doesn't recognise
+race:crossbeam_channel::flavors::array::Channel
