@@ -105,15 +105,18 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
         where->Accept(*this);
 
         if (auto it = pc_ops.pc_data_unnamed_.find(where_->expression_); it != pc_ops.pc_data_unnamed_.end()) {
-          auto &curr_pc = pattern_comprehension_datas_[pattern_comprehension_index];
-          if (!curr_pc.pattern_comprehension) {
-            throw SemanticException(
-                "Pattern comprehension matched to where expression was not initialiazed! Please contact support.");
-          }
+          // Process all pattern comprehensions for this WHERE expression
+          for (auto &pc_data : it->second) {
+            auto &curr_pc = pattern_comprehension_datas_[pattern_comprehension_index];
+            if (!curr_pc.pattern_comprehension) {
+              throw SemanticException(
+                  "Pattern comprehension matched to where expression was not initialiazed! Please contact support.");
+            }
 
-          curr_pc.op = std::move(it->second.op);
+            curr_pc.op = std::move(pc_data.op);
+            ++pattern_comprehension_index;
+          }
           pc_ops.pc_data_unnamed_.erase(it);
-          ++pattern_comprehension_index;
         }
         if (!pc_ops.pc_data_unnamed_.empty()) {
           throw SemanticException(
