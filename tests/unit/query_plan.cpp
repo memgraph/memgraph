@@ -2550,6 +2550,32 @@ TYPED_TEST(TestPlanner, PatternComprehensionStandalonePattern) {
   CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, list_collection_branch_ops), ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, PatternComprehensionInWithWhere) {
+  // Test WITH 1 AS a WHERE length([(b)--() | 1]) = 0 RETURN *
+  // This tests that pattern comprehensions in WHERE clauses of WITH statements are handled correctly
+  auto *pattern_comp =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("b"), EDGE("anon1"), NODE("anon2")), nullptr, LITERAL(1));
+  auto *length_call = FN("length", pattern_comp);
+  auto *where_expr = EQ(length_call, LITERAL(0));
+
+  auto *query = QUERY(SINGLE_QUERY(WITH(NEXPR("a", LITERAL(1))), WHERE(where_expr), RETURN("a")));
+
+  // Plan structure: Once -> RollUpApply -> Produce (WITH) -> Filter (WHERE) -> Produce (RETURN)
+  // The RollUpApply evaluates the pattern comprehension in the WHERE clause
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops;
+  input_ops.push_back(std::make_unique<ExpectOnce>());
+
+  // Pattern comprehension branch operations (bottom-up: Once -> ScanAll -> Expand -> Produce)
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops;
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectProduce(),
+                       ExpectFilter(), ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, RangeFilterNoIndex1) {
   // Test MATCH (n:Label) WHERE 1 < n.prop < 10 RETURN n
   FakeDbAccessor dba;
