@@ -347,12 +347,16 @@ class ThreadSafePool {
     Node *next;
   };
 
+  static thread_local Node **head_cache_;
+  static thread_local uint64_t last_pool_;
+  static std::atomic<uint64_t> pool_id_;
   ThreadSafeMonotonicBufferResource block_memory_resource_{1024};  // Used for thread-local head pointers
   std::mutex mtx_;
   AList<void *> chunks_;  // store allocated blocks for destruction
 
   const std::size_t block_size_;
   const std::size_t blocks_per_chunk_;
+  const uint64_t id_;
   MemoryResource *chunk_memory_;         // Needs to be thread safe
   pthread_key_t thread_local_head_key_;  // Instance-specific pthread key
 

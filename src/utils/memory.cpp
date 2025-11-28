@@ -328,8 +328,16 @@ void Pool::Deallocate(void *p) {
   *reinterpret_cast<std::byte **>(p) = std::exchange(free_list_, reinterpret_cast<std::byte *>(p));
 }
 
+thread_local ThreadSafePool::Node **ThreadSafePool::head_cache_ = nullptr;
+thread_local uint64_t ThreadSafePool::last_pool_ = 0;
+std::atomic<uint64_t> ThreadSafePool::pool_id_ = 1;
+
 ThreadSafePool::Node *&ThreadSafePool::thread_local_head() {
-  Node **head_ptr = static_cast<Node **>(pthread_getspecific(thread_local_head_key_));
+  if (last_pool_ != id_) {
+    last_pool_ = id_;
+    head_cache_ = static_cast<Node **>(pthread_getspecific(thread_local_head_key_));
+  }
+  Node **head_ptr = head_cache_;
   if (!head_ptr) {
     // Allocate space for the Node* pointer
     // Use an allocator that just drops the memory (no need to destroy each pointer <- it just points to managed memory)
@@ -339,6 +347,7 @@ ThreadSafePool::Node *&ThreadSafePool::thread_local_head() {
     }
     *head_ptr = nullptr;
     pthread_setspecific(thread_local_head_key_, reinterpret_cast<void *>(head_ptr));
+    head_cache_ = head_ptr;
   }
   return *head_ptr;
 }
@@ -366,23 +375,28 @@ ThreadSafePool::Node *ThreadSafePool::carve_block() {
 }
 
 void *ThreadSafePool::pop_head() {
-  Node *head = thread_local_head();
+  Node *&head = thread_local_head();
   if (head) {
-    thread_local_head() = head->next;
-    head->next = nullptr;
-    return reinterpret_cast<void *>(head);
+    auto *node = head;
+    head = head->next;
+    node->next = nullptr;
+    return reinterpret_cast<void *>(node);
   }
   return nullptr;
 }
 
 void ThreadSafePool::push_head(void *p) {
   Node *node = static_cast<Node *>(p);
-  node->next = thread_local_head();
-  thread_local_head() = node;
+  Node *&head = thread_local_head();
+  node->next = head;
+  head = node;
 }
 
 ThreadSafePool::ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks, MemoryResource *chunk_memory)
-    : block_size_(block_size), blocks_per_chunk_(blocks_per_chunks), chunk_memory_(chunk_memory) {
+    : block_size_(block_size),
+      blocks_per_chunk_(blocks_per_chunks),
+      id_{pool_id_.fetch_add(1)},
+      chunk_memory_(chunk_memory) {
   // Create instance-specific pthread key for thread-local storage
   if (pthread_key_create(&thread_local_head_key_, nullptr) != 0) {
     throw BadAlloc("Failed to create pthread key for thread-local storage");
@@ -398,6 +412,8 @@ ThreadSafePool::~ThreadSafePool() {
   }
   // Clean up the pthread key
   pthread_key_delete(thread_local_head_key_);
+  last_pool_ = 0;
+  head_cache_ = nullptr;
 }
 
 void *ThreadSafePool::Allocate() {

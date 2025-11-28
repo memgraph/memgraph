@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <execution>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -10080,133 +10081,130 @@ class ParallelBranchCursor : public Cursor {
 
 namespace {
 void UnifyAggregations(auto &branch_aggregations, const auto &aggregations) {
+  utils::Timer timer;
   auto &main_aggregation = *branch_aggregations[0];
 
-  // Pre-process AVG aggregations, values are post-processed (averages) from ProcessAll.
-  // We need to convert averages back to sums, add sums, then divide in post-processing.
-  for (auto &[group_by, agg_value] : main_aggregation) {
-    for (size_t pos = 0; pos < aggregations.size(); ++pos) {
-      const auto &agg_op = aggregations[pos].op;
-      auto &val = agg_value.values_[pos];
-      if (val.IsNull() || agg_op != Aggregation::Op::AVG) {
-        continue;
-      }
-      // Convert back to sum for post-processing
-      val = val * TypedValue(agg_value.counts_[pos]);
-    }
+  // Move all unique entries from other_aggregation to main_aggregation
+  for (int i = 1; i < branch_aggregations.size(); i++) {
+    main_aggregation.merge(*branch_aggregations[i]);
   }
+  std::cout << "Merged other_aggregation " << timer.Elapsed().count() << " seconds" << std::endl;
 
   // Combine the results of the aggregations from all cursors into main_aggregation
   for (size_t i = 1; i < branch_aggregations.size(); i++) {
     auto &other_aggregation = *branch_aggregations[i];
 
-    for (auto &[other_group_by, other_agg_value] : other_aggregation) {
-      // Try to find or create the entry in main_aggregation
-      auto [main_it, main_was_newly_inserted] =
-          main_aggregation.try_emplace(other_group_by, std::move(other_agg_value));
-      auto &main_agg_value = main_it->second;
+    // Custom merge for duplicate entries from other_aggregation to main_aggregation
+    std::cout << "Merging other_aggregation " << other_aggregation.size() << std::endl;
+    std::for_each(std::execution::parallel_unsequenced_policy(), other_aggregation.begin(), other_aggregation.end(),
+                  [&](auto &other_node) {
+                    auto main_itr = main_aggregation.find(other_node.first);
+                    if (main_itr == main_aggregation.end()) {
+                      return;
+                    }
+                    auto &other_agg_value = other_node.second;
+                    auto &main_agg_value = main_itr->second;
+                    // Merge the AggregationValues
+                    for (size_t pos = 0; pos < aggregations.size(); ++pos) {
+                      const auto &agg_op = aggregations[pos].op;
+                      const auto &other_value = other_agg_value.values_[pos];
+                      const auto &other_count = other_agg_value.counts_[pos];
+                      auto &main_value = main_agg_value.values_[pos];
+                      auto &main_count = main_agg_value.counts_[pos];
 
-      if (!main_was_newly_inserted) {
-        // Merge the AggregationValues
-        for (size_t pos = 0; pos < aggregations.size(); ++pos) {
-          const auto &agg_op = aggregations[pos].op;
-          const auto &other_value = other_agg_value.values_[pos];
-          const auto &other_count = other_agg_value.counts_[pos];
-          auto &main_value = main_agg_value.values_[pos];
-          auto &main_count = main_agg_value.counts_[pos];
+                      // Merge unique_values sets for distinct aggregations
+                      if (aggregations[pos].distinct) {
+                        for (const auto &unique_val : other_agg_value.unique_values_[pos]) {
+                          main_agg_value.unique_values_[pos].insert(unique_val);
+                        }
+                      }
 
-          // Merge unique_values sets for distinct aggregations
-          if (aggregations[pos].distinct) {
-            for (const auto &unique_val : other_agg_value.unique_values_[pos]) {
-              main_agg_value.unique_values_[pos].insert(unique_val);
-            }
-          }
+                      // Skip if other value is Null (unless it's COUNT)
+                      if (other_value.IsNull() && agg_op != Aggregation::Op::COUNT) {
+                        return;
+                      }
 
-          // Skip if other value is Null (unless it's COUNT)
-          if (other_value.IsNull() && agg_op != Aggregation::Op::COUNT) {
-            continue;
-          }
+                      // Valid for all operations
+                      const auto old_main_count = main_count;
+                      main_count += other_count;
+                      if (main_value.IsNull()) {
+                        // Special case for AVG
+                        if (agg_op == Aggregation::Op::AVG) {
+                          main_value = other_value * TypedValue(other_count);
+                        } else {
+                          main_value = other_value;
+                        }
+                        return;
+                      }
 
-          // Valid for all operations
-          main_count += other_count;
-          if (main_value.IsNull()) {
-            // Special case for AVG
-            if (agg_op == Aggregation::Op::AVG) {
-              main_value = other_value * TypedValue(other_count);
-            } else {
-              main_value = other_value;
-            }
-          }
-
-          // Merge based on aggregation operation
-          switch (agg_op) {
-            case Aggregation::Op::COUNT: {
-              // Already handled
-              break;
-            }
-            case Aggregation::Op::SUM: {
-              main_value = main_value + other_value;
-              break;
-            }
-            case Aggregation::Op::AVG: {
-              // For AVG, values may already be post-processed (averages) from ProcessAll.
-              // We need to convert averages back to sums, add sums, then divide in post-processing.
-              // sum = avg * count, so we reconstruct the sum from the average and count.
-              const TypedValue other_sum = other_value * TypedValue(other_count);
-              main_value = main_value + other_sum;
-              break;
-            }
-            case Aggregation::Op::MIN: {
-              const auto result = main_value > other_value;
-              if (result.ValueBool() && result.ValueBool()) {
-                main_value = other_value;
-              }
-              break;
-            }
-            case Aggregation::Op::MAX: {
-              const auto result = main_value < other_value;
-              if (result.ValueBool() && result.ValueBool()) {
-                main_value = other_value;
-              }
-              break;
-            }
-            case Aggregation::Op::COLLECT_LIST: {
-              // Append lists together
-              DMG_ASSERT(main_value.IsList(), "Main value should be a list");
-              DMG_ASSERT(other_value.IsList(), "Other value should be a list");
-              main_value = main_value + other_value;
-              break;
-            }
-            case Aggregation::Op::COLLECT_MAP: {
-              DMG_ASSERT(main_value.IsMap(), "Main value should be a map");
-              DMG_ASSERT(other_value.IsMap(), "Other value should be a map");
-              auto &main_map = main_value.ValueMap();
-              const auto &other_map = other_value.ValueMap();
-              for (const auto &[key, val] : other_map) {
-                main_map[key] = val;
-              }
-              break;
-            }
-            // TODO Verify
-            case Aggregation::Op::PROJECT_PATH:
-            case Aggregation::Op::PROJECT_LISTS: {
-              // Merge graphs together by inserting vertices and edges
-              auto &main_graph = main_value.ValueGraph();
-              const auto &other_graph = other_value.ValueGraph();
-              // Insert all vertices and edges from the other graph
-              for (const auto &vertex : other_graph.vertices()) {
-                main_graph.InsertVertex(vertex);
-              }
-              for (const auto &edge : other_graph.edges()) {
-                main_graph.InsertEdge(edge);
-              }
-              break;
-            }
-          }
-        }
-      }
-    }
+                      // Merge based on aggregation operation
+                      switch (agg_op) {
+                        case Aggregation::Op::COUNT: {
+                          main_value = main_value + other_value;  // Counts get moved into the value
+                          break;
+                        }
+                        case Aggregation::Op::SUM: {
+                          main_value = main_value + other_value;
+                          break;
+                        }
+                        case Aggregation::Op::AVG: {
+                          const TypedValue other_sum = other_value * TypedValue(other_count);
+                          main_value = (main_value * TypedValue(old_main_count) + other_sum) / TypedValue(main_count);
+                          break;
+                        }
+                        case Aggregation::Op::MIN: {
+                          const auto result = main_value > other_value;
+                          if (result.ValueBool() && result.ValueBool()) {
+                            main_value = other_value;
+                          }
+                          break;
+                        }
+                        case Aggregation::Op::MAX: {
+                          const auto result = main_value < other_value;
+                          if (result.ValueBool() && result.ValueBool()) {
+                            main_value = other_value;
+                          }
+                          break;
+                        }
+                        case Aggregation::Op::COLLECT_LIST: {
+                          // Append lists together
+                          DMG_ASSERT(main_value.IsList(), "Main value should be a list");
+                          DMG_ASSERT(other_value.IsList(), "Other value should be a list");
+                          main_value = main_value + other_value;
+                          break;
+                        }
+                        case Aggregation::Op::COLLECT_MAP: {
+                          DMG_ASSERT(main_value.IsMap(), "Main value should be a map");
+                          DMG_ASSERT(other_value.IsMap(), "Other value should be a map");
+                          auto &main_map = main_value.ValueMap();
+                          const auto &other_map = other_value.ValueMap();
+                          for (const auto &[key, val] : other_map) {
+                            main_map[key] = val;
+                          }
+                          break;
+                        }
+                        // TODO Verify
+                        case Aggregation::Op::PROJECT_PATH:
+                        case Aggregation::Op::PROJECT_LISTS: {
+                          // Merge graphs together by inserting vertices and edges
+                          auto &main_graph = main_value.ValueGraph();
+                          const auto &other_graph = other_value.ValueGraph();
+                          // Insert all vertices and edges from the other graph
+                          for (const auto &vertex : other_graph.vertices()) {
+                            main_graph.InsertVertex(vertex);
+                          }
+                          for (const auto &edge : other_graph.edges()) {
+                            main_graph.InsertEdge(edge);
+                          }
+                          break;
+                        }
+                      }
+                    }
+                  });
+    std::cout << "Combined other_aggregations " << timer.Elapsed().count() << " seconds" << std::endl;
   }
+
+  std::cout << "UnifyAggregations took " << timer.Elapsed().count() << " seconds" << std::endl;
 }
 }  // namespace
 
@@ -10238,8 +10236,6 @@ class AggregateParallelCursor : public ParallelBranchCursor {
                 [](auto &cursor) { return &static_cast<AggregateCursor *>(cursor.get())->aggregation_; }) |
             ranges::to_vector;
         UnifyAggregations(branch_aggregations, aggregations);
-        auto &main_aggregation = *branch_aggregations[0];
-        PostProcessImpl(&context, aggregations, main_aggregation);
       };
 
       // Execute branches in parallel and unify context fields (handled by base class)
