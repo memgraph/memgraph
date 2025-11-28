@@ -151,6 +151,23 @@ struct MinMemgraph {
     return db.Access(memgraph::storage::StorageAccessType::READ);
   }
 
+  ~MinMemgraph() {
+    auto locked_repl_state = repl_state.Lock();
+    if (locked_repl_state->IsReplica()) {
+      auto &replica_data = std::get<memgraph::replication::RoleReplicaData>(locked_repl_state->ReplicationData());
+      replica_data.server.reset();
+    } else if (locked_repl_state->IsMain()) {
+      auto &main_data = std::get<memgraph::replication::RoleMainData>(locked_repl_state->ReplicationData());
+      for (auto &client : main_data.registered_replicas_) {
+        client.Shutdown();
+      }
+      dbms.ForEach([](memgraph::dbms::DatabaseAccess db_acc) {
+        auto *storage = db_acc->storage();
+        storage->repl_storage_state_.replication_storage_clients_.WithLock([](auto &clients) { clients.clear(); });
+      });
+    }
+  }
+
   memgraph::auth::SynchedAuth auth;
   memgraph::system::System system_;
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state;
