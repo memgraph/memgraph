@@ -107,7 +107,7 @@ class StorageModeMultiTxTest : public ::testing::Test {
 };
 
 TEST_F(StorageModeMultiTxTest, ModeSwitchInactiveTransaction) {
-  bool started = false;
+  std::atomic<bool> started{false};
   std::jthread running_thread = std::jthread(
       [this, &started](std::stop_token st, int thread_index) {
         running_interpreter.Interpret("CREATE ();");
@@ -135,8 +135,8 @@ TEST_F(StorageModeMultiTxTest, ModeSwitchActiveTransaction) {
   ASSERT_EQ(db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
   main_interpreter.Interpret("BEGIN");
 
-  bool started = false;
-  bool finished = false;
+  std::atomic<bool> started{false};
+  std::atomic<bool> finished{false};
   std::jthread running_thread = std::jthread(
       [this, &started, &finished](std::stop_token st, int thread_index) {
         started = true;
