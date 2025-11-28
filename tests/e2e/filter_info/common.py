@@ -19,11 +19,5 @@ def memgraph(**kwargs) -> Memgraph:
 
     yield memgraph
 
-    # Dropping the index here works around the fact that GQLAlchemy will
-    # fail on `drop_indexes` because it tries to hash the composite
-    # index properties. Once GQLAlchemy correctly supports these, this
-    # hack can be removed.
-    memgraph.execute("DROP INDEX ON :l(p)")
-
     memgraph.drop_database()
     memgraph.drop_indexes()
