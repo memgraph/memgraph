@@ -157,14 +157,16 @@ struct JsonlReader::impl {
                                            std::move(abort_check))) {
         throw utils::BasicException("Failed to download file {}", uri_);
       }
+      // .value() can throw ac exception hence and we don't want to leak new_path
+      auto const on_exit = utils::OnScopeExit([&new_path]() { utils::DeleteFile(new_path); });
       content_ = simdjson::padded_string::load(new_path.string()).value();
-      utils::DeleteFile(new_path);
     } else if (s3_matcher(uri_)) {
       DMG_ASSERT(s3_cfg.has_value(), "S3Config doesn't have a value");
       auto const new_path = utils::CreateUniqueDownloadFile(build_base_path()).first;
+      // .value() can throw ac exception hence and we don't want to leak new_path
+      auto const on_exit = utils::OnScopeExit([&new_path]() { utils::DeleteFile(new_path); });
       utils::GetS3Object(uri_, *s3_cfg, new_path.string());
       content_ = simdjson::padded_string::load(new_path.string()).value();
-      utils::DeleteFile(new_path);
     } else {
       content_ = simdjson::padded_string::load(uri_).value();
     }

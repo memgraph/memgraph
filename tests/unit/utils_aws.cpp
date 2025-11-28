@@ -57,16 +57,18 @@ TEST(S3Config, BuildFromEnv) {
   setenv(kAwsAccessKeyEnv, "acc_key_env", 1);
   // NOLINTNEXTLINE
   setenv(kAwsSecretKeyEnv, "secret_key_env", 1);
+  memgraph::utils::OnScopeExit const on_exit{[]() {
+    // NOLINTNEXTLINE
+    unsetenv(kAwsRegionEnv);
+    // NOLINTNEXTLINE
+    unsetenv(kAwsAccessKeyEnv);
+    // NOLINTNEXTLINE
+    unsetenv(kAwsSecretKeyEnv);
+  }};
   auto s3_config = S3Config::Build({}, {});
   ASSERT_EQ(s3_config.aws_region, "eu-west-2");
   ASSERT_EQ(s3_config.aws_access_key, "acc_key_env");
   ASSERT_EQ(s3_config.aws_secret_key, "secret_key_env");
-  // NOLINTNEXTLINE
-  setenv(kAwsRegionEnv, "", 1);
-  // NOLINTNEXTLINE
-  setenv(kAwsAccessKeyEnv, "", 1);
-  // NOLINTNEXTLINE
-  setenv(kAwsSecretKeyEnv, "", 1);
 }
 
 TEST(S3Config, PreferQueryOverRuntime) {
@@ -93,6 +95,14 @@ TEST(S3Config, PreferRuntimeOverEnv) {
   setenv(kAwsAccessKeyEnv, "acc_key_env", 1);
   // NOLINTNEXTLINE
   setenv(kAwsSecretKeyEnv, "secret_key_env", 1);
+  memgraph::utils::OnScopeExit const on_exit{[]() {
+    // NOLINTNEXTLINE
+    unsetenv(kAwsRegionEnv);
+    // NOLINTNEXTLINE
+    unsetenv(kAwsAccessKeyEnv);
+    // NOLINTNEXTLINE
+    unsetenv(kAwsSecretKeyEnv);
+  }};
 
   std::map<std::string, std::string, std::less<>> run_time_config;
   run_time_config.emplace(kAwsRegionQuerySetting, "eu-east-1");
@@ -103,13 +113,6 @@ TEST(S3Config, PreferRuntimeOverEnv) {
   ASSERT_EQ(s3_config.aws_region, "eu-east-1");
   ASSERT_EQ(s3_config.aws_access_key, "acc_key_runtime");
   ASSERT_EQ(s3_config.aws_secret_key, "secret_key_runtime");
-
-  // NOLINTNEXTLINE
-  setenv(kAwsRegionEnv, "", 1);
-  // NOLINTNEXTLINE
-  setenv(kAwsAccessKeyEnv, "", 1);
-  // NOLINTNEXTLINE
-  setenv(kAwsSecretKeyEnv, "", 1);
 }
 
 TEST(S3Config, PreferQueryOverEnv) {
@@ -120,6 +123,15 @@ TEST(S3Config, PreferQueryOverEnv) {
   // NOLINTNEXTLINE
   setenv(kAwsSecretKeyEnv, "secret_key_env", 1);
 
+  memgraph::utils::OnScopeExit const on_exit{[]() {
+    // NOLINTNEXTLINE
+    unsetenv(kAwsRegionEnv);
+    // NOLINTNEXTLINE
+    unsetenv(kAwsAccessKeyEnv);
+    // NOLINTNEXTLINE
+    unsetenv(kAwsSecretKeyEnv);
+  }};
+
   std::map<std::string, std::string, std::less<>> query_config;
   query_config.emplace(kAwsRegionQuerySetting, "eu-east-1");
   query_config.emplace(kAwsAccessKeyQuerySetting, "acc_key_query");
@@ -129,13 +141,6 @@ TEST(S3Config, PreferQueryOverEnv) {
   ASSERT_EQ(s3_config.aws_region, "eu-east-1");
   ASSERT_EQ(s3_config.aws_access_key, "acc_key_query");
   ASSERT_EQ(s3_config.aws_secret_key, "secret_key_query");
-
-  // NOLINTNEXTLINE
-  setenv(kAwsRegionEnv, "", 1);
-  // NOLINTNEXTLINE
-  setenv(kAwsAccessKeyEnv, "", 1);
-  // NOLINTNEXTLINE
-  setenv(kAwsSecretKeyEnv, "", 1);
 }
 
 TEST(S3Config, ValidateOK) {

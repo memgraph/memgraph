@@ -876,8 +876,8 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
 
   // handle header options
   // Don't have to check for ctx->HEADER(), as it's a mandatory token.
-  // Just need to check if ctx->WITH0) is not nullptr
-  // Index 0 is needed because there are 2 WITH
+  // Just need to check if ctx->WITH(0) is not nullptr
+  // Index 0 is needed because there are 2 WITH clauses
   load_csv->with_header_ = ctx->WITH(0) != nullptr;
 
   // handle skip bad row option

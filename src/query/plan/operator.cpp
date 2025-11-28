@@ -7715,7 +7715,7 @@ class LoadCsvCursor : public Cursor {
 
     if (maybe_config_map->size() > 4) {
       throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
-                                  utils::kAwsAccessKeyQuerySetting, utils::kAwsAccessKeyQuerySetting,
+                                  utils::kAwsRegionQuerySetting, utils::kAwsAccessKeyQuerySetting,
                                   utils::kAwsSecretKeyQuerySetting, utils::kAwsEndpointUrlQuerySetting);
     }
 
@@ -7815,7 +7815,7 @@ class LoadParquetCursor : public Cursor {
 
       if (maybe_config_map->size() > 4) {
         throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
-                                    utils::kAwsAccessKeyQuerySetting, utils::kAwsAccessKeyQuerySetting,
+                                    utils::kAwsRegionQuerySetting, utils::kAwsAccessKeyQuerySetting,
                                     utils::kAwsSecretKeyQuerySetting, utils::kAwsEndpointUrlQuerySetting);
       }
 
@@ -7926,7 +7926,7 @@ class LoadJsonlCursor : public Cursor {
 
       if (maybe_config_map->size() > 4) {
         throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
-                                    utils::kAwsAccessKeyQuerySetting, utils::kAwsAccessKeyQuerySetting,
+                                    utils::kAwsRegionQuerySetting, utils::kAwsAccessKeyQuerySetting,
                                     utils::kAwsSecretKeyQuerySetting, utils::kAwsEndpointUrlQuerySetting);
       }
 
