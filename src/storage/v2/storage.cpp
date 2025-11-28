@@ -236,10 +236,6 @@ std::vector<EdgeTypeId> Storage::Accessor::ListAllPossiblyPresentEdgeTypes() con
   return edge_types;
 }
 
-size_t Storage::Accessor::CountAllPossiblyPresentVertexLabels() const { return storage_->stored_node_labels_.size(); }
-
-size_t Storage::Accessor::CountAllPossiblyPresentEdgeTypes() const { return storage_->stored_edge_types_.size(); }
-
 void Storage::Accessor::AdvanceCommand() {
   transaction_.manyDeltasCache.Clear();  // TODO: Just invalidate the View::OLD cache, NEW should still be fine
   ++transaction_.command_id;
