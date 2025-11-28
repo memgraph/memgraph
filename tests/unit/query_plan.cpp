@@ -2650,6 +2650,31 @@ TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithNamedExpression) {
                        ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, PatternComprehensionInOrderBy) {
+  // Test WITH 1 AS x ORDER BY length([()--() | 1]) RETURN x
+  // This tests that pattern comprehensions in ORDER BY clauses are handled correctly
+  auto *pattern_comp =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
+  auto *length_call = FN("length", pattern_comp);
+
+  auto *query = QUERY(SINGLE_QUERY(WITH(NEXPR("x", LITERAL(1)), ORDER_BY(length_call)), RETURN("x")));
+
+  // Plan structure: Once -> RollUpApply -> Produce (WITH) -> OrderBy -> Produce (RETURN)
+  // The RollUpApply evaluates the pattern comprehension in the ORDER BY clause
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops;
+  input_ops.push_back(std::make_unique<ExpectOnce>());
+
+  // Pattern comprehension branch operations (bottom-up: Once -> ScanAll -> Expand -> Produce)
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops;
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectProduce(),
+                       ExpectOrderBy(), ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, RangeFilterNoIndex1) {
   // Test MATCH (n:Label) WHERE 1 < n.prop < 10 RETURN n
   FakeDbAccessor dba;
