@@ -324,6 +324,10 @@ class TriggerContextCollector {
   void RegisterRemovedVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id);
   [[nodiscard]] TriggerContext TransformToTriggerContext() &&;
 
+  // Merge another TriggerContextCollector into this one.
+  // Used when unifying contexts from parallel execution branches.
+  void MergeFrom(const TriggerContextCollector &other);
+
  private:
   template <detail::ObjectAccessor TAccessor>
   auto GetRegistry() const -> Registry<TAccessor> const & {
