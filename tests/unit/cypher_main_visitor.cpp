@@ -4556,6 +4556,33 @@ TEST_P(CypherMainVisitorTest, TestLoadJsonlClause) {
     ASSERT_TRUE(load_jsonl_clause);
     ASSERT_EQ(parsed_query->single_query_->clauses_.size(), 4);
   }
+  {
+    const std::string query =
+        R"(LOAD JSONL FROM "file.jsonl" WITH CONFIG {'aws_region': 'eu-west-1', 'aws_access_key': 'acc_key', 'aws_secret_key': 'secret_key'} AS x RETURN x)";
+    auto *parsed_query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
+    ASSERT_TRUE(parsed_query);
+    auto *load_jsonl_clause = dynamic_cast<LoadJsonl *>(parsed_query->single_query_->clauses_[0]);
+    ASSERT_TRUE(load_jsonl_clause);
+
+    auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+        -> std::unordered_map<std::string, std::string> {
+      auto const expr_to_str = [&ast_generator](Expression *expression) {
+        return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+      };
+
+      return ranges::views::transform(config_map,
+                                      [&expr_to_str](auto const &expr_pair) {
+                                        return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                      }) |
+             ranges::to<std::unordered_map<std::string, std::string>>;
+    };
+
+    auto const config_map = evaluate_config_map(load_jsonl_clause->configs_);
+    ASSERT_EQ(config_map.size(), 3);
+    ASSERT_EQ(config_map.at("aws_region"), "eu-west-1");
+    ASSERT_EQ(config_map.at("aws_access_key"), "acc_key");
+    ASSERT_EQ(config_map.at("aws_secret_key"), "secret_key");
+  }
 }
 
 TEST_P(CypherMainVisitorTest, TestLoadParquetClause) {
@@ -4684,6 +4711,36 @@ TEST_P(CypherMainVisitorTest, TestLoadCsvClause) {
     ASSERT_TRUE(load_csv_clause);
     ASSERT_TRUE(load_csv_clause->with_header_);
     ASSERT_TRUE(load_csv_clause->ignore_bad_);
+  }
+
+  {
+    const std::string query =
+        R"(LOAD CSV FROM "file.csv" WITH CONFIG {'aws_region': 'eu-west-1', 'aws_access_key': 'acc_key', 'aws_secret_key': 'secret_key'} WITH HEADER IGNORE BAD DELIMITER ";" QUOTE "'" AS x RETURN x)";
+    auto *parsed_query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
+    ASSERT_TRUE(parsed_query);
+    auto *load_csv_clause = dynamic_cast<LoadCsv *>(parsed_query->single_query_->clauses_[0]);
+    ASSERT_TRUE(load_csv_clause);
+    ASSERT_TRUE(load_csv_clause->with_header_);
+    ASSERT_TRUE(load_csv_clause->ignore_bad_);
+
+    auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+        -> std::unordered_map<std::string, std::string> {
+      auto const expr_to_str = [&ast_generator](Expression *expression) {
+        return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+      };
+
+      return ranges::views::transform(config_map,
+                                      [&expr_to_str](auto const &expr_pair) {
+                                        return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                      }) |
+             ranges::to<std::unordered_map<std::string, std::string>>;
+    };
+
+    auto const config_map = evaluate_config_map(load_csv_clause->configs_);
+    ASSERT_EQ(config_map.size(), 3);
+    ASSERT_EQ(config_map.at("aws_region"), "eu-west-1");
+    ASSERT_EQ(config_map.at("aws_access_key"), "acc_key");
+    ASSERT_EQ(config_map.at("aws_secret_key"), "secret_key");
   }
 }
 

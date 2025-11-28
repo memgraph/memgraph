@@ -14,7 +14,7 @@ from pathlib import Path
 
 import boto3
 import pytest
-from common import connect, execute_and_fetch_all, get_file_path
+from common import connect, execute_and_fetch_all
 from mgclient import DatabaseError
 
 # LocalStack configuration
@@ -27,18 +27,12 @@ AWS_REGION = "us-east-1"
 BUCKET_NAME = "deps.memgraph.io"
 
 
-def test_file_exists_s3_with_config():
+def test_no_file_s3():
     cursor = connect(host="localhost", port=7687).cursor()
-
-    execute_and_fetch_all(cursor, f"set database setting 'aws.region' to '{AWS_REGION}'")
-    execute_and_fetch_all(cursor, f"set database setting 'aws.access_key' to '{AWS_ACCESS_KEY_ID}'")
-    execute_and_fetch_all(cursor, f"set database setting 'aws.secret_key' to '{AWS_SECRET_ACCESS_KEY}'")
-    execute_and_fetch_all(cursor, f"set database setting 'aws.endpoint_url' to '{AWS_ENDPOINT_URL}'")
-
-    load_query = f"LOAD JSONL FROM 's3://{BUCKET_NAME}/test_types.jsonl' WITH CONFIG {{'aws_region': '{AWS_REGION}', 'aws_access_key': '{AWS_ACCESS_KEY_ID}', 'aws_secret_key': '{AWS_SECRET_ACCESS_KEY}', 'aws_endpoint_url': '{AWS_ENDPOINT_URL}' }} AS row CREATE (n:N {{id: row.id, name: row.name}})"
-
-    execute_and_fetch_all(cursor, load_query)
-    execute_and_fetch_all(cursor, "match (n) detach delete n")
+    load_query = f"LOAD CSV FROM 's3://{BUCKET_NAME}/nodes_no_file.csv' WITH HEADER AS row CREATE (n:N {{id: row.id, name: row.name}})"
+    print(f"Load query: {load_query}")
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(cursor, load_query)
 
 
 def test_file_exists_s3():
@@ -49,43 +43,38 @@ def test_file_exists_s3():
     execute_and_fetch_all(cursor, f"set database setting 'aws.secret_key' to '{AWS_SECRET_ACCESS_KEY}'")
     execute_and_fetch_all(cursor, f"set database setting 'aws.endpoint_url' to '{AWS_ENDPOINT_URL}'")
 
-    # load_query = f"LOAD JSONL FROM 's3://{BUCKET_NAME}/test_types.jsonl' WITH CONFIG {{'aws_region': '{AWS_REGION}', 'aws_access_key': '{AWS_ACCESS_KEY_ID}', 'aws_secret_key': '{AWS_SECRET_ACCESS_KEY}', 'aws_endpoint_url': '{AWS_ENDPOINT_URL}' }} WITH HEADER AS row CREATE (n:N {{id: row.id, name: row.name}})"
-    load_query = (
-        f"LOAD JSONL FROM 's3://{BUCKET_NAME}/test_types.jsonl' AS row CREATE (n:N {{id: row.id, name: row.name}})"
-    )
+    load_query = f"LOAD CSV FROM 's3://{BUCKET_NAME}/simple_nodes.csv' WITH CONFIG {{'aws_region': '{AWS_REGION}', 'aws_access_key': '{AWS_ACCESS_KEY_ID}', 'aws_secret_key': '{AWS_SECRET_ACCESS_KEY}', 'aws_endpoint_url': '{AWS_ENDPOINT_URL}' }} WITH HEADER AS row CREATE (n:N {{id: row.id, name: row.name}})"
 
     execute_and_fetch_all(cursor, load_query)
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 
-def test_invalid_setting():
+def test_file_exists_s3_auth():
     cursor = connect(host="localhost", port=7687).cursor()
-    SETTING_KEY = "file.download_conn_timeout_sec"
-    setting_query = f"set database setting '{SETTING_KEY}' to '-400'"
-    # Should throw exception because of -400
-    with pytest.raises(DatabaseError):
-        execute_and_fetch_all(cursor, setting_query)
 
-    setting_query = f"set database setting '{SETTING_KEY}' to 'abc'"
-    # Should throw exception because of abc
-    with pytest.raises(DatabaseError):
-        execute_and_fetch_all(cursor, setting_query)
+    execute_and_fetch_all(cursor, f"set database setting 'aws.region' to '{AWS_REGION}'")
+    execute_and_fetch_all(cursor, f"set database setting 'aws.access_key' to '{AWS_ACCESS_KEY_ID}'")
+    execute_and_fetch_all(cursor, f"set database setting 'aws.secret_key' to '{AWS_SECRET_ACCESS_KEY}'")
+    execute_and_fetch_all(cursor, f"set database setting 'aws.endpoint_url' to '{AWS_ENDPOINT_URL}'")
 
+    load_query = f"LOAD CSV FROM 's3://{BUCKET_NAME}/simple_nodes.csv' WITH CONFIG {{'aws_region': '{AWS_REGION}', 'aws_access_key': '{AWS_ACCESS_KEY_ID}', 'aws_secret_key': '{AWS_SECRET_ACCESS_KEY}', 'aws_endpoint_url': '{AWS_ENDPOINT_URL}' }} WITH HEADER AS row CREATE (n:N {{id: row.id, name: row.name}})"
 
-def test_http_file():
-    cursor = connect(host="localhost", port=7687).cursor()
-    SETTING_KEY = "file.download_conn_timeout_sec"
-    setting_query = f"set database setting '{SETTING_KEY}' to '400'"
-    execute_and_fetch_all(cursor, setting_query)
-    res = dict(execute_and_fetch_all(cursor, "show database settings"))
-    assert res[SETTING_KEY] == "400"
-    load_query = f"LOAD JSONL FROM '{AWS_ENDPOINT_URL}/{BUCKET_NAME}/test_types.jsonl' AS row CREATE (n:N {{id: row.id, name: row.name, age: row.age, city: row.city}})"
     execute_and_fetch_all(cursor, load_query)
-    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 120
+    execute_and_fetch_all(cursor, "match (n) detach delete n")
+
+
+def test_file_exists_http():
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = f"LOAD CSV FROM '{AWS_ENDPOINT_URL}/{BUCKET_NAME}/simple_nodes.csv' WITH HEADER AS row CREATE (n:N {{id: row.id, name: row.name}})"
+    print(f"Load query: {load_query}")
+
+    execute_and_fetch_all(cursor, load_query)
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 
 def main():
+    file_name = "simple_nodes.csv"
+
     # Configure S3 client for LocalStack
     s3_client = boto3.client(
         "s3",
@@ -103,15 +92,15 @@ def main():
         s3_client.create_bucket(Bucket=BUCKET_NAME)
         print(f"Created bucket '{BUCKET_NAME}'")
 
-    # Upload JSONL file
-    jsonl_file = Path(__file__).parent / "test_types.jsonl"
+    # Upload parquet file
+    parquet_file = Path(__file__).parent / file_name
 
-    if not jsonl_file.exists():
-        print(f"Error: File {jsonl_file} does not exist")
+    if not parquet_file.exists():
+        print(f"Error: File {parquet_file} does not exist")
         sys.exit(1)
 
-    print(f"Uploading {jsonl_file} to s3://{BUCKET_NAME}/test_types.jsonl")
-    s3_client.upload_file(str(jsonl_file), BUCKET_NAME, "test_types.jsonl")
+    print(f"Uploading {parquet_file} to s3://{BUCKET_NAME}/{file_name}")
+    s3_client.upload_file(str(parquet_file), BUCKET_NAME, file_name)
     print("Upload successful!")
 
     # List files in bucket to verify

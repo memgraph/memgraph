@@ -16,6 +16,8 @@ module;
 
 #include "query/typed_value.hpp"
 
+import memgraph.utils.aws;
+
 export module memgraph.query.jsonl.reader;
 
 export namespace memgraph::query {
@@ -23,7 +25,8 @@ using Row = TypedValue::TMap;
 
 class JsonlReader {
  public:
-  explicit JsonlReader(std::string file, std::pmr::memory_resource *resource, std::function<void()> abort_check);
+  explicit JsonlReader(std::string file, std::optional<utils::S3Config> s3_cfg, std::pmr::memory_resource *resource,
+                       std::function<void()> abort_check);
   ~JsonlReader();
 
   JsonlReader(JsonlReader const &other) = delete;

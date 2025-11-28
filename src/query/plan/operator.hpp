@@ -2295,7 +2295,8 @@ class LoadCsv : public memgraph::query::plan::LogicalOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   LoadCsv() = default;
-  LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool with_header, bool ignore_bad,
+  LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file,
+          std::unordered_map<Expression *, Expression *> config_map, bool with_header, bool ignore_bad,
           Expression *delimiter, Expression *quote, Expression *nullif, Symbol row_var);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -2314,6 +2315,7 @@ class LoadCsv : public memgraph::query::plan::LogicalOperator {
   Expression *quote_{nullptr};
   Expression *nullif_{nullptr};
   Symbol row_var_;
+  std::unordered_map<Expression *, Expression *> config_map_;
 
   std::string ToString() const override;
 
@@ -2352,7 +2354,8 @@ class LoadJsonl : public memgraph::query::plan::LogicalOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   LoadJsonl() = default;
-  LoadJsonl(std::shared_ptr<LogicalOperator> input, Expression *file, Symbol row_var);
+  LoadJsonl(std::shared_ptr<LogicalOperator> input, Expression *file,
+            std::unordered_map<Expression *, Expression *> config_map, Symbol row_var);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
@@ -2368,6 +2371,7 @@ class LoadJsonl : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Expression *file_;
   Symbol row_var_;
+  std::unordered_map<Expression *, Expression *> config_map_;
 };
 
 /// Iterates over a collection of elements and applies one or more update

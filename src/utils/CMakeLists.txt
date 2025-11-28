@@ -4,6 +4,7 @@ add_library(mg::utils ALIAS mg-utils)
 target_sources(mg-utils
     PUBLIC
     FILE_SET CXX_MODULES FILES
+    aws.cppm
     fnv.cppm
 
     PRIVATE
@@ -65,7 +66,7 @@ find_package(spdlog REQUIRED)
 find_package(croncpp REQUIRED)
 
 target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json ZLIB::ZLIB croncpp::croncpp rollbear::strong_type gflags)
-target_link_libraries(mg-utils PRIVATE librdtsc stdc++fs Threads::Threads uuid rt mg-flags range-v3::range-v3)
+target_link_libraries(mg-utils PRIVATE AWS::aws-sdk-cpp-core AWS::aws-sdk-cpp-s3 AWS::aws-sdk-cpp-transfer librdtsc stdc++fs Threads::Threads uuid rt mg-flags range-v3::range-v3)
 
 add_library(mg-settings STATIC)
 target_sources(mg-settings

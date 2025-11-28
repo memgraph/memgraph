@@ -17,6 +17,7 @@ module;
 #include "utils/data_queue.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
+#include "utils/pmr/string.hpp"
 #include "utils/temporal.hpp"
 
 #include <chrono>
@@ -48,11 +49,10 @@ using namespace std::string_view_literals;
 namespace {
 
 constexpr std::string_view s3_prefix = "s3://";
-constexpr auto kAwsAccessKeyEnv = "AWS_ACCESS_KEY";
-constexpr auto kAwsRegionEnv = "AWS_REGION";
-constexpr auto kAwsSecretKeyEnv = "AWS_SECRET_KEY";
-constexpr auto kAwsEndpointUrlEnv = "AWS_ENDPOINT_URL";
 
+// NOTE: This is very similar to the GlobalS3APIManager from utils.aws.cppm but not completely the same.
+// Arrow has an adapter for S3 library and that adapter does more things during the initialization than
+// AWS's InitAPI.
 class GlobalS3APIManager {
  public:
   GlobalS3APIManager(const GlobalS3APIManager &) = delete;
@@ -82,45 +82,6 @@ class GlobalS3APIManager {
   }
 };
 
-auto BuildS3Config(memgraph::query::ParquetFileConfig &config) -> memgraph::query::ParquetFileConfig {
-  auto get_env_or_empty = [](const char *env_name) -> std::optional<std::string> {
-    if (const auto *const env_val = std::getenv(env_name)) {
-      return std::string{env_val};
-    }
-    return std::nullopt;
-  };
-
-  config.aws_region = config.aws_region
-                          .or_else([&] {
-                            auto setting = memgraph::flags::run_time::GetAwsRegion();
-                            return setting.empty() ? std::nullopt : std::make_optional(std::move(setting));
-                          })
-                          .or_else([&] { return get_env_or_empty(kAwsRegionEnv); });
-
-  config.aws_access_key = config.aws_access_key
-                              .or_else([&] {
-                                auto setting = memgraph::flags::run_time::GetAwsAccessKey();
-                                return setting.empty() ? std::nullopt : std::make_optional(std::move(setting));
-                              })
-                              .or_else([&] { return get_env_or_empty(kAwsAccessKeyEnv); });
-
-  config.aws_secret_key = config.aws_secret_key
-                              .or_else([&] {
-                                auto setting = memgraph::flags::run_time::GetAwsSecretKey();
-                                return setting.empty() ? std::nullopt : std::make_optional(std::move(setting));
-                              })
-                              .or_else([&] { return get_env_or_empty(kAwsSecretKeyEnv); });
-
-  config.aws_endpoint_url = config.aws_endpoint_url
-                                .or_else([&] {
-                                  auto setting = memgraph::flags::run_time::GetAwsEndpointUrl();
-                                  return setting.empty() ? std::nullopt : std::make_optional(std::move(setting));
-                                })
-                                .or_else([&] { return get_env_or_empty(kAwsEndpointUrlEnv); });
-
-  return config;
-}
-
 auto BuildHeader(std::shared_ptr<arrow::Schema> const &schema, memgraph::utils::MemoryResource *resource)
     -> memgraph::query::Header {
   memgraph::query::Header header(resource);
@@ -134,34 +95,10 @@ auto BuildHeader(std::shared_ptr<arrow::Schema> const &schema, memgraph::utils::
 }
 
 // nullptr for error
-auto LoadFileFromS3(memgraph::query::ParquetFileConfig const &s3_config)
+auto LoadFileFromS3(memgraph::utils::pmr::string const &file, memgraph::utils::S3Config const &s3_config)
     -> std::unique_ptr<parquet::arrow::FileReader> {
   GlobalS3APIManager::GetInstance();
-
-  // Users needs to set aws_region, aws_access_key and aws_secret_key in some way. aws_endpoint_url is optional
-  if (!s3_config.aws_region.has_value()) {
-    spdlog::error(
-        "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} or "
-        "env variable {}",
-        memgraph::query::kAwsRegionQuerySetting, kAwsRegionEnv);
-    return nullptr;
-  }
-
-  if (!s3_config.aws_access_key.has_value()) {
-    spdlog::error(
-        "AWS access key configuration parameter not provided. Please provide it through the query, run-time setting {} "
-        "or env variable {}",
-        memgraph::query::kAwsAccessKeyQuerySetting, kAwsAccessKeyEnv);
-    return nullptr;
-  }
-
-  if (!s3_config.aws_secret_key.has_value()) {
-    spdlog::error(
-        "AWS secret key configuration parameter not provided. Please provide it through the query, run-time setting {} "
-        "or env variable {}",
-        memgraph::query::kAwsSecretKeyQuerySetting, kAwsSecretKeyEnv);
-    return nullptr;
-  }
+  s3_config.Validate();
 
   auto s3_options = arrow::fs::S3Options::FromAccessKey(*s3_config.aws_access_key, *s3_config.aws_secret_key);
   s3_options.region = *s3_config.aws_region;
@@ -178,8 +115,8 @@ auto LoadFileFromS3(memgraph::query::ParquetFileConfig const &s3_config)
 
   auto const &s3_fs = *maybe_s3_fs;
 
-  auto const uri_wo_prefix = s3_config.file.substr(s3_prefix.size());
-  auto rnd_acc_file = s3_fs->OpenInputFile(uri_wo_prefix);
+  auto const uri_wo_prefix = file.substr(s3_prefix.size());
+  auto rnd_acc_file = s3_fs->OpenInputFile(std::string{uri_wo_prefix});
   if (!rnd_acc_file.ok()) {
     spdlog::error(rnd_acc_file.status().message());
     return nullptr;
@@ -196,7 +133,7 @@ auto LoadFileFromS3(memgraph::query::ParquetFileConfig const &s3_config)
 }
 
 // nullptr for error
-auto LoadFileFromDisk(std::string const &file_path) -> std::unique_ptr<parquet::arrow::FileReader> {
+auto LoadFileFromDisk(std::string file_path) -> std::unique_ptr<parquet::arrow::FileReader> {
   arrow::MemoryPool *pool = arrow::default_memory_pool();
 
   auto maybe_file = arrow::io::ReadableFile::Open(file_path, pool);
@@ -650,38 +587,42 @@ auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   return true;
 }
 
-ParquetReader::ParquetReader(ParquetFileConfig parquet_file_config, utils::MemoryResource *resource,
+ParquetReader::ParquetReader(utils::pmr::string const &uri, utils::S3Config s3_config, utils::MemoryResource *resource,
                              std::function<void()> abort_check) {
   auto file_reader = std::invoke([&]() -> std::unique_ptr<parquet::arrow::FileReader> {
     constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
     constexpr auto s3_matcher = ctre::starts_with<"s3://">;
 
     // When using a file that should be downloaded using https or ftp, we first download it and then load it
-    if (url_matcher(parquet_file_config.file)) {
-      auto const base_path = std::filesystem::path{"/tmp"} / std::filesystem::path{parquet_file_config.file}.filename();
+    if (url_matcher(uri)) {
+      auto const base_path = std::filesystem::path{"/tmp"} / std::filesystem::path{uri}.filename();
       auto [local_file_path, file] = utils::CreateUniqueDownloadFile(base_path);
-
-      if (requests::CreateAndDownloadFile(parquet_file_config.file, std::move(file),
+      if (requests::CreateAndDownloadFile(std::string{uri}, std::move(file),
                                           memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
                                           std::move(abort_check))) {
         utils::OnScopeExit const on_exit{[&local_file_path]() { utils::DeleteFile(local_file_path); }};
 
         return LoadFileFromDisk(local_file_path);
       }
-      spdlog::error("Couldn't download file {}", parquet_file_config.file);
+      spdlog::error("Couldn't download file {}", uri);
       return nullptr;
     }
 
-    if (s3_matcher(parquet_file_config.file)) {
-      return LoadFileFromS3(BuildS3Config(parquet_file_config));
+    if (s3_matcher(uri)) {
+      try {
+        return LoadFileFromS3(uri, s3_config);
+      } catch (utils::BasicException const &e) {
+        spdlog::error(e.what());
+        return nullptr;
+      }
     }
 
     // Regular file that already exists on disk
-    return LoadFileFromDisk(parquet_file_config.file);
+    return LoadFileFromDisk(std::string{uri});
   });
 
   if (!file_reader) {
-    throw utils::BasicException("Failed to load file {}.", parquet_file_config.file);
+    throw utils::BasicException("Failed to load file {}.", uri);
   }
 
   auto maybe_batch_reader = file_reader->GetRecordBatchReader();

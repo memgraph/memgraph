@@ -25,7 +25,6 @@
 #include <utility>
 #include <vector>
 
-#include "utils/exceptions.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::utils {
