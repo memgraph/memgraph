@@ -351,7 +351,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     }
 
     // Verify the path from Aggregate to Scan is read-only
-    if (!IsPathReadOnly(op.input(), target_scan)) {
+    if (!IsPathReadOnly(&op, target_scan.get())) {
       // Path contains write operators, cannot parallelize
       prev_ops_.push_back(&op);
       return true;
@@ -897,77 +897,18 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
   }
 
   // Helper function to check if a path from start to target contains only read operators
-  bool IsPathReadOnly(const std::shared_ptr<LogicalOperator> &start, const std::shared_ptr<LogicalOperator> &target) {
+  bool IsPathReadOnly(LogicalOperator *start, LogicalOperator *target) {
     if (!start || !target) {
       return false;
     }
-
-    std::shared_ptr<LogicalOperator> current = start;
-    while (current && current != target) {
-      // Check if this operator is read-only
-      ReadWriteTypeChecker checker;
-      current->Accept(checker);
-
-      // Only allow NONE (no DB access) or R (read-only) operators
-      if (checker.type != ReadWriteTypeChecker::RWType::NONE && checker.type != ReadWriteTypeChecker::RWType::R) {
-        return false;
-      }
-
-      // Traverse down the input chain
-      if (current->HasSingleInput()) {
-        current = current->input();
-      } else {
-        // For multi-input operators, we need to check all branches
-        // For now, we only check the path that leads to target
-        // This is a simplification - ideally we'd check all paths
-        if (auto *union_op = dynamic_cast<Union *>(current.get())) {
-          // Check both branches
-          if (union_op->left_op_ && IsPathReadOnly(union_op->left_op_, target)) {
-            return true;
-          }
-          if (union_op->right_op_ && IsPathReadOnly(union_op->right_op_, target)) {
-            return true;
-          }
-          return false;
-        }
-        if (auto *cartesian_op = dynamic_cast<Cartesian *>(current.get())) {
-          if (cartesian_op->left_op_ && IsPathReadOnly(cartesian_op->left_op_, target)) {
-            return true;
-          }
-          if (cartesian_op->right_op_ && IsPathReadOnly(cartesian_op->right_op_, target)) {
-            return true;
-          }
-          return false;
-        }
-        if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current.get())) {
-          if (indexed_join_op->main_branch_ && IsPathReadOnly(indexed_join_op->main_branch_, target)) {
-            return true;
-          }
-          if (indexed_join_op->sub_branch_ && IsPathReadOnly(indexed_join_op->sub_branch_, target)) {
-            return true;
-          }
-          return false;
-        }
-        if (auto *hash_join_op = dynamic_cast<HashJoin *>(current.get())) {
-          if (hash_join_op->left_op_ && IsPathReadOnly(hash_join_op->left_op_, target)) {
-            return true;
-          }
-          if (hash_join_op->right_op_ && IsPathReadOnly(hash_join_op->right_op_, target)) {
-            return true;
-          }
-          return false;
-        }
-        // Terminal operators with no inputs - cannot have a path to target
-        if (dynamic_cast<Once *>(current.get()) != nullptr || dynamic_cast<OutputTable *>(current.get()) != nullptr ||
-            dynamic_cast<OutputTableStream *>(current.get()) != nullptr) {
-          return false;
-        }
-        // Unknown multi-input operator, be conservative
-        return false;
-      }
-    }
-
-    return current == target;
+    // This checks the whole path (till the end)
+    // Temporary cut off the plan after target
+    const auto input = target->input();
+    target->set_input(std::make_shared<Once>());
+    ReadWriteTypeChecker checker;
+    start->Accept(checker);
+    target->set_input(input);
+    return checker.type == ReadWriteTypeChecker::RWType::R || checker.type == ReadWriteTypeChecker::RWType::NONE;
   }
 
   // Helper function to get symbols produced by a Scan operator
@@ -994,15 +935,16 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
   }
 
   // Helper function to check if a Scan produces any of the required symbols
-  bool ScanProducesSymbols(const std::shared_ptr<LogicalOperator> &scan,
-                           const std::set<Symbol::Position_t> &required_symbols) {
+  size_t ScanProducesSymbols(const std::shared_ptr<LogicalOperator> &scan,
+                             const std::set<Symbol::Position_t> &required_symbols) {
     auto scan_symbols = GetScanOutputSymbols(scan);
+    size_t found = 0;
     for (const auto &sym : scan_symbols) {
       if (required_symbols.find(sym.position()) != required_symbols.end()) {
-        return true;
+        found++;
       }
     }
-    return false;
+    return found;
   }
 
   // Helper function to extract input symbols that an operator depends on
@@ -1082,10 +1024,17 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
 
       // Check if this is a Scan that produces any of the symbols we're looking for
       if (utils::IsSubtype(*current, ScanAll::kType)) {
-        if (ScanProducesSymbols(current, symbols_to_find)) {
+        size_t found = ScanProducesSymbols(current, symbols_to_find);
+        // Exact match
+        if (found == symbols_to_find.size()) {
           target_scan = current;
           scan_parent = parent;
-          // Continue to find the deepest scan
+          return true;
+        }
+        // Continue to find the deepest scan
+        if (found > 0) {
+          target_scan = current;
+          scan_parent = parent;
         }
       }
 
@@ -1165,7 +1114,6 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
 
         // Update symbols_to_find to include input symbols this operator depends on
         std::set<Symbol::Position_t> new_symbols_to_find = symbols_to_find;
-
         if (!extracted_symbols.empty()) {
           // We found expressions to analyze - use the extracted symbols
           // These are the input symbols the operator depends on
