@@ -55,16 +55,28 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
     //
     // For READ UNCOMMITTED -> we accept any change. (already handled above)
     auto ts = delta->timestamp->load(std::memory_order_acquire);
+    bool const is_delta_interleaved = IsDeltaInterleaved(*delta);
+
     if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && ts < transaction->start_timestamp) ||
         (transaction->isolation_level == IsolationLevel::READ_COMMITTED && ts < kTransactionInitialId)) {
-      break;
+      if (is_delta_interleaved) {
+        delta = delta->next.load(std::memory_order_acquire);
+        continue;
+      } else {
+        break;
+      }
     }
 
     // We shouldn't undo our newest changes because the user requested a NEW
     // view of the database.
     auto cid = delta->command_id;
     if (view == View::NEW && ts == commit_timestamp && cid <= transaction->command_id) {
-      break;
+      if (is_delta_interleaved) {
+        delta = delta->next.load(std::memory_order_acquire);
+        continue;
+      } else {
+        break;
+      }
     }
 
     // We shouldn't undo our older changes because the user requested a OLD view
@@ -73,7 +85,12 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
         (cid < transaction->command_id ||
          // This check is used for on-disk storage. The vertex is valid only if it was deserialized in this transaction.
          (cid == transaction->command_id && delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT))) {
-      break;
+      if (is_delta_interleaved) {
+        delta = delta->next.load(std::memory_order_acquire);
+        continue;
+      } else {
+        break;
+      }
     }
 
     // This delta must be applied, call the callback.
@@ -95,12 +112,59 @@ template <typename TObj>
 inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   if (object->delta == nullptr) return true;
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
-  if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
+
+  if (ts == transaction->transaction_id) {
+    // If head delta from same transaction is interleaved, cannot add non-commutative operation
+    if (IsDeltaInterleaved(*object->delta)) {
+      transaction->has_serialization_error = true;
+      return false;
+    }
+    return true;
+  }
+
+  if (ts < transaction->start_timestamp) {
     return true;
   }
 
   transaction->has_serialization_error = true;
   return false;
+}
+
+enum class WriteResult : uint8_t { SUCCESS, INTERLEAVED, CONFLICT };
+
+template <typename TObj>
+inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *object, Delta::Action action) {
+  DMG_ASSERT(IsActionCommutative(action));
+
+  if (object->delta == nullptr) return WriteResult::SUCCESS;
+
+  auto ts = object->delta->timestamp->load(std::memory_order_acquire);
+
+  if (ts == transaction->transaction_id) {
+    // If the head delta belongs to the same transaction and is interleaved,
+    // then only another commutative action delta can be prepended.
+    if (IsDeltaInterleaved(*object->delta)) {
+      return WriteResult::INTERLEAVED;
+    }
+    // Head delta from same transaction is not interleaved - allow any new delta
+    return WriteResult::SUCCESS;
+  }
+
+  // Standard MVCC visibility rules: if the head delta was committed before
+  // this transaction started, any delta action can be prepended.
+  if (ts < transaction->start_timestamp) {
+    return WriteResult::SUCCESS;
+  }
+
+  // If the head delta resulted from a commutative operation from another
+  // (as yet uncommited) transaction, we can prepend an interleaved delta.
+  if (IsResultOfCommutativeOperation(object->delta->action)) {
+    return WriteResult::INTERLEAVED;
+  }
+
+  // Standard MVCC serialization conflict.
+  transaction->has_serialization_error = true;
+  return WriteResult::CONFLICT;
 }
 
 /// This function creates a `DELETE_OBJECT` delta in the transaction and returns
@@ -179,6 +243,7 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   if (object->delta) {
     object->delta->prev.Set(delta);
   }
+
   // 4. Finally, we need to set the object's delta to the new delta. The garbage
   // collector and other transactions will acquire the object lock to read the
   // delta from the object. Because the lock is held during the whole time this
