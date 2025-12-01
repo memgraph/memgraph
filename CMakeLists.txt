@@ -219,6 +219,7 @@ find_package(Snappy REQUIRED)
 find_package(Arrow REQUIRED)
 find_package(AWSSDK REQUIRED CONFIG COMPONENTS s3)
 find_package(RdKafka REQUIRED)
+find_package(jemalloc REQUIRED)
 
 # Now load mgclient which depends on OpenSSL
 find_package(OpenSSL REQUIRED)
