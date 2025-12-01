@@ -1,6 +1,7 @@
 name: Build Conan Dependency
 
 on:
+  push:
   workflow_dispatch:
     inputs:
       dependency:
@@ -46,7 +47,7 @@ on:
 
 jobs:
   build_single_os:
-    if: ${{ inputs.os != 'all' }}
+    if: ${{ inputs.os != 'all' && github.event_name != 'push' }}
     name: "Build Dependency: ${{ inputs.dependency }} for ${{ inputs.os }}"
     uses: ./.github/workflows/reusable_build_conan_dependency.yml
     with:
@@ -58,7 +59,7 @@ jobs:
     secrets: inherit
 
   build_all_os:
-    if: ${{ inputs.os == 'all' }}
+    if: ${{ inputs.os == 'all' && github.event_name != 'push' }}
     name: "Build Dependency: ${{ inputs.dependency }} for all Distributions"
     strategy:
       matrix:
@@ -82,4 +83,31 @@ jobs:
       build_type: ${{ matrix.build_type }}
       additional_build_args: ${{ matrix.additional_build_args }}
       upload: ${{ inputs.upload }}
+    secrets: inherit
+
+  build_push_dependencies:
+    if: ${{ github.event_name == 'push' }}
+    name: "Build and Push Dependencies"
+    strategy:
+      matrix:
+        os: [centos-9, centos-10, debian-12 , debian-12-arm, debian-13, debian-13-arm, fedora-42, fedora-42-arm, rocky-10, ubuntu-22.04, ubuntu-24.04, ubuntu-24.04-arm]
+        build_type: [Release]
+        additional_build_args: ['']
+        include:
+          - os: ubuntu-24.04
+            build_type: RelWithDebInfo
+            additional_build_args: ''
+          - os: ubuntu-24.04
+            build_type: Debug
+            additional_build_args: ''
+          - os: ubuntu-24.04
+            build_type: Debug
+            additional_build_args: '--coverage --asan --ubsan'
+    uses: ./.github/workflows/reusable_build_conan_dependency.yml
+    with:
+      dependency: all
+      os: ${{ matrix.os }}
+      build_type: ${{ matrix.build_type }}
+      additional_build_args: ${{ matrix.additional_build_args }}
+      upload: false
     secrets: inherit
