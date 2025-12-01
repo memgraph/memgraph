@@ -301,7 +301,6 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanParallelByEdgeProperty & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgePropertyValue & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgePropertyRange & /*unused*/) override;
-  bool PreVisit(ScanParallelByEdgeId & /*unused*/) override;
   bool PreVisit(ParallelMerge & /*unused*/) override;
   bool PreVisit(AggregateParallel & /*unused*/) override;
 
@@ -397,7 +396,6 @@ PRE_VISIT_DBA_TS(ScanParallelByEdgeTypePropertyRange);
 PRE_VISIT_DBA_TS(ScanParallelByEdgeProperty);
 PRE_VISIT_DBA_TS(ScanParallelByEdgePropertyValue);
 PRE_VISIT_DBA_TS(ScanParallelByEdgePropertyRange);
-PRE_VISIT_DBA_TS(ScanParallelByEdgeId);
 
 bool PlanPrinter::PreVisit(AggregateParallel &op) {
   (void)op;  // Suppress unused variable warning
@@ -983,24 +981,6 @@ bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgePropertyRange &op) {
   self["property"] = ToJson(op.property_, *dba_);
   self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
   self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
-  self["num_threads"] = op.num_threads_;
-  self["state_symbol"] = ToJson(op.state_symbol_);
-
-  op.input_->Accept(*this);
-  self["input"] = PopOutput();
-
-  output_ = std::move(self);
-  return false;
-}
-
-bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeId &op) {
-  json self;
-  self["name"] = "ScanParallelByEdgeId";
-  self["edge_symbol"] = ToJson(op.edge_symbol_);
-  self["node1_symbol"] = ToJson(op.node1_symbol_);
-  self["node2_symbol"] = ToJson(op.node2_symbol_);
-  self["direction"] = static_cast<int>(op.direction_);
-  self["expression"] = ToJson(op.expression_, *dba_);
   self["num_threads"] = op.num_threads_;
   self["state_symbol"] = ToJson(op.state_symbol_);
 
