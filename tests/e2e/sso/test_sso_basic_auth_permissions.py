@@ -106,6 +106,7 @@ def test_basic_auth_user_has_correct_permissions():
             session.run("CREATE USER test_user IDENTIFIED BY 'test_pass';").consume()
             session.run("DROP USER test_user;").consume()
 
+            # should be able to create triggers
             create_trigger_query = """
                 CREATE TRIGGER test_trigger
                 ON CREATE AFTER COMMIT EXECUTE
