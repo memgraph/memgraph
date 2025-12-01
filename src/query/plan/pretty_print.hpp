@@ -84,7 +84,6 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanParallelByEdgeProperty & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgePropertyValue & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgePropertyRange & /*unused*/) override;
-  bool PreVisit(ScanParallelByEdgeId & /*unused*/) override;
   bool PreVisit(ParallelMerge & /*unused*/) override;
   bool PreVisit(AggregateParallel & /*unused*/) override;
 
@@ -144,7 +143,7 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   /// and printing the branch name.
   void Branch(LogicalOperator &op, const std::string &branch_name = "");
 
-  char StartSymbol() const { return is_parallel_ ? '#' : '*'; }
+  char StartSymbol() const { return is_parallel_ ? 'P' : '*'; }
 
   int64_t depth_{0};
   const DbAccessor *dba_{nullptr};

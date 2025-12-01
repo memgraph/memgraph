@@ -1115,6 +1115,94 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgeTypeProperty::Clone(AstStorage *st
   return object;
 }
 
+namespace {
+std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optional<utils::Bound<Expression *>> bound,
+                                                                      ExpressionEvaluator &evaluator) {
+  if (!bound) return std::nullopt;
+  const auto &value = bound->value()->Accept(evaluator);
+  try {
+    const auto &property_value = value.ToPropertyValue(evaluator.GetNameIdMapper());
+    switch (property_value.type()) {
+      case storage::PropertyValue::Type::Bool:
+      case storage::PropertyValue::Type::List:
+      case storage::PropertyValue::Type::NumericList:
+      case storage::PropertyValue::Type::IntList:
+      case storage::PropertyValue::Type::DoubleList:
+      case storage::PropertyValue::Type::Map:
+      case storage::PropertyValue::Type::Enum:
+      case storage::PropertyValueType::Point2d:
+      case storage::PropertyValueType::Point3d:
+        // Prevent indexed lookup with something that would fail if we did
+        // the original filter with `operator<`. Note, for some reason,
+        // Cypher does not support comparing boolean values.
+        throw QueryRuntimeException("Range operator does not provide comparison methods for type {}.", value.type());
+      case storage::PropertyValue::Type::Null:
+      case storage::PropertyValue::Type::Int:
+      case storage::PropertyValue::Type::Double:
+      case storage::PropertyValue::Type::String:
+      case storage::PropertyValue::Type::TemporalData:
+      case storage::PropertyValue::Type::ZonedTemporalData:
+        return std::make_optional(utils::Bound<storage::PropertyValue>(property_value, bound->type()));
+    }
+  } catch (const TypedValueException &) {
+    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+  }
+}
+
+// Helper function to evaluate an expression and convert it to a property value.
+std::optional<storage::PropertyValue> EvaluateExpressionToPropertyValue(Expression *expression, Frame &frame,
+                                                                        ExecutionContext &context, storage::View view) {
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view,
+                                nullptr, &context.number_of_hops, context.user_or_role);
+  auto value = expression->Accept(evaluator);
+  if (value.IsNull()) {
+    return std::nullopt;
+  }
+  if (!value.IsPropertyValue()) {
+    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+  }
+  return value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
+}
+
+// Helper function to convert bounds and check for null values.
+std::pair<std::optional<utils::Bound<storage::PropertyValue>>, std::optional<utils::Bound<storage::PropertyValue>>>
+ConvertBoundsAndCheckNull(std::optional<utils::Bound<Expression *>> lower_bound,
+                          std::optional<utils::Bound<Expression *>> upper_bound, ExpressionEvaluator &evaluator) {
+  auto maybe_lower = TryConvertToBound(lower_bound, evaluator);
+  auto maybe_upper = TryConvertToBound(upper_bound, evaluator);
+
+  // If any bound is null, then the comparison would result in nulls.
+  // This is treated as not satisfying the filter.
+  if (maybe_lower && maybe_lower->value().IsNull()) {
+    return {std::nullopt, std::nullopt};
+  }
+  if (maybe_upper && maybe_upper->value().IsNull()) {
+    return {std::nullopt, std::nullopt};
+  }
+
+  return {maybe_lower, maybe_upper};
+}
+
+// Helper function to evaluate expression ranges and check for null bounds.
+// Returns nullopt if any bound is null.
+std::optional<std::vector<storage::PropertyValueRange>> EvaluateExpressionRangesAndCheckNull(
+    const std::vector<ExpressionRange> &expression_ranges, ExpressionEvaluator &evaluator) {
+  auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
+  auto prop_value_ranges = expression_ranges | rv::transform(to_property_value_range) | ranges::to_vector;
+
+  auto const bound_is_null = [](auto &&range) {
+    return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
+  };
+
+  // If either upper or lower bounds are `null`, then nothing can satisfy the filter.
+  if (ranges::any_of(prop_value_ranges, bound_is_null)) {
+    return std::nullopt;
+  }
+
+  return prop_value_ranges;
+}
+}  // namespace
+
 ScanAllByEdgeTypePropertyValue::ScanAllByEdgeTypePropertyValue(const std::shared_ptr<LogicalOperator> &input,
                                                                Symbol edge_symbol, Symbol node1_symbol,
                                                                Symbol node2_symbol, EdgeAtom::Direction direction,
@@ -1134,16 +1222,9 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource
       -> std::optional<decltype(context.db_accessor->Edges(view_, common_.edge_types[0], property_,
                                                            storage::PropertyValue()))> {
     auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
-                                  nullptr, &context.number_of_hops, context.user_or_role);
-    auto value = expression_->Accept(evaluator);
-    if (value.IsNull()) return std::nullopt;
-    if (!value.IsPropertyValue()) {
-      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-    }
-    return std::make_optional(
-        db->Edges(view_, common_.edge_types[0], property_,
-                  value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper())));
+    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
+    if (!maybe_prop_value) return std::nullopt;
+    return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, *maybe_prop_value));
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
@@ -1181,41 +1262,6 @@ ScanAllByEdgeTypePropertyRange::ScanAllByEdgeTypePropertyRange(
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeTypePropertyRange)
 
-namespace {
-std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optional<utils::Bound<Expression *>> bound,
-                                                                      ExpressionEvaluator &evaluator) {
-  if (!bound) return std::nullopt;
-  const auto &value = bound->value()->Accept(evaluator);
-  try {
-    const auto &property_value = value.ToPropertyValue(evaluator.GetNameIdMapper());
-    switch (property_value.type()) {
-      case storage::PropertyValue::Type::Bool:
-      case storage::PropertyValue::Type::List:
-      case storage::PropertyValue::Type::NumericList:
-      case storage::PropertyValue::Type::IntList:
-      case storage::PropertyValue::Type::DoubleList:
-      case storage::PropertyValue::Type::Map:
-      case storage::PropertyValue::Type::Enum:
-      case storage::PropertyValueType::Point2d:
-      case storage::PropertyValueType::Point3d:
-        // Prevent indexed lookup with something that would fail if we did
-        // the original filter with `operator<`. Note, for some reason,
-        // Cypher does not support comparing boolean values.
-        throw QueryRuntimeException("Range operator does not provide comparison methods for type {}.", value.type());
-      case storage::PropertyValue::Type::Null:
-      case storage::PropertyValue::Type::Int:
-      case storage::PropertyValue::Type::Double:
-      case storage::PropertyValue::Type::String:
-      case storage::PropertyValue::Type::TemporalData:
-      case storage::PropertyValue::Type::ZonedTemporalData:
-        return std::make_optional(utils::Bound<storage::PropertyValue>(property_value, bound->type()));
-    }
-  } catch (const TypedValueException &) {
-    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-  }
-}
-}  // namespace
-
 UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyRangeOperator);
 
@@ -1226,13 +1272,8 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
                                   nullptr, &context.number_of_hops, context.user_or_role);
 
-    auto maybe_lower = TryConvertToBound(lower_bound_, evaluator);
-    auto maybe_upper = TryConvertToBound(upper_bound_, evaluator);
-
-    // If any bound is null, then the comparison would result in nulls. This
-    // is treated as not satisfying the filter, so return no vertices.
-    if (maybe_lower && maybe_lower->value().IsNull()) return std::nullopt;
-    if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
+    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    if (!maybe_lower && !maybe_upper) return std::nullopt;
 
     return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, maybe_lower, maybe_upper));
   };
@@ -1320,15 +1361,9 @@ UniqueCursorPtr ScanAllByEdgePropertyValue::MakeCursor(utils::MemoryResource *me
       -> std::optional<decltype(context.db_accessor->Edges(view_, common_.edge_types[0], property_,
                                                            storage::PropertyValue()))> {
     auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
-                                  nullptr, &context.number_of_hops, context.user_or_role);
-    auto value = expression_->Accept(evaluator);
-    if (value.IsNull()) return std::nullopt;
-    if (!value.IsPropertyValue()) {
-      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-    }
-    return std::make_optional(db->Edges(
-        view_, property_, value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper())));
+    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
+    if (!maybe_prop_value) return std::nullopt;
+    return std::make_optional(db->Edges(view_, property_, *maybe_prop_value));
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
@@ -1374,13 +1409,8 @@ UniqueCursorPtr ScanAllByEdgePropertyRange::MakeCursor(utils::MemoryResource *me
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
                                   nullptr, &context.number_of_hops, context.user_or_role);
 
-    auto maybe_lower = TryConvertToBound(lower_bound_, evaluator);
-    auto maybe_upper = TryConvertToBound(upper_bound_, evaluator);
-
-    // If any bound is null, then the comparison would result in nulls. This
-    // is treated as not satisfying the filter, so return no vertices.
-    if (maybe_lower && maybe_lower->value().IsNull()) return std::nullopt;
-    if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
+    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    if (!maybe_lower && !maybe_upper) return std::nullopt;
 
     return std::make_optional(db->Edges(view_, property_, maybe_lower, maybe_upper));
   };
@@ -1437,20 +1467,12 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
                                   nullptr, &context.number_of_hops, context.user_or_role);
 
-    auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
-    auto prop_value_ranges = expression_ranges_ | rv::transform(to_property_value_range) | ranges::to_vector;
-
-    auto const bound_is_null = [](auto &&range) {
-      return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
-    };
-
-    // If either upper or lower bounds are `null`, then nothing can satisy the
-    // filter.
-    if (ranges::any_of(prop_value_ranges, bound_is_null)) {
+    auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
+    if (!maybe_prop_value_ranges) {
       return std::nullopt;
     }
 
-    return std::make_optional(db->Vertices(view_, label_, properties_, prop_value_ranges));
+    return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanAllByLabelProperties");
@@ -5921,7 +5943,7 @@ class AggregateCursor : public Cursor {
    */
   bool ProcessAll(Frame *frame, ExecutionContext *context) {
     ExpressionEvaluator evaluator(frame, context->symbol_table, context->evaluation_context, context->db_accessor,
-                                  storage::View::NEW, nullptr, &context->number_of_hops);
+                                  storage::View::NEW, nullptr, &context->number_of_hops, context->user_or_role);
 
     bool pulled = false;
     while (input_cursor_->Pull(*frame, *context)) {
@@ -8279,7 +8301,7 @@ class HashJoinCursor : public Cursor {
 
         // Check if the join value from the pulled frame is shared with any left frames
         ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                      storage::View::OLD, nullptr, &context.number_of_hops);
+                                      storage::View::OLD, nullptr, &context.number_of_hops, context.user_or_role);
         auto right_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
         if (hashtable_.contains(right_value)) {
           // If so, finish pulling for now and proceed to joining the pulled frame
@@ -9136,22 +9158,16 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
-                                  nullptr, &context.number_of_hops);
+                                  nullptr, &context.number_of_hops, context.user_or_role);
 
-    auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
-    auto prop_value_ranges = expression_ranges_ | rv::transform(to_property_value_range) | ranges::to_vector;
-
-    auto const bound_is_null = [](auto &&range) {
-      return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
-    };
-
-    if (ranges::any_of(prop_value_ranges, bound_is_null)) {
+    auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
+    if (!maybe_prop_value_ranges) {
       // Return empty chunks if bounds are null - need to handle this case
       // For now, we'll create a dummy chunks object, but this might need special handling
-      return db->ChunkedVertices(view_, label_, properties_, prop_value_ranges, num_threads_);
+      return db->ChunkedVertices(view_, label_, properties_, std::vector<storage::PropertyValueRange>{}, num_threads_);
     }
 
-    return db->ChunkedVertices(view_, label_, properties_, prop_value_ranges, num_threads_);
+    return db->ChunkedVertices(view_, label_, properties_, *maybe_prop_value_ranges, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
 }
@@ -9236,16 +9252,11 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryRes
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
-                                  nullptr, &context.number_of_hops);
+                                  nullptr, &context.number_of_hops, context.user_or_role);
 
-    auto maybe_lower = TryConvertToBound(lower_bound_, evaluator);
-    auto maybe_upper = TryConvertToBound(upper_bound_, evaluator);
-
-    if (maybe_lower && maybe_lower->value().IsNull()) {
+    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    if (!maybe_lower && !maybe_upper) {
       // Return empty chunks - need special handling
-      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, num_threads_);
-    }
-    if (maybe_upper && maybe_upper->value().IsNull()) {
       return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, num_threads_);
     }
 
@@ -9332,19 +9343,12 @@ UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResourc
 
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
-                                  nullptr, &context.number_of_hops);
-    auto value = expression_->Accept(evaluator);
-    if (value.IsNull()) {
+    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
+    if (!maybe_prop_value) {
       // Return empty chunks - need special handling
       return db->ChunkedEdges(view_, property_, storage::PropertyValue(), num_threads_);
     }
-    if (!value.IsPropertyValue()) {
-      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-    }
-    return db->ChunkedEdges(view_, property_,
-                            value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper()),
-                            num_threads_);
+    return db->ChunkedEdges(view_, property_, *maybe_prop_value, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
 }
@@ -9387,15 +9391,10 @@ UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResourc
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
-                                  nullptr, &context.number_of_hops);
+                                  nullptr, &context.number_of_hops, context.user_or_role);
 
-    auto maybe_lower = TryConvertToBound(lower_bound_, evaluator);
-    auto maybe_upper = TryConvertToBound(upper_bound_, evaluator);
-
-    if (maybe_lower && maybe_lower->value().IsNull()) {
-      return db->ChunkedEdges(view_, property_, std::nullopt, std::nullopt, num_threads_);
-    }
-    if (maybe_upper && maybe_upper->value().IsNull()) {
+    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    if (!maybe_lower && !maybe_upper) {
       return db->ChunkedEdges(view_, property_, std::nullopt, std::nullopt, num_threads_);
     }
 
@@ -9583,19 +9582,13 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyValue::MakeCursor(utils::MemoryRes
   // with equal bounds to simulate the value lookup
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
-                                  nullptr, &context.number_of_hops);
-    auto value = expression_->Accept(evaluator);
-    if (value.IsNull()) {
+    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
+    if (!maybe_prop_value) {
       // Return empty chunks
       return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, num_threads_);
     }
-    if (!value.IsPropertyValue()) {
-      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-    }
-    auto prop_value = value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
     // Use range with equal bounds to simulate value lookup
-    auto bound = utils::MakeBoundInclusive(prop_value);
+    auto bound = utils::MakeBoundInclusive(*maybe_prop_value);
     return db->ChunkedEdges(view_, edge_type_, property_, bound, bound, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
@@ -9619,69 +9612,6 @@ std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyValue::Clone(AstS
   object->state_symbol_ = state_symbol_;
   object->edge_type_ = edge_type_;
   object->property_ = property_;
-  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-  return object;
-}
-
-ScanParallelByEdgeId::ScanParallelByEdgeId(const std::shared_ptr<LogicalOperator> &input, storage::View view,
-                                           size_t num_threads, Symbol state_symbol, Symbol edge_symbol,
-                                           Symbol node1_symbol, Symbol node2_symbol, EdgeAtom::Direction direction,
-                                           Expression *expression)
-    : ScanParallel(input, view, num_threads, state_symbol),
-      edge_symbol_(edge_symbol),
-      node1_symbol_(node1_symbol),
-      node2_symbol_(node2_symbol),
-      direction_(direction),
-      expression_(expression) {}
-
-ACCEPT_WITH_INPUT(ScanParallelByEdgeId)
-
-UniqueCursorPtr ScanParallelByEdgeId::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
-  // Note: ScanAllByEdgeId returns a single edge, so chunking doesn't make much sense.
-  // However, we implement it for consistency. The expression is evaluated and a single edge is found.
-  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
-                                  nullptr, &context.number_of_hops);
-    auto value = expression_->Accept(evaluator);
-    if (!value.IsNumeric()) {
-      // Return empty chunks - we can't chunk a single edge lookup
-      return db->ChunkedEdges(view_, storage::EdgeTypeId::FromUint(0), num_threads_);
-    }
-    int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
-    if (value.IsDouble() && id != value.ValueDouble()) {
-      return db->ChunkedEdges(view_, storage::EdgeTypeId::FromUint(0), num_threads_);
-    }
-    auto maybe_edge = db->FindEdge(storage::Gid::FromInt(id), view_);
-    if (!maybe_edge) {
-      return db->ChunkedEdges(view_, storage::EdgeTypeId::FromUint(0), num_threads_);
-    }
-    // For a single edge, we still need to return chunked edges
-    // This is a limitation - we can't really parallelize a single edge lookup
-    return db->ChunkedEdges(view_, storage::EdgeTypeId::FromUint(0), num_threads_);
-  };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
-}
-
-std::string ScanParallelByEdgeId::ToString() const {
-#ifdef NDEBUG  // Release
-  return fmt::format("ScanParallelByEdgeId (threads: {})", num_threads_);
-#else
-  return fmt::format("ScanParallelByEdgeId (state: {}, threads: {})", state_symbol_.name(), num_threads_);
-#endif
-}
-
-std::unique_ptr<LogicalOperator> ScanParallelByEdgeId::Clone(AstStorage *storage) const {
-  auto object = std::make_unique<ScanParallelByEdgeId>();
-  object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->view_ = view_;
-  object->num_threads_ = num_threads_;
-  object->state_symbol_ = state_symbol_;
-  object->edge_symbol_ = edge_symbol_;
-  object->node1_symbol_ = node1_symbol_;
-  object->node2_symbol_ = node2_symbol_;
-  object->direction_ = direction_;
   object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
   return object;
 }
