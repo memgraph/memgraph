@@ -20,9 +20,9 @@
 namespace memgraph::query {
 
 struct HopsLimit {
-  std::optional<int64_t> limit{std::nullopt};
-  std::shared_ptr<std::atomic<int64_t>> hops_counter{std::make_shared<std::atomic<int64_t>>(0)};
-  bool is_limit_reached{false};
+  std::optional<int64_t> limit{std::nullopt};                                                     // Local limit value
+  std::shared_ptr<std::atomic<int64_t>> hops_counter{std::make_shared<std::atomic<int64_t>>(0)};  // Global hops counter
+  bool is_limit_reached{false};  // Local limit reached flag
 
   bool IsUsed() const { return limit.has_value(); }
 
@@ -34,6 +34,7 @@ struct HopsLimit {
   // Return the number of available hops
   int64_t IncrementHopsCount(int64_t increment = 1) {
     if (IsUsed()) {
+      if (is_limit_reached) return 0;
       auto prev_count = hops_counter->fetch_add(increment, std::memory_order_acq_rel);
       const auto available_hops = limit.value() - prev_count;
       is_limit_reached |= (increment > available_hops);
