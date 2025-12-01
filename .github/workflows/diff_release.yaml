@@ -181,7 +181,7 @@ jobs:
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
-    runs-on: [self-hosted, Linux, benchmark]
+    runs-on: [self-hosted, Linux, "${{ github.event_name == 'merge_group' && 'laufey' || 'benchmark' }}"]
     timeout-minutes: 60
     steps:
       - name: Set up repository
