@@ -47,3 +47,4 @@ boost/*:extra_b2_flags=cxxflags=--target=aarch64-unknown-linux-gnu cflags=--targ
 {% elif enable_asan or enable_ubsan or enable_tsan %}
 boost/*:extra_b2_flags=cxxflags=--target=x86_64-linux-gnu cflags=--target=x86_64-linux-gnu linkflags=--target=x86_64-linux-gnu
 {% endif %}
+openssl/*:shared=False

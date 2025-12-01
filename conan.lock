@@ -11,7 +11,7 @@
         "s2n/1.5.27#d3f92c7e6873000d69ce09eefa5b7cdb%1763415423.713",
         "rapidjson/cci.20230929#8dc0392af2b3aaea7312095f0ba53467%1705070242.903",
         "range-v3/0.12.0#4c05d91d7b40e6b91b44b5345ac64408%1689218196.637",
-        "openssl/3.6.0#89e8af1d4a21afcac0557079d23d8890%1759746682.365",
+        "openssl/3.5.4#a1d5835cc6ed5c5b8f3cd5b9b5d24205%1759746684.671",
         "mgclient/1.4.3#acde49e45b64f83be2b6ad993226a4b7%1724630575.998",
         "libevent/2.1.12#7a7a21762e2b4ed13d29aee3e10c19e7%1751271631.406",
         "libcurl/8.16.0#5b85991e709eafd00ab757b79814b3ff%1760714990.804",
@@ -71,6 +71,9 @@
         ],
         "zlib/[>=1.2.11 <2]": [
             "zlib/1.3.1#b8bc2603263cf7eccbd6e17e66b0ed76"
+        ],
+        "openssl/[>=1.1 <4]": [
+            "openssl/3.5.4"
         ]
     },
     "config_requires": []
