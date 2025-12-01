@@ -54,7 +54,8 @@ using ReplicationClientsInfo = std::vector<ReplicationClientInfo>;
 
 class ReplicationInstanceClient {
  public:
-  explicit ReplicationInstanceClient(DataInstanceConfig config, CoordinatorInstance *coord_instance,
+  explicit ReplicationInstanceClient(std::string instance_name, ReplicationClientInfo repl_client_info,
+                                     io::network::Endpoint mgt_server, CoordinatorInstance *coord_instance,
                                      std::chrono::seconds instance_health_check_frequency_sec);
 
   ~ReplicationInstanceClient() = default;
@@ -81,7 +82,7 @@ class ReplicationInstanceClient {
   auto RpcClient() const -> rpc::Client & { return rpc_client_; }
 
   friend bool operator==(ReplicationInstanceClient const &first, ReplicationInstanceClient const &second) {
-    return first.config_ == second.config_;
+    return first.instance_name_ == second.instance_name_;
   }
 
   template <rpc::IsRpc T, typename... Args>
@@ -93,7 +94,7 @@ class ReplicationInstanceClient {
       // DemoteMainToReplicaRpc
       auto stream = std::invoke([&]() {
         if constexpr (std::same_as<T, DemoteMainToReplicaRpc>) {
-          return rpc_client_.Stream<T>(config_.replication_client_info, std::forward<Args>(args)...);
+          return rpc_client_.Stream<T>(repl_client_info_, std::forward<Args>(args)...);
         } else {
           return rpc_client_.Stream<T>(std::forward<Args>(args)...);
         }
@@ -120,7 +121,9 @@ class ReplicationInstanceClient {
   communication::ClientContext rpc_context_;
   mutable rpc::Client rpc_client_;
 
-  DataInstanceConfig config_;
+  std::string instance_name_;
+  // TODO: (andi) Cached for now but the plan is to remove this from the cache and rely solely on the instance_name_
+  ReplicationClientInfo repl_client_info_;
   CoordinatorInstance *coord_instance_;
 
   std::chrono::seconds instance_health_check_frequency_sec_{1};

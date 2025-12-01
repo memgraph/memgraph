@@ -39,10 +39,8 @@
 #include "coordination/raft_state.hpp"
 #include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
-#include "replication_coordination_glue/role.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exponential_backoff.hpp"
-#include "utils/functional.hpp"
 #include "utils/join_vector.hpp"
 #include "utils/logging.hpp"
 #include "utils/metrics_timer.hpp"
@@ -53,6 +51,25 @@
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/transform.hpp>
+
+namespace {
+using memgraph::coordination::ReplicationInstanceConnector;
+
+auto FindReplicationInstance(std::string_view replication_instance_name,
+                             std::list<ReplicationInstanceConnector> const &repl_instances)
+    -> std::optional<std::reference_wrapper<const ReplicationInstanceConnector>> {
+  auto const repl_instance =
+      std::ranges::find_if(repl_instances, [replication_instance_name](ReplicationInstanceConnector const &instance) {
+        return instance.InstanceName() == replication_instance_name;
+      });
+
+  if (repl_instance != repl_instances.end()) {
+    return std::ref(*repl_instance);
+  }
+
+  return std::nullopt;
+}
+}  // namespace
 
 namespace memgraph::metrics {
 // Counters
@@ -152,21 +169,6 @@ auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
   };
 }
 
-// TODO: (andi) Deleting InstanceName() is ok here but not in general since we need identifier in the cache.
-auto CoordinatorInstance::FindReplicationInstance(std::string_view replication_instance_name)
-    -> std::optional<std::reference_wrapper<ReplicationInstanceConnector>> {
-  auto const repl_instance =
-      std::ranges::find_if(repl_instances_, [replication_instance_name](ReplicationInstanceConnector const &instance) {
-        return instance.InstanceName() == replication_instance_name;
-      });
-
-  if (repl_instance != repl_instances_.end()) {
-    return std::ref(*repl_instance);
-  }
-
-  return std::nullopt;
-}
-
 auto CoordinatorInstance::GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData> {
   return raft_state_->GetLeaderCoordinatorData();
 }
@@ -223,7 +225,6 @@ auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<I
         .instance_name = fmt::format("coordinator_{}", coordinator.id),
         .coordinator_server = coordinator.coordinator_server,
         .management_server = coordinator.management_server,
-        // TODO: (andi) This will be OK, it is CoordinatorInstanceContext
         .bolt_server = raft_state_->GetBoltServer(coordinator.id).value_or(""),
         .cluster_role = get_coord_role(coordinator.id, curr_leader_id),
         .health = stringify_coord_health(coordinator.id),
@@ -247,11 +248,10 @@ auto CoordinatorInstance::ShowInstancesStatusAsFollower() const -> std::vector<I
     return "replica";
   };
 
-  auto process_repl_instance_as_follower = [&stringify_inst_status](auto &&instance) -> InstanceStatus {
+  auto process_repl_instance_as_follower = [&stringify_inst_status](auto const &instance) -> InstanceStatus {
     return {.instance_name = instance.config.instance_name,
             .management_server = instance.config.ManagementSocketAddress(),  // show non-resolved IP
-            // TODO: (andi) This will be OK, it is DataInstanceContext
-            .bolt_server = instance.config.BoltSocketAddress(),  // show non-resolved IP
+            .bolt_server = instance.config.BoltSocketAddress(),              // show non-resolved IP
             .cluster_role = stringify_inst_status(instance),
             .health = "unknown"};
   };
@@ -263,28 +263,31 @@ auto CoordinatorInstance::ShowInstancesStatusAsFollower() const -> std::vector<I
 }
 
 auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::vector<InstanceStatus>> {
-  auto instances_status = GetCoordinatorsInstanceStatus();
-
-  auto const stringify_repl_role = [this](auto &&instance) -> std::string {
-    if (!instance.IsAlive()) return "unknown";
-    if (raft_state_->IsCurrentMain(instance.InstanceName())) return "main";
+  auto const stringify_repl_role = [this](auto const &connector) -> std::string {
+    if (!connector.IsAlive()) return "unknown";
+    if (raft_state_->IsCurrentMain(connector.InstanceName())) return "main";
     return "replica";
   };
 
-  auto const stringify_repl_health = [](auto &&instance) -> std::string { return instance.IsAlive() ? "up" : "down"; };
-
-  auto process_repl_instance_as_leader = [&stringify_repl_role,
-                                          &stringify_repl_health](auto &&instance) -> InstanceStatus {
-    return {.instance_name = instance.InstanceName(),
-            .management_server = instance.ManagementSocketAddress(),  // show non-resolved IP
-            // TODO: (andi) This is cached in-memory, we need to update it. It is still DataInstanceConfig but cached
-            // inside ReplicationInstanceClient. We could iterate here over NuRaft cache instead of over our cache.
-            .bolt_server = instance.BoltSocketAddress(),  // show non-resolved IP
-            .cluster_role = stringify_repl_role(instance),
-            .health = stringify_repl_health(instance),
-            .last_succ_resp_ms = instance.LastSuccRespMs().count()};
+  auto const stringify_repl_health = [](auto const &connector) -> std::string {
+    return connector.IsAlive() ? "up" : "down";
   };
 
+  auto get_instance_status = [&](auto const &instance) -> InstanceStatus {
+    auto maybe_connector = FindReplicationInstance(instance.config.instance_name, repl_instances_);
+    DMG_ASSERT(maybe_connector.has_value(), "Couldn't find ReplicationInstanceConnector for instance {}",
+               instance.config.instance_name);
+    auto &connector = maybe_connector->get();
+
+    return {.instance_name = instance.config.instance_name,
+            .management_server = instance.config.ManagementSocketAddress(),  // show non-resolved IP
+            .bolt_server = instance.config.BoltSocketAddress(),              // show non-resolved IP
+            .cluster_role = stringify_repl_role(connector),
+            .health = stringify_repl_health(connector),
+            .last_succ_resp_ms = connector.LastSuccRespMs().count()};
+  };
+
+  // TODO: (andi) Do I even need lock here?
   auto lock = std::shared_lock{coord_instance_lock_};
 
   spdlog::trace("Processing show instances request as leader.");
@@ -294,7 +297,9 @@ auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::ve
     return std::nullopt;
   }
 
-  std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
+  auto instances_status = GetCoordinatorsInstanceStatus();
+  std::ranges::transform(raft_state_->GetDataInstancesContext(), std::back_inserter(instances_status),
+                         get_instance_status);
 
   spdlog::trace("Returning set of instances as leader.");
   return instances_status;
@@ -309,9 +314,8 @@ auto CoordinatorInstance::ShowInstance() const -> InstanceStatus {
   });
 
   return InstanceStatus{.instance_name = raft_state_->InstanceName(),
-                        .coordinator_server = my_context.coordinator_server,  // show non-resolved IP
-                        .management_server = my_context.management_server,    // show non-resolved IP
-                        // TODO: (andi) Also good, coming from NuRaft logs, CoordinatorInstanceContext
+                        .coordinator_server = my_context.coordinator_server,         // show non-resolved IP
+                        .management_server = my_context.management_server,           // show non-resolved IP
                         .bolt_server = raft_state_->GetMyBoltServer().value_or(""),  // show non-resolved IP
                         .cluster_role = role};
 }
@@ -556,9 +560,9 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
   auto lock = std::lock_guard{coord_instance_lock_};
   spdlog::trace("Acquired lock to set replication instance to main in thread {}.", std::this_thread::get_id());
 
-  // The coordinator could be in LEADER_NOT_READY state because it restarted and before the restart user called `DEMOTE
-  // instance <instance_name>`. The cluster is without the main instance which will forbid ReconcileClusterState from
-  // succeeding.
+  // The coordinator could be in LEADER_NOT_READY state because it restarted and before the restart user called
+  // `DEMOTE instance <instance_name>`. The cluster is without the main instance which will forbid
+  // ReconcileClusterState from succeeding.
   if (status.load(std::memory_order_acquire) == CoordinatorStatus::FOLLOWER) {
     return SetInstanceToMainCoordinatorStatus::NOT_LEADER;
   }
@@ -722,7 +726,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
   }
 
   if (auto const main_name = raft_state_->TryGetCurrentMainName(); main_name.has_value()) {
-    auto const maybe_current_main = FindReplicationInstance(*main_name);
+    auto const maybe_current_main = FindReplicationInstance(*main_name, repl_instances_);
     MG_ASSERT(maybe_current_main.has_value(), "Couldn't find instance {} in local storage.", *main_name);
 
     if (auto const &current_main = maybe_current_main->get();
@@ -761,12 +765,12 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   auto lock = std::lock_guard{coord_instance_lock_};
   spdlog::trace("Acquired lock to unregister instance in thread {} 1st time", std::this_thread::get_id());
 
-  auto maybe_instance = FindReplicationInstance(instance_name);
+  auto maybe_instance = FindReplicationInstance(instance_name, repl_instances_);
   if (!maybe_instance) {
     return UnregisterInstanceCoordinatorStatus::NO_INSTANCE_WITH_NAME;
   }
 
-  auto &inst_to_remove = maybe_instance->get();
+  auto const &inst_to_remove = maybe_instance->get();
 
   auto const is_current_main = [this](auto const &instance) {
     return raft_state_->IsCurrentMain(instance.InstanceName()) && instance.IsAlive();
@@ -947,7 +951,8 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
   // If we managed to add it to the NuRaft configuration but not to our app logs.
   if (!raft_state_->AppendClusterUpdate(delta_state)) {
     LOG_FATAL(
-        "Couldn't append application log when adding coordinator {} to the cluster. Please restart your instance with "
+        "Couldn't append application log when adding coordinator {} to the cluster. Please restart your instance "
+        "with "
         "a fresh data directory and try again. If you already partially connected a cluster, please delete data "
         "directories of other coordinators too.",
         config.coordinator_id);
@@ -1001,9 +1006,9 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
     spdlog::trace("Failed to acquire lock in InstanceSuccessCallback in 500ms");
     return;
   }
-  auto const maybe_instance = FindReplicationInstance(instance_name);
+  auto maybe_instance = FindReplicationInstance(instance_name, repl_instances_);
   MG_ASSERT(maybe_instance.has_value(), "Couldn't find instance {} in local storage.", instance_name);
-  auto &instance = maybe_instance->get();
+  auto const &instance = maybe_instance->get();
 
   spdlog::trace("Instance {} performing success callback in thread {}.", instance_name, std::this_thread::get_id());
 
@@ -1089,9 +1094,9 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name) {
     spdlog::trace("Failed to acquire lock in InstanceFailCallback in 500ms");
     return;
   }
-  auto const maybe_instance = FindReplicationInstance(instance_name);
+  auto const maybe_instance = FindReplicationInstance(instance_name, repl_instances_);
   MG_ASSERT(maybe_instance.has_value(), "Couldn't find instance {} in local storage.", instance_name);
-  auto &instance = maybe_instance->get();
+  auto const &instance = maybe_instance->get();
 
   spdlog::trace("Instance {} performing fail callback in thread {}.", instance_name, std::this_thread::get_id());
   instance.OnFailPing();
@@ -1340,7 +1345,8 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
 
       if (replica_behind) {
         spdlog::info(
-            "Skipping instance {} for a failover because one of its databases is too much behind the main's database. "
+            "Skipping instance {} for a failover because one of its databases is too much behind the main's "
+            "database. "
             "The current max replica lag is set to {}",
             instance_name, max_allowed_lag);
         continue;

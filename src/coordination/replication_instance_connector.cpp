@@ -48,12 +48,15 @@ ReplicationInstanceConnector::ReplicationInstanceConnector(
     DataInstanceConfig const &config, CoordinatorInstance *coord_instance,
     const std::chrono::seconds instance_down_timeout_sec,
     const std::chrono::seconds instance_health_check_frequency_sec)
-    : client_(ReplicationInstanceClient(config, coord_instance, instance_health_check_frequency_sec)),
+    : client_(ReplicationInstanceClient(config.instance_name, config.replication_client_info, config.mgt_server,
+                                        coord_instance, instance_health_check_frequency_sec)),
       timed_failure_detector_(instance_down_timeout_sec) {}
 
-void ReplicationInstanceConnector::OnSuccessPing() { timed_failure_detector_.Restore(); }
+// Intentional logical constness
+void ReplicationInstanceConnector::OnSuccessPing() const { timed_failure_detector_.Restore(); }
 
-auto ReplicationInstanceConnector::OnFailPing() -> bool { return timed_failure_detector_.Suspect(); }
+// Intentional logical constness
+auto ReplicationInstanceConnector::OnFailPing() const -> bool { return timed_failure_detector_.Suspect(); }
 
 auto ReplicationInstanceConnector::IsAlive() const -> bool { return timed_failure_detector_.IsAlive(); }
 
@@ -62,15 +65,6 @@ auto ReplicationInstanceConnector::LastSuccRespMs() const -> std::chrono::millis
 }
 
 auto ReplicationInstanceConnector::InstanceName() const -> std::string { return client_.InstanceName(); }
-
-auto ReplicationInstanceConnector::BoltSocketAddress() const -> std::string { return client_.BoltSocketAddress(); }
-
-auto ReplicationInstanceConnector::ManagementSocketAddress() const -> std::string {
-  return client_.ManagementSocketAddress();
-}
-auto ReplicationInstanceConnector::ReplicationSocketAddress() const -> std::string {
-  return client_.ReplicationSocketAddress();
-}
 
 auto ReplicationInstanceConnector::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) const -> bool {
   return replication_coordination_glue::SendSwapMainUUIDRpc(client_.RpcClient(), new_main_uuid);
