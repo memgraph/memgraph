@@ -2415,8 +2415,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingConcurrentOperations) {
       edges,
       [&total_processed](const auto &edge) {
         static std::atomic<int> local_count{0};
-        local_count++;
-        if (local_count % 50 == 0) {
+        local_count.fetch_add(1, std::memory_order_relaxed);
+        if (local_count.load(std::memory_order_relaxed) % 50 == 0) {
           // Make sure the iterator and insertions are interleaved
           std::this_thread::sleep_for(std::chrono::microseconds(10));
         }
@@ -2986,7 +2986,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingConcurrentOperat
       edges,
       [&total_processed, this](const auto &edge) {
         static std::atomic<int> local_count{0};
-        local_count++;
+        local_count.fetch_add(1, std::memory_order_relaxed);
         // Verify property value is within the specified range
         auto property_value = edge.GetProperty(this->property_id_, View::OLD);
         ASSERT_TRUE(property_value.HasValue());
