@@ -152,6 +152,7 @@ auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
   };
 }
 
+// TODO: (andi) Deleting InstanceName() is ok here but not in general since we need identifier in the cache.
 auto CoordinatorInstance::FindReplicationInstance(std::string_view replication_instance_name)
     -> std::optional<std::reference_wrapper<ReplicationInstanceConnector>> {
   auto const repl_instance =
@@ -222,6 +223,7 @@ auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<I
         .instance_name = fmt::format("coordinator_{}", coordinator.id),
         .coordinator_server = coordinator.coordinator_server,
         .management_server = coordinator.management_server,
+        // TODO: (andi) This will be OK, it is CoordinatorInstanceContext
         .bolt_server = raft_state_->GetBoltServer(coordinator.id).value_or(""),
         .cluster_role = get_coord_role(coordinator.id, curr_leader_id),
         .health = stringify_coord_health(coordinator.id),
@@ -248,7 +250,8 @@ auto CoordinatorInstance::ShowInstancesStatusAsFollower() const -> std::vector<I
   auto process_repl_instance_as_follower = [&stringify_inst_status](auto &&instance) -> InstanceStatus {
     return {.instance_name = instance.config.instance_name,
             .management_server = instance.config.ManagementSocketAddress(),  // show non-resolved IP
-            .bolt_server = instance.config.BoltSocketAddress(),              // show non-resolved IP
+            // TODO: (andi) This will be OK, it is DataInstanceContext
+            .bolt_server = instance.config.BoltSocketAddress(),  // show non-resolved IP
             .cluster_role = stringify_inst_status(instance),
             .health = "unknown"};
   };
@@ -274,7 +277,9 @@ auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::ve
                                           &stringify_repl_health](auto &&instance) -> InstanceStatus {
     return {.instance_name = instance.InstanceName(),
             .management_server = instance.ManagementSocketAddress(),  // show non-resolved IP
-            .bolt_server = instance.BoltSocketAddress(),              // show non-resolved IP
+            // TODO: (andi) This is cached in-memory, we need to update it. It is still DataInstanceConfig but cached
+            // inside ReplicationInstanceClient. We could iterate here over NuRaft cache instead of over our cache.
+            .bolt_server = instance.BoltSocketAddress(),  // show non-resolved IP
             .cluster_role = stringify_repl_role(instance),
             .health = stringify_repl_health(instance),
             .last_succ_resp_ms = instance.LastSuccRespMs().count()};
@@ -304,8 +309,9 @@ auto CoordinatorInstance::ShowInstance() const -> InstanceStatus {
   });
 
   return InstanceStatus{.instance_name = raft_state_->InstanceName(),
-                        .coordinator_server = my_context.coordinator_server,         // show non-resolved IP
-                        .management_server = my_context.management_server,           // show non-resolved IP
+                        .coordinator_server = my_context.coordinator_server,  // show non-resolved IP
+                        .management_server = my_context.management_server,    // show non-resolved IP
+                        // TODO: (andi) Also good, coming from NuRaft logs, CoordinatorInstanceContext
                         .bolt_server = raft_state_->GetMyBoltServer().value_or(""),  // show non-resolved IP
                         .cluster_role = role};
 }
@@ -659,41 +665,44 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
 
 auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
+  // TODO: (andi) Can I move further down this lock
   auto lock = std::lock_guard{coord_instance_lock_};
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return RegisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
-  if (std::ranges::any_of(repl_instances_, [new_instance_name = config.instance_name](auto &&instance) {
-        return instance.InstanceName() == new_instance_name;
+  auto const data_instances_cache = raft_state_->GetDataInstancesContext();
+
+  if (std::ranges::any_of(data_instances_cache, [new_instance_name = config.instance_name](auto const &instance) {
+        return instance.config.instance_name == new_instance_name;
       })) {
     return RegisterInstanceCoordinatorStatus::NAME_EXISTS;
   }
 
-  if (std::ranges::any_of(repl_instances_, [&config](auto &&instance) {
-        return instance.ManagementSocketAddress() == config.ManagementSocketAddress();
+  if (std::ranges::any_of(data_instances_cache, [&config](auto const &instance) {
+        return instance.config.ManagementSocketAddress() == config.ManagementSocketAddress();
       })) {
     return RegisterInstanceCoordinatorStatus::MGMT_ENDPOINT_EXISTS;
   }
 
-  if (std::ranges::any_of(repl_instances_, [&config](auto &&instance) {
-        return instance.ReplicationSocketAddress() == config.ReplicationSocketAddress();
+  if (std::ranges::any_of(data_instances_cache, [&config](auto const &instance) {
+        return instance.config.ReplicationSocketAddress() == config.ReplicationSocketAddress();
       })) {
     return RegisterInstanceCoordinatorStatus::REPL_ENDPOINT_EXISTS;
   }
 
   if (config.replication_client_info.replication_mode == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
-    if (std::ranges::any_of(repl_instances_, [](auto &&instance) {
-          return instance.GetReplicationClientInfo().replication_mode ==
+    if (std::ranges::any_of(data_instances_cache, [](auto const &instance) {
+          return instance.config.replication_client_info.replication_mode ==
                  replication_coordination_glue::ReplicationMode::SYNC;
         })) {
       return RegisterInstanceCoordinatorStatus::STRICT_SYNC_AND_SYNC_FORBIDDEN;
     }
 
   } else if (config.replication_client_info.replication_mode == replication_coordination_glue::ReplicationMode::SYNC) {
-    if (std::ranges::any_of(repl_instances_, [](auto &&instance) {
-          return instance.GetReplicationClientInfo().replication_mode ==
+    if (std::ranges::any_of(data_instances_cache, [](auto const &instance) {
+          return instance.config.replication_client_info.replication_mode ==
                  replication_coordination_glue::ReplicationMode::STRICT_SYNC;
         })) {
       return RegisterInstanceCoordinatorStatus::STRICT_SYNC_AND_SYNC_FORBIDDEN;
@@ -1192,7 +1201,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
       spdlog::error("Couldn't find newest instance for db with uuid {}", db_uuid);
     } else {
       spdlog::info("The latest durable timestamp is {} for db with uuid {}. The following instances have it {}",
-        curr_num_committed_txns, db_uuid, utils::JoinVector(newest_db_instances, ", "));
+                   curr_num_committed_txns, db_uuid, utils::JoinVector(newest_db_instances, ", "));
       update_instances_counter(newest_db_instances);
     }
   }
