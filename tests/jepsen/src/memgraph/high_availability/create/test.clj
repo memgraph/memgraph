@@ -35,10 +35,12 @@
 
 ; By modifying batch-size, we are testing the configuration in a different replication sitauations.
 ; Each situation won't last equally because of a different number of deltas.
-(def batch-size
+(defn batch-size
   "Number of nodes to import in the batch."
-  (rand-nth [100 1000 5000 10000 50000])
-  )
+  []
+  (let [res (rand-nth [100 1000 5000 10000 50000])]
+       (info "Batch size:" res)
+    res))
 
 (def delay-requests-sec 5)
 (defn hamming-sim
@@ -270,7 +272,7 @@
                                    max-idx (atom nil)]
                                (try
                                  (utils/with-session bolt-routing-conn session
-                                   (let [local-idx (->> (mgquery/add-nodes session {:batchSize batch-size})
+                                   (let [local-idx (->> (mgquery/add-nodes session {:batchSize (batch-size)})
                                                         (map :id)
                                                         (reduce conj [])
                                                         first)]
