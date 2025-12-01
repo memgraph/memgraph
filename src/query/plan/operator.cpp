@@ -8912,13 +8912,7 @@ UniqueCursorPtr ScanChunk::MakeCursor(utils::MemoryResource *mem) const {
                                                                 view_, std::move(vertices), "ScanChunk");
 }
 
-std::string ScanChunk::ToString() const {
-#ifdef NDEBUG  // Release
-  return fmt::format("ScanChunk ({})", output_symbol_.name());
-#else
-  return fmt::format("ScanChunk (state: {}, output: {})", state_symbol_.name(), output_symbol_.name());
-#endif
-}
+std::string ScanChunk::ToString() const { return fmt::format("ScanChunk ({})", output_symbol_.name()); }
 
 std::unique_ptr<LogicalOperator> ScanChunk::Clone(AstStorage *storage) const {
   auto object = std::make_unique<ScanChunk>();
@@ -8962,7 +8956,7 @@ std::vector<Symbol> ScanChunkByEdge::ModifiedSymbols(const SymbolTable &table) c
 
 std::string ScanChunkByEdge::ToString() const {
   return fmt::format(
-      "ScanChunkByEdge (state: {}) ({}){}[{}{}]{}({})", state_symbol_.name(), common_.node1_symbol.name(),
+      "ScanChunkByEdge ({}){}[{}{}]{}({})", common_.node1_symbol.name(),
       common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
       utils::IterableToString(common_.edge_types, "|",
                               [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
@@ -9058,13 +9052,7 @@ ScanParallel::ScanParallel(const std::shared_ptr<LogicalOperator> &input, storag
 
 ACCEPT_WITH_INPUT(ScanParallel)
 
-std::string ScanParallel::ToString() const {
-#ifdef NDEBUG  // Release
-  return fmt::format("ScanParallel (threads: {})", num_threads_);
-#else
-  return fmt::format("ScanParallel (state: {}, threads: {})", state_symbol_.name(), num_threads_);
-#endif
-}
+std::string ScanParallel::ToString() const { return fmt::format("ScanParallel (threads: {})", num_threads_); }
 
 std::unique_ptr<LogicalOperator> ScanParallel::Clone(AstStorage *storage) const {
   auto object = std::make_unique<ScanParallel>();
@@ -9092,12 +9080,7 @@ UniqueCursorPtr ScanParallelByLabel::MakeCursor(utils::MemoryResource *mem) cons
 }
 
 std::string ScanParallelByLabel::ToString() const {
-#ifdef NDEBUG  // Release
   return fmt::format("ScanParallelByLabel (threads: {}, label: {})", num_threads_, label_.AsUint());
-#else
-  return fmt::format("ScanParallelByLabel (state: {}, threads: {}, label: {})", state_symbol_.name(), num_threads_,
-                     label_.AsUint());
-#endif
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByLabel::Clone(AstStorage *storage) const {
@@ -9127,12 +9110,7 @@ UniqueCursorPtr ScanParallelByEdgeType::MakeCursor(utils::MemoryResource *mem) c
 }
 
 std::string ScanParallelByEdgeType::ToString() const {
-#ifdef NDEBUG  // Release
   return fmt::format("ScanParallelByEdgeType (threads: {}, edge_type: {})", num_threads_, edge_type_.AsUint());
-#else
-  return fmt::format("ScanParallelByEdgeType (state: {}, threads: {}, edge_type: {})", state_symbol_.name(),
-                     num_threads_, edge_type_.AsUint());
-#endif
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeType::Clone(AstStorage *storage) const {
@@ -9178,12 +9156,7 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
 }
 
 std::string ScanParallelByLabelProperties::ToString() const {
-#ifdef NDEBUG  // Release
   return fmt::format("ScanParallelByLabelProperties (threads: {}, label: {})", num_threads_, label_.AsUint());
-#else
-  return fmt::format("ScanParallelByLabelProperties (state: {}, threads: {}, label: {})", state_symbol_.name(),
-                     num_threads_, label_.AsUint());
-#endif
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByLabelProperties::Clone(AstStorage *storage) const {
@@ -9219,13 +9192,8 @@ UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource
 }
 
 std::string ScanParallelByEdgeTypeProperty::ToString() const {
-#ifdef NDEBUG  // Release
   return fmt::format("ScanParallelByEdgeTypeProperty (threads: {}, edge_type: {}, property: {})", num_threads_,
                      edge_type_.AsUint(), property_.AsUint());
-#else
-  return fmt::format("ScanParallelByEdgeTypeProperty (state: {}, threads: {}, edge_type: {}, property: {})",
-                     state_symbol_.name(), num_threads_, edge_type_.AsUint(), property_.AsUint());
-#endif
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypeProperty::Clone(AstStorage *storage) const {
@@ -9271,13 +9239,8 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryRes
 }
 
 std::string ScanParallelByEdgeTypePropertyRange::ToString() const {
-#ifdef NDEBUG  // Release
-  return fmt::format("ScanParallelByEdgeTypePropertyRange (state: {}, threads: {}, edge_type: {}, property: {})",
-                     state_symbol_.name(), num_threads_, edge_type_.AsUint(), property_.AsUint());
-#else
   return fmt::format("ScanParallelByEdgeTypePropertyRange (threads: {}, edge_type: {}, property: {})", num_threads_,
                      edge_type_.AsUint(), property_.AsUint());
-#endif
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyRange::Clone(AstStorage *storage) const {
@@ -9317,12 +9280,7 @@ UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *me
 }
 
 std::string ScanParallelByEdgeProperty::ToString() const {
-#ifdef NDEBUG  // Release
-  return fmt::format("ScanParallelByEdgeProperty (state: {}, threads: {}, property: {})", state_symbol_.name(),
-                     num_threads_, property_.AsUint());
-#else
   return fmt::format("ScanParallelByEdgeProperty (threads: {}, property: {})", num_threads_, property_.AsUint());
-#endif
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeProperty::Clone(AstStorage *storage) const {
@@ -9359,12 +9317,7 @@ UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResourc
 }
 
 std::string ScanParallelByEdgePropertyValue::ToString() const {
-#ifdef NDEBUG  // Release
-  return fmt::format("ScanParallelByEdgePropertyValue (state: {}, threads: {}, property: {})", state_symbol_.name(),
-                     num_threads_, property_.AsUint());
-#else
   return fmt::format("ScanParallelByEdgePropertyValue (threads: {}, property: {})", num_threads_, property_.AsUint());
-#endif
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyValue::Clone(AstStorage *storage) const {
@@ -9409,12 +9362,7 @@ UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResourc
 }
 
 std::string ScanParallelByEdgePropertyRange::ToString() const {
-#ifdef NDEBUG  // Release
-  return fmt::format("ScanParallelByEdgePropertyRange (state: {}, threads: {}, property: {})", state_symbol_.name(),
-                     num_threads_, property_.AsUint());
-#else
   return fmt::format("ScanParallelByEdgePropertyRange (threads: {}, property: {})", num_threads_, property_.AsUint());
-#endif
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyRange::Clone(AstStorage *storage) const {
@@ -9463,12 +9411,7 @@ UniqueCursorPtr ScanParallelByPointDistance::MakeCursor(utils::MemoryResource *m
 }
 
 std::string ScanParallelByPointDistance::ToString() const {
-#ifdef NDEBUG  // Release
-  return fmt::format("ScanParallelByPointDistance (state: {}, threads: {}, label: {})", state_symbol_.name(),
-                     num_threads_, label_.AsUint());
-#else
   return fmt::format("ScanParallelByPointDistance (threads: {}, label: {})", num_threads_, label_.AsUint());
-#endif
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByPointDistance::Clone(AstStorage *storage) const {
@@ -9512,12 +9455,7 @@ UniqueCursorPtr ScanParallelByWithinbbox::MakeCursor(utils::MemoryResource *mem)
 }
 
 std::string ScanParallelByWithinbbox::ToString() const {
-#ifdef NDEBUG  // Release
-  return fmt::format("ScanParallelByWithinbbox (state: {}, threads: {}, label: {})", state_symbol_.name(), num_threads_,
-                     label_.AsUint());
-#else
   return fmt::format("ScanParallelByWithinbbox (threads: {}, label: {})", num_threads_, label_.AsUint());
-#endif
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByWithinbbox::Clone(AstStorage *storage) const {
@@ -9551,11 +9489,7 @@ UniqueCursorPtr ScanParallelByEdge::MakeCursor(utils::MemoryResource * /*mem*/) 
 }
 
 std::string ScanParallelByEdge::ToString() const {
-#ifdef NDEBUG  // Release
   return fmt::format("ScanParallelByEdge (threads: {})", num_threads_);
-#else
-  return fmt::format("ScanParallelByEdge (state: {}, threads: {})", state_symbol_.name(), num_threads_);
-#endif
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdge::Clone(AstStorage *storage) const {
@@ -9600,13 +9534,8 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyValue::MakeCursor(utils::MemoryRes
 }
 
 std::string ScanParallelByEdgeTypePropertyValue::ToString() const {
-#ifdef NDEBUG  // Release
   return fmt::format("ScanParallelByEdgeTypePropertyValue (threads: {}, edge_type: {}, property: {})", num_threads_,
                      edge_type_.AsUint(), property_.AsUint());
-#else
-  return fmt::format("ScanParallelByEdgeTypePropertyValue (state: {}, threads: {}, edge_type: {}, property: {})",
-                     state_symbol_.name(), num_threads_, edge_type_.AsUint(), property_.AsUint());
-#endif
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyValue::Clone(AstStorage *storage) const {
