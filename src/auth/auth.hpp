@@ -238,6 +238,13 @@ class Auth final {
   bool UsingAuthModule() const { return !modules_.empty(); }
 
   /**
+   * Returns whether the access is controlled by basic authentication.
+   *
+   * @return `true` if basic authentication is used
+   */
+  bool UsingBasicAuth() const { return modules_.contains("basic"); }
+
+  /**
    * Gets a role from the storage.
    *
    * @param rolename
@@ -265,8 +272,8 @@ class Auth final {
       return roles;
     };
 
-    // Special case if we are using a module; we must find the specified role
-    if (UsingAuthModule()) {
+    // Special case if we are using an LDAP module; we must find the specified role
+    if (UsingBasicAuth()) {
       expect(username && !rolenames.empty(), "When using a module, a role needs to be connected to a username.");
       auto roles = get_roles(rolenames);
       expect(roles.size() == rolenames.size(), "Couldn't find all roles");
