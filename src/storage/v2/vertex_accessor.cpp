@@ -112,14 +112,14 @@ std::optional<PropertyValue> TryConvertToVectorIndexProperty(Storage *storage, V
 class VertexReadLock {
  public:
   explicit VertexReadLock(memgraph::storage::Vertex const *vertex)
-      : lock_{vertex->lock, std::defer_lock},
-        has_uncommitted_interleaved_deltas_{vertex->has_uncommitted_interleaved_deltas} {}
+      : vertex_{vertex}, lock_{vertex->lock, std::defer_lock} {}
 
   class SnapshotGuard {
    public:
-    explicit SnapshotGuard(VertexReadLock *manager) : manager_{manager} {}
+    explicit SnapshotGuard(VertexReadLock *manager, bool has_uncommitted_interleaved_deltas)
+        : manager_{manager}, has_uncommitted_interleaved_deltas_{has_uncommitted_interleaved_deltas} {}
     ~SnapshotGuard() {
-      if (!manager_->has_uncommitted_interleaved_deltas_) {
+      if (!has_uncommitted_interleaved_deltas_) {
         manager_->lock_.unlock();
       }
     }
@@ -131,16 +131,20 @@ class VertexReadLock {
 
    private:
     VertexReadLock *manager_;
+    bool has_uncommitted_interleaved_deltas_;
   };
 
+  // `AcquireLock` can be called at most once per `VertexReadLock` instance.
+  // Calling it again on a `VertexReadLock` for which you've already acquired
+  // the lock could result in deadlock.
   SnapshotGuard AcquireLock() {
     lock_.lock();
-    return SnapshotGuard{this};
+    return SnapshotGuard{this, vertex_->has_uncommitted_interleaved_deltas};
   }
 
  private:
+  memgraph::storage::Vertex const *vertex_;
   std::shared_lock<memgraph::utils::RWSpinLock> lock_;
-  bool has_uncommitted_interleaved_deltas_;
 };
 
 }  // namespace
