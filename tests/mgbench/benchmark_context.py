@@ -9,11 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-from workload_mode import (
-  BENCHMARK_MODE_ISOLATED,
-  BENCHMARK_MODE_MIXED,
-  BENCHMARK_MODE_REALISTIC,
-)
+from workload_mode import *
 
 
 class BenchmarkContext:
@@ -33,6 +29,7 @@ class BenchmarkContext:
         client_language: str = None,
         num_workers_for_import: int = None,
         num_workers_for_benchmark: int = None,
+        database_workers: int = None,
         single_threaded_runtime_sec: int = 0,
         query_count_lower_bound: int = 0,
         no_load_query_counts: bool = False,
@@ -49,6 +46,7 @@ class BenchmarkContext:
         no_authorization: bool = True,
         customer_workloads: str = None,
         vendor_args: dict = {},
+        use_parallel_execution: bool = False,
     ) -> None:
         self.benchmark_target_workload = benchmark_target_workload
         self.databases = databases
@@ -60,6 +58,8 @@ class BenchmarkContext:
         self.client_language = client_language
         self.num_workers_for_import = num_workers_for_import
         self.num_workers_for_benchmark = num_workers_for_benchmark
+        # If database_workers is not specified, use num_workers_for_benchmark for backward compatibility
+        self.database_workers = database_workers if database_workers is not None else num_workers_for_benchmark
         self.single_threaded_runtime_sec = single_threaded_runtime_sec
         self.query_count_lower_bound = query_count_lower_bound
         self.no_load_query_counts = no_load_query_counts
@@ -89,6 +89,7 @@ class BenchmarkContext:
         self.no_authorization = no_authorization
         self.customer_workloads = customer_workloads
         self.vendor_args = vendor_args
+        self.use_parallel_execution = use_parallel_execution
         self.active_workload = None
         self.active_variant = None
 
