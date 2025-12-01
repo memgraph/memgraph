@@ -10,34 +10,11 @@
 // licenses/APL.txt.
 
 #include "query/plan/parallel_checker.hpp"
-
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define PRE_VISIT_PARALLEL(TOp)                                                  \
-  bool ParallelChecker::PreVisit(TOp &) { /*NOLINT(bugprone-macro-parentheses)*/ \
-    is_parallelized_ = true;                                                     \
-    return false; /* Stop traversal once we find a parallel operator */          \
-  }
-
 namespace memgraph::query::plan {
-
-PRE_VISIT_PARALLEL(AggregateParallel)
-PRE_VISIT_PARALLEL(ParallelMerge)
-PRE_VISIT_PARALLEL(ScanParallel)
-PRE_VISIT_PARALLEL(ScanParallelByLabel)
-PRE_VISIT_PARALLEL(ScanParallelByLabelProperties)
-PRE_VISIT_PARALLEL(ScanParallelByPointDistance)
-PRE_VISIT_PARALLEL(ScanParallelByWithinbbox)
-PRE_VISIT_PARALLEL(ScanParallelByEdge)
-PRE_VISIT_PARALLEL(ScanParallelByEdgeType)
-PRE_VISIT_PARALLEL(ScanParallelByEdgeTypeProperty)
-PRE_VISIT_PARALLEL(ScanParallelByEdgeTypePropertyValue)
-PRE_VISIT_PARALLEL(ScanParallelByEdgeTypePropertyRange)
-PRE_VISIT_PARALLEL(ScanParallelByEdgeProperty)
-PRE_VISIT_PARALLEL(ScanParallelByEdgePropertyValue)
-PRE_VISIT_PARALLEL(ScanParallelByEdgePropertyRange)
-PRE_VISIT_PARALLEL(ScanParallelByEdgeId)
-
-#undef PRE_VISIT_PARALLEL
+bool ParallelChecker::PreVisit(AggregateParallel &) {
+  is_parallelized_ = true;
+  return false;
+}
 
 bool ParallelChecker::Visit(Once &) { return false; }  // NOLINT(hicpp-named-parameter)
 
