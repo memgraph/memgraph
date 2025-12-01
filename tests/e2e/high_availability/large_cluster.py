@@ -11,6 +11,7 @@
 
 import os
 import sys
+import time
 from functools import partial
 
 import interactive_mg_runner
@@ -20,6 +21,7 @@ from common import (
   execute_and_fetch_all,
   get_data_path,
   get_logs_path,
+  get_vertex_count,
   show_instances,
 )
 from mg_utils import mg_sleep_and_assert
@@ -259,6 +261,81 @@ def get_sync_setup_queries():
     ]
 
 
+# All replicas will be registered as STRICT SYNC replicas
+def get_strict_sync_setup_queries():
+    return [
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10016', 'management_server': 'localhost:10121'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10017', 'management_server': 'localhost:10122'}",
+        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10018', 'management_server': 'localhost:10123'}",
+        "REGISTER INSTANCE instance_1 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7675', 'management_server': 'localhost:10001', 'replication_server': 'localhost:10106'};",
+        "REGISTER INSTANCE instance_2 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7676', 'management_server': 'localhost:10002', 'replication_server': 'localhost:10107'};",
+        "REGISTER INSTANCE instance_3 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7677', 'management_server': 'localhost:10003', 'replication_server': 'localhost:10108'};",
+        "REGISTER INSTANCE instance_4 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7678', 'management_server': 'localhost:10004', 'replication_server': 'localhost:10109'};",
+        "REGISTER INSTANCE instance_5 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7679', 'management_server': 'localhost:10005', 'replication_server': 'localhost:10110'};",
+        "REGISTER INSTANCE instance_6 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7680', 'management_server': 'localhost:10006', 'replication_server': 'localhost:10111'};",
+        "REGISTER INSTANCE instance_7 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7681', 'management_server': 'localhost:10007', 'replication_server': 'localhost:10112'};",
+        "REGISTER INSTANCE instance_8 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7682', 'management_server': 'localhost:10008', 'replication_server': 'localhost:10113'};",
+        "REGISTER INSTANCE instance_9 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7683', 'management_server': 'localhost:10009', 'replication_server': 'localhost:10114'};",
+        "REGISTER INSTANCE instance_10 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7684', 'management_server': 'localhost:10010', 'replication_server': 'localhost:10115'};",
+        "REGISTER INSTANCE instance_11 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7685', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10116'};",
+        "REGISTER INSTANCE instance_12 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7686', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10117'};",
+        "REGISTER INSTANCE instance_13 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10118'};",
+        "REGISTER INSTANCE instance_14 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10014', 'replication_server': 'localhost:10119'};",
+        "REGISTER INSTANCE instance_15 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10015', 'replication_server': 'localhost:10120'};",
+        "SET INSTANCE instance_1 TO MAIN",
+    ]
+
+
+# Replicas will be registered as SYNC and ASYNC replicas
+def get_async_sync_setup_queries():
+    return [
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10016', 'management_server': 'localhost:10121'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10017', 'management_server': 'localhost:10122'}",
+        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10018', 'management_server': 'localhost:10123'}",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7675', 'management_server': 'localhost:10001', 'replication_server': 'localhost:10106'};",
+        "REGISTER INSTANCE instance_2 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7676', 'management_server': 'localhost:10002', 'replication_server': 'localhost:10107'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7677', 'management_server': 'localhost:10003', 'replication_server': 'localhost:10108'};",
+        "REGISTER INSTANCE instance_4 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7678', 'management_server': 'localhost:10004', 'replication_server': 'localhost:10109'};",
+        "REGISTER INSTANCE instance_5 WITH CONFIG {'bolt_server': 'localhost:7679', 'management_server': 'localhost:10005', 'replication_server': 'localhost:10110'};",
+        "REGISTER INSTANCE instance_6 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7680', 'management_server': 'localhost:10006', 'replication_server': 'localhost:10111'};",
+        "REGISTER INSTANCE instance_7 WITH CONFIG {'bolt_server': 'localhost:7681', 'management_server': 'localhost:10007', 'replication_server': 'localhost:10112'};",
+        "REGISTER INSTANCE instance_8 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7682', 'management_server': 'localhost:10008', 'replication_server': 'localhost:10113'};",
+        "REGISTER INSTANCE instance_9 WITH CONFIG {'bolt_server': 'localhost:7683', 'management_server': 'localhost:10009', 'replication_server': 'localhost:10114'};",
+        "REGISTER INSTANCE instance_10 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7684', 'management_server': 'localhost:10010', 'replication_server': 'localhost:10115'};",
+        "REGISTER INSTANCE instance_11 WITH CONFIG {'bolt_server': 'localhost:7685', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10116'};",
+        "REGISTER INSTANCE instance_12 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7686', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10117'};",
+        "REGISTER INSTANCE instance_13 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10118'};",
+        "REGISTER INSTANCE instance_14 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10014', 'replication_server': 'localhost:10119'};",
+        "REGISTER INSTANCE instance_15 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10015', 'replication_server': 'localhost:10120'};",
+        "SET INSTANCE instance_1 TO MAIN",
+    ]
+
+
+# Replicas will be registered as SYNC and ASYNC replicas
+def get_async_strict_sync_setup_queries():
+    return [
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10016', 'management_server': 'localhost:10121'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10017', 'management_server': 'localhost:10122'}",
+        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10018', 'management_server': 'localhost:10123'}",
+        "REGISTER INSTANCE instance_1 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7675', 'management_server': 'localhost:10001', 'replication_server': 'localhost:10106'};",
+        "REGISTER INSTANCE instance_2 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7676', 'management_server': 'localhost:10002', 'replication_server': 'localhost:10107'};",
+        "REGISTER INSTANCE instance_3 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7677', 'management_server': 'localhost:10003', 'replication_server': 'localhost:10108'};",
+        "REGISTER INSTANCE instance_4 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7678', 'management_server': 'localhost:10004', 'replication_server': 'localhost:10109'};",
+        "REGISTER INSTANCE instance_5 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7679', 'management_server': 'localhost:10005', 'replication_server': 'localhost:10110'};",
+        "REGISTER INSTANCE instance_6 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7680', 'management_server': 'localhost:10006', 'replication_server': 'localhost:10111'};",
+        "REGISTER INSTANCE instance_7 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7681', 'management_server': 'localhost:10007', 'replication_server': 'localhost:10112'};",
+        "REGISTER INSTANCE instance_8 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7682', 'management_server': 'localhost:10008', 'replication_server': 'localhost:10113'};",
+        "REGISTER INSTANCE instance_9 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7683', 'management_server': 'localhost:10009', 'replication_server': 'localhost:10114'};",
+        "REGISTER INSTANCE instance_10 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7684', 'management_server': 'localhost:10010', 'replication_server': 'localhost:10115'};",
+        "REGISTER INSTANCE instance_11 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7685', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10116'};",
+        "REGISTER INSTANCE instance_12 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7686', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10117'};",
+        "REGISTER INSTANCE instance_13 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10118'};",
+        "REGISTER INSTANCE instance_14 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10014', 'replication_server': 'localhost:10119'};",
+        "REGISTER INSTANCE instance_15 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10015', 'replication_server': 'localhost:10120'};",
+        "SET INSTANCE instance_1 TO MAIN",
+    ]
+
+
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
     # Run the test
@@ -267,14 +344,27 @@ def cleanup_after_test():
     interactive_mg_runner.kill_all(keep_directories=False)
 
 
-def test_replication_works(test_name):
+def get_data_cursors():
+    return [connect(host="localhost", port=port).cursor() for port in range(7675, 7690)]
+
+
+@pytest.mark.parametrize(
+    "setup_queries",
+    [
+        get_sync_setup_queries,
+        get_strict_sync_setup_queries,
+        get_async_sync_setup_queries,
+        get_async_strict_sync_setup_queries,
+    ],
+)
+def test_replication_works(test_name, setup_queries):
     # Start cluster
     instances = get_instances_description_no_setup(test_name=test_name)
     interactive_mg_runner.start_all(instances, keep_directories=False)
 
     # Register data instances
     leader = connect(host="localhost", port=7692).cursor()
-    for query in get_sync_setup_queries():
+    for query in setup_queries():
         execute_and_fetch_all(leader, query)
 
     # Test replication works
@@ -282,6 +372,19 @@ def test_replication_works(test_name):
     execute_and_fetch_all(
         instance_1, "unwind range (1, 5000) as x create (n:Entity {embedding: [0.1+x, 1.1+x, 2.2+x, 3.3+x, 4.4+x]});"
     )
+    for cursor in get_data_cursors():
+        mg_sleep_and_assert(5000, partial(get_vertex_count, cursor))
+
+    # Test failover works
+    interactive_mg_runner.kill(instances, "instance_1")
+    time.sleep(7)
+    instances = show_instances(leader)
+    found_main = False
+    for instance in instances:
+        if instance[-1] == "main" and instance[0] != "instance_1":
+            found_main = True
+            break
+    assert found_main, "New main not found"
 
 
 if __name__ == "__main__":
