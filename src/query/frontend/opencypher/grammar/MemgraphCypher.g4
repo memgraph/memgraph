@@ -400,7 +400,9 @@ showTransactions : SHOW TRANSACTIONS ;
 
 terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
 
-loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
+loadCsv : LOAD CSV FROM csvFile
+         ( WITH CONFIG configsMap=configMap ) ?
+         ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
          ( DELIMITER delimiter ) ?
          ( QUOTE quote ) ?
@@ -409,7 +411,7 @@ loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
 
 loadParquet : LOAD PARQUET FROM parquetFile ( WITH CONFIG configsMap=configMap ) ? AS rowVar ;
 
-loadJsonl : LOAD JSONL FROM jsonlFile AS rowVar ;
+loadJsonl : LOAD JSONL FROM jsonlFile ( WITH CONFIG configsMap=configMap ) ? AS rowVar ;
 
 csvFile : literal | parameter ;
 

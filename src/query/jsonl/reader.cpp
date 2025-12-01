@@ -11,17 +11,24 @@
 
 module;
 
+#include <functional>
 #include <string>
 #include <utility>
 
+#include "ctre.hpp"
+#include "flags/run_time_configurable.hpp"
+#include "requests/requests.hpp"
 #include "simdjson.h"
 #include "spdlog/spdlog.h"
 
 #include "query/typed_value.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/file.hpp"
 #include "utils/likely.hpp"
 
 module memgraph.query.jsonl.reader;
+
+import memgraph.utils.aws;
 
 namespace {
 using memgraph::query::TypedValue;
@@ -114,15 +121,55 @@ namespace memgraph::query {
 
 struct JsonlReader::impl {
  public:
-  impl(std::string file, std::pmr::memory_resource *resource) : file_{std::move(file)}, resource_{resource} {
-    content_ = simdjson::padded_string::load(file_).value();
+  impl(std::string uri, std::optional<utils::S3Config> s3_cfg, std::pmr::memory_resource *resource,
+       std::function<void()> abort_check)
+      : uri_{std::move(uri)}, resource_{resource} {
+    InitSimdjsonContent(std::move(s3_cfg), std::move(abort_check));
 
-    // Parser should be used for one document at a time
-    // This is thread local version of the parser, shouldn't be passed to other threads
-    if (UNLIKELY(simdjson::ondemand::parser::get_parser().iterate_many(content_).get(docs_)))
-      throw utils::BasicException("Failed to create iterator over documents for file {}", file_);
+    if (UNLIKELY(parser_.iterate_many(content_).get(docs_))) {
+      throw utils::BasicException("Failed to create iterator over documents for file {}", uri_);
+    }
 
     it_ = docs_.begin();
+  }
+
+  impl(impl const &) = delete;
+  impl &operator=(impl const &) = delete;
+  impl(impl &&) = delete;
+  impl &operator=(impl &&) = delete;
+
+  ~impl() = default;
+
+  // Performs file download if necessary before loading the file from disk
+  void InitSimdjsonContent(std::optional<utils::S3Config> s3_cfg, std::function<void()> abort_check) {
+    constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
+    constexpr auto s3_matcher = ctre::starts_with<"s3://">;
+
+    auto const build_base_path = [&]() -> std::filesystem::path {
+      return std::filesystem::path{"/tmp"} / std::filesystem::path{uri_}.filename();
+    };
+
+    if (url_matcher(uri_)) {
+      auto [new_path, file] = utils::CreateUniqueDownloadFile(build_base_path());
+
+      if (!requests::CreateAndDownloadFile(uri_, std::move(file),
+                                           memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
+                                           std::move(abort_check))) {
+        throw utils::BasicException("Failed to download file {}", uri_);
+      }
+      // .value() can throw ac exception hence and we don't want to leak new_path
+      auto const on_exit = utils::OnScopeExit([&new_path]() { utils::DeleteFile(new_path); });
+      content_ = simdjson::padded_string::load(new_path.string()).value();
+    } else if (s3_matcher(uri_)) {
+      DMG_ASSERT(s3_cfg.has_value(), "S3Config doesn't have a value");
+      auto const new_path = utils::CreateUniqueDownloadFile(build_base_path()).first;
+      // .value() can throw ac exception hence and we don't want to leak new_path
+      auto const on_exit = utils::OnScopeExit([&new_path]() { utils::DeleteFile(new_path); });
+      utils::GetS3Object(uri_, *s3_cfg, new_path.string());
+      content_ = simdjson::padded_string::load(new_path.string()).value();
+    } else {
+      content_ = simdjson::padded_string::load(uri_).value();
+    }
   }
 
   auto GetNextRow(Row &out) -> bool {
@@ -137,16 +184,19 @@ struct JsonlReader::impl {
   }
 
  private:
-  std::string file_;
+  std::string uri_;
   std::pmr::memory_resource *resource_;
+  simdjson::ondemand::parser parser_;
   simdjson::padded_string content_;
   simdjson::ondemand::document_stream docs_;
   simdjson::ondemand::document_stream::iterator it_;
 };
 
-JsonlReader::JsonlReader(std::string file, std::pmr::memory_resource *resource)
-    // NOLINTNEXTLINE
-    : pimpl_{std::make_unique<JsonlReader::impl>(std::move(file), resource)} {}
+JsonlReader::JsonlReader(std::string file, std::optional<utils::S3Config> s3_cfg, std::pmr::memory_resource *resource,
+                         std::function<void()> abort_check)
+    : pimpl_{
+          // NOLINTNEXTLINE
+          std::make_unique<JsonlReader::impl>(std::move(file), std::move(s3_cfg), resource, std::move(abort_check))} {}
 
 JsonlReader::~JsonlReader() {}
 

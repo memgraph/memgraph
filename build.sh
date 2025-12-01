@@ -154,6 +154,9 @@ if [ ! -f "$HOME/.conan2/profiles/default" ]; then
     conan profile detect
 fi
 
+# Install custom conan settings
+conan config install conan_config
+
 # fetch libs that aren't provided by conan yet
 if [ "$skip_init" = false ]; then
     ./init
@@ -198,17 +201,30 @@ fi
 MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install \
   . \
   --build=missing \
-  -pr:h ./memgraph_template_profile \
-  -pr:b ./memgraph_build_profile \
+  -pr:h memgraph_template_profile \
+  -pr:b memgraph_build_profile \
   -s build_type="$BUILD_TYPE"
+
+export CLASSPATH=
+export LD_LIBRARY_PATH=
+export DYLD_LIBRARY_PATH=
 source build/generators/conanbuild.sh
 
 # Determine preset name based on build type (Conan generates this automatically)
 # Convert to lowercase for preset name: Release -> conan-release
 PRESET="conan-$(echo "$BUILD_TYPE" | tr '[:upper:]' '[:lower:]')"
 
-# Configure cmake with additional arguments
-cmake --preset $PRESET $CMAKE_ARGS
+# Filter out sanitizer flags from CMAKE_ARGS since conanfile.py handles them automatically
+# via compiler settings (compiler.asan, compiler.ubsan, compiler.tsan)
+FILTERED_CMAKE_ARGS=""
+for arg in $CMAKE_ARGS; do
+    if [[ ! "$arg" =~ ^-D(ASAN|UBSAN|TSAN)(=|:|$) ]]; then
+        FILTERED_CMAKE_ARGS="$FILTERED_CMAKE_ARGS $arg"
+    fi
+done
+
+# Configure cmake with additional arguments (sanitizer flags automatically set by Conan)
+cmake --preset $PRESET $FILTERED_CMAKE_ARGS
 
 if [[ "$config_only" = true ]]; then
     exit 0

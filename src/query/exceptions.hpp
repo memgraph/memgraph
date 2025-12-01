@@ -120,7 +120,7 @@ class MulticommandTxException : public QueryException {
       : QueryException(MessageWithDocsLink(
             "{} is not allowed in multicommand transactions. A multicommand transaction, also known as an "
             "explicit transaction, groups multiple commands into a single atomic operation. Instead, please use an "
-            "implicit transaction, also knwon as an auto committing transaction, in order to execute this particular "
+            "implicit transaction, also known as an auto committing transaction, in order to execute this particular"
             "query.",
             query)) {}
   SPECIALIZE_GET_EXCEPTION_NAME(MulticommandTxException)
@@ -274,7 +274,7 @@ class TransactionSerializationException : public RetryBasicException {
 class ReconstructionException : public QueryException {
  public:
   ReconstructionException()
-      : QueryException("Record invalid after WITH clause. Most likely deleted by a preceeding DELETE.") {}
+      : QueryException("Record invalid after WITH clause. Most likely deleted by a preceding DELETE.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ReconstructionException)
 };
 
@@ -282,7 +282,7 @@ class RemoveAttachedVertexException : public QueryRuntimeException {
  public:
   RemoveAttachedVertexException()
       : QueryRuntimeException(
-            "Failed to remove node because of it's existing connections. Consider using DETACH DELETE.") {}
+            "Failed to remove node because of its existing connections. Consider using DETACH DELETE.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(RemoveAttachedVertexException)
 };
 
@@ -413,7 +413,7 @@ class RecoverSnapshotInMulticommandTxException final : public MulticommandTxExce
 
 class RecoverSnapshotDisabledOnDiskStorage final : public DisabledForOnDisk {
  public:
-  RecoverSnapshotDisabledOnDiskStorage() : DisabledForOnDisk("Recoverying from snapshot") {}
+  RecoverSnapshotDisabledOnDiskStorage() : DisabledForOnDisk("Recovering from snapshot") {}
   SPECIALIZE_GET_EXCEPTION_NAME(RecoverSnapshotDisabledOnDiskStorage)
 };
 

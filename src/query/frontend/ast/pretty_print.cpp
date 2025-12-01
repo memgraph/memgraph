@@ -113,14 +113,14 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Proper
 
 void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::ExternalPropertyValue &value);
 
-template <typename T>
-void PrintObject(std::ostream *out, const DbAccessor *dba, const std::vector<T> &vec);
-
-template <typename K, typename V>
-void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V> &map);
+template <typename T, typename A>
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::vector<T, A> &vec);
 
 template <typename K, typename V, typename C, typename A>
 void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V, C, A> &map);
+
+template <typename K, typename V, typename C, typename A>
+void PrintObject(std::ostream *out, const DbAccessor *dba, const boost::container::flat_map<K, V, C, A> &map);
 
 void PrintObject(std::ostream *out, EnumValueAccess op);
 
@@ -329,15 +329,15 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const std::variant<T,
   *out << "]";
 }
 
-template <typename T>
-void PrintObject(std::ostream *out, const DbAccessor *dba, const std::vector<T> &vec) {
+template <typename T, typename A>
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::vector<T, A> &vec) {
   *out << "[";
   utils::PrintIterable(*out, vec, ", ", [&dba](auto &stream, const auto &item) { PrintObject(&stream, dba, item); });
   *out << "]";
 }
 
-template <typename K, typename V>
-void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V> &map) {
+template <typename K, typename V, typename C, typename A>
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V, C, A> &map) {
   *out << "{";
   utils::PrintIterable(*out, map, ", ", [&dba](auto &stream, const auto &item) {
     PrintObject(&stream, dba, item.first);
@@ -348,7 +348,7 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V> 
 }
 
 template <typename K, typename V, typename C, typename A>
-void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V, C, A> &map) {
+void PrintObject(std::ostream *out, const DbAccessor *dba, const boost::container::flat_map<K, V, C, A> &map) {
   *out << "{";
   utils::PrintIterable(*out, map, ", ", [&dba](auto &stream, const auto &item) {
     PrintObject(&stream, dba, item.first);

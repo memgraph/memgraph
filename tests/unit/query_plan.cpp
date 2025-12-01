@@ -15,6 +15,7 @@
 #include <list>
 #include <memory>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <tuple>
 #include <typeinfo>
@@ -2494,6 +2495,38 @@ TYPED_TEST(TestPlanner, Subqueries) {
     DeleteListContent(&left_subquery_part);
     DeleteListContent(&right_subquery_part);
   }
+}
+
+TYPED_TEST(TestPlanner, SubqueryReturnAllIncludesSubquerySymbols) {
+  FakeDbAccessor dba;
+  // WITH 1 AS outer CALL { WITH 2 AS tmp RETURN tmp AS inner } RETURN *
+  auto *subquery = SINGLE_QUERY(WITH(LITERAL(2), AS("tmp")), RETURN(IDENT("tmp"), AS("inner")));
+  auto *query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("outer")), CALL_SUBQUERY(subquery), RETURN("*")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Check that the plan structure is correct: Produce -> Apply{Produce -> Produce} -> Once
+  std::list<BaseOpChecker *> subquery_plan{new ExpectProduce(), new ExpectProduce()};
+  CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(subquery_plan), ExpectProduce());
+  DeleteListContent(&subquery_plan);
+
+  // Verify the outer Produce has BOTH symbols (outer and inner)
+  // The fix ensures subquery output symbols are added to bound_symbols for RETURN *
+  auto &plan = planner.plan();
+  auto *outer_produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(outer_produce, nullptr);
+
+  // Extract the names from the named expressions
+  std::set<std::string> output_names;
+  for (const auto *named_expr : outer_produce->named_expressions_) {
+    output_names.insert(named_expr->name_);
+  }
+
+  // RETURN * should expand to both 'inner' (from subquery) and 'outer' (from WITH)
+  EXPECT_EQ(output_names.size(), 2);
+  EXPECT_TRUE(output_names.count("inner")) << "RETURN * should include 'inner' from subquery";
+  EXPECT_TRUE(output_names.count("outer")) << "RETURN * should include 'outer' from outer scope";
 }
 
 TYPED_TEST(TestPlanner, PatternComprehensionInReturn) {

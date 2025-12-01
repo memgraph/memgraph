@@ -6,7 +6,7 @@ PROJECT_ROOT="$SCRIPT_DIR/../.."
 BASE_BRANCH="origin/master"
 THREADS=${THREADS:-$(nproc)}
 # Directories to exclude from clang-tidy analysis
-EXCLUSIONS=":!src/planner/test :!src/planner/bench"
+EXCLUSIONS=":!src/planner/test :!src/planner/bench :!src/csv/fuzz"
 VENV_DIR="${VENV_DIR:-env}"
 # until https://github.com/conan-io/conan/issues/19285 is fixed
 CLASSPATH=

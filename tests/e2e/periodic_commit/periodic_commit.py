@@ -48,8 +48,6 @@ def test_periodic_commit_uses_same_iterator_like_initial_transaction(memgraph):
     assert results[0]["id"] == 3
     assert results[1]["id"] == 4
 
-    memgraph.execute("DROP INDEX ON :Node(id);")
-
 
 def test_periodic_commit_uses_same_iterator_like_initial_transaction_on_create(memgraph):
     memgraph.execute("CREATE INDEX ON :Node")

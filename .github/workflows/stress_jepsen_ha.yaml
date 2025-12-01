@@ -31,6 +31,10 @@ on:
         description: "Time limit for non-MT test (in seconds)"
         type: string
         default: "25200"
+      num-tenants:
+        description: "Number of tenants used in the MT test"
+        type: string
+        default: "3"
 
   schedule:
     - cron: "0 0 * * *"  # Run daily at midnight
@@ -72,6 +76,7 @@ jobs:
       mt: ${{ matrix.mt }}
       mode: ${{ needs.determine-sync.outputs.mode }}
       time-limit: ${{ matrix.mt && '7200' || '25200' }}
+      num-tenants: ${{ matrix.mt && '3' || '1' }}
     secrets: inherit
 
   run-manual-jepsen-tests:
@@ -82,6 +87,7 @@ jobs:
       mt: false
       mode: ${{ inputs.mode }}
       time-limit: ${{ inputs.time-limit-non-mt }}
+      num-tenants: ${{ inputs.num-tenants }}
     secrets: inherit
 
   run-manual-jepsen-tests-mt:
@@ -92,4 +98,5 @@ jobs:
       mt: true
       mode: ${{ inputs.mode }}
       time-limit: ${{ inputs.time-limit-mt }}
+      num-tenants: ${{ inputs.num-tenants }}
     secrets: inherit

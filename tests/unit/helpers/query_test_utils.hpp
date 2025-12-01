@@ -121,6 +121,11 @@ struct QueryBuildingComponent {
   auto CreateInListOperator(Expression *lhs, Expression *rhs) -> InListOperator * {
     return ast_storage.Create<InListOperator>(lhs, rhs);
   }
+
+  // Helper to create a RegexMatch operator
+  auto CreateRegexMatch(Expression *string_expr, Expression *regex_expr) -> RegexMatch * {
+    return ast_storage.Create<RegexMatch>(string_expr, regex_expr);
+  }
 };
 
 // Query evaluation component for unit tests
@@ -143,8 +148,8 @@ struct QueryEvaluationComponent {
     frame_writer.Write(symbol, value);
   }
 
-  // Helper to prepare InList caching for all InList operators in the AST
-  void PrepareInListCaching() { ::memgraph::query::PrepareInListCaching(builder.ast_storage, &frame_change_collector); }
+  // Helper to prepare caching for all InList and RegexMatch operators in the AST
+  void PrepareCaching() { ::memgraph::query::PrepareCaching(builder.ast_storage, &frame_change_collector); }
 
   // Helper to evaluate expression with frame change collector
   // Optionally accepts a map of symbols to values to populate just before evaluation
@@ -168,48 +173,73 @@ struct QueryEvaluationComponent {
   void ExpectTrackedForCaching(const InListOperator *in_list, const bool should_be_tracked = true) const {
     const auto cached_id = memgraph::utils::GetFrameChangeId(*in_list);
     if (should_be_tracked) {
-      EXPECT_TRUE(frame_change_collector.IsKeyTracked(cached_id));
+      EXPECT_TRUE(frame_change_collector.IsInlistKeyTracked(cached_id));
     } else {
-      EXPECT_FALSE(frame_change_collector.IsKeyTracked(cached_id));
+      EXPECT_FALSE(frame_change_collector.IsInlistKeyTracked(cached_id));
     }
   }
 
-  // Helper to get cached value reference
-  auto GetCachedValue(const memgraph::utils::FrameChangeId &cached_id) const
-      -> std::optional<std::reference_wrapper<const CachedValue>> {
-    return frame_change_collector.TryGetCachedValue(cached_id);
+  // Helper to verify a RegexMatch is tracked for caching
+  void ExpectTrackedForCaching(const RegexMatch *regex_match, const bool should_be_tracked = true) const {
+    const auto cached_id = memgraph::utils::GetFrameChangeId(*regex_match);
+    if (should_be_tracked) {
+      EXPECT_TRUE(frame_change_collector.IsRegexKeyTracked(cached_id));
+    } else {
+      EXPECT_FALSE(frame_change_collector.IsRegexKeyTracked(cached_id));
+    }
   }
 
-  // Helper to verify cache is populated
-  void ExpectCachePopulated(const InListOperator *in_list) const {
+  // Helper to get cached value reference for InList
+  auto GetInlistCachedValue(const memgraph::utils::FrameChangeId &cached_id) const
+      -> std::optional<std::reference_wrapper<const CachedSet>> {
+    return frame_change_collector.TryGetInlistCachedValue(cached_id);
+  }
+
+  // Helper to verify InList cache is populated
+  void ExpectInListCachePopulated(const InListOperator *in_list) const {
     const auto cached_id = memgraph::utils::GetFrameChangeId(*in_list);
-    const auto cached_value_ref = GetCachedValue(cached_id);
+    const auto cached_value_ref = GetInlistCachedValue(cached_id);
     ASSERT_TRUE(cached_value_ref.has_value()) << "Cache should be populated";
   }
 
-  // Helper to verify cache is NOT populated
-  void ExpectCacheNotPopulated(const InListOperator *in_list,
-                               const std::string &reason = "Cache should not be populated") const {
+  // Helper to verify InList cache is NOT populated
+  void ExpectInListCacheNotPopulated(const InListOperator *in_list,
+                                     const std::string &reason = "Cache should not be populated") const {
     const auto cached_id = memgraph::utils::GetFrameChangeId(*in_list);
-    const auto cached_value_ref = GetCachedValue(cached_id);
+    const auto cached_value_ref = GetInlistCachedValue(cached_id);
     EXPECT_FALSE(cached_value_ref.has_value()) << reason;
   }
 
-  // Helper to verify cache contains specific values
-  auto ExpectCacheContains(const InListOperator *in_list, const std::vector<TypedValue> &should_contain,
-                           const std::vector<TypedValue> &should_not_contain = {}) const -> void {
+  // Helper to verify InList cache contains specific values
+  auto ExpectInListCacheContains(const InListOperator *in_list, const std::vector<TypedValue> &should_contain,
+                                 const std::vector<TypedValue> &should_not_contain = {}) const -> void {
     const auto cached_id = memgraph::utils::GetFrameChangeId(*in_list);
 
-    const auto cached_value_ref = GetCachedValue(cached_id);
+    const auto cached_value_ref = GetInlistCachedValue(cached_id);
     ASSERT_TRUE(cached_value_ref.has_value()) << "Cache should be populated";
 
     const auto &cached_value = cached_value_ref->get();
     for (const auto &value : should_contain) {
-      EXPECT_TRUE(cached_value.ContainsValue(value)) << "Cache missing expected value";
+      EXPECT_TRUE(cached_value.Contains(value)) << "Cache missing expected value";
     }
     for (const auto &value : should_not_contain) {
-      EXPECT_FALSE(cached_value.ContainsValue(value)) << "Cache contains unexpected value";
+      EXPECT_FALSE(cached_value.Contains(value)) << "Cache contains unexpected value";
     }
+  }
+
+  // Helper to verify RegexMatch cache is populated
+  void ExpectCachePopulated(const RegexMatch *regex_match) const {
+    const auto cached_id = memgraph::utils::GetFrameChangeId(*regex_match);
+    const auto cached_value_ref = frame_change_collector.TryGetRegexCachedValue(cached_id);
+    ASSERT_TRUE(cached_value_ref.has_value()) << "Regex cache should be populated";
+  }
+
+  // Helper to verify RegexMatch cache is NOT populated
+  void ExpectCacheNotPopulated(const RegexMatch *regex_match,
+                               const std::string &reason = "Regex cache should not be populated") const {
+    const auto cached_id = memgraph::utils::GetFrameChangeId(*regex_match);
+    const auto cached_value_ref = frame_change_collector.TryGetRegexCachedValue(cached_id);
+    EXPECT_FALSE(cached_value_ref.has_value()) << reason;
   }
 };
 

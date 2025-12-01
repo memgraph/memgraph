@@ -110,9 +110,9 @@ class PropertyValueImpl {
   using Type = PropertyValueType;
 
   using string_t = std::basic_string<char, std::char_traits<char>, typename alloc_trait::template rebind_alloc<char>>;
-  // TODO: go back to boost::container::flat_map when it works for "IndexTest, DeltaDoesNotLeak"
-  using map_t = std::map<KeyType, PropertyValueImpl, std::less<>,
-                         typename alloc_trait::template rebind_alloc<std::pair<KeyType const, PropertyValueImpl>>>;
+  using map_t =
+      boost::container::flat_map<KeyType, PropertyValueImpl, std::less<>,
+                                 typename alloc_trait::template rebind_alloc<std::pair<KeyType, PropertyValueImpl>>>;
 
   using list_t = std::vector<PropertyValueImpl, typename alloc_trait::template rebind_alloc<PropertyValueImpl>>;
   using int_list_t = std::vector<int, typename alloc_trait::template rebind_alloc<int>>;
@@ -1660,11 +1660,8 @@ struct ExtendedPropertyType {
   }
 };
 
-// TODO: go back down in size ASAP
-//       v3.3.0 we used std::map to fix bug
-//       ASAP go back to boost::container::flat_map
-static_assert(sizeof(PropertyValue) == 56 /*40*/);
-static_assert(sizeof(pmr::PropertyValue) == 72 /*56*/);
+static_assert(sizeof(PropertyValue) == 40);
+static_assert(sizeof(pmr::PropertyValue) == 56);
 
 /**
  * Helper to read a nested value from within a PropertyValue map. If the path

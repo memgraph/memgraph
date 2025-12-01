@@ -9,8 +9,28 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import os
+import typing
+from pathlib import Path
+
+import mgclient
 import pytest
 from gqlalchemy import Memgraph
+
+
+def connect(**kwargs) -> mgclient.Connection:
+    connection = mgclient.connect(**kwargs)
+    connection.autocommit = True
+    return connection
+
+
+def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
+    cursor.execute(query, params)
+    return cursor.fetchall()
+
+
+def get_file_path(file: str) -> str:
+    return os.path.join(Path(__file__).parent.absolute(), file)
 
 
 @pytest.fixture
@@ -18,12 +38,6 @@ def memgraph(**kwargs) -> Memgraph:
     memgraph = Memgraph()
 
     yield memgraph
-
-    # Dropping the index here works around the fact that GQLAlchemy will
-    # fail on `drop_indexes` because it tries to hash the composite
-    # index properties. Once GQLAlchemy correctly supports these, this
-    # hack can be removed.
-    memgraph.execute("DROP INDEX ON :Person(id)")
 
     memgraph.drop_indexes()
     memgraph.ensure_constraints([])
