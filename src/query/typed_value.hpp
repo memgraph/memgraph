@@ -77,6 +77,11 @@ class TypedValue {
     size_t operator()(const TypedValue &value) const;
   };
 
+  template <typename H>
+  friend H AbslHashValue(H h, TypedValue const &value) {
+    return H::combine(std::move(h), Hash{}(value));
+  }
+
   /** A value type. Each type corresponds to exactly one C++ type */
   enum class Type : unsigned {
     Null,
@@ -116,6 +121,8 @@ class TypedValue {
   using TMap = std::pmr::map<TString, TypedValue, std::less<>>;
   // TODO: use boost flat_map when boost has been updated
   // using TMap = utils::pmr::flat_map<TString, TypedValue>;
+
+  storage::PropertyValue ToPropertyValue(storage::NameIdMapper *name_id_mapper) const;
 
   /** Construct a Null value with default utils::NewDeleteResource(). */
   TypedValue() : type_(Type::Null) {}
@@ -197,8 +204,8 @@ class TypedValue {
     point_3d_v = value;
   }
 
-  // conversion function to storage::PropertyValue
-  explicit operator storage::PropertyValue() const;
+  // conversion function to storage::ExternalPropertyValue
+  explicit operator storage::ExternalPropertyValue() const;
 
   // copy constructors for non-primitive types
   explicit TypedValue(const std::string &value, allocator_type alloc = {})
@@ -278,10 +285,16 @@ class TypedValue {
   }
 
   /** Construct a copy using default utils::NewDeleteResource() */
-  explicit TypedValue(const storage::PropertyValue &value);
+  explicit TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper);
+
+  /** Construct a copy using the given utils::MemoryResource */
+  TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper, allocator_type alloc);
+
+  /** Construct a copy using default utils::NewDeleteResource() */
+  explicit TypedValue(const storage::ExternalPropertyValue &value);
 
   /** Construct a copy given allocator_type */
-  TypedValue(const storage::PropertyValue &value, allocator_type alloc);
+  TypedValue(const storage::ExternalPropertyValue &value, allocator_type alloc);
 
   // move constructors for non-primitive types
 
@@ -396,13 +409,26 @@ class TypedValue {
    * Default utils::NewDeleteResource() is used for allocations. After the move,
    * other will be set to Null.
    */
-  explicit TypedValue(storage::PropertyValue &&other);
+  explicit TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper);
 
   /**
    * Construct with the value of other, but use the given allocator_type.
    * After the move, other will be set to Null.
    */
-  TypedValue(storage::PropertyValue &&other, allocator_type alloc);
+  TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper, allocator_type alloc);
+
+  /**
+   * Construct with the value of other.
+   * Default utils::NewDeleteResource() is used for allocations. After the move,
+   * other will be set to Null.
+   */
+  explicit TypedValue(storage::ExternalPropertyValue &&other);
+
+  /**
+   * Construct with the value of other, but use the given allocator_type.
+   * After the move, other will be set to Null.
+   */
+  TypedValue(storage::ExternalPropertyValue &&other, allocator_type alloc);
 
   // copy assignment operators
   TypedValue &operator=(const char *);

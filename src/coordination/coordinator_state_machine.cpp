@@ -17,8 +17,10 @@
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_state_manager.hpp"
+#include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"
 
+#include <nlohmann/json.hpp>
 #include <regex>
 
 using nuraft::cluster_config;
@@ -75,12 +77,8 @@ void CoordinatorStateMachine::UpdateStateMachineFromSnapshotDurability() {
     try {
       auto parsed_snapshot_id =
           std::stoul(std::regex_replace(snapshot_key_id, std::regex{kSnapshotIdPrefix.data()}, ""));
-      uint64_t old_committed_idx = last_committed_idx_.load(std::memory_order_acquire);
-      while (old_committed_idx < parsed_snapshot_id &&
-             !last_committed_idx_.compare_exchange_weak(old_committed_idx, parsed_snapshot_id,
-                                                        std::memory_order_acq_rel, std::memory_order_acquire)) {
-        // old is updated by compare_exchange_weak
-      }
+
+      atomic_fetch_max_explicit(&last_committed_idx_, parsed_snapshot_id, std::memory_order_acq_rel);
 
       // NOLINTNEXTLINE (misc-const-correctness)
       auto snapshot_ctx = std::make_shared<SnapshotCtx>();
@@ -136,6 +134,7 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
     throw CoordinatorStateMachineVersionMigrationException("Unexpected log store version {} for active version v2.",
                                                            static_cast<int>(stored_version));
   }
+  // C++ std::unreachable
   throw CoordinatorStateMachineVersionMigrationException("Unexpected log store version {} for active version {}.",
                                                          static_cast<int>(stored_version),
                                                          static_cast<int>(kActiveVersion));
@@ -165,11 +164,13 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStat
     }
   };
 
-  add_if_set(kDataInstances, delta_state.data_instances_);
+  add_if_set(kClusterState, delta_state.data_instances_);
   add_if_set(kCoordinatorInstances, delta_state.coordinator_instances_);
   add_if_set(kUuid, delta_state.current_main_uuid_);
   add_if_set(kEnabledReadsOnMain, delta_state.enabled_reads_on_main_);
   add_if_set(kSyncFailoverOnly, delta_state.sync_failover_only_);
+  add_if_set(kMaxFailoverLagOnReplica, delta_state.max_failover_replica_lag_);
+  add_if_set(kMaxReplicaReadLag, delta_state.max_replica_read_lag_);
 
   return CreateLog(delta_state_json);
 }
@@ -177,11 +178,11 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStat
 auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterStateDelta {
   buffer_serializer bs(data);
   try {
-    CoordinatorClusterStateDelta delta_state;
+    CoordinatorClusterStateDelta delta_state{};
     auto const json = nlohmann::json::parse(bs.get_str());
 
-    if (json.contains(kDataInstances.data())) {
-      auto const data_instances = json.at(kDataInstances.data());
+    if (json.contains(kClusterState.data())) {
+      auto const data_instances = json.at(kClusterState.data());
       delta_state.data_instances_ = data_instances.get<std::vector<DataInstanceContext>>();
     }
 
@@ -205,6 +206,17 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterState
       // sync_failover_only policy is added later, read it optionally, otherwise default it to true
       auto const sync_failover_only = json.value(kSyncFailoverOnly.data(), true);
       delta_state.sync_failover_only_ = sync_failover_only;
+    }
+
+    if (json.contains(kMaxFailoverLagOnReplica.data())) {
+      auto const max_failover_replica_lag =
+          json.value(kMaxFailoverLagOnReplica.data(), std::numeric_limits<uint64_t>::max());
+      delta_state.max_failover_replica_lag_ = max_failover_replica_lag;
+    }
+
+    if (json.contains(kMaxReplicaReadLag.data())) {
+      auto const max_replica_read_lag = json.value(kMaxReplicaReadLag.data(), std::numeric_limits<uint64_t>::max());
+      delta_state.max_replica_read_lag_ = max_replica_read_lag;
     }
 
     return delta_state;
@@ -324,7 +336,7 @@ auto CoordinatorStateMachine::last_snapshot() -> ptr<snapshot> {
     return nullptr;
   }
 
-  ptr<SnapshotCtx> ctx = entry->second;
+  ptr<SnapshotCtx> const ctx = entry->second;
   return ctx->snapshot_;
 }
 
@@ -335,7 +347,7 @@ auto CoordinatorStateMachine::last_commit_index() -> ulong {
 
 auto CoordinatorStateMachine::create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Create snapshot, last_log_idx={}", s.get_last_log_idx()));
-  ptr<buffer> snp_buf = s.serialize();
+  ptr<buffer> const snp_buf = s.serialize();
   ptr<snapshot> const ss = snapshot::deserialize(*snp_buf);
   CreateSnapshotInternal(ss);
 
@@ -361,7 +373,7 @@ auto CoordinatorStateMachine::CreateSnapshotInternal(ptr<snapshot> const &snapsh
 
   while (snapshots_.size() > MAX_SNAPSHOTS) {
     auto snapshot_current = snapshots_.begin()->first;
-    if (auto const ok = durability_->Delete("snapshot_id_" + std::to_string(snapshot_current)); !ok) {
+    if (auto const ok = durability_->Delete(fmt::format("{}{}", kSnapshotIdPrefix, snapshot_current)); !ok) {
       throw DeleteSnapshotFromDiskException("Failed to delete snapshot with id {} from disk.", snapshot_current);
     }
     snapshots_.erase(snapshots_.begin());
@@ -389,6 +401,12 @@ auto CoordinatorStateMachine::TryGetCurrentMainName() const -> std::optional<std
 auto CoordinatorStateMachine::GetEnabledReadsOnMain() const -> bool { return cluster_state_.GetEnabledReadsOnMain(); }
 
 auto CoordinatorStateMachine::GetSyncFailoverOnly() const -> bool { return cluster_state_.GetSyncFailoverOnly(); }
+
+auto CoordinatorStateMachine::GetMaxFailoverReplicaLag() const -> uint64_t {
+  return cluster_state_.GetMaxFailoverReplicaLag();
+}
+
+auto CoordinatorStateMachine::GetMaxReplicaReadLag() const -> uint64_t { return cluster_state_.GetMaxReplicaReadLag(); }
 
 }  // namespace memgraph::coordination
 #endif

@@ -15,7 +15,6 @@
 #include <optional>
 
 #include "query/stream/streams.hpp"
-#include "query/time_to_live/time_to_live.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/gatekeeper.hpp"
@@ -40,9 +39,12 @@ class Database {
    * @brief Construct a new Database object
    *
    * @param config storage configuration
+   * @param repl_state replication state
+   * @param database_protector_factory factory function to create database protectors for async operations
    */
   explicit Database(storage::Config config,
-                    utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state);
+                    utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state,
+                    std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
 
   /**
    * @brief Returns the raw storage pointer.
@@ -61,7 +63,7 @@ class Database {
    * @return std::unique_ptr<storage::Storage::Accessor>
    */
   std::unique_ptr<storage::Storage::Accessor> Access(
-      storage::Storage::Accessor::Type rw_type = storage::Storage::Accessor::Type::WRITE,
+      storage::StorageAccessType rw_type = storage::StorageAccessType::WRITE,
       std::optional<storage::IsolationLevel> override_isolation_level = {},
       std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
     return storage_->Access(rw_type, override_isolation_level, timeout);
@@ -82,9 +84,10 @@ class Database {
   /**
    * @brief Unique storage identified (name)
    *
-   * @return const std::string&
+   * @return std::string
    */
-  const std::string &name() const { return storage_->name(); }
+  std::string name() const { return storage_->name(); }
+  auto name_view() const { return storage_->name_view(); }
 
   /**
    * @brief Unique storage identified (uuid)
@@ -162,7 +165,7 @@ class Database {
    */
   query::PlanCacheLRU *plan_cache() { return &plan_cache_; }
 
-  query::ttl::TTL &ttl() { return time_to_live_; }
+  storage::ttl::TTL &ttl() { return storage_->ttl_; }
 
   /**
    * @brief Useful when trying to gracefully destroy Database.
@@ -175,7 +178,7 @@ class Database {
   void StopAllBackgroundTasks() {
     streams()->Shutdown();
     thread_pool()->ShutDown();
-    ttl().Shutdown();
+    storage_->StopAllBackgroundTasks();
   }
 
  private:
@@ -183,16 +186,10 @@ class Database {
   query::TriggerStore trigger_store_;               //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};  //!< Thread pool for executing after commit triggers
   query::stream::Streams streams_;                  //!< Streams associated with the storage
-  query::ttl::TTL time_to_live_;                    //!< TTL associated with the storage
 
   // TODO: Move to a better place
   query::PlanCacheLRU plan_cache_;  //!< Plan cache associated with the storage
 };
 
 }  // namespace memgraph::dbms
-
 extern template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
-
-namespace memgraph::dbms {
-using DatabaseAccess = memgraph::utils::Gatekeeper<memgraph::dbms::Database>::Accessor;
-}  // namespace memgraph::dbms

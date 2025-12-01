@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -79,9 +79,9 @@ State RunHandlerV4(Signature signature, TSession &session, State state, Marker m
     }
     case Signature::Route: {
       if constexpr (bolt_minor >= 3) {
-        return HandleRoute<TSession>(session, marker);
+        return HandleRoute<TSession, 4, bolt_minor>(session, marker);
       } else {
-        spdlog::trace("Supported only in bolt versions >= 4.3");
+        spdlog::trace("Route message supported only in bolt versions >= 4.3");
         return State::Close;
       }
     }
@@ -113,9 +113,9 @@ State RunHandlerV5(Signature signature, TSession &session, State state, Marker m
     case Signature::Noop:
       return HandleNoop<TSession>(state);
     case Signature::Route:
-      return HandleRoute<TSession>(session, marker);
+      return HandleRoute<TSession, 5>(session, marker);
     case Signature::LogOff:
-      return HandleLogOff<TSession>();
+      return HandleLogOff<TSession>(session);
     default:
       spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
       return State::Close;

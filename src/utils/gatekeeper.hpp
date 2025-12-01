@@ -82,7 +82,7 @@ struct GKInternals {
 
   std::optional<T> value_;
   uint64_t count_ = 0;
-  std::atomic_bool is_deleting = false;
+  std::atomic_bool is_marked_for_deletion = false;
   std::mutex mutex_;  // TODO change to something cheaper?
   std::condition_variable cv_;
 };
@@ -148,11 +148,11 @@ struct Gatekeeper {
       return *this;
     }
 
-    [[nodiscard]] bool is_deleting() const { return owner_->is_deleting; }
+    [[nodiscard]] bool is_marked_for_deletion() const { return owner_ && owner_->is_marked_for_deletion; }
 
     void prepare_for_deletion() {
       if (owner_) {
-        owner_->is_deleting = true;
+        owner_->is_marked_for_deletion = true;
       }
     }
 
@@ -177,6 +177,7 @@ struct Gatekeeper {
 
     template <typename Func>
     [[nodiscard]] auto try_exclusively(Func &&func) -> EvalResult<std::invoke_result_t<Func, T &>> {
+      if (!owner_) return {not_run_t{}};
       // Prevent new access
       auto guard = std::unique_lock{owner_->mutex_};
       // Only invoke if we have exclusive access
@@ -191,6 +192,7 @@ struct Gatekeeper {
     template <typename Func = decltype([](T &) { return true; })>
     [[nodiscard]] bool try_delete(std::chrono::milliseconds timeout = std::chrono::milliseconds(100),
                                   Func &&predicate = {}) {
+      if (!owner_) return false;
       // Prevent new access
       auto guard = std::unique_lock{owner_->mutex_};
       if (!owner_->cv_.wait_for(guard, timeout, [this] { return owner_->count_ == 1; })) {
@@ -205,8 +207,8 @@ struct Gatekeeper {
     }
 
     explicit operator bool() const {
-      return owner_ != nullptr         // we have access
-             && !owner_->is_deleting;  // AND we are allowed to use it
+      return owner_ != nullptr                    // we have access
+             && !owner_->is_marked_for_deletion;  // AND we are allowed to use it
     }
 
     void reset() {
@@ -234,9 +236,17 @@ struct Gatekeeper {
     return std::nullopt;
   }
 
+  std::optional<bool> is_marked_for_deletion() const {
+    auto guard = std::unique_lock{pimpl_->mutex_};
+    if (pimpl_->value_) {
+      return pimpl_->is_marked_for_deletion;
+    }
+    return std::nullopt;
+  }
+
   ~Gatekeeper() {
     if (!pimpl_) return;  // Moved out, nothing to do
-    pimpl_->is_deleting = true;
+    pimpl_->is_marked_for_deletion = true;
     // wait for count to drain to 0
     auto lock = std::unique_lock{pimpl_->mutex_};
     pimpl_->cv_.wait(lock, [this] { return pimpl_->count_ == 0; });

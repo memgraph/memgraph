@@ -12,20 +12,16 @@
 #pragma once
 
 #include <cstdint>
-#include <map>
-#include <stdexcept>
-#include <string>
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
+
+using namespace std::string_view_literals;
 
 namespace memgraph::replication_coordination_glue {
 
-enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
+enum class ReplicationMode : std::uint8_t { SYNC, ASYNC, STRICT_SYNC };
 
-// TODO: move to cpp
-NLOHMANN_JSON_SERIALIZE_ENUM(ReplicationMode, {
-                                                  {ReplicationMode::SYNC, "sync"},
-                                                  {ReplicationMode::ASYNC, "async"},
-                                              })
+void to_json(nlohmann::json &j, const ReplicationMode &e);
+void from_json(const nlohmann::json &j, ReplicationMode &e);
 
 }  // namespace memgraph::replication_coordination_glue

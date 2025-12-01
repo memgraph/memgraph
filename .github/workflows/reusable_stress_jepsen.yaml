@@ -11,10 +11,20 @@ on:
         type: boolean
         description: "Run MT test"
         required: true
-      sync:
-        type: boolean
-        description: "Run synchronous cluster"
+      mode:
+        type: string
+        description: "Cluster mode (sync, sync_mixed, strict_sync, strict_sync_mixed)"
         required: true
+      time-limit:
+        type: string
+        description: "Duration of Jepsen test (in seconds)"
+        required: true
+        default: "7200"
+      num-tenants:
+        type: string
+        description: "Number of tenants used in the HA Jepsen test"
+        required: true
+        default: "5"
 
 
 env:
@@ -23,13 +33,13 @@ env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: 'debian-12'
-  TOOLCHAIN: 'v6'
+  TOOLCHAIN: 'v7'
   NODES_NO: 6
 
 jobs:
   ha-test:
     name: "Run Jepsen HA Tests"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild, JepsenControl]
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 720
     steps:
       - name: Set up repository
@@ -38,18 +48,31 @@ jobs:
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Set Cluster File
         run: |
-          if [[ "${{ inputs.sync }}" == "true" ]]; then
-            echo "CLUSTER=sync_cluster.edn" >> $GITHUB_ENV
-          else
-            echo "CLUSTER=async_cluster.edn" >> $GITHUB_ENV
-          fi
+            case "${{ inputs.mode }}" in
+              sync)
+                echo "CLUSTER=sync_cluster.edn" >> $GITHUB_ENV
+                ;;
+              sync_mixed)
+                echo "CLUSTER=sync_mixed_cluster.edn" >> $GITHUB_ENV
+                ;;
+              strict_sync)
+                echo "CLUSTER=strict_sync_cluster.edn" >> $GITHUB_ENV
+                ;;
+              strict_sync_mixed)
+              echo "CLUSTER=strict_sync_mixed_cluster.edn" >> $GITHUB_ENV
+              ;;
+              *)
+                echo "Unsupported mode: ${{ inputs.mode }}"
+                exit 1
+                ;;
+            esac
 
       - name: Refresh Jepsen Cluster
         run: |
@@ -66,11 +89,7 @@ jobs:
 
       - name: Copy memgraph binary
         run: |
-          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH copy --binary --dest-dir build
-
-      - name: Copy libmemgraph_module_support.so
-        run: |
-          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH copy --libs --dest-dir build/src/query
+          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH copy --binary --use-make-install --dest-dir build
 
       - name: Run unit tests for Jepsen code
         run: |
@@ -86,9 +105,9 @@ jobs:
           trap "kill $CLEANUP_PID" EXIT
 
           if [[ "${{ inputs.mt }}" == "true" ]]; then
-            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit 14400 --concurrency $NODES_NO --num-tenants 3 --recovery-time 600 --nemesis-start-sleep 480"
+            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $NODES_NO --num-tenants ${{ inputs.num-tenants }} --recovery-time 600 --nemesis-start-sleep 480"
           else
-            ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit 25200 --concurrency $NODES_NO"
+            ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $NODES_NO --recovery-time 600 --nemesis-start-sleep 25"
           fi
 
           ./run.sh test \
@@ -126,3 +145,9 @@ jobs:
         if: always()
         run: |
           ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH stop --remove
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/docker_cleanup.sh

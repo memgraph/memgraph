@@ -39,12 +39,12 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path 
 
 // Used to capture the snapshot's data related to durability
 struct SnapshotDurabilityInfo {
-  explicit SnapshotDurabilityInfo(std::filesystem::path path, std::string uuid, const uint64_t start_timestamp)
-      : path(std::move(path)), uuid(std::move(uuid)), start_timestamp(start_timestamp) {}
+  explicit SnapshotDurabilityInfo(std::filesystem::path path, std::string uuid, uint64_t const durable_timestamp)
+      : path(std::move(path)), uuid(std::move(uuid)), durable_timestamp(durable_timestamp) {}
 
   std::filesystem::path path;
   std::string uuid;
-  uint64_t start_timestamp;
+  uint64_t durable_timestamp;
 
   auto operator<=>(const SnapshotDurabilityInfo &) const = default;
 };
@@ -89,9 +89,10 @@ struct WalDurabilityInfo {
 /// with seq_num < current_seq_num.
 /// @return List of WAL files. Each WAL file is defined with its sequence
 /// number, from timestamp, to timestamp and path.
-std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
-                                                          std::string_view uuid = "",
-                                                          std::optional<size_t> current_seq_num = {});
+std::vector<WalDurabilityInfo> GetWalFiles(const std::filesystem::path &wal_directory, std::string_view uuid = "",
+                                           std::optional<size_t> current_seq_num = {});
+
+bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry);
 
 // Helper function used to recover all discovered indices. The
 // indices must be recovered after the data recovery is done
@@ -101,7 +102,6 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
-                            const std::optional<std::filesystem::path> &storage_dir = std::nullopt,
                             std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
 // Helper function used to recover all discovered constraints. The
@@ -147,7 +147,7 @@ struct Recovery {
       NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
       uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
       std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-      std::string const &db_name);
+      std::string const &db_name, memgraph::storage::ttl::TTL *ttl);
 
   const std::filesystem::path snapshot_directory_;
   const std::filesystem::path wal_directory_;

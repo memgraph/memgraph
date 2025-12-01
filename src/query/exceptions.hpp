@@ -11,11 +11,15 @@
 
 #pragma once
 
+#include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/message.hpp"
 
 #include <fmt/core.h>
 #include <fmt/format.h>
+
+namespace memgraph::metrics {
+extern const Event WriteWriteConflicts;
+}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 
@@ -116,7 +120,7 @@ class MulticommandTxException : public QueryException {
       : QueryException(MessageWithDocsLink(
             "{} is not allowed in multicommand transactions. A multicommand transaction, also known as an "
             "explicit transaction, groups multiple commands into a single atomic operation. Instead, please use an "
-            "implicit transaction, also knwon as an auto committing transaction, in order to execute this particular "
+            "implicit transaction, also known as an auto committing transaction, in order to execute this particular"
             "query.",
             query)) {}
   SPECIALIZE_GET_EXCEPTION_NAME(MulticommandTxException)
@@ -261,14 +265,16 @@ class TransactionSerializationException : public RetryBasicException {
  public:
   TransactionSerializationException()
       : RetryBasicException(MessageWithDocsLink("Cannot resolve conflicting transactions. Retry this transaction when "
-                                                "the conflicting transaction is finished.")) {}
+                                                "the conflicting transaction is finished.")) {
+    memgraph::metrics::IncrementCounter(memgraph::metrics::WriteWriteConflicts);
+  }
   SPECIALIZE_GET_EXCEPTION_NAME(TransactionSerializationException)
 };
 
 class ReconstructionException : public QueryException {
  public:
   ReconstructionException()
-      : QueryException("Record invalid after WITH clause. Most likely deleted by a preceeding DELETE.") {}
+      : QueryException("Record invalid after WITH clause. Most likely deleted by a preceding DELETE.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ReconstructionException)
 };
 
@@ -276,7 +282,7 @@ class RemoveAttachedVertexException : public QueryRuntimeException {
  public:
   RemoveAttachedVertexException()
       : QueryRuntimeException(
-            "Failed to remove node because of it's existing connections. Consider using DETACH DELETE.") {}
+            "Failed to remove node because of its existing connections. Consider using DETACH DELETE.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(RemoveAttachedVertexException)
 };
 
@@ -407,7 +413,7 @@ class RecoverSnapshotInMulticommandTxException final : public MulticommandTxExce
 
 class RecoverSnapshotDisabledOnDiskStorage final : public DisabledForOnDisk {
  public:
-  RecoverSnapshotDisabledOnDiskStorage() : DisabledForOnDisk("Recoverying from snapshot") {}
+  RecoverSnapshotDisabledOnDiskStorage() : DisabledForOnDisk("Recovering from snapshot") {}
   SPECIALIZE_GET_EXCEPTION_NAME(RecoverSnapshotDisabledOnDiskStorage)
 };
 
@@ -427,6 +433,18 @@ class EdgeImportModeQueryDisabledOnDiskStorage final : public DisabledForOnDisk 
  public:
   EdgeImportModeQueryDisabledOnDiskStorage() : DisabledForOnDisk("Edge import mode") {}
   SPECIALIZE_GET_EXCEPTION_NAME(EdgeImportModeQueryDisabledOnDiskStorage)
+};
+
+class DropAllIndexesDisabledOnDiskStorage final : public DisabledForOnDisk {
+ public:
+  DropAllIndexesDisabledOnDiskStorage() : DisabledForOnDisk("DROP ALL INDEXES") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(DropAllIndexesDisabledOnDiskStorage)
+};
+
+class DropAllConstraintsDisabledOnDiskStorage final : public DisabledForOnDisk {
+ public:
+  DropAllConstraintsDisabledOnDiskStorage() : DisabledForOnDisk("DROP ALL CONSTRAINTS") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(DropAllConstraintsDisabledOnDiskStorage)
 };
 
 class SettingConfigInMulticommandTxException final : public MulticommandTxException {
@@ -482,15 +500,13 @@ class TransactionQueueInMulticommandTxException : public MulticommandTxException
 
 class MultiDatabaseQueryInMulticommandTxException : public MulticommandTxException {
  public:
-  MultiDatabaseQueryInMulticommandTxException()
-      : MulticommandTxException("Creating/dropping databases") {}
+  MultiDatabaseQueryInMulticommandTxException() : MulticommandTxException("Creating/dropping databases") {}
   SPECIALIZE_GET_EXCEPTION_NAME(MultiDatabaseQueryInMulticommandTxException)
 };
-  
+
 class UseDatabaseQueryInMulticommandTxException : public MulticommandTxException {
  public:
-  UseDatabaseQueryInMulticommandTxException()
-      : MulticommandTxException("Switching the currently active database") {}
+  UseDatabaseQueryInMulticommandTxException() : MulticommandTxException("Switching the currently active database") {}
   SPECIALIZE_GET_EXCEPTION_NAME(UseDatabaseQueryInMulticommandTxException)
 };
 
@@ -503,14 +519,6 @@ class DropGraphInMulticommandTxException : public MulticommandTxException {
 class TextSearchException : public QueryException {
   using QueryException::QueryException;
   SPECIALIZE_GET_EXCEPTION_NAME(TextSearchException)
-};
-
-class TextSearchDisabledException : public TextSearchException {
- public:
-  TextSearchDisabledException()
-      : TextSearchException(MessageWithDocsLink(" To use text indices and text search, start Memgraph with the "
-                                                "--experimental-enabled='text-search' flag.")) {}
-  SPECIALIZE_GET_EXCEPTION_NAME(TextSearchDisabledException)
 };
 
 class VectorSearchException : public QueryException {

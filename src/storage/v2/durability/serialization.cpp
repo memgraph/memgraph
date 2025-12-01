@@ -15,7 +15,6 @@
 
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/serialization.hpp"
-
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
@@ -73,7 +72,7 @@ void Encoder<FileType>::WriteMarker(Marker marker) {
 }
 
 template <typename FileType>
-void Encoder<FileType>::WriteBool(bool value) {
+void Encoder<FileType>::WriteBool(bool const value) {
   WriteMarker(Marker::TYPE_BOOL);
   if (value) {
     WriteMarker(Marker::VALUE_TRUE);
@@ -131,56 +130,90 @@ void Encoder<FileType>::WritePoint3d(storage::Point3d value) {
 }
 
 template <typename FileType>
-void Encoder<FileType>::WritePropertyValue(const PropertyValue &value) {
+void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &value) {
   WriteMarker(Marker::TYPE_PROPERTY_VALUE);
   switch (value.type()) {
-    case PropertyValue::Type::Null: {
+    case ExternalPropertyValue::Type::Null: {
       WriteMarker(Marker::TYPE_NULL);
       break;
     }
-    case PropertyValue::Type::Bool: {
+    case ExternalPropertyValue::Type::Bool: {
       WriteBool(value.ValueBool());
       break;
     }
-    case PropertyValue::Type::Int: {
+    case ExternalPropertyValue::Type::Int: {
       WriteUint(utils::MemcpyCast<uint64_t>(value.ValueInt()));
       break;
     }
-    case PropertyValue::Type::Double: {
+    case ExternalPropertyValue::Type::Double: {
       WriteDouble(value.ValueDouble());
       break;
     }
-    case PropertyValue::Type::String: {
+    case ExternalPropertyValue::Type::String: {
       WriteString(value.ValueString());
       break;
     }
-    case PropertyValue::Type::List: {
+    case ExternalPropertyValue::Type::List: {
       const auto &list = value.ValueList();
       WriteMarker(Marker::TYPE_LIST);
       WriteSize(this, list.size());
       for (const auto &item : list) {
-        WritePropertyValue(item);
+        WriteExternalPropertyValue(item);
       }
       break;
     }
-    case PropertyValue::Type::Map: {
+    case ExternalPropertyValue::Type::NumericList: {
+      const auto &list = value.ValueNumericList();
+      WriteMarker(Marker::TYPE_LIST);
+      WriteSize(this, list.size());
+      for (const auto &item : list) {
+        WriteMarker(Marker::TYPE_PROPERTY_VALUE);
+        if (std::holds_alternative<int>(item)) {
+          WriteUint(static_cast<uint64_t>(std::get<int>(item)));
+        } else {
+          WriteDouble(std::get<double>(item));
+        }
+      }
+      break;
+    }
+    case ExternalPropertyValue::Type::IntList: {
+      const auto &list = value.ValueIntList();
+      WriteMarker(Marker::TYPE_LIST);
+      WriteSize(this, list.size());
+      for (const auto &item : list) {
+        WriteMarker(Marker::TYPE_PROPERTY_VALUE);
+        WriteUint(static_cast<uint64_t>(item));
+      }
+      break;
+    }
+    case ExternalPropertyValue::Type::DoubleList: {
+      const auto &list = value.ValueDoubleList();
+      WriteMarker(Marker::TYPE_LIST);
+      WriteSize(this, list.size());
+      for (const auto &item : list) {
+        WriteMarker(Marker::TYPE_PROPERTY_VALUE);
+        WriteDouble(item);
+      }
+      break;
+    }
+    case ExternalPropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
       WriteMarker(Marker::TYPE_MAP);
       WriteSize(this, map.size());
       for (const auto &item : map) {
         WriteString(item.first);
-        WritePropertyValue(item.second);
+        WriteExternalPropertyValue(item.second);
       }
       break;
     }
-    case PropertyValue::Type::TemporalData: {
+    case ExternalPropertyValue::Type::TemporalData: {
       const auto temporal_data = value.ValueTemporalData();
       WriteMarker(Marker::TYPE_TEMPORAL_DATA);
       WriteUint(static_cast<uint64_t>(temporal_data.type));
       WriteUint(utils::MemcpyCast<uint64_t>(temporal_data.microseconds));
       break;
     }
-    case PropertyValue::Type::ZonedTemporalData: {
+    case ExternalPropertyValue::Type::ZonedTemporalData: {
       const auto zoned_temporal_data = value.ValueZonedTemporalData();
       WriteMarker(Marker::TYPE_ZONED_TEMPORAL_DATA);
       WriteUint(static_cast<uint64_t>(zoned_temporal_data.type));
@@ -192,15 +225,15 @@ void Encoder<FileType>::WritePropertyValue(const PropertyValue &value) {
       }
       break;
     }
-    case PropertyValue::Type::Enum: {
+    case ExternalPropertyValue::Type::Enum: {
       WriteEnum(value.ValueEnum());
       break;
     }
-    case PropertyValue::Type::Point2d: {
+    case ExternalPropertyValue::Type::Point2d: {
       WritePoint2d(value.ValuePoint2d());
       break;
     }
-    case PropertyValue::Type::Point3d: {
+    case ExternalPropertyValue::Type::Point3d: {
       WritePoint3d(value.ValuePoint3d());
       break;
     }
@@ -456,7 +489,7 @@ std::optional<ZonedTemporalData> ReadZonedTemporalData(Decoder &decoder) {
 }
 }  // namespace
 
-std::optional<PropertyValue> Decoder::ReadPropertyValue() {
+std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
   auto pv_marker = ReadMarker();
   if (!pv_marker || *pv_marker != Marker::TYPE_PROPERTY_VALUE) return std::nullopt;
 
@@ -466,82 +499,98 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::TYPE_NULL: {
       auto inner_marker = ReadMarker();
       if (!inner_marker || *inner_marker != Marker::TYPE_NULL) return std::nullopt;
-      return PropertyValue();
+      return ExternalPropertyValue();
     }
     case Marker::TYPE_BOOL: {
       auto value = ReadBool();
       if (!value) return std::nullopt;
-      return PropertyValue(*value);
+      return ExternalPropertyValue(*value);
     }
     case Marker::TYPE_INT: {
       auto value = ReadUint();
       if (!value) return std::nullopt;
-      return PropertyValue(utils::MemcpyCast<int64_t>(*value));
+      return ExternalPropertyValue(utils::MemcpyCast<int64_t>(*value));
     }
     case Marker::TYPE_DOUBLE: {
       auto value = ReadDouble();
       if (!value) return std::nullopt;
-      return PropertyValue(*value);
+      return ExternalPropertyValue(*value);
     }
     case Marker::TYPE_STRING: {
       auto value = ReadString();
       if (!value) return std::nullopt;
-      return PropertyValue(std::move(*value));
+      return ExternalPropertyValue(std::move(*value));
     }
     case Marker::TYPE_LIST: {
       auto inner_marker = ReadMarker();
       if (!inner_marker || *inner_marker != Marker::TYPE_LIST) return std::nullopt;
       auto size = ReadSize(this);
       if (!size) return std::nullopt;
-      std::vector<PropertyValue> value;
-      value.reserve(*size);
+
+      ExternalPropertyValue::list_t list;
+      bool all_ints = true;
+      bool all_doubles = true;
+      bool all_numeric = true;
+      list.reserve(*size);
       for (uint64_t i = 0; i < *size; ++i) {
-        auto item = ReadPropertyValue();
+        auto item = ReadExternalPropertyValue();
         if (!item) return std::nullopt;
-        value.emplace_back(std::move(*item));
+        all_ints &= item->IsInt();
+        all_doubles &= item->IsDouble();
+        all_numeric &= item->IsInt() || item->IsDouble();
+        list.emplace_back(std::move(*item));
       }
-      return PropertyValue(std::move(value));
+      if (all_ints) {
+        return ExternalPropertyValue(IntListTag{}, std::move(list));
+      }
+      if (all_doubles) {
+        return ExternalPropertyValue(DoubleListTag{}, std::move(list));
+      }
+      if (all_numeric) {
+        return ExternalPropertyValue(NumericListTag{}, std::move(list));
+      }
+      return ExternalPropertyValue(std::move(list));
     }
     case Marker::TYPE_MAP: {
       auto inner_marker = ReadMarker();
       if (!inner_marker || *inner_marker != Marker::TYPE_MAP) return std::nullopt;
       auto size = ReadSize(this);
       if (!size) return std::nullopt;
-      auto value = PropertyValue::map_t{};
-      value.reserve(*size);
+      auto value = ExternalPropertyValue::map_t{};
+      do_reserve(value, *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto key = ReadString();
         if (!key) return std::nullopt;
-        auto item = ReadPropertyValue();
+        auto item = ReadExternalPropertyValue();
         if (!item) return std::nullopt;
         value.emplace(std::move(*key), std::move(*item));
       }
-      return PropertyValue(std::move(value));
+      return ExternalPropertyValue(std::move(value));
     }
     case Marker::TYPE_TEMPORAL_DATA: {
       const auto maybe_temporal_data = ReadTemporalData(*this);
       if (!maybe_temporal_data) return std::nullopt;
-      return PropertyValue(*maybe_temporal_data);
+      return ExternalPropertyValue(*maybe_temporal_data);
     }
     case Marker::TYPE_ZONED_TEMPORAL_DATA: {
       const auto maybe_zoned_temporal_data = ReadZonedTemporalData(*this);
       if (!maybe_zoned_temporal_data) return std::nullopt;
-      return PropertyValue(*maybe_zoned_temporal_data);
+      return ExternalPropertyValue(*maybe_zoned_temporal_data);
     }
     case Marker::TYPE_ENUM: {
       const auto maybe_enum_value = ReadEnumValue();
       if (!maybe_enum_value) return std::nullopt;
-      return PropertyValue(*maybe_enum_value);
+      return ExternalPropertyValue(*maybe_enum_value);
     }
     case Marker::TYPE_POINT_2D: {
       const auto maybe_point_2d_value = ReadPoint2dValue();
       if (!maybe_point_2d_value) return std::nullopt;
-      return PropertyValue(*maybe_point_2d_value);
+      return ExternalPropertyValue(*maybe_point_2d_value);
     }
     case Marker::TYPE_POINT_3D: {
       const auto maybe_point_3d_value = ReadPoint3dValue();
       if (!maybe_point_3d_value) return std::nullopt;
-      return PropertyValue(*maybe_point_3d_value);
+      return ExternalPropertyValue(*maybe_point_3d_value);
     }
 
     case Marker::TYPE_PROPERTY_VALUE:
@@ -556,6 +605,7 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
     case Marker::SECTION_ENUMS:
+    case Marker::SECTION_TTL:
     case Marker::DELTA_VERTEX_CREATE:
     case Marker::DELTA_VERTEX_DELETE:
     case Marker::DELTA_VERTEX_ADD_LABEL:
@@ -564,6 +614,7 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::DELTA_EDGE_CREATE:
     case Marker::DELTA_EDGE_DELETE:
     case Marker::DELTA_EDGE_SET_PROPERTY:
+    case Marker::DELTA_TRANSACTION_START:
     case Marker::DELTA_TRANSACTION_END:
     case Marker::DELTA_LABEL_INDEX_CREATE:
     case Marker::DELTA_LABEL_INDEX_DROP:
@@ -580,6 +631,7 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP:
     case Marker::DELTA_TEXT_INDEX_CREATE:
+    case Marker::DELTA_TEXT_EDGE_INDEX_CREATE:
     case Marker::DELTA_TEXT_INDEX_DROP:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
@@ -591,7 +643,9 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::DELTA_POINT_INDEX_CREATE:
     case Marker::DELTA_POINT_INDEX_DROP:
     case Marker::DELTA_VECTOR_INDEX_CREATE:
+    case Marker::DELTA_VECTOR_EDGE_INDEX_CREATE:
     case Marker::DELTA_VECTOR_INDEX_DROP:
+    case Marker::DELTA_TTL_OPERATION:
     case Marker::DELTA_TYPE_CONSTRAINT_CREATE:
     case Marker::DELTA_TYPE_CONSTRAINT_DROP:
     case Marker::VALUE_FALSE:
@@ -618,7 +672,7 @@ bool Decoder::SkipString() {
   return true;
 }
 
-bool Decoder::SkipPropertyValue() {
+bool Decoder::SkipExternalPropertyValue() {
   auto pv_marker = ReadMarker();
   if (!pv_marker || *pv_marker != Marker::TYPE_PROPERTY_VALUE) return false;
 
@@ -647,7 +701,7 @@ bool Decoder::SkipPropertyValue() {
       auto size = ReadSize(this);
       if (!size) return false;
       for (uint64_t i = 0; i < *size; ++i) {
-        if (!SkipPropertyValue()) return false;
+        if (!SkipExternalPropertyValue()) return false;
       }
       return true;
     }
@@ -658,7 +712,7 @@ bool Decoder::SkipPropertyValue() {
       if (!size) return false;
       for (uint64_t i = 0; i < *size; ++i) {
         if (!SkipString()) return false;
-        if (!SkipPropertyValue()) return false;
+        if (!SkipExternalPropertyValue()) return false;
       }
       return true;
     }
@@ -690,6 +744,7 @@ bool Decoder::SkipPropertyValue() {
     case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
     case Marker::SECTION_ENUMS:
+    case Marker::SECTION_TTL:
     case Marker::DELTA_VERTEX_CREATE:
     case Marker::DELTA_VERTEX_DELETE:
     case Marker::DELTA_VERTEX_ADD_LABEL:
@@ -698,6 +753,7 @@ bool Decoder::SkipPropertyValue() {
     case Marker::DELTA_EDGE_CREATE:
     case Marker::DELTA_EDGE_DELETE:
     case Marker::DELTA_EDGE_SET_PROPERTY:
+    case Marker::DELTA_TRANSACTION_START:
     case Marker::DELTA_TRANSACTION_END:
     case Marker::DELTA_LABEL_INDEX_CREATE:
     case Marker::DELTA_LABEL_INDEX_DROP:
@@ -714,6 +770,7 @@ bool Decoder::SkipPropertyValue() {
     case Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP:
     case Marker::DELTA_TEXT_INDEX_CREATE:
+    case Marker::DELTA_TEXT_EDGE_INDEX_CREATE:
     case Marker::DELTA_TEXT_INDEX_DROP:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
@@ -725,7 +782,9 @@ bool Decoder::SkipPropertyValue() {
     case Marker::DELTA_POINT_INDEX_CREATE:
     case Marker::DELTA_POINT_INDEX_DROP:
     case Marker::DELTA_VECTOR_INDEX_CREATE:
+    case Marker::DELTA_VECTOR_EDGE_INDEX_CREATE:
     case Marker::DELTA_VECTOR_INDEX_DROP:
+    case Marker::DELTA_TTL_OPERATION:
     case Marker::DELTA_TYPE_CONSTRAINT_CREATE:
     case Marker::DELTA_TYPE_CONSTRAINT_DROP:
     case Marker::VALUE_FALSE:

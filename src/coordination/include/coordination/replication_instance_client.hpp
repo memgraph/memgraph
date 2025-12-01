@@ -76,6 +76,7 @@ class ReplicationInstanceClient {
   auto ReplicationSocketAddress() const -> std::string;
 
   auto SendGetDatabaseHistoriesRpc() const -> std::optional<replication_coordination_glue::InstanceInfo>;
+  auto SendGetReplicationLagRpc() const -> std::optional<ReplicationLagInfo>;
   auto GetReplicationClientInfo() const -> ReplicationClientInfo;
   auto RpcClient() const -> rpc::Client & { return rpc_client_; }
 
@@ -87,7 +88,18 @@ class ReplicationInstanceClient {
   auto SendRpc(Args &&...args) const -> bool {
     utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
     try {
-      if (auto stream = rpc_client_.Stream<T>(std::forward<Args>(args)...); !stream.SendAndWait().success) {
+      // Instead of retrieving config_.replication_client_info and sending it again into this function, we have this
+      // compile-time switch which decides specifically to ship config_.replication_client_info for
+      // DemoteMainToReplicaRpc
+      auto stream = std::invoke([&]() {
+        if constexpr (std::same_as<T, DemoteMainToReplicaRpc>) {
+          return rpc_client_.Stream<T>(config_.replication_client_info, std::forward<Args>(args)...);
+        } else {
+          return rpc_client_.Stream<T>(std::forward<Args>(args)...);
+        }
+      });
+
+      if (!stream.SendAndWait().success) {
         spdlog::error("Received unsuccessful response to {}.", T::Request::kType.name);
         metrics::IncrementCounter(RpcInfo<T>::failCounter);
         return false;
@@ -98,27 +110,6 @@ class ReplicationInstanceClient {
     } catch (rpc::RpcFailedException const &e) {
       spdlog::error("Failed to receive response to {}. Error occurred: {}", T::Request::kType.name, e.what());
       metrics::IncrementCounter(RpcInfo<T>::failCounter);
-      return false;
-    }
-  }
-
-  template <>
-  bool SendRpc<DemoteMainToReplicaRpc>() const {
-    utils::MetricsTimer const timer{metrics::DemoteMainToReplicaRpc_us};
-    try {
-      // Specialize in order to send replication_client_info
-      if (auto stream = rpc_client_.Stream<DemoteMainToReplicaRpc>(config_.replication_client_info);
-          !stream.SendAndWait().success) {
-        spdlog::error("Received unsuccessful response to {}.", DemoteMainToReplicaRpc::Request::kType.name);
-        metrics::IncrementCounter(metrics::DemoteMainToReplicaRpcFail);
-        return false;
-      }
-      metrics::IncrementCounter(metrics::DemoteMainToReplicaRpcSuccess);
-      return true;
-    } catch (rpc::RpcFailedException const &e) {
-      spdlog::error("Failed to receive response to {}. Error occurred: {}", DemoteMainToReplicaRpc::Request::kType.name,
-                    e.what());
-      metrics::IncrementCounter(metrics::DemoteMainToReplicaRpcFail);
       return false;
     }
   }

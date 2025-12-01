@@ -11,10 +11,6 @@ on:
         type: string
         description: "Target os. Default value is ubuntu-24.04."
         default: 'ubuntu-24.04'
-      toolchain:
-        type: string
-        description: "Toolchain version (v4, v5, v6). Default value is v6."
-        default: 'v6'
       run_core:
         type: string
         description: "Should the core release build tests be run? Default is true."
@@ -38,6 +34,12 @@ on:
       run_id:
         type: string
         description: "The ID of the run that triggered this workflow."
+        default: '0'
+      ref:
+        description: 'Branch or commit ref to run the workflow on'
+        required: false
+        default: ''
+        type: string
 
 env:
   ARCH: ${{ inputs.arch }}
@@ -45,7 +47,8 @@ env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
-  TOOLCHAIN: ${{ inputs.toolchain }}
+  TOOLCHAIN: v7
+  DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
 
 jobs:
   core:
@@ -57,10 +60,11 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -81,6 +85,14 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run GQL Behave tests
         run: |
@@ -160,19 +172,26 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/docker_cleanup.sh
+
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild, Gen7]
+    runs-on: [self-hosted, Linux, benchmark]
     timeout-minutes: 60
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -193,6 +212,14 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run macro benchmarks
         run: |
@@ -236,7 +263,7 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench
+          test-memgraph mgbench --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench results
         run: |
@@ -248,7 +275,7 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph upload-to-bench-graph \
           --benchmark-name "mgbench" \
-          --benchmark-results "../../tests/mgbench/benchmark_result.json" \
+          --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
           --github-run-id "${{ github.run_id }}" \
           --github-run-number "${{ github.run_number }}" \
           --head-branch-name "${{ env.BRANCH_NAME }}"
@@ -262,6 +289,12 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/docker_cleanup.sh
+
   e2e:
     if: ${{ inputs.run_e2e == 'true' }}
     name: "End to end tests"
@@ -271,10 +304,11 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -296,15 +330,28 @@ jobs:
           --build-type $BUILD_TYPE \
           build-memgraph
 
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
+
+      - name: Ensure localstack is up
+        run: |
+          cd tests/e2e/localstack
+          docker compose --profile bridge up -d
+
       # This step will be skipped because the e2e stream tests have been disabled
       # We need to fix this as soon as possible
       - name: Ensure Kafka and Pulsar are up
         if: false
         run: |
           cd tests/e2e/streams/kafka
-          docker-compose up -d
+          docker compose up -d
           cd ../pulsar
-          docker-compose up -d
+          docker compose up -d
 
       - name: Run e2e tests
         run: |
@@ -316,17 +363,22 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph e2e
 
+      - name: Ensure localstack is down
+        run: |
+          cd tests/e2e/localstack
+          docker compose down
+
       # Same as two steps prior
       - name: Ensure Kafka and Pulsar are down
         if: false
         run: |
           cd tests/e2e/streams/kafka
-          docker-compose down
+          docker compose down
           cd ../pulsar
-          docker-compose down
+          docker compose down
 
       - name: Copy build logs
-        if: always()
+        if: failure()
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -337,7 +389,7 @@ jobs:
       - name: Save test data
         continue-on-error: true
         uses: actions/upload-artifact@v4
-        if: always()
+        if: failure()
         with:
           name: "Test data(Release build)-${{ inputs.run_id }}"
           path: build/e2e/logs
@@ -351,6 +403,12 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/docker_cleanup.sh
+
   stress:
     if: ${{ inputs.run_stress == 'true' }}
     name: "Stress tests"
@@ -360,10 +418,11 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -384,6 +443,14 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run stress test (plain)
         run: |
@@ -425,6 +492,30 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph durability-large
 
+      - name: Copy stress and durability test logs
+        if: failure()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --logs-dir /home/mg/memgraph/tests/stress --dest-dir build/stress/logs
+
+          # Also copy durability test logs from build directory
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --logs-dir /home/mg/memgraph/build --dest-dir build/stress/logs
+
+      - name: Save stress and durability test logs
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: "Stress and Durability Test Logs-${{ inputs.run_id }}"
+          path: build/stress/logs
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -433,6 +524,12 @@ jobs:
           --os $OS \
           --arch $ARCH \
           stop --remove
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/docker_cleanup.sh
 
   query_modules:
     if: ${{ inputs.run_query_modules == 'true' }}
@@ -443,10 +540,11 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -467,6 +565,14 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run query modules e2e tests
         run: |
@@ -503,3 +609,9 @@ jobs:
           --os $OS \
           --arch $ARCH \
           stop --remove
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/docker_cleanup.sh

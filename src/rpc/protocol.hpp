@@ -11,10 +11,13 @@
 
 #pragma once
 
-#include <chrono>
-
 #include "communication/session.hpp"
-#include "rpc/messages.hpp"
+#include "rpc/file_replication_handler.hpp"
+#include "utils/file.hpp"
+
+namespace memgraph::slk {
+class Reader;
+}  // namespace memgraph::slk
 
 /**
  * @brief Protocol
@@ -58,12 +61,17 @@ class RpcMessageDeliverer {
   RpcMessageDeliverer(Server *server, io::network::Endpoint const & /*endpoint*/,
                       communication::InputStream *input_stream, communication::OutputStream *output_stream);
 
-  void Execute() const;
+  void Execute();
 
  private:
+  auto GetRemainingFileSize() const -> std::optional<uint64_t>;
+  auto GetReqReader() const -> slk::Reader;
+
   Server *server_;
   communication::InputStream *input_stream_;
   communication::OutputStream *output_stream_;
+  std::optional<FileReplicationHandler> file_replication_handler_;
+  std::vector<uint8_t> header_request_;
 };
 
 }  // namespace memgraph::rpc

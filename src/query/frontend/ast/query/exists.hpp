@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/query/expression.hpp"
 #include "query/frontend/ast/query/pattern.hpp"
 #include "query/frontend/semantic/symbol.hpp"
@@ -25,6 +26,7 @@ class Exists : public memgraph::query::Expression {
 
   DECLARE_VISITABLE(ExpressionVisitor<TypedValue>);
   DECLARE_VISITABLE(ExpressionVisitor<TypedValue *>);
+  DECLARE_VISITABLE(ExpressionVisitor<TypedValue const *>);
   DECLARE_VISITABLE(ExpressionVisitor<void>);
   DECLARE_VISITABLE(HierarchicalTreeVisitor);
 
@@ -33,19 +35,32 @@ class Exists : public memgraph::query::Expression {
     return this;
   }
 
-  memgraph::query::Pattern *pattern_{nullptr};
+  std::variant<std::monostate, memgraph::query::Pattern *, memgraph::query::CypherQuery *> content_;
   /// Symbol table position of the symbol this Aggregation is mapped to.
   int32_t symbol_pos_{-1};
 
   Exists *Clone(AstStorage *storage) const override {
     Exists *object = storage->Create<Exists>();
-    object->pattern_ = pattern_ ? pattern_->Clone(storage) : nullptr;
+    if (std::holds_alternative<Pattern *>(content_)) {
+      object->content_ = std::get<Pattern *>(content_)->Clone(storage);
+    } else if (std::holds_alternative<CypherQuery *>(content_)) {
+      object->content_ = std::get<CypherQuery *>(content_)->Clone(storage);
+    } else {
+      object->content_ = std::monostate{};
+    }
     object->symbol_pos_ = symbol_pos_;
     return object;
   }
 
+  bool HasPattern() const { return std::holds_alternative<Pattern *>(content_); }
+  bool HasSubquery() const { return std::holds_alternative<CypherQuery *>(content_); }
+
+  Pattern *GetPattern() const { return HasPattern() ? std::get<Pattern *>(content_) : nullptr; }
+  CypherQuery *GetSubquery() const { return HasSubquery() ? std::get<CypherQuery *>(content_) : nullptr; }
+
  protected:
-  Exists(Pattern *pattern) : pattern_(pattern) {}
+  explicit Exists(Pattern *pattern) : content_(pattern) {}
+  explicit Exists(CypherQuery *subquery) : content_(subquery) {}
 
  private:
   friend class AstStorage;

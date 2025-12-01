@@ -1,0 +1,35 @@
+# On CI: docker compose --profile bridge up and in load_s3_parquet.py, AWS_ENDPOINT_URL should be localstack-s3
+# Locally: docker compose --profile host up and in load_s3_parquet.py, AWS_ENDPOINT_URL should be localhost
+services:
+  localstack:
+    image: localstack/localstack:latest
+    container_name: localstack-s3
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEBUG=0
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+    networks:
+      - package_default
+    profiles:
+      - bridge
+
+  localstack-host:
+    image: localstack/localstack:latest
+    container_name: localstack-s3-host
+    network_mode: host
+    environment:
+      - SERVICES=s3
+      - DEBUG=0
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+    profiles:
+      - host
+
+networks:
+  package_default:
+    external: true

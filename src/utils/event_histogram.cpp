@@ -37,13 +37,15 @@
   GenerateRpcTimer(StateCheckRpc)                                                                                 \
   GenerateRpcTimer(GetDatabaseHistoriesRpc)                                                                       \
   GenerateRpcTimer(HeartbeatRpc)                                                                                  \
-  GenerateRpcTimer(AppendDeltasRpc)                                                                               \
+  GenerateRpcTimer(PrepareCommitRpc)                                                                              \
   GenerateRpcTimer(SnapshotRpc)                                                                                   \
   GenerateRpcTimer(CurrentWalRpc)                                                                                 \
   GenerateRpcTimer(WalFilesRpc)                                                                                   \
   GenerateRpcTimer(FrequentHeartbeatRpc)                                                                          \
   GenerateRpcTimer(SystemRecoveryRpc)                                                                             \
-  M(GetHistories_us, HighAvailability, "Latency of retrieving instances' history in microseconds", 50, 90, 99)
+  M(GetHistories_us, HighAvailability, "Latency of retrieving instances' history in microseconds", 50, 90, 99)    \
+  M(GCLatency_us, Memory, "GC execution latency in microseconds", 50, 90, 99)                                     \
+  M(GCSkiplistCleanupLatency_us, Memory, "GC Skiplist cleanup latency in microseconds", 50, 90, 99)
 // clang-format on
 
 namespace memgraph::metrics {

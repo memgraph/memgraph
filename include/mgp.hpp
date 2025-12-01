@@ -11,8 +11,10 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <format>
 #include <functional>
 #include <map>
 #include <memory>
@@ -126,9 +128,15 @@ extern thread_local std::optional<mgp_memory *> current_memory __attribute__((vi
 
 inline mgp_memory *GetMemoryResource() noexcept { return current_memory.value_or(nullptr); }
 
-inline void Register(mgp_memory *mem) noexcept { current_memory = mem; }
+inline mgp_memory *Register(mgp_memory *mem) noexcept {
+  if (current_memory.has_value()) {
+    return std::exchange(*current_memory, mem);
+  }
+  current_memory = mem;
+  return nullptr;
+}
 
-inline void UnRegister() noexcept { current_memory.reset(); }
+inline void UnRegister(mgp_memory *mem) noexcept { current_memory = mem; }
 
 inline bool IsThisThreadRegistered() noexcept { return current_memory.has_value(); }
 };  // namespace MemoryDispatcher
@@ -144,14 +152,17 @@ inline UnsupportedMgpMemory memory;  // NOSONAR
 
 class MemoryDispatcherGuard final {
  public:
-  explicit MemoryDispatcherGuard(mgp_memory *mem) { MemoryDispatcher::Register(mem); };
+  explicit MemoryDispatcherGuard(mgp_memory *mem) : old_mem{MemoryDispatcher::Register(mem)} {};
 
   MemoryDispatcherGuard(const MemoryDispatcherGuard &) = delete;
   MemoryDispatcherGuard(MemoryDispatcherGuard &&) = delete;
   MemoryDispatcherGuard &operator=(const MemoryDispatcherGuard &) = delete;
   MemoryDispatcherGuard &operator=(MemoryDispatcherGuard &&) = delete;
 
-  ~MemoryDispatcherGuard() { MemoryDispatcher::UnRegister(); }
+  ~MemoryDispatcherGuard() { MemoryDispatcher::UnRegister(old_mem); }
+
+ private:
+  mgp_memory *old_mem{nullptr};
 };
 
 // Thread must be registered, otherwise the function will segfault.
@@ -471,6 +482,8 @@ class List {
  public:
   /// @brief Creates a List from the copy of the given @ref mgp_list.
   explicit List(mgp_list *ptr);
+  /// @brief Creates a List from the given @ref mgp_list and takes ownership of it.
+  explicit List(mgp_list *ptr, StealType);
   /// @brief Creates a List from the copy of the given @ref mgp_list.
   explicit List(const mgp_list *const_ptr);
 
@@ -582,6 +595,9 @@ class Map {
  public:
   /// @brief Creates a Map from the copy of the given @ref mgp_map.
   explicit Map(mgp_map *ptr);
+
+  /// @brief Creates a Map from the given @ref mgp_map and takes ownership of it.
+  explicit Map(mgp_map *ptr, StealType);
 
   /// @brief Creates a Map from the copy of the given @ref mgp_map.
   explicit Map(const mgp_map *const_ptr);
@@ -1094,6 +1110,7 @@ class Duration {
   friend class Date;
   friend class LocalTime;
   friend class LocalDateTime;
+  friend class ZonedDateTime;
   friend class Value;
   friend class Record;
   friend class Result;
@@ -1141,6 +1158,85 @@ class Duration {
  private:
   mgp_duration *ptr_;
 };
+
+// @brief Wrapper class for @ref mgp_zoned_date_time.
+class ZonedDateTime {
+ private:
+  friend class Duration;
+  friend class Value;
+  friend class Record;
+  friend class Result;
+  friend class Parameter;
+
+ public:
+  /// @brief Creates a ZonedDateTime object from the copy of the given @ref mgp_zoned_date_time.
+  explicit ZonedDateTime(mgp_zoned_date_time *ptr);
+  /// @brief Creates a ZonedDateTime object from the copy of the given @ref mgp_zoned_date_time.
+  explicit ZonedDateTime(const mgp_zoned_date_time *const_ptr);
+
+  /// @brief Creates a ZonedDateTime object from the given string representing a date in the ISO 8601 format
+  /// (`YYYY-MM-DDThh:mm:ss`, `YYYY-MM-DDThh:mm`, `YYYYMMDDThhmmss`, `YYYYMMDDThhmm`, or `YYYYMMDDThh`).
+  explicit ZonedDateTime(std::string_view string);
+
+  /// @brief Creates a ZonedDateTime object with the given `year`, `month`, `day`, `hour`, `minute`, `second`,
+  /// `millisecond`, `microsecond`, and `offset_in_minutes` properties.
+  ZonedDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond, int microsecond,
+                int offset_in_minutes);
+
+  /// @brief Creates a ZonedDateTime object with the given `year`, `month`, `day`, `hour`, `minute`, `second`,
+  /// `millisecond`, `microsecond`, and `timezone_name` properties.
+  ZonedDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond, int microsecond,
+                std::string_view timezone_name);
+
+  ZonedDateTime(const ZonedDateTime &other);
+  ZonedDateTime(ZonedDateTime &&other) noexcept;
+
+  ZonedDateTime &operator=(const ZonedDateTime &other);
+  ZonedDateTime &operator=(ZonedDateTime &&other) noexcept;
+
+  ~ZonedDateTime();
+
+  /// @brief Returns the current ZonedDateTime.
+  static ZonedDateTime Now();
+
+  /// @brief Returns the object’s `year` property.
+  int Year() const;
+  /// @brief Returns the object’s `month` property.
+  int Month() const;
+  /// @brief Returns the object’s `day` property.
+  int Day() const;
+  /// @brief Returns the object’s `hour` property.
+  int Hour() const;
+  /// @brief Returns the object’s `minute` property.
+  int Minute() const;
+  /// @brief Returns the object’s `second` property.
+  int Second() const;
+  /// @brief Returns the object’s `millisecond` property.
+  int Millisecond() const;
+  /// @brief Returns the object’s `microsecond` property.
+  int Microsecond() const;
+  /// @brief Returns the object’s `timezone` string property.
+  char const *Timezone() const;
+  /// @brief Returns the object’s `offset` property.
+  int Offset() const;
+
+  /// @brief Returns the object's timestamp (microseconds from the Unix epoch).
+  int64_t Timestamp() const;
+
+  bool operator==(const ZonedDateTime &other) const;
+  ZonedDateTime operator+(const Duration &dur) const;
+  ZonedDateTime operator-(const Duration &dur) const;
+  Duration operator-(const ZonedDateTime &other) const;
+
+  bool operator<(const ZonedDateTime &other) const;
+
+  /// @brief returns the string representation
+  std::string ToString() const;
+
+ private:
+  mgp_zoned_date_time *ptr_;
+};
+
 /* #endregion */
 
 /* #endregion */
@@ -1161,7 +1257,8 @@ enum class Type : uint8_t {
   Date,
   LocalTime,
   LocalDateTime,
-  Duration
+  Duration,
+  ZonedDateTime
 };
 
 /// @brief Wrapper class for @ref mgp_value.
@@ -1252,6 +1349,12 @@ class Value {
   /// @note The behavior of accessing `duration` after performing this operation is undefined.
   explicit Value(Duration &&duration);
 
+  /// @brief Constructs a ZonedDateTime value from the copy of the given `zoned_date_time`.
+  explicit Value(const ZonedDateTime &zoned_date_time);
+  /// @brief Constructs a ZonedDateTime value and takes ownership of the given `zoned_date_time`.
+  /// @note The behavior of accessing `zoned_date_time` after performing this operation is undefined.
+  explicit Value(ZonedDateTime &&zoned_date_time);
+
   Value(const Value &other);
   Value(Value &&other) noexcept;
 
@@ -1311,6 +1414,9 @@ class Value {
   /// @pre Value type needs to be Type::Duration.
   Duration ValueDuration() const;
   Duration ValueDuration();
+  /// @pre Value type needs to be Type::LocalDateTime.
+  ZonedDateTime ValueZonedDateTime() const;
+  ZonedDateTime ValueZonedDateTime();
 
   /// @brief Returns whether the value is null.
   bool IsNull() const;
@@ -1342,6 +1448,8 @@ class Value {
   bool IsLocalDateTime() const;
   /// @brief Returns whether the value is a @ref Duration object.
   bool IsDuration() const;
+  /// @brief Returns whether the value is a @ref ZonedDateTime object.
+  bool IsZonedDateTime() const;
 
   /// @exception std::runtime_error Unknown value type.
   bool operator==(const Value &other) const;
@@ -1734,6 +1842,26 @@ struct HashCombine {
   }
 };
 
+/**
+ * Like FNV hashing for a collection, just specialized for three elements to avoid
+ * iteration overhead.
+ */
+template <typename TA, typename TB, typename TC, typename TAHash = std::hash<TA>, typename TBHash = std::hash<TB>,
+          typename TCHash = std::hash<TC>>
+struct HashCombine3 {
+  size_t operator()(const TA &a, const TB &b, const TC &c) const {
+    static constexpr size_t fnv_prime = 1099511628211UL;
+    static constexpr size_t fnv_offset = 14695981039346656037UL;
+    size_t ret = fnv_offset;
+    ret ^= TAHash()(a);
+    ret *= fnv_prime;
+    ret ^= TBHash()(b);
+    ret *= fnv_prime;
+    ret ^= TCHash()(c);
+    return ret;
+  }
+};
+
 // uint to int conversion in C++ is a bit tricky. Take a look here
 // https://stackoverflow.com/questions/14623266/why-cant-i-reinterpret-cast-uint-to-int
 // for more details.
@@ -1851,6 +1979,11 @@ inline bool DurationsEqual(mgp_duration *duration1, mgp_duration *duration2) {
   return mgp::duration_equal(duration1, duration2);
 }
 
+/// @brief Returns whether two MGP API zoned datetime objects are equal.
+inline bool ZonedDateTimesEqual(mgp_zoned_date_time *zoned_date_time1, mgp_zoned_date_time *zoned_date_time2) {
+  return mgp::zoned_date_time_equal(zoned_date_time1, zoned_date_time2);
+}
+
 /// @brief Returns whether two MGP API values are equal.
 inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
   if (value1 == value2) {
@@ -1890,6 +2023,8 @@ inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
       return util::LocalTimesEqual(mgp::value_get_local_time(value1), mgp::value_get_local_time(value2));
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
       return util::LocalDateTimesEqual(mgp::value_get_local_date_time(value1), mgp::value_get_local_date_time(value2));
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+      return util::ZonedDateTimesEqual(mgp::value_get_zoned_date_time(value1), mgp::value_get_zoned_date_time(value2));
     case MGP_VALUE_TYPE_DURATION:
       return util::DurationsEqual(mgp::value_get_duration(value1), mgp::value_get_duration(value2));
   }
@@ -1964,8 +2099,8 @@ inline Type ToAPIType(mgp_value_type type) {
       return Type::LocalDateTime;
     case MGP_VALUE_TYPE_DURATION:
       return Type::Duration;
-    default:
-      break;
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+      return Type::ZonedDateTime;
   }
   throw ValueException("Unknown type error!");
 }
@@ -2459,6 +2594,7 @@ inline Labels::Iterator Labels::cend() { return Iterator(this, Size()); }
 // List:
 
 inline List::List(mgp_list *ptr) : ptr_(mgp::MemHandlerCallback(list_copy, ptr)) {}
+inline List::List(mgp_list *ptr, StealType) : ptr_(ptr) {}
 
 inline List::List(const mgp_list *const_ptr)
     : ptr_(mgp::MemHandlerCallback(list_copy, const_cast<mgp_list *>(const_ptr))) {}
@@ -2587,6 +2723,8 @@ inline bool MapItem::operator<(const MapItem &other) const { return key < other.
 // Map:
 
 inline Map::Map(mgp_map *ptr) : ptr_(mgp::MemHandlerCallback(map_copy, ptr)) {}
+
+inline Map::Map(mgp_map *ptr, StealType) : ptr_(ptr) {}
 
 inline Map::Map(const mgp_map *const_ptr) : ptr_(mgp::MemHandlerCallback(map_copy, const_cast<mgp_map *>(const_ptr))) {}
 
@@ -3207,9 +3345,7 @@ inline bool Date::operator<(const Date &other) const {
   return is_less;
 }
 
-inline std::string Date::ToString() const {
-  return std::to_string(Year()) + "-" + std::to_string(Month()) + "-" + std::to_string(Day());
-}
+inline std::string Date::ToString() const { return std::format("{:04d}-{:02d}-{:02d}", Year(), Month(), Day()); }
 
 // LocalTime:
 
@@ -3311,8 +3447,7 @@ inline bool LocalTime::operator<(const LocalTime &other) const {
 }
 
 inline std::string LocalTime::ToString() const {
-  return std::to_string(Hour()) + ":" + std::to_string(Minute()) + ":" + std::to_string(Second()) + "," +
-         std::to_string(Millisecond()) + std::to_string(Microsecond());
+  return std::format("{:02d}:{:02d}:{:02d}.{:03d}{:03d}", Hour(), Minute(), Second(), Millisecond(), Microsecond());
 }
 
 // LocalDateTime:
@@ -3341,6 +3476,36 @@ inline LocalDateTime::LocalDateTime(int year, int month, int day, int hour, int 
 inline LocalDateTime::LocalDateTime(const LocalDateTime &other) : LocalDateTime(other.ptr_) {}
 
 inline LocalDateTime::LocalDateTime(LocalDateTime &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
+
+inline ZonedDateTime::ZonedDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond,
+                                    int microsecond, int offset_in_minutes) {
+  struct mgp_date_parameters date_params {
+    .year = year, .month = month, .day = day
+  };
+  struct mgp_local_time_parameters local_time_params {
+    .hour = hour, .minute = minute, .second = second, .millisecond = millisecond, .microsecond = microsecond
+  };
+  mgp_zoned_date_time_parameters params{.date_parameters = &date_params,
+                                        .local_time_parameters = &local_time_params,
+                                        .timezone_info = {.offset_in_minutes = offset_in_minutes},
+                                        .is_named_timezone = 0};
+  ptr_ = mgp::MemHandlerCallback(zoned_date_time_from_parameters, &params);
+}
+
+inline ZonedDateTime::ZonedDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond,
+                                    int microsecond, std::string_view timezone_name) {
+  struct mgp_date_parameters date_params {
+    .year = year, .month = month, .day = day
+  };
+  struct mgp_local_time_parameters local_time_params {
+    .hour = hour, .minute = minute, .second = second, .millisecond = millisecond, .microsecond = microsecond
+  };
+  mgp_zoned_date_time_parameters params{.date_parameters = &date_params,
+                                        .local_time_parameters = &local_time_params,
+                                        .timezone_info = {.timezone_name = timezone_name.data()},
+                                        .is_named_timezone = 1};
+  ptr_ = mgp::MemHandlerCallback(zoned_date_time_from_parameters, &params);
+}
 
 inline LocalDateTime &LocalDateTime::operator=(const LocalDateTime &other) {
   if (this != &other) {
@@ -3430,9 +3595,8 @@ inline bool LocalDateTime::operator<(const LocalDateTime &other) const {
 }
 
 inline std::string LocalDateTime::ToString() const {
-  return std::to_string(Year()) + "-" + std::to_string(Month()) + "-" + std::to_string(Day()) + "T" +
-         std::to_string(Hour()) + ":" + std::to_string(Minute()) + ":" + std::to_string(Second()) + "," +
-         std::to_string(Millisecond()) + std::to_string(Microsecond());
+  return std::format("{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}.{:03d}{:03d}", Year(), Month(), Day(), Hour(), Minute(),
+                     Second(), Millisecond(), Microsecond());
 }
 
 // Duration:
@@ -3524,7 +3688,103 @@ inline bool Duration::operator<(const Duration &other) const {
   return is_less;
 }
 
-inline std::string Duration::ToString() const { return std::to_string(Microseconds()) + "ms"; }
+inline std::string Duration::ToString() const { return std::format("{}ms", Microseconds()); }
+
+// ZonedDateTime:
+
+inline ZonedDateTime::ZonedDateTime(mgp_zoned_date_time *ptr)
+    : ptr_(mgp::MemHandlerCallback(zoned_date_time_copy, ptr)) {}
+
+inline ZonedDateTime::ZonedDateTime(const mgp_zoned_date_time *const_ptr)
+    : ptr_(mgp::MemHandlerCallback(zoned_date_time_copy, const_cast<mgp_zoned_date_time *>(const_ptr))) {}
+
+inline ZonedDateTime::ZonedDateTime(std::string_view string)
+    : ptr_(mgp::MemHandlerCallback(zoned_date_time_from_string, string.data())) {}
+
+inline ZonedDateTime::ZonedDateTime(const ZonedDateTime &other) : ZonedDateTime(other.ptr_) {}
+
+inline ZonedDateTime::ZonedDateTime(ZonedDateTime &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
+
+inline ZonedDateTime::~ZonedDateTime() {
+  if (ptr_ != nullptr) {
+    mgp::zoned_date_time_destroy(ptr_);
+  }
+}
+
+inline int ZonedDateTime::Year() const { return mgp::zoned_date_time_get_year(ptr_); }
+
+inline int ZonedDateTime::Month() const { return mgp::zoned_date_time_get_month(ptr_); }
+
+inline int ZonedDateTime::Day() const { return mgp::zoned_date_time_get_day(ptr_); }
+
+inline int ZonedDateTime::Hour() const { return mgp::zoned_date_time_get_hour(ptr_); }
+
+inline int ZonedDateTime::Minute() const { return mgp::zoned_date_time_get_minute(ptr_); }
+
+inline int ZonedDateTime::Second() const { return mgp::zoned_date_time_get_second(ptr_); }
+
+inline int ZonedDateTime::Millisecond() const { return mgp::zoned_date_time_get_millisecond(ptr_); }
+
+inline int ZonedDateTime::Microsecond() const { return mgp::zoned_date_time_get_microsecond(ptr_); }
+
+inline int64_t ZonedDateTime::Timestamp() const { return mgp::zoned_date_time_timestamp(ptr_); }
+
+inline char const *ZonedDateTime::Timezone() const { return mgp::zoned_date_time_get_timezone(ptr_); }
+
+inline int ZonedDateTime::Offset() const { return mgp::zoned_date_time_get_offset(ptr_); }
+
+inline bool ZonedDateTime::operator==(const ZonedDateTime &other) const {
+  return util::ZonedDateTimesEqual(ptr_, other.ptr_);
+}
+
+inline std::string ZonedDateTime::ToString() const {
+  auto tp = std::chrono::sys_time<std::chrono::microseconds>{std::chrono::microseconds{Timestamp()}};
+  if (!std::string_view{Timezone()}.empty()) {
+    auto tz_ptr = std::chrono::locate_zone(Timezone());
+    auto zt = std::chrono::zoned_time{tz_ptr, tp};
+    return std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{0:%Ez}[{1}]", zt, Timezone());
+  } else {
+    auto local_tp = std::chrono::sys_time<std::chrono::microseconds>{std::chrono::microseconds{Timestamp()} +
+                                                                     std::chrono::minutes{Offset()}};
+    auto offset_mins = Offset();
+    auto hours = offset_mins / 60;
+    auto mins = std::abs(offset_mins % 60);
+    auto offset_str = std::format("{:+03d}:{:02d}", hours, mins);
+    return std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{1}", local_tp, offset_str);
+  }
+}
+
+inline ZonedDateTime ZonedDateTime::operator+(const Duration &dur) const {
+  auto *mgp_sum = mgp::MemHandlerCallback(zoned_date_time_add_duration, ptr_, dur.ptr_);
+  auto sum = ZonedDateTime(mgp_sum);
+  mgp::zoned_date_time_destroy(mgp_sum);
+
+  return sum;
+}
+
+inline ZonedDateTime ZonedDateTime::operator-(const Duration &dur) const {
+  auto *mgp_difference = mgp::MemHandlerCallback(zoned_date_time_sub_duration, ptr_, dur.ptr_);
+  auto difference = ZonedDateTime(mgp_difference);
+  mgp::zoned_date_time_destroy(mgp_difference);
+
+  return difference;
+}
+
+inline Duration ZonedDateTime::operator-(const ZonedDateTime &other) const {
+  auto *mgp_difference = mgp::MemHandlerCallback(zoned_date_time_diff, ptr_, other.ptr_);
+  auto difference = Duration(mgp_difference);
+  mgp::duration_destroy(mgp_difference);
+
+  return difference;
+}
+
+inline ZonedDateTime ZonedDateTime::Now() {
+  auto *mgp_zoned_date_time = mgp::MemHandlerCallback(zoned_date_time_now);
+  auto zoned_date_time = ZonedDateTime(mgp_zoned_date_time);
+  mgp::zoned_date_time_destroy(mgp_zoned_date_time);
+
+  return zoned_date_time;
+}
 
 /* #endregion */
 
@@ -3614,6 +3874,14 @@ inline Value::Value(const Duration &duration)
 inline Value::Value(Duration &&duration) {
   ptr_ = mgp::value_make_duration(duration.ptr_);
   duration.ptr_ = nullptr;
+}
+
+inline Value::Value(const ZonedDateTime &zoned_date_time)
+    : ptr_(mgp::value_make_zoned_date_time(mgp::MemHandlerCallback(zoned_date_time_copy, zoned_date_time.ptr_))) {}
+
+inline Value::Value(ZonedDateTime &&zoned_date_time) {
+  ptr_ = mgp::value_make_zoned_date_time(zoned_date_time.ptr_);
+  zoned_date_time.ptr_ = nullptr;
 }
 
 inline Value::Value(const Value &other) : Value(other.ptr()) {}
@@ -3845,6 +4113,19 @@ inline Duration Value::ValueDuration() {
   return Duration(mgp::value_get_duration(this->ptr()));
 }
 
+inline ZonedDateTime Value::ValueZonedDateTime() const {
+  if (Type() != Type::ZonedDateTime) {
+    throw ValueException("Type of value is wrong: expected ZonedDateTime.");
+  }
+  return ZonedDateTime(mgp::value_get_zoned_date_time(this->ptr()));
+}
+inline ZonedDateTime Value::ValueZonedDateTime() {
+  if (Type() != Type::ZonedDateTime) {
+    throw ValueException("Type of value is wrong: expected ZonedDateTime.");
+  }
+  return ZonedDateTime(mgp::value_get_zoned_date_time(this->ptr()));
+}
+
 inline bool Value::IsNull() const { return mgp::value_is_null(this->ptr()); }
 
 inline bool Value::IsBool() const { return mgp::value_is_bool(this->ptr()); }
@@ -3874,6 +4155,8 @@ inline bool Value::IsLocalTime() const { return mgp::value_is_local_time(this->p
 inline bool Value::IsLocalDateTime() const { return mgp::value_is_local_date_time(this->ptr()); }
 
 inline bool Value::IsDuration() const { return mgp::value_is_duration(this->ptr()); }
+
+inline bool Value::IsZonedDateTime() const { return mgp::value_is_zoned_date_time(this->ptr()); }
 
 inline bool Value::operator==(const Value &other) const { return util::ValuesEqual(this->ptr(), other.ptr()); }
 
@@ -3941,25 +4224,16 @@ inline std::ostream &operator<<(std::ostream &os, const mgp::Value &value) {
       return os << "Relationship[" + std::to_string(value.ValueRelationship().Id().AsInt()) + "]";
     case mgp::Type::Path:
       throw mgp::ValueException("Printing mgp::Path type currently not supported.");
-    case mgp::Type::Date: {
-      const auto date{value.ValueDate()};
-      return os << std::to_string(date.Year()) + "-" + std::to_string(date.Month()) + "-" + std::to_string(date.Day());
-    }
-    case mgp::Type::LocalTime: {
-      const auto localTime{value.ValueLocalTime()};
-      return os << std::to_string(localTime.Hour()) + ":" + std::to_string(localTime.Minute()) + ":" +
-                       std::to_string(localTime.Second()) + "," + std::to_string(localTime.Millisecond()) +
-                       std::to_string(localTime.Microsecond());
-    }
-    case mgp::Type::LocalDateTime: {
-      const auto localDateTime = value.ValueLocalDateTime();
-      return os << std::to_string(localDateTime.Year()) + "-" + std::to_string(localDateTime.Month()) + "-" +
-                       std::to_string(localDateTime.Day()) + "T" + std::to_string(localDateTime.Hour()) + ":" +
-                       std::to_string(localDateTime.Minute()) + ":" + std::to_string(localDateTime.Second()) + "," +
-                       std::to_string(localDateTime.Millisecond()) + std::to_string(localDateTime.Microsecond());
-    }
+    case mgp::Type::Date:
+      return os << value.ValueDate().ToString();
+    case mgp::Type::LocalTime:
+      return os << value.ValueLocalTime().ToString();
+    case mgp::Type::LocalDateTime:
+      return os << value.ValueLocalDateTime().ToString();
     case mgp::Type::Duration:
-      return os << std::to_string(value.ValueDuration().Microseconds()) + "ms";
+      return os << value.ValueDuration().ToString();
+    case mgp::Type::ZonedDateTime:
+      return os << value.ValueZonedDateTime().ToString();
     default:
       throw mgp::ValueException("Unknown value type");
   }
@@ -4023,6 +4297,8 @@ inline std::string Value::ToString() const {
       return ValueLocalTime().ToString();
     case Type::LocalDateTime:
       return ValueLocalDateTime().ToString();
+    case Type::ZonedDateTime:
+      return ValueZonedDateTime().ToString();
     case Type::Duration:
       return ValueDuration().ToString();
     case Type::List:
@@ -4465,7 +4741,7 @@ inline List ListAllLabelIndices(mgp_graph *memgraph_graph) {
   if (label_indices == nullptr) {
     throw ValueException("Couldn't list all label indices");
   }
-  return List(label_indices);
+  return List(label_indices, StealType{});
 }
 
 inline bool CreateLabelPropertyIndex(mgp_graph *memgraph_graph, const std::string_view label,
@@ -4483,19 +4759,18 @@ inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
   if (label_property_indices == nullptr) {
     throw ValueException("Couldn't list all label+property indices");
   }
-  return List(label_property_indices);
+  return List(label_property_indices, StealType{});
 }
 
-namespace {
-constexpr std::string_view kErrorMsgKey = "error_msg";
-constexpr std::string_view kSearchResultsKey = "search_results";
-constexpr std::string_view kAggregationResultsKey = "aggregation_results";
-}  // namespace
+inline constexpr std::string_view kErrorMsgKey = "error_msg";
+inline constexpr std::string_view kSearchResultsKey = "search_results";
+inline constexpr std::string_view kAggregationResultsKey = "aggregation_results";
 
 inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
-                            text_search_mode search_mode) {
+                            text_search_mode search_mode, std::size_t limit) {
   auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_text_index, memgraph_graph, index_name.data(),
-                                                      search_query.data(), search_mode));
+                                                      search_query.data(), search_mode, limit),
+                              StealType{});
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
       throw TextSearchException{"The error message is not a string!"};
@@ -4504,7 +4779,30 @@ inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_na
   }
 
   if (!results_or_error.KeyExists(kSearchResultsKey)) {
-    throw TextSearchException{"Incomplete text index search results!"};
+    throw TextSearchException{"Error in text search results processing occurred."};
+  }
+
+  if (!results_or_error.At(kSearchResultsKey).IsList()) {
+    throw TextSearchException{"Text index search results have wrong type!"};
+  }
+
+  return results_or_error.At(kSearchResultsKey).ValueList();
+}
+
+inline List SearchTextEdgeIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
+                                text_search_mode search_mode, std::size_t limit) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_text_edge_index, memgraph_graph, index_name.data(),
+                                                      search_query.data(), search_mode, limit),
+                              StealType{});
+  if (results_or_error.KeyExists(kErrorMsgKey)) {
+    if (!results_or_error.At(kErrorMsgKey).IsString()) {
+      throw TextSearchException{"The error message is not a string!"};
+    }
+    throw TextSearchException(results_or_error.At(kErrorMsgKey).ValueString().data());
+  }
+
+  if (!results_or_error.KeyExists(kSearchResultsKey)) {
+    throw TextSearchException{"Error in text search results processing occurred."};
   }
 
   if (!results_or_error.At(kSearchResultsKey).IsList()) {
@@ -4516,9 +4814,9 @@ inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_na
 
 inline std::string AggregateOverTextIndex(mgp_graph *memgraph_graph, std::string_view index_name,
                                           std::string_view search_query, std::string_view aggregation_query) {
-  auto results_or_error =
-      Map(mgp::MemHandlerCallback(graph_aggregate_over_text_index, memgraph_graph, index_name.data(),
-                                  search_query.data(), aggregation_query.data()));
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_aggregate_over_text_index, memgraph_graph,
+                                                      index_name.data(), search_query.data(), aggregation_query.data()),
+                              StealType{});
 
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
@@ -4539,10 +4837,48 @@ inline std::string AggregateOverTextIndex(mgp_graph *memgraph_graph, std::string
   return std::string(results_or_error.At(kAggregationResultsKey).ValueString());
 }
 
+inline std::string AggregateOverTextEdgeIndex(mgp_graph *memgraph_graph, std::string_view index_name,
+                                              std::string_view search_query, std::string_view aggregation_query) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_aggregate_over_text_edge_index, memgraph_graph,
+                                                      index_name.data(), search_query.data(), aggregation_query.data()),
+                              StealType{});
+
+  if (results_or_error.KeyExists(kErrorMsgKey)) {
+    if (!results_or_error.At(kErrorMsgKey).IsString()) {
+      throw TextSearchException{"The error message is not a string!"};
+    }
+    throw TextSearchException(results_or_error.At(kErrorMsgKey).ValueString().data());
+  }
+
+  if (!results_or_error.KeyExists(kAggregationResultsKey)) {
+    throw TextSearchException{"Incomplete text edge index aggregation results!"};
+  }
+
+  if (!results_or_error.At(kAggregationResultsKey).IsString()) {
+    throw TextSearchException{"Text edge index aggregation results have wrong type!"};
+  }
+  return std::string(results_or_error.At(kAggregationResultsKey).ValueString());
+}
+
 inline List SearchVectorIndex(mgp_graph *memgraph_graph, std::string_view index_name, List &query_vector,
                               size_t result_size) {
   auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_vector_index, memgraph_graph, index_name.data(),
-                                                      query_vector.GetPtr(), result_size));
+                                                      query_vector.GetPtr(), result_size),
+                              StealType{});
+  if (results_or_error.KeyExists(kErrorMsgKey)) {
+    if (!results_or_error.At(kErrorMsgKey).IsString()) {
+      throw VectorSearchException{"The error message is not a string!"};
+    }
+    throw VectorSearchException(results_or_error.At(kErrorMsgKey).ValueString().data());
+  }
+  return results_or_error.At(kSearchResultsKey).ValueList();
+}
+
+inline List SearchVectorIndexOnEdges(mgp_graph *memgraph_graph, std::string_view index_name, List &query_vector,
+                                     size_t result_size) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_vector_index_on_edges, memgraph_graph,
+                                                      index_name.data(), query_vector.GetPtr(), result_size),
+                              StealType{});
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
       throw VectorSearchException{"The error message is not a string!"};
@@ -4553,7 +4889,7 @@ inline List SearchVectorIndex(mgp_graph *memgraph_graph, std::string_view index_
 }
 
 inline List GetVectorIndexInfo(mgp_graph *memgraph_graph) {
-  auto results_or_error = Map(mgp::MemHandlerCallback(graph_show_index_info, memgraph_graph));
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_show_index_info, memgraph_graph), StealType{});
 
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
@@ -4588,14 +4924,14 @@ inline List ListAllExistenceConstraints(mgp_graph *memgraph_graph) {
   if (existence_constraints == nullptr) {
     throw ValueException("Couldn't list all existence_constraints");
   }
-  return List(existence_constraints);
+  return List(existence_constraints, StealType{});
 }
 
-inline bool CreateUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label, mgp_value *properties) {
+inline bool CreateUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label, mgp_list *properties) {
   return create_unique_constraint(memgraph_graph, label.data(), properties);
 }
 
-inline bool DropUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label, mgp_value *properties) {
+inline bool DropUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label, mgp_list *properties) {
   return drop_unique_constraint(memgraph_graph, label.data(), properties);
 }
 
@@ -4604,7 +4940,7 @@ inline List ListAllUniqueConstraints(mgp_graph *memgraph_graph) {
   if (unique_constraints == nullptr) {
     throw ValueException("Couldn't list all unique_constraints");
   }
-  return List(unique_constraints);
+  return List(unique_constraints, StealType{});
 }
 
 void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
@@ -4702,6 +5038,13 @@ struct hash<mgp::Duration> {
 };
 
 template <>
+struct hash<mgp::ZonedDateTime> {
+  size_t operator()(const mgp::ZonedDateTime &x) const {
+    return mgp::util::HashCombine3<int64_t, std::string_view, int64_t>{}(x.Timestamp(), x.Timezone(), x.Offset());
+  }
+};
+
+template <>
 struct hash<mgp::MapItem> {
   size_t operator()(const mgp::MapItem &x) const { return hash<std::string_view>()(x.key); };
 };
@@ -4749,6 +5092,8 @@ struct hash<mgp::Value> {
         return std::hash<mgp::LocalDateTime>{}(x.ValueLocalDateTime());
       case mgp::Type::Duration:
         return std::hash<mgp::Duration>{}(x.ValueDuration());
+      case mgp::Type::ZonedDateTime:
+        return std::hash<mgp::ZonedDateTime>{}(x.ValueZonedDateTime());
     }
     throw mg_exception::InvalidArgumentException();
   }

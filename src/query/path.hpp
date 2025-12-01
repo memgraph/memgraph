@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <functional>
 #include <utility>
 
 #include "query/edge_accessor.hpp"

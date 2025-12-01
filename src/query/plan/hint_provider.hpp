@@ -218,6 +218,12 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(LoadCsv & /*unused*/) override { return true; }
   bool PostVisit(LoadCsv & /*unused*/) override { return true; }
 
+  bool PreVisit(LoadParquet & /*unused*/) override { return true; }
+  bool PostVisit(LoadParquet & /*unused*/) override { return true; }
+
+  bool PreVisit(LoadJsonl & /*unused*/) override { return true; }
+  bool PostVisit(LoadJsonl & /*unused*/) override { return true; }
+
   bool PreVisit(HashJoin &op) override {
     op.left_op_->Accept(*this);
     op.right_op_->Accept(*this);
@@ -252,6 +258,12 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(PeriodicSubquery & /*op*/) override { return true; }
 
+  bool PreVisit(SetNestedProperty & /*unused*/) override { return true; }
+  bool PostVisit(SetNestedProperty & /*op*/) override { return true; }
+
+  bool PreVisit(RemoveNestedProperty & /*unused*/) override { return true; }
+  bool PostVisit(RemoveNestedProperty & /*op*/) override { return true; }
+
  private:
   const SymbolTable &symbol_table_;
   std::vector<std::string> hints_;
@@ -271,8 +283,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
     const std::string filtered_labels = ExtractAndJoin(filters.FilteredLabels(scan_symbol),
                                                        [](const auto &item) { return fmt::format(":{0}", item.name); });
     const std::string filtered_properties =
-        ExtractAndJoin(filters.FilteredProperties(scan_symbol), [](const auto &item) { return item.name; });
-
+        ExtractAndJoin(filters.FilteredProperties(scan_symbol), std::mem_fn(&PropertyIxPath::AsPathString));
     if (filtered_labels.empty() && filtered_properties.empty()) {
       return;
     }
@@ -306,9 +317,10 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
     }
   }
 
-  std::string ExtractAndJoin(auto &&collection, auto &&projection) {
-    auto elements = collection | ranges::views::transform(std::forward<decltype(projection)>(projection));
-    return boost::algorithm::join(elements, ", ");
+  template <typename Func>
+  std::string ExtractAndJoin(auto &&collection, Func &&projection) {
+    auto elements = collection | ranges::views::transform(std::forward<Func>(projection));
+    return utils::Join(elements, ", ");
   }
 };
 

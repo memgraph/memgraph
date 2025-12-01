@@ -67,9 +67,50 @@ class HotMask {
   const uint16_t n_groups_;
 };
 
+using TaskSignature = std::function<void(utils::Priority)>;
+
+// Collection of tasks that can be executed by the thread pool
+// The idea is to batch tasks and have the ability to wait on them
+// Also execute non scheduler tasks in the local thread
+class TaskCollection {
+ public:
+  void AddTask(TaskSignature task) { tasks_.emplace_back(std::move(task)); }
+
+  class Task {
+   public:
+    explicit Task(TaskSignature task)
+        : state_(std::make_shared<std::atomic<State>>(State::IDLE)), task_(std::move(task)) {}
+    ~Task() = default;
+    Task(const Task &) = delete;
+    Task(Task &&) = default;
+    Task &operator=(const Task &) = delete;
+    Task &operator=(Task &&) = default;
+
+    enum class State : uint8_t {
+      IDLE,
+      SCHEDULED,
+      FINISHED,
+    };
+    std::shared_ptr<std::atomic<State>> state_;
+    TaskSignature task_;
+  };
+
+  Task &operator[](size_t index) { return tasks_[index]; }
+
+  TaskSignature WrapTask(size_t index);
+
+  void Wait();
+
+  void WaitOrSteal();
+
+  size_t Size() const { return tasks_.size(); }
+
+ private:
+  std::vector<Task> tasks_;
+};
+
 class PriorityThreadPool {
  public:
-  using TaskSignature = std::function<void(utils::Priority)>;
   using TaskID = uint64_t;
 
   PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count);
@@ -86,6 +127,12 @@ class PriorityThreadPool {
   void ShutDown();
 
   void ScheduledAddTask(TaskSignature new_task, Priority priority);
+
+  void ScheduledCollection(TaskCollection &collection) {
+    for (size_t i = 0; i < collection.Size(); ++i) {
+      ScheduledAddTask(collection.WrapTask(i), Priority::LOW);
+    }
+  }
 
   // Single worker implementation
   class Worker {

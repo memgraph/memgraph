@@ -22,11 +22,17 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::utils {
+
+using FileUniquePtr = std::unique_ptr<FILE, decltype(&std::fclose)>;
+
+auto CreateUniqueDownloadFile(std::filesystem::path const &base_path)
+    -> std::pair<std::filesystem::path, FileUniquePtr>;
 
 /// Get the path of the current executable.
 ///

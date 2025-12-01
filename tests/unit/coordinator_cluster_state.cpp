@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 #include "libnuraft/nuraft.hxx"
 
+#include <nlohmann/json.hpp>
 #include <vector>
 
 using memgraph::coordination::CoordinatorClusterState;
@@ -40,6 +41,50 @@ class CoordinatorClusterStateTest : public ::testing::Test {
 
   void TearDown() override {}
 };
+
+TEST_F(CoordinatorClusterStateTest, TestUpgrade) {
+  std::vector<DataInstanceContext> data_instances;
+
+  auto config = DataInstanceConfig{.instance_name = "instance2",
+                                   .mgt_server = Endpoint{"127.0.0.1", 10111},
+                                   .bolt_server = Endpoint{"127.0.0.1", 7688},
+                                   .replication_client_info = {.instance_name = "instance_name",
+                                                               .replication_mode = ReplicationMode::ASYNC,
+                                                               .replication_server = Endpoint{"127.0.0.1", 10010}}};
+
+  auto const uuid = UUID{};
+  data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
+
+  std::vector coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+  };
+
+  {
+    nlohmann::json legacy_json = {{memgraph::coordination::kDataInstances.data(), data_instances},
+                                  {memgraph::coordination::kMainUUID.data(), uuid},
+                                  {memgraph::coordination::kCoordinatorInstances.data(), coord_instances},
+                                  {memgraph::coordination::kEnabledReadsOnMain.data(), true},
+                                  {memgraph::coordination::kSyncFailoverOnly.data(), false},
+                                  {memgraph::coordination::kMaxFailoverLagOnReplica.data(), 20}};
+
+    CoordinatorClusterState legacy_state;
+    nlohmann::from_json(legacy_json, legacy_state);
+  }
+
+  {
+    nlohmann::json legacy_json = {{memgraph::coordination::kClusterState.data(), data_instances},
+                                  {memgraph::coordination::kMainUUID.data(), uuid},
+                                  {memgraph::coordination::kCoordinatorInstances.data(), coord_instances},
+                                  {memgraph::coordination::kEnabledReadsOnMain.data(), true},
+                                  {memgraph::coordination::kSyncFailoverOnly.data(), false},
+                                  {memgraph::coordination::kMaxFailoverLagOnReplica.data(), 20}
+
+    };
+    CoordinatorClusterState legacy_state;
+    nlohmann::from_json(legacy_json, legacy_state);
+  }
+}
 
 TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
   CoordinatorClusterState cluster_state{};
@@ -159,7 +204,9 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
                                                  .coordinator_instances_ = coord_instances,
                                                  .current_main_uuid_ = uuid,
                                                  .enabled_reads_on_main_ = true,
-                                                 .sync_failover_only_ = false};
+                                                 .sync_failover_only_ = false,
+                                                 .max_failover_replica_lag_ = 25,
+                                                 .max_replica_read_lag_ = 10};
   cluster_state.DoAction(delta_state);
 
   ptr<buffer> data;
@@ -169,10 +216,12 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
   ASSERT_EQ(cluster_state, deserialized_cluster_state);
   ASSERT_TRUE(cluster_state.GetEnabledReadsOnMain());
   ASSERT_FALSE(cluster_state.GetSyncFailoverOnly());
+  ASSERT_EQ(cluster_state.GetMaxFailoverReplicaLag(), 25);
+  ASSERT_EQ(cluster_state.GetMaxReplicaReadLag(), 10);
 }
 
 TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
-  CoordinatorClusterState cluster_state;
+  CoordinatorClusterState cluster_state{};
   std::vector<DataInstanceContext> data_instances;
 
   auto config = DataInstanceConfig{.instance_name = "instance2",
@@ -207,4 +256,7 @@ TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
   ASSERT_FALSE(deserialized_cluster_state.GetEnabledReadsOnMain());
   // by default read true
   ASSERT_TRUE(deserialized_cluster_state.GetSyncFailoverOnly());
+  // by default read uint64_t::max()
+  ASSERT_EQ(deserialized_cluster_state.GetMaxFailoverReplicaLag(), std::numeric_limits<uint64_t>::max());
+  ASSERT_EQ(deserialized_cluster_state.GetMaxReplicaReadLag(), std::numeric_limits<uint64_t>::max());
 }

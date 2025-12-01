@@ -2,7 +2,9 @@ copy_e2e_python_files(sso common.py)
 copy_e2e_python_files(sso test_sso.py)
 copy_e2e_python_files(sso test_oidc.py)
 copy_e2e_python_files(sso test_saml_sso_module.py)
+copy_e2e_python_files(sso test_multi_tenant_sso.py)
 copy_e2e_python_files(sso dummy_sso_module.py)
+copy_e2e_python_files(sso test_self_signed_certificate.py)
 
 copy_e2e_files(sso workloads.yaml)
 

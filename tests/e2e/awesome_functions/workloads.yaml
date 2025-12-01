@@ -24,3 +24,7 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["awesome_functions/to_set.py"]
     <<: *awesome_functions_cluster
+  - name: "Temporal types awesome function"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["awesome_functions/temporal_types.py"]
+    <<: *awesome_functions_cluster

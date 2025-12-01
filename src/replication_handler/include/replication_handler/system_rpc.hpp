@@ -11,32 +11,34 @@
 
 #pragma once
 
-#include <cstdint>
 #include <vector>
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "rpc/messages.hpp"
 #include "storage/v2/config.hpp"
 
 namespace memgraph::replication {
 
 struct SystemRecoveryReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SYSTEM_RECOVERY_REQ, .name = "SystemRecoveryReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader);
   static void Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder);
   SystemRecoveryReq() = default;
   SystemRecoveryReq(const utils::UUID &main_uuid, uint64_t forced_group_timestamp,
                     std::vector<storage::SalientConfig> database_configs, auth::Auth::Config auth_config,
-                    std::vector<auth::User> users, std::vector<auth::Role> roles)
+                    std::vector<auth::User> users, std::vector<auth::Role> roles,
+                    std::vector<auth::UserProfiles::Profile> profiles)
       : main_uuid(main_uuid),
         forced_group_timestamp{forced_group_timestamp},
         database_configs(std::move(database_configs)),
         auth_config(std::move(auth_config)),
         users{std::move(users)},
-        roles{std::move(roles)} {}
+        roles{std::move(roles)},
+        profiles{std::move(profiles)} {}
 
   utils::UUID main_uuid;
   uint64_t forced_group_timestamp;
@@ -44,11 +46,12 @@ struct SystemRecoveryReq {
   auth::Auth::Config auth_config;
   std::vector<auth::User> users;
   std::vector<auth::Role> roles;
+  std::vector<auth::UserProfiles::Profile> profiles;
 };
 
 struct SystemRecoveryRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SYSTEM_RECOVERY_RES, .name = "SystemRecoveryRes"};
+  static constexpr uint64_t kVersion{1};
 
   enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
 

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,13 +11,12 @@
 
 #pragma once
 
-#include <chrono>
 #include <list>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include "replication/state.hpp"
 #include "system/action.hpp"
+#include "system/rpc.hpp"
 #include "system/state.hpp"
 
 namespace memgraph::system {
@@ -32,6 +31,7 @@ struct Transaction;
 template <typename T>
 concept ReplicationPolicy = requires(T handler, ISystemAction const &action, Transaction const &txn) {
   { handler.ApplyAction(action, txn) } -> std::same_as<AllSyncReplicaStatus>;
+  { handler.FinalizeTransaction(txn) } -> std::same_as<AllSyncReplicaStatus>;
 };
 
 struct System;
@@ -68,7 +68,15 @@ struct Transaction {
       actions_.pop_front();
     }
 
+#ifdef MG_ENTERPRISE
+    /// replication
+    auto action_sync_status = handler.FinalizeTransaction(*this);
+    if (action_sync_status != AllSyncReplicaStatus::AllCommitsConfirmed) {
+      sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+    }
+#endif
     state_->FinalizeTransaction(timestamp_);
+
     lock_.unlock();
 
     return sync_status;
@@ -81,7 +89,9 @@ struct Transaction {
     actions_.clear();
   }
 
-  auto last_committed_system_timestamp() const -> uint64_t { return state_->last_committed_system_timestamp_.load(); }
+  auto last_committed_system_timestamp() const -> uint64_t {
+    return state_->last_committed_system_timestamp_.load(std::memory_order_acquire);
+  }
   auto timestamp() const -> uint64_t { return timestamp_; }
 
  private:
@@ -102,13 +112,29 @@ struct DoReplication {
     auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
 
     for (auto &client : main_data_.registered_replicas_) {
-      bool completed = action.DoReplication(client, main_data_.uuid_, main_data_.epoch_, system_tx);
-      if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
+      auto const completed = action.DoReplication(client, main_data_.uuid_, system_tx);
+      if (!completed && (client.mode_ == replication_coordination_glue::ReplicationMode::SYNC ||
+                         client.mode_ == replication_coordination_glue::ReplicationMode::STRICT_SYNC)) {
         sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
       }
     }
 
     action.PostReplication(main_data_);
+    return sync_status;
+  }
+
+  auto FinalizeTransaction(Transaction const &system_tx) -> AllSyncReplicaStatus {
+    auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
+
+    for (auto &client : main_data_.registered_replicas_) {
+      const bool completed = client.StreamAndFinalizeDelta<replication::FinalizeSystemTxRpc>(
+          [](const replication::FinalizeSystemTxRes &response) { return response.success; }, main_data_.uuid_,
+          system_tx.last_committed_system_timestamp(), system_tx.timestamp());
+      if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
+        sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+      }
+    }
+
     return sync_status;
   }
 
@@ -120,6 +146,10 @@ static_assert(ReplicationPolicy<DoReplication>);
 
 struct DoNothing {
   auto ApplyAction(ISystemAction const & /*action*/, Transaction const & /*system_tx*/) -> AllSyncReplicaStatus {
+    return AllSyncReplicaStatus::AllCommitsConfirmed;
+  }
+
+  auto FinalizeTransaction(Transaction const & /*system_tx*/) -> AllSyncReplicaStatus {
     return AllSyncReplicaStatus::AllCommitsConfirmed;
   }
 };

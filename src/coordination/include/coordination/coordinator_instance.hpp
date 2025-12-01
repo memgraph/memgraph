@@ -98,7 +98,9 @@ class CoordinatorInstance {
   auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
       -> SetCoordinatorSettingStatus;
 
-  auto GetRoutingTable() const -> RoutingTable;
+  auto GetRoutingTable(std::string_view db_name) const -> RoutingTable;
+  auto GetRoutingTableAsLeader(std::string_view db_name) const -> RoutingTable;
+  auto GetRoutingTableAsFollower(auto leader_id, std::string_view db_name) const -> RoutingTable;
 
   auto GetInstanceForFailover() const -> std::optional<std::string>;
 
@@ -114,12 +116,15 @@ class CoordinatorInstance {
 
   void ShuttingDown();
 
-  void InstanceSuccessCallback(std::string_view instance_name, const std::optional<InstanceState> &instance_state);
-  void InstanceFailCallback(std::string_view instance_name, const std::optional<InstanceState> &instance_state);
+  void InstanceSuccessCallback(std::string_view instance_name, InstanceState const &instance_state);
+  void InstanceFailCallback(std::string_view instance_name);
 
   void UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
 
   auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
+  auto ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
+
+  auto GetTelemetryJson() const -> nlohmann::json;
 
  private:
   auto FindReplicationInstance(std::string_view replication_instance_name)
@@ -142,8 +147,14 @@ class CoordinatorInstance {
 
   auto GetCoordinatorsInstanceStatus() const -> std::vector<InstanceStatus>;
 
+  // Cache which stores information db->num_committed_txns from the current main. This gets updated through the
+  // StateCheckRpc call which is only used on the leader
+  std::map<std::string, uint64_t> main_num_txns_cache_;
+  // Cache which stores information about the number of committed txns of replicas
+  std::map<std::string, std::map<std::string, int64_t>> replicas_num_txns_cache_;
+
   // Raft updates leadership before callback is executed. IsLeader() can return true, but
-  // leader callback or reconcile cluster state haven't yet be executed. This flag tracks if coordinator is set up to
+  // leader callback or reconcile cluster state haven't yet been executed. This flag tracks if coordinator is set up to
   // accept queries.
   std::atomic<CoordinatorStatus> status{CoordinatorStatus::FOLLOWER};
   std::atomic<bool> is_shutting_down_{false};

@@ -15,16 +15,16 @@
 #include <utility>
 
 #include "kvstore/kvstore.hpp"
-#include "storage/v2/delta.hpp"
+#include "storage/v2/commit_args.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "utils/exceptions.hpp"
 
 /// REPLICATION ///
 #include "replication/epoch.hpp"
 #include "replication/state.hpp"
-#include "storage/v2/database_access.hpp"
 #include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/replication/replication_transaction.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
@@ -33,21 +33,19 @@ class Storage;
 
 class ReplicationStorageClient;
 class ReplicaStream;
-class TransactionReplication;
 
 using EpochHistory = std::deque<std::pair<std::string, uint64_t>>;
 
 struct ReplicationStorageState {
   // Only MAIN can send
-  auto InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc)
-      -> TransactionReplication;
+  auto StartPrepareCommitPhase(uint64_t const durability_commit_timestamp, Storage *storage,
+                               CommitArgs const &commit_args) -> TransactionReplication;
 
   // Getters
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState>;
 
   // History
-  void TrackLatestHistory();
-  void AddEpochToHistoryForce(std::string prev_epoch);
+  void SaveLatestHistory();
 
   void Reset();
 
@@ -72,7 +70,8 @@ struct ReplicationStorageState {
   // Each value consists of the epoch id along the last commit belonging to that
   // epoch.
   EpochHistory history;
-  std::atomic<uint64_t> last_durable_timestamp_{kTimestampInitialId};
+  mutable std::atomic<CommitTsInfo> commit_ts_info_{
+      CommitTsInfo{.ldt_ = kTimestampInitialId, .num_committed_txns_ = 0}};
 
   // We create ReplicationClient using unique_ptr so we can move
   // newly created client into the vector.

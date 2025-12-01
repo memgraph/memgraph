@@ -27,6 +27,11 @@ DEFINE_int64(duration, 10, "Duration of the test in seconds.");
 DEFINE_string(storage_directory, "", "Path to the storage directory where to save telemetry data.");
 DEFINE_string(root_directory, "", "Path to the database durability root dir.");
 
+#ifdef MG_ENTERPRISE
+using memgraph::coordination::CoordinatorInstanceInitConfig;
+using memgraph::coordination::CoordinatorState;
+#endif
+
 int main(int argc, char **argv) {
   gflags::SetVersionString("telemetry");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -54,10 +59,23 @@ int main(int argc, char **argv) {
   memgraph::query::InterpreterContext interpreter_context_({}, &dbms_handler, repl_state, system_state
 #ifdef MG_ENTERPRISE
                                                            ,
-                                                           std::nullopt
+                                                           std::nullopt, nullptr
 #endif
                                                            ,
                                                            &auth_handler, &auth_checker);
+
+#ifdef MG_ENTERPRISE
+  std::optional<CoordinatorState> coord_state;
+  coord_state.emplace(CoordinatorInstanceInitConfig{.coordinator_id = 1,
+                                                    .coordinator_port = 20000,
+                                                    .bolt_port = 7689,
+                                                    .management_port = 10000,
+                                                    .durability_dir = "coord_state_dir",
+                                                    .coordinator_hostname = "localhost",
+                                                    .nuraft_log_file = "test.log",
+                                                    .instance_down_timeout_sec = std::chrono::seconds(5),
+                                                    .instance_health_check_frequency_sec = std::chrono::seconds(1)});
+#endif
 
   memgraph::requests::Init();
   memgraph::telemetry::Telemetry telemetry(FLAGS_endpoint, FLAGS_storage_directory, memgraph::utils::GenerateUUID(),
@@ -75,6 +93,7 @@ int main(int argc, char **argv) {
   telemetry.AddStorageCollector(dbms_handler, auth_);
 #ifdef MG_ENTERPRISE
   telemetry.AddDatabaseCollector(dbms_handler);
+  telemetry.AddCoordinatorCollector(coord_state);
 #else
   telemetry.AddDatabaseCollector();
 #endif
@@ -82,7 +101,7 @@ int main(int argc, char **argv) {
   telemetry.AddEventsCollector();
   telemetry.AddQueryModuleCollector();
   telemetry.AddExceptionCollector();
-  telemetry.AddReplicationCollector();
+  telemetry.AddReplicationCollector(repl_state);
   telemetry.Start();
 
   std::this_thread::sleep_for(std::chrono::seconds(FLAGS_duration));

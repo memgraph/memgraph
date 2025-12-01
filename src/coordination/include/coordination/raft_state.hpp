@@ -12,12 +12,13 @@
 #pragma once
 
 #ifdef MG_ENTERPRISE
+
 #include <optional>
 
-#include <flags/replication.hpp>
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_state_machine.hpp"
 #include "coordination/coordinator_state_manager.hpp"
+#include "coordination/utils.hpp"
 #include "coordination_observer.hpp"
 
 #include <libnuraft/logger.hxx>
@@ -30,7 +31,6 @@ struct DataInstanceConfig;
 
 using BecomeLeaderCb = std::function<void()>;
 using BecomeFollowerCb = std::function<void()>;
-using RoutingTable = std::vector<std::pair<std::vector<std::string>, std::string>>;
 
 using nuraft::asio_service;
 using nuraft::buffer;
@@ -88,7 +88,8 @@ class RaftState {
 
   auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
   auto YieldLeadership() const -> void;
-  auto GetRoutingTable() const -> RoutingTable;
+  auto GetRoutingTable(std::string_view db_name,
+                       std::map<std::string, std::map<std::string, int64_t>> const &replicas_lag) const -> RoutingTable;
 
   // Returns elapsed time in ms since last successful response from the coordinator with id srv_id
   auto CoordLastSuccRespMs(int32_t srv_id) const -> std::chrono::milliseconds;
@@ -98,6 +99,8 @@ class RaftState {
 
   auto GetEnabledReadsOnMain() const -> bool;
   auto GetSyncFailoverOnly() const -> bool;
+  auto GetMaxFailoverReplicaLag() const -> uint64_t;
+  auto GetMaxReplicaReadLag() const -> uint64_t;
 
  private:
   uint16_t coordinator_port_;

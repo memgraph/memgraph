@@ -13,11 +13,15 @@
 
 #include <span>
 
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/errors.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -36,31 +40,30 @@ class InMemoryLabelIndex : public LabelIndex {
   };
 
  public:
-  InMemoryLabelIndex() = default;
+  struct IndividualIndex {
+    IndividualIndex() {}
+    ~IndividualIndex();
+    void Publish(uint64_t commit_timestamp);
+    utils::SkipList<Entry> skiplist{};
+    IndexStatus status{};
+  };
+
+  struct AllIndicesEntry {
+    std::shared_ptr<IndividualIndex> index_;
+    LabelId label_;
+  };
+
+  using IndexContainer = std::map<LabelId, std::shared_ptr<IndividualIndex>>;
 
   /// @throw std::bad_alloc
-  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
-
-  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update, const Transaction &tx) override {}
-
-  /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
-                   const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                   std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+  bool CreateIndexOnePass(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
+                          const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// Returns false if there was no index to drop
   bool DropIndex(LabelId label) override;
 
-  bool IndexExists(LabelId label) const override;
-
-  std::vector<LabelId> ListIndices() const override;
-
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
-
-  auto GetAbortProcessor() const -> AbortProcessor;
-
-  /// Surgical removal of entries that was inserted this transaction
-  void AbortEntries(std::map<LabelId, std::vector<Vertex *>> const &info, uint64_t start_timestamp) override;
 
   class Iterable {
    public:
@@ -99,14 +102,109 @@ class InMemoryLabelIndex : public LabelIndex {
     Transaction *transaction_;
   };
 
-  uint64_t ApproximateVertexCount(LabelId label) const override;
+  class ChunkedIterable {
+   public:
+    ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
+                    utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view,
+                    Storage *storage, Transaction *transaction, size_t num_chunks);
+
+    class Iterator {
+     public:
+      Iterator(ChunkedIterable *self, utils::SkipList<Entry>::ChunkedIterator index_iterator)
+          : self_(self), index_iterator_(index_iterator), current_vertex_accessor_(nullptr, self_->storage_, nullptr) {
+        AdvanceUntilValid();
+      }
+
+      VertexAccessor const &operator*() const { return current_vertex_accessor_; }
+      bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+      bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
+
+      Iterator &operator++() {
+        ++index_iterator_;
+        AdvanceUntilValid();
+        return *this;
+      }
+
+     private:
+      void AdvanceUntilValid();
+
+      ChunkedIterable *self_;
+      utils::SkipList<Entry>::ChunkedIterator index_iterator_;
+      VertexAccessor current_vertex_accessor_;
+      Vertex *current_vertex_{nullptr};
+    };
+
+    class Chunk {
+      Iterator begin_;
+      Iterator end_;
+
+     public:
+      Chunk(ChunkedIterable *self, utils::SkipList<Entry>::Chunk &chunk)
+          : begin_{self, chunk.begin()}, end_{self, chunk.end()} {}
+
+      Iterator begin() { return begin_; }
+      Iterator end() { return end_; }
+    };
+
+    Chunk get_chunk(size_t id) { return {this, chunks_[id]}; }
+    size_t size() const { return chunks_.size(); }
+
+   private:
+    utils::SkipList<Vertex>::ConstAccessor pin_accessor_;
+    utils::SkipList<Entry>::Accessor index_accessor_;
+    LabelId label_;
+    View view_;
+    Storage *storage_;
+    Transaction *transaction_;
+    utils::SkipList<Entry>::ChunkCollection chunks_;
+  };
+
+  struct ActiveIndices : LabelIndex::ActiveIndices {
+    ActiveIndices(std::shared_ptr<const IndexContainer> index_container = std::make_shared<IndexContainer>())
+        : index_container_{std::move(index_container)} {}
+    /// @throw std::bad_alloc
+    void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
+
+    // Not used for in-memory
+    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override{};
+
+    bool IndexRegistered(LabelId label) const override;
+
+    bool IndexReady(LabelId label) const override;
+
+    std::vector<LabelId> ListIndices(uint64_t start_timestamp) const override;
+
+    uint64_t ApproximateVertexCount(LabelId label) const override;
+
+    /// Surgical removal of entries that was inserted this transaction
+    void AbortEntries(AbortableInfo const &, uint64_t start_timestamp) override;
+
+    Iterable Vertices(LabelId label, View view, Storage *storage, Transaction *transaction);
+
+    Iterable Vertices(LabelId label, memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
+                      View view, Storage *storage, Transaction *transaction);
+
+    ChunkedIterable ChunkedVertices(LabelId label,
+                                    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
+                                    View view, Storage *storage, Transaction *transaction, size_t num_chunks);
+
+    auto GetAbortProcessor() const -> AbortProcessor override;
+
+   private:
+    std::shared_ptr<IndexContainer const> index_container_;
+  };
+
+  auto GetActiveIndices() const -> std::unique_ptr<LabelIndex::ActiveIndices> override;
+
+  auto RegisterIndex(LabelId) -> bool;
+  auto PopulateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
+                     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                     Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
+      -> utils::BasicResult<IndexPopulateError>;
+  bool PublishIndex(LabelId label, uint64_t commit_timestamp);
 
   void RunGC();
-
-  Iterable Vertices(LabelId label, View view, Storage *storage, Transaction *transaction);
-
-  Iterable Vertices(LabelId label, memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
-                    View view, Storage *storage, Transaction *transaction);
 
   void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats);
 
@@ -119,7 +217,13 @@ class InMemoryLabelIndex : public LabelIndex {
   void DropGraphClearIndices() override;
 
  private:
-  std::map<LabelId, utils::SkipList<Entry>> index_;
+  auto CleanupAllIndices() -> void;
+  auto GetIndividualIndex(LabelId label) const -> std::shared_ptr<IndividualIndex>;
+
+  utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
+      std::make_shared<IndexContainer const>()};
+  utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry> const>, utils::WritePrioritizedRWLock> all_indices_{
+      std::make_shared<std::vector<AllIndicesEntry> const>()};
   utils::Synchronized<std::map<LabelId, storage::LabelIndexStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 

@@ -1,0 +1,53 @@
+# Use Memgraph build image with toolchain pre-installed
+ARG MGBUILD_IMAGE
+FROM $MGBUILD_IMAGE as mg_bench_client_build_base
+
+SHELL ["/bin/bash", "-c"]
+ARG TARGETARCH
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Copy repository into the build context
+COPY . /memgraph
+WORKDIR /memgraph
+
+# Install runtime and build dependencies for memgraph and mgbench client
+USER root
+RUN apt-get update && apt-get install -y \
+    ca-certificates wget git curl python3-pip python3 \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20 (for mgbench frontend or scripts)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+  && apt-get update && apt-get install -y nodejs \
+  && rm -rf /var/lib/apt/lists/*
+
+# Set up build dependencies and environment via provided scripts
+# Uses TARGETARCH to choose appropriate scripts
+RUN cd /memgraph && \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+      ./environment/os/ubuntu-24.04.sh install TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; \
+    else \
+      ./environment/os/ubuntu-24.04-arm.sh install TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; \
+    fi
+
+# Create a build user
+RUN useradd --create-home --shell /bin/bash memgraph \
+  && chown -R memgraph:memgraph /memgraph
+USER memgraph
+ENV HOME=/home/memgraph
+
+# Build mgbench client
+RUN ./build.sh --build-type Release --target memgraph__mgbench__client
+
+# --- Final image ---
+FROM ubuntu:24.04
+
+RUN apt-get update && apt-get install -y \
+    wget libcurl4 python3 \
+  && rm -rf /var/lib/apt/lists/*
+
+# Copy mgbench client binary and tests
+COPY --from=mg_bench_client_build_base /memgraph/build/tests/mgbench /bin
+COPY --from=mg_bench_client_build_base /memgraph/tests/mgbench /mgbench
+
+ENTRYPOINT ["python3", "/mgbench/benchmark.py"]

@@ -16,6 +16,7 @@
 
 #include "rpc/client.hpp"
 #include "rpc/client_pool.hpp"
+#include "rpc/file_replication_handler.hpp"
 #include "rpc/messages.hpp"
 #include "rpc/server.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
@@ -25,35 +26,6 @@
 using namespace memgraph::rpc;
 using namespace std::literals::chrono_literals;
 
-namespace memgraph::slk {
-void Save(const SumReq &sum, Builder *builder) {
-  Save(sum.x, builder);
-  Save(sum.y, builder);
-}
-
-void Load(SumReq *sum, Reader *reader) {
-  Load(&sum->x, reader);
-  Load(&sum->y, reader);
-}
-
-void Save(const SumRes &self, Builder *builder) { Save(self.sum, builder); }
-
-void Load(SumRes *res, Reader *reader) { Load(&res->sum, reader); }
-
-void Save(const EchoMessage &echo, Builder *builder) { Save(echo.data, builder); }
-
-void Load(EchoMessage *echo, Reader *reader) { Load(&echo->data, reader); }
-}  // namespace memgraph::slk
-
-void SumReq::Load(SumReq *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
-void SumReq::Save(const SumReq &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
-
-void SumRes::Load(SumRes *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
-void SumRes::Save(const SumRes &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
-
-void EchoMessage::Load(EchoMessage *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
-void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
-
 TEST(Rpc, Call) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
@@ -61,30 +33,34 @@ TEST(Rpc, Call) {
     server.Shutdown();
     server.AwaitShutdown();
   }};
-  server.Register<Sum>([](auto *req_reader, auto *res_builder) {
+  server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                          uint64_t const request_version, auto *req_reader, auto *res_builder) {
     SumReq req;
-    memgraph::slk::Load(&req, req_reader);
-    SumRes res(req.x + req.y);
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+    auto const sum = std::accumulate(req.nums_.begin(), req.nums_.end(), 0);
+    SumRes const res({sum});
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
 
   memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
-  auto sum = client.Call<Sum>(10, 20);
+  auto sum = client.Call<SumV1>(10, 20);
   EXPECT_EQ(sum.sum, 30);
 }
 
 TEST(Rpc, Abort) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Sum>([](auto *req_reader, auto *res_builder) {
+  server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                          uint64_t const request_version, auto *req_reader, auto *res_builder) {
     SumReq req;
-    memgraph::slk::Load(&req, req_reader);
+    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+    auto const sum = std::accumulate(req.nums_.begin(), req.nums_.end(), 0);
     std::this_thread::sleep_for(500ms);
-    SumRes res(req.x + req.y);
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    SumRes const res({sum});
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -98,8 +74,8 @@ TEST(Rpc, Abort) {
     client.Abort();
   });
 
-  memgraph::utils::Timer timer;
-  EXPECT_THROW(client.Call<Sum>(10, 20), RpcFailedException);
+  memgraph::utils::Timer const timer;
+  EXPECT_THROW(client.Call<SumV1>(10, 20), RpcFailedException);
   EXPECT_LT(timer.Elapsed(), 200ms);
 
   thread.join();
@@ -111,12 +87,14 @@ TEST(Rpc, Abort) {
 TEST(Rpc, ClientPool) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Sum>([](const auto &req_reader, auto *res_builder) {
+  server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                          uint64_t const request_version, const auto &req_reader, auto *res_builder) {
     SumReq req;
-    Load(&req, req_reader);
+    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+    auto const sum = std::accumulate(req.nums_.begin(), req.nums_.end(), 0);
     std::this_thread::sleep_for(100ms);
-    SumRes res(req.x + req.y);
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    SumRes const res({sum});
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -127,11 +105,11 @@ TEST(Rpc, ClientPool) {
   // These calls should take more than 400ms because we're using a regular
   // client
   auto get_sum_client = [&client](int x, int y) {
-    auto sum = client.Call<Sum>(x, y);
+    auto sum = client.Call<SumV1>(x, y);
     EXPECT_EQ(sum.sum, x + y);
   };
 
-  memgraph::utils::Timer t1;
+  memgraph::utils::Timer const t1;
   std::vector<std::thread> threads;
   for (int i = 0; i < 4; ++i) {
     threads.emplace_back(get_sum_client, 2 * i, 2 * i + 1);
@@ -149,11 +127,11 @@ TEST(Rpc, ClientPool) {
   // These calls shouldn't take much more that 100ms because they execute in
   // parallel
   auto get_sum = [&pool](int x, int y) {
-    auto sum = pool.Call<Sum>(x, y);
+    auto sum = pool.Call<SumV1>(x, y);
     EXPECT_EQ(sum.sum, x + y);
   };
 
-  memgraph::utils::Timer t2;
+  memgraph::utils::Timer const t2;
   for (int i = 0; i < 4; ++i) {
     threads.emplace_back(get_sum, 2 * i, 2 * i + 1);
   }
@@ -169,10 +147,11 @@ TEST(Rpc, ClientPool) {
 TEST(Rpc, LargeMessage) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Echo>([](auto *req_reader, auto *res_builder) {
-    EchoMessage res;
-    memgraph::slk::Load(&res, req_reader);
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+  server.Register<Echo>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                           uint64_t const request_version, auto *req_reader, auto *res_builder) {
+    EchoMessage req;
+    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+    memgraph::rpc::SendFinalResponse(req, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -191,10 +170,11 @@ TEST(Rpc, LargeMessage) {
 TEST(Rpc, JumboMessage) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Echo>([](auto *req_reader, auto *res_builder) {
-    EchoMessage res;
-    memgraph::slk::Load(&res, req_reader);
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+  server.Register<Echo>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                           uint64_t const request_version, auto *req_reader, auto *res_builder) {
+    EchoMessage req;
+    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+    memgraph::rpc::SendFinalResponse(req, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -214,13 +194,14 @@ TEST(Rpc, JumboMessage) {
 TEST(Rpc, Stream) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Echo>([](auto *req_reader, auto *res_builder) {
+  server.Register<Echo>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                           uint64_t const request_version, auto *req_reader, auto *res_builder) {
     EchoMessage req;
-    memgraph::slk::Load(&req, req_reader);
+    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     std::string payload;
     memgraph::slk::Load(&payload, req_reader);
-    EchoMessage res(req.data + payload);
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    EchoMessage const res(req.data + payload);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -239,13 +220,14 @@ TEST(Rpc, Stream) {
 TEST(Rpc, StreamLarge) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Echo>([](auto *req_reader, auto *res_builder) {
+  server.Register<Echo>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                           uint64_t const request_version, auto *req_reader, auto *res_builder) {
     EchoMessage req;
-    memgraph::slk::Load(&req, req_reader);
+    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     std::string payload;
     memgraph::slk::Load(&payload, req_reader);
-    EchoMessage res(req.data + payload);
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    EchoMessage const res(req.data + payload);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -267,13 +249,14 @@ TEST(Rpc, StreamLarge) {
 TEST(Rpc, StreamJumbo) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Echo>([](auto *req_reader, auto *res_builder) {
+  server.Register<Echo>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                           uint64_t const request_version, auto *req_reader, auto *res_builder) {
     EchoMessage req;
-    memgraph::slk::Load(&req, req_reader);
+    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     std::string payload;
     memgraph::slk::Load(&payload, req_reader);
-    EchoMessage res(req.data + payload);
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    EchoMessage const res(req.data + payload);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);

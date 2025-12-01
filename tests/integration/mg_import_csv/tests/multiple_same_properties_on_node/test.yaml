@@ -1,3 +1,0 @@
-- name: multiple_same_properties
-  nodes: "nodes.csv"
-  import_should_fail: True

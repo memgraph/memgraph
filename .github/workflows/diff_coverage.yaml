@@ -11,10 +11,6 @@ on:
         type: string
         description: "Target os. Default value is ubuntu-24.04."
         default: 'ubuntu-24.04'
-      toolchain:
-        type: string
-        description: "Toolchain version (v4, v5, v6). Default value is v6."
-        default: 'v6'
       run_core:
         type: string
         description: "Should the core coverage build tests be run? Default is true."
@@ -27,6 +23,11 @@ on:
         type: string
         description: "The ID of the run that triggered this workflow."
         default: '0'
+      ref:
+        description: 'Branch or commit ref to run the workflow on'
+        required: false
+        default: ''
+        type: string
 
 env:
   ARCH: ${{ inputs.arch }}
@@ -34,7 +35,7 @@ env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
-  TOOLCHAIN: ${{ inputs.toolchain }}
+  TOOLCHAIN: v7
 
 jobs:
   core:
@@ -46,10 +47,11 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -60,6 +62,8 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
+          --no-conan-cache \
           run
 
       # This is also needed if we want do to comparison against other branches
@@ -82,6 +86,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --no-ccache \
           build-memgraph --init-only
 
       - name: Run python code analysis
@@ -101,7 +106,16 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --no-ccache \
           build-memgraph --coverage --asan --ubsan
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run unit tests
         run: |
@@ -137,7 +151,14 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           stop --remove
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/docker_cleanup.sh
 
   clang-tidy-community:
     if: ${{ inputs.run_clang_tidy == 'true' }}
@@ -149,9 +170,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -162,6 +184,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           run
 
       - name: Set base branch
@@ -179,6 +202,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --no-ccache \
           build-memgraph --cmake-only --community
 
       - name: Run clang-tidy
@@ -198,7 +222,14 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           stop --remove
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/docker_cleanup.sh
 
   clang-tidy-enterprise:
     if: ${{ inputs.run_clang_tidy == 'true' }}
@@ -210,9 +241,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -223,6 +255,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           run
 
       - name: Set base branch
@@ -240,6 +273,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --no-ccache \
           build-memgraph --cmake-only
 
       - name: Run clang-tidy
@@ -259,4 +293,11 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           stop --remove
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/docker_cleanup.sh

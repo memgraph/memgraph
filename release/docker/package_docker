@@ -17,6 +17,8 @@ toolchain_version="v6"
 package_path=""
 arch=""
 src_path=""
+custom_mirror=""
+generate_sbom=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --latest)
@@ -44,13 +46,21 @@ while [[ $# -gt 0 ]]; do
         print_help
         exit 0
     ;;
+    --custom-mirror)
+        custom_mirror=$2
+        shift 2
+    ;;
+    --generate-sbom)
+        generate_sbom=$2
+        shift 2
+    ;;
     *)
         echo -e "Error: Unknown option '$1'"
         exit 1
     ;;
   esac
 done
-
+echo "latest_image: $latest_image, latest_tag: $latest_tag, package_path: $package_path, src_path: $src_path, toolchain: $toolchain, arch: $arch, custom_mirror: $custom_mirror"
 if [[ "$package_path" == "" || ! -f "$package_path" ]]; then
   echo "File '$package_path' does not exist!"
   exit 1
@@ -72,6 +82,7 @@ cd ${working_dir}
 
 extension="${package_path##*.}"
 dockerfile_path="${working_dir}/${toolchain_version}_${extension}${dockerfile_path_rwdi_extension}.dockerfile"
+echo "Dockerfile: $dockerfile_path"
 if [[ "$extension" == "deb" ]]; then
   # Extract version and offering from deb name.
   package_name=`echo $(basename "$package_path") | sed 's/.deb$//'`
@@ -96,11 +107,18 @@ image_package_name="memgraph-${tag}-docker.tar.gz"
 docker build --pull -t ${image_name} ${tag_latest} -f ${dockerfile_path} \
 --build-arg BINARY_NAME=${package_name} \
 --build-arg EXTENSION=${extension} ${docker_arg_source_code} \
+--build-arg CUSTOM_MIRROR=$custom_mirror \
 --build-arg TARGETARCH="" .
 docker save ${image_name} ${latest_image} | gzip > ${image_package_name}
 rm "${working_dir}/${package_name}.${extension}"
 if [[ -n "$src_path" ]]; then
   rm -rf "${working_dir}/src"
+fi
+
+if [[ "$generate_sbom" == true ]]; then
+  echo "Generating SBOM for Docker image"
+  cd ../../
+  ./tools/sbom/docker-sbom.sh "${tag}"
 fi
 docker image rm $image_name || true
 echo "Built Docker image at '${working_dir}/${image_package_name}'"

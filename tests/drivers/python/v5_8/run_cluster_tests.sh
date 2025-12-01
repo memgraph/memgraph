@@ -13,7 +13,7 @@ fi
 if [ ! -d "ve3" ]; then
     virtualenv -p python3 ve3 || exit 1
     source ve3/bin/activate
-    python3 -m pip install neo4j==5.8.0 setuptools==75.8.0 || exit 1
+    python3 -m pip install neo4j==5.8.0 setuptools==80.9.0 tomlkit==0.13.3 --no-build-isolation  || exit 1
     deactivate
 fi
 
@@ -21,5 +21,4 @@ fi
 source ve3/bin/activate
 
 # execute test
-python3 write_routing.py || exit 1
-python3 read_routing.py || exit 1
+python3 routing.py || exit 1

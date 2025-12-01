@@ -23,6 +23,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/logging.hpp"
 
@@ -39,6 +40,7 @@ ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbo
   context.symbol_table = symbol_table;
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
+  context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
   return context;
 }
 #ifdef MG_ENTERPRISE
@@ -49,6 +51,7 @@ ExecutionContext MakeContextWithFineGrainedChecker(const AstStorage &storage, co
   context.symbol_table = symbol_table;
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
+  context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
   context.auth_checker = std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(*auth_checker));
 
   return context;
@@ -147,8 +150,8 @@ ScanAllTuple MakeScanAllByLabelPropertyRange(AstStorage &storage, SymbolTable &s
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
   auto expression_ranges = std::vector{ExpressionRange::Range(lower_bound, upper_bound)};
-  auto logical_op =
-      std::make_shared<ScanAllByLabelProperties>(input, symbol, label, std::vector{property}, expression_ranges, view);
+  auto logical_op = std::make_shared<ScanAllByLabelProperties>(
+      input, symbol, label, std::vector{memgraph::storage::PropertyPath{property}}, expression_ranges, view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 
@@ -167,8 +170,8 @@ ScanAllTuple MakeScanAllByLabelPropertyValue(AstStorage &storage, SymbolTable &s
   node->identifier_->MapTo(symbol);
 
   auto expression_ranges = std::vector{ExpressionRange::Equal(value)};
-  auto logical_op =
-      std::make_shared<ScanAllByLabelProperties>(input, symbol, label, std::vector{property}, expression_ranges, view);
+  auto logical_op = std::make_shared<ScanAllByLabelProperties>(
+      input, symbol, label, std::vector{memgraph::storage::PropertyPath{property}}, expression_ranges, view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 

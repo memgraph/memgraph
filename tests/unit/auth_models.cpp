@@ -11,18 +11,23 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <filesystem>
 #include <type_traits>
 #include <variant>
 
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
+#include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "nlohmann/json.hpp"
 
 namespace {
 constexpr auto kRoleName = "rolename";
 constexpr auto kPermissions = "permissions";
+constexpr auto kGranted = "granted";
+constexpr auto kSymbols = "symbols";
+constexpr auto kMatching = "matching";
 constexpr auto kGrants = "grants";
 constexpr auto kDenies = "denies";
 constexpr auto kUsername = "username";
@@ -33,7 +38,7 @@ constexpr auto kEdgeTypePermissions = "edge_type_permissions";
 constexpr auto kHashAlgo = "hash_algo";
 
 constexpr auto kGlobalPermission = "global_permission";
-constexpr auto kFineGrainedAccessHandler = "fine_grained_access_handler";
+constexpr auto kFineGrainedPermissions = "fine_grained_permissions";
 constexpr auto kAllowAll = "allow_all";
 constexpr auto kDefault = "default";
 constexpr auto kDatabases = "databases";
@@ -53,9 +58,9 @@ auto User2Role(auto json) {
 
 constexpr auto full_json_str = R"({
   "databases":{"allow_all":true,"default":"db1","denies":["db2","db3"],"grants":["db1", "memgraph"]},
-  "fine_grained_access_handler":{
-    "edge_type_permissions":{"global_permission":7,"permissions":{"E":1}},
-    "label_permissions":{"global_permission":7,"permissions":{"A":1,"B":1,"C":3,"D":0}}
+  "fine_grained_permissions":{
+    "edge_type_permissions":{"global_permission":27,"permissions":[{"symbols":["E"],"granted":1,"matching":"ANY"}]},
+    "label_permissions":{"global_permission":27,"permissions":[{"symbols":["A"],"granted":1,"matching":"ANY"},{"symbols":["B"],"granted":1,"matching":"ANY"},{"symbols":["C"],"granted":3,"matching":"ANY"},{"symbols":["D"],"granted":0,"matching":"ANY"}]}
   },
   "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
   "permissions":{"denies":0,"grants":134217727},
@@ -74,7 +79,7 @@ constexpr auto full_json_str = R"({
 
 constexpr auto mg_enterprise_no_license_json_str = R"({
     "databases":null,
-    "fine_grained_access_handler":null,
+    "fine_grained_permissions":null,
     "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
     "permissions":{"denies":0,"grants":134217727},
     "user_imp":null,
@@ -91,9 +96,9 @@ constexpr auto community_json_str = R"({
 
 constexpr auto community_saved_with_license_json_str = R"({
           "databases":{"allow_all":false,"default":"memgraph","denies":[],"grants":["memgraph"]},
-          "fine_grained_access_handler":{
-            "edge_type_permissions":{"global_permission":-1,"permissions":{}},
-            "label_permissions":{"global_permission":-1,"permissions":{}}
+          "fine_grained_permissions":{
+            "edge_type_permissions":{"global_permission":-1,"permissions":[]},
+            "label_permissions":{"global_permission":-1,"permissions":[]}
           },
           "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
           "permissions":{"denies":0,"grants":134217727},
@@ -147,14 +152,38 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_EQ(auth_object.permissions().denies(), 0);
     const auto &etp = auth_object.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission();
     ASSERT_TRUE(etp.has_value());
-    ASSERT_EQ(etp.value(), 7);
-    const auto etp_perm = std::unordered_map<std::string, uint64_t>{{"E", 1}};
-    ASSERT_EQ(auth_object.fine_grained_access_handler().edge_type_permissions().GetPermissions(), etp_perm);
+    ASSERT_EQ(etp.value(), 27);
+    const auto &etp_rules = auth_object.fine_grained_access_handler().edge_type_permissions().GetPermissions();
+    ASSERT_EQ(etp_rules.size(), 1);
+    ASSERT_EQ(etp_rules[0].symbols, std::unordered_set<std::string>{"E"});
+    ASSERT_EQ(static_cast<uint64_t>(etp_rules[0].permissions), 1);
+
     const auto &lp = auth_object.fine_grained_access_handler().label_permissions().GetGlobalPermission();
     ASSERT_TRUE(lp.has_value());
-    ASSERT_EQ(lp.value(), 7);
-    const auto lp_perm = std::unordered_map<std::string, uint64_t>{{"A", 1}, {"B", 1}, {"C", 3}, {"D", 0}};
-    ASSERT_EQ(auth_object.fine_grained_access_handler().label_permissions().GetPermissions(), lp_perm);
+    ASSERT_EQ(lp.value(), 27);
+    const auto &lp_rules = auth_object.fine_grained_access_handler().label_permissions().GetPermissions();
+    ASSERT_EQ(lp_rules.size(), 4);
+    // Check that we have rules for A, B, C, D (order doesn't matter in the JSON, so we'll check they exist)
+    auto find_rule = [&lp_rules](const std::string &label) -> const memgraph::auth::FineGrainedAccessRule * {
+      for (const auto &rule : lp_rules) {
+        if (rule.symbols.size() == 1 && rule.symbols.contains(label)) {
+          return &rule;
+        }
+      }
+      return nullptr;
+    };
+    auto rule_a = find_rule("A");
+    auto rule_b = find_rule("B");
+    auto rule_c = find_rule("C");
+    auto rule_d = find_rule("D");
+    ASSERT_NE(rule_a, nullptr);
+    ASSERT_NE(rule_b, nullptr);
+    ASSERT_NE(rule_c, nullptr);
+    ASSERT_NE(rule_d, nullptr);
+    ASSERT_EQ(static_cast<uint64_t>(rule_a->permissions), 1);
+    ASSERT_EQ(static_cast<uint64_t>(rule_b->permissions), 1);
+    ASSERT_EQ(static_cast<uint64_t>(rule_c->permissions), 3);
+    ASSERT_EQ(static_cast<uint64_t>(rule_d->permissions), 0);
     ASSERT_EQ(auth_object.db_access().GetMain(), "db1");
     ASSERT_EQ(auth_object.db_access().GetAllowAll(), true);
     const auto grants = std::set<std::string, std::less<>>({"db1", "memgraph"});
@@ -479,7 +508,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
   // Missing fine grained access handler ( default to no access )
   {
     auto json = full_json;
-    json.erase(kFineGrainedAccessHandler);
+    json.erase(kFineGrainedPermissions);
     // With license
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
@@ -501,7 +530,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
   // Missing edge permissions fine grained access handler (throw)
   {
     auto json = full_json;
-    json[kFineGrainedAccessHandler].erase(kEdgeTypePermissions);
+    json[kFineGrainedPermissions].erase(kEdgeTypePermissions);
     // With license
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
@@ -515,7 +544,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
   // Missing edge global permissions fine grained access handler ( default to no access )
   {
     auto json = full_json;
-    json[kFineGrainedAccessHandler][kEdgeTypePermissions].erase(kGlobalPermission);
+    json[kFineGrainedPermissions][kEdgeTypePermissions].erase(kGlobalPermission);
     // With license
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
@@ -542,7 +571,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
   // Missing edge local permissions fine grained access handler ( default to no access )
   {
     auto json = full_json;
-    json[kFineGrainedAccessHandler][kEdgeTypePermissions].erase(kPermissions);
+    json[kFineGrainedPermissions][kEdgeTypePermissions].erase(kPermissions);
     // With license
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
@@ -568,7 +597,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
   // Missing label permissions fine grained access handler (throw)
   {
     auto json = full_json;
-    json[kFineGrainedAccessHandler].erase(kLabelPermissions);
+    json[kFineGrainedPermissions].erase(kLabelPermissions);
     // With license
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
@@ -583,7 +612,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
   // Missing label global permissions fine grained access handler ( default to no access )
   {
     auto json = full_json;
-    json[kFineGrainedAccessHandler][kLabelPermissions].erase(kGlobalPermission);
+    json[kFineGrainedPermissions][kLabelPermissions].erase(kGlobalPermission);
     // With license
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
@@ -610,7 +639,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
   // Missing label local permissions fine grained access handler ( default to no access )
   {
     auto json = full_json;
-    json[kFineGrainedAccessHandler][kLabelPermissions].erase(kPermissions);
+    json[kFineGrainedPermissions][kLabelPermissions].erase(kPermissions);
     // With license
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
@@ -912,9 +941,9 @@ TEST(AuthModule, UserSerialization) {
 
   auto json = nlohmann::json::parse(R"({
           "databases":{"allow_all":false,"default":"memgraph","denies":[],"grants":["memgraph"]},
-          "fine_grained_access_handler":{
-            "edge_type_permissions":{"global_permission":-1,"permissions":{}},
-            "label_permissions":{"global_permission":-1,"permissions":{}}
+          "fine_grained_permissions":{
+            "edge_type_permissions":{"global_permission":-1,"permissions":[]},
+            "label_permissions":{"global_permission":-1,"permissions":[]}
           },
           "password_hash":null,
           "permissions":{"denies":0,"grants":0},
@@ -960,11 +989,47 @@ TEST(AuthModule, UserSerialization) {
   ASSERT_EQ(json, user.Serialize());
 
   // User with fine grained permissions
-  user.fine_grained_access_handler().edge_type_permissions().Grant("ABC", memgraph::auth::FineGrainedPermission::READ);
-  json[kFineGrainedAccessHandler][kEdgeTypePermissions][kPermissions] = nlohmann::json::object({{"ABC", 1}});
+  user.fine_grained_access_handler().edge_type_permissions().Grant({"ABC"},
+                                                                   memgraph::auth::FineGrainedPermission::READ);
+  json[kFineGrainedPermissions][kEdgeTypePermissions][kPermissions] = nlohmann::json::array(
+      {nlohmann::json::object({{kSymbols, nlohmann::json::array({"ABC"})}, {kGranted, 1}, {kMatching, "ANY"}})});
+  json[kFineGrainedPermissions][kEdgeTypePermissions][kGlobalPermission] = -1;
   ASSERT_EQ(json, user.Serialize());
-  user.fine_grained_access_handler().label_permissions().Grant("CBA", memgraph::auth::FineGrainedPermission::NOTHING);
-  json[kFineGrainedAccessHandler][kLabelPermissions][kPermissions] = nlohmann::json::object({{"CBA", 0}});
+
+  user.fine_grained_access_handler().label_permissions().Grant({"DenyLabel"},
+                                                               memgraph::auth::FineGrainedPermission::NOTHING);
+  json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array(
+      {nlohmann::json::object({{kSymbols, nlohmann::json::array({"DenyLabel"})}, {kGranted, 0}, {kMatching, "ANY"}})});
+  json[kFineGrainedPermissions][kLabelPermissions][kGlobalPermission] = -1;
+  ASSERT_EQ(json, user.Serialize());
+
+  user.fine_grained_access_handler().label_permissions().Grant(
+      {"ExactLabel"}, memgraph::auth::FineGrainedPermission::UPDATE, memgraph::auth::MatchingMode::EXACTLY);
+  json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array(
+      {nlohmann::json::object({{kSymbols, nlohmann::json::array({"DenyLabel"})}, {kGranted, 0}, {kMatching, "ANY"}}),
+       nlohmann::json::object(
+           {{kSymbols, nlohmann::json::array({"ExactLabel"})}, {kGranted, 2}, {kMatching, "EXACTLY"}})});
+  ASSERT_EQ(json, user.Serialize());
+
+  user.fine_grained_access_handler().label_permissions().Grant({"ReadLabel"},
+                                                               memgraph::auth::FineGrainedPermission::READ);
+  json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array(
+      {nlohmann::json::object({{kSymbols, nlohmann::json::array({"DenyLabel"})}, {kGranted, 0}, {kMatching, "ANY"}}),
+       nlohmann::json::object(
+           {{kSymbols, nlohmann::json::array({"ExactLabel"})}, {kGranted, 2}, {kMatching, "EXACTLY"}}),
+       nlohmann::json::object({{kSymbols, nlohmann::json::array({"ReadLabel"})}, {kGranted, 1}, {kMatching, "ANY"}})});
+  ASSERT_EQ(json, user.Serialize());
+
+  user.fine_grained_access_handler().label_permissions().Grant({"MultiPerm"},
+                                                               memgraph::auth::FineGrainedPermission::READ);
+  user.fine_grained_access_handler().label_permissions().Grant({"MultiPerm"},
+                                                               memgraph::auth::FineGrainedPermission::UPDATE);
+  json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array(
+      {nlohmann::json::object({{kSymbols, nlohmann::json::array({"DenyLabel"})}, {kGranted, 0}, {kMatching, "ANY"}}),
+       nlohmann::json::object(
+           {{kSymbols, nlohmann::json::array({"ExactLabel"})}, {kGranted, 2}, {kMatching, "EXACTLY"}}),
+       nlohmann::json::object({{kSymbols, nlohmann::json::array({"ReadLabel"})}, {kGranted, 1}, {kMatching, "ANY"}}),
+       nlohmann::json::object({{kSymbols, nlohmann::json::array({"MultiPerm"})}, {kGranted, 3}, {kMatching, "ANY"}})});
   ASSERT_EQ(json, user.Serialize());
 
   // User with MT access
@@ -1003,6 +1068,41 @@ TEST(AuthModule, UserSerialization) {
       {{{kUserImpName, "user1"}, {kUserImpId, user1.uuid()}}, {{kUserImpName, "user3"}, {kUserImpId, user3.uuid()}}});
   json[kUserImp][kUserImpDenied] = nlohmann::json::array({{{kUserImpName, "user2"}, {kUserImpId, user2.uuid()}}});
   ASSERT_EQ(json, user.Serialize());
+
+  // Test multiple labels in a single rule. Because the labels are internally
+  // an unordered collection, we won't compare the entire JSON as there are 3!
+  // permutations of these labels. Instead, just check a rule exists with
+  // these labels in some order. This check is at the bottom of this test
+  // seeing as there is no guarantee what state the json will be left in.
+  {
+    user.fine_grained_access_handler().label_permissions().Grant({"Label1", "Label2", "Label3"},
+                                                                 memgraph::auth::FineGrainedPermission::CREATE);
+    auto serialized = user.Serialize();
+    auto label_perms = serialized[kFineGrainedPermissions][kLabelPermissions][kPermissions];
+
+    bool found_multi_label_rule = false;
+    for (const auto &rule : label_perms) {
+      if (rule[kGranted] == static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::CREATE) &&
+          rule[kMatching] == "ANY") {
+        auto symbols = rule[kSymbols];
+        ASSERT_TRUE(symbols.is_array());
+        ASSERT_EQ(symbols.size(), 3);
+
+        std::set<std::string> symbol_set;
+        for (const auto &sym : symbols) {
+          symbol_set.insert(sym.get<std::string>());
+        }
+
+        for (auto &&symbol : {"Label1", "Label2", "Label3"}) {
+          ASSERT_TRUE(symbol_set.contains(symbol));
+        }
+
+        found_multi_label_rule = true;
+        break;
+      }
+    }
+    ASSERT_TRUE(found_multi_label_rule);
+  }
 }
 
 TEST(AuthModule, RoleSerialization) {
@@ -1011,9 +1111,9 @@ TEST(AuthModule, RoleSerialization) {
 
   auto json = nlohmann::json::parse(R"({
           "databases":{"allow_all":false,"default":"memgraph","denies":[],"grants":["memgraph"]},
-          "fine_grained_access_handler":{
-            "edge_type_permissions":{"global_permission":-1,"permissions":{}},
-            "label_permissions":{"global_permission":-1,"permissions":{}}
+          "fine_grained_permissions":{
+            "edge_type_permissions":{"global_permission":-1,"permissions":[]},
+            "label_permissions":{"global_permission":-1,"permissions":[]}
           },
           "permissions":{"denies":0,"grants":0},
           "rolename":"",
@@ -1048,11 +1148,16 @@ TEST(AuthModule, RoleSerialization) {
   ASSERT_EQ(json, role.Serialize());
 
   // Role with fine grained permissions
-  role.fine_grained_access_handler().edge_type_permissions().Grant("ABC", memgraph::auth::FineGrainedPermission::READ);
-  json[kFineGrainedAccessHandler][kEdgeTypePermissions][kPermissions] = nlohmann::json::object({{"ABC", 1}});
+  role.fine_grained_access_handler().edge_type_permissions().Grant({"ABC"},
+                                                                   memgraph::auth::FineGrainedPermission::READ);
+  json[kFineGrainedPermissions][kEdgeTypePermissions][kPermissions] = nlohmann::json::array(
+      {nlohmann::json::object({{kSymbols, nlohmann::json::array({"ABC"})}, {kGranted, 1}, {kMatching, "ANY"}})});
+  json[kFineGrainedPermissions][kEdgeTypePermissions][kGlobalPermission] = -1;
   ASSERT_EQ(json, role.Serialize());
-  role.fine_grained_access_handler().label_permissions().Grant("CBA", memgraph::auth::FineGrainedPermission::NOTHING);
-  json[kFineGrainedAccessHandler][kLabelPermissions][kPermissions] = nlohmann::json::object({{"CBA", 0}});
+  role.fine_grained_access_handler().label_permissions().Grant({"CBA"}, memgraph::auth::FineGrainedPermission::NOTHING);
+  json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array(
+      {nlohmann::json::object({{kSymbols, nlohmann::json::array({"CBA"})}, {kGranted, 0}, {kMatching, "ANY"}})});
+  json[kFineGrainedPermissions][kLabelPermissions][kGlobalPermission] = -1;
   ASSERT_EQ(json, role.Serialize());
 
   // Role with MT access
@@ -1092,3 +1197,100 @@ TEST(AuthModule, RoleSerialization) {
   json[kUserImp][kUserImpDenied] = nlohmann::json::array({{{kUserImpName, "user2"}, {kUserImpId, user2.uuid()}}});
   ASSERT_EQ(json, role.Serialize());
 }
+
+#ifdef MG_ENTERPRISE
+TEST(AuthModule, UserProfiles) {
+  memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
+  ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
+
+  // Test UserProfiles class directly since profile management is now centralized
+  auto temp_dir = std::filesystem::temp_directory_path() / "MG_test_user_profiles";
+
+  // Clean up any existing directory
+  if (std::filesystem::exists(temp_dir)) {
+    std::filesystem::remove_all(temp_dir);
+  }
+
+  memgraph::kvstore::KVStore kvstore{temp_dir};
+  memgraph::auth::UserProfiles user_profiles{kvstore};
+
+  // Test profile creation
+  ASSERT_TRUE(user_profiles.Create("profile", {}));
+  ASSERT_TRUE(user_profiles.Create("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
+                                                      memgraph::auth::UserProfiles::limit_t{1UL}}}));
+
+  // Test profile creation with usernames
+  ASSERT_TRUE(user_profiles.Create("profile_with_users", {}, {"user1", "user2", "user3"}));
+  auto profile_with_users = user_profiles.Get("profile_with_users");
+  ASSERT_TRUE(profile_with_users.has_value());
+  ASSERT_EQ(profile_with_users->usernames.size(), 3);
+  ASSERT_TRUE(profile_with_users->usernames.find("user1") != profile_with_users->usernames.end());
+  ASSERT_TRUE(profile_with_users->usernames.find("user2") != profile_with_users->usernames.end());
+  ASSERT_TRUE(profile_with_users->usernames.find("user3") != profile_with_users->usernames.end());
+
+  // Test that usernames are moved from other profiles when creating a new profile
+  ASSERT_TRUE(user_profiles.Create("profile1", {}, {"user1", "user4"}));
+  ASSERT_TRUE(user_profiles.Create("profile2", {}, {"user1", "user5"}));  // user1 should be moved from profile1
+
+  auto profile1 = user_profiles.Get("profile1");
+  auto profile2 = user_profiles.Get("profile2");
+  ASSERT_TRUE(profile1.has_value());
+  ASSERT_TRUE(profile2.has_value());
+
+  // user1 should be moved from profile1 to profile2
+  ASSERT_TRUE(profile1->usernames.find("user1") == profile1->usernames.end());
+  ASSERT_TRUE(profile1->usernames.find("user4") != profile1->usernames.end());
+  ASSERT_TRUE(profile2->usernames.find("user1") != profile2->usernames.end());
+  ASSERT_TRUE(profile2->usernames.find("user5") != profile2->usernames.end());
+
+  // Test profile retrieval
+  auto profile = user_profiles.Get("profile");
+  ASSERT_TRUE(profile.has_value());
+  ASSERT_EQ(profile->name, "profile");
+  ASSERT_EQ(profile->limits.size(), 0);
+
+  auto other_profile = user_profiles.Get("other_profile");
+  ASSERT_TRUE(other_profile.has_value());
+  ASSERT_EQ(other_profile->name, "other_profile");
+  ASSERT_EQ(other_profile->limits.size(), 1);
+
+  // Test username management
+  ASSERT_TRUE(user_profiles.AddUsername("profile", "user1"));
+  ASSERT_TRUE(user_profiles.AddUsername("profile", "user2"));
+  ASSERT_TRUE(user_profiles.AddUsername("other_profile", "user3"));
+
+  // Test getting usernames for profile
+  auto usernames = user_profiles.GetUsernames("profile");
+  ASSERT_EQ(usernames.size(), 2);
+  ASSERT_TRUE(std::find(usernames.begin(), usernames.end(), "user1") != usernames.end());
+  ASSERT_TRUE(std::find(usernames.begin(), usernames.end(), "user2") != usernames.end());
+
+  // Test getting profile for username
+  auto profile_for_user = user_profiles.GetProfileForUsername("user1");
+  ASSERT_TRUE(profile_for_user.has_value());
+  ASSERT_EQ(*profile_for_user, "profile");
+
+  // Test removing username
+  ASSERT_TRUE(user_profiles.RemoveUsername("profile", "user1"));
+  usernames = user_profiles.GetUsernames("profile");
+  ASSERT_EQ(usernames.size(), 1);
+  ASSERT_TRUE(usernames.find("user2") != usernames.end());
+
+  // Test profile update
+  ASSERT_TRUE(user_profiles.Update(
+      "profile", {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{5UL}}}));
+  profile = user_profiles.Get("profile");
+  ASSERT_TRUE(profile.has_value());
+  ASSERT_EQ(profile->limits.size(), 1);
+
+  // Test profile deletion
+  ASSERT_TRUE(user_profiles.Drop("profile"));
+  profile = user_profiles.Get("profile");
+  ASSERT_FALSE(profile.has_value());
+
+  // Clean up test directory
+  if (std::filesystem::exists(temp_dir)) {
+    std::filesystem::remove_all(temp_dir);
+  }
+}
+#endif

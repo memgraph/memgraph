@@ -157,9 +157,7 @@ class PokecClient : public TestClient {
   }
 
   void ReturnVertexAndEdges(const VertexAndEdges &vertex_and_edges, const std::string &label) {
-    int num_queries = 0;
     CreateVertex(vertex_and_edges.vertex);
-    ++num_queries;
 
     for (int i = 0; i < static_cast<int>(vertex_and_edges.vertices.size()); ++i) {
       auto records =
@@ -167,7 +165,6 @@ class PokecClient : public TestClient {
                      vertex_and_edges.vertices[i].properties.at("id").ValueInt(), vertex_and_edges.edges[i])
               ->records;
       MG_ASSERT(records.size() == 1U, "Graph in invalid state {}", vertex_and_edges.vertex.properties.at("id"));
-      ++num_queries;
     }
   }
 

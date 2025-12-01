@@ -56,7 +56,7 @@ DEFINE_string(bolt_server_name_for_init, "Neo4j/v5.11.0 compatible graph databas
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
-DEFINE_VALIDATED_string(log_level, "WARNING", memgraph::flags::log_level_help_string.c_str(),
+DEFINE_VALIDATED_string(log_level, "WARNING", memgraph::flags::GetLogLevelHelpString(),
                         { return memgraph::flags::ValidLogLevel(value); });
 
 // Query flags
@@ -88,10 +88,29 @@ DEFINE_string(storage_snapshot_interval, "",
               "Define periodic snapshot schedule via cron format or as a period in seconds.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
+DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 300,
                         "Storage snapshot creation interval (in seconds). Set "
                         "to 0 to disable periodic snapshot creation.",
                         FLAG_IN_RANGE(0, 7LU * 24 * 3600));
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_string(aws_region, "", "Define AWS region which is used for the AWS integration.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_string(aws_access_key, "", "Define AWS access key for the AWS integration.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_string(aws_secret_key, "", "Define AWS secret key for the AWS integration.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_string(aws_endpoint_url, "", "Define AWS endpoint url for the AWS integration.");
+
+// Storage flags
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_gc_aggressive, false, "Enable aggressive garbage collection.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_uint64(file_download_conn_timeout_sec, 10,
+              "Define a timeout for establishing a connection with a remote server during a file download.");
 
 namespace {
 // Bolt server name
@@ -120,6 +139,9 @@ constexpr auto kCartesianProductEnabledGFlagsKey = "cartesian-product-enabled";
 constexpr auto kDebugQueryPlansSettingKey = "debug-query-plans";
 constexpr auto kDebugQueryPlansGFlagsKey = "debug-query-plans";
 
+constexpr auto kStorageGcAggressiveSettingKey = "storage-gc-aggressive";
+constexpr auto kStorageGcAggressiveGFlagsKey = "storage-gc-aggressive";
+
 constexpr auto kQueryLogDirectorySettingKey = "query-log-directory";
 constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
 
@@ -129,6 +151,22 @@ constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 constexpr auto kSnapshotPeriodicSettingKey = "storage.snapshot.interval";
 constexpr auto kSnapshotPeriodicGFlagsKey = "storage-snapshot-interval";
 
+// AWS configuration
+constexpr auto kAwsRegionSettingKey = "aws.region";
+constexpr auto kAwsRegionGFlagsKey = "aws_region";
+
+constexpr auto kAwsSecretSettingKey = "aws.secret_key";
+constexpr auto kAwsSecretGFlagsKey = "aws_secret_key";
+
+constexpr auto kAwsAccessSettingKey = "aws.access_key";
+constexpr auto kAwsAccessGFlagsKey = "aws_access_key";
+
+constexpr auto kAwsEndpointUrlSettingKey = "aws.endpoint_url";
+constexpr auto kAwsEndpointUrlGFlagsKey = "aws_endpoint_url";
+
+constexpr auto kFileDownloadConnTimeoutSecSettingKey = "file.download_conn_timeout_sec";
+constexpr auto kFileDownloadConnTimeoutSecGFlagsKey = "file_download_conn_timeout_sec";
+
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
 std::atomic<double> execution_timeout_sec_;
@@ -136,6 +174,8 @@ std::atomic<bool> hops_limit_partial_results{true};
 std::atomic<bool> cartesian_product_enabled_{true};
 std::atomic<bool> debug_query_plans_{false};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
+std::atomic<bool> storage_gc_aggressive_{false};
+std::atomic<uint64_t> file_download_conn_timeout_sec_;
 
 class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
  public:
@@ -322,7 +362,7 @@ void Initialize() {
       [](auto in) -> utils::Settings::ValidatorResult {
         if (!memgraph::flags::ValidLogLevel(in)) {
           return {"Unsupported log level. Log level must be defined as one of the following strings: " +
-                  allowed_log_levels};
+                  memgraph::flags::GetAllowedLogLevels()};
         }
         return {};
       });
@@ -358,6 +398,13 @@ void Initialize() {
       [](const std::string &val) { debug_query_plans_ = val == "true"; }, ValidBoolStr);
 
   /*
+   * Register storage GC aggressive flag
+   */
+  register_flag(
+      kStorageGcAggressiveGFlagsKey, kStorageGcAggressiveSettingKey, kRestore,
+      [](const std::string &val) { storage_gc_aggressive_ = val == "true"; }, ValidBoolStr);
+
+  /*
    * Register timezone setting
    */
   register_flag(
@@ -378,18 +425,20 @@ void Initialize() {
   register_flag(kQueryLogDirectoryGFlagsKey, kQueryLogDirectorySettingKey, kRestore);
 
   /*
-   * Register periodic snapshot setting
+   * Register periodic snapshot setting. In the case both flags are defined, --storage-snapshot-interval flag will be
+   * used. Ideally, we rely on just a single flag but --storage-snapshot-interval-sec is for community,
+   * --storage-snapshot-interval for enterprise.
    */
-  // Periodic snapshot setup is exclusive between interval_sec and config
-  if (FLAGS_storage_snapshot_interval_sec != 0) {    // Not default
-    if (!FLAGS_storage_snapshot_interval.empty()) {  // Not default
-      LOG_FATAL(
-          "Periodic snapshot schedule define via both --storage-snapshot-interval-sec and "
-          "--storage-snapshot-interval. Please use a single flag to define the schedule!");
+  if (FLAGS_storage_snapshot_interval_sec != 0) {
+    if (FLAGS_storage_snapshot_interval.empty()) {
+      FLAGS_storage_snapshot_interval = std::to_string(FLAGS_storage_snapshot_interval_sec);
+    } else {
+      spdlog::warn(
+          "Periodic snapshot schedule defined via both --storage-snapshot-interval-sec and "
+          "--storage-snapshot-interval. Memgraph will use the configuration flag from --storage-snapshot-interval!");
     }
-    // Update the combined flag to reflect the interval defined via FLAGS_storage_snapshot_interval_sec
-    FLAGS_storage_snapshot_interval = std::to_string(FLAGS_storage_snapshot_interval_sec);
   }
+
   // FATAL validation at startup; can't be part of the flag defintion, since we need to check for license
   ValidPeriodicSnapshot<true>(FLAGS_storage_snapshot_interval);
   register_flag(
@@ -412,6 +461,28 @@ void Initialize() {
         }
         return {};
       });
+
+  // AWS Section
+  register_flag(kAwsRegionGFlagsKey, kAwsRegionSettingKey, kRestore);
+  register_flag(kAwsAccessGFlagsKey, kAwsAccessSettingKey, kRestore);
+  register_flag(kAwsSecretGFlagsKey, kAwsSecretSettingKey, kRestore);
+  register_flag(kAwsEndpointUrlGFlagsKey, kAwsEndpointUrlSettingKey, kRestore);
+
+  register_flag(
+      kFileDownloadConnTimeoutSecGFlagsKey, kFileDownloadConnTimeoutSecSettingKey, kRestore,
+      [](std::string_view val) {
+        file_download_conn_timeout_sec_ = utils::ParseStringToUint64(val);  // throw exception if not ok
+      },
+      [](auto in) -> utils::Settings::ValidatorResult {
+        try {
+          utils::ParseStringToUint64(in);
+          return {};
+        } catch (utils::ParseException const &e) {
+          return {"Input for file_download_connection_timeout_sec cannot be parsed as uint64_t"};
+        }
+      }
+
+  );
 }
 
 std::string GetServerName() {
@@ -429,6 +500,8 @@ bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
 
 bool GetDebugQueryPlans() { return debug_query_plans_; }
 
+bool GetStorageGcAggressive() { return storage_gc_aggressive_; }
+
 const std::chrono::time_zone *GetTimezone() { return timezone_; }
 
 std::string GetQueryLogDirectory() {
@@ -437,6 +510,32 @@ std::string GetQueryLogDirectory() {
   gflags::GetCommandLineOption(kQueryLogDirectoryGFlagsKey, &s);
   return s;
 }
+
+auto GetAwsAccessKey() -> std::string {
+  std::string access_key;
+  gflags::GetCommandLineOption(kAwsAccessGFlagsKey, &access_key);
+  return access_key;
+}
+
+auto GetAwsSecretKey() -> std::string {
+  std::string secret_key;
+  gflags::GetCommandLineOption(kAwsSecretGFlagsKey, &secret_key);
+  return secret_key;
+}
+
+auto GetAwsRegion() -> std::string {
+  std::string region;
+  gflags::GetCommandLineOption(kAwsRegionGFlagsKey, &region);
+  return region;
+}
+
+auto GetAwsEndpointUrl() -> std::string {
+  std::string endpoint_url;
+  gflags::GetCommandLineOption(kAwsEndpointUrlGFlagsKey, &endpoint_url);
+  return endpoint_url;
+}
+
+auto GetFileDownloadConnTimeoutSec() -> uint64_t { return file_download_conn_timeout_sec_; }
 
 void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
   snapshot_periodic_.Attach(observer);

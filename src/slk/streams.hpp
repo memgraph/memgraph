@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <optional>
 #include <utility>
 
 #include "utils/exceptions.hpp"
@@ -26,14 +27,19 @@ using SegmentSize = uint32_t;
 // value of 256 KiB was chosen so that the segment buffer will always fit on the
 // stack (it mustn't be too large) and that it isn't too small so that most SLK
 // messages fit into a single segment.
-const uint64_t kSegmentMaxDataSize = 262144;
-const uint64_t kSegmentMaxTotalSize = kSegmentMaxDataSize + sizeof(SegmentSize) + sizeof(SegmentSize);
+constexpr uint64_t kSegmentMaxDataSize = 262144;
+constexpr uint64_t kSegmentMaxTotalSize =
+    kSegmentMaxDataSize + sizeof(SegmentSize) + sizeof(SegmentSize);  // segment size + footer size
+// We require that the segment which contains file data (also file name and file size) starts in its own segment
+// To annotate that, we use mask 0xFFFFFFFF
+constexpr SegmentSize kFileSegmentMask = std::numeric_limits<SegmentSize>::max();
+constexpr SegmentSize kFooter = 0;
 
 static_assert(kSegmentMaxDataSize <= std::numeric_limits<SegmentSize>::max(),
               "The SLK segment can't be larger than the type used to store its size!");
 
 /// SLK splits binary data into segments. Segments are used to avoid the need to
-/// have all of the encoded data in memory at once during the building process.
+/// have all the encoded data in memory at once during the building process.
 /// That enables streaming during the building process and makes the whole
 /// process make zero memory allocations because only one static buffer is used.
 /// During the reading process you must have all of the data in memory.
@@ -62,13 +68,30 @@ class Builder {
   /// Function used internally by SLK to serialize the data.
   void Save(const uint8_t *data, uint64_t size);
 
-  /// Function that should be called after all `slk::Save` operations are done.
+  void SaveFileBuffer(const uint8_t *data, uint64_t size);
+
+  // Flushes the previous segment because sending the file requires that we start with the segment start. File data
+  // cannot start in the middle of the segment.
+  void PrepareForFileSending();
+
+  /// Function that should be called after all `slk::Save` operations are done. This should be called only once,
+  /// at the end of the message
   void Finalize();
 
   bool IsEmpty() const;
 
+  void FlushSegment(bool final_segment, bool force_flush = false);
+
+  void SaveFooter(uint64_t total_size);
+
+  bool GetFileData() const;
+
+  void FlushInternal(size_t size, bool has_more);
+
  private:
-  void FlushSegment(bool final_segment);
+  void FlushFileSegment();
+
+  bool file_data_{false};
 
   std::function<void(const uint8_t *, size_t, bool)> write_func_;
   size_t pos_{0};
@@ -94,11 +117,17 @@ class Reader {
  public:
   Reader(const uint8_t *data, size_t size);
 
+  Reader(const uint8_t *data, size_t size, size_t have);
+
   /// Function used internally by SLK to deserialize the data.
   void Load(uint8_t *data, uint64_t size);
 
   /// Function that should be called after all `slk::Load` operations are done.
   void Finalize();
+
+  size_t GetPos() const;
+
+  const uint8_t *GetData() const { return data_; }
 
  private:
   void GetSegment(bool should_be_final = false);
@@ -111,17 +140,14 @@ class Reader {
 };
 
 /// Stream status that is returned by the `CheckStreamComplete` function.
-enum class StreamStatus {
-  PARTIAL,
-  COMPLETE,
-  INVALID,
-};
+enum class StreamStatus : uint8_t { PARTIAL, COMPLETE, INVALID, NEW_FILE, FILE_DATA };
 
 /// Stream information retuned by the `CheckStreamComplete` function.
 struct StreamInfo {
   StreamStatus status;
   size_t stream_size;
   size_t encoded_data_size;
+  size_t pos;
 };
 
 /// This function checks the binary stream to see whether it contains a fully
@@ -136,6 +162,8 @@ struct StreamInfo {
 /// size of the data stream. It is used to indicate to the network stack how
 /// much data it should receive before it makes sense to retry decoding of the
 /// segment data.
-StreamInfo CheckStreamComplete(const uint8_t *data, size_t size);
+StreamInfo CheckStreamStatus(const uint8_t *data, size_t size,
+                             std::optional<uint64_t> const &remaining_file_size = std::nullopt,
+                             size_t processed_bytes = 0);
 
 }  // namespace memgraph::slk

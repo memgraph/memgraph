@@ -16,9 +16,10 @@
 #include "license/license.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/ast/query/user_profile.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
-#include "storage/v2/id_types.hpp"
 
+#include "plan/operator.hpp"
 #include "query_common.hpp"
 
 using namespace memgraph::query;
@@ -102,11 +103,12 @@ TEST_F(TestPrivilegeExtractor, CreateIndex) {
 TEST_F(TestPrivilegeExtractor, AuthQuery) {
   memgraph::license::global_license_checker.EnableTesting();
   auto label_privileges = std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>{};
+  auto label_matching_modes = std::vector<AuthQuery::LabelMatchingMode>{};
   auto edge_type_privileges =
       std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>{};
-  auto *query = AUTH_QUERY(AuthQuery::Action::CREATE_ROLE, "", "role", "", false, nullptr, "",
-                           std::vector<AuthQuery::Privilege>{}, label_privileges, edge_type_privileges,
-                           std::vector<std::string>{});
+  auto *query = AUTH_QUERY(AuthQuery::Action::CREATE_ROLE, "", std::vector<std::string>{"role"}, "", false, nullptr, "",
+                           std::vector<AuthQuery::Privilege>{}, label_privileges, label_matching_modes,
+                           edge_type_privileges, std::vector<std::string>{});
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::AUTH));
 }
 #endif
@@ -153,12 +155,28 @@ TEST_F(TestPrivilegeExtractor, DumpDatabase) {
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::DUMP));
 }
 
-TEST_F(TestPrivilegeExtractor, ReadFile) {
-  auto *load_csv = storage.Create<LoadCsv>();
-  load_csv->row_var_ = IDENT("row");
-  auto *query = QUERY(SINGLE_QUERY(load_csv));
+// Parametrized test for both LoadCsv and LoadParquet
+class TestReadFilePrivilege : public TestPrivilegeExtractor, public ::testing::WithParamInterface<std::string> {};
+
+TEST_P(TestReadFilePrivilege, ReadFile) {
+  const std::string &file_type = GetParam();
+
+  Clause *load_clause = nullptr;
+  if (file_type == "CSV") {
+    auto *load_csv = storage.Create<LoadCsv>();
+    load_csv->row_var_ = IDENT("row");
+    load_clause = load_csv;
+  } else if (file_type == "Parquet") {
+    auto *load_parquet = storage.Create<LoadParquet>();
+    load_parquet->row_var_ = IDENT("row");
+    load_clause = load_parquet;
+  }
+
+  auto *query = QUERY(SINGLE_QUERY(load_clause));
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::READ_FILE));
 }
+
+INSTANTIATE_TEST_SUITE_P(FileFormats, TestReadFilePrivilege, ::testing::Values("CSV", "Parquet"));
 
 TEST_F(TestPrivilegeExtractor, LockPathQuery) {
   auto *query = storage.Create<LockPathQuery>();
@@ -237,4 +255,9 @@ TEST_F(TestPrivilegeExtractor, CallProcedureQuery) {
     auto *query = QUERY(SINGLE_QUERY(CALL_PROCEDURE("mg.delete_module_file", {LITERAL("some_name.py")})));
     EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::MODULE_WRITE));
   }
+}
+
+TEST_F(TestPrivilegeExtractor, UserProfile) {
+  auto *query = storage.Create<UserProfileQuery>();
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::PROFILE_RESTRICTION));
 }

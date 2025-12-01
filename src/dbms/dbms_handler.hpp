@@ -36,6 +36,7 @@
 #include "coordination/coordinator_state.hpp"
 #include "dbms/database_handler.hpp"
 #endif
+#include "dbms/database_protector.hpp"
 #include "global.hpp"
 #include "query/interpreter_context.hpp"
 #include "spdlog/spdlog.h"
@@ -101,6 +102,7 @@ class DbmsHandler {
 
   using NewResultT = utils::BasicResult<NewError, DatabaseAccess>;
   using DeleteResult = utils::BasicResult<DeleteError>;
+  using RenameResult = utils::BasicResult<RenameError>;
 
   /**
    * @brief Initialize the handler.
@@ -124,7 +126,13 @@ class DbmsHandler {
                          config.salient.name = kDefaultDB;
                          return std::move(config);
                        }(),
-                       repl_state_} {}
+                       repl_state_,
+                       [this]() -> storage::DatabaseProtectorPtr {
+                         if (auto db_acc = db_gatekeeper_.access()) {
+                           return std::make_unique<DatabaseProtector>(*db_acc);
+                         }
+                         return nullptr;
+                       }} {}
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -155,10 +163,11 @@ class DbmsHandler {
       return new_db;
     }
 
-    spdlog::debug("Trying to create db '{}' on replica which already exists.", config.name);
+    const auto name_view = config.name.str_view();
+    spdlog::debug("Trying to create db '{}' on replica which already exists.", *name_view);
 
-    auto db = Get_(config.name);
-    spdlog::debug("Aligning database with name {} which has UUID {}, where config UUID is {}", config.name,
+    auto db = Get_(*name_view);
+    spdlog::debug("Aligning database with name {} which has UUID {}, where config UUID is {}", *name_view,
                   std::string(db->uuid()), std::string(config.uuid));
     if (db->uuid() == config.uuid) {  // Same db
       return db;
@@ -167,11 +176,12 @@ class DbmsHandler {
     spdlog::debug("Different UUIDs");
 
     // TODO: Fix this hack
-    if (config.name == kDefaultDB) {
+    if (*name_view == kDefaultDB) {
       spdlog::debug("Last commit timestamp for DB {} is {}", kDefaultDB,
-                    db->storage()->repl_storage_state_.last_durable_timestamp_);
+                    db->storage()->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_);
       // This seems correct, if database made progress
-      if (db->storage()->repl_storage_state_.last_durable_timestamp_ != storage::kTimestampInitialId) {
+      if (db->storage()->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ !=
+          storage::kTimestampInitialId) {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
         return NewError::GENERIC;  // Update error
       }
@@ -182,7 +192,7 @@ class DbmsHandler {
       return db;
     }
 
-    spdlog::debug("Dropping database {} with UUID: {} and recreating with the correct UUID: {}", config.name,
+    spdlog::debug("Dropping database {} with UUID: {} and recreating with the correct UUID: {}", *name_view,
                   std::string(db->uuid()), std::string(config.uuid));
     // Defer drop
     (void)Delete_(db->name());
@@ -234,6 +244,7 @@ class DbmsHandler {
    * @brief Attempt to delete database.
    *
    * @param db_name database name
+   * @param transaction system transaction
    * @return DeleteResult error on failure
    */
   DeleteResult TryDelete(std::string_view db_name, system::Transaction *transaction = nullptr);
@@ -253,6 +264,25 @@ class DbmsHandler {
    * @return DeleteResult error on failure
    */
   DeleteResult Delete(utils::UUID uuid);
+
+  /**
+   * @brief Delete or defer deletion of database with a transactional scope.
+   *
+   * @param db_name database name
+   * @param transaction system transaction
+   * @return DeleteResult error on failure
+   */
+  DeleteResult Delete(std::string_view db_name, system::Transaction *transaction);
+
+  /**
+   * @brief Rename a database.
+   *
+   * @param old_name current database name
+   * @param new_name new database name
+   * @param txn system transaction for replication
+   * @return RenameResult error on failure
+   */
+  RenameResult Rename(std::string_view old_name, std::string_view new_name, system::Transaction *txn = nullptr);
 #endif
 
   /**
@@ -382,25 +412,6 @@ class DbmsHandler {
       }
     }
   }
-
-#ifdef MG_ENTERPRISE
-  /**
-   * @brief Restore TTL of all currently defined databases.
-   *
-   * @param ic global InterpreterContext
-   */
-  void RestoreTTL(query::InterpreterContext *ic) {
-    auto wr = std::lock_guard{lock_};
-    for (auto &[_, db_gk] : db_handler_) {
-      auto db_acc = db_gk.access();
-      if (db_acc) {
-        auto *db = db_acc->get();
-        spdlog::debug("Restoring TTL for database \"{}\"", db->name());
-        db->ttl().Restore(*db_acc, ic);
-      }
-    }
-  }
-#endif
 
   /**
    * @brief todo

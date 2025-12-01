@@ -14,19 +14,20 @@ import sys
 from functools import partial
 
 import interactive_mg_runner
+import mgclient
 import pytest
 from common import (
-    connect,
-    count_files,
-    execute_and_fetch_all,
-    execute_and_ignore_dead_replica,
-    get_data_path,
-    get_logs_path,
-    get_vertex_count,
-    list_directory_contents,
-    show_instances,
+  connect,
+  count_files,
+  execute_and_fetch_all,
+  execute_and_ignore_dead_replica,
+  get_data_path,
+  get_logs_path,
+  get_vertex_count,
+  list_directory_contents,
+  show_instances,
 )
-from mg_utils import mg_sleep_and_assert
+from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_eval_function
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -43,7 +44,7 @@ def test_name(request):
     return request.node.name
 
 
-def get_instances_description_no_setup_snapshot_recovery(test_name: str):
+def get_instances_description_no_setup_snapshot_recovery(test_name: str, snapshot_interval_sec: str = "100000"):
     return {
         "instance_1": {
             "args": [
@@ -54,7 +55,7 @@ def get_instances_description_no_setup_snapshot_recovery(test_name: str):
                 "--management-port",
                 "10011",
                 "--storage-snapshot-interval-sec",
-                "100000",
+                f"{snapshot_interval_sec}",
                 "--storage-snapshot-on-exit",
                 "false",
             ],
@@ -71,7 +72,7 @@ def get_instances_description_no_setup_snapshot_recovery(test_name: str):
                 "--management-port",
                 "10012",
                 "--storage-snapshot-interval-sec",
-                "100000",
+                f"{snapshot_interval_sec}",
                 "--storage-snapshot-on-exit",
                 "false",
             ],
@@ -223,6 +224,38 @@ def cleanup_after_test():
     interactive_mg_runner.kill_all(keep_directories=True)
 
 
+def test_snapshots_on_replica(test_name):
+    # Set that snapshots are getting created every 3s
+    instances_description = get_instances_description_no_setup_snapshot_recovery(
+        test_name=test_name, snapshot_interval_sec="1"
+    )
+    interactive_mg_runner.start_all(instances_description, keep_directories=False)
+
+    setup_queries = [
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
+        "SET INSTANCE instance_1 TO MAIN",
+    ]
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in setup_queries:
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    # Instance 2 is replica
+    build_dir = os.path.join(interactive_mg_runner.PROJECT_DIR, "build", "e2e", "data")
+    data_dir_instance_2 = f"{build_dir}/{get_data_path(file, test_name)}/instance_2"
+    snapshot_dir_instance_2 = f"{data_dir_instance_2}/snapshots"
+
+    # There won't be more than one snapshot created because snapshot digest will be used
+    def checker_func(num_snapshot_files):
+        return num_snapshot_files == 1
+
+    mg_sleep_and_assert_eval_function(checker_func, partial(count_files, snapshot_dir_instance_2))
+
+
 # 1. Set-up main (instance_1) and replica (instance_2). Replicate 5 vertices from instance_1 to instance_2
 # 2. Kill replica (instance_2) and create another vertices on instance_1
 # 3. Kill main (instance_1)
@@ -288,6 +321,7 @@ def test_branching_point_snapshot_recovery(test_name):
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
     instance2_cursor = connect(host="localhost", port=7688).cursor()
     execute_and_fetch_all(instance2_cursor, "CREATE SNAPSHOT")
+
     # Count number of WALs and snapshots
     data_dir_instance_2 = f"{build_dir}/{get_data_path(file, test_name)}/instance_2"
     wal_dir_instance_2 = f"{data_dir_instance_2}/wal"

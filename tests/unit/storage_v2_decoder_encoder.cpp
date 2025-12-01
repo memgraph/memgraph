@@ -134,28 +134,29 @@ GENERATE_READ_TEST(String, std::string, "hello", "world", "nandare", "haihaihai"
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_READ_TEST(
-    PropertyValue, memgraph::storage::PropertyValue, memgraph::storage::PropertyValue(),
-    memgraph::storage::PropertyValue(false), memgraph::storage::PropertyValue(true),
-    memgraph::storage::PropertyValue(123L), memgraph::storage::PropertyValue(123.5),
-    memgraph::storage::PropertyValue("nandare"),
-    memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-        memgraph::storage::PropertyValue("nandare"), memgraph::storage::PropertyValue(123L)}),
-    memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
-        {"nandare", memgraph::storage::PropertyValue(123)}}),
-    memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
-    memgraph::storage::PropertyValue(
+    ExternalPropertyValue, memgraph::storage::ExternalPropertyValue, memgraph::storage::ExternalPropertyValue(),
+    memgraph::storage::ExternalPropertyValue(false), memgraph::storage::ExternalPropertyValue(true),
+    memgraph::storage::ExternalPropertyValue(123L), memgraph::storage::ExternalPropertyValue(123.5),
+    memgraph::storage::ExternalPropertyValue("nandare"),
+    memgraph::storage::ExternalPropertyValue(std::vector<memgraph::storage::ExternalPropertyValue>{
+        memgraph::storage::ExternalPropertyValue("nandare"), memgraph::storage::ExternalPropertyValue(123L)}),
+    memgraph::storage::ExternalPropertyValue(memgraph::storage::ExternalPropertyValue::map_t{
+        {"nandare", memgraph::storage::ExternalPropertyValue(123)}}),
+    memgraph::storage::ExternalPropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date,
+                                                                             23)),
+    memgraph::storage::ExternalPropertyValue(
         memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
                                              memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
-    memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+    memgraph::storage::ExternalPropertyValue(memgraph::storage::ZonedTemporalData(
         memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
         memgraph::utils::Timezone(std::chrono::minutes{-60}))),
-    memgraph::storage::PropertyValue(memgraph::storage::Point2d{memgraph::storage::CoordinateReferenceSystem::WGS84_2d,
-                                                                1.0, 2.0}),
-    memgraph::storage::PropertyValue(memgraph::storage::Point2d{
+    memgraph::storage::ExternalPropertyValue(memgraph::storage::Point2d{
+        memgraph::storage::CoordinateReferenceSystem::WGS84_2d, 1.0, 2.0}),
+    memgraph::storage::ExternalPropertyValue(memgraph::storage::Point2d{
         memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}),
-    memgraph::storage::PropertyValue(memgraph::storage::Point3d{memgraph::storage::CoordinateReferenceSystem::WGS84_3d,
-                                                                1.0, 2.0, 3.0}),
-    memgraph::storage::PropertyValue(memgraph::storage::Point3d{
+    memgraph::storage::ExternalPropertyValue(memgraph::storage::Point3d{
+        memgraph::storage::CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, 3.0}),
+    memgraph::storage::ExternalPropertyValue(memgraph::storage::Point3d{
         memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -195,28 +196,29 @@ GENERATE_SKIP_TEST(String, std::string, "hello", "world", "nandare", "haihaihai"
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SKIP_TEST(
-    PropertyValue, memgraph::storage::PropertyValue, memgraph::storage::PropertyValue(),
-    memgraph::storage::PropertyValue(false), memgraph::storage::PropertyValue(true),
-    memgraph::storage::PropertyValue(123L), memgraph::storage::PropertyValue(123.5),
-    memgraph::storage::PropertyValue("nandare"),
-    memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-        memgraph::storage::PropertyValue("nandare"), memgraph::storage::PropertyValue(123L)}),
-    memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
-        {"nandare", memgraph::storage::PropertyValue(123)}}),
-    memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
-    memgraph::storage::PropertyValue(
+    ExternalPropertyValue, memgraph::storage::ExternalPropertyValue, memgraph::storage::ExternalPropertyValue(),
+    memgraph::storage::ExternalPropertyValue(false), memgraph::storage::ExternalPropertyValue(true),
+    memgraph::storage::ExternalPropertyValue(123L), memgraph::storage::ExternalPropertyValue(123.5),
+    memgraph::storage::ExternalPropertyValue("nandare"),
+    memgraph::storage::ExternalPropertyValue(std::vector<memgraph::storage::ExternalPropertyValue>{
+        memgraph::storage::ExternalPropertyValue("nandare"), memgraph::storage::ExternalPropertyValue(123L)}),
+    memgraph::storage::ExternalPropertyValue(memgraph::storage::ExternalPropertyValue::map_t{
+        {"nandare", memgraph::storage::ExternalPropertyValue(123)}}),
+    memgraph::storage::ExternalPropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date,
+                                                                             23)),
+    memgraph::storage::ExternalPropertyValue(
         memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
                                              memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
-    memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+    memgraph::storage::ExternalPropertyValue(memgraph::storage::ZonedTemporalData(
         memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
         memgraph::utils::Timezone(std::chrono::minutes{-60}))),
-    memgraph::storage::PropertyValue(memgraph::storage::Point2d{memgraph::storage::CoordinateReferenceSystem::WGS84_2d,
-                                                                1.0, 2.0}),
-    memgraph::storage::PropertyValue(memgraph::storage::Point2d{
+    memgraph::storage::ExternalPropertyValue(memgraph::storage::Point2d{
+        memgraph::storage::CoordinateReferenceSystem::WGS84_2d, 1.0, 2.0}),
+    memgraph::storage::ExternalPropertyValue(memgraph::storage::Point2d{
         memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}),
-    memgraph::storage::PropertyValue(memgraph::storage::Point3d{memgraph::storage::CoordinateReferenceSystem::WGS84_3d,
-                                                                1.0, 2.0, 3.0}),
-    memgraph::storage::PropertyValue(memgraph::storage::Point3d{
+    memgraph::storage::ExternalPropertyValue(memgraph::storage::Point3d{
+        memgraph::storage::CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, 3.0}),
+    memgraph::storage::ExternalPropertyValue(memgraph::storage::Point3d{
         memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -277,27 +279,28 @@ GENERATE_PARTIAL_READ_TEST(String, "nandare");
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_PARTIAL_READ_TEST(
-    PropertyValue,
-    memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-        memgraph::storage::PropertyValue(), memgraph::storage::PropertyValue(true),
-        memgraph::storage::PropertyValue(123L), memgraph::storage::PropertyValue(123.5),
-        memgraph::storage::PropertyValue("nandare"),
-        memgraph::storage::PropertyValue{
-            memgraph::storage::PropertyValue::map_t{{"haihai", memgraph::storage::PropertyValue()}}},
-        memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
-        memgraph::storage::PropertyValue(
+    ExternalPropertyValue,
+    memgraph::storage::ExternalPropertyValue(std::vector<memgraph::storage::ExternalPropertyValue>{
+        memgraph::storage::ExternalPropertyValue(), memgraph::storage::ExternalPropertyValue(true),
+        memgraph::storage::ExternalPropertyValue(123L), memgraph::storage::ExternalPropertyValue(123.5),
+        memgraph::storage::ExternalPropertyValue("nandare"),
+        memgraph::storage::ExternalPropertyValue{
+            memgraph::storage::ExternalPropertyValue::map_t{{"haihai", memgraph::storage::ExternalPropertyValue()}}},
+        memgraph::storage::ExternalPropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date,
+                                                                                 23)),
+        memgraph::storage::ExternalPropertyValue(
             memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
                                                  memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
-        memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+        memgraph::storage::ExternalPropertyValue(memgraph::storage::ZonedTemporalData(
             memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
             memgraph::utils::Timezone(std::chrono::minutes{-60}))),
-        memgraph::storage::PropertyValue(memgraph::storage::Point2d{
+        memgraph::storage::ExternalPropertyValue(memgraph::storage::Point2d{
             memgraph::storage::CoordinateReferenceSystem::WGS84_2d, 1.0, 2.0}),
-        memgraph::storage::PropertyValue(memgraph::storage::Point2d{
+        memgraph::storage::ExternalPropertyValue(memgraph::storage::Point2d{
             memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}),
-        memgraph::storage::PropertyValue(memgraph::storage::Point3d{
+        memgraph::storage::ExternalPropertyValue(memgraph::storage::Point3d{
             memgraph::storage::CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, 3.0}),
-        memgraph::storage::PropertyValue(memgraph::storage::Point3d{
+        memgraph::storage::ExternalPropertyValue(memgraph::storage::Point3d{
             memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0})}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -344,27 +347,28 @@ GENERATE_PARTIAL_SKIP_TEST(String, "nandare");
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_PARTIAL_SKIP_TEST(
-    PropertyValue,
-    memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-        memgraph::storage::PropertyValue(), memgraph::storage::PropertyValue(true),
-        memgraph::storage::PropertyValue(123L), memgraph::storage::PropertyValue(123.5),
-        memgraph::storage::PropertyValue("nandare"),
-        memgraph::storage::PropertyValue{
-            memgraph::storage::PropertyValue::map_t{{"haihai", memgraph::storage::PropertyValue()}}},
-        memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
-        memgraph::storage::PropertyValue(
+    ExternalPropertyValue,
+    memgraph::storage::ExternalPropertyValue(std::vector<memgraph::storage::ExternalPropertyValue>{
+        memgraph::storage::ExternalPropertyValue(), memgraph::storage::ExternalPropertyValue(true),
+        memgraph::storage::ExternalPropertyValue(123L), memgraph::storage::ExternalPropertyValue(123.5),
+        memgraph::storage::ExternalPropertyValue("nandare"),
+        memgraph::storage::ExternalPropertyValue{
+            memgraph::storage::ExternalPropertyValue::map_t{{"haihai", memgraph::storage::ExternalPropertyValue()}}},
+        memgraph::storage::ExternalPropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date,
+                                                                                 23)),
+        memgraph::storage::ExternalPropertyValue(
             memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
                                                  memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
-        memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+        memgraph::storage::ExternalPropertyValue(memgraph::storage::ZonedTemporalData(
             memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
             memgraph::utils::Timezone(std::chrono::minutes{-60}))),
-        memgraph::storage::PropertyValue(memgraph::storage::Point2d{
+        memgraph::storage::ExternalPropertyValue(memgraph::storage::Point2d{
             memgraph::storage::CoordinateReferenceSystem::WGS84_2d, 1.0, 2.0}),
-        memgraph::storage::PropertyValue(memgraph::storage::Point2d{
+        memgraph::storage::ExternalPropertyValue(memgraph::storage::Point2d{
             memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}),
-        memgraph::storage::PropertyValue(memgraph::storage::Point3d{
+        memgraph::storage::ExternalPropertyValue(memgraph::storage::Point3d{
             memgraph::storage::CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, 3.0}),
-        memgraph::storage::PropertyValue(memgraph::storage::Point3d{
+        memgraph::storage::ExternalPropertyValue(memgraph::storage::Point3d{
             memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0})}));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -372,7 +376,7 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
   {
     memgraph::storage::durability::Encoder<TypeParam> encoder;
     encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);
-    encoder.WritePropertyValue(memgraph::storage::PropertyValue(123L));
+    encoder.WriteExternalPropertyValue(memgraph::storage::ExternalPropertyValue(123L));
     encoder.Finalize();
   }
   {
@@ -408,6 +412,7 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::SECTION_EDGE_INDICES:
         case memgraph::storage::durability::Marker::SECTION_OFFSETS:
         case memgraph::storage::durability::Marker::SECTION_ENUMS:
+        case memgraph::storage::durability::Marker::SECTION_TTL:
         case memgraph::storage::durability::Marker::DELTA_VERTEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_VERTEX_DELETE:
         case memgraph::storage::durability::Marker::DELTA_VERTEX_ADD_LABEL:
@@ -416,12 +421,14 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::DELTA_EDGE_CREATE:
         case memgraph::storage::durability::Marker::DELTA_EDGE_DELETE:
         case memgraph::storage::durability::Marker::DELTA_EDGE_SET_PROPERTY:
+        case memgraph::storage::durability::Marker::DELTA_TRANSACTION_START:
         case memgraph::storage::durability::Marker::DELTA_TRANSACTION_END:
         case memgraph::storage::durability::Marker::DELTA_LABEL_INDEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_LABEL_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_POINT_INDEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_POINT_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_VECTOR_INDEX_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_VECTOR_EDGE_INDEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_VECTOR_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_LABEL_INDEX_STATS_SET:
         case memgraph::storage::durability::Marker::DELTA_LABEL_INDEX_STATS_CLEAR:
@@ -436,6 +443,7 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_TEXT_INDEX_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_TEXT_EDGE_INDEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_TEXT_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
@@ -446,6 +454,7 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::DELTA_ENUM_CREATE:
         case memgraph::storage::durability::Marker::DELTA_ENUM_ALTER_ADD:
         case memgraph::storage::durability::Marker::DELTA_ENUM_ALTER_UPDATE:
+        case memgraph::storage::durability::Marker::DELTA_TTL_OPERATION:
         case memgraph::storage::durability::Marker::VALUE_FALSE:
         case memgraph::storage::durability::Marker::VALUE_TRUE:
           valid_marker = false;
@@ -465,14 +474,14 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
         auto version = decoder.Initialize(this->storage_file, kTestMagic);
         ASSERT_TRUE(version);
         ASSERT_EQ(*version, kTestVersion);
-        ASSERT_FALSE(decoder.SkipPropertyValue());
+        ASSERT_FALSE(decoder.SkipExternalPropertyValue());
       }
       {
         memgraph::storage::durability::Decoder decoder;
         auto version = decoder.Initialize(this->storage_file, kTestMagic);
         ASSERT_TRUE(version);
         ASSERT_EQ(*version, kTestVersion);
-        ASSERT_FALSE(decoder.ReadPropertyValue());
+        ASSERT_FALSE(decoder.ReadExternalPropertyValue());
       }
     }
     {
@@ -488,14 +497,14 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
         auto version = decoder.Initialize(this->storage_file, kTestMagic);
         ASSERT_TRUE(version);
         ASSERT_EQ(*version, kTestVersion);
-        ASSERT_FALSE(decoder.SkipPropertyValue());
+        ASSERT_FALSE(decoder.SkipExternalPropertyValue());
       }
       {
         memgraph::storage::durability::Decoder decoder;
         auto version = decoder.Initialize(this->storage_file, kTestMagic);
         ASSERT_TRUE(version);
         ASSERT_EQ(*version, kTestVersion);
-        ASSERT_FALSE(decoder.ReadPropertyValue());
+        ASSERT_FALSE(decoder.ReadExternalPropertyValue());
       }
     }
   }

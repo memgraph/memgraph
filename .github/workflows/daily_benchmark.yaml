@@ -1,22 +1,41 @@
 name: Daily Benchmark
 
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 on:
   workflow_dispatch:
+    inputs:
+      loop_count:
+        type: number
+        description: "Number of times to run the benchmarks. Default is 10."
+        default: 10
   schedule:
-    - cron: "0 22 * * *"
+    - cron: "0 1 * * *"
 
 jobs:
   release_benchmarks:
     name: "Release benchmarks"
-    runs-on: [self-hosted, Linux, X64, Diff, Gen7]
-    timeout-minutes: 120
+    runs-on: [self-hosted, Linux, benchmark]
+    timeout-minutes: 330
+    #  The timeout above is calculated based on a previous run where the loop count was 100
+    #  Rough times per test:
+    #  - macro-benchmark: 2.13 minutes
+    #  - mgbench: 13 minutes
+    #  - extended planner improvements mgbench: 7.26 minutes
+    #  - mgbench-supernode: 1 minute (very rough estimate)
+    #  10 iterations would take about 234 minutes, leaving 36 minutes to allow
+    #  for building memgraph and variations in benchmark times.
     env:
       ARCH: "amd"
       OS: "ubuntu-24.04"
-      TOOLCHAIN: "v6"
+      TOOLCHAIN: "v7"
       BUILD_TYPE: "Release"
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
+      LOOP_COUNT: ${{ inputs.loop_count || 10 }}
 
     steps:
       - name: Set up repository
@@ -25,7 +44,7 @@ jobs:
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -47,15 +66,13 @@ jobs:
           --build-type $BUILD_TYPE \
           build-memgraph
 
-      - name: Run macro benchmarks
+      - name: Initialize tests
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph macro-benchmark
+          init-tests
 
       - name: Get branch name
         shell: bash
@@ -66,45 +83,57 @@ jobs:
             echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
           fi
 
-      - name: Upload macro benchmark results
+      - name: Run and upload macro benchmarks
+        id: macro-benchmark
+        continue-on-error: true
         run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph upload-to-bench-graph \
-          --benchmark-name "macro_benchmark" \
-          --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
-          --github-run-id ${{ github.run_id }} \
-          --github-run-number ${{ github.run_number }} \
-          --head-branch-name ${{ env.BRANCH_NAME }}
+          ./tools/loop-benchmark.sh \
+            macro-benchmark \
+            macro_benchmark \
+            .harness_summary \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            macro_benchmark
 
-      - name: Run mgbench
+      - name: Run and upload mgbench-supernode
+        id: mgbench-supernode
+        continue-on-error: true
         run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench
+          ./tools/loop-benchmark.sh \
+            mgbench-supernode \
+            supernode \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
 
-      - name: Upload mgbench results
+      - name: Run and upload mgbench
+        id: mgbench
+        continue-on-error: true
         run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph upload-to-bench-graph \
-          --benchmark-name "mgbench" \
-          --benchmark-results "../../tests/mgbench/benchmark_result.json" \
-          --github-run-id "${{ github.run_id }}" \
-          --github-run-number "${{ github.run_number }}" \
-          --head-branch-name "${{ env.BRANCH_NAME }}"
+          ./tools/loop-benchmark.sh \
+            mgbench \
+            mgbench \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run extended planner optimizations mgbench
+        id: planner
+        continue-on-error: true
+        run: |
+          ./tools/loop-benchmark.sh \
+            "mgbench --dataset pokec_planner_optimizations --size medium" \
+            mgbench-planner-optimizations \
+            benchmark_result_extended.json \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
 
       - name: Stop mgbuild container
         if: always()
@@ -114,3 +143,30 @@ jobs:
           --os $OS \
           --arch $ARCH \
           stop --remove
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/docker_cleanup.sh
+
+      - name: Trigger Regression Detection Job
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
+        run: |
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            https://api.github.com/repos/memgraph/infra/dispatches \
+            -d "{\"event_type\": \"regression-detection\"}"
+
+      - name: Set Job Status
+        run: |
+          success=${{ steps.macro-benchmark.outcome == 'success' && steps.mgbench-supernode.outcome == 'success' && steps.mgbench.outcome == 'success' && steps.planner.outcome == 'success' }}
+          echo "success=$success" >> $GITHUB_OUTPUT
+          if [ "$success" == "true" ]; then
+            echo "All benchmarks succeeded"
+          else
+            echo "Some benchmarks failed"
+            exit 1
+          fi

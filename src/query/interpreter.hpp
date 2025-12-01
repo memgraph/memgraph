@@ -29,6 +29,8 @@
 #ifdef MG_ENTERPRISE
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
+#include "coordination/replication_lag_info.hpp"
+#include "utils/resource_monitoring.hpp"
 #endif
 
 namespace memgraph::metrics {
@@ -84,8 +86,35 @@ struct QueryAllocator {
 
 #ifndef MG_MEMORY_PROFILE
   memgraph::utils::MonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
-  memgraph::utils::PoolResource pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
+  memgraph::utils::PoolResource<> pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
 #endif
+};
+
+struct ThreadSafeQueryAllocator {
+  ThreadSafeQueryAllocator() = default;
+  ~ThreadSafeQueryAllocator() = default;
+
+  ThreadSafeQueryAllocator(ThreadSafeQueryAllocator const &) = delete;
+  ThreadSafeQueryAllocator &operator=(ThreadSafeQueryAllocator const &) = delete;
+
+  // No move addresses to pool & monotonic fields must be stable
+  ThreadSafeQueryAllocator(ThreadSafeQueryAllocator &&) = delete;
+  ThreadSafeQueryAllocator &operator=(ThreadSafeQueryAllocator &&) = delete;
+
+  auto resource() -> utils::MemoryResource * { return &pool; }
+
+ private:
+  static constexpr auto kMonotonicInitialSize = 4UL * 1024UL;
+  static constexpr auto kPoolBlockPerChunk = 64UL;
+  static constexpr auto kPoolMaxBlockSize = 1024UL;
+
+  static auto upstream_resource() -> utils::MemoryResource * {
+    static auto upstream = utils::ResourceWithOutOfMemoryException{utils::NewDeleteResource()};
+    return &upstream;
+  }
+
+  memgraph::utils::ThreadSafeMonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
+  memgraph::utils::PoolResource<utils::impl::ThreadSafePool> pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
 };
 
 struct InterpreterContext;
@@ -149,6 +178,8 @@ class CoordinatorQueryHandler {
   virtual void SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) = 0;
 
   virtual std::vector<std::pair<std::string, std::string>> ShowCoordinatorSettings() = 0;
+
+  virtual std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> ShowReplicationLag() = 0;
 };
 #endif
 
@@ -187,7 +218,7 @@ struct PreparedQuery {
  * NOTE: maybe need to parse more in the future, ATM we ignore some parts from BOLT
  */
 struct QueryExtras {
-  storage::PropertyValue::map_t metadata_pv{};
+  storage::ExternalPropertyValue::map_t metadata_pv{};
   std::optional<int64_t> tx_timeout{};
   bool is_read{false};
 };
@@ -202,7 +233,7 @@ struct CurrentDB {
   CurrentDB &operator=(CurrentDB const &) = delete;
 
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-                                storage::Storage::Accessor::Type acc_type = storage::Storage::Accessor::Type::WRITE);
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
   void CleanupDBTransaction(bool abort);
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
     // do we lock here?
@@ -264,13 +295,16 @@ class Interpreter final {
   };
 
   std::shared_ptr<QueryUserOrRole> user_or_role_{};
+#ifdef MG_ENTERPRISE
+  std::shared_ptr<utils::UserResources> user_resource_;
+#endif
   SessionInfo session_info_;
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
 
   bool expect_rollback_{false};
   std::shared_ptr<utils::AsyncTimer> current_timeout_timer_{};
-  std::optional<storage::PropertyValue::map_t> metadata_{};  //!< User defined transaction metadata
+  std::optional<storage::ExternalPropertyValue::map_t> metadata_{};  //!< User defined transaction metadata
 
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name, bool explicit_db);
@@ -334,7 +368,7 @@ class Interpreter final {
   void CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db = {});
 
 #ifdef MG_ENTERPRISE
-  auto Route(std::map<std::string, std::string> const &routing) -> RouteResult;
+  auto Route(std::map<std::string, std::string> const &routing, std::optional<std::string> const &db) -> RouteResult;
 #endif
 
   /**
@@ -402,7 +436,11 @@ class Interpreter final {
 
   void ResetUser();
 
+#ifdef MG_ENTERPRISE
+  void SetUser(std::shared_ptr<QueryUserOrRole> user, std::shared_ptr<utils::UserResources> user_resource = nullptr);
+#else
   void SetUser(std::shared_ptr<QueryUserOrRole> user);
+#endif
 
   void SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp);
 
@@ -418,21 +456,17 @@ class Interpreter final {
     query_executions_.clear();
     system_transaction_.reset();
     transaction_queries_->clear();
-    if (current_db_.db_acc_ && current_db_.db_acc_->is_deleting()) {
+    if (current_db_.db_acc_ && current_db_.db_acc_->is_marked_for_deletion()) {
       current_db_.db_acc_.reset();
     }
   }
 
   struct QueryExecution {
-    QueryAllocator execution_memory;  // NOTE: before all other fields which uses this memory
+    static constexpr struct ThreadSafe {
+    } thread_safe_;
 
-    std::optional<PreparedQuery> prepared_query;
-    std::map<std::string, TypedValue> summary;
-    std::vector<Notification> notifications;
-
-    static auto Create() -> std::unique_ptr<QueryExecution> { return std::make_unique<QueryExecution>(); }
-
-    explicit QueryExecution() = default;
+    QueryExecution() = default;
+    explicit QueryExecution(ThreadSafe /*marker*/) : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>} {}
 
     QueryExecution(const QueryExecution &) = delete;
     QueryExecution(QueryExecution &&) = delete;
@@ -440,6 +474,22 @@ class Interpreter final {
     QueryExecution &operator=(QueryExecution &&) = delete;
 
     ~QueryExecution() = default;
+
+    std::variant<QueryAllocator, ThreadSafeQueryAllocator>
+        execution_memory;  // NOTE: before all other fields which uses this memory
+
+    std::optional<PreparedQuery> prepared_query;
+    std::map<std::string, TypedValue> summary;
+    std::vector<Notification> notifications;
+
+    static auto Create() -> std::unique_ptr<QueryExecution> { return std::make_unique<QueryExecution>(); }
+    static auto CreateThreadSafe() -> std::unique_ptr<QueryExecution> {
+      return std::make_unique<QueryExecution>(thread_safe_);
+    }
+
+    utils::MemoryResource *resource() {
+      return std::visit([](auto &mem) { return mem.resource(); }, execution_memory);
+    }
 
     void CleanRuntimeData() {
       prepared_query.reset();
@@ -486,7 +536,7 @@ class Interpreter final {
   std::optional<std::function<void(std::string_view)>> on_change_{};
   void SetupInterpreterTransaction(const QueryExtras &extras);
   void SetupDatabaseTransaction(bool couldCommit,
-                                storage::Storage::Accessor::Type acc_type = storage::Storage::Accessor::Type::WRITE);
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
 };
 
 template <typename TStream>
@@ -514,7 +564,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   try {
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
-    AnyStream stream{result_stream, query_execution->execution_memory.resource()};
+    AnyStream stream{result_stream, query_execution->resource()};
     const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n);
     // Stream is using execution memory of the query_execution which
     // can be deleted after its execution so the stream should be cleared

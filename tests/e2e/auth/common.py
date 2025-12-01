@@ -43,6 +43,18 @@ def memgraph(**kwargs) -> Memgraph:
         memgraph.execute("DROP ROLE mrma;")
     except Exception as e:
         pass
+    try:
+        memgraph.execute("DROP PROFILE profile;")
+    except Exception as e:
+        pass
+    try:
+        memgraph.execute("DROP PROFILE Profile;")
+    except Exception as e:
+        pass
+    try:
+        memgraph.execute("DROP PROFILE profile2;")
+    except Exception as e:
+        pass
 
 
 @pytest.fixture

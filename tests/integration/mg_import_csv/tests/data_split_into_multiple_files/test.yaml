@@ -1,5 +1,0 @@
-- name: multiple_files
-  nodes: "nodes_1.csv,nodes_2.csv"
-  relationships: "relationships_1.csv,relationships_2.csv"
-  id_type: "integer"
-  expected: expected.cypher

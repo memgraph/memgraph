@@ -12,6 +12,8 @@
 import os
 import sys
 import time
+from functools import partial
+from pathlib import Path
 from typing import Any, Dict
 
 import interactive_mg_runner
@@ -1043,35 +1045,11 @@ def test_multitenancy_replication_drop_replica(connection, replica_name, test_na
         f"REGISTER REPLICA  {replica_name} {sync[replica_name]} TO '127.0.0.1:{REPLICATION_PORTS[replica_name]}';",
     )
 
-    # 4/
-    _ = [
-        (
-            "replica_1",
-            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
-            "sync",
-            {
-                "A": {"ts": 7, "behind": 0, "status": "ready"},
-                "B": {"ts": 3, "behind": 0, "status": "ready"},
-                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
-            },
-        ),
-        (
-            "replica_2",
-            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
-            "async",
-            {
-                "A": {"ts": 7, "behind": 0, "status": "ready"},
-                "B": {"ts": 3, "behind": 0, "status": "ready"},
-                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
-            },
-        ),
-    ]
-
     cursor_replica = connection(BOLT_PORTS[replica_name], "replica").cursor()
-    assert get_number_of_nodes_func(cursor_replica, "A")() == 7
-    assert get_number_of_edges_func(cursor_replica, "A")() == 3
-    assert get_number_of_nodes_func(cursor_replica, "B")() == 2
-    assert get_number_of_edges_func(cursor_replica, "B")() == 0
+    mg_sleep_and_assert(7, get_number_of_nodes_func(cursor_replica, "A"))
+    mg_sleep_and_assert(3, get_number_of_edges_func(cursor_replica, "A"))
+    mg_sleep_and_assert(2, get_number_of_nodes_func(cursor_replica, "B"))
+    mg_sleep_and_assert(0, get_number_of_edges_func(cursor_replica, "B"))
 
 
 def test_multitenancy_replication_restart_main(connection, test_name):
@@ -1324,6 +1302,121 @@ def test_multitenancy_drop_while_replica_using(connection, test_name):
     assert failed
 
 
+def test_multitenancy_force_drop_while_replica_using(connection, test_name):
+    # Goal: show that force drop database works correctly in replication when replica is using the database
+    # 0/ Setup replication
+    # 1/ MAIN CREATE DATABASE A
+    # 2/ Write to MAIN A
+    # 3/ Validate replication of changes to A have arrived at REPLICA
+    # 4/ Start A transaction on replica 1, Use A on replica2
+    # 5/ Force drop database A on main while replica is using it
+    # 6/ Check that the force drop replicated and terminated transactions
+    # 7/ Validate that the replica can no longer access the database
+
+    # 0/
+    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
+
+    do_manual_setting_up(connection)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
+
+    # 2/
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
+
+    # 3/
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"ts": 3, "behind": None, "status": "ready"},
+            {"A": {"ts": 5, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {"ts": 3, "behind": None, "status": "ready"},
+            {"A": {"ts": 5, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(main_cursor))
+
+    # 4/
+    replica1_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    replica2_cursor = connection(BOLT_PORTS["replica_2"], "replica").cursor()
+
+    execute_and_fetch_all(replica1_cursor, "USE DATABASE A;")
+    execute_and_fetch_all(replica1_cursor, "BEGIN")
+    execute_and_fetch_all(replica2_cursor, "USE DATABASE A;")
+
+    # Verify data exists on replicas
+    assert execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")[0][0] == 3
+    assert execute_and_fetch_all(replica2_cursor, "MATCH(n) RETURN count(*);")[0][0] == 3
+
+    # 5/ Force drop database A on main while replica is using it
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "DROP DATABASE A FORCE;")
+
+    # 6/ Check that the force drop replicated and terminated transactions
+    # Wait for replication to complete
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"ts": 4, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {"ts": 4, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(main_cursor))
+
+    assert execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")[0][0] == 3
+    execute_and_fetch_all(replica1_cursor, "COMMIT")
+    try:
+        assert execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")[0][0] == 3
+        assert False, "Replica1 should not be able to access dropped database"
+    except mgclient.DatabaseError:
+        pass
+    try:
+        assert execute_and_fetch_all(replica2_cursor, "MATCH(n) RETURN count(*);")[0][0] == 3
+        assert False, "Replica2 should not be able to access dropped database"
+    except mgclient.DatabaseError:
+        pass
+
+    # Verify replicas can still work with default database
+    execute_and_fetch_all(replica1_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(replica2_cursor, "USE DATABASE memgraph;")
+
+    # 7/ Validate that the replica can no longer access the database
+    # Try to use the dropped database
+    try:
+        execute_and_fetch_all(replica1_cursor, "USE DATABASE A;")
+        assert False, "Replica1 should not be able to use dropped database"
+    except mgclient.DatabaseError:
+        pass
+
+    try:
+        execute_and_fetch_all(replica2_cursor, "USE DATABASE A;")
+        assert False, "Replica2 should not be able to use dropped database"
+    except mgclient.DatabaseError:
+        pass
+
+
 def test_multitenancy_drop_and_recreate_while_replica_using(connection, test_name):
     # Goal: show that the replica can handle a transaction on a database being dropped and the same name reused
     # Original storage should persist in a nameless state until tx is over
@@ -1419,6 +1512,387 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection, test_nam
     except mgclient.DatabaseError:
         failed = True
     assert failed
+
+
+def test_multitenancy_snapshot_recovery(connection, test_name):
+    # Goal: show that the replica can handle a transaction on a database being dropped and the same name reused
+    # Original storage should persist in a nameless state until tx is over
+    # needs replicating over
+    # 0/ Setup replication
+    # 1/ MAIN CREATE DATABASE A
+    # 2/ Write to MAIN A
+    # 3/ Validate replication of changes to A have arrived at REPLICA
+    # 4/ Start A transaction on replica 1, Use A on replica2
+    # 5/ Check that the drop/create replicated
+    # 6/ Validate that the transaction is still active and working and that the replica2 is not pointing to anything
+
+    # 0/
+    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
+
+    do_manual_setting_up(connection)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
+
+    # 2/
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'M'});")
+    execute_and_fetch_all(main_cursor, "CREATE SNAPSHOT;")
+    execute_and_fetch_all(main_cursor, "MATCH (n) DELETE n;")
+    execute_and_fetch_all(main_cursor, "CREATE (:New);")
+    execute_and_fetch_all(main_cursor, "CREATE SNAPSHOT;")
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
+
+    # 3/
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"ts": 3, "behind": None, "status": "ready"},
+            {"A": {"ts": 5, "behind": 0, "status": "ready"}, "memgraph": {"ts": 7, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {"ts": 3, "behind": None, "status": "ready"},
+            {"A": {"ts": 5, "behind": 0, "status": "ready"}, "memgraph": {"ts": 7, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(main_cursor))
+
+    def check_data(cursor):
+        execute_and_fetch_all(cursor, "USE DATABASE memgraph;")
+        res = execute_and_fetch_all(cursor, "MATCH (n) RETURN n;")
+        assert len(res) == 1
+        assert res[0][0].labels == {"New"}
+        assert res[0][0].properties == {}
+        execute_and_fetch_all(cursor, "USE DATABASE A;")
+        res = execute_and_fetch_all(cursor, "MATCH (n) RETURN n;")
+        assert len(res) == 1
+        assert res[0][0].labels == {"Node"}
+        assert res[0][0].properties == {"on": "M"}
+
+    # 4/
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+    snapshot_a = None
+    try:
+        main_dir = f"{get_data_path(file, test_name)}/main"
+        main_dir = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", main_dir, "snapshots")
+        dir_path = Path(main_dir)
+        files = [f for f in dir_path.iterdir() if f.is_file() and not f.name.startswith(".")]
+        assert files, f"No files found in '{main_dir}'."
+        snapshot_a = min(files, key=lambda f: f.stat().st_mtime)
+    except Exception as e:
+        assert False, f"Error: {e}"
+
+    execute_and_fetch_all(main_cursor, f'RECOVER SNAPSHOT "{snapshot_a}" FORCE;')
+    check_data(main_cursor)
+
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"ts": 3, "behind": None, "status": "ready"},
+            {"A": {"ts": 2, "behind": 0, "status": "ready"}, "memgraph": {"ts": 7, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {"ts": 3, "behind": None, "status": "ready"},
+            {"A": {"ts": 2, "behind": 0, "status": "ready"}, "memgraph": {"ts": 7, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(main_cursor))
+
+    replica1_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    check_data(replica1_cursor)
+    replica2_cursor = connection(BOLT_PORTS["replica_2"], "replica").cursor()
+    check_data(replica2_cursor)
+
+    # 5/
+    interactive_mg_runner.stop_all(keep_directories=True)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=True)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    check_data(main_cursor)
+    replica1_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    check_data(replica1_cursor)
+    replica2_cursor = connection(BOLT_PORTS["replica_2"], "replica").cursor()
+    check_data(replica2_cursor)
+
+    # Cleanup
+    interactive_mg_runner.stop_all(keep_directories=False)
+
+
+def test_rename_database_basic(connection, test_name):
+    """Test basic database rename functionality."""
+    # Goal: Test basic database rename operations
+    # 0/ Setup
+    # 1/ Create database and add data
+    # 2/ Rename database
+    # 3/ Verify data is preserved and accessible with new name
+    # 4/ Verify old name no longer exists
+
+    # 0/
+    instances = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(instances)
+    setup_replication(connection)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE test_db")
+    execute_and_fetch_all(main_cursor, "USE DATABASE test_db")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{name:'test_node', value:42})")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{name:'test_node2', value:84})")
+
+    # 2/
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE test_db TO renamed_test_db")
+
+    # 3/
+    execute_and_fetch_all(main_cursor, "USE DATABASE renamed_test_db")
+    results = execute_and_fetch_all(main_cursor, "MATCH (n:Node) RETURN n.name, n.value ORDER BY n.value")
+    assert len(results) == 2
+    assert results[0] == ("test_node", 42)
+    assert results[1] == ("test_node2", 84)
+
+    # 4/
+    try:
+        execute_and_fetch_all(main_cursor, "USE DATABASE test_db")
+        assert False, "Should not be able to use old database name"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+
+def test_rename_database_errors(connection, test_name):
+    """Test database rename error conditions."""
+    # Goal: Test various error conditions for database rename
+    # 0/ Setup
+    # 1/ Test renaming default database (should fail)
+    # 2/ Test renaming non-existent database (should fail)
+    # 3/ Test renaming to existing database name (should fail)
+    # 4/ Test renaming database in use (should fail)
+
+    # 0/
+    instances = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(instances)
+    setup_replication(connection)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # Create test databases
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE db1")
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE db2")
+
+    # 1/ Test renaming default database
+    try:
+        execute_and_fetch_all(main_cursor, "RENAME DATABASE memgraph TO new_name")
+        assert False, "Should not be able to rename default database"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+    # 2/ Test renaming non-existent database
+    try:
+        execute_and_fetch_all(main_cursor, "RENAME DATABASE non_existent TO new_name")
+        assert False, "Should not be able to rename non-existent database"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+    # 3/ Test renaming to existing database name
+    try:
+        execute_and_fetch_all(main_cursor, "RENAME DATABASE db1 TO db2")
+        assert False, "Should not be able to rename to existing database name"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+    # 4/ Test renaming database in use
+    execute_and_fetch_all(main_cursor, "USE DATABASE db1")
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE db1 TO new_name")
+
+
+def test_rename_database_replication(connection, test_name):
+    """Test database rename with replication."""
+    # Goal: Test that database rename operations are properly replicated
+    # 0/ Setup replication
+    # 1/ Create database and add data on main
+    # 2/ Verify data is replicated to replica
+    # 3/ Rename database on main
+    # 4/ Verify rename is replicated to replica
+    # 5/ Verify data is preserved on replica with new name
+
+    # 0/
+    instances = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(instances)
+    setup_replication(connection)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+
+    # 1/
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE test_db")
+    execute_and_fetch_all(main_cursor, "USE DATABASE test_db")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{name:'replicated_node', value:123})")
+
+    # 2/
+    execute_and_fetch_all(replica_cursor, "USE DATABASE test_db")
+    results = execute_and_fetch_all(replica_cursor, "MATCH (n:Node) RETURN n.name, n.value")
+    assert len(results) == 1
+    assert results[0] == ("replicated_node", 123)
+
+    # 3/
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE test_db TO renamed_test_db")
+
+    # 4/ Wait for replication and verify rename is replicated
+    execute_and_fetch_all(replica_cursor, "USE DATABASE renamed_test_db")
+
+    # 5/ Verify data is preserved on replica with new name
+    results = execute_and_fetch_all(replica_cursor, "MATCH (n:Node) RETURN n.name, n.value")
+    assert len(results) == 1
+    assert results[0] == ("replicated_node", 123)
+
+    # Verify old name no longer exists on replica
+    try:
+        execute_and_fetch_all(replica_cursor, "USE DATABASE test_db")
+        assert False, "Should not be able to use old database name on replica"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+    # Restart cluster and verify data is preserved
+    interactive_mg_runner.stop_all(keep_directories=True)
+    interactive_mg_runner.start_all(instances, keep_directories=True)
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+    results = execute_and_fetch_all(main_cursor, "SHOW DATABASES")
+    assert results == [("memgraph",), ("renamed_test_db",)]
+    results = execute_and_fetch_all(replica_cursor, "SHOW DATABASES")
+    assert results == [("memgraph",), ("renamed_test_db",)]
+
+
+def test_rename_database_concurrent_access(connection, test_name):
+    """Test database rename with concurrent access patterns."""
+    # Goal: Test database rename behavior with multiple concurrent sessions
+    # 0/ Setup
+    # 1/ Create database and add data
+    # 2/ Start multiple sessions using the database
+    # 3/ Try to rename while database is in use (should fail)
+    # 4/ Stop using database and rename (should succeed)
+    # 5/ Verify data is preserved with new name
+
+    # 0/
+    instances = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(instances)
+    setup_replication(connection)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE test_db")
+    execute_and_fetch_all(main_cursor, "USE DATABASE test_db")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{name:'concurrent_node', value:999})")
+
+    # 2/ Start multiple sessions using the database
+    session1_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    session2_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    execute_and_fetch_all(session1_cursor, "USE DATABASE test_db")
+    execute_and_fetch_all(session2_cursor, "USE DATABASE test_db")
+
+    # 3/ Try to rename while database is in use
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE test_db TO renamed_test_db")
+
+    # 4/ Stop using database and rename
+    execute_and_fetch_all(session1_cursor, "USE DATABASE memgraph")
+    execute_and_fetch_all(session2_cursor, "USE DATABASE memgraph")
+
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE renamed_test_db TO renamed_again_test_db")
+
+    # 5/ Verify data is preserved with new name
+    execute_and_fetch_all(main_cursor, "USE DATABASE renamed_again_test_db")
+    results = execute_and_fetch_all(main_cursor, "MATCH (n:Node) RETURN n.name, n.value")
+    assert len(results) == 1
+    assert results[0] == ("concurrent_node", 999)
+
+
+def test_rename_database_multiple_operations(connection, test_name):
+    """Test multiple database rename operations."""
+    # Goal: Test multiple rename operations and verify consistency
+    # 0/ Setup
+    # 1/ Create multiple databases with data
+    # 2/ Perform multiple renames
+    # 3/ Verify all data is preserved
+    # 4/ Verify old names no longer exist
+
+    # 0/
+    instances = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(instances)
+    setup_replication(connection)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE db1")
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE db2")
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE db3")
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE db1")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{db:'db1', value:1})")
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE db2")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{db:'db2', value:2})")
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE db3")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{db:'db3', value:3})")
+
+    # 2/ Perform multiple renames
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE db1 TO renamed_db1")
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE db2 TO renamed_db2")
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE db3 TO renamed_db3")
+
+    # 3/ Verify all data is preserved
+    execute_and_fetch_all(main_cursor, "USE DATABASE renamed_db1")
+    results = execute_and_fetch_all(main_cursor, "MATCH (n:Node) RETURN n.db, n.value")
+    assert len(results) == 1
+    assert results[0] == ("db1", 1)
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE renamed_db2")
+    results = execute_and_fetch_all(main_cursor, "MATCH (n:Node) RETURN n.db, n.value")
+    assert len(results) == 1
+    assert results[0] == ("db2", 2)
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE renamed_db3")
+    results = execute_and_fetch_all(main_cursor, "MATCH (n:Node) RETURN n.db, n.value")
+    assert len(results) == 1
+    assert results[0] == ("db3", 3)
+
+    # 4/ Verify old names no longer exist
+    try:
+        execute_and_fetch_all(main_cursor, "USE DATABASE db1")
+        assert False, "Should not be able to use old database name db1"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+    try:
+        execute_and_fetch_all(main_cursor, "USE DATABASE db2")
+        assert False, "Should not be able to use old database name db2"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+    try:
+        execute_and_fetch_all(main_cursor, "USE DATABASE db3")
+        assert False, "Should not be able to use old database name db3"
+    except mgclient.DatabaseError:
+        pass  # Expected
 
 
 if __name__ == "__main__":

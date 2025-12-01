@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,10 +15,9 @@
 #include <cstdint>
 #include <optional>
 
-#include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/rocksdb_serialization.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::storage {
@@ -100,7 +99,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
     return true;
   }
 
-  transaction->must_abort = true;
+  transaction->has_serialization_error = true;
   return false;
 }
 

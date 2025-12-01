@@ -18,12 +18,48 @@
 #include <cstring>
 #include <fstream>
 #include <mutex>
-#include <shared_mutex>
 #include <type_traits>
 
+#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::utils {
+
+auto CreateUniqueDownloadFile(std::filesystem::path const &base_path)
+    -> std::pair<std::filesystem::path, FileUniquePtr> {
+  // w for writing
+  // b for binary
+  // x for exclusive access
+  constexpr auto file_mode = "wbx";
+
+  // Try without suffix
+  FileUniquePtr file(std::fopen(base_path.string().data(), file_mode), &std::fclose);
+
+  if (file) {
+    return std::make_pair(base_path, std::move(file));
+  }
+
+  auto const stem = base_path.stem();
+  auto const ext = base_path.extension();
+  auto const parent = base_path.parent_path();
+
+  auto suffix = 1;
+  // We don't want more than 10k files with the same name
+  constexpr auto max_suffix = 10'000;
+
+  std::filesystem::path new_path;
+
+  do {
+    new_path = parent / std::format("{}_{}{}", stem.string(), suffix, ext.string());
+    FileUniquePtr file(std::fopen(new_path.string().data(), file_mode), &std::fclose);
+    if (file) {
+      return std::make_pair(new_path, std::move(file));
+    }
+  } while (suffix++ < max_suffix);
+
+  throw utils::BasicException("More than 10k files with the same name. File {} won't be downloaded.",
+                              base_path.string());
+}
 
 std::filesystem::path GetExecutablePath() { return std::filesystem::read_symlink("/proc/self/exe"); }
 
@@ -35,7 +71,7 @@ std::vector<std::string> ReadLines(const std::filesystem::path &path) noexcept {
   // read anything in that case and that is exactly the behavior that we want.
   std::string line;
   while (std::getline(stream, line)) {
-    lines.emplace_back(line);
+    lines.emplace_back(std::move(line));
   }
 
   return lines;
@@ -67,17 +103,28 @@ bool DeleteDir(const std::filesystem::path &dir) noexcept {
 
 bool DeleteFile(const std::filesystem::path &file) noexcept {
   std::error_code error_code;  // For exception suppression.
-  return std::filesystem::remove(file, error_code);
+  auto const res = std::filesystem::remove(file, error_code);
+  if (!res) {
+    spdlog::error("Couldn't delete file {}. Error code message: {}", file.string(), error_code.message());
+  }
+  return res;
 }
 
 bool CopyFile(const std::filesystem::path &src, const std::filesystem::path &dst) noexcept {
   std::error_code error_code;  // For exception suppression.
-  return std::filesystem::copy_file(src, dst, error_code);
+  auto const res = std::filesystem::copy_file(src, dst, error_code);
+  if (!res) {
+    spdlog::error("Error code message: {}", error_code.message());
+  }
+  return res;
 }
 
 bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &dst) {
   std::error_code error_code;  // For exception suppression.
   std::filesystem::rename(src, dst, error_code);
+  if (error_code) {
+    spdlog::error("Error code message: {}", error_code.message());
+  }
   return !error_code;
 }
 
@@ -341,7 +388,7 @@ void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
     }
   }
 
-  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occured: {} ({})", path_, strerror(errno), errno);
+  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
 }
 
 bool OutputFile::IsOpen() const { return fd_ != -1; }
@@ -412,12 +459,7 @@ bool OutputFile::AcquireLock() {
   MG_ASSERT(IsOpen(), "Trying to acquire a write lock on an unopened file!");
   int ret = -1;
   while (true) {
-    struct flock lock;
-    memset(&lock, 0, sizeof(lock));
-    lock.l_type = F_WRLCK;
-    lock.l_whence = SEEK_SET;
-    lock.l_start = 0;
-    lock.l_len = 0;
+    struct flock lock = {.l_type = F_WRLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 0};
     ret = fcntl(fd_, F_SETLK, &lock);
     if (ret == -1 && errno == EINTR) {
       // The call was interrupted, try again...
@@ -597,7 +639,7 @@ void NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode)
     }
   }
 
-  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occured: {} ({})", path_, strerror(errno), errno);
+  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
 }
 
 bool NonConcurrentOutputFile::IsOpen() const { return fd_ != -1; }

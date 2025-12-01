@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,15 +32,29 @@ int main(int argc, char **argv) {
     LOG_FATAL("Failed to connect!");
   }
 
+  client->Execute("FREE MEMORY;");
+  client->DiscardAll();
+  client->Execute("STORAGE MODE IN_MEMORY_ANALYTICAL;");
+  client->DiscardAll();
+  client->Execute("DROP GRAPH;");
+  client->DiscardAll();
+  client->Execute("STORAGE MODE IN_MEMORY_TRANSACTIONAL;");
+  client->DiscardAll();
   client->Execute("MATCH (n) DETACH DELETE n;");
+  client->DiscardAll();
+  client->Execute("FREE MEMORY;");
   client->DiscardAll();
 
   if (FLAGS_multi_db) {
+    try {
+      client->Execute("DROP DATABASE clean;");
+      client->DiscardAll();
+    } catch (const std::exception & /*unused*/) {
+      // Ignore
+    }
     client->Execute("CREATE DATABASE clean;");
     client->DiscardAll();
     client->Execute("USE DATABASE clean;");
-    client->DiscardAll();
-    client->Execute("MATCH (n) DETACH DELETE n;");
     client->DiscardAll();
   }
 
@@ -51,7 +65,10 @@ int main(int argc, char **argv) {
     if (timer.Elapsed<std::chrono::duration<uint64_t>>().count() > FLAGS_timeout) {
       LOG_FATAL("The test timed out");
     }
-    client->Execute(create_query);
+    if (!client->Execute(create_query)) {
+      // NOTE: No way to know what error happened, so we just break
+      break;
+    }
     try {
       client->DiscardAll();
     } catch (const mg::TransientException & /*unused*/) {

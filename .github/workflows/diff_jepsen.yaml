@@ -11,6 +11,11 @@ on:
         type: string
         description: "The ID of the run that triggered this workflow."
         default: '0'
+      ref:
+        description: 'Branch or commit ref to run the workflow on'
+        required: false
+        default: ''
+        type: string
 
 env:
   ARCH: 'amd'
@@ -18,7 +23,7 @@ env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: 'debian-12'
-  TOOLCHAIN: 'v6'
+  TOOLCHAIN: 'v7'
 
 jobs:
   core:
@@ -30,10 +35,11 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -49,6 +55,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-conan-cache \
           run
 
       - name: Build release binary
@@ -58,6 +65,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --no-conan-cache \
           build-memgraph
 
       - name: Copy memgraph binary
@@ -66,15 +74,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy --binary --dest-dir build
-
-      - name: Copy libmemgraph_module_support.so
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          copy --libs --dest-dir build/src/query
+          copy --binary --use-make-install --dest-dir build
 
       - name: Run unit tests for Jepsen code
         run: |
@@ -135,4 +135,11 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-conan-cache \
           stop --remove
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/docker_cleanup.sh

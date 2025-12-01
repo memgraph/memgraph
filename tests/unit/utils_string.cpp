@@ -162,7 +162,7 @@ TEST(String, Substr) {
   const std::string string("memgraph");
   EXPECT_EQ(Substr(string), string.substr());
   EXPECT_EQ(Substr(string, string.size()), string.substr(string.size()));
-  EXPECT_THROW(string.substr(string.size() + 1), std::out_of_range);
+  EXPECT_THROW((void)string.substr(string.size() + 1), std::out_of_range);
   EXPECT_TRUE(Substr(string, string.size() + 1).empty());
   EXPECT_EQ(Substr(string, 1, string.size()), string.substr(1, string.size()));
   EXPECT_EQ(Substr(string, 0, string.size()), string.substr(0, string.size()));
@@ -189,4 +189,10 @@ TEST(String, DoubleToString) {
   EXPECT_EQ(DoubleToString(0.00000000000001), "0.00000000000001");
   EXPECT_EQ(DoubleToString(0.000000000000001), "0.000000000000001");
   EXPECT_EQ(DoubleToString(0.0000000000000001), "0");
+}
+
+TEST(String, StringToUint64) {
+  EXPECT_EQ(1, ParseStringToUint64("1"));
+  EXPECT_EQ(0, ParseStringToUint64("0"));
+  EXPECT_THROW(ParseStringToUint64("-10"), ParseException);
 }

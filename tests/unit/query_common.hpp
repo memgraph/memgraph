@@ -46,6 +46,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
+#include "query/frontend/ast/query/exists.hpp"
 #include "utils/string.hpp"
 
 #include "storage/v2/inmemory/storage.hpp"
@@ -171,6 +172,32 @@ auto GetPropertyLookup(AstStorage &storage, TDbAccessor &, Expression *expr,
   return storage.Create<PropertyLookup>(expr, storage.GetPropertyIx(prop_pair.first));
 }
 
+template <class TDbAccessor>
+auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba, Expression *expr,
+                       std::vector<memgraph::storage::PropertyId> property_path) {
+  std::vector<PropertyIx> property_path_ix;
+  property_path_ix.reserve(property_path.size());
+  for (const auto &prop : property_path) {
+    property_path_ix.emplace_back(storage.GetPropertyIx(dba.PropertyToName(prop)));
+  }
+
+  return storage.Create<PropertyLookup>(expr, property_path_ix);
+}
+
+template <class TDbAccessor>
+auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba, Expression *expr,
+                       std::vector<memgraph::storage::PropertyId> property_path, PropertyLookup::LookupMode mode) {
+  std::vector<PropertyIx> property_path_ix;
+  property_path_ix.reserve(property_path.size());
+  for (const auto &prop : property_path) {
+    property_path_ix.emplace_back(storage.GetPropertyIx(dba.PropertyToName(prop)));
+  }
+
+  auto *property_lookup = storage.Create<PropertyLookup>(expr, property_path_ix);
+  property_lookup->lookup_mode_ = mode;
+  return property_lookup;
+}
+
 /// Create an AllPropertiesLookup from the given name.
 auto GetAllPropertiesLookup(AstStorage &storage, const std::string &name) {
   return storage.Create<AllPropertiesLookup>(storage.Create<Identifier>(name));
@@ -183,13 +210,25 @@ auto GetAllPropertiesLookup(AstStorage &storage, Expression *expr) { return stor
 ///
 /// Name is used to create the Identifier which is assigned to the edge.
 auto GetEdge(AstStorage &storage, const std::string &name, EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
-             const std::vector<std::string> &edge_types = {}, const bool user_declared = true) {
+             const std::vector<std::string> &edge_types = {}, const bool user_declared = true,
+             Expression *properties = nullptr) {
   std::vector<QueryEdgeType> types;
   types.reserve(edge_types.size());
   for (const auto &type : edge_types) {
     types.push_back(storage.GetEdgeTypeIx(type));
   }
-  return storage.Create<EdgeAtom>(storage.Create<Identifier>(name, user_declared), EdgeAtom::Type::SINGLE, dir, types);
+  auto *edge =
+      storage.Create<EdgeAtom>(storage.Create<Identifier>(name, user_declared), EdgeAtom::Type::SINGLE, dir, types);
+  if (properties) {
+    if (auto *map_literal = dynamic_cast<MapLiteral *>(properties)) {
+      edge->properties_ = map_literal->elements_;
+    } else {
+      // Assume it's a ParameterLookup
+      DMG_ASSERT(properties->GetTypeInfo() == ParameterLookup::kType);
+      edge->properties_ = dynamic_cast<ParameterLookup *>(properties);
+    }
+  }
+  return edge;
 }
 
 /// Create a variable length expansion EdgeAtom with given name, direction and
@@ -349,8 +388,16 @@ auto GetLoadCSV(AstStorage &storage, Expression *file_name, const std::string &r
 }
 
 auto GetLoadCSV(AstStorage &storage, Expression *file_name, Identifier *row_var) {
-  auto *load_csv = storage.Create<memgraph::query::LoadCsv>(file_name, true, true, nullptr, nullptr, nullptr, row_var);
-  return load_csv;
+  return storage.Create<memgraph::query::LoadCsv>(file_name, true, true, nullptr, nullptr, nullptr, row_var);
+}
+
+auto GetLoadParquet(AstStorage &storage, Expression *file_name, std::string const &row_var) {
+  auto *ident = storage.Create<memgraph::query::Identifier>(row_var);
+  return storage.Create<memgraph::query::LoadParquet>(file_name, ident);
+}
+
+auto GetLoadParquet(AstStorage &storage, Expression *file_name, Identifier *row_var) {
+  return storage.Create<memgraph::query::LoadParquet>(file_name, row_var);
 }
 
 // Helper functions for constructing RETURN and WITH clauses.
@@ -384,6 +431,7 @@ void FillReturnBody(AstStorage &, ReturnBody &body, Expression *expr, NamedExpre
   // This overload supports `RETURN(expr, AS(name))` construct, since
   // NamedExpression does not inherit Expression.
   named_expr->expression_ = expr;
+  named_expr->is_aliased_ = true;  // Using AS() implies explicit aliasing
   body.named_expressions.emplace_back(named_expr);
 }
 void FillReturnBody(AstStorage &storage, ReturnBody &body, const std::string &name, NamedExpression *named_expr) {
@@ -392,7 +440,9 @@ void FillReturnBody(AstStorage &storage, ReturnBody &body, const std::string &na
 }
 template <class... T>
 void FillReturnBody(AstStorage &storage, ReturnBody &body, Expression *expr, NamedExpression *named_expr, T... rest) {
+  // This overload supports `RETURN(expr, AS(name), ...)`
   named_expr->expression_ = expr;
+  named_expr->is_aliased_ = true;  // Using AS() implies explicit aliasing
   body.named_expressions.emplace_back(named_expr);
   FillReturnBody(storage, body, rest...);
 }
@@ -569,6 +619,13 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   return storage.Create<query::Foreach>(named_expr, clauses);
 }
 
+auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
+  auto *exists_subquery = storage.Create<query::Exists>();
+  exists_subquery->content_ = std::move(subquery);
+
+  return exists_subquery;
+}
+
 }  // namespace memgraph::query::test_common
 
 /// All the following macros implicitly pass `storage` variable to functions.
@@ -643,7 +700,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   }
 #define CREATE_INDEX_ON(label, property)                                                            \
   storage.Create<memgraph::query::IndexQuery>(memgraph::query::IndexQuery::Action::CREATE, (label), \
-                                              std::vector<memgraph::query::PropertyIx>{(property)})
+                                              std::vector<memgraph::query::PropertyIxPath>{{(property)}})
 #define QUERY(...) memgraph::query::test_common::GetQuery(this->storage, __VA_ARGS__)
 #define PERIODIC_QUERY(...) memgraph::query::test_common::GetPeriodicQuery(this->storage, __VA_ARGS__)
 #define SINGLE_QUERY(...) \
@@ -709,10 +766,12 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   this->storage.template Create<memgraph::query::Extract>( \
       this->storage.template Create<memgraph::query::Identifier>(variable), list, expr)
 #define EXISTS(pattern) this->storage.template Create<memgraph::query::Exists>(pattern)
-#define AUTH_QUERY(action, user, role, user_or_role, if_not_exists, password, database, privileges, labels, edgeTypes, \
-                   impersonation_target)                                                                               \
-  storage.Create<memgraph::query::AuthQuery>((action), (user), (role), (user_or_role), (if_not_exists), password,      \
-                                             (database), (privileges), (labels), (edgeTypes), (impersonation_target))
+#define EXISTS_SUBQUERY(...) memgraph::query::test_common::GetExistsSubquery(this->storage, __VA_ARGS__)
+#define AUTH_QUERY(action, user, role, user_or_role, if_not_exists, password, database, privileges, labels,           \
+                   label_matching_modes, edgeTypes, impersonation_target)                                             \
+  storage.Create<memgraph::query::AuthQuery>((action), (user), (role), (user_or_role), (if_not_exists), password,     \
+                                             (database), (privileges), (labels), (label_matching_modes), (edgeTypes), \
+                                             (impersonation_target))
 #define DROP_USER(usernames) storage.Create<memgraph::query::DropUser>((usernames))
 #define CALL_PROCEDURE(...) memgraph::query::test_common::GetCallProcedure(storage, __VA_ARGS__)
 #define CALL_SUBQUERY(...) memgraph::query::test_common::GetCallSubquery(this->storage, __VA_ARGS__)
@@ -723,5 +782,6 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define COMMIT_FREQUENCY(expr) \
   memgraph::query::test_common::CommitFrequency { (expr) }
 #define LOAD_CSV(...) memgraph::query::test_common::GetLoadCSV(this->storage, __VA_ARGS__)
+#define LOAD_PARQUET(...) memgraph::query::test_common::GetLoadParquet(this->storage, __VA_ARGS__)
 #define LIST_COMPREHENSION(variable, list, where, expr) \
   this->storage.template Create<memgraph::query::ListComprehension>(variable, list, where, expr)

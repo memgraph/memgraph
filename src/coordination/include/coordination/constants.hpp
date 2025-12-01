@@ -11,14 +11,15 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 
-using namespace std::string_view_literals;
-
 namespace memgraph::coordination {
 
-enum class LogStoreVersion : int {
+using namespace std::string_view_literals;
+
+enum class LogStoreVersion : uint8_t {
   kV1 = 1,  // current version
   kV2 = 2,  // added last_committed_idx_
   // kv3 = 3,  // when new version is added
@@ -50,18 +51,33 @@ const std::string kLogEntryDataKey = "data";
 const std::string kLogEntryTermKey = "term";
 const std::string kLogEntryValTypeKey = "val_type";
 
-// routing policies
+// Coordinator settings
 constexpr auto kEnabledReadsOnMain = "enabled_reads_on_main"sv;
 constexpr auto kSyncFailoverOnly = "sync_failover_only"sv;
+constexpr auto kMaxFailoverLagOnReplica = "max_failover_replica_lag"sv;
+constexpr auto kMaxReplicaReadLag = "max_replica_read_lag"sv;
 
 // cluster state
 constexpr int MAX_SNAPSHOTS = 3;
 constexpr auto kUuid = "uuid"sv;
-constexpr auto kDataInstances =
-    "cluster_state"sv;  // called "cluster_state" because at the beginning data instances were considered cluster state
+constexpr std::string_view kDataInstances = "data_instances";
+constexpr std::string_view kClusterState = "cluster_state";
 constexpr std::string_view kCoordinatorInstances = "coordinator_instances";
 constexpr std::string_view kMainUUID = "current_main_uuid";
 constexpr std::string_view kConfig{"config"};
 constexpr std::string_view kStatus{"status"};
+// CoordinatorInstanceConfig
+constexpr std::string_view kCoordinatorId{"coordinator_id"};
+constexpr std::string_view kCoordinatorServer{"coordinator_server"};
+constexpr std::string_view kBoltServer{"bolt_server"};
+constexpr std::string_view kManagementServer{"management_server"};
+constexpr std::string_view kCoordinatorHostname{"coordinator_hostname"};
+// ReplicationClientInfo
+constexpr std::string_view kInstanceName{"instance_name"};
+constexpr std::string_view kReplicationMode{"replication_mode"};
+constexpr std::string_view kReplicationServer{"replication_server"};
+// DataInstanceConfig
+constexpr std::string_view kMgtServer{"mgt_server"};
+constexpr std::string_view kReplicationClientInfo{"replication_client_info"};
 
 }  // namespace memgraph::coordination

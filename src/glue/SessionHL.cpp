@@ -10,7 +10,10 @@
 // licenses/APL.txt.
 
 #include <optional>
+#include <ranges>
 #include <utility>
+
+#include <spdlog/spdlog.h>
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
@@ -27,7 +30,9 @@
 #include "query/interpreter_context.hpp"
 #include "query/query_user.hpp"
 #include "utils/event_map.hpp"
+#include "utils/logging.hpp"
 #include "utils/priorities.hpp"
+#include "utils/resource_monitoring.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -37,13 +42,31 @@ extern const Event ActiveBoltSessions;
 
 namespace {
 
+#ifdef MG_ENTERPRISE
+// Helper function to compare bolt_map_t objects
+inline bool operator==(const memgraph::glue::bolt_map_t &lhs, const memgraph::glue::bolt_map_t &rhs) {
+  if (lhs.size() != rhs.size()) return false;
+  return std::ranges::all_of(lhs, [&rhs](const auto &pair) {
+    auto it = rhs.find(pair.first);
+    if (it == rhs.end()) return false;
+    if (pair.second.type() != it->second.type()) return false;
+
+    if (pair.second.IsString()) return pair.second.ValueString() == it->second.ValueString();
+    if (pair.second.IsInt()) return pair.second.ValueInt() == it->second.ValueInt();
+    if (pair.second.IsBool()) return pair.second.ValueBool() == it->second.ValueBool();
+    if (pair.second.IsDouble()) return pair.second.ValueDouble() == it->second.ValueDouble();
+    return false;  // For other types, consider them different to be safe
+  });
+}
+#endif
+
 auto ToQueryExtras(const memgraph::glue::bolt_value_t &extra) -> memgraph::query::QueryExtras {
-  auto metadata_pv = memgraph::storage::PropertyValue::map_t{};
+  auto metadata_pv = memgraph::storage::ExternalPropertyValue::map_t{};
   auto const &as_map = extra.ValueMap();
   // user-defined metadata
   if (auto const it = as_map.find("tx_metadata"); it != as_map.cend() && it->second.IsMap()) {
     for (const auto &[key, bolt_md] : it->second.ValueMap()) {
-      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md, nullptr));
+      metadata_pv.emplace(key, memgraph::glue::ToExternalPropertyValue(bolt_md, nullptr));
     }
   }
   // timeout
@@ -105,7 +128,8 @@ void MultiDatabaseAuth(memgraph::query::QueryUserOrRole *user, std::string_view 
   }
 }
 
-void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const std::string &impersonated_user) {
+void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const std::string &impersonated_user,
+                         std::optional<std::string_view> target_db = std::nullopt) {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     throw memgraph::communication::bolt::ClientError(memgraph::license::LicenseCheckErrorToString(
         memgraph::license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "impersonate user"));
@@ -114,12 +138,21 @@ void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const s
     throw memgraph::communication::bolt::ClientError(
         "No session user. You must be logged-in in order to use the impersonate-user feature.");
   }
-  if (!user_or_role->CanImpersonate(impersonated_user, &memgraph::query::session_long_policy)) {
+  if (!user_or_role->CanImpersonate(impersonated_user, &memgraph::query::session_long_policy, target_db)) {
     throw memgraph::communication::bolt::ClientError(
-        "Failed to impersonate user '{}'. Make sure you have the right privileges and that the user exists.",
-        impersonated_user);
+        "Failed to impersonate user '{}' on database '{}'. Make sure you have the right privileges and that the user "
+        "exists.",
+        impersonated_user, target_db.value_or("default"));
   }
 }
+
+std::shared_ptr<memgraph::utils::UserResources> ResourceAtLogin(
+    const memgraph::query::QueryUserOrRole &user_or_role, memgraph::utils::ResourceMonitoring *resource_monitoring) {
+  // Setup user-related resource monitoring
+  DMG_ASSERT(user_or_role, "Missing user or role");
+  return resource_monitoring->GetUser(*user_or_role.username());
+}
+
 #endif
 }  // namespace
 
@@ -129,10 +162,11 @@ namespace memgraph::glue {
 std::optional<std::string> SessionHL::GetDefaultDB() const {
   if (interpreter_.user_or_role_) {
     try {
-      return interpreter_.user_or_role_->GetDefaultDB();
+      const auto &db_name = interpreter_.user_or_role_->GetDefaultDB();
+      return db_name.empty() ? std::nullopt : std::make_optional(db_name);
     } catch (auth::AuthException &) {
       // Support non-db connection
-      return {};
+      return std::nullopt;
     }
   }
   return std::string{memgraph::dbms::kDefaultDB};
@@ -141,7 +175,13 @@ std::optional<std::string> SessionHL::GetDefaultDB() const {
 std::string SessionHL::GetCurrentUser() const {
   if (interpreter_.user_or_role_) {
     if (const auto &name = interpreter_.user_or_role_->username()) return *name;
-    if (const auto &name = interpreter_.user_or_role_->rolename()) return *name;
+    if (const auto &names = interpreter_.user_or_role_->rolenames(); !names.empty()) {
+      // This is only used to figure out if the impersonated user is different from the main user. Since
+      // this is a role; it will always be different since roles cannot be impersonated.
+      std::string res;
+      std::for_each(names.begin(), names.end(), [&res](const auto &name) { res += name + ","; });
+      return res.substr(0, res.size() - 1);
+    }
   }
   return "";
 }
@@ -205,11 +245,6 @@ void SessionHL::TryDefaultDB() {
     // Failed to get default db, connect without db
     interpreter_.ResetDB();
   }
-  auto db = GetCurrentDB();
-  if (db.empty())
-    runtime_db_.implicit_config_.reset();
-  else
-    runtime_db_.implicit_config_.emplace(std::move(db));
 #else
   // Community has to connect to the default database
   interpreter_.SetCurrentDB();
@@ -217,50 +252,85 @@ void SessionHL::TryDefaultDB() {
 }
 
 // This is called on connection establishment
-bool SessionHL::Authenticate(const std::string &username, const std::string &password) {
-  bool res = true;
+utils::BasicResult<communication::bolt::AuthFailure> SessionHL::Authenticate(const std::string &username,
+                                                                             const std::string &password) {
   interpreter_.ResetUser();
   {
     auto locked_auth = auth_->Lock();
     if (locked_auth->AccessControlled()) {
       const auto user_or_role = locked_auth->Authenticate(username, password);
-      if (user_or_role.has_value()) {
-        session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
-        interpreter_.SetUser(session_user_or_role_);
-        interpreter_.SetSessionInfo(
-            UUID(),
-            interpreter_.user_or_role_->username().has_value() ? interpreter_.user_or_role_->username().value() : "",
-            GetLoginTimestamp());
-      } else {
-        res = false;
+      if (!user_or_role.has_value()) return communication::bolt::AuthFailure::kGeneric;  // Failed to authenticate
+      session_user_or_role_ = AuthChecker::GenQueryUser(auth_, user_or_role);
+      DMG_ASSERT(session_user_or_role_, "Session user or role should be set after authentication, but it is not set!");
+#ifdef MG_ENTERPRISE
+      // Setup user-related resource monitoring
+      user_resource_ = ResourceAtLogin(*session_user_or_role_, interpreter_context_->resource_monitoring);
+      try {
+        interpreter_.SetUser(session_user_or_role_, user_resource_);
+      } catch (const auth::AuthException & /*unused*/) {
+        return communication::bolt::AuthFailure::kResourceBound;
       }
+#else
+      interpreter_.SetUser(session_user_or_role_);
+#endif
+      interpreter_.SetSessionInfo(
+          UUID(),
+          interpreter_.user_or_role_->username().has_value() ? interpreter_.user_or_role_->username().value() : "",
+          GetLoginTimestamp());
     } else {
       // No access control -> give empty user
       session_user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
+#ifdef MG_ENTERPRISE
+      interpreter_.SetUser(session_user_or_role_, {/* no resource limitation for userless */});
+#else
       interpreter_.SetUser(session_user_or_role_);
+#endif
       interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
     }
   }
 
   TryDefaultDB();
-  return res;
+  return {/* success */};
 }
 
-bool SessionHL::SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response) {
+utils::BasicResult<communication::bolt::AuthFailure> SessionHL::SSOAuthenticate(
+    const std::string &scheme, const std::string &identity_provider_response) {
   interpreter_.ResetUser();
 
   auto locked_auth = auth_->Lock();
 
   const auto user_or_role = locked_auth->SSOAuthenticate(scheme, identity_provider_response);
   if (!user_or_role.has_value()) {
-    return false;
+    return communication::bolt::AuthFailure::kGeneric;  // Failed to authenticate
   }
 
   session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
-  interpreter_.SetUser(session_user_or_role_);
+  DMG_ASSERT(session_user_or_role_, "Session user or role should be set after authentication, but it is not set!");
 
+#ifdef MG_ENTERPRISE
+  // Setup user-related resource monitoring
+  user_resource_ = ResourceAtLogin(*session_user_or_role_, interpreter_context_->resource_monitoring);
+  try {
+    interpreter_.SetUser(session_user_or_role_, user_resource_);
+  } catch (const auth::AuthException & /*unused*/) {
+    return communication::bolt::AuthFailure::kResourceBound;
+  }
+#else
+  interpreter_.SetUser(session_user_or_role_);
+#endif
+  interpreter_.SetSessionInfo(
+      UUID(), session_user_or_role_->username().has_value() ? session_user_or_role_->username().value() : "",
+      GetLoginTimestamp());
   TryDefaultDB();
-  return true;
+  return {/* success */};
+}
+
+void SessionHL::LogOff() {
+#ifdef MG_ENTERPRISE
+  interpreter_.ResetDB();
+#endif
+  interpreter_.ResetUser();
+  session_user_or_role_.reset();
 }
 
 void SessionHL::Abort() { interpreter_.Abort(); }
@@ -312,11 +382,11 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
 #endif
 
   auto get_params_pv =
-      [params = std::move(params)](storage::Storage const *storage) -> memgraph::storage::PropertyValue::map_t {
-    auto params_pv = memgraph::storage::PropertyValue::map_t{};
-    params_pv.reserve(params.size());
+      [params = std::move(params)](storage::Storage const *storage) -> memgraph::storage::ExternalPropertyValue::map_t {
+    auto params_pv = memgraph::storage::ExternalPropertyValue::map_t{};
+    do_reserve(params_pv, params.size());
     for (const auto &[key, bolt_param] : params) {
-      params_pv.try_emplace(key, ToPropertyValue(bolt_param, storage));
+      params_pv.try_emplace(key, ToExternalPropertyValue(bolt_param, storage));
     }
     return params_pv;
   };
@@ -364,13 +434,19 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
 }
 
 #ifdef MG_ENTERPRISE
-auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const & /*bookmarks*/, bolt_map_t const &
+auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const & /*bookmarks*/,
+                      std::optional<std::string> const &db, bolt_map_t const &
                       /*extra*/) -> bolt_map_t {
-  auto routing_map = ranges::views::transform(
-                         routing, [](auto const &pair) { return std::pair(pair.first, pair.second.ValueString()); }) |
-                     ranges::to<std::map<std::string, std::string>>();
+  auto const routing_map =
+      ranges::views::transform(routing,
+                               [](auto const &pair) { return std::pair(pair.first, pair.second.ValueString()); }) |
+      ranges::to<std::map<std::string, std::string>>();
 
-  auto routing_table_res = interpreter_.Route(routing_map);
+  if (db.has_value()) {
+    spdlog::trace("Handling routing request for the database: {}", *db);
+  }
+
+  auto routing_table_res = interpreter_.Route(routing_map, db);
 
   auto create_server = [](auto const &server_info) -> bolt_value_t {
     auto const &[addresses, role] = server_info;
@@ -385,7 +461,12 @@ auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const
 
   bolt_map_t communication_res;
   communication_res["ttl"] = bolt_value_t{routing_table_res.ttl};
-  communication_res["db"] = bolt_value_t{};
+  // Needed for routing from coordinators to data instances
+  if (db.has_value()) {
+    communication_res["db"] = bolt_value_t{*db};
+  } else {
+    communication_res["db"] = bolt_value_t{};
+  }
 
   auto servers =
       ranges::views::transform(routing_table_res.servers, create_server) | ranges::to<std::vector<bolt_value_t>>();
@@ -445,10 +526,7 @@ void SessionHL::BeginTransaction(const bolt_map_t &extra) {
 
 void SessionHL::Configure(const bolt_map_t &run_time_info) {
 #ifdef MG_ENTERPRISE
-  // NOTE: Order is important, runtime_user_ must be configured before runtime_db_
-  // because runtime_db_ uses runtime_user_ to check if the user is authorized
-  runtime_user_.Configure(run_time_info, interpreter_.in_explicit_transaction_);
-  runtime_db_.Configure(run_time_info, interpreter_.in_explicit_transaction_);
+  runtime_config_.Configure(run_time_info, interpreter_.in_explicit_transaction_);
 #else
   (void)run_time_info;
 #endif
@@ -461,38 +539,7 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
       interpreter_(interpreter_context_),
 #ifdef MG_ENTERPRISE
       audit_log_(context.audit_log),
-      runtime_db_{"db", [this]() { return GetCurrentDB(); }, [this]() { return GetDefaultDB(); },
-                  [this](std::optional<std::string> defined_db, bool user_defined) {
-                    if (defined_db) {  // Db connection
-                      MultiDatabaseAuth(interpreter_.user_or_role_.get(), *defined_db);
-                      interpreter_.SetCurrentDB(*defined_db, user_defined);
-                    } else {  // Non-db connection
-                      interpreter_.ResetDB();
-                    }
-                  }},
-      runtime_user_{"imp_user", [this]() { return GetCurrentUser(); },
-                    []() {
-                      // Only one possible default
-                      return std::nullopt;
-                    },
-                    [this](std::optional<std::string> defined_user, bool impersonate_user) {
-                      if (impersonate_user) {
-                        if (!defined_user) {
-                          throw memgraph::communication::bolt::ClientError("Trying to impersonate an undefined user.");
-                        }
-                        spdlog::trace("Trying to impersonate user '{}'...", *defined_user);
-                        ImpersonateUserAuth(session_user_or_role_.get(), *defined_user);
-                        const auto &imp_usr = auth_->ReadLock()->GetUser(*defined_user);
-                        if (!imp_usr) throw auth::AuthException("Trying to impersonate a user that doesn't exist.");
-                        interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, imp_usr));
-                        TryDefaultDB();
-                      } else {
-                        spdlog::trace("Done impersonating users.");
-                        // Set our default user/role
-                        interpreter_.SetUser(session_user_or_role_);
-                        TryDefaultDB();
-                      }
-                    }},
+      runtime_config_{this},
 #endif
       auth_(context.auth),
       endpoint_(std::move(context.endpoint)) {
@@ -510,6 +557,10 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
 SessionHL::~SessionHL() {
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions);
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
+#ifdef MG_ENTERPRISE
+  // User-related resource monitoring
+  interpreter_.ResetUser();
+#endif
 }
 
 bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary) {
@@ -539,38 +590,77 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
   return decoded_summary;
 }
 
-void RunTimeConfig::Configure(auto run_time_info, bool in_explicit_tx) {
-  std::optional<std::string> defined_config{};
-  bool update = false;
+#ifdef MG_ENTERPRISE
+void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_tx) {
+  // NOTE: Once in a transaction, the drivers stop explicitly sending the config and count on using it until commit
+  // Runtime config is sent at the beginning of the transaction, but is missing during the transaction
+  if (in_explicit_tx || (previous_run_time_info_ && run_time_info == *previous_run_time_info_)) return;
 
-  // Check if user explicitly defined this config
-  if (run_time_info.contains(key_)) {
-    const auto &info = run_time_info.at(key_);
+  db_explicit_ = false;
+  user_explicit_ = false;
+
+  // Step 1: Handle user configuration first
+  // NOTE: This must be called first because it defines the default database for the user
+  std::shared_ptr<query::QueryUserOrRole> user;
+  if (run_time_info.contains("imp_user")) {
+    user_explicit_ = true;
+    const auto &info = run_time_info.at("imp_user");
     if (!info.IsString()) {
       throw memgraph::communication::bolt::ClientError("Malformed config input.");
     }
-    defined_config = info.ValueString();
-    const auto &current_config = get_current_();
-    update = defined_config != current_config;
-    if (!explicit_) {
-      implicit_config_.emplace(current_config);  // Still not in an explicit database, save for recovery
-      update = true;
-    }
-    explicit_ = true;
-    // NOTE: Once in a transaction, the drivers stop explicitly sending the config and count on using it until commit
-  } else if (explicit_ && !in_explicit_tx) {  // Just on a switch
-    if (implicit_config_) {
-      defined_config = *implicit_config_;
-    } else {
-      defined_config = get_default_();
-    }
-    update = true;  // We have to update in order to update the explicit flag
-    explicit_ = false;
+    const auto auth_user = session_->auth_->ReadLock()->GetUser(info.ValueString());
+    if (!auth_user) throw auth::AuthException("Trying to impersonate a user that doesn't exist.");
+    user = AuthChecker::GenQueryUser(session_->auth_, *auth_user);
   }
 
-  // Check if the underlying config needs updating
-  if (update) {
-    update_(defined_config, explicit_);
+  // Step 2: Handle database configuration with consideration for user impersonation
+  std::optional<std::string> defined_db;
+  if (run_time_info.contains("db")) {
+    db_explicit_ = true;
+    const auto &info = run_time_info.at("db");
+    if (!info.IsString()) {
+      throw memgraph::communication::bolt::ClientError("Malformed config input.");
+    }
+    defined_db = info.ValueString();
   }
+
+  // Step 3: Determine final target database
+  if (!defined_db) {
+    if (user) {
+      defined_db = user->GetDefaultDB();
+    } else if (session_->session_user_or_role_) {
+      defined_db = session_->session_user_or_role_->GetDefaultDB();
+    } else {
+      defined_db = std::string{memgraph::dbms::kDefaultDB};
+    }
+  }
+
+  // Handle user impersonation (check privileges based on target database)
+  if (user) {
+    spdlog::trace("Trying to impersonate user '{}' on database '{}'...", user->username().value_or("----"),
+                  defined_db.value_or("----"));
+    // Check impersonation privileges with the target database
+    ImpersonateUserAuth(session_->session_user_or_role_.get(), user->username().value_or("----"), defined_db);
+    // Setup user-related resource monitoring
+    auto user_resource = ResourceAtLogin(*user, session_->interpreter_context_->resource_monitoring);
+    session_->interpreter_.SetUser(user, std::move(user_resource));
+    session_->TryDefaultDB();
+  } else {
+    // Set our default user/role
+    session_->interpreter_.SetUser(session_->session_user_or_role_, session_->user_resource_);
+    session_->TryDefaultDB();
+  }
+
+  // Handle database configuration (check access with current user)
+  if (defined_db) {  // Db connection
+    MultiDatabaseAuth(session_->interpreter_.user_or_role_.get(), *defined_db);
+    session_->interpreter_.SetCurrentDB(*defined_db, db_explicit_);
+  } else {  // Non-db connection
+    session_->interpreter_.ResetDB();
+  }
+
+  // Update the previous run_time_info for next comparison
+  previous_run_time_info_ = run_time_info;
 }
+#endif
 }  // namespace memgraph::glue

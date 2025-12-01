@@ -145,6 +145,11 @@ class InteractiveDbAccessor {
   auto NameToLabel(const std::string &name) { return dba_->NameToLabel(name); }
   auto NameToProperty(const std::string &name) { return dba_->NameToProperty(name); }
   auto NameToEdgeType(const std::string &name) { return dba_->NameToEdgeType(name); }
+  auto LabelToName(memgraph::storage::LabelId id) { return dba_->LabelToName(id); }
+  auto PropertyToName(memgraph::storage::PropertyId id) { return dba_->PropertyToName(id); }
+  auto EdgeTypeToName(memgraph::storage::EdgeTypeId id) { return dba_->EdgeTypeToName(id); }
+
+  auto GetStorageAccessor() { return dba_->GetStorageAccessor(); }
 
   auto GetEnumValue(std::string_view name, std::string_view value) { return dba_->GetEnumValue(name, value); }
 
@@ -169,10 +174,13 @@ class InteractiveDbAccessor {
   }
 
   int64_t VerticesCount(memgraph::storage::LabelId label_id,
-                        std::span<memgraph::storage::PropertyId const> property_id) {
+                        std::span<memgraph::storage::PropertyPath const> property_paths) {
     auto label = dba_->LabelToName(label_id);
     auto to_name = [&](memgraph::storage::PropertyId prop_id) { return dba_->PropertyToName(prop_id); };
-    auto property_names = memgraph::utils::Join(property_id | ranges::views::transform(to_name), ", ");
+    auto path_to_name = [&](const memgraph::storage::PropertyPath &path) {
+      return memgraph::utils::Join(path | ranges::views::transform(to_name), ".");
+    };
+    auto property_names = memgraph::utils::Join(property_paths | ranges::views::transform(path_to_name), ", ");
     auto key = std::make_pair(label, property_names);
     if (label_properties_vertex_count_.find(key) == label_properties_vertex_count_.end()) {
       label_properties_vertex_count_[key] =
@@ -216,11 +224,15 @@ class InteractiveDbAccessor {
     return ReadVertexCount("label '" + label + "' and property '" + property + "' in range " + range_string.str());
   }
 
-  int64_t VerticesCount(memgraph::storage::LabelId label_id, std::span<memgraph::storage::PropertyId const> properties,
+  int64_t VerticesCount(memgraph::storage::LabelId label_id,
+                        std::span<memgraph::storage::PropertyPath const> property_paths,
                         std::span<memgraph::storage::PropertyValueRange const> prop_val_ranges) {
     auto label = dba_->LabelToName(label_id);
     auto to_name = [&](memgraph::storage::PropertyId prop_id) { return dba_->PropertyToName(prop_id); };
-    auto property_names = memgraph::utils::Join(properties | ranges::views::transform(to_name), ", ");
+    auto path_to_name = [&](const memgraph::storage::PropertyPath &path) {
+      return memgraph::utils::Join(path | ranges::views::transform(to_name), ".");
+    };
+    auto property_names = memgraph::utils::Join(property_paths | ranges::views::transform(path_to_name), ", ");
 
     auto to_range_str = [&](memgraph::storage::PropertyValueRange rng) -> std::string {
       switch (rng.type_) {
@@ -325,12 +337,12 @@ class InteractiveDbAccessor {
     return 0;
   }
 
-  bool LabelIndexExists(memgraph::storage::LabelId label) { return true; }
+  bool LabelIndexReady(memgraph::storage::LabelId label) { return true; }
 
   auto RelevantLabelPropertiesIndicesInfo(std::span<memgraph::storage::LabelId const> labels,
-                                          std::span<memgraph::storage::PropertyId const> properties) const
+                                          std::span<memgraph::storage::PropertyPath const> property_paths) const
       -> std::vector<memgraph::storage::LabelPropertiesIndicesInfo> {
-    return dba_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+    return dba_->RelevantLabelPropertiesIndicesInfo(labels, property_paths);
   }
 
   bool LabelPropertyIndexExists(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id) {
@@ -345,10 +357,10 @@ class InteractiveDbAccessor {
     return label_property_index_.at(key);
   }
 
-  bool EdgeTypeIndexExists(memgraph::storage::EdgeTypeId edge_type_id) { return true; }
+  bool EdgeTypeIndexReady(memgraph::storage::EdgeTypeId edge_type_id) { return true; }
 
-  bool EdgeTypePropertyIndexExists(memgraph::storage::EdgeTypeId edge_type_id,
-                                   memgraph::storage::PropertyId property_id) {
+  bool EdgeTypePropertyIndexReady(memgraph::storage::EdgeTypeId edge_type_id,
+                                  memgraph::storage::PropertyId property_id) {
     auto edge_type = dba_->EdgeTypeToName(edge_type_id);
     auto property = dba_->PropertyToName(property_id);
     auto key = std::make_pair(edge_type, property);
@@ -360,7 +372,7 @@ class InteractiveDbAccessor {
     return edge_type_property_index_.at(key);
   }
 
-  bool EdgePropertyIndexExists(memgraph::storage::PropertyId property_id) { return false; }
+  bool EdgePropertyIndexReady(memgraph::storage::PropertyId property_id) { return false; }
 
   std::optional<memgraph::storage::LabelIndexStats> GetIndexStats(const memgraph::storage::LabelId label) const {
     return dba_->GetIndexStats(label);
@@ -368,11 +380,11 @@ class InteractiveDbAccessor {
 
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
       const memgraph::storage::LabelId label, const memgraph::storage::PropertyId property) const {
-    return dba_->GetIndexStats(label, std::array{property});
+    return dba_->GetIndexStats(label, std::array{memgraph::storage::PropertyPath{property}});
   }
 
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
-      const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyId const> properties) const {
+      const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties) const {
     return dba_->GetIndexStats(label, properties);
   }
 
@@ -555,7 +567,7 @@ DEFCOMMAND(Top) {
   for (int64_t i = 0; i < n_plans; ++i) {
     std::cout << "---- Plan #" << i << " ---- " << std::endl;
     std::cout << "cost: " << plans[i].cost << std::endl;
-    memgraph::query::plan::PrettyPrint(dba, plans[i].final_plan.get());
+    memgraph::query::plan::PrettyPrint(dba, plans[i].final_plan.get(), &std::cout);
     std::cout << std::endl;
   }
 }
@@ -568,7 +580,7 @@ DEFCOMMAND(Show) {
   const auto &plan = plans[plan_ix].final_plan;
   auto cost = plans[plan_ix].cost;
   std::cout << "Plan cost: " << cost << std::endl;
-  memgraph::query::plan::PrettyPrint(dba, plan.get());
+  memgraph::query::plan::PrettyPrint(dba, plan.get(), &std::cout);
 }
 
 DEFCOMMAND(ShowUnoptimized) {
@@ -577,7 +589,7 @@ DEFCOMMAND(ShowUnoptimized) {
   ss >> plan_ix;
   if (ss.fail() || !ss.eof() || plan_ix >= plans.size()) return;
   const auto &plan = plans[plan_ix].unoptimized_plan;
-  memgraph::query::plan::PrettyPrint(dba, plan.get());
+  memgraph::query::plan::PrettyPrint(dba, plan.get(), &std::cout);
 }
 
 DEFCOMMAND(Help);

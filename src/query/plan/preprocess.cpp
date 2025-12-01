@@ -17,6 +17,7 @@
 #include <utility>
 #include <variant>
 
+#include "frontend/ast/query/identifier.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
@@ -208,7 +209,7 @@ auto MatchesIdentifier(Identifier *identifier) {
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
                                Expression *value, Type type)
-    : symbol_(symbol), property_(std::move(property)), type_(type), value_(value) {
+    : symbol_(symbol), property_ids_({std::move(property)}), type_(type), value_(value) {
   MG_ASSERT(type != Type::RANGE);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
@@ -219,7 +220,34 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
                                const std::optional<PropertyFilter::Bound> &lower_bound,
                                const std::optional<PropertyFilter::Bound> &upper_bound)
     : symbol_(symbol),
-      property_(std::move(property)),
+      property_ids_({std::move(property)}),
+      type_(Type::RANGE),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound) {
+  UsedSymbolsCollector collector(symbol_table);
+  if (lower_bound) {
+    lower_bound->value()->Accept(collector);
+  }
+  if (upper_bound) {
+    upper_bound->value()->Accept(collector);
+  }
+  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+}
+
+PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIxPath properties,
+                               Expression *value, Type type)
+    : symbol_(symbol), property_ids_(std::move(properties)), type_(type), value_(value) {
+  MG_ASSERT(type != Type::RANGE);
+  UsedSymbolsCollector collector(symbol_table);
+  value->Accept(collector);
+  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+}
+
+PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIxPath properties,
+                               const std::optional<PropertyFilter::Bound> &lower_bound,
+                               const std::optional<PropertyFilter::Bound> &upper_bound)
+    : symbol_(symbol),
+      property_ids_(std::move(properties)),
       type_(Type::RANGE),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound) {
@@ -234,13 +262,16 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
 }
 
 PropertyFilter::PropertyFilter(Symbol symbol, PropertyIx property, Type type)
-    : symbol_(std::move(symbol)), property_(std::move(property)), type_(type) {
+    : symbol_(std::move(symbol)), property_ids_({std::move(property)}), type_(type) {
   // As this constructor is used for property filters where
   // we don't have to evaluate the filter expression, we set
   // the is_symbol_in_value_ to false, although the filter
   // expression may actually contain the symbol whose property
   // we may be looking up.
 }
+
+PropertyFilter::PropertyFilter(Symbol symbol, PropertyIxPath properties, Type type)
+    : symbol_(std::move(symbol)), property_ids_(std::move(properties)), type_(type) {}
 
 IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol, Expression *value)
     : symbol_(symbol), value_(value) {
@@ -277,7 +308,7 @@ void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::
     }
     filter_it->labels.erase(label_it);
     DMG_ASSERT(!utils::Contains(filter_it->labels, label), "Didn't expect duplicated labels");
-    if (filter_it->labels.empty()) {
+    if (filter_it->labels.empty() && filter_it->or_labels.empty()) {
       // If there are no labels to filter, then erase the whole FilterInfo.
       if (removed_filters) {
         removed_filters->push_back(filter_it->expression);
@@ -308,7 +339,7 @@ void Filters::EraseOrLabelFilter(const Symbol &symbol, const std::vector<LabelIx
     }
     filter_it->or_labels.erase(label_vec_it);
     DMG_ASSERT(!utils::Contains(filter_it->or_labels, labels), "Didn't expect duplicated labels");
-    if (filter_it->or_labels.empty()) {
+    if (filter_it->or_labels.empty() && filter_it->labels.empty()) {
       // If there are no labels to filter, then erase the whole FilterInfo.
       if (removed_filters) {
         removed_filters->push_back(filter_it->expression);
@@ -394,7 +425,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
     const auto &node_symbol = symbol_table.at(*node->identifier_);
     std::vector<LabelIx> labels;
     for (auto label : node->labels_) {
-      if (const auto *label_node = std::get_if<Expression *>(&label)) {
+      if (std::get_if<Expression *>(&label)) {
         throw SemanticException("Property lookup not supported in MATCH/MERGE clause!");
       }
       labels.push_back(std::get<LabelIx>(label));
@@ -450,7 +481,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
   };
   auto add_expand_filter = [&](NodeAtom *, EdgeAtom *edge, NodeAtom *node) {
     for (auto edge_type : edge->edge_types_) {
-      if (const auto *edge_type_name = std::get_if<Expression *>(&edge_type)) {
+      if (std::get_if<Expression *>(&edge_type)) {
         throw SemanticException("Property lookup not supported in MATCH/MERGE clause!");
       }
     }
@@ -490,28 +521,48 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     return (prop_lookup = utils::Downcast<PropertyLookup>(maybe_lookup)) &&
            (ident = utils::Downcast<Identifier>(prop_lookup->expression_));
   };
+  auto is_nested_property_lookup = [](auto *maybe_lookup) {
+    return utils::Downcast<PropertyLookup>(maybe_lookup) &&
+           utils::Downcast<PropertyLookup>(utils::Downcast<PropertyLookup>(maybe_lookup)->expression_);
+  };
+  auto extract_nested_property_lookup = [&](auto *maybe_lookup) {
+    auto *expr = utils::Downcast<PropertyLookup>(maybe_lookup);
+    auto *prev_expr = expr;
+    auto nested_properties = std::vector<memgraph::query::PropertyIx>{};
+    while (expr) {
+      nested_properties.emplace_back(expr->property_);
+      prev_expr = expr;
+      expr = utils::Downcast<PropertyLookup>(expr->expression_);
+    }
+
+    // Properties are reversed because the AST walk produces them in reverse
+    // order. This returns them to the order as specified in the grammar.
+    std::reverse(nested_properties.begin(), nested_properties.end());
+
+    return std::pair<Identifier *, PropertyIxPath>{utils::Downcast<Identifier>(prev_expr->expression_),
+                                                   std::move(nested_properties)};
+  };
   // Checks if maybe_lookup is a property lookup, stores it as a
   // PropertyFilter and returns true. If it isn't, returns false.
-  auto add_prop_equal = [&](auto *maybe_lookup, auto *val_expr) -> bool {
+  auto try_add_prop_filter = [&](auto *maybe_lookup, auto *val_expr, PropertyFilter::Type type) -> bool {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
-    if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
+    if (is_nested_property_lookup(maybe_lookup)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(maybe_lookup);
+      if (!ident) {
+        return false;
+      }
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
-                                              PropertyFilter::Type::EQUAL);
+      filter.property_filter =
+          PropertyFilter(symbol_table, symbol_table.at(*ident), std::move(nested_properties), val_expr, type);
       all_filters_.emplace_back(filter);
       return true;
     }
-    return false;
-  };
-  // Like add_prop_equal, but for adding regex match property filter.
-  auto add_prop_regex_match = [&](auto *maybe_lookup, auto *val_expr) -> bool {
-    PropertyLookup *prop_lookup = nullptr;
-    Identifier *ident = nullptr;
+
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
-                                              PropertyFilter::Type::REGEX_MATCH);
+      filter.property_filter =
+          PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr, type);
       all_filters_.emplace_back(filter);
       return true;
     }
@@ -640,7 +691,15 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // We need to get both possible lookups `n.prop > thing` and `thing > n.prop`
     // Only one can be used in the rewrite, so even when we add both into all_filters_ only one can be used
     // example where two can be inserted `n0.propA > n1.propB`, the rewritten scan could be for n0 or n1
-    if (get_property_lookup(expr1, prop_lookup, ident)) {
+    if (is_nested_property_lookup(expr1)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(expr1);
+      if (ident) {
+        auto filter = make_filter(FilterInfo::Type::Property);
+        filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), nested_properties,
+                                                Bound(expr2, bound_type), std::nullopt);
+        all_filters_.emplace_back(filter);
+      }
+    } else if (get_property_lookup(expr1, prop_lookup, ident)) {
       // n.prop > value
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_,
@@ -648,7 +707,15 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       all_filters_.emplace_back(filter);
       is_prop_filter = true;
     }
-    if (get_property_lookup(expr2, prop_lookup, ident)) {
+    if (is_nested_property_lookup(expr2)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(expr2);
+      if (ident) {
+        auto filter = make_filter(FilterInfo::Type::Property);
+        filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), std::move(nested_properties),
+                                                std::nullopt, Bound(expr1, bound_type));
+        all_filters_.emplace_back(filter);
+      }
+    } else if (get_property_lookup(expr2, prop_lookup, ident)) {
       // value > n.prop
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_, std::nullopt,
@@ -683,6 +750,17 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     if (!utils::Downcast<ListLiteral>(val_expr)) return false;
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
+    if (is_nested_property_lookup(maybe_lookup)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(maybe_lookup);
+      if (!ident) {
+        return false;
+      }
+      auto filter = make_filter(FilterInfo::Type::Property);
+      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), std::move(nested_properties),
+                                              val_expr, PropertyFilter::Type::IN);
+      all_filters_.emplace_back(filter);
+      return true;
+    }
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
@@ -710,20 +788,45 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
 
-    if (!get_property_lookup(maybe_is_null_check->expression_, prop_lookup, ident)) {
-      return false;
+    if (get_property_lookup(maybe_is_null_check->expression_, prop_lookup, ident)) {
+      auto filter = make_filter(FilterInfo::Type::Property);
+      filter.property_filter =
+          PropertyFilter(symbol_table.at(*ident), prop_lookup->property_, PropertyFilter::Type::IS_NOT_NULL);
+      all_filters_.emplace_back(filter);
+      return true;
     }
-
-    auto filter = make_filter(FilterInfo::Type::Property);
-    filter.property_filter =
-        PropertyFilter(symbol_table.at(*ident), prop_lookup->property_, PropertyFilter::Type::IS_NOT_NULL);
-    all_filters_.emplace_back(filter);
-    return true;
+    if (is_nested_property_lookup(maybe_is_null_check->expression_)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(maybe_is_null_check->expression_);
+      if (!ident) {
+        return false;
+      }
+      auto filter = make_filter(FilterInfo::Type::Property);
+      filter.property_filter =
+          PropertyFilter(symbol_table.at(*ident), std::move(nested_properties), PropertyFilter::Type::IS_NOT_NULL);
+      all_filters_.emplace_back(filter);
+      return true;
+    }
+    return false;
   };
   // We are only interested to see the insides of And, because Or prevents
   // indexing since any labels and properties found there may be optional.
   DMG_ASSERT(!utils::IsSubtype(*expr, AndOperator::kType), "Expected AndOperators have been split.");
-  if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
+
+  if (auto *edgetype_test = utils::Downcast<EdgeTypesTest>(expr)) {
+    if (auto *identifier = utils::Downcast<Identifier>(edgetype_test->expression_)) {
+      if (auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(identifier)); it == all_filters_.end()) {
+        // No existing EdgeTypesTest for this identifier
+        auto filter = make_filter(FilterInfo::Type::EdgeType);
+        filter.edgetypes = edgetype_test->valid_edgetypes_;
+        all_filters_.emplace_back(filter);
+      } else {
+        // We could intersect the two OR lists, but for now we don't do that processing and keep it as  separate filter
+        all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+      }
+    } else {
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
+  } else if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
     if (auto *identifier = utils::Downcast<Identifier>(labels_test->expression_)) {
@@ -784,9 +887,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // Here the `prop` may be different than `value` resulting in `false`. This
     // would compare with the top level `false`, producing `true`. Therefore, it
     // is incorrect to pick up `n.prop = value` for scanning by property index.
-    bool is_prop_filter = add_prop_equal(eq->expression1_, eq->expression2_);
+    bool is_prop_filter = try_add_prop_filter(eq->expression1_, eq->expression2_, PropertyFilter::Type::EQUAL);
     // And reversed.
-    is_prop_filter |= add_prop_equal(eq->expression2_, eq->expression1_);
+    is_prop_filter |= try_add_prop_filter(eq->expression2_, eq->expression1_, PropertyFilter::Type::EQUAL);
     // Try to get ID equality filter.
     bool is_id_filter = add_id_equal(eq->expression1_, eq->expression2_);
     is_id_filter |= add_id_equal(eq->expression2_, eq->expression1_);
@@ -801,7 +904,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *regex_match = utils::Downcast<RegexMatch>(expr)) {
-    if (!add_prop_regex_match(regex_match->string_expr_, regex_match->regex_)) {
+    if (!try_add_prop_filter(regex_match->string_expr_, regex_match->regex_, PropertyFilter::Type::REGEX_MATCH)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *range = utils::Downcast<RangeOperator>(expr)) {
@@ -863,9 +966,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         !add_prop_is_not_null_check(is_not)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
-  } else if (auto *exists = utils::Downcast<Exists>(expr)) {
+  } else if (utils::Downcast<Exists>(expr)) {
     all_filters_.emplace_back(make_filter(FilterInfo::Type::Pattern));
-  } else if (auto *function = utils::Downcast<Function>(expr)) {
+  } else if (utils::Downcast<Function>(expr)) {
     // WHERE point.withinbbox()
     if (!add_point_withinbbox_filter_unary(expr, WithinBBoxCondition::INSIDE)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
@@ -995,6 +1098,7 @@ void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &stor
 
     filter.expression->Accept(visitor);
     filter.matchings = visitor.getFilterMatchings();
+    filter.pattern_comprehension_matchings = visitor.getPatternComprehensionMatchings();
   }
 }
 
@@ -1005,14 +1109,24 @@ PatternVisitor::PatternVisitor(PatternVisitor &&) noexcept = default;
 PatternVisitor::~PatternVisitor() = default;
 
 void PatternVisitor::Visit(Exists &op) {
-  std::vector<Pattern *> patterns;
-  patterns.push_back(op.pattern_);
-
   FilterMatching filter_matching;
-  AddMatching(patterns, nullptr, symbol_table_, storage_, filter_matching);
-
-  filter_matching.type = PatternFilterType::EXISTS;
   filter_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
+
+  if (op.HasPattern()) {
+    std::vector<Pattern *> patterns;
+    patterns.push_back(op.GetPattern());
+    AddMatching(patterns, nullptr, symbol_table_, storage_, filter_matching);
+    filter_matching.type = PatternFilterType::EXISTS_PATTERN;
+  } else if (op.HasSubquery()) {
+    // For subqueries, collect the full QueryParts and store in filter_matching
+    filter_matching.type = PatternFilterType::EXISTS_SUBQUERY;
+    filter_matching.subquery =
+        std::make_shared<QueryParts>(CollectQueryParts(symbol_table_, storage_, op.GetSubquery(), true));
+  } else {
+    throw SemanticException(
+        "EXISTS semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
+        "should not happen!");
+  }
 
   filter_matchings_.push_back(std::move(filter_matching));
 }
@@ -1052,6 +1166,15 @@ void PatternVisitor::Visit(NamedExpression &op) { op.expression_->Accept(*this);
 void PatternVisitor::Visit(PatternComprehension &op) {
   PatternComprehensionMatching matching;
   AddMatching({op.pattern_}, op.filter_, symbol_table_, storage_, matching);
+
+  for (auto &filter : matching.filters) {
+    PatternVisitor nested_visitor(symbol_table_, storage_);
+
+    filter.expression->Accept(nested_visitor);
+    filter.matchings = nested_visitor.getFilterMatchings();
+    filter.pattern_comprehension_matchings = nested_visitor.getPatternComprehensionMatchings();
+  }
+
   matching.result_expr = storage_.Create<NamedExpression>(symbol_table_.at(op).name(), op.resultExpr_);
   matching.result_expr->MapTo(symbol_table_.at(op));
   matching.result_symbol = symbol_table_.at(op);
@@ -1096,7 +1219,8 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         query_part = &query_parts.back();
       } else if (utils::IsSubtype(*clause, query::Unwind::kType) ||
                  utils::IsSubtype(*clause, query::CallProcedure::kType) ||
-                 utils::IsSubtype(*clause, query::LoadCsv::kType)) {
+                 utils::IsSubtype(*clause, query::LoadCsv::kType) || utils::IsSubtype(*clause, LoadParquet::kType) ||
+                 utils::IsSubtype(*clause, LoadJsonl::kType)) {
         // This query part is done, continue with a new one.
         query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();

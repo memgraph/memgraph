@@ -278,6 +278,6 @@
                {:bank     (bank-checker)
                 :timeline (timeline/html)
                 :plot     (plotter)})
-   :generator (repl-utils/replication-gen (gen/mix [read-balances valid-transfer]))
+   :generator (repl-utils/replication-gen [read-balances valid-transfer])
    :nemesis-config (nemesis/create)
    :final-generator {:clients (gen/once read-balances) :recovery-time 20}})

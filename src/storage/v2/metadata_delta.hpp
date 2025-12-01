@@ -15,9 +15,13 @@
 #include <utility>
 
 #include "storage/v2/constraints/type_constraints.hpp"
+#include "storage/v2/durability/ttl_operation_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 
 namespace memgraph::storage {
@@ -40,6 +44,7 @@ struct MetadataDelta {
     GLOBAL_EDGE_PROPERTY_INDEX_CREATE,
     GLOBAL_EDGE_PROPERTY_INDEX_DROP,
     TEXT_INDEX_CREATE,
+    TEXT_EDGE_INDEX_CREATE,
     TEXT_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
     EXISTENCE_CONSTRAINT_DROP,
@@ -54,6 +59,8 @@ struct MetadataDelta {
     POINT_INDEX_DROP,
     VECTOR_INDEX_CREATE,
     VECTOR_INDEX_DROP,
+    VECTOR_EDGE_INDEX_CREATE,
+    TTL_OPERATION,
   };
 
   static constexpr struct LabelIndexCreate {
@@ -90,12 +97,16 @@ struct MetadataDelta {
   } global_edge_property_index_drop;
   static constexpr struct TextIndexCreate {
   } text_index_create;
+  static constexpr struct TextEdgeIndexCreate {
+  } text_edge_index_create;
   static constexpr struct TextIndexDrop {
   } text_index_drop;
   static constexpr struct VectorIndexCreate {
   } vector_index_create;
   static constexpr struct VectorIndexDrop {
   } vector_index_drop;
+  static constexpr struct VectorEdgeIndexCreate {
+  } vector_edge_index_create;
   static constexpr struct ExistenceConstraintCreate {
   } existence_constraint_create;
   static constexpr struct ExistenceConstraintDrop {
@@ -115,6 +126,9 @@ struct MetadataDelta {
   static constexpr struct EnumAlterUpdate {
   } enum_alter_update;
 
+  static constexpr struct TtlOperation {
+  } ttl_operation;
+
   MetadataDelta(LabelIndexCreate /*tag*/, LabelId label) : action(Action::LABEL_INDEX_CREATE), label(label) {}
 
   MetadataDelta(LabelIndexDrop /*tag*/, LabelId label) : action(Action::LABEL_INDEX_DROP), label(label) {}
@@ -124,13 +138,13 @@ struct MetadataDelta {
 
   MetadataDelta(LabelIndexStatsClear /*tag*/, LabelId label) : action(Action::LABEL_INDEX_STATS_CLEAR), label{label} {}
 
-  MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label, std::vector<storage::PropertyId> &&properties)
+  MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label, std::vector<storage::PropertyPath> properties)
       : action(Action::LABEL_PROPERTIES_INDEX_CREATE), label_ordered_properties{label, std::move(properties)} {}
 
-  MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, std::vector<storage::PropertyId> &&properties)
+  MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, std::vector<storage::PropertyPath> properties)
       : action(Action::LABEL_PROPERTIES_INDEX_DROP), label_ordered_properties{label, std::move(properties)} {}
 
-  MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, std::vector<PropertyId> properties,
+  MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, std::vector<PropertyPath> properties,
                 LabelPropertyIndexStats const &stats)
       : action(Action::LABEL_PROPERTIES_INDEX_STATS_SET), label_property_stats{label, std::move(properties), stats} {}
 
@@ -154,11 +168,14 @@ struct MetadataDelta {
   MetadataDelta(GlobalEdgePropertyIndexDrop /*tag*/, PropertyId property)
       : action(Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP), edge_property{property} {}
 
-  MetadataDelta(TextIndexCreate /*tag*/, std::string index_name, LabelId label)
-      : action(Action::TEXT_INDEX_CREATE), text_index{std::move(index_name), label} {}
+  MetadataDelta(TextIndexCreate /*tag*/, TextIndexSpec text_index_info)
+      : action(Action::TEXT_INDEX_CREATE), text_index(std::move(text_index_info)) {}
 
-  MetadataDelta(TextIndexDrop /*tag*/, std::string index_name, LabelId label)
-      : action(Action::TEXT_INDEX_DROP), text_index{std::move(index_name), label} {}
+  MetadataDelta(TextEdgeIndexCreate /*tag*/, TextEdgeIndexSpec text_edge_index_info)
+      : action(Action::TEXT_EDGE_INDEX_CREATE), text_edge_index(std::move(text_edge_index_info)) {}
+
+  MetadataDelta(TextIndexDrop /*tag*/, std::string index_name)
+      : action(Action::TEXT_INDEX_DROP), index_name{std::move(index_name)} {}
 
   MetadataDelta(PointIndexCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::POINT_INDEX_CREATE), label_property{label, property} {}
@@ -170,7 +187,10 @@ struct MetadataDelta {
       : action(Action::VECTOR_INDEX_CREATE), vector_index_spec(std::move(spec)) {}
 
   MetadataDelta(VectorIndexDrop /*tag*/, std::string_view index_name)
-      : action(Action::VECTOR_INDEX_DROP), vector_index_name{index_name} {}
+      : action(Action::VECTOR_INDEX_DROP), index_name{index_name} {}
+
+  MetadataDelta(VectorEdgeIndexCreate /*tag*/, VectorEdgeIndexSpec spec)
+      : action(Action::VECTOR_EDGE_INDEX_CREATE), vector_edge_index_spec(std::move(spec)) {}
 
   MetadataDelta(ExistenceConstraintCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::EXISTENCE_CONSTRAINT_CREATE), label_property{label, property} {}
@@ -197,6 +217,19 @@ struct MetadataDelta {
 
   MetadataDelta(EnumAlterUpdate /*tag*/, Enum value, std::string old_value)
       : action(Action::ENUM_ALTER_UPDATE), enum_alter_update_info{.value = value, .old_value = std::move(old_value)} {}
+
+  MetadataDelta(TtlOperation /*tag*/, durability::TtlOperationType operation_type)
+      : action(Action::TTL_OPERATION),
+        ttl_operation_info{.operation_type = operation_type, .should_run_edge_ttl = false} {}
+
+  MetadataDelta(TtlOperation /*tag*/, durability::TtlOperationType operation_type,
+                std::optional<std::chrono::microseconds> period,
+                std::optional<std::chrono::system_clock::time_point> start_time, bool should_run_edge_ttl)
+      : action(Action::TTL_OPERATION),
+        ttl_operation_info{.operation_type = operation_type,
+                           .period = period,
+                           .start_time = start_time,
+                           .should_run_edge_ttl = should_run_edge_ttl} {}
 
   MetadataDelta(const MetadataDelta &) = delete;
   MetadataDelta(MetadataDelta &&) = delete;
@@ -270,8 +303,12 @@ struct MetadataDelta {
         std::destroy_at(&vector_index_spec);
         break;
       }
+      case VECTOR_EDGE_INDEX_CREATE: {
+        std::destroy_at(&vector_edge_index_spec);
+        break;
+      }
       case VECTOR_INDEX_DROP: {
-        std::destroy_at(&vector_index_name);
+        std::destroy_at(&index_name);
         break;
       }
       case UNIQUE_CONSTRAINT_CREATE:
@@ -279,9 +316,20 @@ struct MetadataDelta {
         std::destroy_at(&label_unordered_properties);
         break;
       }
-      case TEXT_INDEX_CREATE:
-      case TEXT_INDEX_DROP: {
+      case TEXT_INDEX_CREATE: {
         std::destroy_at(&text_index);
+        break;
+      }
+      case TEXT_EDGE_INDEX_CREATE: {
+        std::destroy_at(&text_edge_index);
+        break;
+      }
+      case TEXT_INDEX_DROP: {
+        std::destroy_at(&index_name);
+        break;
+      }
+      case TTL_OPERATION: {
+        std::destroy_at(&ttl_operation_info);
         break;
       }
     }
@@ -301,7 +349,7 @@ struct MetadataDelta {
 
     struct {
       LabelId label;
-      std::vector<PropertyId> properties;
+      std::vector<PropertyPath> properties;
     } label_ordered_properties;
 
     struct {
@@ -316,7 +364,7 @@ struct MetadataDelta {
 
     struct {
       LabelId label;
-      std::vector<PropertyId> properties;
+      std::vector<PropertyPath> properties;
       LabelPropertyIndexStats stats;
     } label_property_stats;
 
@@ -336,11 +384,6 @@ struct MetadataDelta {
     } edge_property;
 
     struct {
-      std::string index_name;
-      LabelId label;
-    } text_index;
-
-    struct {
       EnumTypeId etype;
     } enum_create_info;
 
@@ -353,8 +396,18 @@ struct MetadataDelta {
       std::string old_value;
     } enum_alter_update_info;
 
+    TextIndexSpec text_index;
+    TextEdgeIndexSpec text_edge_index;
+    struct {
+      durability::TtlOperationType operation_type;
+      std::optional<std::chrono::microseconds> period;
+      std::optional<std::chrono::system_clock::time_point> start_time;
+      bool should_run_edge_ttl;
+    } ttl_operation_info;
+
     VectorIndexSpec vector_index_spec;
-    std::string vector_index_name;
+    VectorEdgeIndexSpec vector_edge_index_spec;
+    std::string index_name;
   };
 };
 

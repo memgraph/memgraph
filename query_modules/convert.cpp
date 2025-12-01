@@ -12,9 +12,16 @@
 #include <iostream>
 #include <mgp.hpp>
 #include <optional>
+#include <set>
+#include <string>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
+constexpr const std::string_view kFunctionStr2Object = "str2object";
+constexpr const std::string_view kParameterString = "string";
+
+// Forward declarations
 std::optional<mgp::Value> ParseJsonToMgpValue(const nlohmann::json &json_obj, mgp_memory *memory);
 
 mgp::Value ParseJsonToMgpMap(const nlohmann::json &json_obj, mgp_memory *memory) {
@@ -71,7 +78,7 @@ void str2object(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp
     if (!maybe_result.has_value()) {
       mgp::func_result_set_error_msg(
           res,
-          "The end result is not one of the following JSON-language data types: object, array, "
+          "The end result is not one of the following JSON-language  data types: object, array, "
           "number, string, boolean, or null.",
           memory);
       return;
@@ -104,8 +111,8 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   try {
     mgp::MemoryDispatcherGuard guard(memory);
 
-    mgp::AddFunction(str2object, "str2object", {mgp::Parameter("string", mgp::Type::String)}, module, memory);
-
+    mgp::AddFunction(str2object, kFunctionStr2Object, {mgp::Parameter(kParameterString, mgp::Type::String)}, module,
+                     memory);
   } catch (const std::exception &e) {
     std::cerr << "Error while initializing query module: " << e.what() << '\n';
     return 1;

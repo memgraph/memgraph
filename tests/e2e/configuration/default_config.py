@@ -34,6 +34,10 @@ startup_config_dict = {
         "The regular expression that should be used to match the entire entered password to ensure its strength.",
     ),
     "allow_load_csv": ("true", "true", "Controls whether LOAD CSV clause is allowed in queries."),
+    "aws_access_key": ("", "", "Define AWS access key for the AWS integration."),
+    "aws_endpoint_url": ("", "", "Define AWS endpoint url for the AWS integration."),
+    "aws_region": ("", "", "Define AWS region which is used for the AWS integration."),
+    "aws_secret_key": ("", "", "Define AWS secret key for the AWS integration."),
     "audit_buffer_flush_interval_ms": (
         "200",
         "200",
@@ -77,6 +81,11 @@ startup_config_dict = {
         "true",
         "true",
         "Controls whether the database recovers persisted data on startup.",
+    ),
+    "file_download_conn_timeout_sec": (
+        "10",
+        "10",
+        "Define a timeout for establishing a connection with a remote server during a file download.",
     ),
     "isolation_level": (
         "SNAPSHOT_ISOLATION",
@@ -185,6 +194,7 @@ startup_config_dict = {
         "Controls whether updating a property with the same value should create a delta object.",
     ),
     "storage_access_timeout_sec": ("1", "1", "Query's storage level access timeout in seconds."),
+    "storage_gc_aggressive": ("false", "false", "Enable aggressive garbage collection."),
     "storage_gc_cycle_sec": ("30", "30", "Storage garbage collector interval (in seconds)."),
     "storage_python_gc_cycle_sec": ("180", "180", "Storage python full garbage collection interval (in seconds)."),
     "storage_items_per_batch": (
@@ -196,7 +206,7 @@ startup_config_dict = {
     "storage_snapshot_thread_count": ("12", "12", "The number of threads used to create snapshots."),
     "storage_recovery_thread_count": ("12", "12", "The number of threads used to recover persisted data from disk."),
     "storage_snapshot_interval_sec": (
-        "0",
+        "300",
         "300",
         "Storage snapshot creation interval (in seconds). Set to 0 to disable periodic snapshot creation.",
     ),
@@ -281,7 +291,7 @@ startup_config_dict = {
     "experimental_enabled": (
         "",
         "",
-        "Experimental features to be used, comma-separated. Options [text-search]",
+        "Experimental features to be used, comma-separated. Options []",
     ),
     "experimental_config": (
         "",

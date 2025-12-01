@@ -13,10 +13,17 @@
 
 #include <cstdint>
 #include <string>
+#include <unordered_set>
+#include <vector>
 
 #include <nlohmann/json_fwd.hpp>
 
 namespace memgraph::utils {
+
+// This is a bit imprecise but it is important that we can be certain about whether we are running in K8s or not
+// For Docker, .dockerenv file apparently doesn't exist always so it could lead us into wrong direction that people
+// aren't actually using that much Docker while in fact they do
+enum class RuntimeEnv : uint8_t { KUBERNETES, NO_KUBERNETES };
 
 struct MemoryInfo {
   uint64_t memory;
@@ -26,13 +33,26 @@ struct MemoryInfo {
 struct CPUInfo {
   std::string cpu_model;
   uint64_t cpu_count;
+  uint8_t microarch_level;
 };
 
 std::string GetMachineId();
 
 MemoryInfo GetMemoryInfo();
 
-CPUInfo GetCPUInfo();
+CPUInfo GetCPUInfo(const std::string &machine);
+
+uint8_t DetectX86LevelFromFlags(const std::unordered_set<std::string> &flags);
+
+uint8_t DetectArmArchitectureLevel(const std::vector<std::string> &cpu_data);
+
+bool HasCPUFlag(const std::unordered_set<std::string> &flags, const std::string &flag);
+
+std::unordered_set<std::string> ExtractCPUFlags(const std::vector<std::string> &cpu_data);
+
+std::string ExtractArmCPUVariant(const std::vector<std::string> &cpu_data);
+
+RuntimeEnv DetectRuntimeEnv();
 
 /**
  * This function return a dictionary containing some basic system information

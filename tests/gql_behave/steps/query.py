@@ -82,10 +82,34 @@ def with_new_index_step(context, index_name, index_arg, dimension, capacity):
     context.add_cleanup(cleanup_vector_index, index_name, context, context.test_parameters.get_parameters())
 
 
+@step("with new vector edge index {index_name} on {index_arg} with dimension {dimension} and capacity {capacity}")
+def with_new_index_step(context, index_name, index_arg, dimension, capacity):
+    # Construct the index creation query using the provided index arg
+    index_creation_query = f"CREATE VECTOR EDGE INDEX {index_name} ON {index_arg} WITH CONFIG {{'dimension': {dimension}, 'capacity': {capacity}}};"
+
+    # Execute the query to create the index
+    context.results = database.query(index_creation_query, context, context.test_parameters.get_parameters())
+
+    # Register the cleanup function to remove the index after the test
+    context.add_cleanup(cleanup_vector_index, index_name, context, context.test_parameters.get_parameters())
+
+
 def cleanup_vector_index(index_name, context, params):
     # Define the cleanup logic
     drop_query = f"DROP VECTOR INDEX {index_name};"
     database.query(drop_query, context, params)
+
+
+def cleanup_global_edge_index(property, context, params):
+    drop_query = f"DROP GLOBAL EDGE INDEX ON :({property});"
+    database.query(drop_query, context, params)
+
+
+@step("with new edge index :({index_arg})")
+def with_new_edge_index_step(context, index_arg):
+    index_creation_query = f"CREATE GLOBAL EDGE INDEX ON :({index_arg});"
+    context.results = database.query(index_creation_query, context, context.test_parameters.get_parameters())
+    context.add_cleanup(cleanup_global_edge_index, index_arg, context, context.test_parameters.get_parameters())
 
 
 @when("executing query")

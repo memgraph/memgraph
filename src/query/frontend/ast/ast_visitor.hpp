@@ -23,6 +23,7 @@ class Identifier;
 class PropertyLookup;
 class AllPropertiesLookup;
 class LabelsTest;
+class EdgeTypesTest;
 class Aggregation;
 class Function;
 class Reduce;
@@ -86,7 +87,9 @@ class IndexQuery;
 class EdgeIndexQuery;
 class PointIndexQuery;
 class TextIndexQuery;
+class CreateTextEdgeIndexQuery;
 class VectorIndexQuery;
+class CreateVectorEdgeIndexQuery;
 class DatabaseInfoQuery;
 class SystemInfoQuery;
 class ConstraintQuery;
@@ -96,6 +99,8 @@ class ReplicationQuery;
 class ReplicationInfoQuery;
 class LockPathQuery;
 class LoadCsv;
+class LoadParquet;
+class LoadJsonl;
 class FreeMemoryQuery;
 class TriggerQuery;
 class IsolationLevelQuery;
@@ -103,6 +108,7 @@ class StorageModeQuery;
 class CreateSnapshotQuery;
 class RecoverSnapshotQuery;
 class ShowSnapshotsQuery;
+class ShowNextSnapshotQuery;
 class StreamQuery;
 class SettingQuery;
 class VersionQuery;
@@ -119,6 +125,8 @@ class ShowDatabasesQuery;
 class EdgeImportModeQuery;
 class PatternComprehension;
 class CoordinatorQuery;
+class DropAllIndexesQuery;
+class DropAllConstraintsQuery;
 class DropGraphQuery;
 class CreateEnumQuery;
 class ShowEnumsQuery;
@@ -130,6 +138,7 @@ class DropEnumQuery;
 class ShowSchemaInfoQuery;
 class TtlQuery;
 class SessionTraceQuery;
+class UserProfileQuery;
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
@@ -140,7 +149,7 @@ using TreeCompositeVisitor = utils::CompositeVisitor<
     AllPropertiesLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None,
     ListComprehension, CallProcedure, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv, Foreach,
-    Exists, CallSubquery, CypherQuery, PatternComprehension>;
+    Exists, CallSubquery, CypherQuery, PatternComprehension, LoadParquet, EdgeTypesTest, LoadJsonl>;
 
 using TreeLeafVisitor = utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup, EnumValueAccess>;
 
@@ -162,18 +171,20 @@ class ExpressionVisitor
                             IsNullOperator, ListLiteral, MapLiteral, MapProjectionLiteral, PropertyLookup,
                             AllPropertiesLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All,
                             Single, Any, None, ListComprehension, ParameterLookup, Identifier, PrimitiveLiteral,
-                            RegexMatch, Exists, PatternComprehension, EnumValueAccess> {};
+                            RegexMatch, Exists, PatternComprehension, EnumValueAccess, EdgeTypesTest> {};
 
 template <class TResult>
 class QueryVisitor
     : public utils::Visitor<
           TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, EdgeIndexQuery, PointIndexQuery, TextIndexQuery,
-          VectorIndexQuery, AuthQuery, DatabaseInfoQuery, SystemInfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery,
-          ReplicationInfoQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery,
-          RecoverSnapshotQuery, ShowSnapshotsQuery, StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery,
+          CreateTextEdgeIndexQuery, VectorIndexQuery, CreateVectorEdgeIndexQuery, AuthQuery, DatabaseInfoQuery,
+          SystemInfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery, ReplicationInfoQuery, LockPathQuery,
+          FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery, RecoverSnapshotQuery,
+          ShowSnapshotsQuery, ShowNextSnapshotQuery, StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery,
           TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery, UseDatabaseQuery,
-          ShowDatabaseQuery, ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery, DropGraphQuery, CreateEnumQuery,
-          ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery,
-          ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery> {};
+          ShowDatabaseQuery, ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery, DropAllIndexesQuery,
+          DropAllConstraintsQuery, DropGraphQuery, CreateEnumQuery, ShowEnumsQuery, AlterEnumAddValueQuery,
+          AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery, ShowSchemaInfoQuery, TtlQuery,
+          SessionTraceQuery, UserProfileQuery> {};
 
 }  // namespace memgraph::query

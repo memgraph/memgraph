@@ -135,21 +135,77 @@ def test_property_size_on_list_prop(memgraph):
     memgraph.execute(
         """
         CREATE (n:Node)
-        SET n.list_prop = [1, 2, 3];
+        SET n.int_list_prop = [1, 2, 3];
         """
     )
 
-    list_bytes = get_bytes(memgraph, "list_prop")
+    list_bytes = get_bytes(memgraph, "int_list_prop")
 
     # 1 byte metadata
     # 1 byte prop id
     #   - the payload size contains the amount of bytes stored for the size of the list
+    # 1 byte for the list type
     # X bytes for the size of the list (1, 2, 4 or 8 bytes)
     # for each list element:
-    #   - 1 byte for the metadata
-    #   - the amount of bytes for the payload of the type (a small int is 1 additional byte)
-    # in this case 1 + 1 + 3 * (1 + 1)
-    assert list_bytes == 9
+    #   - the amount of bytes for the payload of the type (an int is 4 bytes)
+    # in this case 1 + 1 + 1 + 1 + 3 * 4
+    assert list_bytes == 16
+
+    memgraph.execute(
+        """
+        MATCH (n)
+        SET n.double_list_prop = [1.1, 2.2, 3.3];
+        """
+    )
+    double_list_bytes = get_bytes(memgraph, "double_list_prop")
+
+    # 1 byte metadata
+    # 1 byte prop id
+    #   - the payload size contains the amount of bytes stored for the size of the list
+    # 1 byte for the list type
+    # X bytes for the size of the list (1, 2, 4 or 8 bytes)
+    # for each list element:
+    #   - the amount of bytes for the payload of the type (a double is 8 bytes)
+    # in this case 1 + 1 + 1 + 1 + 3 * 8
+    assert double_list_bytes == 28
+
+    memgraph.execute(
+        """
+        MATCH (n)
+        SET n.numeric_list_prop = [1, 2.2, 3];
+        """
+    )
+    numeric_list_bytes = get_bytes(memgraph, "numeric_list_prop")
+
+    # 1 byte metadata
+    # 1 byte prop id
+    #   - the payload size contains the amount of bytes stored for the size of the list
+    # 1 byte for the list type
+    # X bytes for the size of the list (1, 2, 4 or 8 bytes)
+    # for each list element:
+    #   - 1 byte for metadata
+    #   - the amount of bytes for the payload of the type
+    # in this case 1 + 1 + 1 + 1 + 3 * (1 + size_of_type)
+    assert numeric_list_bytes == 17
+
+    memgraph.execute(
+        """
+        MATCH (n)
+        SET n.property_value_list_prop = [1, "string", 3.3];
+        """
+    )
+    property_value_list_bytes = get_bytes(memgraph, "property_value_list_prop")
+
+    # 1 byte metadata
+    # 1 byte prop id
+    #   - the payload size contains the amount of bytes stored for the size of the list
+    # 1 byte for the list type
+    # X bytes for the size of the list (1, 2, 4 or 8 bytes)
+    # for each list element:
+    #   - 1 byte for metadata
+    #   - the amount of bytes for the payload of the type
+    # in this case 1 + 1 + 1 + 1 + (1 + 1) + (1 + 1 + 6) + (1 + 8)
+    assert property_value_list_bytes == 23
 
 
 def test_property_size_on_map_prop(memgraph):
@@ -169,12 +225,11 @@ def test_property_size_on_map_prop(memgraph):
     # for every map element:
     #   - 1 byte for metadata
     #   - 1, 2, 4 or 8 bytes for the key length (read from the metadata payload) -> this case 1
-    #   - Y bytes for the key content -> this case 4
-    #   - Z amount of bytes for the type
+    #   - Y amount of bytes for the type
     #       - for 'value' -> 1 byte for size and 5 for length
     #       - for 4 -> 1 byte for content read from payload
-    # total: 1 + 1 + (1 + 1 + 4 + (1 + 5)) + (1 + 1 + 4 + (1))
-    assert map_bytes == 22
+    # total: 1 + 1 + (1 + 1 + (1 + 5)) + (1 + 1 + (1))
+    assert map_bytes == 14
 
 
 def test_property_size_on_date_prop(memgraph):

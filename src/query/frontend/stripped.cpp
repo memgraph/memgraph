@@ -19,12 +19,9 @@
 #include <vector>
 
 #include "query/exceptions.hpp"
-#include "query/frontend/opencypher/generated/MemgraphCypher.h"
-#include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
-#include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
 #include "query/frontend/parsing.hpp"
 #include "query/frontend/stripped_lexer_constants.hpp"
-#include "utils/fnv.hpp"
+import memgraph.utils.fnv;
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 
@@ -72,7 +69,7 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
     if (token == Token::UNMATCHED) {
       if (i < original_.size()) {
         throw LexingException(
-            "Invalid query. There is a wrong token at postion {} starting with {}. Remove that part of the query and "
+            "Invalid query. There is a wrong token at position {} starting with {}. Remove that part of the query and "
             "try to rerun it.",
             i, original_[i]);
       }
@@ -108,7 +105,7 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
   // literals_. In stripped query text literal is replaced with a new_value.
   // new_value can be any value that is lexed as a literal.
   auto replace_stripped = [this, &token_strings](int position, const auto &value, const std::string &new_value) {
-    literals_.Add(position, storage::PropertyValue(value));
+    literals_.Add(position, storage::ExternalPropertyValue(value));
     token_strings.push_back(new_value);
   };
 
@@ -171,8 +168,7 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
     token_strings.push_back(std::move(unstripped_chunk));
   }
 
-  query_ = utils::Join(token_strings, " ");
-  hash_ = utils::Fnv(query_);
+  stripped_query_ = HashedString{utils::Join(token_strings, " ")};
 
   auto it = tokens.begin();
   while (it != tokens.end()) {

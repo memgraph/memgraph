@@ -166,6 +166,12 @@ constexpr utils::TypeInfo query::plan::CallProcedure::kType{utils::TypeId::CALL_
 constexpr utils::TypeInfo query::plan::LoadCsv::kType{utils::TypeId::LOAD_CSV, "LoadCsv",
                                                       &query::plan::LogicalOperator::kType};
 
+constexpr utils::TypeInfo query::plan::LoadParquet::kType{
+    .id = utils::TypeId::LOAD_PARQUET, .name = "LoadParquet", .superclass = &query::plan::LogicalOperator::kType};
+
+constexpr utils::TypeInfo query::plan::LoadJsonl::kType{
+    .id = utils::TypeId::LOAD_JSONL, .name = "LoadJsonl", .superclass = &query::plan::LogicalOperator::kType};
+
 constexpr utils::TypeInfo query::plan::Foreach::kType{utils::TypeId::FOREACH, "Foreach",
                                                       &query::plan::LogicalOperator::kType};
 
@@ -185,6 +191,12 @@ constexpr utils::TypeInfo query::plan::PeriodicCommit::kType{utils::TypeId::PERI
                                                              &query::plan::LogicalOperator::kType};
 constexpr utils::TypeInfo query::plan::PeriodicSubquery::kType{utils::TypeId::PERIODIC_SUBQUERY, "PeriodicSubquery",
                                                                &query::plan::LogicalOperator::kType};
+
+constexpr utils::TypeInfo query::plan::SetNestedProperty::kType{utils::TypeId::SET_NESTED_PROPERTY, "SetNestedProperty",
+                                                                &query::plan::LogicalOperator::kType};
+
+constexpr utils::TypeInfo query::plan::RemoveNestedProperty::kType{
+    utils::TypeId::REMOVE_NESTED_PROPERTY, "RemoveNestedProperty", &query::plan::LogicalOperator::kType};
 
 constexpr utils::TypeInfo query::plan::ScanAllByPointDistance::kType{
     utils::TypeId::SCAN_ALL_BY_POINT_DISTANCE, "ScanAllByPointDistance", &query::plan::ScanAllByPointDistance::kType};

@@ -18,11 +18,11 @@
 #include <utility>
 #include <vector>
 
+#include "dbms/database_protector.hpp"
 #include "kvstore/kvstore.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/cypher_query_interpreter.hpp"
-#include "query/database_access.hpp"
 #include "query/trigger_context.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/rw_spin_lock.hpp"
@@ -34,13 +34,14 @@ struct QueryCacheEntry;
 
 enum class TransactionStatus;
 struct Trigger {
-  explicit Trigger(std::string name, const std::string &query, const storage::PropertyValue::map_t &user_parameters,
+  explicit Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                    TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                   const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner);
+                   const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner,
+                   std::string_view db_name);
 
-  void Execute(DbAccessor *dba, DatabaseAccessProtector db_acc, utils::MemoryResource *execution_memory,
+  void Execute(DbAccessor *dba, memgraph::dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
                double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
-               std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context) const;
+               std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context, bool is_main) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
   // NOLINTNEXTLINE (modernize-use-nullptr)
@@ -63,7 +64,7 @@ struct Trigger {
     PlanWrapper cached_plan;
     std::vector<IdentifierInfo> identifiers;
   };
-  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor) const;
+  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor, std::string_view db_name) const;
 
   std::string name_;
   ParsedQuery parsed_statements_;
@@ -81,12 +82,13 @@ struct TriggerStore {
   explicit TriggerStore(std::filesystem::path directory);
 
   void RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                       const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker);
+                       const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
+                       std::string_view db_name);
 
-  void AddTrigger(std::string name, const std::string &query, const storage::PropertyValue::map_t &user_parameters,
+  void AddTrigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                   TriggerEventType event_type, TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache,
                   DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
-                  std::shared_ptr<QueryUserOrRole> owner);
+                  std::shared_ptr<QueryUserOrRole> owner, std::string_view db_name);
 
   void DropTrigger(const std::string &name);
   void DropAll();
@@ -110,7 +112,7 @@ struct TriggerStore {
  private:
   void RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                       const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
-                      std::string_view trigger_name, std::string_view trigger_data);
+                      std::string_view trigger_name, std::string_view trigger_data, std::string_view db_name);
 
   utils::SpinLock store_lock_;
   kvstore::KVStore storage_;

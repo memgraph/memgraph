@@ -639,6 +639,25 @@ TYPED_TEST(TestSymbolGenerator, MatchReturnAsteriskNoUserVariables) {
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
+TYPED_TEST(TestSymbolGenerator, MatchReturnAsteriskNoUserVariablesInsideSubquery) {
+  // MATCH (n) CALL { RETURN * } RETURN n
+  auto subquery_ret = this->storage.template Create<Return>();
+  subquery_ret->body_.all_identifiers = true;
+
+  auto subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), subquery_ret));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+TYPED_TEST(TestSymbolGenerator, WithAsteriskAllowedAtTopLevel) {
+  // WITH * RETURN 42
+  auto with = this->storage.template Create<With>();
+  with->body_.all_identifiers = true;
+
+  auto query = QUERY(SINGLE_QUERY(with, RETURN(LITERAL(42), AS("res"))));
+  EXPECT_NO_THROW(memgraph::query::MakeSymbolTable(query));
+}
+
 TYPED_TEST(TestSymbolGenerator, MatchMergeExpandLabel) {
   // Test MATCH (n) MERGE (m) -[r :r]-> (n:label)
   const auto *r_type = "r";
@@ -1200,37 +1219,69 @@ TYPED_TEST(TestSymbolGenerator, Foreach) {
 }
 
 TYPED_TEST(TestSymbolGenerator, Exists) {
-  auto query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"))),
-      WHERE(EXISTS(PATTERN(NODE("n"), EDGE("", EdgeAtom::Direction::BOTH, {}, false), NODE("m")))), RETURN("n")));
-  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  {
+    auto query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(EXISTS(PATTERN(NODE("n"), EDGE("", EdgeAtom::Direction::BOTH, {}, false), NODE("m")))), RETURN("n")));
+    EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  }
 
-  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                             WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("", std::nullopt, false)))), RETURN("n")));
-  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  {
+    auto query =
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                           WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("", std::nullopt, false)))), RETURN("n")));
+    EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  }
 
-  query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("m")))), RETURN("n")));
-  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  {
+    auto query = QUERY(
+        SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("m")))), RETURN("n")));
+    EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  }
 
-  // Symbols for match pattern, node symbol, exists pattern, exists edge, exists second node, named expression in return
-  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                             WHERE(EXISTS(PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false),
-                                                  NODE("node", std::nullopt, false)))),
-                             RETURN("n")));
-  auto symbol_table = MakeSymbolTable(query);
-  ASSERT_EQ(symbol_table.max_position(), 7);
+  {
+    // Symbols for match pattern, node symbol, exists pattern, exists edge, exists second node, named expression in
+    // return
+    auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    WHERE(EXISTS(PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false),
+                                                         NODE("node", std::nullopt, false)))),
+                                    RETURN("n")));
+    auto symbol_table = MakeSymbolTable(query);
+    ASSERT_EQ(symbol_table.max_position(), 7);
 
-  memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
-  auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-  auto *expression = dynamic_cast<Expression *>(match->where_->expression_);
+    memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+    auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    auto *expression = dynamic_cast<Expression *>(match->where_->expression_);
 
-  expression->Accept(collector);
+    expression->Accept(collector);
 
-  ASSERT_EQ(collector.symbols_.size(), 1);
+    ASSERT_EQ(collector.symbols_.size(), 1);
 
-  auto symbol = *collector.symbols_.begin();
-  ASSERT_EQ(symbol.name_, "n");
+    auto symbol = *collector.symbols_.begin();
+    ASSERT_EQ(symbol.name_, "n");
+  }
+
+  {
+    auto subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false),
+                                                     NODE("node", std::nullopt, false))),
+                                       RETURN("n")));
+    auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(subquery)), RETURN("n")));
+    auto symbol_table = MakeSymbolTable(query);
+
+    // match pattern, node, edge, second node, return param, node, return param, exists
+    ASSERT_EQ(symbol_table.max_position(), 8);
+
+    memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+    auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    auto *expression = dynamic_cast<Expression *>(match->where_->expression_);
+
+    expression->Accept(collector);
+
+    ASSERT_EQ(collector.symbols_.size(), 1);
+
+    auto symbol = *collector.symbols_.begin();
+    ASSERT_EQ(symbol.name_, "n");
+  }
 }
 
 TYPED_TEST(TestSymbolGenerator, Subqueries) {
@@ -1238,6 +1289,12 @@ TYPED_TEST(TestSymbolGenerator, Subqueries) {
   // Yields exception because n in subquery is referenced in outer scope
   auto subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n")));
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  // WITH 1 AS x CALL { RETURN 2 AS x } RETURN x
+  // Yields exception because aliased return in subquery conflicts with outer scope variable
+  subquery = QUERY(SINGLE_QUERY(RETURN(LITERAL(2), AS("x"))));
+  query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("x")), CALL_SUBQUERY(subquery), RETURN("x")));
   EXPECT_THROW(MakeSymbolTable(query), SemanticException);
 
   // MATCH (n) CALL { MATCH (m) RETURN m.prop } RETURN n
@@ -1463,7 +1520,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionInReturn) {
   pc->Accept(collector);
 
   // n, edge, m, Path
-  ASSERT_EQ(collector.symbols_.size(), 4);
+  ASSERT_EQ(collector.symbols_.size(), 1);
 }
 
 TYPED_TEST(TestSymbolGenerator, PatternComprehensionInWith) {
@@ -1488,7 +1545,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionInWith) {
   pc->Accept(collector);
 
   // n, edge, m, Path
-  ASSERT_EQ(collector.symbols_.size(), 4);
+  ASSERT_EQ(collector.symbols_.size(), 1);
 }
 
 TYPED_TEST(TestSymbolGenerator, ListComprehensionInReturn) {
@@ -1496,7 +1553,7 @@ TYPED_TEST(TestSymbolGenerator, ListComprehensionInReturn) {
   auto *ident = IDENT("x");
   auto query = QUERY(
       SINGLE_QUERY(RETURN(NEXPR("added_numbers", LIST_COMPREHENSION(ident, LIST(LITERAL(1), LITERAL(2), LITERAL(3)),
-                                                                     nullptr, ADD(ident, LITERAL(1)))))));
+                                                                    nullptr, ADD(ident, LITERAL(1)))))));
 
   auto symbol_table = MakeSymbolTable(query);
   ASSERT_EQ(symbol_table.max_position(), 2);

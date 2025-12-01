@@ -121,22 +121,84 @@ Feature: ListComprehension
       | (:X {prop: 43}) | false |
     And no side effects
 
-  Scenario: Pattern comprehension inside list comprehension - currently not supported
-    Given an empty graph
-    And having executed:
-      """
-      CREATE (n1:X {n: 1}), (m1:Y), (i1:Y), (i2:Y)
-      CREATE (n1)-[:T]->(m1),
-             (m1)-[:T]->(i1),
-             (m1)-[:T]->(i2)
-      CREATE (n2:X {n: 2}), (m2), (i3:L), (i4:Y)
-      CREATE (n2)-[:T]->(m2),
-             (m2)-[:T]->(i3),
-             (m2)-[:T]->(i4)
-      """
-    When executing query:
-      """
-      MATCH p = (n:X)-->(b)
-      RETURN n, [x IN nodes(p) | size([(x)-->(:Y) | 1])] AS list
-      """
-    Then an error should be raised
+   Scenario: Pattern comprehension in list comprehension - simple
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:N {id: 1}), (b:N {id: 2}), (a)-[:R]->(b)
+            """
+        When executing query:
+            """
+            MATCH (a) WHERE single(x in [(a)-[:R]->(b) WHERE b is not null | 1] WHERE true) RETURN a.id AS id
+            """
+        Then the result should be:
+            | id |
+            | 1  |
+
+   Scenario: Pattern comprehension in list comprehension - simple reversed
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:N {id: 1}), (b:N {id: 2}), (a)-[:R]->(b)
+            """
+        When executing query:
+            """
+            MATCH (a) WHERE single(x in [(a)-[:R]->(b) WHERE b is null | 1] WHERE true) RETURN a.id AS id
+            """
+        Then the result should be empty
+
+   Scenario: Pattern comprehension in list comprehension - double nested
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:A {id: 1})<-[:R1]-(:B)<-[:R2]-(:C)<-[:R3]-(:D {id: 1});
+            """
+        When executing query:
+            """
+            MATCH (a:A)
+            WHERE single(b IN [(a)<-[:R1]-(b:B) WHERE single(c IN [(b)<-[:R2]-(c:C) WHERE single(d IN [(c)<-[:R3]-(d:D) WHERE d.id = 1 | 1] WHERE true) | 1] WHERE true) | 1] WHERE true)
+            RETURN a.id AS id;
+            """
+        Then the result should be:
+            | id |
+            | 1  |
+
+    Scenario: List comprehension aggregation correctness test with only a list and an identifier
+        Given an empty graph
+        When executing query:
+            """
+            RETURN collect({a: 2, label: [x in [0]]}) as result;
+            """
+        Then the result should be:
+            | result                |
+            | [{a: 2, label: [0]}]  |
+
+    Scenario: List comprehension aggregation correctness test with a where clause
+        Given an empty graph
+        When executing query:
+            """
+            WITH 1 as y RETURN collect({a: 2, label: [x in [0] where x = 0 and y = 1]}) as result;
+            """
+        Then the result should be:
+            | result                |
+            | [{a: 2, label: [0]}]  |
+
+    Scenario: List comprehension aggregation correctness test with an expression
+        Given an empty graph
+        When executing query:
+            """
+            WITH 1 as y RETURN collect({a: 2, label: [x in [0] | x*x]}) as result;
+            """
+        Then the result should be:
+            | result                |
+            | [{a: 2, label: [0]}]  |
+
+    Scenario: List comprehension aggregation correctness test with a where clause and an expression
+        Given an empty graph
+        When executing query:
+            """
+            WITH 1 as y RETURN collect({a: 2, label: [x in [0] where x = 0 and y = 1 | x*x]}) as result;
+            """
+        Then the result should be:
+            | result                |
+            | [{a: 2, label: [0]}]  |

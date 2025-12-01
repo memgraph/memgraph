@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#pragma once
+
 #include "auth/models.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
 

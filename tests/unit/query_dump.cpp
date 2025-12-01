@@ -21,9 +21,10 @@
 #include <vector>
 
 #include "communication/result_stream_faker.hpp"
+#include "dbms/constants.hpp"
 #include "dbms/database.hpp"
 #include "disk_test_utils.hpp"
-#include "glue/auth_checker.hpp"
+#include "flags/experimental.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/dump.hpp"
@@ -32,17 +33,20 @@
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/trigger_context.hpp"
-#include "query/typed_value.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
-#include "storage/v2/delta.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "timezone_handler.hpp"
 #include "utils/temporal.hpp"
+
+namespace ms = memgraph::storage;
+namespace r = ranges;
+namespace rv = r::views;
 
 const char *kPropertyId = "property_id";
 
@@ -76,9 +80,16 @@ struct DatabaseState {
     std::vector<std::string> properties;
   };
 
-  struct TextItem {
+  struct TextNodeItem {
     std::string index_name;
     std::string label;
+    std::optional<std::vector<std::string>> properties;
+  };
+
+  struct TextEdgeItem {
+    std::string index_name;
+    std::string edge_type;
+    std::vector<std::string> properties;
   };
 
   struct LabelPropertiesItem {
@@ -106,7 +117,8 @@ struct DatabaseState {
   std::set<Edge> edges;
   std::set<LabelItem> label_indices;
   std::set<OrderedLabelPropertiesItem> label_property_indices;
-  std::set<TextItem> text_indices;
+  std::set<TextNodeItem> text_indices;
+  std::set<TextEdgeItem> edge_text_indices;
   std::set<PointItem> point_indices;
   std::set<LabelPropertyItem> existence_constraints;
   std::set<LabelPropertiesItem> unique_constraints;
@@ -141,8 +153,12 @@ bool operator<(const DatabaseState::LabelPropertyItem &first, const DatabaseStat
   return first.property < second.property;
 }
 
-bool operator<(const DatabaseState::TextItem &first, const DatabaseState::TextItem &second) {
-  return first.index_name < second.index_name && first.label < second.label;
+bool operator<(const DatabaseState::TextNodeItem &first, const DatabaseState::TextNodeItem &second) {
+  return first.index_name < second.index_name;
+}
+
+bool operator<(const DatabaseState::TextEdgeItem &first, const DatabaseState::TextEdgeItem &second) {
+  return first.index_name < second.index_name;
 }
 
 bool operator<(const DatabaseState::PointItem &first, const DatabaseState::PointItem &second) {
@@ -182,8 +198,12 @@ bool operator==(const DatabaseState::LabelPropertyItem &first, const DatabaseSta
   return first.label == second.label && first.property == second.property;
 }
 
-bool operator==(const DatabaseState::TextItem &first, const DatabaseState::TextItem &second) {
-  return first.index_name == second.index_name && first.label == second.label;
+bool operator==(const DatabaseState::TextNodeItem &first, const DatabaseState::TextNodeItem &second) {
+  return first.index_name == second.index_name;
+}
+
+bool operator==(const DatabaseState::TextEdgeItem &first, const DatabaseState::TextEdgeItem &second) {
+  return first.index_name == second.index_name;
 }
 
 bool operator==(const DatabaseState::PointItem &first, const DatabaseState::PointItem &second) {
@@ -210,6 +230,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   std::map<memgraph::storage::Gid, int64_t> gid_mapping;
   std::set<DatabaseState::Vertex> vertices;
   auto dba = db->Access();
+  auto property_id = dba->NameToProperty(kPropertyId);
   for (const auto &vertex : dba->Vertices(memgraph::storage::View::NEW)) {
     std::set<std::string, std::less<>> labels;
     auto maybe_labels = vertex.Labels(memgraph::storage::View::NEW);
@@ -221,10 +242,10 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
     MG_ASSERT(maybe_properties.HasValue());
     for (const auto &kv : *maybe_properties) {
-      props.emplace(dba->PropertyToName(kv.first), kv.second);
+      props.emplace(kv.first, kv.second);
     }
-    MG_ASSERT(props.count(kPropertyId) == 1);
-    const auto id = props[kPropertyId].ValueInt();
+    MG_ASSERT(props.count(property_id) == 1);
+    const auto id = props[property_id].ValueInt();
     gid_mapping[vertex.Gid()] = id;
     vertices.insert({id, labels, props});
   }
@@ -240,7 +261,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
       auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
       MG_ASSERT(maybe_properties.HasValue());
       for (const auto &kv : *maybe_properties) {
-        props.emplace(dba->PropertyToName(kv.first), kv.second);
+        props.emplace(kv.first, kv.second);
       }
       const auto from = gid_mapping[edge.FromVertex().Gid()];
       const auto to = gid_mapping[edge.ToVertex().Gid()];
@@ -251,9 +272,9 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   // Capture all indices
   std::set<DatabaseState::LabelItem> label_indices;
   std::set<DatabaseState::OrderedLabelPropertiesItem> label_properties_indices;
-  std::set<DatabaseState::TextItem> text_indices;
+  std::set<DatabaseState::TextNodeItem> text_indices;
   std::set<DatabaseState::PointItem> point_indices;
-  // TODO: where are the edge types indicies?
+  std::set<DatabaseState::TextEdgeItem> text_edge_indices;
 
   {
     auto info = dba->ListAllIndices();
@@ -261,17 +282,23 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
       label_indices.insert({dba->LabelToName(item)});
     }
     for (const auto &[label, properties] : info.label_properties) {
+      using namespace std::string_literals;
       auto properties_as_strings =
-          properties |
-          ranges::views::transform([&](memgraph::storage::PropertyId prop) { return dba->PropertyToName(prop); }) |
-          ranges::to_vector;
+          properties | rv::transform([&](auto &&path) { return ToString(path, dba.get()); }) | r::to_vector;
       label_properties_indices.insert({dba->LabelToName(label), std::move(properties_as_strings)});
     }
-    for (const auto &item : info.text_indices) {
-      text_indices.insert({item.first, dba->LabelToName(item.second)});
+    for (const auto &[name, label, properties] : info.text_indices) {
+      auto prop_names =
+          properties | rv::transform([&](auto prop_id) { return dba->PropertyToName(prop_id); }) | r::to_vector;
+      text_indices.insert({name, dba->LabelToName(label), std::move(prop_names)});
     }
     for (const auto &item : info.point_label_property) {
       point_indices.insert({dba->LabelToName(item.first), dba->PropertyToName(item.second)});
+    }
+    for (const auto &[name, edge_type, properties] : info.text_edge_indices) {
+      auto prop_names =
+          properties | rv::transform([&](auto prop_id) { return dba->PropertyToName(prop_id); }) | r::to_vector;
+      text_edge_indices.emplace(name, dba->EdgeTypeToName(edge_type), std::move(prop_names));
     }
   }
 
@@ -296,16 +323,15 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     }
   }
 
-  return {vertices,        edges,         label_indices,         label_properties_indices,
-          text_indices,    point_indices, existence_constraints, unique_constraints,
-          type_constraints};
+  return {vertices,          edges,         label_indices,         label_properties_indices, text_indices,
+          text_edge_indices, point_indices, existence_constraints, unique_constraints,       type_constraints};
 }
 
 auto Execute(memgraph::query::InterpreterContext *context, memgraph::dbms::DatabaseAccess db,
              const std::string &query) {
   memgraph::query::Interpreter interpreter(context, db);
   memgraph::query::AllowEverythingAuthChecker auth_checker;
-  interpreter.SetUser(auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  interpreter.SetUser(auth_checker.GenQueryUser(std::nullopt, {}));
   ResultStreamFaker stream(db->storage());
 
   auto [header, _1, qid, _2] = interpreter.Prepare(query, memgraph::query::no_params_fn, {});
@@ -326,7 +352,7 @@ memgraph::storage::VertexAccessor CreateVertex(memgraph::storage::Storage::Acces
     MG_ASSERT(vertex.AddLabel(dba->NameToLabel(label_name)).HasValue());
   }
   for (const auto &kv : props) {
-    MG_ASSERT(vertex.SetProperty(dba->NameToProperty(kv.first), kv.second).HasValue());
+    MG_ASSERT(vertex.SetProperty(kv.first, kv.second).HasValue());
   }
   if (add_property_id) {
     MG_ASSERT(
@@ -346,7 +372,7 @@ memgraph::storage::EdgeAccessor CreateEdge(memgraph::storage::Storage::Accessor 
   MG_ASSERT(edge.HasValue());
   auto edgeAcc = std::move(edge.GetValue());
   for (const auto &kv : props) {
-    MG_ASSERT(edgeAcc.SetProperty(dba->NameToProperty(kv.first), kv.second).HasValue());
+    MG_ASSERT(edgeAcc.SetProperty(kv.first, kv.second).HasValue());
   }
   if (add_property_id) {
     MG_ASSERT(
@@ -407,10 +433,14 @@ class DumpTest : public ::testing::Test {
       }()  // iile
   };
   memgraph::system::System system_state;
-  memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{}, nullptr, repl_state, system_state
+  memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{},
+                                              nullptr,
+                                              repl_state,
+                                              system_state
 #ifdef MG_ENTERPRISE
                                               ,
-                                              std::nullopt
+                                              std::nullopt,
+                                              nullptr
 #endif
   };
 
@@ -442,7 +472,7 @@ TYPED_TEST(DumpTest, SingleVertex) {
   {
     auto dba = this->db->Access();
     CreateVertex(dba.get(), {}, {}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -463,7 +493,7 @@ TYPED_TEST(DumpTest, VertexWithSingleLabel) {
   {
     auto dba = this->db->Access();
     CreateVertex(dba.get(), {"Label1"}, {}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -484,7 +514,7 @@ TYPED_TEST(DumpTest, VertexWithMultipleLabels) {
   {
     auto dba = this->db->Access();
     CreateVertex(dba.get(), {"Label1", "Label 2"}, {}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -505,8 +535,9 @@ TYPED_TEST(DumpTest, VertexWithMultipleLabels) {
 TYPED_TEST(DumpTest, VertexWithSingleProperty) {
   {
     auto dba = this->db->Access();
-    CreateVertex(dba.get(), {}, {{"prop", memgraph::storage::PropertyValue(42)}}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    auto prop_id = dba->NameToProperty("prop");
+    CreateVertex(dba.get(), {}, {{prop_id, memgraph::storage::PropertyValue(42)}}, false);
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -529,7 +560,7 @@ TYPED_TEST(DumpTest, MultipleVertices) {
     CreateVertex(dba.get(), {}, {}, false);
     CreateVertex(dba.get(), {}, {}, false);
     CreateVertex(dba.get(), {}, {}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -554,7 +585,9 @@ void test_PropertyValue(auto *test) {
     auto bool_value = memgraph::storage::PropertyValue(true);
     auto double_value = memgraph::storage::PropertyValue(-1.2);
     auto str_value = memgraph::storage::PropertyValue("hello 'world'");
-    auto map_value = memgraph::storage::PropertyValue({{"prop 1", int_value}, {"prop`2`", bool_value}});
+    auto map_key_1 = dba->NameToProperty("prop 1");
+    auto map_key_2 = dba->NameToProperty("prop`2`");
+    auto map_value = memgraph::storage::PropertyValue({{map_key_1, int_value}, {map_key_2, bool_value}});
     auto dt = memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
         memgraph::storage::TemporalType::Date, memgraph::utils::Date({1994, 12, 7}).MicrosecondsSinceEpoch()));
     auto lt = memgraph::storage::PropertyValue(
@@ -571,8 +604,10 @@ void test_PropertyValue(auto *test) {
             memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()),
         memgraph::utils::Timezone("America/Los_Angeles")));
     auto list_value = memgraph::storage::PropertyValue({map_value, null_value, double_value, dt, lt, ldt, dur, zdt});
-    CreateVertex(dba.get(), {}, {{"p1", list_value}, {"p2", str_value}}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    auto prop1_id = dba->NameToProperty("p1");
+    auto prop2_id = dba->NameToProperty("p2");
+    CreateVertex(dba.get(), {}, {{prop1_id, list_value}, {prop2_id, str_value}}, false);
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -614,7 +649,7 @@ TYPED_TEST(DumpTest, SingleEdge) {
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
     CreateEdge(dba.get(), &u, &v, "EdgeType", {}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -643,7 +678,7 @@ TYPED_TEST(DumpTest, MultipleEdges) {
     CreateEdge(dba.get(), &u, &v, "EdgeType", {}, false);
     CreateEdge(dba.get(), &v, &u, "EdgeType 2", {}, false);
     CreateEdge(dba.get(), &v, &w, "EdgeType `!\"", {}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -670,10 +705,11 @@ TYPED_TEST(DumpTest, MultipleEdges) {
 TYPED_TEST(DumpTest, EdgeWithProperties) {
   {
     auto dba = this->db->Access();
+    auto prop_id = dba->NameToProperty("prop");
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
-    CreateEdge(dba.get(), &u, &v, "EdgeType", {{"prop", memgraph::storage::PropertyValue(13)}}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    CreateEdge(dba.get(), &u, &v, "EdgeType", {{prop_id, memgraph::storage::PropertyValue(13)}}, false);
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -696,8 +732,9 @@ TYPED_TEST(DumpTest, EdgeWithProperties) {
 TYPED_TEST(DumpTest, IndicesKeys) {
   {
     auto dba = this->db->Access();
-    CreateVertex(dba.get(), {"Label1", "Label 2"}, {{"p", memgraph::storage::PropertyValue(1)}}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    auto prop_id = dba->NameToProperty("p");
+    CreateVertex(dba.get(), {"Label1", "Label 2"}, {{prop_id, memgraph::storage::PropertyValue(1)}}, false);
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -706,7 +743,7 @@ TYPED_TEST(DumpTest, IndicesKeys) {
         unique_acc
             ->CreateIndex(this->db->storage()->NameToLabel("Label1"), {this->db->storage()->NameToProperty("prop")})
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
@@ -714,7 +751,7 @@ TYPED_TEST(DumpTest, IndicesKeys) {
         unique_acc
             ->CreateIndex(this->db->storage()->NameToLabel("Label 2"), {this->db->storage()->NameToProperty("prop `")})
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -738,8 +775,9 @@ TYPED_TEST(DumpTest, CompositeIndicesKeys) {
 
   {
     auto dba = this->db->Access();
-    CreateVertex(dba.get(), {"Label1", "Label 2"}, {{"p", memgraph::storage::PropertyValue(1)}}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    auto prop_id = dba->NameToProperty("p");
+    CreateVertex(dba.get(), {"Label1", "Label 2"}, {{prop_id, memgraph::storage::PropertyValue(1)}}, false);
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -750,7 +788,7 @@ TYPED_TEST(DumpTest, CompositeIndicesKeys) {
                           {this->db->storage()->NameToProperty("prop_a"), this->db->storage()->NameToProperty("prop_b"),
                            this->db->storage()->NameToProperty("prop_c")})
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -767,6 +805,44 @@ TYPED_TEST(DumpTest, CompositeIndicesKeys) {
   }
 }
 
+TYPED_TEST(DumpTest, CompositeNestedIndicesKeys) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Composite/nested indices not implemented for disk storage";
+  }
+
+  {
+    auto dba = this->db->Access();
+    auto prop_id = dba->NameToProperty("p");
+    CreateVertex(dba.get(), {"Label1", "Label 2"}, {{prop_id, memgraph::storage::PropertyValue(1)}}, false);
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc
+                     ->CreateIndex(this->db->storage()->NameToLabel("Label1"),
+                                   {ms::PropertyPath{this->db->storage()->NameToProperty("prop_a"),
+                                                     this->db->storage()->NameToProperty("prop_b")},
+                                    ms::PropertyPath{this->db->storage()->NameToProperty("prop_a"),
+                                                     this->db->storage()->NameToProperty("prop_c")}})
+                     .HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    ResultStreamFaker stream(this->db->storage());
+    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+    {
+      auto acc = this->db->Access();
+      memgraph::query::DbAccessor dba(acc.get());
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
+    }
+    VerifyQueries(stream.GetResults(), "CREATE INDEX ON :`Label1`(`prop_a`.`prop_b`, `prop_a`.`prop_c`);",
+                  kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});",
+                  kDropInternalIndex, kRemoveInternalLabelProperty);
+  }
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, EdgeIndicesKeys) {
   if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
@@ -778,13 +854,13 @@ TYPED_TEST(DumpTest, EdgeIndicesKeys) {
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
     CreateEdge(dba.get(), &u, &v, "EdgeType", {}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(this->db->storage()->NameToEdgeType("EdgeType")).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -793,13 +869,13 @@ TYPED_TEST(DumpTest, EdgeIndicesKeys) {
         unique_acc
             ->CreateIndex(this->db->storage()->NameToEdgeType("EdgeType"), this->db->storage()->NameToProperty("prop"))
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->db->storage()->NameToProperty("prop")).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -826,9 +902,10 @@ TYPED_TEST(DumpTest, PointIndices) {
 
   {
     auto dba = this->db->Access();
+    auto prop_id = dba->NameToProperty("p");
     auto point = memgraph::storage::Point2d{memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1., 1.};
-    CreateVertex(dba.get(), {"Label1", "Label 2"}, {{"p", memgraph::storage::PropertyValue(point)}}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    CreateVertex(dba.get(), {"Label1", "Label 2"}, {{prop_id, memgraph::storage::PropertyValue(point)}}, false);
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -837,7 +914,7 @@ TYPED_TEST(DumpTest, PointIndices) {
         unique_acc
             ->CreatePointIndex(this->db->storage()->NameToLabel("Label1"), this->db->storage()->NameToProperty("prop"))
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
@@ -845,7 +922,7 @@ TYPED_TEST(DumpTest, PointIndices) {
                      ->CreatePointIndex(this->db->storage()->NameToLabel("Label 2"),
                                         this->db->storage()->NameToProperty("prop `"))
                      .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -870,6 +947,7 @@ TYPED_TEST(DumpTest, VectorIndices) {
   static constexpr uint16_t dimension = 2;
   static constexpr std::size_t capacity = 10;
   static constexpr uint16_t resize_coefficient = 2;
+  static constexpr unum::usearch::scalar_kind_t scalar_kind = unum::usearch::scalar_kind_t::f32_k;
 
   if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     GTEST_SKIP() << "Vector index not implemented for ondisk";
@@ -877,10 +955,11 @@ TYPED_TEST(DumpTest, VectorIndices) {
 
   {
     auto dba = this->db->Access();
+    auto vector_property_id = dba->NameToProperty("vector_property");
     memgraph::storage::PropertyValue property_value(std::vector<memgraph::storage::PropertyValue>{
         memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
-    CreateVertex(dba.get(), {"Label1", "Label 2"}, {{"vector_property", property_value}}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    CreateVertex(dba.get(), {"Label1", "Label 2"}, {{vector_property_id, property_value}}, false);
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -890,10 +969,11 @@ TYPED_TEST(DumpTest, VectorIndices) {
                                                          metric,
                                                          dimension,
                                                          resize_coefficient,
-                                                         capacity};
+                                                         capacity,
+                                                         scalar_kind};
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -903,10 +983,11 @@ TYPED_TEST(DumpTest, VectorIndices) {
                                                          metric,
                                                          dimension,
                                                          resize_coefficient,
-                                                         capacity};
+                                                         capacity,
+                                                         scalar_kind};
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -919,9 +1000,64 @@ TYPED_TEST(DumpTest, VectorIndices) {
     }
     VerifyQueries(
         stream.GetResults(),
-        R"(CREATE VECTOR INDEX `test_index1` ON :`Label1`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2 };)",
-        R"(CREATE VECTOR INDEX `test_index2` ON :`Label 2`(`prop ```) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2 };)",
+        R"(CREATE VECTOR INDEX `test_index1` ON :`Label1`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
+        R"(CREATE VECTOR INDEX `test_index2` ON :`Label 2`(`prop ```) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
         kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `vector_property`: [1, 1]});",
+        kDropInternalIndex, kRemoveInternalLabelProperty);
+  }
+}
+
+TYPED_TEST(DumpTest, VectorEdgeIndices) {
+  static constexpr std::string_view test_index1 = "test_index1";
+  static constexpr unum::usearch::metric_kind_t metric = unum::usearch::metric_kind_t::l2sq_k;
+  static constexpr uint16_t dimension = 2;
+  static constexpr std::size_t capacity = 10;
+  static constexpr uint16_t resize_coefficient = 2;
+  static constexpr unum::usearch::scalar_kind_t scalar_kind = unum::usearch::scalar_kind_t::f32_k;
+
+  if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    GTEST_SKIP() << "Vector index not implemented for ondisk";
+  }
+
+  {
+    auto dba = this->db->Access();
+    auto vector_property_id = dba->NameToProperty("vector_property");
+    memgraph::storage::PropertyValue property_value(std::vector<memgraph::storage::PropertyValue>{
+        memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
+    auto u = CreateVertex(dba.get(), {}, {}, false);
+    auto v = CreateVertex(dba.get(), {}, {}, false);
+    CreateEdge(dba.get(), &u, &v, "EdgeType", {{vector_property_id, property_value}}, false);
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    const auto spec = memgraph::storage::VectorEdgeIndexSpec{test_index1.data(),
+                                                             this->db->storage()->NameToEdgeType("EdgeType"),
+                                                             this->db->storage()->NameToProperty("vector_property"),
+                                                             metric,
+                                                             dimension,
+                                                             resize_coefficient,
+                                                             capacity,
+                                                             scalar_kind};
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateVectorEdgeIndex(spec).HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    ResultStreamFaker stream(this->db->storage());
+    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+    {
+      auto acc = this->db->Access();
+      memgraph::query::DbAccessor dba(acc.get());
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
+    }
+    VerifyQueries(
+        stream.GetResults(),
+        R"(CREATE VECTOR EDGE INDEX `test_index1` ON :`EdgeType`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
+        kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});", "CREATE (:__mg_vertex__ {__mg_id__: 1});",
+        "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
+        "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType` {`vector_property`: [1, 1]}]->(v);",
         kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
@@ -930,15 +1066,16 @@ TYPED_TEST(DumpTest, VectorIndices) {
 TYPED_TEST(DumpTest, ExistenceConstraints) {
   {
     auto dba = this->db->Access();
-    CreateVertex(dba.get(), {"L`abel 1"}, {{"prop", memgraph::storage::PropertyValue(1)}}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    auto prop_id = dba->NameToProperty("prop");
+    CreateVertex(dba.get(), {"L`abel 1"}, {{prop_id, memgraph::storage::PropertyValue(1)}}, false);
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
     auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("L`abel 1"),
                                                      this->db->storage()->NameToProperty("prop"));
     ASSERT_FALSE(res.HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -958,13 +1095,15 @@ TYPED_TEST(DumpTest, ExistenceConstraints) {
 TYPED_TEST(DumpTest, UniqueConstraints) {
   {
     auto dba = this->db->Access();
+    auto prop_id = dba->NameToProperty("prop");
+    auto prop2_id = dba->NameToProperty("prop2");
     CreateVertex(dba.get(), {"Label"},
-                 {{"prop", memgraph::storage::PropertyValue(1)}, {"prop2", memgraph::storage::PropertyValue(2)}},
+                 {{prop_id, memgraph::storage::PropertyValue(1)}, {prop2_id, memgraph::storage::PropertyValue(2)}},
                  false);
     CreateVertex(dba.get(), {"Label"},
-                 {{"prop", memgraph::storage::PropertyValue(2)}, {"prop2", memgraph::storage::PropertyValue(2)}},
+                 {{prop_id, memgraph::storage::PropertyValue(2)}, {prop2_id, memgraph::storage::PropertyValue(2)}},
                  false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
@@ -973,7 +1112,7 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
         {this->db->storage()->NameToProperty("prop"), this->db->storage()->NameToProperty("prop2")});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -1000,14 +1139,18 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
 TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   {
     auto dba = this->db->Access();
-    memgraph::storage::PropertyValue::map_t prop1 = {{"nested1", memgraph::storage::PropertyValue(1337)},
-                                                     {"nested2", memgraph::storage::PropertyValue(3.14)}};
+    auto map_key_1 = dba->NameToProperty("nested1");
+    auto map_key_2 = dba->NameToProperty("nested2");
+    auto prop1_id = dba->NameToProperty("prop1");
+    auto prop2_id = dba->NameToProperty("prop2");
+    memgraph::storage::PropertyValue::map_t prop1 = {{map_key_1, memgraph::storage::PropertyValue(1337)},
+                                                     {map_key_2, memgraph::storage::PropertyValue(3.14)}};
 
     CreateVertex(
         dba.get(), {"Label1", "Label2"},
-        {{"prop1", memgraph::storage::PropertyValue(prop1)}, {"prop2", memgraph::storage::PropertyValue("$'\t'")}});
+        {{prop1_id, memgraph::storage::PropertyValue(prop1)}, {prop2_id, memgraph::storage::PropertyValue("$'\t'")}});
 
-    ASSERT_FALSE(dba->Commit().HasError());
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   memgraph::storage::Config config{};
@@ -1041,7 +1184,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
                                                           system_state
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          std::nullopt
+                                                          std::nullopt, nullptr
 #endif
   );
 
@@ -1067,59 +1210,64 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
 TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
   {
     auto dba = this->db->Access();
-    auto u = CreateVertex(dba.get(), {"Person"}, {{"name", memgraph::storage::PropertyValue("Ivan")}});
-    auto v = CreateVertex(dba.get(), {"Person"}, {{"name", memgraph::storage::PropertyValue("Josko")}});
+    auto name_id = dba->NameToProperty("name");
+    auto id_id = dba->NameToProperty("id");
+    auto u = CreateVertex(dba.get(), {"Person"}, {{name_id, memgraph::storage::PropertyValue("Ivan")}});
+    auto v = CreateVertex(dba.get(), {"Person"}, {{name_id, memgraph::storage::PropertyValue("Josko")}});
     auto w = CreateVertex(
         dba.get(), {"Person"},
-        {{"name", memgraph::storage::PropertyValue("Bosko")}, {"id", memgraph::storage::PropertyValue(0)}});
-    auto z =
-        CreateVertex(dba.get(), {"Person"},
-                     {{"name", memgraph::storage::PropertyValue("Buha")}, {"id", memgraph::storage::PropertyValue(1)}});
+        {{name_id, memgraph::storage::PropertyValue("Bosko")}, {id_id, memgraph::storage::PropertyValue(0)}});
+    auto z = CreateVertex(
+        dba.get(), {"Person"},
+        {{name_id, memgraph::storage::PropertyValue("Buha")}, {id_id, memgraph::storage::PropertyValue(1)}});
     auto zdt = memgraph::storage::ZonedTemporalData(
         memgraph::storage::ZonedTemporalType::ZonedDateTime,
         memgraph::utils::AsSysTime(
             memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).SysMicrosecondsSinceEpoch()),
         memgraph::utils::Timezone("America/Los_Angeles"));
 
+    auto how_long_id = dba->NameToProperty("how_long");
+    auto how_id = dba->NameToProperty("how");
+    auto time_id = dba->NameToProperty("time");
     CreateEdge(dba.get(), &u, &v, "Knows", {});
-    CreateEdge(dba.get(), &v, &w, "Knows", {{"how_long", memgraph::storage::PropertyValue(5)}});
-    CreateEdge(dba.get(), &w, &u, "Knows", {{"how", memgraph::storage::PropertyValue("distant past")}});
+    CreateEdge(dba.get(), &v, &w, "Knows", {{how_long_id, memgraph::storage::PropertyValue(5)}});
+    CreateEdge(dba.get(), &w, &u, "Knows", {{how_id, memgraph::storage::PropertyValue("distant past")}});
     CreateEdge(dba.get(), &v, &u, "Knows", {});
     CreateEdge(dba.get(), &v, &u, "Likes", {});
     CreateEdge(dba.get(), &z, &u, "Knows", {});
-    CreateEdge(dba.get(), &w, &z, "Knows", {{"how", memgraph::storage::PropertyValue("school")}});
-    CreateEdge(dba.get(), &w, &z, "Likes", {{"how", memgraph::storage::PropertyValue("1234567890")}});
+    CreateEdge(dba.get(), &w, &z, "Knows", {{how_id, memgraph::storage::PropertyValue("school")}});
+    CreateEdge(dba.get(), &w, &z, "Likes", {{how_id, memgraph::storage::PropertyValue("1234567890")}});
     CreateEdge(dba.get(), &w, &z, "Date",
-               {{"time", memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
-                             memgraph::storage::TemporalType::Date,
-                             memgraph::utils::Date({1994, 12, 7}).MicrosecondsSinceEpoch()))}});
+               {{time_id, memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
+                              memgraph::storage::TemporalType::Date,
+                              memgraph::utils::Date({1994, 12, 7}).MicrosecondsSinceEpoch()))}});
     CreateEdge(dba.get(), &w, &z, "LocalTime",
-               {{"time", memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
-                             memgraph::storage::TemporalType::LocalTime,
-                             memgraph::utils::LocalTime({14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()))}});
+               {{time_id, memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
+                              memgraph::storage::TemporalType::LocalTime,
+                              memgraph::utils::LocalTime({14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()))}});
     CreateEdge(
         dba.get(), &w, &z, "LocalDateTime",
-        {{"time",
+        {{time_id,
           memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
               memgraph::storage::TemporalType::LocalDateTime,
               memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).SysMicrosecondsSinceEpoch()))}});
     CreateEdge(dba.get(), &w, &z, "Duration",
-               {{"time", memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
-                             memgraph::storage::TemporalType::Duration,
-                             memgraph::utils::Duration({3, 4, 5, 6, 10, 11}).microseconds))}});
+               {{time_id, memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
+                              memgraph::storage::TemporalType::Duration,
+                              memgraph::utils::Duration({3, 4, 5, 6, 10, 11}).microseconds))}});
     CreateEdge(dba.get(), &w, &z, "NegativeDuration",
-               {{"time", memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
-                             memgraph::storage::TemporalType::Duration,
-                             memgraph::utils::Duration({-3, -4, -5, -6, -10, -11}).microseconds))}});
-    CreateEdge(dba.get(), &w, &z, "ZonedDateTime", {{"time", memgraph::storage::PropertyValue(zdt)}});
-    ASSERT_FALSE(dba->Commit().HasError());
+               {{time_id, memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
+                              memgraph::storage::TemporalType::Duration,
+                              memgraph::utils::Duration({-3, -4, -5, -6, -10, -11}).microseconds))}});
+    CreateEdge(dba.get(), &w, &z, "ZonedDateTime", {{time_id, memgraph::storage::PropertyValue(zdt)}});
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
     auto ret = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("Person"),
                                                      this->db->storage()->NameToProperty("name"));
     ASSERT_FALSE(ret.HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
@@ -1127,7 +1275,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                                                   {this->db->storage()->NameToProperty("name")});
     ASSERT_TRUE(ret.HasValue());
     ASSERT_EQ(ret.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -1135,7 +1283,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     ASSERT_FALSE(
         unique_acc->CreateIndex(this->db->storage()->NameToLabel("Person"), {this->db->storage()->NameToProperty("id")})
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
@@ -1143,7 +1291,46 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                      ->CreateIndex(this->db->storage()->NameToLabel("Person"),
                                    {this->db->storage()->NameToProperty("unexisting_property")})
                      .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc
+                     ->CreateTextIndex(memgraph::storage::TextIndexSpec{
+                         "text_index_without_properties", this->db->storage()->NameToLabel("Person"), {}})
+                     .HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc
+                     ->CreateTextIndex(memgraph::storage::TextIndexSpec{"text_index_with_properties",
+                                                                        this->db->storage()->NameToLabel("Person"),
+                                                                        {this->db->storage()->NameToProperty("name")}})
+                     .HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+  // At the moment, text index on edges isn't supported for on-disk storage
+  if constexpr (std::is_same_v<StorageTypes, memgraph::storage::InMemoryStorage>) {
+    {
+      auto unique_acc = this->db->UniqueAccess();
+      ASSERT_FALSE(unique_acc
+                       ->CreateTextEdgeIndex(memgraph::storage::TextEdgeIndexSpec{
+                           "text_edge_index_without_properties", this->db->storage()->NameToEdgeType("RELATES_TO"), {}})
+                       .HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    }
+    {
+      auto unique_acc = this->db->UniqueAccess();
+      ASSERT_FALSE(
+          unique_acc
+              ->CreateTextEdgeIndex(memgraph::storage::TextEdgeIndexSpec{
+                  "text_edge_index_with_properties",
+                  this->db->storage()->NameToEdgeType("RELATES_TO"),
+                  {this->db->storage()->NameToProperty("title"), this->db->storage()->NameToProperty("content")}})
+              .HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    }
   }
 
   const auto &db_initial_state = GetState(this->db->storage());
@@ -1177,7 +1364,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                                                           system_state
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          std::nullopt
+                                                          std::nullopt, nullptr
 #endif
   );
   {
@@ -1207,7 +1394,7 @@ TYPED_TEST(DumpTest, ExecuteDumpDatabase) {
   {
     auto dba = this->db->Access();
     CreateVertex(dba.get(), {}, {}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -1233,7 +1420,7 @@ class StatefulInterpreter {
   explicit StatefulInterpreter(memgraph::query::InterpreterContext *context, memgraph::dbms::DatabaseAccess db)
       : context_(context), interpreter_(context_, db) {
     memgraph::query::AllowEverythingAuthChecker auth_checker;
-    interpreter_.SetUser(auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+    interpreter_.SetUser(auth_checker.GenQueryUser(std::nullopt, {}));
   }
 
   auto Execute(const std::string &query) {
@@ -1273,7 +1460,7 @@ TYPED_TEST(DumpTest, ExecuteDumpDatabaseInMulticommandTransaction) {
   {
     auto dba = this->db->Access();
     CreateVertex(dba.get(), {}, {}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Verify that nothing is dumped.
@@ -1324,7 +1511,7 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
           unique_acc
               ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), {this->db->storage()->NameToProperty("name")})
               .HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       auto unique_acc = this->db->UniqueAccess();
@@ -1332,7 +1519,7 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
                        ->CreateIndex(this->db->storage()->NameToLabel("PERSON"),
                                      {this->db->storage()->NameToProperty("surname")})
                        .HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
 
     // Create existence constraints
@@ -1341,14 +1528,14 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
       auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
                                                        this->db->storage()->NameToProperty("name"));
       ASSERT_FALSE(res.HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       auto unique_acc = this->db->UniqueAccess();
       auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
                                                        this->db->storage()->NameToProperty("surname"));
       ASSERT_FALSE(res.HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
 
     // Create unique constraints
@@ -1358,7 +1545,7 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
                                                     {this->db->storage()->NameToProperty("name")});
       ASSERT_TRUE(res.HasValue());
       ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       auto unique_acc = this->db->UniqueAccess();
@@ -1366,35 +1553,37 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
                                                     {this->db->storage()->NameToProperty("surname")});
       ASSERT_TRUE(res.HasValue());
       ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
 
     auto dba = this->db->Access();
+    auto name_id = dba->NameToProperty("name");
+    auto surname_id = dba->NameToProperty("surname");
     auto p1 = CreateVertex(dba.get(), {"PERSON"},
-                           {{"name", memgraph::storage::PropertyValue("Person1")},
-                            {"surname", memgraph::storage::PropertyValue("Unique1")}},
+                           {{name_id, memgraph::storage::PropertyValue("Person1")},
+                            {surname_id, memgraph::storage::PropertyValue("Unique1")}},
                            false);
     auto p2 = CreateVertex(dba.get(), {"PERSON"},
-                           {{"name", memgraph::storage::PropertyValue("Person2")},
-                            {"surname", memgraph::storage::PropertyValue("Unique2")}},
+                           {{name_id, memgraph::storage::PropertyValue("Person2")},
+                            {surname_id, memgraph::storage::PropertyValue("Unique2")}},
                            false);
     auto p3 = CreateVertex(dba.get(), {"PERSON"},
-                           {{"name", memgraph::storage::PropertyValue("Person3")},
-                            {"surname", memgraph::storage::PropertyValue("Unique3")}},
+                           {{name_id, memgraph::storage::PropertyValue("Person3")},
+                            {surname_id, memgraph::storage::PropertyValue("Unique3")}},
                            false);
     auto p4 = CreateVertex(dba.get(), {"PERSON"},
-                           {{"name", memgraph::storage::PropertyValue("Person4")},
-                            {"surname", memgraph::storage::PropertyValue("Unique4")}},
+                           {{name_id, memgraph::storage::PropertyValue("Person4")},
+                            {surname_id, memgraph::storage::PropertyValue("Unique4")}},
                            false);
     auto p5 = CreateVertex(dba.get(), {"PERSON"},
-                           {{"name", memgraph::storage::PropertyValue("Person5")},
-                            {"surname", memgraph::storage::PropertyValue("Unique5")}},
+                           {{name_id, memgraph::storage::PropertyValue("Person5")},
+                            {surname_id, memgraph::storage::PropertyValue("Unique5")}},
                            false);
     CreateEdge(dba.get(), &p1, &p2, "REL", {}, false);
     CreateEdge(dba.get(), &p1, &p3, "REL", {}, false);
     CreateEdge(dba.get(), &p4, &p5, "REL", {}, false);
     CreateEdge(dba.get(), &p2, &p5, "REL", {}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   ResultStreamFaker stream(this->db->storage());
@@ -1451,7 +1640,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
   memgraph::utils::SkipList<memgraph::query::QueryCacheEntry> ast_cache;
   memgraph::query::AllowEverythingAuthChecker auth_checker;
   memgraph::query::InterpreterConfig::Query query_config;
-  memgraph::storage::PropertyValue::map_t props;
+  memgraph::storage::ExternalPropertyValue::map_t props;
 
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1460,7 +1649,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_CREATE;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1469,7 +1659,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_UPDATE;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1478,7 +1669,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_DELETE;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1487,7 +1679,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::EDGE_CREATE;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1496,7 +1689,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::EDGE_UPDATE;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1505,7 +1699,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::EDGE_DELETE;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1514,7 +1709,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::ANY;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1523,7 +1719,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::ANY;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB);
   }
   {
     ResultStreamFaker stream(this->db->storage());
@@ -1553,7 +1750,7 @@ TYPED_TEST(DumpTest, DumpTypeConstraints) {
     auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
                                                      this->db->storage()->NameToProperty("name"));
     ASSERT_FALSE(res.HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
@@ -1561,7 +1758,7 @@ TYPED_TEST(DumpTest, DumpTypeConstraints) {
                                                   {this->db->storage()->NameToProperty("name")});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
@@ -1569,7 +1766,7 @@ TYPED_TEST(DumpTest, DumpTypeConstraints) {
                                                 this->db->storage()->NameToProperty("name"),
                                                 memgraph::storage::TypeConstraintKind::INTEGER);
     ASSERT_FALSE(res.HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
@@ -1577,7 +1774,7 @@ TYPED_TEST(DumpTest, DumpTypeConstraints) {
                                                 this->db->storage()->NameToProperty("surname"),
                                                 memgraph::storage::TypeConstraintKind::STRING);
     ASSERT_FALSE(res.HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   ResultStreamFaker stream(this->db->storage());

@@ -925,3 +925,56 @@ Feature: Match
             MERGE (n:Label1|Label2) RETURN n;
             """
         Then an error should be raised
+
+    Scenario: Using OR expression with label index MATCH
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And with new index :C
+        And having executed
+            """
+            CREATE (:A:B), (:A:C), (:A), (:D);
+            """
+        When executing query:
+            """
+            MATCH (n:A) WHERE (n:B OR n:C) RETURN n;
+            """
+        Then the result should be:
+            | n      |
+            | (:A:C) |
+            | (:A:B) |
+
+    Scenario: Using OR expression with mixed indexed and non-indexed labels
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And having executed
+            """
+            CREATE (:A:B), (:A:Z), (:A), (:C);
+            """
+        When executing query:
+            """
+            MATCH (n:A) WHERE (n:B OR n:Z) RETURN n;
+            """
+        Then the result should be:
+            | n      |
+            | (:A:B) |
+            | (:A:Z) |
+
+    Scenario: Using OR expression with label index and prop filter
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And with new index :C
+        And having executed
+            """
+            CREATE (:A:B {prop: 1}), (:A:C {prop: 2}), (:A:B {prop: 3}), (:A), (:D);
+            """
+        When executing query:
+            """
+            MATCH (n:A) WHERE (n:B OR n:C) AND n.prop > 1 RETURN n;
+            """
+        Then the result should be:
+            | n                |
+            | (:A:C {prop: 2}) |
+            | (:A:B {prop: 3}) |

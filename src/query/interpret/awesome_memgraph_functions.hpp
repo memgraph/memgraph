@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,10 +37,17 @@ struct FunctionContext {
   int64_t timestamp;
   std::unordered_map<std::string, int64_t> *counters;
   storage::View view;
+  int64_t hops_counter{0};
 };
 
 using func_impl =
     std::function<TypedValue(const TypedValue *arguments, int64_t num_arguments, const FunctionContext &context)>;
+
+struct func_info {
+  func_impl func_;
+  bool is_pure_;  // if true we can cache the result becasue result wouldn't change on 2nd evaluation
+};
+
 using user_func = std::pair<func_impl, std::shared_ptr<procedure::Module>>;
 
 /// Return the function implementation with the given name.
@@ -52,5 +59,21 @@ using user_func = std::pair<func_impl, std::shared_ptr<procedure::Module>>;
 ///
 /// Error, will return std::monostate if function can not be found
 auto NameToFunction(const std::string &function_name) -> std::variant<std::monostate, func_impl, user_func>;
+
+/// Check if a function is pure (i.e., deterministic with no side effects).
+///
+/// A pure function can be safely cached because the result won't change on
+/// subsequent evaluations with the same arguments.
+///
+/// Note: Currently, user-provided functions are considered not pure. This may
+/// change in the future when a mechanism for marking user-provided functions
+/// as pure is implemented.
+///
+/// @param function_name The name of the function to check
+/// @return true if the function is a pure builtin function, false otherwise
+bool IsFunctionPure(std::string_view function_name);
+
+// Returns the current hops counter if set, otherwise null.
+TypedValue GetHopsCounter(const TypedValue *args, int64_t nargs, const FunctionContext &ctx);
 
 }  // namespace memgraph::query

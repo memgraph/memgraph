@@ -16,7 +16,6 @@
 #include "slk/streams.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/replication/slk.hpp"
-#include "utils/cast.hpp"
 #include "utils/file.hpp"
 
 namespace memgraph::storage::replication {
@@ -41,13 +40,15 @@ class Encoder final : public durability::BaseEncoder {
 
   void WritePoint3d(storage::Point3d value) override;
 
-  void WritePropertyValue(const PropertyValue &value) override;
+  void WriteExternalPropertyValue(const ExternalPropertyValue &value) override;
 
-  void WriteBuffer(const uint8_t *buffer, size_t buffer_size);
+  void WriteFileBuffer(const uint8_t *buffer, size_t buffer_size);
 
   void WriteFileData(utils::InputFile *file);
 
-  bool WriteFile(const std::filesystem::path &path);
+  bool WriteFile(const std::filesystem::path &path, std::filesystem::path const &path_to_write);
+
+  slk::Builder *GetBuilder() const { return builder_; }
 
  private:
   slk::Builder *builder_;
@@ -73,17 +74,11 @@ class Decoder final : public durability::BaseDecoder {
 
   std::optional<Point3d> ReadPoint3dValue() override;
 
-  std::optional<PropertyValue> ReadPropertyValue() override;
+  std::optional<ExternalPropertyValue> ReadExternalPropertyValue() override;
 
   bool SkipString() override;
 
-  bool SkipPropertyValue() override;
-
-  /// Read the file and save it inside the specified directory.
-  /// @param directory Directory which will contain the read file.
-  /// @param suffix Suffix to be added to the received file's filename.
-  /// @return If the read was successful, path to the read file.
-  std::optional<std::filesystem::path> ReadFile(const std::filesystem::path &directory, const std::string &suffix = "");
+  bool SkipExternalPropertyValue() override;
 
  private:
   slk::Reader *reader_;

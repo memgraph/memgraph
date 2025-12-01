@@ -73,12 +73,12 @@ class QueryExecution : public testing::Test {
     interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr, repl_state.value(), *system_state
 #ifdef MG_ENTERPRISE
                                  ,
-                                 std::nullopt
+                                 std::nullopt, nullptr
 #endif
     );
     auth_checker_.emplace();
     interpreter_.emplace(&*interpreter_context_, *db_acc_);
-    interpreter_->SetUser(auth_checker_->GenQueryUser(std::nullopt, std::nullopt));
+    interpreter_->SetUser(auth_checker_->GenQueryUser(std::nullopt, {}));
   }
 
   void TearDown() override {

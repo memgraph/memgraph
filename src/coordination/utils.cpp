@@ -13,10 +13,6 @@
 
 #include <string_view>
 
-#include "coordination/logger_wrapper.hpp"
-#include "kvstore/kvstore.hpp"
-#include "utils/logging.hpp"
-
 #ifdef MG_ENTERPRISE
 namespace memgraph::coordination {
 auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, int const default_value,

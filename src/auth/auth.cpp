@@ -15,14 +15,68 @@
 
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
+#include "auth/models.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "auth/rpc.hpp"
 #include "flags/auth.hpp"
 #include "license/license.hpp"
 #include "system/transaction.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/message.hpp"
+#include "utils/resource_monitoring.hpp"
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
+
+#include <nlohmann/json.hpp>
+
+namespace {
+
+#ifdef MG_ENTERPRISE
+void UpdateUserProfileLimits(const std::string &user_or_role, const memgraph::auth::UserProfiles::Profile &profile,
+                             memgraph::utils::ResourceMonitoring &resource_monitor) {
+  const auto sl = std::visit(
+      memgraph::utils::Overloaded{[](memgraph::auth::UserProfiles::unlimitted_t /*unused*/) {
+                                    return memgraph::utils::SessionsResource::kUnlimited;
+                                  },
+                                  [](auto limit) { return memgraph::utils::SessionsResource::value_type(limit); }},
+      profile.limits[memgraph::auth::UserProfiles::Limits::kSessions]);
+
+  const auto tml =
+      std::visit(memgraph::utils::Overloaded{
+                     [](memgraph::auth::UserProfiles::unlimitted_t /*unused*/) {
+                       return memgraph::utils::TransactionsMemoryResource::kUnlimited;
+                     },
+                     [](auto limit) { return memgraph::utils::TransactionsMemoryResource::value_type(limit); }},
+                 profile.limits[memgraph::auth::UserProfiles::Limits::kTransactionsMemory]);
+
+  resource_monitor.UpdateUserLimits(user_or_role, sl, tml);
+}
+
+void ResetUserProfileLimits(const std::string &user_or_role, memgraph::utils::ResourceMonitoring &resource_monitor) {
+  resource_monitor.UpdateUserLimits(user_or_role, memgraph::utils::SessionsResource::kUnlimited,
+                                    memgraph::utils::TransactionsMemoryResource::kUnlimited);
+}
+
+void UpdateProfileLimits(const std::string &user, const std::optional<memgraph::auth::UserProfiles::Profile> &profile,
+                         memgraph::utils::ResourceMonitoring &resource_monitor) {
+  if (!profile) {
+    ResetUserProfileLimits(user, resource_monitor);
+  } else {
+    UpdateUserProfileLimits(user, *profile, resource_monitor);
+  }
+}
+
+auto UsersConnectedToProfile(auto &auth, const std::string &profile_name) -> std::unordered_set<std::string> {
+  try {
+    // NOTE: Supporting only user profiles
+    auto users_for_profile = auth.GetUsernamesForProfile(profile_name);
+    return {std::make_move_iterator(users_for_profile.begin()), std::make_move_iterator(users_for_profile.end())};
+  } catch (const memgraph::auth::AuthException & /*unused*/) {
+    return {};
+  }
+}
+#endif
+}  // namespace
 
 namespace memgraph {
 std::unordered_map<std::string, std::string> ModuleMappingsToMap(std::string_view module_mappings) {
@@ -81,25 +135,27 @@ namespace {
  * REPLICATION SYSTEM ACTION IMPLEMENTATIONS
  */
 struct UpdateAuthData : memgraph::system::ISystemAction {
-  explicit UpdateAuthData(User user) : user_{std::move(user)}, role_{std::nullopt} {}
-  explicit UpdateAuthData(Role role) : user_{std::nullopt}, role_{std::move(role)} {}
+  explicit UpdateAuthData(User user) : user_{std::move(user)} {}
+  explicit UpdateAuthData(Role role) : role_{std::move(role)} {}
+  explicit UpdateAuthData(UserProfiles::Profile profile) : profile_{std::move(profile)} {}
 
   void DoDurability() override { /* Done during Auth execution */
   }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
-                     replication::ReplicationEpoch const &epoch,
                      memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const replication::UpdateAuthDataRes &response) { return response.success; };
     if (user_) {
       return client.StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
-          check_response, main_uuid, std::string{epoch.id()}, txn.last_committed_system_timestamp(), txn.timestamp(),
-          *user_);
+          check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), *user_);
     }
     if (role_) {
       return client.StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
-          check_response, main_uuid, std::string{epoch.id()}, txn.last_committed_system_timestamp(), txn.timestamp(),
-          *role_);
+          check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), *role_);
+    }
+    if (profile_) {
+      return client.StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
+          check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), *profile_);
     }
     // Should never get here
     MG_ASSERT(false, "Trying to update auth data that is not a user nor a role");
@@ -111,10 +167,11 @@ struct UpdateAuthData : memgraph::system::ISystemAction {
  private:
   std::optional<User> user_;
   std::optional<Role> role_;
+  std::optional<UserProfiles::Profile> profile_;
 };
 
 struct DropAuthData : memgraph::system::ISystemAction {
-  enum class AuthDataType { USER, ROLE };
+  enum class AuthDataType : uint8_t { USER, ROLE, PROFILE };
 
   explicit DropAuthData(AuthDataType type, std::string_view name) : type_{type}, name_{name} {}
 
@@ -122,7 +179,6 @@ struct DropAuthData : memgraph::system::ISystemAction {
   }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
-                     replication::ReplicationEpoch const &epoch,
                      memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const replication::DropAuthDataRes &response) { return response.success; };
 
@@ -134,10 +190,12 @@ struct DropAuthData : memgraph::system::ISystemAction {
       case AuthDataType::ROLE:
         type = memgraph::replication::DropAuthDataReq::DataType::ROLE;
         break;
+      case AuthDataType::PROFILE:
+        type = memgraph::replication::DropAuthDataReq::DataType::PROFILE;
+        break;
     }
     return client.StreamAndFinalizeDelta<replication::DropAuthDataRpc>(
-        check_response, main_uuid, std::string{epoch.id()}, txn.last_committed_system_timestamp(), txn.timestamp(),
-        type, name_);
+        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), type, name_);
   }
   void PostReplication(replication::RoleMainData &mainData) const override {}
 
@@ -152,10 +210,14 @@ struct DropAuthData : memgraph::system::ISystemAction {
  */
 const std::string kUserPrefix = "user:";
 const std::string kRolePrefix = "role:";
-const std::string kLinkPrefix = "link:";
+const std::string kRoleLinkPrefix = "link:";
+const std::string kMtLinkPrefix = "mtlink:";
+// Profile linking is now handled by UserProfiles class
 const std::string kVersion = "version";
 
-static constexpr auto kVersionV1 = "V1";
+constexpr auto kVersionV1 = "V1";
+constexpr auto kVersionV2 = "V2";
+constexpr auto kVersionV3 = "V3";
 }  // namespace
 
 /**
@@ -221,6 +283,125 @@ void MigrateVersions(kvstore::KVStore &store) {
     store.PutMultiple(puts);
     version_str = kVersionV1;
   }
+
+  // Migrate from V1 to V2: convert single role links to JSON arrays
+  if (version_str == kVersionV1) {
+    spdlog::info("Migrating auth storage from V1 to V2: converting single role links to JSON arrays");
+
+    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV2}};
+    auto deletes = std::vector<std::string>{};
+
+    // Migrate all link entries from single role format to JSON array format
+    for (auto it = store.begin(kRoleLinkPrefix); it != store.end(kRoleLinkPrefix); ++it) {
+      auto const &[key, value] = *it;
+
+      // Convert old format (single role name) to new format (JSON array)
+      if (!value.empty()) {
+        nlohmann::json roles_array = nlohmann::json::array();
+        roles_array.push_back(value);
+        puts.emplace(key, roles_array.dump());
+      } else {
+        // Empty value, delete the link
+        deletes.push_back(key);
+      }
+    }
+
+    // Apply the migration
+    if (!puts.empty()) {
+      store.PutMultiple(puts);
+    }
+    if (!deletes.empty()) {
+      store.DeleteMultiple(deletes);
+    }
+    version_str = kVersionV2;
+
+    spdlog::info("Auth storage migration to V2 completed successfully");
+  }
+
+  if (version_str == kVersionV2) {
+    spdlog::info("Migrating auth storage from V2 to V3");
+    spdlog::warn(
+        "IMPORTANT: Review your security policy and explicitly configure finely grained access rules where needed.");
+
+    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV3}};
+
+    auto const convert_v2_to_v3_permissions = [](uint64_t const v2_perm) -> uint64_t {
+      // V2 permissions used bit_0 for read, bit_1 for update, and bit_2 for
+      // create_delete, but note that the trailing bits are also set because the
+      // permission formed a hierarchy.
+      constexpr uint64_t kV2Read = 1;
+      constexpr uint64_t kV2Update = 3;
+      constexpr uint64_t kV2CreateDelete = 7;
+
+      // V3 permission bits: NOTHING=0, READ=1, UPDATE=2, CREATE=8, DELETE=16.
+      // Need to duplicate them here as FineGrainedPermission is enterprise only
+      // and duplication is preferable to leaking the enum into community
+      // builds.
+      constexpr uint64_t kV3Nothing = 0;
+      constexpr uint64_t kV3Read = 1;
+      constexpr uint64_t kV3Update = 2;
+      constexpr uint64_t kV3Create = 8;
+      constexpr uint64_t kV3Delete = 16;
+
+      switch (v2_perm) {
+        case 0:
+          return kV3Nothing;
+        case kV2Read:
+          return kV3Read;
+        case kV2Update:
+          return kV3Update | kV3Read;
+        case kV2CreateDelete:
+          return kV3Create | kV3Delete | kV3Update | kV3Read;
+        default:
+          return kV3Nothing;
+      }
+    };
+
+    auto const migrate_entity = [&](auto const &prefix) {
+      for (auto it = store.begin(prefix); it != store.end(prefix); ++it) {
+        auto const &[key, value] = *it;
+        try {
+          auto data = nlohmann::json::parse(value);
+
+          auto const fg_it = data.find("fine_grained_access_handler");
+          if (fg_it != data.end() && fg_it->is_object()) {
+            for (auto const &perm_type : {"label_permissions", "edge_type_permissions"}) {
+              auto const perm_it = fg_it->find(perm_type);
+              if (perm_it != fg_it->end() && perm_it->is_object()) {
+                auto &perm_data = *perm_it;
+
+                auto const global_perm_it = perm_data.find("global_permission");
+                if (global_perm_it != perm_data.end() && global_perm_it->is_number_integer()) {
+                  auto const v2_perm = global_perm_it->template get<int64_t>();
+                  if (v2_perm >= 0) {
+                    *global_perm_it = convert_v2_to_v3_permissions(static_cast<uint64_t>(v2_perm));
+                  }
+                }
+
+                perm_data["permissions"] = nlohmann::json::array();
+              }
+            }
+
+            data["fine_grained_permissions"] = std::move(*fg_it);
+            data.erase("fine_grained_access_handler");
+            puts.emplace(key, data.dump());
+          }
+        } catch (const nlohmann::json::exception &e) {
+          spdlog::error("Failed to migrate {}: {}", key, e.what());
+        }
+      }
+    };
+
+    migrate_entity(kUserPrefix);
+    migrate_entity(kRolePrefix);
+
+    if (!puts.empty()) {
+      store.PutMultiple(puts);
+    }
+
+    version_str = kVersionV3;
+    spdlog::info("Auth storage migration to V3 completed successfully");
+  }
 }
 
 std::unordered_map<std::string, auth::Module> PopulateModules(std::string_view module_mappings) {
@@ -251,14 +432,40 @@ auto ParseJson(std::string_view str) {
 
 };  // namespace
 
-Auth::Auth(std::string storage_directory, Config config)
-    : storage_(std::move(storage_directory)), config_{std::move(config)} {
+Auth::Auth(std::string storage_directory, Config config
+#ifdef MG_ENTERPRISE
+           ,
+           utils::ResourceMonitoring *user_resources
+#endif
+           )
+    : storage_(std::move(storage_directory)),
+#ifdef MG_ENTERPRISE
+      user_resources_{user_resources},
+#endif
+      config_{std::move(config)} {
   modules_ = PopulateModules(FLAGS_auth_module_mappings);
-  MigrateVersions(storage_);
-}
+  if (storage_.Size() > 0) {
+    MigrateVersions(storage_);
+  } else {
+    // Clean storage; put the version
+    storage_.Put(kVersion, kVersionV3);
+  }
+
+#ifdef MG_ENTERPRISE
+  if (user_resources_) {
+    // Update user resources with the initial profile limits
+    for (const auto &profile : user_profiles_.GetAll()) {
+      for (const auto &username : profile.usernames) {
+        UpdateProfileLimits(username, profile, *user_resources_);
+      }
+    }
+  }
+#endif
+}  // namespace memgraph::auth
 
 std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, const nlohmann::json &module_params,
                                                    std::optional<std::string> provided_username) {
+  spdlog::trace("Calling external auth module for scheme '{}'.", scheme);
   auto ret = modules_.at(scheme).Call(module_params, FLAGS_auth_module_timeout_ms);
 
   auto get_errors = [&ret]() -> std::string {
@@ -317,18 +524,60 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
     return std::nullopt;
   }
 
-  const auto rolename = get_string_field("role");
-  if (!rolename) return std::nullopt;
+  // Handle both single role and multiple roles
+  std::vector<std::string> role_names;
 
-  auto role = GetRole(*rolename);
-  if (!role) {
-    spdlog::warn(utils::MessageWithLink("Couldn't authenticate external user because the role {} doesn't exist.",
-                                        rolename, "https://memgr.ph/auth"));
+  // Check for "roles" field first (multiple roles)
+  if (ret.find("roles") != ret.end()) {
+    const auto &roles_field = ret.at("roles");
+    if (roles_field.is_array()) {
+      for (const auto &role_name : roles_field) {
+        if (role_name.is_string()) {
+          role_names.push_back(role_name.get<std::string>());
+        }
+      }
+    } else if (roles_field.is_string()) {
+      role_names.push_back(roles_field.get<std::string>());
+    }
+  }
+
+  // Fall back to single "role" field for backward compatibility
+  if (role_names.empty()) {
+    const auto rolename = get_string_field("role");
+    if (!rolename) {
+      spdlog::warn(utils::MessageWithLink(
+          "Couldn't authenticate external user because the role was not returned by the auth module.",
+          "https://memgr.ph/auth"));
+      return std::nullopt;
+    }
+    role_names.push_back(*rolename);
+  }
+
+  if (role_names.empty()) {
+    spdlog::warn(utils::MessageWithLink(
+        "Couldn't authenticate user: no valid role(s) returned by the external auth module.", "https://memgr.ph/sso"));
     return std::nullopt;
   }
 
+  // Get all the roles
+  auth::Roles roles;
+  for (const auto &role_name : role_names) {
+    auto role = GetRole(role_name);
+    if (!role) {
+      spdlog::warn(utils::MessageWithLink("Couldn't authenticate external user because the role {} doesn't exist.",
+                                          role_name, "https://memgr.ph/auth"));
+      return std::nullopt;
+    }
+    roles.AddRole(*role);
+  }
+
   auto username = provided_username.has_value() ? provided_username : get_string_field("username");
-  if (!username) return std::nullopt;
+  if (!username) {
+    spdlog::warn(utils::MessageWithLink(
+        "Couldn't authenticate external user because the username was not returned by the auth module.",
+        "https://memgr.ph/auth"));
+    return std::nullopt;
+  }
 
   auto already_existing_user = GetUser(*username);
   if (already_existing_user) {
@@ -338,7 +587,9 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
     return std::nullopt;
   }
 
-  return UserOrRole(auth::RoleWUsername{*username, *role});
+  spdlog::trace("Authenticated user '{}' with roles: {}.", *username,
+                memgraph::utils::JoinVector(roles.rolenames(), ", "));
+  return UserOrRole(auth::RoleWUsername{*username, roles});
 }
 
 std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const std::string &password) {
@@ -389,13 +640,88 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
 }
 
 void Auth::LinkUser(User &user) const {
-  auto link = storage_.Get(kLinkPrefix + user.username());
-  if (link) {
-    auto role = GetRole(*link);
-    if (role) {
-      user.SetRole(*role);
+  // User set roles on particular databases
+  // NOTE Has to be done in this order, otherwise the global roles will overwrite the multi-tenant roles
+  [[maybe_unused]] std::unordered_set<std::string> failed_mt_roles;
+#ifdef MG_ENTERPRISE
+  auto mt_link = storage_.Get(kMtLinkPrefix + user.username());
+  if (mt_link) {
+    try {
+      auto json_data = ParseJson(*mt_link);
+      if (!json_data.is_object()) {
+        spdlog::warn("Found invalid JSON in mtlink format for user '{}'", user.username());
+        return;
+      }
+      for (const auto &[db, roles_array] : json_data.items()) {
+        if (!roles_array.is_array()) {
+          spdlog::warn("Invalid mtlink entry for user '{}': expected array of rolenames for db '{}'", user.username(),
+                       db);
+          continue;
+        }
+        for (const auto &rolename_json : roles_array) {
+          if (!rolename_json.is_string()) {
+            spdlog::warn("Invalid mtlink entry for user '{}': expected string rolename for db '{}'", user.username(),
+                         db);
+            continue;
+          }
+          const auto &rolename = rolename_json.get<std::string>();
+          auto role = GetRole(rolename);
+          if (!role) {
+            spdlog::warn("Role '{}' doesn't exist for user '{}'", rolename, user.username());
+            continue;
+          }
+          try {
+            user.AddMultiTenantRole(*role, db);
+          } catch (const AuthException &e) {
+            spdlog::warn("Couldn't add multi-tenant role '{}' to user '{}' on database '{}': {}", rolename,
+                         user.username(), db, e.what());
+            failed_mt_roles.insert(rolename);
+          }
+        }
+      }
+    } catch (const nlohmann::detail::exception &) {
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in mtlink format for user '{}'", user.username());
+      return;
     }
   }
+#endif
+
+  // User set these roles on all databases
+  auto link = storage_.Get(kRoleLinkPrefix + user.username());
+  if (link) {
+    try {
+      // Parse as JSON array (V2 format)
+      auto json_data = ParseJson(*link);
+      if (!json_data.is_array()) {
+        spdlog::warn("Found invalid JSON in link format for user '{}'", user.username());
+        return;
+      }
+      // V2 format: array of role names
+      for (const auto &role_name : json_data) {
+        if (role_name.is_string()) {
+          // Check that the role is not already added (via the multi-tenant role) or failed to add
+          if (failed_mt_roles.contains(role_name.get<std::string>()) ||
+              user.roles().GetRole(role_name.get<std::string>())) {
+            continue;
+          }
+          auto role = GetRole(role_name.get<std::string>());
+          if (role) {
+            user.AddRole(*role);
+          }
+        }
+      }
+
+    } catch (const nlohmann::detail::exception &) {
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in link format for user '{}'", user.username());
+      return;
+    }
+  }
+
+#ifdef MG_ENTERPRISE
+  // Profile linking moved to UserProfiles class
+#endif
 }
 
 std::optional<User> Auth::GetUser(const std::string &username_orig) const {
@@ -409,15 +735,43 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) const {
 }
 
 void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
-  bool success = false;
-  if (const auto *role = user.role(); role != nullptr) {
-    success = storage_.PutMultiple(
-        {{kUserPrefix + user.username(), user.Serialize().dump()}, {kLinkPrefix + user.username(), role->rolename()}});
+  std::map<std::string, std::string> puts;
+  std::vector<std::string> deletes;
+
+  // Always store the user data
+  puts.emplace(kUserPrefix + user.username(), user.Serialize().dump());
+
+  // Store regular roles
+  if (!user.roles().empty()) {
+    // Store all roles as a JSON array
+    nlohmann::json roles_array = nlohmann::json::array();
+    for (const auto &role : user.roles()) {
+      roles_array.push_back(role.rolename());
+    }
+    puts.emplace(kRoleLinkPrefix + user.username(), roles_array.dump());
   } else {
-    success = storage_.PutAndDeleteMultiple({{kUserPrefix + user.username(), user.Serialize().dump()}},
-                                            {kLinkPrefix + user.username()});
+    deletes.push_back(kRoleLinkPrefix + user.username());
   }
-  if (!success) {
+
+#ifdef MG_ENTERPRISE
+  // Store multi-tenant roles
+  const auto &mt_mappings = user.GetMultiTenantRoleMappings();
+  if (!mt_mappings.empty()) {
+    nlohmann::json mt_links;
+    for (const auto &[db_name, role_names] : mt_mappings) {
+      mt_links[db_name] = nlohmann::json::array();
+      for (const auto &role_name : role_names) {
+        mt_links[db_name].push_back(role_name);
+      }
+    }
+    puts.emplace(kMtLinkPrefix + user.username(), mt_links.dump());
+  } else {
+    deletes.push_back(kMtLinkPrefix + user.username());
+  }
+#endif
+
+  // Update
+  if (!storage_.PutAndDeleteMultiple(puts, deletes)) {
     throw AuthException("Couldn't save user '{}'!", user.username());
   }
 
@@ -437,10 +791,6 @@ void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &pa
   if (password) {
     const auto already_hashed = UserDefinedHash(*password);
     if (already_hashed) {
-      // TODO: Do this?
-      // if (config_.custom_password_regex || config_.password_permit_null) {
-      //   throw AuthException("Passing in a hash is not allowed when password format restrictions are defined.");
-      // }
       user.UpdateHash(*already_hashed);
       return;
     }
@@ -493,7 +843,14 @@ std::optional<User> Auth::AddUser(const std::string &username, const std::option
 bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *system_tx) {
   auto username = utils::ToLowerCase(username_orig);
   if (!storage_.Get(kUserPrefix + username)) return false;
-  std::vector<std::string> keys({kLinkPrefix + username, kUserPrefix + username});
+  const std::vector<std::string> keys({kMtLinkPrefix + username, kRoleLinkPrefix + username, kUserPrefix + username});
+
+// User profiles
+#ifdef MG_ENTERPRISE
+  // Profile data is now managed by UserProfiles class
+  if (user_resources_) user_resources_->RemoveUser(username);
+#endif
+
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove user '{}'!", username);
   }
@@ -546,16 +903,186 @@ bool Auth::HasUsers() const { return storage_.begin(kUserPrefix) != storage_.end
 
 bool Auth::AccessControlled() const { return HasUsers() || UsingAuthModule(); }
 
+void Auth::LinkRole(Role &role) const {
+#ifdef MG_ENTERPRISE
+// Profile linking moved to UserProfiles class
+#endif
+}
+
 std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
   auto rolename = utils::ToLowerCase(rolename_orig);
   auto existing_role = storage_.Get(kRolePrefix + rolename);
   if (!existing_role) return std::nullopt;
 
-  return Role::Deserialize(ParseJson(*existing_role));
+  auto role = Role::Deserialize(ParseJson(*existing_role));
+  LinkRole(role);
+  return role;
 }
 
+#ifdef MG_ENTERPRISE
+bool Auth::CreateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
+                         const std::unordered_set<std::string> &usernames, system::Transaction *system_tx) {
+  const auto res = user_profiles_.Create(profile_name, defined_limits, usernames);
+  if (res && system_tx) {
+    system_tx->AddAction<UpdateAuthData>(UserProfiles::Profile{profile_name, defined_limits, usernames});
+  }
+  return res;
+}
+
+std::optional<UserProfiles::Profile> Auth::UpdateProfile(const std::string &profile_name,
+                                                         const UserProfiles::limits_t &updated_limits,
+                                                         system::Transaction *system_tx) {
+  const auto res = user_profiles_.Update(profile_name, updated_limits);
+  if (res) {
+    // Update user resources
+    if (user_resources_) {
+      for (const auto &user : UsersConnectedToProfile(*this, profile_name)) {
+        UpdateProfileLimits(user, res, *user_resources_);
+      }
+    }
+    if (system_tx) {
+      system_tx->AddAction<UpdateAuthData>(res.value());
+    }
+  }
+  return res;
+}
+
+bool Auth::CreateOrUpdateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
+                                 const std::unordered_set<std::string> &usernames, system::Transaction *system_tx) {
+  if (!CreateProfile(profile_name, defined_limits, usernames, system_tx)) {
+    // Profile already exists, update it
+    // Figure out the difference between the existing users and the new ones
+    const auto existing_users = GetUsernamesForProfile(profile_name);
+    const auto &new_users = usernames;
+    for (const auto &user : existing_users) {
+      if (!new_users.contains(user)) {
+        try {
+          RevokeProfile(user, system_tx);
+        } catch (const AuthException &e) {
+          spdlog::warn("Failed to revoke profile for user '{}': {}", user, e.what());
+        }
+      }
+    }
+    for (const auto &user : new_users) {
+      if (!existing_users.contains(user)) {
+        try {
+          SetProfile(profile_name, user, system_tx);
+        } catch (const AuthException &e) {
+          spdlog::warn("Failed to set profile for user '{}': {}", user, e.what());
+        }
+      }
+    }
+    if (!UpdateProfile(profile_name, defined_limits, system_tx)) {
+      spdlog::debug("SystemRecoveryHandler: Failed to save profile");
+      return false;
+    }
+  }
+  return true;
+}
+
+bool Auth::DropProfile(const std::string &profile_name, system::Transaction *system_tx) {
+  std::unordered_set<std::string> users;
+  if (user_resources_) {
+    users = UsersConnectedToProfile(*this, profile_name);
+  }
+  const auto res = user_profiles_.Drop(profile_name);
+  if (res) {
+    // Update user resources
+    if (user_resources_) {
+      for (const auto &user : users) {
+        UpdateProfileLimits(user, {}, *user_resources_);
+      }
+    }
+    if (system_tx) {
+      system_tx->AddAction<DropAuthData>(DropAuthData::AuthDataType::PROFILE, profile_name);
+    }
+  }
+  return res;
+}
+
+std::optional<UserProfiles::Profile> Auth::GetProfile(std::string_view name) const { return user_profiles_.Get(name); }
+
+std::vector<UserProfiles::Profile> Auth::AllProfiles() const { return user_profiles_.GetAll(); }
+
+std::optional<UserProfiles::Profile> Auth::SetProfile(const std::string &profile_name, const std::string &name,
+                                                      system::Transaction *system_tx) {
+  // Add username to the profile
+  const auto profile = user_profiles_.AddUsername(profile_name, name);
+  if (!profile) {
+    throw AuthException("Couldn't set profile '{}' for user '{}'!", profile_name, name);
+  }
+
+  if (user_resources_) {
+    UpdateProfileLimits(name, profile, *user_resources_);
+  }
+
+  if (system_tx) {
+    system_tx->AddAction<UpdateAuthData>(*profile);
+  }
+
+  return profile;
+}
+
+void Auth::RevokeProfile(const std::string &name, system::Transaction *system_tx) {
+  // Find which profile the username belongs to
+  auto profile_name = user_profiles_.GetProfileForUsername(name);
+  if (!profile_name) {
+    // User doesn't have a profile, nothing to revoke
+    return;
+  }
+
+  // Remove username from the profile
+  if (!user_profiles_.RemoveUsername(*profile_name, name)) {
+    throw AuthException("Couldn't revoke profile for user '{}'!", name);
+  }
+
+  if (user_resources_) {
+    UpdateProfileLimits(name, std::nullopt, *user_resources_);
+  }
+
+  if (system_tx) {
+    auto profile = user_profiles_.Get(*profile_name);
+    if (profile) {
+      system_tx->AddAction<UpdateAuthData>(*profile);
+    }
+  }
+}
+
+std::vector<User> Auth::GetUsersForProfile(const std::string &profile_name) const {
+  const auto profile = user_profiles_.Get(profile_name);
+  if (!profile) {
+    throw AuthException("Couldn't find profile '{}'!", profile_name);
+  }
+
+  std::vector<User> ret;
+  for (const auto &username : profile->usernames) {
+    if (auto user = GetUser(username)) {
+      ret.push_back(*user);
+    }
+  }
+  return ret;
+}
+
+std::unordered_set<std::string> Auth::GetUsernamesForProfile(const std::string &profile_name) const {
+  const auto profile = user_profiles_.Get(profile_name);
+  if (!profile) {
+    throw AuthException("Couldn't find profile '{}'!", profile_name);
+  }
+
+  return profile->usernames;
+}
+
+std::optional<std::string> Auth::GetProfileForUsername(const std::string &username) const {
+  return user_profiles_.GetProfileForUsername(username);
+}
+
+#endif
+
 void Auth::SaveRole(const Role &role, system::Transaction *system_tx) {
-  if (!storage_.Put(kRolePrefix + role.rolename(), role.Serialize().dump())) {
+  const std::map<std::string, std::string> puts = {{kRolePrefix + role.rolename(), role.Serialize().dump()}};
+
+  // Update
+  if (!storage_.PutMultiple(puts)) {
     throw AuthException("Couldn't save role '{}'!", role.rolename());
   }
 
@@ -584,14 +1111,77 @@ std::optional<Role> Auth::AddRole(const std::string &rolename, system::Transacti
 bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *system_tx) {
   auto rolename = utils::ToLowerCase(rolename_orig);
   if (!storage_.Get(kRolePrefix + rolename)) return false;
-  std::vector<std::string> keys;
-  for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
-    if (utils::ToLowerCase(it->second) == rolename) {
-      keys.push_back(it->first);
+
+  // First, remove the role from all users who have it
+  for (auto it = storage_.begin(kRoleLinkPrefix); it != storage_.end(kRoleLinkPrefix); ++it) {
+    auto username = it->first.substr(kRoleLinkPrefix.size());
+    bool needs_update = false;
+    nlohmann::json updated_roles;
+
+    try {
+      // Parse as JSON array (V2 format)
+      auto json_data = ParseJson(it->second);
+      if (!json_data.is_array()) {
+        spdlog::warn("Found invalid JSON in link format for user '{}'", username);
+        continue;
+      }
+      // V2 format: remove the role from the array
+      updated_roles = nlohmann::json::array();
+      for (const auto &role_name : json_data) {
+        if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) != rolename) {
+          updated_roles.push_back(role_name);
+        } else if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
+          needs_update = true;
+        }
+      }
+    } catch (const nlohmann::detail::exception &) {
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in link format for user '{}', treating as single role", username);
+      continue;
+    }
+
+    if (needs_update) {
+      if (updated_roles.is_null()) {
+        // Remove the link entirely (old format or empty array)
+        storage_.Delete(it->first);
+      } else if (updated_roles.empty()) {
+        // Remove the link entirely (empty array)
+        storage_.Delete(it->first);
+      } else {
+        // Update with the remaining roles
+        storage_.Put(it->first, updated_roles.dump());
+      }
     }
   }
-  keys.push_back(kRolePrefix + rolename);
-  if (!storage_.DeleteMultiple(keys)) {
+
+  for (auto it = storage_.begin(kMtLinkPrefix); it != storage_.end(kMtLinkPrefix); ++it) {
+    auto username = it->first.substr(kMtLinkPrefix.size());
+    if (username != utils::ToLowerCase(username)) continue;
+    auto json_data = ParseJson(it->second);
+    bool update = false;
+    for (auto &[db_name, role_names] : json_data.items()) {
+      if (role_names.is_array()) {
+        // Find and remove the role by index
+        for (size_t i = 0; i < role_names.size(); ++i) {
+          if (role_names[i].is_string() && utils::ToLowerCase(role_names[i].get<std::string>()) == rolename) {
+            role_names.erase(i);
+            update = true;
+            break;  // Remove only the first occurrence
+          }
+        }
+      }
+    }
+    if (update) {
+      if (json_data.empty()) {
+        storage_.Delete(it->first);
+      } else {
+        storage_.Put(it->first, json_data.dump());
+      }
+    }
+  }
+
+  // Then remove the role itself
+  if (!storage_.Delete(kRolePrefix + rolename)) {
     throw AuthException("Couldn't remove role '{}'!", rolename);
   }
 
@@ -613,6 +1203,7 @@ std::vector<auth::Role> Auth::AllRoles() const {
     auto rolename = it->first.substr(kRolePrefix.size());
     if (rolename != utils::ToLowerCase(rolename)) continue;
     Role role = memgraph::auth::Role::Deserialize(ParseJson(it->second));  // Will throw on failure
+    LinkRole(role);
     ret.emplace_back(std::move(role));
   }
   return ret;
@@ -637,17 +1228,69 @@ std::vector<std::string> Auth::AllRolenames() const {
 std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) const {
   const auto rolename = utils::ToLowerCase(rolename_orig);
   std::vector<auth::User> ret;
-  for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
-    auto username = it->first.substr(kLinkPrefix.size());
+  for (auto it = storage_.begin(kRoleLinkPrefix); it != storage_.end(kRoleLinkPrefix); ++it) {
+    auto username = it->first.substr(kRoleLinkPrefix.size());
     if (username != utils::ToLowerCase(username)) continue;
-    if (it->second != utils::ToLowerCase(it->second)) continue;
-    if (it->second == rolename) {
+
+    bool has_role = false;
+    try {
+      // Parse as JSON array (V2 format)
+      auto json_data = ParseJson(it->second);
+      if (!json_data.is_array()) {
+        spdlog::warn("Found non-array link format for user '{}'", username);
+        continue;
+      }
+      // V2 format: check if role is in the array
+      for (const auto &role_name : json_data) {
+        if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
+          has_role = true;
+          break;
+        }
+      }
+    } catch (const nlohmann::detail::exception &) {
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in link format for user '{}', treating as single role", username);
+      continue;
+    }
+
+    if (has_role) {
       if (auto user = GetUser(username)) {
         ret.push_back(std::move(*user));
       } else {
         throw AuthException("Couldn't load user '{}'!", username);
       }
     }
+  }
+  return ret;
+}
+
+std::vector<std::string> Auth::AllUsernamesForRole(const std::string &rolename_orig) const {
+  const auto rolename = utils::ToLowerCase(rolename_orig);
+  std::vector<std::string> ret;
+  for (auto it = storage_.begin(kRoleLinkPrefix); it != storage_.end(kRoleLinkPrefix); ++it) {
+    auto username = it->first.substr(kRoleLinkPrefix.size());
+    if (username != utils::ToLowerCase(username)) continue;
+    bool has_role = false;
+    try {
+      // Parse as JSON array (V2 format)
+      auto json_data = ParseJson(it->second);
+      if (!json_data.is_array()) {
+        spdlog::warn("Found non-array link format for user '{}'", username);
+        continue;
+      }
+      // V2 format: check if role is in the array
+      for (const auto &role_name : json_data) {
+        if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
+          has_role = true;
+          break;
+        }
+      }
+    } catch (const nlohmann::detail::exception &) {
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in link format for user '{}', treating as single role", username);
+      continue;
+    }
+    if (has_role) ret.push_back(std::move(username));
   }
   return ret;
 }
@@ -763,6 +1406,7 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
     try {
       auto role = memgraph::auth::Role::Deserialize(ParseJson(it->second));
       role.db_access().Revoke(db);
+      LinkRole(role);
       SaveRole(role, system_tx);
     } catch (AuthException &) {
       continue;
@@ -811,6 +1455,16 @@ bool Auth::NameRegexMatch(const std::string &user_or_role) const {
     }
   }
   return std::regex_match(user_or_role, config_.name_regex);
+}
+
+bool Auth::HasUser(std::string_view name) const {
+  auto username = utils::ToLowerCase(name);
+  return storage_.Get(kUserPrefix + username).has_value();
+}
+
+bool Auth::HasRole(std::string_view name) const {
+  auto rolename = utils::ToLowerCase(name);
+  return storage_.Get(kRolePrefix + rolename).has_value();
 }
 
 }  // namespace memgraph::auth

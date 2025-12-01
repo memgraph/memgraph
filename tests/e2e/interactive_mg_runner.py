@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2025 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,12 +10,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# TODO(gitbuda): Add action to print the context/cluster.
-# TODO(gitbuda): Add action to print logs of each Memgraph instance.
-# TODO(gitbuda): Polish naming within script.
-# TODO(gitbuda): Consider moving this somewhere higher in the project or even put inside GQLAlchemy.
-
-# The idea here is to implement simple interactive runner of Memgraph instances because:
+# The idea here is to implement a simple interactive runner of Memgraph instances because:
 #   * it should be possible to manually create new test cases first
 #     by just running this script and executing command manually from e.g. mgconsole,
 #     running single instance of Memgraph is easy but running multiple instances and
@@ -35,6 +30,7 @@ import logging
 import os
 import secrets
 import sys
+import termios
 import time
 from argparse import ArgumentParser
 from inspect import signature
@@ -77,14 +73,122 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         ],
     },
 }
+
+
+def read_action_line(prompt="ACTION> "):
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+
+    fd = sys.stdin.fileno()
+    old_attrs = termios.tcgetattr(fd)
+    new_attrs = termios.tcgetattr(fd)
+
+    # Turn off ECHO and ICANON (so keys don't print themselves and we read byte-by-byte)
+    new_attrs[3] &= ~(termios.ECHO | termios.ICANON)
+    termios.tcsetattr(fd, termios.TCSADRAIN, new_attrs)
+
+    try:
+        buf = []
+        while True:
+            ch = os.read(fd, 1)
+            if not ch:
+                continue
+            c = ch.decode("utf-8", "ignore")
+
+            # Enter
+            if c in ("\n", "\r"):
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                return "".join(buf)
+
+            # Backspace (DEL)
+            if c == "\x7f":
+                if buf:
+                    buf.pop()
+                    sys.stdout.write("\b \b")
+                    sys.stdout.flush()
+                continue
+
+            # ESC sequences (arrows, Home/End, etc.) — swallow them completely
+            if c == "\x1b":
+                # Typical CSI: ESC [ ... final
+                nxt = os.read(fd, 1).decode("utf-8", "ignore")
+                if nxt == "[":
+                    # Read until final byte of CSI sequence (@ A–Z a–z ~)
+                    while True:
+                        d = os.read(fd, 1).decode("utf-8", "ignore")
+                        if not d:
+                            break
+                        if d.isalpha() or d in "@~":
+                            break
+                # Ignore whole sequence (don’t echo)
+                continue
+
+            # Regular printable characters
+            if c.isprintable():
+                buf.append(c)
+                sys.stdout.write(c)
+                sys.stdout.flush()
+            # ignore everything else silently
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
+
+
+def clear_screen():
+    """Clear terminal screen (cross-platform)."""
+    # Use ANSI first (fast, no subprocess); fall back to cls/clear if needed.
+    try:
+        # Clear + move cursor to home
+        sys.stdout.write("\033[2J\033[H")
+        sys.stdout.flush()
+    except Exception:
+        os.system("cls" if os.name == "nt" else "clear")
+
+
+import subprocess
+
+
+def pids_for_port(port: int) -> list[str]:
+    # -nP: no DNS/service lookups; -iTCP:<port>: filter by TCP and port
+    # -sTCP:LISTEN: only listening sockets; -t: PIDs only
+    cmd = ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"]
+    try:
+        out = subprocess.check_output(cmd, text=True).strip()
+        return sorted({x for x in out.split()}) if out else []
+    except subprocess.CalledProcessError:
+        return []  # no matches
+    except FileNotFoundError:
+        raise RuntimeError("lsof not found in PATH")
+
+
+def pidof(instances, instance_name):
+    if instance_name not in instances:
+        log.error(f"{instance_name} is not an active instance")
+        return
+
+    val = instances[instance_name]
+    mg_args = val["args"]
+    port = int(next(mg_arg.split("=", 1)[1] for mg_arg in mg_args if mg_arg.startswith("--bolt-port=")))
+    pids = pids_for_port(port)
+    if len(pids) == 1:
+        pids = pids[0]  # To avoid list output
+    print("{:<15s}".format(str(pids)))
+
+
 MEMGRAPH_INSTANCES = {}
+
 ACTIONS = {
-    "info": lambda context: info(context),
-    "stop": lambda context, name: stop(context, name),
-    "start": lambda context, name: start_wrapper(context, name),
+    "info": lambda instances: info(instances),
+    "stop": lambda instances, name: stop(instances, name),
+    "start": lambda instances, name: start_wrapper(instances, name),
     "sleep": lambda _, delta: time.sleep(float(delta)),
     "exit": lambda _: sys.exit(1),
     "quit": lambda _: sys.exit(1),
+    "clear": lambda _: clear_screen(),
+    "cls": lambda _: clear_screen(),
+    "\x0c": lambda _: clear_screen(),  # Ctrl+L
+    "^L": lambda _: clear_screen(),
+    "pidof": lambda instances, instance_name: pidof(instances, instance_name),
 }
 
 log = logging.getLogger("memgraph.tests.e2e")
@@ -178,6 +282,9 @@ def stop(context, name, keep_directories=True):
     """
     Idempotent in a sense that stopping already stopped instance won't fail program.
     """
+    if name not in context:
+        log.error(f"{name} is not an active instance name")
+        return
     for key, _ in context.items():
         if key != name:
             continue
@@ -205,18 +312,22 @@ def kill(context, name, keep_directories=True):
         MEMGRAPH_INSTANCES.pop(name)
 
 
-def start_wrapper(context, name, procdir=""):
-    if name == "all":
-        start_all(context, procdir)
+def start_wrapper(instances, instance_name, procdir=""):
+    if instance_name == "all":
+        start_all(instances, procdir)
     else:
-        start(context, name, procdir)
+        start(instances, instance_name, procdir)
 
 
-def start(context, name, procdir=""):
+def start(instances, instance_name, procdir=""):
     mg_instances = {}
 
-    for key, value in context.items():
-        if key != name:
+    if instance_name not in instances:
+        log.error(f"{instance_name} is not an active instance name")
+        return
+
+    for key, value in instances.items():
+        if key != instance_name:
             continue
         args = value["args"]
         log_file = value["log_file"]
@@ -237,7 +348,7 @@ def start(context, name, procdir=""):
         storage_snapshot_on_exit = value["storage_snapshot_on_exit"] if "storage_snapshot_on_exit" in value else False
 
         instance = _start(
-            name,
+            instance_name,
             args,
             log_file,
             setup_queries,
@@ -248,8 +359,8 @@ def start(context, name, procdir=""):
             password,
             storage_snapshot_on_exit=storage_snapshot_on_exit,
         )
-        log.info(f"Instance with name {name} started")
-        mg_instances[name] = instance
+        log.info(f"Instance with name {instance_name} started")
+        mg_instances[instance_name] = instance
 
     assert len(mg_instances) == 1
 
@@ -283,39 +394,48 @@ def info(context):
         print("{:<15s}{:>6s}".format(name, "UP" if instance.is_running() else "DOWN"))
 
 
-def process_actions(context, actions):
+def process_actions(instances, data):
     """
     Processes all `actions` using the `context` as context.
     """
-    actions = actions.split(" ")
-    actions.reverse()
-    while len(actions) > 0:
-        name = actions.pop()
-        action = ACTIONS[name]
+    data = data.split(" ")
+    data.reverse()
+    while len(data) > 0:
+        arg = data.pop()
+        if arg not in ACTIONS:
+            log.error(f"{arg} is unknown action")
+            continue
+        action = ACTIONS[arg]
+
         args_no = len(signature(action).parameters) - 1
         assert (
-            args_no >= 0
-        ), "Wrong action definition, each action has to accept at least 1 argument which is the context."
-        assert args_no <= 1, "Actions with more than one user argument are not yet supported"
+            args_no == 0 or args_no == 1
+        ), "Wrong action definition, each action has to accept at least [0,1] argument which is the context."
+
         if args_no == 0:
-            action(context)
-        if args_no == 1:
-            action(context, actions.pop())
+            action(instances)
+        elif args_no == 1:
+            if len(data) == 0:
+                log.error(f"Not enough args provided. Expected 1 but found 0 for action {arg}")
+            else:
+                action(instances, data.pop())
 
 
 if __name__ == "__main__":
     args = load_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(name)s] %(message)s")
 
+    context = None
     if args.context_yaml == "":
         context = MEMGRAPH_INSTANCES_DESCRIPTION
     else:
         with open(args.context_yaml, "r") as f:
             context = yaml.load(f, Loader=yaml.FullLoader)
-    if args.actions != "":
+
+    if args.actions != "" and context is not None:
         process_actions(context, args.actions)
         sys.exit(0)
 
     while True:
-        choice = input("ACTION>")
+        choice = read_action_line("ACTION>")
         process_actions(context, choice)

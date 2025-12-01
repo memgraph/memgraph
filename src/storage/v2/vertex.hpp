@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,6 @@
 
 #pragma once
 
-#include <alloca.h>
-#include <boost/container_hash/hash_fwd.hpp>
-#include <functional>
-#include <iterator>
-#include <limits>
 #include <tuple>
 
 #include "storage/v2/delta.hpp"
@@ -38,8 +33,10 @@ struct Vertex {
 
   utils::small_vector<LabelId> labels;
 
-  utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
-  utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
+  using EdgeTriple = std::tuple<EdgeTypeId, Vertex *, EdgeRef>;
+
+  utils::small_vector<EdgeTriple> in_edges;
+  utils::small_vector<EdgeTriple> out_edges;
 
   PropertyStore properties;
   mutable utils::RWSpinLock lock;
@@ -49,6 +46,10 @@ struct Vertex {
 
   Delta *delta;
 };
+
+static constexpr std::size_t kEdgeTypeIdPos = 0U;
+static constexpr std::size_t kVertexPos = 1U;
+static constexpr std::size_t kEdgeRefPos = 2U;
 
 static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!");
 static_assert(sizeof(Vertex) == 88, "If this changes documentation needs changing");

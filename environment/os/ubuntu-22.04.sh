@@ -1,10 +1,21 @@
 #!/bin/bash
 set -Eeuo pipefail
+
+# Set noninteractive frontend to avoid prompts during package installation
+export DEBIAN_FRONTEND=noninteractive
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "ubuntu-22.04"
-check_architecture "x86_64"
+# Parse command line arguments for --skip-check flag
+SKIP_CHECK=$(parse_skip_check_flag "$@")
+
+# Only run checks if --skip-check flag is not provided
+if [[ "$SKIP_CHECK" == false ]]; then
+    check_operating_system "ubuntu-22.04"
+    check_architecture "x86_64"
+else
+    echo "Skipping checks for ubuntu-22.04"
+fi
 
 TOOLCHAIN_BUILD_DEPS=(
     coreutils gcc g++ build-essential make # generic build tools
@@ -27,6 +38,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libtool # for protobuf
     libssl-dev pkg-config # for pulsar
     libsasl2-dev # for librdkafka
+    python3-pip # for conan
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -38,7 +50,6 @@ TOOLCHAIN_RUN_DEPS=(
     libreadline8 # for cmake and llvm
     libffi7 libxml2 # for llvm
     libssl-dev # for libevent
-    tzdata # for timezone bug
 )
 
 MEMGRAPH_BUILD_DEPS=(
@@ -51,13 +62,13 @@ MEMGRAPH_BUILD_DEPS=(
     libssl-dev
     libseccomp-dev
     netcat # tests are using nc to wait for memgraph
-    python3 python3-virtualenv python3-pip # for qa, macro_benchmark and stress tests
+    python3 python3-virtualenv python3-pip python3-venv # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven3.9.3 # for driver tests
-    dotnet-sdk-6.0 golang custom-golang1.18.9 nodejs npm # for driver tests
+    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven # for driver tests
+    dotnet-sdk-6.0 golang custom-golang custom-node # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     libsasl2-dev
@@ -75,44 +86,84 @@ NEW_DEPS=(
 )
 
 list() {
-    echo "$1"
+    local -n packages="$1"
+    printf '%s\n' "${packages[@]}"
 }
 
 check() {
+    local -n packages=$1
     local missing=""
-    for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.3 ]; then
-            if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
-                missing="$pkg $missing"
+    local missing_custom=""
+
+    # Separate standard and custom packages
+    local standard_packages=()
+    local custom_packages=()
+
+    for pkg in "${packages[@]}"; do
+        case "$pkg" in
+            custom-*|dotnet-sdk-6.0)
+                custom_packages+=("$pkg")
+                ;;
+            *)
+                standard_packages+=("$pkg")
+                ;;
+        esac
+    done
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        echo "python3 is not installed"
+        exit 1
+    fi
+
+    # Check standard packages with Python script
+    if [ ${#standard_packages[@]} -gt 0 ]; then
+        missing=$(python3 "$DIR/check-packages.py" "check" "ubuntu-22.04" "${standard_packages[@]}")
+    fi
+
+    # Check custom packages with bash logic
+    for pkg in "${custom_packages[@]}"; do
+        missing_pkg=$(check_custom_package "$pkg" || true)
+        if [ $? -eq 0 ]; then
+            # Custom package was handled, check if it's missing
+            if [ -n "$missing_pkg" ]; then
+                missing_custom="$missing_pkg $missing_custom"
             fi
-            continue
-        fi
-        if [ "$pkg" == custom-golang1.18.9 ]; then
-            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
-                missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if [ "$pkg" == custom-rust ]; then
-            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
-                missing="$pkg $missing"
-            fi
-	    continue
-        fi
-        if ! dpkg -s "$pkg" >/dev/null 2>/dev/null; then
-            missing="$pkg $missing"
+        else
+            # Not a custom package, check with case statement
+            case "$pkg" in
+                dotnet-sdk-6.0)
+                    if ! dpkg -s dotnet-sdk-6.0 &>/dev/null; then
+                        missing_custom="$pkg $missing_custom"
+                    fi
+                    ;;
+            esac
         fi
     done
-    if [ "$missing" != "" ]; then
+
+    # Combine missing packages
+    [ -n "$missing_custom" ] && missing="${missing:+$missing }$missing_custom"
+
+    if [ -n "$missing" ]; then
         echo "MISSING PACKAGES: $missing"
         exit 1
     fi
 }
 
 install() {
-    cd "$DIR"
+    local -n packages=$1
+
+    # Set noninteractive frontend to avoid prompts
+    export DEBIAN_FRONTEND=noninteractive
+
+    # Update package lists first
     apt update -y
-    apt install -y wget
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        apt install -y python3
+    fi
+
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.
     if [ -d "/home/gh/actions-runner" ]; then
@@ -121,50 +172,55 @@ install() {
         echo "NOTE: export LANG=en_US.utf8"
     fi
 
-    for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.3 ]; then
-            install_custom_maven "3.9.3"
-            continue
-        fi
-        if [ "$pkg" == custom-golang1.18.9 ]; then
-            install_custom_golang "1.18.9"
-            continue
-        fi
-        if [ "$pkg" == dotnet-sdk-6.0 ]; then
-            if ! dpkg -s dotnet-sdk-6.0 2>/dev/null >/dev/null; then
-                wget -nv https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-                dpkg -i packages-microsoft-prod.deb
-                apt-get update
-                apt-get install -y apt-transport-https dotnet-sdk-6.0
-            fi
-            continue
-        fi
-        if [ "$pkg" == openjdk-17-jdk-headless ]; then
-            if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
-                apt install -y "$pkg"
-                # The default Java version should be Java 11
-                update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
-                update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-amd64/bin/javac
-            fi
-            continue
-        fi
-        if [ "$pkg" == custom-rust ]; then
-            install_rust "1.80"
-            continue
-        fi
-        if [ "$pkg" == custom-node ]; then
-            install_node "20"
-            continue
-        fi
-        if [ "$pkg" == tzdata ]; then
-            apt install -y tzdata=2022a-0ubuntu1 --allow-downgrades # specific version for timezone bug
-            continue
-        fi
-        apt install -y "$pkg"
+    # Separate standard and custom packages
+    local standard_packages=()
+    local custom_packages=()
+
+    for pkg in "${packages[@]}"; do
+        case "$pkg" in
+            custom-*|dotnet-sdk-6.0)
+                custom_packages+=("$pkg")
+                ;;
+            *)
+                standard_packages+=("$pkg")
+                ;;
+        esac
     done
+
+    # Install standard packages with Python script
+    if [ ${#standard_packages[@]} -gt 0 ]; then
+        if ! python3 "$DIR/check-packages.py" "install" "ubuntu-22.04" "${standard_packages[@]}"; then
+            echo "Failed to install standard packages"
+            exit 1
+        fi
+    fi
+
+    # Install custom packages with bash logic
+    install_custom_packages "${custom_packages[@]}"
+
+    # Handle non-custom packages that need special installation
+    for pkg in "${custom_packages[@]}"; do
+        case "$pkg" in
+            dotnet-sdk-6.0)
+                if ! dpkg -s dotnet-sdk-6.0 &>/dev/null; then
+                    wget -nv https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+                    dpkg -i packages-microsoft-prod.deb
+                    apt-get update
+                    apt-get install -y apt-transport-https dotnet-sdk-6.0
+                fi
+                ;;
+            *)
+                # Skip packages that don't need special handling
+                ;;
+        esac
+    done
+
+    # Handle special cases that need post-installation setup
+    if dpkg -s openjdk-17-jdk-headless &>/dev/null; then
+        # The default Java version should be Java 11
+        update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
+        update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-amd64/bin/javac
+    fi
 }
 
-deps=$2"[*]"
-"$1" "${!deps}"
-
-
+"$1" "$2"

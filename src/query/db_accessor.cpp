@@ -10,13 +10,11 @@
 // licenses/APL.txt.
 
 #include "query/db_accessor.hpp"
-
-#include "query/graph.hpp"
-
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
+#include "query/graph.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/storage_mode.hpp"
-#include "utils/pmr/unordered_set.hpp"
 
 namespace memgraph::query {
 SubgraphDbAccessor::SubgraphDbAccessor(query::DbAccessor db_accessor, Graph *graph)
@@ -112,6 +110,15 @@ std::optional<VertexAccessor> SubgraphDbAccessor::FindVertex(storage::Gid gid, s
   return std::nullopt;
 }
 
+std::optional<EdgeAccessor> SubgraphDbAccessor::FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid,
+                                                         storage::View view) {
+  std::optional<EdgeAccessor> maybe_edge = db_accessor_.FindEdge(edge_gid, from_vertex_gid, view);
+  if (maybe_edge && this->graph_->ContainsEdge(*maybe_edge)) {
+    return maybe_edge;
+  }
+  return std::nullopt;
+}
+
 query::Graph *SubgraphDbAccessor::getGraph() { return graph_; }
 
 storage::StorageMode SubgraphDbAccessor::GetStorageMode() const noexcept { return db_accessor_.GetStorageMode(); }
@@ -168,14 +175,16 @@ auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId prope
                                storage::CoordinateReferenceSystem crs, TypedValue const &point_value,
                                TypedValue const &boundary_value, plan::PointDistanceCondition condition)
     -> PointIterable {
-  return PointIterable(accessor_->PointVertices(label, property, crs, static_cast<storage::PropertyValue>(point_value),
-                                                static_cast<storage::PropertyValue>(boundary_value), condition));
+  return PointIterable(
+      accessor_->PointVertices(label, property, crs, point_value.ToPropertyValue(accessor_->GetNameIdMapper()),
+                               boundary_value.ToPropertyValue(accessor_->GetNameIdMapper()), condition));
 }
 
 auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId property,
                                storage::CoordinateReferenceSystem crs, TypedValue const &bottom_left,
                                TypedValue const &top_right, plan::WithinBBoxCondition condition) -> PointIterable {
-  return PointIterable(accessor_->PointVertices(label, property, crs, static_cast<storage::PropertyValue>(bottom_left),
-                                                static_cast<storage::PropertyValue>(top_right), condition));
+  return PointIterable(accessor_->PointVertices(label, property, crs,
+                                                bottom_left.ToPropertyValue(accessor_->GetNameIdMapper()),
+                                                top_right.ToPropertyValue(accessor_->GetNameIdMapper()), condition));
 }
 }  // namespace memgraph::query

@@ -26,6 +26,7 @@ memgraphCypherKeyword : cypherKeyword
                       | AFTER
                       | ALTER
                       | ANALYZE
+                      | ANY
                       | ASYNC
                       | AT
                       | AUTH
@@ -45,9 +46,10 @@ memgraphCypherKeyword : cypherKeyword
                       | COMMITTED
                       | CONFIG
                       | CONFIGS
+                      | CONSTRAINTS
                       | CONSUMER_GROUP
+                      | CONTAINING
                       | COORDINATOR
-                      | CREATE_DELETE
                       | CREDENTIALS
                       | CSV
                       | CURRENT
@@ -66,11 +68,13 @@ memgraphCypherKeyword : cypherKeyword
                       | DURABILITY
                       | DURATION
                       | EDGE
+                      | EDGES
                       | EDGE_TYPES
                       | ENABLE
                       | ENUM
                       | ENUMS
                       | EVERY
+                      | EXACTLY
                       | EXECUTE
                       | FAILOVER
                       | FLOAT
@@ -85,10 +89,12 @@ memgraphCypherKeyword : cypherKeyword
                       | GRANTS
                       | GRAPH
                       | HEADER
+                      | HOPS
                       | IDENTIFIED
                       | IF
                       | IGNORE
                       | IMPERSONATE_USER
+                      | INDEXES
                       | IMPORT
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
@@ -97,8 +103,11 @@ memgraphCypherKeyword : cypherKeyword
                       | INSTANCES
                       | INTEGER
                       | ISOLATION
+                      | JSONL
                       | KAFKA
                       | LABELS
+                      | LAG
+                      | LEADERSHIP
                       | LEVEL
                       | LICENSE
                       | LIST
@@ -108,6 +117,7 @@ memgraphCypherKeyword : cypherKeyword
                       | LOCK
                       | MAIN
                       | MAP
+                      | MATCHING
                       | METRICS
                       | MODE
                       | MODULE_READ
@@ -117,18 +127,21 @@ memgraphCypherKeyword : cypherKeyword
                       | NEXT
                       | NO
                       | NODE_LABELS
+                      | NODES
                       | NOTHING
                       | NULLIF
                       | OF_TOKEN
                       | OFF
                       | ON
                       | ON_DISK_TRANSACTIONAL
-                      | ON_DISK_TRANSACTIONAL
+                      | PARQUET
                       | PASSWORD
                       | PERIODIC
                       | POINT
                       | PORT
                       | PRIVILEGES
+                      | PROFILE_RESTRICTION
+                      | PROFILES
                       | PULSAR
                       | QUOTE
                       | QUOTE
@@ -136,11 +149,13 @@ memgraphCypherKeyword : cypherKeyword
                       | READ_FILE
                       | RECOVER
                       | REGISTER
+                      | RENAME
                       | REPLACE
                       | REPLICA
                       | REPLICAS
                       | REPLICATION
                       | RESET
+                      | RESOURCE
                       | REVOKE
                       | ROLE
                       | ROLES
@@ -152,6 +167,7 @@ memgraphCypherKeyword : cypherKeyword
                       | SETTING
                       | SETTINGS
                       | SNAPSHOT
+                      | SNAPSHOTS
                       | START
                       | STATE
                       | STATISTICS
@@ -162,6 +178,7 @@ memgraphCypherKeyword : cypherKeyword
                       | STORAGE_MODE
                       | STREAM
                       | STREAMS
+                      | STRICT_SYNC
                       | STRING
                       | SYNC
                       | TERMINATE
@@ -177,6 +194,8 @@ memgraphCypherKeyword : cypherKeyword
                       | TRIGGER
                       | TRIGGERS
                       | TTL
+                      | TYPE
+                      | TYPES
                       | UNCOMMITTED
                       | UNLOCK
                       | UNREGISTER
@@ -184,12 +203,14 @@ memgraphCypherKeyword : cypherKeyword
                       | USE
                       | USER
                       | USERS
+                      | USAGE
                       | USING
                       | VALUE
                       | VALUES
                       | VECTOR
                       | VERSION
                       | WEBSOCKET
+                      | YIELD
                       | ZONEDDATETIME
                       ;
 
@@ -203,7 +224,9 @@ query : cypherQuery
       | edgeIndexQuery
       | pointIndexQuery
       | textIndexQuery
+      | createTextEdgeIndex
       | vectorIndexQuery
+      | createVectorEdgeIndex
       | explainQuery
       | profileQuery
       | databaseInfoQuery
@@ -222,6 +245,7 @@ query : cypherQuery
       | createSnapshotQuery
       | recoverSnapshotQuery
       | showSnapshotsQuery
+      | showNextSnapshotQuery
       | streamQuery
       | settingQuery
       | versionQuery
@@ -233,6 +257,8 @@ query : cypherQuery
       | showDatabases
       | edgeImportModeQuery
       | coordinatorQuery
+      | dropAllIndexesQuery
+      | dropAllConstraintsQuery
       | dropGraphQuery
       | createEnumQuery
       | showEnumsQuery
@@ -243,6 +269,7 @@ query : cypherQuery
       | showSchemaInfoQuery
       | ttlQuery
       | setSessionTraceQuery
+      | userProfileQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -255,6 +282,7 @@ authQuery : createRole
           | changePassword
           | dropUser
           | showCurrentUser
+          | showCurrentRole
           | showUsers
           | setRole
           | clearRole
@@ -294,6 +322,7 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | yieldLeadership
                  | setCoordinatorSetting
                  | showCoordinatorSettings
+                 | showReplicationLag
                  ;
 
 triggerQuery : createTrigger
@@ -314,6 +343,8 @@ clause : cypherMatch
        | loadCsv
        | foreach
        | callSubquery
+       | loadParquet
+       | loadJsonl
        ;
 
 updateClause : set
@@ -334,7 +365,7 @@ hopsLimit: HOPS LIMIT literal ;
 
 indexHints: INDEX indexHint ( ',' indexHint )* ;
 
-indexHint: ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )*  ')' )? ;
+indexHint: ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )*  ')' )? ;
 
 periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
 
@@ -369,14 +400,24 @@ showTransactions : SHOW TRANSACTIONS ;
 
 terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
 
-loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
+loadCsv : LOAD CSV FROM csvFile
+         ( WITH CONFIG configsMap=configMap ) ?
+         ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
          ( DELIMITER delimiter ) ?
          ( QUOTE quote ) ?
          ( NULLIF nullif ) ?
          AS rowVar ;
 
+loadParquet : LOAD PARQUET FROM parquetFile ( WITH CONFIG configsMap=configMap ) ? AS rowVar ;
+
+loadJsonl : LOAD JSONL FROM jsonlFile ( WITH CONFIG configsMap=configMap ) ? AS rowVar ;
+
 csvFile : literal | parameter ;
+
+parquetFile : literal | parameter ;
+
+jsonlFile : literal | parameter ;
 
 delimiter : literal ;
 
@@ -407,17 +448,19 @@ dropUser : DROP USER user=userOrRoleName ;
 
 showCurrentUser : SHOW CURRENT USER ;
 
+showCurrentRole : SHOW CURRENT ( ROLE | ROLES ) ;
+
 showUsers : SHOW USERS ;
 
-setRole : SET ROLE FOR user=userOrRoleName TO role=userOrRoleName;
+setRole : SET ( ROLE | ROLES ) FOR user=userOrRoleName TO roles=listOfSymbolicNames ( ON db=listOfSymbolicNames )? ;
 
-clearRole : CLEAR ROLE FOR user=userOrRoleName ;
+clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=grantPrivilegesList ) TO userOrRole=userOrRoleName ;
+grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRole=userOrRoleName ;
+denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList ) TO userOrRole=userOrRoleName ;
 
-revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
+revokePrivilege : REVOKE ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) FROM userOrRole=userOrRoleName ;
 
 listOfSymbolicNames : symbolicName ( ',' symbolicName )* ;
 
@@ -466,35 +509,39 @@ privilege : CREATE
           | MULTI_DATABASE_USE
           | COORDINATOR
           | IMPERSONATE_USER
+          | PROFILE_RESTRICTION
           ;
 
-granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
+granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE | ASTERISK ;
 
-entityType : LABELS | EDGE_TYPES ;
-
-privilegeOrEntityPrivileges : privilege | entityPrivileges=entityPrivilegeList ;
-
-grantPrivilegesList : privilegeOrEntityPrivileges ( ',' privilegeOrEntityPrivileges )* ;
+granularPrivilegeList : granularPrivilege ( ',' granularPrivilege )* ;
 
 entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
 
-entityPrivilege : granularPrivilege ON entityType entities=entitiesList ;
+entityPrivilege : granularPrivilegeList ON entityTypeSpec ;
 
-privilegeOrEntities : privilege | entityType entities=entitiesList ;
+entityTypeSpec
+    : NODES CONTAINING LABELS labelEntities=labelEntitiesList matchingClause?
+    | EDGES OF_TOKEN TYPE edgeType=edgeTypeEntity
+    ;
 
-revokePrivilegesList : privilegeOrEntities ( ',' privilegeOrEntities )* ;
+labelEntitiesList : ASTERISK | listOfColonSymbolicNames ;
+
+edgeTypeEntity : ASTERISK | colonSymbolicName ;
+
+matchingClause
+    : MATCHING ( ANY | EXACTLY )
+    ;
 
 privilegesList : privilege ( ',' privilege )* ;
-
-entitiesList : ASTERISK | listOfColonSymbolicNames ;
 
 listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 
 colonSymbolicName : COLON symbolicName ;
 
-showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
+showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
-showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
+showRoleForUser : SHOW ( ROLE | ROLES ) FOR user=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
 showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 
@@ -514,14 +561,14 @@ instanceName : symbolicName ;
 
 socketAddress : literal ;
 
-registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
+registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC | STRICT_SYNC )
                 TO socketAddress ;
 
 configKeyValuePair : literal ':' literal ;
 
 configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
 
-registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ( AS ASYNC ) ? WITH CONFIG configsMap=configMap ;
+registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ( AS ASYNC | AS STRICT_SYNC ) ? WITH CONFIG configsMap=configMap ;
 
 unregisterInstanceOnCoordinator : UNREGISTER INSTANCE instanceName ;
 
@@ -536,6 +583,8 @@ yieldLeadership : YIELD LEADERSHIP ;
 setCoordinatorSetting: SET COORDINATOR SETTING settingName TO settingValue ;
 
 showCoordinatorSettings: SHOW COORDINATOR SETTINGS ;
+
+showReplicationLag: SHOW REPLICATION LAG ;
 
 coordinatorServerId : literal ;
 
@@ -564,7 +613,7 @@ createTrigger : CREATE TRIGGER triggerName ( ON ( emptyVertex | emptyEdge ) ? ( 
 
 dropTrigger : DROP TRIGGER triggerName ;
 
-showTriggers : SHOW TRIGGERS ;
+showTriggers : SHOW TRIGGERS | SHOW TRIGGER INFO ;
 
 isolationLevel : SNAPSHOT ISOLATION | READ COMMITTED | READ UNCOMMITTED ;
 
@@ -581,6 +630,8 @@ createSnapshotQuery : CREATE SNAPSHOT ;
 recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( FORCE )? ;
 
 showSnapshotsQuery : SHOW SNAPSHOTS ;
+
+showNextSnapshotQuery : SHOW NEXT SNAPSHOT ;
 
 streamName : symbolicName ;
 
@@ -651,15 +702,18 @@ transactionId : literal ;
 
 multiDatabaseQuery : createDatabase
                    | dropDatabase
+                   | renameDatabase
                    ;
 
 createDatabase : CREATE DATABASE databaseName ;
 
-dropDatabase : DROP DATABASE databaseName ;
+dropDatabase: DROP DATABASE databaseName ( FORCE)?;
+
+renameDatabase : RENAME DATABASE databaseName TO databaseName ;
 
 useDatabase : USE DATABASE databaseName ;
 
-showDatabase : SHOW DATABASE ;
+showDatabase : SHOW ( CURRENT )? DATABASE ;
 
 showDatabases : SHOW DATABASES ;
 
@@ -677,11 +731,13 @@ edgeIndexQuery : createEdgeIndex | dropEdgeIndex | createGlobalEdgeIndex | dropG
 
 indexName : symbolicName ;
 
-createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ;
+createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )* ;
 
 dropTextIndex : DROP TEXT INDEX indexName ;
 
 textIndexQuery : createTextIndex | dropTextIndex;
+
+createTextEdgeIndex: CREATE TEXT EDGE INDEX indexName ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )* ;
 
 createPointIndex : CREATE POINT INDEX ON ':' labelName '(' propertyKeyName ')';
 
@@ -691,9 +747,15 @@ pointIndexQuery : createPointIndex | dropPointIndex ;
 
 createVectorIndex : CREATE VECTOR INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMap ;
 
+createVectorEdgeIndex: CREATE VECTOR EDGE INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMap ;
+
 dropVectorIndex : DROP VECTOR INDEX indexName ;
 
 vectorIndexQuery : createVectorIndex | dropVectorIndex ;
+
+dropAllIndexesQuery : DROP ALL INDEXES ;
+
+dropAllConstraintsQuery : DROP ALL CONSTRAINTS ;
 
 dropGraphQuery : DROP GRAPH ;
 
@@ -738,3 +800,33 @@ typeConstraintType : BOOLEAN
              | ENUM
              | POINT
              ;
+
+
+memoryLimitValue : literal ( MB | KB ) ;
+
+limitValue : UNLIMITED | mem_limit=memoryLimitValue | quantity=literal ;
+
+limitKV : key=symbolicName val=limitValue ;
+
+listOfLimits : limitKV (',' limitKV )* ;
+
+createUserProfile : ( CREATE | UPDATE ) PROFILE profile=symbolicName ( LIMIT list=listOfLimits )? ;
+dropUserProfile : DROP PROFILE profile=symbolicName ;
+showUserProfiles : SHOW PROFILES ;
+showUserProfile : SHOW PROFILE profile=symbolicName ;
+showUserProfileForUser : SHOW PROFILE FOR user=userOrRoleName ;
+showUserProfileForProfile : SHOW ( USERS | ROLES ) FOR PROFILE profile=symbolicName ;
+setUserProfile : SET PROFILE FOR user=userOrRoleName TO profile=symbolicName ;
+clearUserProfile : CLEAR PROFILE FOR user=userOrRoleName ;
+showResourceConsumption : SHOW RESOURCE USAGE FOR user=userOrRoleName ;
+
+userProfileQuery : createUserProfile
+                 | dropUserProfile
+                 | showUserProfiles
+                 | showUserProfile
+                 | showUserProfileForUser
+                 | showUserProfileForProfile
+                 | setUserProfile
+                 | clearUserProfile
+                 | showResourceConsumption
+                 ;

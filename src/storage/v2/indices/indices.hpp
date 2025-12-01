@@ -12,16 +12,17 @@
 #pragma once
 
 #include <memory>
-#include <span>
 
-#include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/indices/text_edge_index.hpp"
 #include "storage/v2/indices/text_index.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/storage_mode.hpp"
 
@@ -46,32 +47,30 @@ struct Indices {
   /// TODO: unused in disk indices
   void RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const;
 
-  /// Surgical removal of entries that were inserted in this transaction
-  /// TODO: unused in disk indices
-  void AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
-                    std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
-                    uint64_t exact_start_timestamp) const;
-
   void DropGraphClearIndices();
 
   struct AbortProcessor {
     LabelIndex::AbortProcessor label_;
-    LabelPropertyIndex::AbortProcessor property_label_;
+    LabelPropertyIndex::AbortProcessor label_properties_;
     EdgeTypeIndex::AbortProcessor edge_type_;
-
-    EdgeTypePropertyIndex::IndexStats property_edge_type_;
-    EdgePropertyIndex::IndexStats property_edge_;
+    EdgeTypePropertyIndex::AbortProcessor edge_type_property_;
+    EdgePropertyIndex::AbortProcessor edge_property_;
     // TODO: point? Nothing to abort, it gets build in Commit
     // TODO: text?
     VectorIndex::IndexStats vector_;
+    VectorEdgeIndex::IndexStats vector_edge_;
 
     void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
     void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
     void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
-    void Process(Indices &indices, uint64_t start_timestamp);
+    void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
+                                 Edge *edge);
+    bool IsInterestingEdgeProperty(PropertyId property);
+
+    void Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp);
   };
 
-  auto GetAbortProcessor() const -> AbortProcessor;
+  auto GetAbortProcessor(ActiveIndices const &active_indices) const -> AbortProcessor;
 
   // Indices are updated whenever an update occurs, instead of only on commit or
   // advance command. This is necessary because we want indices to support `NEW`
@@ -79,31 +78,32 @@ struct Indices {
 
   /// This function should be called whenever a label is added to a vertex.
   /// @throw std::bad_alloc
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const;
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx);
 
-  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const;
+  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx);
 
   /// This function should be called whenever a property is modified on a vertex.
   /// @throw std::bad_alloc
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                           const Transaction &tx) const;
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx);
 
   /// This function should be called whenever a property is modified on an edge.
   /// @throw std::bad_alloc
   void UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value, Vertex *from_vertex,
-                           Vertex *to_vertex, Edge *edge, const Transaction &tx) const;
+                           Vertex *to_vertex, Edge *edge, Transaction &tx);
 
-  void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
-                            const Transaction &tx) const;
+  static void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
+                                   const Transaction &tx);
 
   std::unique_ptr<LabelIndex> label_index_;
   std::unique_ptr<LabelPropertyIndex> label_property_index_;
   std::unique_ptr<EdgeTypeIndex> edge_type_index_;
   std::unique_ptr<EdgeTypePropertyIndex> edge_type_property_index_;
   std::unique_ptr<EdgePropertyIndex> edge_property_index_;
-  mutable TextIndex text_index_;
+  TextIndex text_index_;
+  TextEdgeIndex text_edge_index_;
   PointIndexStorage point_index_;
-  mutable VectorIndex vector_index_;
+  VectorIndex vector_index_;
+  VectorEdgeIndex vector_edge_index_;
 };
 
 }  // namespace memgraph::storage

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -99,7 +99,7 @@ TEST(TemporalTest, DateMicrosecondsSinceEpochConversion) {
   const auto check_microseconds = [](const auto date_parameters) {
     memgraph::utils::Date initial_date{date_parameters};
     const auto microseconds = initial_date.MicrosecondsSinceEpoch();
-    memgraph::utils::Date new_date{microseconds};
+    memgraph::utils::Date new_date{std::chrono::microseconds{microseconds}};
     ASSERT_EQ(initial_date, new_date);
   };
 
@@ -122,6 +122,42 @@ TEST(TemporalTest, DateMicrosecondsSinceEpochConversion) {
     memgraph::utils::Date date{memgraph::utils::DateParameters{2021, 1, 1}};
     ASSERT_GT(date.MicrosecondsSinceEpoch(), 0);
   }
+}
+
+TEST(TemporalTest, DateDaysSinceEpochConstructor) {
+  const auto verify_date = [](int32_t days_since_epoch, int expected_year, unsigned expected_month,
+                              unsigned expected_day) {
+    memgraph::utils::Date date(std::chrono::days{days_since_epoch});
+    EXPECT_EQ(date.year, expected_year);
+    EXPECT_EQ(date.month, expected_month);
+    EXPECT_EQ(date.day, expected_day);
+  };
+
+  const auto date_to_days = [](int year, unsigned month, unsigned day) -> int32_t {
+    std::chrono::year_month_day ymd{std::chrono::year{year}, std::chrono::month{month}, std::chrono::day{day}};
+    auto days = std::chrono::sys_days{ymd}.time_since_epoch().count();
+    return static_cast<int32_t>(days);
+  };
+
+  verify_date(date_to_days(2000, 2, 29), 2000, 2, 29);
+  verify_date(date_to_days(2004, 2, 29), 2004, 2, 29);
+  verify_date(date_to_days(2020, 2, 29), 2020, 2, 29);
+  verify_date(date_to_days(1900, 3, 1) - 1, 1900, 2, 28);
+  verify_date(date_to_days(1900, 1, 1), 1900, 1, 1);
+  verify_date(date_to_days(2000, 1, 1), 2000, 1, 1);
+  verify_date(date_to_days(2100, 1, 1), 2100, 1, 1);
+  verify_date(date_to_days(2023, 1, 31), 2023, 1, 31);
+  verify_date(date_to_days(2023, 2, 28), 2023, 2, 28);
+  verify_date(date_to_days(2023, 3, 31), 2023, 3, 31);
+  verify_date(date_to_days(2023, 4, 30), 2023, 4, 30);
+  verify_date(date_to_days(2023, 5, 31), 2023, 5, 31);
+  verify_date(date_to_days(2023, 6, 30), 2023, 6, 30);
+  verify_date(date_to_days(2023, 7, 31), 2023, 7, 31);
+  verify_date(date_to_days(2023, 8, 31), 2023, 8, 31);
+  verify_date(date_to_days(2023, 9, 30), 2023, 9, 30);
+  verify_date(date_to_days(2023, 10, 31), 2023, 10, 31);
+  verify_date(date_to_days(2023, 11, 30), 2023, 11, 30);
+  verify_date(date_to_days(2023, 12, 31), 2023, 12, 31);
 }
 
 TEST(TemporalTest, LocalTimeConstruction) {
@@ -575,6 +611,78 @@ TEST(TemporalTest, ZonedDateTimeParsing) {
 
   check_timezone_parsing_cases(timezone_parsing_cases);
   check_faulty_timezones(faulty_timezone_cases);
+}
+
+TEST(TemporalTest, ZonedDateTimeSupportsLocalTimeAndDate_UTC) {
+  memgraph::utils::ZonedDateTime datetime{memgraph::utils::ZonedDateTimeParameters{
+      memgraph::utils::DateParameters{2020, 11, 22}, memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456},
+      memgraph::utils::Timezone{"UTC"}}};
+
+  auto const local_time = datetime.AsLocalTime();
+  auto const date = datetime.AsLocalDate();
+
+  EXPECT_EQ(local_time.hour, 13);
+  EXPECT_EQ(local_time.minute, 21);
+  EXPECT_EQ(local_time.second, 40);
+  EXPECT_EQ(local_time.millisecond, 123);
+  EXPECT_EQ(local_time.microsecond, 456);
+  EXPECT_EQ(date.year, 2020);
+  EXPECT_EQ(date.month, 11);
+  EXPECT_EQ(date.day, 22);
+}
+
+TEST(TemporalTest, ZonedDateTimeSupportsLocalTimeAndDate_NamedTimezone) {
+  memgraph::utils::ZonedDateTime datetime{memgraph::utils::ZonedDateTimeParameters{
+      memgraph::utils::DateParameters{2020, 11, 22}, memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456},
+      memgraph::utils::Timezone{"Europe/Prague"}}};
+
+  auto const local_time = datetime.AsLocalTime();
+  auto const date = datetime.AsLocalDate();
+
+  EXPECT_EQ(local_time.hour, 13);
+  EXPECT_EQ(local_time.minute, 21);
+  EXPECT_EQ(local_time.second, 40);
+  EXPECT_EQ(local_time.millisecond, 123);
+  EXPECT_EQ(local_time.microsecond, 456);
+  EXPECT_EQ(date.year, 2020);
+  EXPECT_EQ(date.month, 11);
+  EXPECT_EQ(date.day, 22);
+}
+
+TEST(TemporalTest, ZonedDateTimeSupportsLocalTimeAndDate_PositiveOffset) {
+  memgraph::utils::ZonedDateTime datetime{memgraph::utils::ZonedDateTimeParameters{
+      memgraph::utils::DateParameters{2020, 11, 22}, memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456},
+      memgraph::utils::Timezone{std::chrono::minutes{60}}}};
+
+  auto const local_time = datetime.AsLocalTime();
+  auto const date = datetime.AsLocalDate();
+
+  EXPECT_EQ(local_time.hour, 13);
+  EXPECT_EQ(local_time.minute, 21);
+  EXPECT_EQ(local_time.second, 40);
+  EXPECT_EQ(local_time.millisecond, 123);
+  EXPECT_EQ(local_time.microsecond, 456);
+  EXPECT_EQ(date.year, 2020);
+  EXPECT_EQ(date.month, 11);
+  EXPECT_EQ(date.day, 22);
+}
+
+TEST(TemporalTest, ZonedDateTimeSupportsLocalTimeAndDate_NegativeOffset) {
+  memgraph::utils::ZonedDateTime datetime{memgraph::utils::ZonedDateTimeParameters{
+      memgraph::utils::DateParameters{2020, 11, 22}, memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456},
+      memgraph::utils::Timezone{std::chrono::minutes{-60}}}};
+
+  auto const local_time = datetime.AsLocalTime();
+  auto const date = datetime.AsLocalDate();
+
+  EXPECT_EQ(local_time.hour, 13);
+  EXPECT_EQ(local_time.minute, 21);
+  EXPECT_EQ(local_time.second, 40);
+  EXPECT_EQ(local_time.millisecond, 123);
+  EXPECT_EQ(local_time.microsecond, 456);
+  EXPECT_EQ(date.year, 2020);
+  EXPECT_EQ(date.month, 11);
+  EXPECT_EQ(date.day, 22);
 }
 
 void CheckDurationParameters(const auto &values, const auto &expected) {

@@ -436,12 +436,110 @@ Feature: List operators
             | 'Carrie-Anne Moss'   | [1999,2003]           | ['TheMatrix','TheMatrixReloaded']                                                 |
             | 'Laurence Fishburne' | [1999]                | ['The Matrix']                                                                    |
 
-    Scenario: List comprehension outside with and return
+    Scenario: Access map property inside a list
         Given any graph
         When executing query:
             """
-             MATCH (a:A)
-             WHERE single(b IN [(a)-->(b:B) | 1] WHERE true)
-             RETURN a;
+             RETURN [{x: 42}][0].x AS x;
             """
-        Then an error should be raised
+        Then the result should be, in order:
+            | x  |
+            | 42 |
+
+    Scenario: Access list property inside a map
+        Given any graph
+        When executing query:
+            """
+             RETURN {arr: [2, 3, 5]}.arr[1] AS x;
+            """
+        Then the result should be, in order:
+            | x |
+            | 3 |
+
+     Scenario: Access map property inside a list inside a map
+        Given any graph
+        When executing query:
+            """
+             RETURN {arr: [{x: 23}]}.arr[0].x AS x;
+            """
+        Then the result should be, in order:
+            | x  |
+            | 23 |
+
+    Scenario: Access list property inside a map inside a list
+        Given any graph
+        When executing query:
+            """
+             RETURN [{scores: [2, 3, 5]}][0].scores[2] AS x
+            """
+        Then the result should be, in order:
+            | x |
+            | 5 |
+
+    Scenario: Encode and decode mixed list type
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {prop: ['string', [1, 2], [1, 2.5], [1.3, 1.4], ['string', 1]]})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                                                                       |
+            | (:Node {prop: ['string', [1, 2], [1, 2.5], [1.3, 1.4], ['string', 1]]}) |
+
+    Scenario: Numeric list equality between int and double lists
+        When executing query:
+            """
+            RETURN [1, 2, 3, 4] = [1.0, 2.0, 3.0, 4.0] AND [1.0, 2.0, 3.0, 4.0] = [1, 2, 3, 4.0] AND [1, 2, 3, 4] = [1, 2, 3, 4.0] AS x
+            """
+        Then the result should be:
+            | x    |
+            | true |
+
+    Scenario: Numeric list equality between int and double lists stored as property
+        Given an empty graph
+        And with new index :L(lst)
+        And having executed:
+            """
+            CREATE (:L {lst: [1, 2, 3]});
+            """
+        When executing query:
+            """
+            MATCH (n:L) WHERE n.lst = [1.0, 2.0, 3.0] RETURN count(*) = 1 AS result
+            """
+        Then the result should be:
+            | result |
+            | true   |
+
+    Scenario: Numeric list equality between int and numeric lists stored as property
+        Given an empty graph
+        And with new index :L(lst)
+        And having executed:
+            """
+            CREATE (:L {lst: [1, 2, 3]});
+            """
+        When executing query:
+            """
+            MATCH (n:L) WHERE n.lst = [1.0, 2, 3.0] RETURN count(*) = 1 AS result
+            """
+        Then the result should be:
+            | result |
+            | true   |
+
+    Scenario: Numeric list equality between int and numeric lists stored as property
+        Given an empty graph
+        And with new index :L(lst)
+        And having executed:
+            """
+            CREATE (:L {lst: [1.0, 2.0, 3]});
+            """
+        When executing query:
+            """
+            MATCH (n:L) WHERE n.lst = [1.0, 2.0, 3.0] RETURN count(*) = 1 AS result
+            """
+        Then the result should be:
+            | result |
+            | true   |

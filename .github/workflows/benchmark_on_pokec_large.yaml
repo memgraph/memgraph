@@ -6,14 +6,14 @@ on:
 jobs:
   benchmark_on_pokec_large:
     name: "Benchmark on pokec large dataset"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild, Gen7]
+    runs-on: [self-hosted, Linux, benchmark]
     timeout-minutes: 720
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       OS: ubuntu-24.04
-      TOOLCHAIN: v6
+      TOOLCHAIN: v7
       ARCH: amd
       BUILD_TYPE: Release
 
@@ -26,7 +26,7 @@ jobs:
             fetch-depth: 0
 
         - name: Log in to Docker Hub
-          uses: docker/login-action@v3
+          uses: ./.github/actions/docker-login
           with:
             username: ${{ secrets.DOCKERHUB_USERNAME }}
             password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -67,7 +67,7 @@ jobs:
             --arch $ARCH \
             --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
             --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-            test-memgraph mgbench large
+            test-memgraph mgbench --dataset pokec --size large
 
         - name: Upload mgbench results
           run: |
@@ -92,3 +92,9 @@ jobs:
             --os $OS \
             --arch $ARCH \
             stop --remove
+
+        - name: Clean up Docker
+          if: always()
+          continue-on-error: true
+          run: |
+            ./tools/docker_cleanup.sh

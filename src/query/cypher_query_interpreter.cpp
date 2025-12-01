@@ -19,6 +19,7 @@
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/rule_based_planner.hpp"
+#include "query/plan/used_index_checker.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "utils/flag_validation.hpp"
 
@@ -31,8 +32,8 @@ DEFINE_VALIDATED_int32(query_plan_cache_max_size, 1000, "Maximum number of query
 namespace memgraph::query {
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
-auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
-    -> Parameters {
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query,
+                            UserParameters const &user_parameters) -> Parameters {
   // Copy over the parameters that were introduced during stripping.
   Parameters parameters{stripped_query.literals()};
   // Check that all user-specified parameters are provided.
@@ -62,7 +63,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
   auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters);
 
   // Cache the query's AST if it isn't already.
-  auto hash = stripped_query.hash();
+  auto hash = stripped_query.stripped_query().hash();
   auto accessor = cache->access();
   auto it = accessor.find(hash);
   std::unique_ptr<frontend::opencypher::Parser> parser;
@@ -83,7 +84,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
 
   if (it == accessor.end()) {
     try {
-      parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.query());
+      parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.stripped_query().str());
     } catch (const SyntaxException &e) {
       // There is a syntax exception in the stripped query. Re-run the parser
       // on the original query to get an appropriate error messsage.
@@ -158,14 +159,33 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
                                                  rw_type_checker.type);
 }
 
-std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
-                                               const Parameters &parameters, PlanCacheLRU *plan_cache,
-                                               DbAccessor *db_accessor,
+std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &stripped_query, AstStorage ast_storage,
+                                               CypherQuery *query, const Parameters &parameters,
+                                               PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
                                                const std::vector<Identifier *> &predefined_identifiers) {
   if (plan_cache) {
-    auto existing_plan = plan_cache->WithLock([&](auto &cache) { return cache.get(hash); });
+    auto existing_plan =
+        plan_cache->WithLock([&](utils::LRUCache<frontend::HashedString, std::shared_ptr<query::PlanWrapper>> &cache) {
+          return cache.get(stripped_query.stripped_query());
+        });
     if (existing_plan.has_value()) {
-      return existing_plan.value();
+      // validate the index usage
+      auto &ptr = existing_plan.value();
+      auto &plan = ptr->plan();
+
+      auto checker = plan::UsedIndexChecker{};
+      // G_Lloyd: I am so SORRY, const_cast is BAD, but I'm not fixing Visitable and HierarchicalLogicalOperatorVisitor
+      //          ATM to work with a const visitor. This maybe addressed when the planner is redone.
+      const_cast<plan::LogicalOperator &>(plan).Accept(checker);
+
+      auto const all_satisfied = db_accessor->CheckIndicesAreReady(checker.required_indices_);
+      if (all_satisfied) {
+        return ptr;
+      } else {
+        plan_cache->WithLock([&](utils::LRUCache<frontend::HashedString, std::shared_ptr<query::PlanWrapper>> &cache) {
+          cache.invalidate(stripped_query.stripped_query());
+        });
+      }
     }
   }
 
@@ -173,7 +193,7 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_sto
       MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers));
 
   if (plan_cache) {
-    plan_cache->WithLock([&](auto &cache) { cache.put(hash, plan); });
+    plan_cache->WithLock([&](auto &cache) { cache.put(stripped_query.stripped_query(), plan); });
   }
 
   return plan;
@@ -189,5 +209,4 @@ SingleNodeLogicalPlan::SingleNodeLogicalPlan(std::unique_ptr<plan::LogicalOperat
       rw_type_{rw_type} {}
 
 const SymbolTable &SingleNodeLogicalPlan::GetSymbolTable() const { return symbol_table_; }
-
 }  // namespace memgraph::query

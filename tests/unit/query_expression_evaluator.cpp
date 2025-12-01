@@ -82,7 +82,8 @@ class ExpressionEvaluatorTest : public ::testing::Test {
     auto id = storage.template Create<Identifier>(name, true);
     auto symbol = symbol_table.CreateSymbol(name, true);
     id->MapTo(symbol);
-    frame[symbol] = value;
+    auto frame_writer = FrameWriter(frame, nullptr, ctx.memory);
+    frame_writer.Write(symbol, value);
     return id;
   }
 
@@ -90,7 +91,8 @@ class ExpressionEvaluatorTest : public ::testing::Test {
     auto id = storage.template Create<Exists>();
     auto symbol = symbol_table.CreateSymbol(name, true);
     id->MapTo(symbol);
-    frame[symbol] = std::move(value);
+    auto frame_writer = FrameWriter(frame, nullptr, ctx.memory);
+    frame_writer.Write(symbol, std::move(value));
     return id;
   }
 
@@ -98,6 +100,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   auto Eval(TExpression *expr) {
     ctx.properties = NamesToProperties(storage.properties_, &dba);
     ctx.labels = NamesToLabels(storage.labels_, &dba);
+    ctx.edgetypes = NamesToEdgeTypes(storage.edge_types_, &dba);
     auto value = expr->Accept(eval);
     EXPECT_EQ(value.get_allocator().resource(), &mem) << "ExpressionEvaluator must use the MemoryResource from "
                                                          "EvaluationContext for allocations!";
@@ -191,20 +194,20 @@ TYPED_TEST(ExpressionEvaluatorTest, AndOperatorNull) {
   {
     // Null doesn't short circuit
     auto *op = this->storage.template Create<AndOperator>(
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()),
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()),
         this->storage.template Create<PrimitiveLiteral>(5));
     EXPECT_THROW(this->Eval(op), QueryRuntimeException);
   }
   {
     auto *op = this->storage.template Create<AndOperator>(
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()),
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()),
         this->storage.template Create<PrimitiveLiteral>(true));
     auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     auto *op = this->storage.template Create<AndOperator>(
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()),
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()),
         this->storage.template Create<PrimitiveLiteral>(false));
     auto value = this->Eval(op);
     ASSERT_TRUE(value.IsBool());
@@ -420,7 +423,7 @@ TYPED_TEST(ExpressionEvaluatorTest, InListOperator) {
   }
   {
     auto *list_literal = this->storage.template Create<ListLiteral>(std::vector<Expression *>{
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()),
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()),
         this->storage.template Create<PrimitiveLiteral>(2), this->storage.template Create<PrimitiveLiteral>("a")});
     // Element doesn't exist in list with null element.
     auto *op = this->storage.template Create<InListOperator>(this->storage.template Create<PrimitiveLiteral>("x"),
@@ -432,21 +435,21 @@ TYPED_TEST(ExpressionEvaluatorTest, InListOperator) {
     // Null list.
     auto *op = this->storage.template Create<InListOperator>(
         this->storage.template Create<PrimitiveLiteral>("x"),
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()));
     auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     // Null literal.
     auto *op = this->storage.template Create<InListOperator>(
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()), list_literal);
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()), list_literal);
     auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     // Null literal, empty list.
     auto *op = this->storage.template Create<InListOperator>(
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()),
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()),
         this->storage.template Create<ListLiteral>(std::vector<Expression *>()));
     auto value = this->Eval(op);
     EXPECT_FALSE(value.ValueBool());
@@ -488,7 +491,7 @@ TYPED_TEST(ExpressionEvaluatorTest, ListIndexing) {
   {
     // Indexing with one operator being null.
     auto *op = this->storage.template Create<SubscriptOperator>(
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()),
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()),
         this->storage.template Create<PrimitiveLiteral>(-2));
     auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
@@ -529,7 +532,7 @@ TYPED_TEST(ExpressionEvaluatorTest, MapIndexing) {
   {
     // Indexing with Null.
     auto *op = this->storage.template Create<SubscriptOperator>(
-        map_literal, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+        map_literal, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()));
     auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
@@ -574,7 +577,8 @@ TYPED_TEST(ExpressionEvaluatorTest, MapProjectionIndexing) {
   {
     // Indexing with Null.
     auto *op = this->storage.template Create<SubscriptOperator>(
-        map_projection_literal, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+        map_projection_literal,
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()));
     auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
@@ -667,12 +671,12 @@ TYPED_TEST(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   {
     // Indexing with Null.
     auto *op1 = this->storage.template Create<SubscriptOperator>(
-        vertex_id, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+        vertex_id, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()));
     auto value1 = this->Eval(op1);
     EXPECT_TRUE(value1.IsNull());
 
     auto *op2 = this->storage.template Create<SubscriptOperator>(
-        edge_id, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+        edge_id, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()));
     auto value2 = this->Eval(op2);
     EXPECT_TRUE(value2.IsNull());
   }
@@ -686,7 +690,8 @@ TYPED_TEST(ExpressionEvaluatorTest, TypedValueListIndexing) {
   auto *identifier = this->storage.template Create<Identifier>("n");
   auto node_symbol = this->symbol_table.CreateSymbol("n", true);
   identifier->MapTo(node_symbol);
-  this->frame[node_symbol] = TypedValue(list_vector, this->ctx.memory);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(node_symbol, TypedValue(list_vector, this->ctx.memory));
 
   {
     // Legal indexing.
@@ -785,7 +790,7 @@ TYPED_TEST(ExpressionEvaluatorTest, ListSlicingOperator) {
   {
     // Bound of illegal type and null value bound.
     auto *op = this->storage.template Create<ListSlicingOperator>(
-        list_literal, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()),
+        list_literal, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()),
         this->storage.template Create<PrimitiveLiteral>("mirko"));
     EXPECT_THROW(this->Eval(op), QueryRuntimeException);
   }
@@ -799,7 +804,7 @@ TYPED_TEST(ExpressionEvaluatorTest, ListSlicingOperator) {
   {
     // Null value list with undefined upper bound.
     auto *op = this->storage.template Create<ListSlicingOperator>(
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()),
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()),
         this->storage.template Create<PrimitiveLiteral>(-2), nullptr);
     auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
@@ -809,7 +814,7 @@ TYPED_TEST(ExpressionEvaluatorTest, ListSlicingOperator) {
     // Null value index.
     auto *op = this->storage.template Create<ListSlicingOperator>(
         list_literal, this->storage.template Create<PrimitiveLiteral>(-2),
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()));
     auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
     ;
@@ -864,7 +869,7 @@ TYPED_TEST(ExpressionEvaluatorTest, IsNullOperator) {
   auto val1 = this->Eval(op);
   ASSERT_EQ(val1.ValueBool(), false);
   op = this->storage.template Create<IsNullOperator>(
-      this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+      this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()));
   auto val2 = this->Eval(op);
   ASSERT_EQ(val2.ValueBool(), true);
 }
@@ -878,7 +883,8 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTest) {
   auto *identifier = this->storage.template Create<Identifier>("n");
   auto node_symbol = this->symbol_table.CreateSymbol("n", true);
   identifier->MapTo(node_symbol);
-  this->frame[node_symbol] = TypedValue(v1);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(node_symbol, TypedValue(v1));
   {
     auto *op = this->storage.template Create<LabelsTest>(
         identifier, std::vector<LabelIx>{this->storage.GetLabelIx("DOG"), this->storage.GetLabelIx("ANIMAL")});
@@ -893,11 +899,67 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTest) {
     EXPECT_EQ(value.ValueBool(), false);
   }
   {
-    this->frame[node_symbol] = TypedValue();
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(node_symbol, TypedValue());
     auto *op = this->storage.template Create<LabelsTest>(
         identifier, std::vector<LabelIx>{this->storage.GetLabelIx("DOG"), this->storage.GetLabelIx("BAD_DOG"),
                                          this->storage.GetLabelIx("ANIMAL")});
     auto value = this->Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, EdgeTypesTest) {
+  // Setup: Create edge with TYPE_A
+  auto from_vertex = this->dba.InsertVertex();
+  auto to_vertex = this->dba.InsertVertex();
+  auto edge_type_a = this->dba.NameToEdgeType("TYPE_A");
+  auto edge = this->dba.InsertEdge(&from_vertex, &to_vertex, edge_type_a);
+  ASSERT_TRUE(edge.HasValue());
+  this->dba.AdvanceCommand();
+
+  // Setup: Create edge identifier and write edge to frame
+  auto *edge_identifier = this->storage.template Create<Identifier>("e");
+  auto edge_symbol = this->symbol_table.CreateSymbol("e", true);
+  edge_identifier->MapTo(edge_symbol);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+
+  // Pre-compute edge type indices
+  const auto type_a_ix = this->storage.GetEdgeTypeIx("TYPE_A");
+  const auto type_b_ix = this->storage.GetEdgeTypeIx("TYPE_B");
+  const auto type_c_ix = this->storage.GetEdgeTypeIx("TYPE_C");
+
+  // Helper lambda to test edge type matching
+  auto test_edge_types = [&](const std::vector<EdgeTypeIx> &types) {
+    auto *op = this->storage.template Create<EdgeTypesTest>(edge_identifier, types);
+    return this->Eval(op);
+  };
+
+  // Test 1: Single matching edge type - should return true
+  {
+    frame_writer.Write(edge_symbol, TypedValue(*edge));
+    auto value = test_edge_types({type_a_ix});
+    EXPECT_TRUE(value.ValueBool());
+  }
+
+  // Test 2: Edge type is in list of multiple types - should return true
+  {
+    frame_writer.Write(edge_symbol, TypedValue(*edge));
+    auto value = test_edge_types({type_b_ix, type_a_ix, type_c_ix});
+    EXPECT_TRUE(value.ValueBool());
+  }
+
+  // Test 3: Edge type not in list - should return false
+  {
+    frame_writer.Write(edge_symbol, TypedValue(*edge));
+    auto value = test_edge_types({type_b_ix, type_c_ix});
+    EXPECT_FALSE(value.ValueBool());
+  }
+
+  // Test 4: Null edge - should return null
+  {
+    frame_writer.Write(edge_symbol, TypedValue());
+    auto value = test_edge_types({type_a_ix});
     EXPECT_TRUE(value.IsNull());
   }
 }
@@ -907,7 +969,8 @@ TYPED_TEST(ExpressionEvaluatorTest, Aggregation) {
                                                          Aggregation::Op::COUNT, false);
   auto aggr_sym = this->symbol_table.CreateSymbol("aggr", true);
   aggr->MapTo(aggr_sym);
-  this->frame[aggr_sym] = TypedValue(1);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(aggr_sym, TypedValue(1));
   auto value = this->Eval(aggr);
   EXPECT_EQ(value.ValueInt(), 1);
 }
@@ -929,7 +992,7 @@ TYPED_TEST(ExpressionEvaluatorTest, ListLiteral) {
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, ParameterLookup) {
-  this->ctx.parameters.Add(0, memgraph::storage::PropertyValue(42));
+  this->ctx.parameters.Add(0, memgraph::storage::ExternalPropertyValue(42));
   auto *param_lookup = this->storage.template Create<ParameterLookup>(0);
   auto value = this->Eval(param_lookup);
   ASSERT_TRUE(value.IsInt());
@@ -974,7 +1037,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAllEmptyList) {
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullList) {
   AstStorage storage;
-  auto *all = ALL("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
+  auto *all = ALL("x", LITERAL(memgraph::storage::ExternalPropertyValue()), WHERE(LITERAL(true)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   auto value = this->Eval(all);
@@ -984,7 +1047,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *all = ALL("x", LIST(LITERAL(true), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  auto *all = ALL("x", LIST(LITERAL(true), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -995,7 +1058,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullElementInList1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *all = ALL("x", LIST(LITERAL(false), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  auto *all = ALL("x", LIST(LITERAL(false), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1050,7 +1113,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleEmptyList) {
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullList) {
   AstStorage storage;
-  auto *single = SINGLE("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
+  auto *single = SINGLE("x", LITERAL(memgraph::storage::ExternalPropertyValue()), WHERE(LITERAL(true)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   auto value = this->Eval(single);
@@ -1060,7 +1123,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *single = SINGLE("x", LIST(LITERAL(true), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  auto *single = SINGLE("x", LIST(LITERAL(true), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1072,7 +1135,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *single = SINGLE("x", LIST(LITERAL(false), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  auto *single = SINGLE("x", LIST(LITERAL(false), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1083,8 +1146,8 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList2) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList3) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *single =
-      SINGLE("x", LIST(LITERAL(memgraph::storage::PropertyValue()), LITERAL(true), LITERAL(true)), WHERE(ident_x));
+  auto *single = SINGLE("x", LIST(LITERAL(memgraph::storage::ExternalPropertyValue()), LITERAL(true), LITERAL(true)),
+                        WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1131,7 +1194,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyEmptyList) {
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullList) {
   AstStorage storage;
-  auto *any = ANY("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
+  auto *any = ANY("x", LITERAL(memgraph::storage::ExternalPropertyValue()), WHERE(LITERAL(true)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   auto value = this->Eval(any);
@@ -1141,7 +1204,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = ANY("x", LIST(LITERAL(true), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  auto *any = ANY("x", LIST(LITERAL(true), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1152,7 +1215,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullElementInList1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = ANY("x", LIST(LITERAL(false), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  auto *any = ANY("x", LIST(LITERAL(false), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1206,7 +1269,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneEmptyList) {
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullList) {
   AstStorage storage;
-  auto *none = NONE("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
+  auto *none = NONE("x", LITERAL(memgraph::storage::ExternalPropertyValue()), WHERE(LITERAL(true)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   none->identifier_->MapTo(x_sym);
   auto value = this->Eval(none);
@@ -1216,7 +1279,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = NONE("x", LIST(LITERAL(false), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  auto *any = NONE("x", LIST(LITERAL(false), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1227,7 +1290,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullElementInList1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *none = NONE("x", LIST(LITERAL(true), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  auto *none = NONE("x", LIST(LITERAL(true), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   none->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1262,8 +1325,8 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionReduce) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionExtract) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *extract =
-      EXTRACT("x", LIST(LITERAL(1), LITERAL(2), LITERAL(memgraph::storage::PropertyValue())), ADD(ident_x, LITERAL(1)));
+  auto *extract = EXTRACT("x", LIST(LITERAL(1), LITERAL(2), LITERAL(memgraph::storage::ExternalPropertyValue())),
+                          ADD(ident_x, LITERAL(1)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   extract->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1279,7 +1342,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionExtract) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionExtractNull) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *extract = EXTRACT("x", LITERAL(memgraph::storage::PropertyValue()), ADD(ident_x, LITERAL(1)));
+  auto *extract = EXTRACT("x", LITERAL(memgraph::storage::ExternalPropertyValue()), ADD(ident_x, LITERAL(1)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   extract->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1368,14 +1431,16 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Vertex) {
   auto v1 = this->dba.InsertVertex();
   ASSERT_TRUE(v1.SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
   this->dba.AdvanceCommand();
-  this->frame[this->symbol] = TypedValue(v1);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(v1));
   EXPECT_EQ(this->Value(this->prop_age).ValueInt(), 10);
   EXPECT_TRUE(this->Value(this->prop_height).IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Duration) {
   const memgraph::utils::Duration dur({10, 1, 30, 2, 22, 45});
-  this->frame[this->symbol] = TypedValue(dur);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(dur));
 
   const std::pair day = std::make_pair("day", this->dba.NameToProperty("day"));
   const auto total_days = this->Value(day);
@@ -1420,7 +1485,8 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Duration) {
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Date) {
   const memgraph::utils::Date date({1996, 11, 22});
-  this->frame[this->symbol] = TypedValue(date);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(date));
 
   const std::pair year = std::make_pair("year", this->dba.NameToProperty("year"));
   const auto y = this->Value(year);
@@ -1440,7 +1506,8 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Date) {
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, LocalTime) {
   const memgraph::utils::LocalTime lt({1, 2, 3, 11, 22});
-  this->frame[this->symbol] = TypedValue(lt);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(lt));
 
   const std::pair hour = std::make_pair("hour", this->dba.NameToProperty("hour"));
   const auto h = this->Value(hour);
@@ -1471,7 +1538,8 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, LocalTime) {
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, LocalDateTime) {
   auto test = [&]() {
     const memgraph::utils::LocalDateTime ldt({1993, 8, 6}, {2, 3, 4, 55, 40});
-    this->frame[this->symbol] = TypedValue(ldt);
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(this->symbol, TypedValue(ldt));
 
     const std::pair year = std::make_pair("year", this->dba.NameToProperty("year"));
     const auto y = this->Value(year);
@@ -1525,7 +1593,8 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, LocalDateTime) {
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, ZonedDateTime) {
   const auto zdt = memgraph::utils::ZonedDateTime(
       {{2024, 3, 25}, {14, 18, 13, 206, 22}, memgraph::utils::Timezone("Europe/Zagreb")});
-  this->frame[this->symbol] = TypedValue(zdt);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(zdt));
 
   const std::pair year = std::make_pair("year", this->dba.NameToProperty("year"));
   const auto y = this->Value(year);
@@ -1575,18 +1644,22 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Edge) {
   ASSERT_TRUE(e12.HasValue());
   ASSERT_TRUE(e12->SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
   this->dba.AdvanceCommand();
-  this->frame[this->symbol] = TypedValue(*e12);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(*e12));
   EXPECT_EQ(this->Value(this->prop_age).ValueInt(), 10);
   EXPECT_TRUE(this->Value(this->prop_height).IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Null) {
-  this->frame[this->symbol] = TypedValue();
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue());
   EXPECT_TRUE(this->Value(this->prop_age).IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Map) {
-  this->frame[this->symbol] = TypedValue(std::map<std::string, TypedValue>{{this->prop_age.first, TypedValue(10)}});
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol,
+                     TypedValue(std::map<std::string, TypedValue>{{this->prop_age.first, TypedValue(10)}}));
   EXPECT_EQ(this->Value(this->prop_age).ValueInt(), 10);
   EXPECT_TRUE(this->Value(this->prop_height).IsNull());
 }
@@ -1615,7 +1688,8 @@ TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Vertex) {
   auto v1 = this->dba.InsertVertex();
   ASSERT_TRUE(v1.SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
   this->dba.AdvanceCommand();
-  this->frame[this->symbol] = TypedValue(v1);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(v1));
   auto all_properties = this->Value();
   EXPECT_TRUE(all_properties.IsMap());
 }
@@ -1627,28 +1701,32 @@ TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Edge) {
   ASSERT_TRUE(e12.HasValue());
   ASSERT_TRUE(e12->SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
   this->dba.AdvanceCommand();
-  this->frame[this->symbol] = TypedValue(*e12);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(*e12));
   auto all_properties = this->Value();
   EXPECT_TRUE(all_properties.IsMap());
 }
 
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Duration) {
   const memgraph::utils::Duration dur({10, 1, 30, 2, 22, 45});
-  this->frame[this->symbol] = TypedValue(dur);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(dur));
   auto all_properties = this->Value();
   EXPECT_TRUE(all_properties.IsMap());
 }
 
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Date) {
   const memgraph::utils::Date date({1996, 11, 22});
-  this->frame[this->symbol] = TypedValue(date);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(date));
   auto all_properties = this->Value();
   EXPECT_TRUE(all_properties.IsMap());
 }
 
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, LocalTime) {
   const memgraph::utils::LocalTime lt({1, 2, 3, 11, 22});
-  this->frame[this->symbol] = TypedValue(lt);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(lt));
   auto all_properties = this->Value();
   EXPECT_TRUE(all_properties.IsMap());
 }
@@ -1656,7 +1734,8 @@ TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, LocalTime) {
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, LocalDateTime) {
   auto test = [&]() {
     const memgraph::utils::LocalDateTime ldt({1993, 8, 6}, {2, 3, 4, 55, 40});
-    this->frame[this->symbol] = TypedValue(ldt);
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(this->symbol, TypedValue(ldt));
     auto all_properties = this->Value();
     EXPECT_TRUE(all_properties.IsMap());
   };
@@ -1671,18 +1750,22 @@ TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, LocalDateTime) {
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, ZonedDateTime) {
   const auto zdt = memgraph::utils::ZonedDateTime(
       {{2024, 3, 25}, {14, 18, 13, 206, 22}, memgraph::utils::Timezone("Europe/Zagreb")});
-  this->frame[this->symbol] = TypedValue(zdt);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(zdt));
   ASSERT_THROW(this->Value(), QueryRuntimeException);
 }
 
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Null) {
-  this->frame[this->symbol] = TypedValue();
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue());
   auto all_properties = this->Value();
   EXPECT_TRUE(all_properties.IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Map) {
-  this->frame[this->symbol] = TypedValue(std::map<std::string, TypedValue>{{this->prop_age.first, TypedValue(10)}});
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol,
+                     TypedValue(std::map<std::string, TypedValue>{{this->prop_age.first, TypedValue(10)}}));
   auto all_properties = this->Value();
   EXPECT_TRUE(all_properties.IsMap());
 }
@@ -1698,7 +1781,8 @@ class FunctionTest : public ExpressionEvaluatorTest<StorageType> {
       auto *ident = this->storage.template Create<Identifier>("arg_" + std::to_string(i), true);
       auto sym = this->symbol_table.CreateSymbol("arg_" + std::to_string(i), true);
       ident->MapTo(sym);
-      this->frame[sym] = tvs[i];
+      auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+      frame_writer.Write(sym, tvs[i]);
       expressions.push_back(ident);
     }
 
@@ -2773,8 +2857,11 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
   const auto today = memgraph::utils::CurrentZonedDateTime();
   EXPECT_NEAR(this->EvaluateFunction("DATETIME").ValueZonedDateTime().SysMicrosecondsSinceEpoch().count(),
               today.SysMicrosecondsSinceEpoch().count(), one_sec_in_microseconds);
-  EXPECT_EQ(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{})).ValueZonedDateTime(),
-            memgraph::utils::ZonedDateTime({{}, {}, memgraph::utils::DefaultTimezone()}));
+  EXPECT_NEAR(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{}))
+                  .ValueZonedDateTime()
+                  .SysMicrosecondsSinceEpoch()
+                  .count(),
+              today.SysMicrosecondsSinceEpoch().count(), one_sec_in_microseconds);
 
   // No parameters
   EXPECT_THROW(this->EvaluateFunction("DATETIME", "{}"), memgraph::utils::BasicException);
@@ -2800,10 +2887,12 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
                 .ValueZonedDateTime(),
             memgraph::utils::ZonedDateTime({{}, lt_params, memgraph::utils::DefaultTimezone()}));
 
-  EXPECT_EQ(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{
-                                                   {"timezone", TypedValue("America/Los_Angeles")}}))
-                .ValueZonedDateTime(),
-            memgraph::utils::ZonedDateTime({{}, {}, memgraph::utils::Timezone("America/Los_Angeles")}));
+  auto result_with_tz_only = this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{
+                                                                    {"timezone", TypedValue("America/Los_Angeles")}}))
+                                 .ValueZonedDateTime();
+  EXPECT_EQ(result_with_tz_only.GetTimezone(), memgraph::utils::Timezone("America/Los_Angeles"));
+  EXPECT_NEAR(result_with_tz_only.SysMicrosecondsSinceEpoch().count(), today.SysMicrosecondsSinceEpoch().count(),
+              one_sec_in_microseconds);
 
   EXPECT_EQ(
       this->EvaluateFunction(

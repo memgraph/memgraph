@@ -15,6 +15,7 @@
 #include "query/frontend/ast/query/query.hpp"
 
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace memgraph::query {
@@ -32,6 +33,7 @@ class AuthQuery : public memgraph::query::Query {
     CHANGE_PASSWORD,
     DROP_USER,
     SHOW_CURRENT_USER,
+    SHOW_CURRENT_ROLE,
     SHOW_USERS,
     SET_ROLE,
     CLEAR_ROLE,
@@ -78,9 +80,19 @@ class AuthQuery : public memgraph::query::Query {
     MULTI_DATABASE_USE,
     COORDINATOR,
     IMPERSONATE_USER,
+    PROFILE_RESTRICTION,
   };
 
-  enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, CREATE_DELETE };
+  enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, CREATE, DELETE, ALL };
+
+  enum class LabelMatchingMode { ANY, EXACTLY };
+
+  enum class DatabaseSpecification {
+    NONE,     // No database specification (non-enterprise)
+    MAIN,     // MAIN database (enterprise)
+    CURRENT,  // CURRENT database (enterprise)
+    DATABASE  // Specific database name (enterprise)
+  };
 
   AuthQuery() = default;
 
@@ -88,8 +100,9 @@ class AuthQuery : public memgraph::query::Query {
 
   memgraph::query::AuthQuery::Action action_;
   std::string user_;
-  std::string role_;
+  std::vector<std::string> roles_;
   std::string user_or_role_;
+  std::unordered_set<std::string> role_databases_;
   memgraph::query::Expression *old_password_{nullptr};
   memgraph::query::Expression *new_password_{nullptr};
   bool if_not_exists_;
@@ -98,16 +111,21 @@ class AuthQuery : public memgraph::query::Query {
   std::vector<memgraph::query::AuthQuery::Privilege> privileges_;
   std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
       label_privileges_;
+  std::vector<memgraph::query::AuthQuery::LabelMatchingMode> label_matching_modes_;
   std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
       edge_type_privileges_;
   std::vector<std::string> impersonation_targets_;
+
+  // Database specification for SHOW PRIVILEGES query
+  DatabaseSpecification database_specification_{DatabaseSpecification::NONE};
 
   AuthQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<AuthQuery>();
     object->action_ = action_;
     object->user_ = user_;
-    object->role_ = role_;
+    object->roles_ = roles_;
     object->user_or_role_ = user_or_role_;
+    object->role_databases_ = role_databases_;
     object->old_password_ = old_password_;
     object->new_password_ = new_password_;
     object->if_not_exists_ = if_not_exists_;
@@ -115,28 +133,36 @@ class AuthQuery : public memgraph::query::Query {
     object->database_ = database_;
     object->privileges_ = privileges_;
     object->label_privileges_ = label_privileges_;
+    object->label_matching_modes_ = label_matching_modes_;
     object->edge_type_privileges_ = edge_type_privileges_;
     object->impersonation_targets_ = impersonation_targets_;
+    object->database_specification_ = database_specification_;
     return object;
   }
 
  protected:
-  AuthQuery(Action action, std::string user, std::string role, std::string user_or_role, bool if_not_exists,
-            Expression *password, std::string database, std::vector<Privilege> privileges,
+  AuthQuery(Action action, std::string user, std::vector<std::string> roles, std::string user_or_role,
+            bool if_not_exists, Expression *password, std::string database, std::vector<Privilege> privileges,
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> label_privileges,
+            std::vector<LabelMatchingMode> label_matching_modes,
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges,
-            std::vector<std::string> impersonation_targets)
+            std::vector<std::string> impersonation_targets,
+            DatabaseSpecification database_specification = DatabaseSpecification::NONE,
+            std::unordered_set<std::string> role_databases = {})
       : action_(action),
-        user_(user),
-        role_(role),
-        user_or_role_(user_or_role),
+        user_(std::move(user)),
+        roles_(std::move(roles)),
+        user_or_role_(std::move(user_or_role)),
+        role_databases_(std::move(role_databases)),
         if_not_exists_(if_not_exists),
         password_(password),
-        database_(database),
-        privileges_(privileges),
-        label_privileges_(label_privileges),
-        edge_type_privileges_(edge_type_privileges),
-        impersonation_targets_(impersonation_targets) {}
+        database_(std::move(database)),
+        privileges_(std::move(privileges)),
+        label_privileges_(std::move(label_privileges)),
+        label_matching_modes_(std::move(label_matching_modes)),
+        edge_type_privileges_(std::move(edge_type_privileges)),
+        impersonation_targets_(std::move(impersonation_targets)),
+        database_specification_(database_specification) {}
 
  private:
   friend class AstStorage;
@@ -171,6 +197,7 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::MULTI_DATABASE_USE,
     AuthQuery::Privilege::COORDINATOR,
     AuthQuery::Privilege::IMPERSONATE_USER,
+    AuthQuery::Privilege::PROFILE_RESTRICTION,
 };
 
 }  // namespace memgraph::query

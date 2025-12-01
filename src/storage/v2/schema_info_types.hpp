@@ -23,7 +23,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/schema_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/conccurent_unordered_map.hpp"
 #include "utils/small_vector.hpp"
@@ -133,6 +132,9 @@ struct PropertyInfo {
             ss << "String";
             break;
           case PropertyValueType::List:
+          case PropertyValueType::IntList:
+          case PropertyValueType::DoubleList:
+          case PropertyValueType::NumericList:
             ss << "List";
             break;
           case PropertyValueType::Map:

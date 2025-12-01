@@ -138,47 +138,6 @@ TEST(TypedValue, CreationValues) {
   EXPECT_EQ(TypedValue(point3d_val).ValuePoint3d(), point3d_val);
 }
 
-TEST(TypedValue, CreationValuesFromPropertyValues) {
-  auto pv_true = PropertyValue{true};
-  EXPECT_EQ(TypedValue(pv_true).ValueBool(), true);
-  EXPECT_EQ(TypedValue(PropertyValue{true}).ValueBool(), true);
-
-  auto pv_false = PropertyValue{false};
-  EXPECT_EQ(TypedValue(pv_false).ValueBool(), false);
-  EXPECT_EQ(TypedValue(PropertyValue{false}).ValueBool(), false);
-
-  auto pv_str1 = PropertyValue{std::string("bla")};
-  EXPECT_EQ(TypedValue(pv_str1).ValueString(), "bla");
-  EXPECT_EQ(TypedValue(PropertyValue{std::string("bla")}).ValueString(), "bla");
-
-  auto pv_str2 = PropertyValue{"bla2"};
-  EXPECT_EQ(TypedValue(pv_str2).ValueString(), "bla2");
-  EXPECT_EQ(TypedValue(PropertyValue{"bla2"}).ValueString(), "bla2");
-
-  auto pv_int = PropertyValue{55};
-  EXPECT_EQ(TypedValue(pv_int).ValueInt(), 55);
-  EXPECT_EQ(TypedValue(PropertyValue{55}).ValueInt(), 55);
-
-  auto pv_double = PropertyValue{66.6};
-  EXPECT_FLOAT_EQ(TypedValue(pv_double).ValueDouble(), 66.6);
-  EXPECT_FLOAT_EQ(TypedValue(PropertyValue{66.6}).ValueDouble(), 66.6);
-
-  auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
-  auto pv_enum = PropertyValue{enum_val};
-  EXPECT_EQ(TypedValue(pv_enum).ValueEnum(), enum_val);
-  EXPECT_EQ(TypedValue(PropertyValue{enum_val}).ValueEnum(), enum_val);
-
-  auto point2d_val = Point2d{Cartesian_2d, 1.0, 2.0};
-  auto pv_point2d = PropertyValue{point2d_val};
-  EXPECT_EQ(TypedValue(pv_point2d).ValuePoint2d(), point2d_val);
-  EXPECT_EQ(TypedValue(PropertyValue{pv_point2d}).ValuePoint2d(), point2d_val);
-
-  auto point3d_val = Point3d{Cartesian_3d, 1.0, 2.0, 3.0};
-  auto pv_point3d = PropertyValue{point3d_val};
-  EXPECT_EQ(TypedValue(pv_point3d).ValuePoint3d(), point3d_val);
-  EXPECT_EQ(TypedValue(PropertyValue{pv_point3d}).ValuePoint3d(), point3d_val);
-}
-
 TEST(TypedValue, Equals) {
   EXPECT_PROP_EQ(TypedValue(true), TypedValue(true));
   EXPECT_PROP_NE(TypedValue(true), TypedValue(false));
@@ -288,13 +247,13 @@ TEST(TypedValue, Comparison) {
   run_comparison_cases(local_date_time_1, local_date_time_2);
 
   auto enum_val = TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}};
-  EXPECT_THROW(enum_val < enum_val, memgraph::query::TypedValueException);
+  EXPECT_THROW((void)(enum_val < enum_val), memgraph::query::TypedValueException);
 
   auto point_1 = TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}};
   auto point_2 = TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}};
 
-  EXPECT_THROW(point_1 < point_1, memgraph::query::TypedValueException);
-  EXPECT_THROW(point_2 < point_2, memgraph::query::TypedValueException);
+  EXPECT_THROW((void)(point_1 < point_1), memgraph::query::TypedValueException);
+  EXPECT_THROW((void)(point_2 < point_2), memgraph::query::TypedValueException);
 }
 
 TEST(TypedValue, BoolEquals) {
@@ -343,6 +302,69 @@ TEST(TypedValue, Hash) {
   EXPECT_NE(hash(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}), hash(TypedValue{Point2d{WGS84_2d, 1.0, 2.0}}));
   EXPECT_NE(hash(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}), hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}));
   EXPECT_NE(hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}), hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 0.0}}));
+}
+
+TEST(TypedValue, ListToPropertyValueList) {
+  memgraph::storage::NameIdMapper name_id_mapper;
+  auto typed_value_int_list = TypedValue(std::vector<int>{33, 0, -33});
+  auto typed_value_double_list = TypedValue(std::vector<double>{33.0, 0.0, -33.33});
+  auto typed_value_numeric_list =
+      TypedValue(std::vector<TypedValue>{TypedValue(33), TypedValue(0.0), TypedValue(-33.33)});
+  auto typed_value_mixed_types_list =
+      TypedValue(std::vector<TypedValue>{TypedValue(33), TypedValue("string"), TypedValue(-33.33)});
+
+  auto property_value_int_list = PropertyValue(std::vector<int>{33, 0, -33});
+  auto property_value_double_list = PropertyValue(std::vector<double>{33.0, 0.0, -33.33});
+  auto property_value_numeric_list = PropertyValue(std::vector<std::variant<int, double>>{33, 0.0, -33.33});
+  auto property_value_mixed_types_list =
+      PropertyValue(PropertyValue::list_t{PropertyValue(33), PropertyValue("string"), PropertyValue(-33.33)});
+
+  ASSERT_EQ(typed_value_int_list.ToPropertyValue(&name_id_mapper).type(), property_value_int_list.type());
+  ASSERT_EQ(typed_value_double_list.ToPropertyValue(&name_id_mapper).type(), property_value_double_list.type());
+  ASSERT_EQ(typed_value_numeric_list.ToPropertyValue(&name_id_mapper).type(), property_value_numeric_list.type());
+  ASSERT_EQ(typed_value_mixed_types_list.ToPropertyValue(&name_id_mapper).type(),
+            property_value_mixed_types_list.type());
+}
+
+TYPED_TEST(AllTypesFixture, CreationValuesFromPropertyValues) {
+  auto pv_true = PropertyValue{true};
+  EXPECT_EQ(TypedValue(pv_true, this->storage_dba->GetNameIdMapper()).ValueBool(), true);
+  EXPECT_EQ(TypedValue(PropertyValue{true}, this->storage_dba->GetNameIdMapper()).ValueBool(), true);
+
+  auto pv_false = PropertyValue{false};
+  EXPECT_EQ(TypedValue(pv_false, this->storage_dba->GetNameIdMapper()).ValueBool(), false);
+  EXPECT_EQ(TypedValue(PropertyValue{false}, this->storage_dba->GetNameIdMapper()).ValueBool(), false);
+
+  auto pv_str1 = PropertyValue{std::string("bla")};
+  EXPECT_EQ(TypedValue(pv_str1, this->storage_dba->GetNameIdMapper()).ValueString(), "bla");
+  EXPECT_EQ(TypedValue(PropertyValue{std::string("bla")}, this->storage_dba->GetNameIdMapper()).ValueString(), "bla");
+
+  auto pv_str2 = PropertyValue{"bla2"};
+  EXPECT_EQ(TypedValue(pv_str2, this->storage_dba->GetNameIdMapper()).ValueString(), "bla2");
+  EXPECT_EQ(TypedValue(PropertyValue{"bla2"}, this->storage_dba->GetNameIdMapper()).ValueString(), "bla2");
+
+  auto pv_int = PropertyValue{55};
+  EXPECT_EQ(TypedValue(pv_int, this->storage_dba->GetNameIdMapper()).ValueInt(), 55);
+  EXPECT_EQ(TypedValue(PropertyValue{55}, this->storage_dba->GetNameIdMapper()).ValueInt(), 55);
+
+  auto pv_double = PropertyValue{66.6};
+  EXPECT_FLOAT_EQ(TypedValue(pv_double, this->storage_dba->GetNameIdMapper()).ValueDouble(), 66.6);
+  EXPECT_FLOAT_EQ(TypedValue(PropertyValue{66.6}, this->storage_dba->GetNameIdMapper()).ValueDouble(), 66.6);
+
+  auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
+  auto pv_enum = PropertyValue{enum_val};
+  EXPECT_EQ(TypedValue(pv_enum, this->storage_dba->GetNameIdMapper()).ValueEnum(), enum_val);
+  EXPECT_EQ(TypedValue(PropertyValue{enum_val}, this->storage_dba->GetNameIdMapper()).ValueEnum(), enum_val);
+
+  auto point2d_val = Point2d{Cartesian_2d, 1.0, 2.0};
+  auto pv_point2d = PropertyValue{point2d_val};
+  EXPECT_EQ(TypedValue(pv_point2d, this->storage_dba->GetNameIdMapper()).ValuePoint2d(), point2d_val);
+  EXPECT_EQ(TypedValue(PropertyValue{pv_point2d}, this->storage_dba->GetNameIdMapper()).ValuePoint2d(), point2d_val);
+
+  auto point3d_val = Point3d{Cartesian_3d, 1.0, 2.0, 3.0};
+  auto pv_point3d = PropertyValue{point3d_val};
+  EXPECT_EQ(TypedValue(pv_point3d, this->storage_dba->GetNameIdMapper()).ValuePoint3d(), point3d_val);
+  EXPECT_EQ(TypedValue(PropertyValue{pv_point3d}, this->storage_dba->GetNameIdMapper()).ValuePoint3d(), point3d_val);
 }
 
 TYPED_TEST(AllTypesFixture, Less) {
@@ -503,9 +525,13 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
   // Duration
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::Duration(1)));
   // Date
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(1)) + TypedValue(memgraph::utils::Duration(1)));
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::Date(1)));
-  EXPECT_THROW(TypedValue(memgraph::utils::Date(1)) + TypedValue(memgraph::utils::Date(1)), TypedValueException);
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})) +
+                  TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) +
+                  TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})));
+  EXPECT_THROW(TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})) +
+                   TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})),
+               TypedValueException);
   // LocalTime
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalTime(1)) + TypedValue(memgraph::utils::Duration(1)));
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::LocalTime(1)));
@@ -551,9 +577,13 @@ TYPED_TEST(TypedValueArithmeticTest, Difference) {
   // Duration
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::Duration(1)));
   // Date
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(1)) - TypedValue(memgraph::utils::Duration(1)));
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(1)) - TypedValue(memgraph::utils::Date(1)));
-  EXPECT_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::Date(1)), TypedValueException);
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})) -
+                  TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})) -
+                  TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})));
+  EXPECT_THROW(
+      TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})),
+      TypedValueException);
   // LocalTime
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalTime(1)) - TypedValue(memgraph::utils::Duration(1)));
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalTime(1)) - TypedValue(memgraph::utils::LocalTime(1)));

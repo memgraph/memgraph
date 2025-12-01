@@ -20,48 +20,60 @@ bool DiskEdgePropertyIndex::DropIndex(PropertyId /*property*/) {
   return true;
 }
 
-bool DiskEdgePropertyIndex::IndexExists(PropertyId /*property*/) const {
+bool DiskEdgePropertyIndex::ActiveIndices::IndexExists(PropertyId /*property*/) const {
   spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
   return false;
 }
 
-std::vector<PropertyId> DiskEdgePropertyIndex::ListIndices() const {
+bool DiskEdgePropertyIndex::ActiveIndices::IndexReady(PropertyId /*property*/) const {
+  spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
+  return false;
+}
+
+std::vector<PropertyId> DiskEdgePropertyIndex::ActiveIndices::ListIndices(uint64_t /*start_timestamp*/) const {
   spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
   return {};
 }
 
-void DiskEdgePropertyIndex::UpdateOnSetProperty(Vertex * /*from_vertex*/, Vertex * /*to_vertex*/, Edge * /*edge*/,
-                                                EdgeTypeId /*edge_type*/, PropertyId /*property*/,
-                                                PropertyValue /*value*/, uint64_t /*timestamp*/) {
+void DiskEdgePropertyIndex::ActiveIndices::UpdateOnSetProperty(Vertex * /*from_vertex*/, Vertex * /*to_vertex*/,
+                                                               Edge * /*edge*/, EdgeTypeId /*edge_type*/,
+                                                               PropertyId /*property*/, PropertyValue /*value*/,
+                                                               uint64_t /*timestamp*/) {
   spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
 }
 
-uint64_t DiskEdgePropertyIndex::ApproximateEdgeCount(PropertyId /*property*/) const {
+uint64_t DiskEdgePropertyIndex::ActiveIndices::ApproximateEdgeCount(PropertyId /*property*/) const {
   spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
   return 0U;
 }
 
-uint64_t DiskEdgePropertyIndex::ApproximateEdgeCount(PropertyId /*property*/, const PropertyValue & /*value*/) const {
+uint64_t DiskEdgePropertyIndex::ActiveIndices::ApproximateEdgeCount(PropertyId /*property*/,
+                                                                    const PropertyValue & /*value*/) const {
   spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
   return 0U;
 };
 
-uint64_t DiskEdgePropertyIndex::ApproximateEdgeCount(
+uint64_t DiskEdgePropertyIndex::ActiveIndices::ApproximateEdgeCount(
     PropertyId /*property*/, const std::optional<utils::Bound<PropertyValue>> & /*lower*/,
     const std::optional<utils::Bound<PropertyValue>> & /*upper*/) const {
   spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
   return 0U;
-};
-
-void DiskEdgePropertyIndex::UpdateOnEdgeModification(Vertex * /*old_from*/, Vertex * /*old_to*/, Vertex * /*new_from*/,
-                                                     Vertex * /*new_to*/, EdgeRef /*edge_ref*/,
-                                                     EdgeTypeId /*edge_type*/, PropertyId /*property*/,
-                                                     const PropertyValue & /*value*/, const Transaction & /*tx*/) {
-  spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
 }
+
+EdgePropertyIndex::AbortProcessor DiskEdgePropertyIndex::ActiveIndices::GetAbortProcessor() const {
+  return AbortProcessor({});
+}
+
+void DiskEdgePropertyIndex::ActiveIndices::AbortEntries(EdgePropertyIndex::AbortableInfo const &info,
+                                                        uint64_t start_timestamp){
+
+};
 
 void DiskEdgePropertyIndex::DropGraphClearIndices() {
   spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
+}
+std::unique_ptr<EdgePropertyIndex::ActiveIndices> DiskEdgePropertyIndex::GetActiveIndices() const {
+  return std::make_unique<ActiveIndices>();
 }
 
 }  // namespace memgraph::storage

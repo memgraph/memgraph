@@ -40,6 +40,10 @@ namespace memgraph::storage {
     friend bool operator==(const name &, const name &) = default;                         \
     friend bool operator<(const name &, const name &) = default;                          \
     friend std::strong_ordering operator<=>(const name &, const name &) = default;        \
+    friend std::ostream &operator<<(std::ostream &os, const name &id) {                   \
+      os << id.ToString();                                                                \
+      return os;                                                                          \
+    }                                                                                     \
                                                                                           \
    private:                                                                               \
     type_store id_;                                                                       \
@@ -62,6 +66,19 @@ struct LabelPropKey {
 
  private:
   LabelId label_;
+  PropertyId property_;
+};
+
+struct EdgeTypePropKey {
+  EdgeTypePropKey(EdgeTypeId const &edge_type, PropertyId const &property)
+      : edge_type_(edge_type), property_(property) {}
+  friend auto operator<=>(EdgeTypePropKey const &, EdgeTypePropKey const &) = default;
+
+  auto edge_type() const -> EdgeTypeId { return edge_type_; }
+  auto property() const -> PropertyId { return property_; }
+
+ private:
+  EdgeTypeId edge_type_;
   PropertyId property_;
 };
 
@@ -95,6 +112,16 @@ struct hash<memgraph::storage::LabelPropKey> {
     std::size_t seed = 0;
     boost::hash_combine(seed, lpk.label().AsUint());
     boost::hash_combine(seed, lpk.property().AsUint());
+    return seed;
+  }
+};
+
+template <>
+struct hash<memgraph::storage::EdgeTypePropKey> {
+  size_t operator()(const memgraph::storage::EdgeTypePropKey &etpk) const noexcept {
+    std::size_t seed = 0;
+    boost::hash_combine(seed, etpk.edge_type().AsUint());
+    boost::hash_combine(seed, etpk.property().AsUint());
     return seed;
   }
 };

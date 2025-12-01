@@ -1,6 +1,6 @@
 name: "Diff"
 concurrency:
-  group: ${{ github.head_ref || github.sha }}
+  group: ${{ inputs.ref || github.head_ref || github.sha }}
   cancel-in-progress: true
 
 on:
@@ -11,9 +11,9 @@ on:
       community_core:
         type: boolean
         default: true
-      coverage_core:
-        type: boolean
-        default: true
+      coverage:
+        description: 'Comma-separated list of coverage tests to run (e.g. core,clang_tidy). Use "none" to skip all coverage tests.'
+        default: 'core,clang_tidy'
       debug_core:
         type: boolean
         default: true
@@ -24,12 +24,41 @@ on:
         type: boolean
         default: true
       release:
-        description: 'Comma-separated list of release tests to run (e.g. core,benchmark,e2e,stress,query_modules)'
+        description: 'Comma-separated list of release tests to run (e.g. core,benchmark,e2e,stress,query_modules). Use "none" to skip all release tests.'
         default: 'core,benchmark,e2e,stress,query_modules'
       malloc_build:
         type: boolean
         default: true
-
+  workflow_call:
+    inputs:
+      community_core:
+        type: boolean
+        default: true
+      coverage:
+        description: 'Comma-separated list of coverage tests to run (e.g. core,clang_tidy). Use "none" to skip all coverage tests.'
+        default: 'core,clang_tidy'
+        type: string
+      debug_core:
+        type: boolean
+        default: true
+      debug_integration:
+        type: boolean
+        default: true
+      jepsen_core:
+        type: boolean
+        default: true
+      release:
+        description: 'Comma-separated list of release tests to run (e.g. core,benchmark,e2e,stress,query_modules). Use "none" to skip all release tests.'
+        default: 'core,benchmark,e2e,stress,query_modules'
+        type: string
+      malloc_build:
+        type: boolean
+        default: true
+      ref:
+        description: 'Branch or commit ref to run the workflow on'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   DiffSetup:
@@ -37,6 +66,7 @@ jobs:
     outputs:
       run_community_core: ${{ steps.setup.outputs.run_community_core }}
       run_coverage_core: ${{ steps.setup.outputs.run_coverage_core }}
+      run_coverage_clang_tidy: ${{ steps.setup.outputs.run_coverage_clang_tidy }}
       run_debug_core: ${{ steps.setup.outputs.run_debug_core }}
       run_debug_integration: ${{ steps.setup.outputs.run_debug_integration }}
       run_jepsen_core: ${{ steps.setup.outputs.run_jepsen_core }}
@@ -53,6 +83,7 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
       - name: Dump GitHub context
         run: echo "$GH_CONTEXT" >> "$GH_CONTEXT_FILE_NAME"
@@ -64,9 +95,9 @@ jobs:
     needs: DiffSetup
     uses: ./.github/workflows/diff_community.yaml
     with:
+      ref: ${{ inputs.ref || github.ref }}
       arch: 'amd'
       os: 'ubuntu-24.04'
-      toolchain: 'v6'
       run_core: ${{ needs.DiffSetup.outputs.run_community_core }}
     secrets: inherit
 
@@ -74,20 +105,20 @@ jobs:
     needs: DiffSetup
     uses: ./.github/workflows/diff_coverage.yaml
     with:
+      ref: ${{ inputs.ref || github.ref }}
       arch: 'amd'
       os: 'ubuntu-24.04'
-      toolchain: 'v6'
       run_core: ${{ needs.DiffSetup.outputs.run_coverage_core }}
-      run_clang_tidy: ${{ needs.DiffSetup.outputs.run_coverage_core }}
+      run_clang_tidy: ${{ needs.DiffSetup.outputs.run_coverage_clang_tidy }}
     secrets: inherit
 
   Debug:
     needs: DiffSetup
     uses: ./.github/workflows/diff_debug.yaml
     with:
+      ref: ${{ inputs.ref || github.ref }}
       arch: 'amd'
       os: 'ubuntu-24.04'
-      toolchain: 'v6'
       run_core: ${{ needs.DiffSetup.outputs.run_debug_core }}
       run_integration: ${{ needs.DiffSetup.outputs.run_debug_integration }}
     secrets: inherit
@@ -96,6 +127,7 @@ jobs:
     needs: DiffSetup
     uses: ./.github/workflows/diff_jepsen.yaml
     with:
+      ref: ${{ inputs.ref || github.ref }}
       run_core: ${{ needs.DiffSetup.outputs.run_jepsen_core }}
     secrets: inherit
 
@@ -103,9 +135,9 @@ jobs:
     needs: DiffSetup
     uses: ./.github/workflows/diff_release.yaml
     with:
+      ref: ${{ inputs.ref || github.ref }}
       arch: 'amd'
       os: 'ubuntu-24.04'
-      toolchain: 'v6'
       run_core: ${{ needs.DiffSetup.outputs.run_release_core }}
       run_benchmark: ${{ needs.DiffSetup.outputs.run_release_benchmark }}
       run_e2e: ${{ needs.DiffSetup.outputs.run_release_e2e }}
@@ -117,9 +149,8 @@ jobs:
     needs: DiffSetup
     uses: ./.github/workflows/diff_malloc.yaml
     with:
+      ref: ${{ inputs.ref || github.ref }}
       arch: 'amd'
       os: 'ubuntu-24.04'
-      toolchain: 'v6'
       run_build: ${{ needs.DiffSetup.outputs.run_malloc_build }}
     secrets: inherit
-  

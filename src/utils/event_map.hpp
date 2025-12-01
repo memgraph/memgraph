@@ -13,7 +13,6 @@
 
 #include <array>
 #include <atomic>
-#include <cstdlib>
 #include <memory>
 #include <string>
 
@@ -29,22 +28,17 @@ class EventMap {
 
   explicit EventMap(Counter *allocated_counters) noexcept : counters_(allocated_counters) {}
 
-  auto &operator[](std::string_view event);
-
-  const auto &operator[](std::string_view event) const;
-
   bool Increment(std::string_view event, Count amount = 1);
 
   bool Decrement(std::string_view event, Count amount = 1);
 
-  nlohmann::json ToJson();
+  nlohmann::json ToJson() const;
 
   uint64_t num_free_counters_{kMaxCounters};
   std::array<std::string, kMaxCounters> name_to_id_;
 
  private:
   Counter *counters_;
-  const auto &operator[](int event) const;
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

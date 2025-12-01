@@ -33,7 +33,6 @@ from common import (
   wait_until_main_writeable_assert_replica_down,
 )
 from mg_utils import (
-  mg_assert_until,
   mg_sleep_and_assert,
   mg_sleep_and_assert_collection,
   mg_sleep_and_assert_eval_function,
@@ -280,6 +279,47 @@ def cleanup_after_test():
     yield
     # Stop + delete directories after running the test
     interactive_mg_runner.kill_all(keep_directories=False)
+
+
+def test_global_edge_index_drop_replication(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+
+    instance_3_cursor = connect(host="localhost", port=7689).cursor()
+
+    # Exception because one SYNC replica is down
+    try:
+        execute_and_fetch_all(instance_3_cursor, "create global edge index on :(id)")
+    except:
+        pass
+
+    # Exception because one SYNC replica is down
+    try:
+        execute_and_fetch_all(instance_3_cursor, "create (n:Test {id: 1})")
+    except:
+        pass
+
+    # Exception because one SYNC replica is down
+    try:
+        execute_and_fetch_all(instance_3_cursor, "drop global edge index on :(id)")
+    except:
+        pass
+
+    interactive_mg_runner.start(inner_instances_description, "instance_1")
+    instance_1_cursor = connect(host="localhost", port=7687).cursor()
+    mg_sleep_and_assert(1, partial(get_vertex_count, instance_1_cursor))
+
+    def get_num_indices(cursor):
+        return len(execute_and_fetch_all(cursor, "show index info"))
+
+    mg_sleep_and_assert(0, partial(get_num_indices, instance_1_cursor))
 
 
 def test_leadership_change(test_name):
@@ -2399,7 +2439,7 @@ def test_coordinator_user_action_demote_instance_to_replica(test_name):
         execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")
     assert str(e.value) == "Show replicas query should only be run on the main instance."
 
-    mg_assert_until(data, partial(show_instances, coord_cursor_3), FAILOVER_PERIOD + 1)
+    mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3), FAILOVER_PERIOD + 1)
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_1))
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_2))
 
@@ -3070,14 +3110,20 @@ def test_coord_settings(test_name):
 
     enabled_reads_key = "enabled_reads_on_main"
     sync_failover_key = "sync_failover_only"
+    max_failover_replica_lag = "max_failover_replica_lag"
+    max_replica_read_lag = "max_replica_read_lag"
 
     settings = dict(execute_and_fetch_all(coord_cursor_3, "SHOW COORDINATOR SETTINGS"))
 
     assert enabled_reads_key in settings, f"Missing setting key: {enabled_reads_key}"
     assert sync_failover_key in settings, f"Missing setting key: {sync_failover_key}"
+    assert max_failover_replica_lag in settings, f"Missing setting key: {max_failover_replica_lag}"
+    assert max_replica_read_lag in settings, f"Missing setting key: {max_replica_read_lag}"
 
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "true"
+    assert settings[max_failover_replica_lag] == f"{2**64-1}"
+    assert settings[max_replica_read_lag] == f"{2**64-1}"
 
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'enabled_reads_on_main' to 'true'")
 
@@ -3085,24 +3131,38 @@ def test_coord_settings(test_name):
     settings = dict(execute_and_fetch_all(coord_cursor_3, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "true"
     assert settings[sync_failover_key] == "true"
+    assert settings[max_failover_replica_lag] == f"{2**64-1}"
+    assert settings[max_replica_read_lag] == f"{2**64-1}"
     settings = dict(execute_and_fetch_all(coord_cursor_2, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "true"
     assert settings[sync_failover_key] == "true"
+    assert settings[max_failover_replica_lag] == f"{2**64-1}"
+    assert settings[max_replica_read_lag] == f"{2**64-1}"
     settings = dict(execute_and_fetch_all(coord_cursor_1, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "true"
     assert settings[sync_failover_key] == "true"
+    assert settings[max_failover_replica_lag] == f"{2**64-1}"
+    assert settings[max_replica_read_lag] == f"{2**64-1}"
 
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'sync_failover_only' to 'false'")
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'enabled_reads_on_main' to 'false'")
+    execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'max_failover_replica_lag' to '25'")
+    execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'max_replica_read_lag' to '10'")
     settings = dict(execute_and_fetch_all(coord_cursor_3, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "false"
+    assert settings[max_failover_replica_lag] == "25"
+    assert settings[max_replica_read_lag] == "10"
     settings = dict(execute_and_fetch_all(coord_cursor_2, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "false"
+    assert settings[max_failover_replica_lag] == "25"
+    assert settings[max_replica_read_lag] == "10"
     settings = dict(execute_and_fetch_all(coord_cursor_1, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "false"
+    assert settings[max_failover_replica_lag] == "25"
+    assert settings[max_replica_read_lag] == "10"
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <spdlog/spdlog.h>
 #include "utils/bound.hpp"
 #include "utils/counter.hpp"
 #include "utils/math.hpp"
@@ -19,6 +20,7 @@
 #include "utils/stack.hpp"
 
 #include <random>
+#include <vector>
 
 // This code heavily depends on atomic operations. For a more detailed
 // description of how exactly atomic operations work, see:
@@ -57,9 +59,18 @@ constexpr int kSkipListCountEstimateDefaultLayer = 10;
 /// optimized to have block sizes that are a whole multiple of the memory page
 /// size.
 constexpr uint64_t kSkipListGcBlockSize = 8189;
-constexpr uint64_t kSkipListGcStackSize = 8191;
+constexpr uint64_t kSkipListGcStackSize = 8190;
 
 namespace detail {
+
+bool &SkipListGcRunning();
+bool IsSkipListGcRunning();
+
+class SkipListGcMarker {
+ public:
+  SkipListGcMarker() { SkipListGcRunning() = true; }
+  ~SkipListGcMarker() { SkipListGcRunning() = false; }
+};
 
 auto thread_local_mt19937() -> std::mt19937 &;
 
@@ -75,7 +86,7 @@ struct SkipListNode_base {
                   "utils::SkipList::gen_height is implemented only for heights "
                   "up to 32!");
     uint32_t value = thread_local_mt19937()();
-    if (value == 0) return kSkipListMaxHeight;
+    if (value < 1UL << (32 - kSkipListMaxHeight)) return kSkipListMaxHeight;
     // The value should have exactly `kSkipListMaxHeight` bits.
     value >>= (32 - kSkipListMaxHeight);
     // ffs = find first set
@@ -168,6 +179,25 @@ constexpr uint8_t SkipListLayerForAverageEqualsEstimation(const uint64_t N) {
   return static_cast<uint8_t>(std::min(1 + ((utils::Log2(N) * 2) / 3 + 1), utils::kSkipListMaxHeight));
 }
 
+/// Returns the expected number of elements at the k-th layer of a skip list.
+/// The formula is N * (1/2)^(k-1), where N is the total number of elements
+/// and k is the layer (1-indexed, where layer 1 is the bottom layer).
+///
+/// @param N Total number of elements in the skip list
+/// @param k Layer number (1-indexed, where 1 is the bottom layer)
+/// @return Expected number of elements at the k-th layer
+constexpr uint64_t ExpectedSizeAtLayer(const uint64_t N, const uint8_t k) {
+  if (k <= 1) return N;  // Bottom layer contains all elements
+  if (N == 0) return 0;  // Empty skip list
+
+  // Calculate (1/2)^(k-1) using bit shifting for efficiency
+  // (1/2)^(k-1) = 1 / (2^(k-1))
+  const uint8_t power = k - 1;
+  if (power >= 64) return 0;  // Result would be too small to represent
+
+  return N >> power;
+}
+
 /// The skip list doesn't have built-in reclamation of removed nodes (objects).
 /// This class handles all operations necessary to remove the nodes safely.
 ///
@@ -198,7 +228,7 @@ class SkipListGc final {
  private:
   using TNode = SkipListNode<TObj>;
   using TDeleted = std::pair<uint64_t, TNode *>;
-  using TStack = Stack<TDeleted, kSkipListGcStackSize>;
+  using TLocalStack = Stack<TDeleted, kSkipListGcStackSize>;
 
   static constexpr uint64_t kIdsInField = sizeof(uint64_t) * 8;
   static constexpr uint64_t kIdsInBlock = kSkipListGcBlockSize * kIdsInField;
@@ -299,6 +329,7 @@ class SkipListGc final {
   }
 
   void Run() {
+    detail::SkipListGcMarker marker;  // mark when gc is running
     // This method can be called after any skip list method, including the add method
     // which could have OOMException enabled in its thread so to ensure no exception
     // is thrown while cleaning the skip list, we add the blocker.
@@ -350,18 +381,12 @@ class SkipListGc final {
       }
       tail = next;
     }
-    TStack leftover;
-    std::optional<TDeleted> item;
-    while ((item = deleted_.Pop())) {
-      if (item->first < last_dead) {
-        size_t bytes = SkipListNodeSize(*item->second);
-        item->second->~TNode();
-        memory_->deallocate(item->second, bytes, SkipListNodeAlign<TObj>());
-      } else {
-        leftover.Push(*item);
-      }
-    }
-    deleted_ = std::move(leftover);
+    deleted_.EraseIf([last_dead](const TDeleted &item) { return item.first < last_dead; },
+                     [this](const TDeleted &item) {
+                       size_t bytes = SkipListNodeSize(*item.second);
+                       item.second->~TNode();
+                       memory_->deallocate(item.second, bytes, SkipListNodeAlign<TObj>());
+                     });
   }
 
   MemoryResource *GetMemoryResource() const { return memory_; }
@@ -402,7 +427,7 @@ class SkipListGc final {
   std::atomic<Block *> head_{nullptr};
   std::atomic<Block *> tail_{nullptr};
   uint64_t last_id_{0};
-  TStack deleted_;
+  TLocalStack deleted_;
 #ifndef NDEBUG
   std::atomic<uint64_t> alive_accessors_{0};
 #endif
@@ -671,6 +696,81 @@ class SkipList final : detail::SkipListNode_base {
     TNode *node_{};
   };
 
+  class ChunkedIterator final {
+   private:
+    friend class SkipList;
+
+    ChunkedIterator(TNode *node) : node_(node) {}
+
+   public:
+    using value_type = TObj;
+    using difference_type = std::ptrdiff_t;
+
+    ChunkedIterator() = default;
+
+    value_type &operator*() const { return node_->obj; }
+
+    value_type *operator->() const { return &node_->obj; }
+
+    // Chunked version needs to use the order of nodes to avoid skipping nodes that are marked or not fully linked.
+    ChunkedIterator &operator++() {
+      if (node_ == nullptr) {
+        return *this;  // Already at end
+      }
+
+      TNode *next = node_->nexts[0].load(std::memory_order_acquire);
+      while (true) {
+        if (next == nullptr) [[unlikely]] {
+          node_ = nullptr;
+          return *this;
+        }
+
+        // Node is inside the chunk and valid
+        if (!next->marked.load(std::memory_order_acquire)) [[likely]] {
+          node_ = next;
+          return *this;
+        }
+
+        // Skip invalid nodes
+        next = next->nexts[0].load(std::memory_order_acquire);
+      }
+    }
+
+    ChunkedIterator operator++(int) {
+      ChunkedIterator old = *this;
+      ++(*this);
+      return old;
+    }
+
+    bool operator==(const ChunkedIterator &other) const { return node_ == other.node_; }
+    // More complex because the end node can be removed from the skiplist, we check the order and stop if past end node
+    bool operator!=(const ChunkedIterator &other) const {
+      if (!node_) return false;       // end of skiplist (stop)
+      if (!other.node_) return true;  // continue till the end of the skiplist
+      return node_ != other.node_ &&
+             (node_->obj < other.node_->obj);  // run until we hit the other node OR our node is greater than the other
+    }
+
+   private:
+    TNode *node_{nullptr};
+  };
+
+  class Chunk {
+    ChunkedIterator begin_;
+    ChunkedIterator end_;
+
+   public:
+    Chunk(TNode *begin, TNode *end) : begin_{begin}, end_{end} {}
+    Chunk(ChunkedIterator begin, ChunkedIterator end) : begin_{begin}, end_{end} {}
+
+    ChunkedIterator begin() { return begin_; }
+    ChunkedIterator end() { return end_; }
+  };
+
+  /// Collection of chunks for parallel processing.
+  /// Provides access to all chunks and allows iteration over them.
+  using ChunkCollection = std::vector<Chunk>;
+
   class SamplingIterator final {
    private:
     friend class SkipList;
@@ -777,6 +877,28 @@ class SkipList final : detail::SkipListNode_base {
       auto const e = SamplingIterator{};
       return SamplingRange{b, e};
     };
+
+    /// Creates chunks for parallel processing of the skip list.
+    /// Each chunk contains approximately equal number of elements.
+    /// This method is thread-safe and can be called concurrently.
+    ///
+    /// @param num_chunks The number of chunks to create
+    /// @return ChunkCollection containing the chunks
+    ChunkCollection create_chunks(size_t num_chunks) const { return skiplist_->create_chunks(num_chunks); }
+
+    /// Creates chunks for parallel processing of the skip list within a specified range.
+    /// Each chunk contains approximately equal number of elements within the range.
+    /// This method is thread-safe and can be called concurrently.
+    ///
+    /// @param num_chunks The number of chunks to create
+    /// @param lower_bound Optional lower bound for the range
+    /// @param upper_bound Optional upper bound for the range
+    /// @return ChunkCollection containing the chunks
+    template <typename TKey>
+    ChunkCollection create_chunks(size_t num_chunks, const std::optional<TKey> &lower_bound,
+                                  const std::optional<TKey> &upper_bound) const {
+      return skiplist_->create_chunks(num_chunks, lower_bound, upper_bound);
+    }
 
     std::pair<Iterator, bool> insert(const TObj &object) { return skiplist_->insert(object); }
 
@@ -938,6 +1060,28 @@ class SkipList final : detail::SkipListNode_base {
       return SamplingRange{b, e};
     };
 
+    /// Creates chunks for parallel processing of the skip list.
+    /// Each chunk contains approximately equal number of elements.
+    /// This method is thread-safe and can be called concurrently.
+    ///
+    /// @param num_chunks The number of chunks to create
+    /// @return ChunkCollection containing the chunks
+    ChunkCollection create_chunks(size_t num_chunks) const { return skiplist_->create_chunks(num_chunks); }
+
+    /// Creates chunks for parallel processing of the skip list within a specified range.
+    /// Each chunk contains approximately equal number of elements within the range.
+    /// This method is thread-safe and can be called concurrently.
+    ///
+    /// @param num_chunks The number of chunks to create
+    /// @param lower_bound Optional lower bound for the range
+    /// @param upper_bound Optional upper bound for the range
+    /// @return ChunkCollection containing the chunks
+    template <typename TKey>
+    ChunkCollection create_chunks(size_t num_chunks, const std::optional<TKey> &lower_bound,
+                                  const std::optional<TKey> &upper_bound) const {
+      return skiplist_->create_chunks(num_chunks, lower_bound, upper_bound);
+    }
+
     template <typename TKey>
     bool contains(const TKey &key) const {
       return skiplist_->contains(key);
@@ -1067,7 +1211,8 @@ class SkipList final : detail::SkipListNode_base {
 
  private:
   template <GCPolicy policy = GCPolicy::Random, typename TKey>
-  int find_node(const TKey &key, TNode *preds[], TNode *succs[]) const {
+  int find_node(const TKey &key, std::array<TNode *, kSkipListMaxHeight> &preds,
+                std::array<TNode *, kSkipListMaxHeight> &succs) const {
     int layer_found = -1;
     TNode *pred = head_;
     for (int layer = kSkipListMaxHeight - 1; layer >= 0; --layer) {
@@ -1112,7 +1257,8 @@ class SkipList final : detail::SkipListNode_base {
   template <typename TObjUniv>
   std::pair<Iterator, bool> insert(TObjUniv &&object) {
     int top_layer = gen_height();
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     if (top_layer >= kSkipListGcHeightTrigger) gc_.Run();
     while (true) {
       int layer_found = find_node(object, preds, succs);
@@ -1186,7 +1332,8 @@ class SkipList final : detail::SkipListNode_base {
 
   template <typename TKey>
   SkipListNode<TObj> *find_(const TKey &key) const {
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     while (true) {
       int layer_found = find_node(key, preds, succs);
       if (layer_found == -1) [[unlikely]] {
@@ -1218,8 +1365,8 @@ class SkipList final : detail::SkipListNode_base {
   }
 
   template <typename TKey>
-  Iterator find_equal_or_greater_(const TKey &key) const {
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+  Iterator find_equal_or_greater_(const TKey &key, std::array<TNode *, kSkipListMaxHeight> &preds,
+                                  std::array<TNode *, kSkipListMaxHeight> &succs) const {
     while (true) {
       find_node(key, preds, succs);
       if (!succs[0]) {
@@ -1233,6 +1380,13 @@ class SkipList final : detail::SkipListNode_base {
       }
       // found entry no longer valid, try again
     }
+  }
+
+  template <typename TKey>
+  Iterator find_equal_or_greater_(const TKey &key) const {
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
+    return find_equal_or_greater_(key, preds, succs);
   }
 
   template <typename TKey>
@@ -1250,7 +1404,8 @@ class SkipList final : detail::SkipListNode_base {
     MG_ASSERT(max_layer_for_estimation >= 1 && max_layer_for_estimation <= kSkipListMaxHeight,
               "Invalid layer for SkipList count estimation!");
 
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     int layer_found = find_node(key, preds, succs);
     if (layer_found == -1) {
       return 0;
@@ -1284,7 +1439,8 @@ class SkipList final : detail::SkipListNode_base {
     MG_ASSERT(max_layer_for_estimation >= 1 && max_layer_for_estimation <= kSkipListMaxHeight,
               "Invalid layer for SkipList count estimation!");
 
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     int layer_found = -1;
     if (lower) {
       layer_found = find_node(lower->value(), preds, succs);
@@ -1429,7 +1585,8 @@ class SkipList final : detail::SkipListNode_base {
     TNode *node_to_delete = nullptr;
     bool is_marked = false;
     int top_layer = -1;
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     std::unique_lock<SpinLock> node_guard;
     while (true) {
       int layer_found = find_node<GCPolicy::DoNotRun>(key, preds, succs);
@@ -1476,6 +1633,141 @@ class SkipList final : detail::SkipListNode_base {
         return false;
       }
     }
+  }
+
+  /// Creates chunks for parallel processing of the skip list.
+  /// Uses the maximum layer for efficient chunking, splitting based on max-height elements.
+  /// Ensures complete coverage by making first chunk start from beginning and last chunk end at end.
+  /// This method is thread-safe and can be called concurrently.
+  ///
+  /// @param num_chunks The number of chunks to create
+  /// @return ChunkCollection containing the chunks
+  ChunkCollection create_chunks(size_t num_chunks) const {
+    if (head_ == nullptr) {
+      // Return one empty chunk for empty list
+      return {{Chunk{nullptr, nullptr}}};
+    }
+
+    std::array<TNode *, kSkipListMaxHeight> start{};
+    std::array<TNode *, kSkipListMaxHeight> end{};
+    for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
+      start[layer] = head_->nexts[layer].load(std::memory_order_acquire);
+    }
+    return create_chunks_(num_chunks, start, end);
+  }
+
+  template <typename TKey>
+  ChunkCollection create_chunks(size_t num_chunks, const std::optional<TKey> &lower_bound,
+                                const std::optional<TKey> &upper_bound) const {
+    if (head_ == nullptr) {
+      // Return one empty chunk for empty list
+      return {{Chunk{nullptr, nullptr}}};
+    }
+
+    if (lower_bound && upper_bound && lower_bound.value() > upper_bound.value()) {
+      // Invalid range
+      return {{Chunk{nullptr, nullptr}}};
+    }
+
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
+    std::array<TNode *, kSkipListMaxHeight> start{};
+    std::array<TNode *, kSkipListMaxHeight> end{};
+
+    if (lower_bound) {
+      auto found_layer = find_node<GCPolicy::DoNotRun>(lower_bound.value(), preds, start);
+      // Lower bound not found
+      if (found_layer == -1 && start[0] == nullptr) {
+        return {{Chunk{nullptr, nullptr}}};
+      }
+    } else {
+      for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
+        start[layer] = head_->nexts[layer].load(std::memory_order_acquire);
+      }
+    }
+
+    if (upper_bound) {
+      find_node<GCPolicy::DoNotRun>(upper_bound.value(), end, succs);
+      for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
+        // end is preds which are defaulted to head_, but head_ is not a valid node, so we must use nexts
+        auto *current = end[layer] == head_ ? head_->nexts[layer].load(std::memory_order_acquire) : end[layer];
+        // Find the first element over the bound
+        while (current != nullptr && current->obj <= upper_bound.value()) {
+          if (!current->marked.load(std::memory_order_acquire)) {
+            while (!current->fully_linked.load(std::memory_order_acquire))
+              ;
+          }
+          current = current->nexts[layer].load(std::memory_order_acquire);
+        }
+        end[layer] = current;
+      }
+    }
+
+    return create_chunks_(num_chunks, start, end);
+  }
+
+  /// Creates chunks for parallel processing of the skip list.
+  ChunkCollection create_chunks_(size_t num_chunks, std::array<TNode *, kSkipListMaxHeight> &start,
+                                 std::array<TNode *, kSkipListMaxHeight> &end) const {
+    if (num_chunks == 0) {
+      return ChunkCollection{};
+    }
+
+    // Find the highest layer with enough elements for chunking
+    std::vector<TNode *> cached_layer_nodes;
+    int layer = SkipListLayerForCountEstimation(size()) - 1;
+    for (; layer >= 0; --layer) {
+      cached_layer_nodes.clear();
+      cached_layer_nodes.reserve(ExpectedSizeAtLayer(size(), layer + 1));
+      // Count max-height elements (elements that appear at this layer)
+      TNode *current = start[layer];
+      TNode *layer_end = end[layer];
+      while (current != layer_end) {
+        // Only count nodes that are both fully_linked and not marked
+        if (!current->marked.load(std::memory_order_acquire)) {
+          cached_layer_nodes.push_back(current);
+          while (!current->fully_linked.load(std::memory_order_acquire))
+            ;
+        }
+        current = current->nexts[layer].load(std::memory_order_acquire);
+      }
+
+      if (cached_layer_nodes.size() >= num_chunks) {
+        break;  // Found the layer with enough elements
+      }
+    }
+
+    if (cached_layer_nodes.empty()) {
+      // If there are no max-height elements, return the complete list as one chunk
+      return {{Chunk{start[0], end[0]}}};
+    }
+
+    // If we have fewer max-height elements than chunks, adjust
+    if (cached_layer_nodes.size() < num_chunks) {
+      layer = 0;  // We got to the bottom layer
+      num_chunks = cached_layer_nodes.size();
+    }
+
+    std::vector<Chunk> chunks(num_chunks, Chunk{nullptr, nullptr});
+
+    uint64_t elements_per_chunk = cached_layer_nodes.size() / num_chunks;
+    uint64_t remainder = cached_layer_nodes.size() % num_chunks;
+
+    // First chunk starts from the very beginning of the list (head_->nexts[0])
+    // This ensures we capture any newly inserted elements at the beginning
+    TNode *current_start = start[0];
+    for (size_t i = 0; i < num_chunks; ++i) {
+      TNode *range_end = end[0];
+      const auto next_pos = (i + 1);
+      const auto end_pos = next_pos * elements_per_chunk + (next_pos < remainder ? next_pos : remainder);
+      if (end_pos < cached_layer_nodes.size()) {
+        range_end = cached_layer_nodes[end_pos];
+      }
+      chunks[i] = Chunk{current_start, range_end};
+      current_start = range_end;
+    }
+
+    return ChunkCollection{std::move(chunks)};
   }
 
  private:

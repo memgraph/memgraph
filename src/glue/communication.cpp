@@ -39,7 +39,7 @@ using namespace std::string_view_literals;
 namespace memgraph::glue {
 
 auto BoltMapToMgType(bolt_map_t const &value, storage::Storage const *storage)
-    -> std::optional<storage::PropertyValue> {
+    -> std::optional<storage::ExternalPropertyValue> {
   auto info = BoltMapToMgTypeInfo(value);
   if (!info) return std::nullopt;
 
@@ -49,7 +49,7 @@ auto BoltMapToMgType(bolt_map_t const &value, storage::Storage const *storage)
       if (!storage) return std::nullopt;
       auto enum_val = storage->enum_store_.ToEnum(mg_value);
       if (enum_val.HasError()) return std::nullopt;
-      return storage::PropertyValue(*enum_val);
+      return storage::ExternalPropertyValue(*enum_val);
     }
   }
   return std::nullopt;
@@ -300,64 +300,65 @@ storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage
   return std::move(map);
 }
 
-storage::PropertyValue ToPropertyValue(communication::bolt::Value const &value, storage::Storage const *storage) {
+storage::ExternalPropertyValue ToExternalPropertyValue(communication::bolt::Value const &value,
+                                                       storage::Storage const *storage) {
   switch (value.type()) {
     case Value::Type::Null:
-      return storage::PropertyValue();
+      return storage::ExternalPropertyValue();
     case Value::Type::Bool:
-      return storage::PropertyValue(value.ValueBool());
+      return storage::ExternalPropertyValue(value.ValueBool());
     case Value::Type::Int:
-      return storage::PropertyValue(value.ValueInt());
+      return storage::ExternalPropertyValue(value.ValueInt());
     case Value::Type::Double:
-      return storage::PropertyValue(value.ValueDouble());
+      return storage::ExternalPropertyValue(value.ValueDouble());
     case Value::Type::String:
-      return storage::PropertyValue(value.ValueString());
+      return storage::ExternalPropertyValue(value.ValueString());
     case Value::Type::List: {
-      std::vector<storage::PropertyValue> vec;
+      std::vector<storage::ExternalPropertyValue> vec;
       vec.reserve(value.ValueList().size());
-      for (const auto &value : value.ValueList()) vec.emplace_back(ToPropertyValue(value, storage));
-      return storage::PropertyValue(std::move(vec));
+      for (const auto &value : value.ValueList()) vec.emplace_back(ToExternalPropertyValue(value, storage));
+      return storage::ExternalPropertyValue(std::move(vec));
     }
     case Value::Type::Map: {
       auto const &valueMap = value.ValueMap();
       auto mg_type = BoltMapToMgType(valueMap, storage);
       if (mg_type) return *mg_type;
 
-      auto map = storage::PropertyValue::map_t{};
-      map.reserve(valueMap.size());
+      auto map = storage::ExternalPropertyValue::map_t{};
+      do_reserve(map, valueMap.size());
       for (const auto &[k, v] : valueMap) {
-        map.try_emplace(k, ToPropertyValue(v, storage));
+        map.try_emplace(k, ToExternalPropertyValue(v, storage));
       }
-      return storage::PropertyValue(std::move(map));
+      return storage::ExternalPropertyValue(std::move(map));
     }
     case Value::Type::Vertex:
     case Value::Type::Edge:
     case Value::Type::UnboundedEdge:
     case Value::Type::Path:
-      throw communication::bolt::ValueException("Unsupported conversion from Value to PropertyValue");
+      throw communication::bolt::ValueException("Unsupported conversion from Value to ExternalPropertyValue");
     case Value::Type::Date:
-      return storage::PropertyValue(
+      return storage::ExternalPropertyValue(
           storage::TemporalData(storage::TemporalType::Date, value.ValueDate().MicrosecondsSinceEpoch()));
     case Value::Type::LocalTime:
-      return storage::PropertyValue(
+      return storage::ExternalPropertyValue(
           storage::TemporalData(storage::TemporalType::LocalTime, value.ValueLocalTime().MicrosecondsSinceEpoch()));
     case Value::Type::LocalDateTime:
       // Bolt uses time since epoch without timezone (as if in UTC)
-      return storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalDateTime,
-                                                          value.ValueLocalDateTime().SysMicrosecondsSinceEpoch()));
+      return storage::ExternalPropertyValue(storage::TemporalData(
+          storage::TemporalType::LocalDateTime, value.ValueLocalDateTime().SysMicrosecondsSinceEpoch()));
     case Value::Type::Duration:
-      return storage::PropertyValue(
+      return storage::ExternalPropertyValue(
           storage::TemporalData(storage::TemporalType::Duration, value.ValueDuration().microseconds));
     case Value::Type::ZonedDateTime: {
       const auto &temp_value = value.ValueZonedDateTime();
-      return storage::PropertyValue(storage::ZonedTemporalData(
+      return storage::ExternalPropertyValue(storage::ZonedTemporalData(
           storage::ZonedTemporalType::ZonedDateTime, temp_value.SysTimeSinceEpoch(), temp_value.GetTimezone()));
     }
     case Value::Type::Point2d: {
-      return storage::PropertyValue(value.ValuePoint2d());
+      return storage::ExternalPropertyValue(value.ValuePoint2d());
     }
     case Value::Type::Point3d: {
-      return storage::PropertyValue(value.ValuePoint3d());
+      return storage::ExternalPropertyValue(value.ValuePoint3d());
     }
   }
 }
@@ -382,13 +383,44 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
       for (const auto &v : values) {
         vec.push_back(ToBoltValue(v, storage));
       }
-      return Value(std::move(vec));
+      return vec;
+    }
+    case storage::PropertyValue::Type::NumericList: {
+      const auto &values = value.ValueNumericList();
+      std::vector<Value> vec;
+      vec.reserve(values.size());
+      for (const auto &v : values) {
+        if (std::holds_alternative<int>(v)) {
+          vec.emplace_back(std::get<int>(v));
+        } else {
+          vec.emplace_back(std::get<double>(v));
+        }
+      }
+      return vec;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      const auto &values = value.ValueIntList();
+      std::vector<Value> vec;
+      vec.reserve(values.size());
+      for (const auto &v : values) {
+        vec.emplace_back(v);
+      }
+      return vec;
+    }
+    case storage::PropertyValue::Type::DoubleList: {
+      const auto &values = value.ValueDoubleList();
+      std::vector<Value> vec;
+      vec.reserve(values.size());
+      for (const auto &v : values) {
+        vec.emplace_back(v);
+      }
+      return vec;
     }
     case storage::PropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
       bolt_map_t dv_map;
       for (const auto &kv : map) {
-        dv_map.emplace(kv.first, ToBoltValue(kv.second, storage));
+        dv_map.emplace(storage.PropertyToName(kv.first), ToBoltValue(kv.second, storage));
       }
       return Value(std::move(dv_map));
     }
@@ -396,7 +428,7 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
       const auto &type = value.ValueTemporalData();
       switch (type.type) {
         case storage::TemporalType::Date:
-          return Value(utils::Date(type.microseconds));
+          return {utils::Date{std::chrono::microseconds{type.microseconds}}};
         case storage::TemporalType::LocalTime:
           return Value(utils::LocalTime(type.microseconds));
         case storage::TemporalType::LocalDateTime:

@@ -120,13 +120,21 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   void Abort() { md_.clear(); }
 
-  bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) { return true; }
+  memgraph::utils::BasicResult<memgraph::communication::bolt::AuthFailure> Authenticate(
+      const std::string & /*username*/, const std::string & /*password*/) {
+    return {/* success */};
+  }
 
-  bool SSOAuthenticate(const std::string & /*username*/, const std::string & /*password*/) { return true; }
+  memgraph::utils::BasicResult<memgraph::communication::bolt::AuthFailure> SSOAuthenticate(
+      const std::string & /*username*/, const std::string & /*password*/) {
+    return {/* success */};
+  }
+
+  void LogOff() {}
 
 #ifdef MG_ENTERPRISE
   auto Route(bolt_map_t const & /*routing*/, std::vector<memgraph::communication::bolt::Value> const & /*bookmarks*/,
-             bolt_map_t const & /*extra*/) -> bolt_map_t {
+             std::optional<std::string> const & /*db*/, bolt_map_t const & /*extra*/) -> bolt_map_t {
     return {};
   }
 #endif
@@ -215,7 +223,13 @@ namespace v4_3 {
 inline constexpr uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x03, 0x04, 0x00, 0x00,
                                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 inline constexpr uint8_t handshake_resp[] = {0x00, 0x00, 0x03, 0x04};
-inline constexpr uint8_t route[]{0xb3, 0x66, 0xa0, 0x90, 0xc0};
+inline constexpr uint8_t route[] = {
+    0xb3,                               // struct with 3 fields
+    0x66,                               // ROUTE signature
+    0xa0,                               // empty map {}
+    0x90,                               // empty list []
+    0x85, 0x6e, 0x65, 0x6f, 0x34, 0x6a  // "neo4j"
+};
 constexpr std::string_view extra_w_metadata =
     "\xa2"                                              // Map size 2
     "\x8b\x74\x78\x5f\x6d\x65\x74\x61\x64\x61\x74\x61"  // "tx_metadata"
@@ -1081,7 +1095,6 @@ EXPECT_EQ(session.state_, State::Close);
   ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
   ExecuteInit(input_stream, session, output, true);
   ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)));
-
   EXPECT_EQ(session.state_, State::Idle);
   CheckSuccessMessage(output);
 }

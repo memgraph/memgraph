@@ -12,6 +12,8 @@
 #pragma once
 
 #include "kvstore/kvstore.hpp"
+#include "storage/v2/access_type.hpp"
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/disk/durable_metadata.hpp"
 #include "storage/v2/disk/edge_import_mode_cache.hpp"
@@ -23,6 +25,7 @@
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/ttl.hpp"
 #include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 
@@ -36,7 +39,9 @@ namespace memgraph::storage {
 
 class DiskStorage final : public Storage {
  public:
-  explicit DiskStorage(Config config = Config());
+  explicit DiskStorage(Config config = Config(),
+                       PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>(),
+                       std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
 
   DiskStorage(const DiskStorage &) = delete;
   DiskStorage(DiskStorage &&) = delete;
@@ -50,7 +55,7 @@ class DiskStorage final : public Storage {
     friend class DiskStorage;
 
     explicit DiskAccessor(SharedAccess tag, DiskStorage *storage, IsolationLevel isolation_level,
-                          StorageMode storage_mode, Accessor::Type rw_type);
+                          StorageMode storage_mode, StorageAccessType rw_type);
     explicit DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
 
    public:
@@ -70,10 +75,26 @@ class DiskStorage final : public Storage {
 
     VerticesIterable Vertices(LabelId label, View view) override;
 
-    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
+    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                               std::span<storage::PropertyValueRange const> property_ranges, View view) override;
 
+    VerticesChunkedIterable ChunkedVertices(View /*view*/, size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
+    }
+
+    VerticesChunkedIterable ChunkedVertices(LabelId label, View view, size_t num_chunks) override {
+      throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
+    }
+
+    VerticesChunkedIterable ChunkedVertices(LabelId label, std::span<PropertyPath const> properties,
+                                            std::span<storage::PropertyValueRange const> property_ranges, View view,
+                                            size_t num_chunks) override {
+      throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
+    }
+
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
+
+    std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) override;
 
     EdgesIterable Edges(EdgeTypeId edge_type, View view) override;
 
@@ -92,20 +113,52 @@ class DiskStorage final : public Storage {
     EdgesIterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                         const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
+    EdgesChunkedIterable ChunkedEdges(EdgeTypeId /*edge_type*/, View /*view*/, size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
+    EdgesChunkedIterable ChunkedEdges(EdgeTypeId /*edge_type*/, PropertyId /*property*/, View /*view*/,
+                                      size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
+    EdgesChunkedIterable ChunkedEdges(EdgeTypeId /*edge_type*/, PropertyId /*property*/,
+                                      const std::optional<utils::Bound<PropertyValue>> & /*lower_bound*/,
+                                      const std::optional<utils::Bound<PropertyValue>> & /*upper_bound*/, View /*view*/,
+                                      size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
+    EdgesChunkedIterable ChunkedEdges(PropertyId /*property*/, View /*view*/, size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
+    EdgesChunkedIterable ChunkedEdges(PropertyId /*property*/, const PropertyValue & /*value*/, View /*view*/,
+                                      size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
+    EdgesChunkedIterable ChunkedEdges(PropertyId /*property*/,
+                                      const std::optional<utils::Bound<PropertyValue>> & /*lower_bound*/,
+                                      const std::optional<utils::Bound<PropertyValue>> & /*upper_bound*/, View /*view*/,
+                                      size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
     uint64_t ApproximateVertexCount() const override;
 
     uint64_t ApproximateVertexCount(LabelId /*label*/) const override { return 10; }
 
-    uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyId const> /*properties*/) const override {
+    uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyPath const> /*properties*/) const override {
       return 10;
     }
 
-    uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyId const> /*properties*/,
+    uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyPath const> /*properties*/,
                                     std::span<PropertyValue const> /*values*/) const override {
       return 10;
     }
 
-    uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyId const> /*properties*/,
+    uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyPath const> /*properties*/,
                                     std::span<PropertyValueRange const> /*bounds*/) const override {
       return 10;
     }
@@ -151,12 +204,25 @@ class DiskStorage final : public Storage {
       return std::nullopt;
     }
 
+    std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId /*label*/, PropertyId /*property*/) const override {
+      // Vector index does not exist for on disk
+      return std::nullopt;
+    }
+
+    std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view /*index_name*/) const override {
+      return std::nullopt;
+    }
+
+    std::optional<uint64_t> ApproximateEdgesTextCount(std::string_view index_name) const override {
+      return std::nullopt;
+    }
+
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId & /*label*/) const override {
       return {};
     }
 
     std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-        const storage::LabelId & /*label*/, std::span<storage::PropertyId const> /*properties*/) const override {
+        const storage::LabelId & /*label*/, std::span<storage::PropertyPath const> /*properties*/) const override {
       return {};
     }
 
@@ -165,7 +231,7 @@ class DiskStorage final : public Storage {
     }
 
     auto DeleteLabelPropertyIndexStats(const storage::LabelId & /*labels*/)
-        -> std::vector<std::pair<LabelId, std::vector<PropertyId>>> override {
+        -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> override {
       throw utils::NotYetImplemented("DeleteIndexStatsForLabels(labels) is not implemented for DiskStorage.");
     }
 
@@ -173,7 +239,7 @@ class DiskStorage final : public Storage {
       throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
     }
 
-    void SetIndexStats(const storage::LabelId & /*label*/, std::span<storage::PropertyId const> /*properties*/,
+    void SetIndexStats(const storage::LabelId & /*label*/, std::span<storage::PropertyPath const> /*properties*/,
                        const LabelPropertyIndexStats & /*stats*/) override {
       throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
     }
@@ -186,21 +252,23 @@ class DiskStorage final : public Storage {
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
                                          VertexAccessor *to_vertex) override;
 
-    bool LabelIndexExists(LabelId label) const override {
-      auto *disk_storage = static_cast<DiskStorage *>(storage_);
-      return disk_storage->indices_.label_index_->IndexExists(label);
+    bool LabelIndexReady(LabelId label) const override {
+      return transaction_.active_indices_.label_->IndexReady(label);
     }
 
-    bool LabelPropertyIndexExists(LabelId label, std::span<PropertyId const> properties) const override {
-      auto *disk_storage = static_cast<DiskStorage *>(storage_);
-      return disk_storage->indices_.label_property_index_->IndexExists(label, properties);
+    bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const override {
+      return transaction_.active_indices_.label_properties_->IndexReady(label, properties);
     }
 
-    bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override;
+    bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override;
 
-    bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId proeprty) const override;
+    bool EdgeTypeIndexReady(EdgeTypeId edge_type) const override;
 
-    bool EdgePropertyIndexExists(PropertyId proeprty) const override;
+    bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId property) const override;
+
+    bool EdgePropertyIndexReady(PropertyId property) const override;
+
+    bool EdgePropertyIndexExists(PropertyId property) const override;
 
     bool PointIndexExists(LabelId label, PropertyId property) const override;
 
@@ -208,13 +276,15 @@ class DiskStorage final : public Storage {
 
     ConstraintsInfo ListAllConstraints() const override;
 
-    // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
-                                                              DatabaseAccessProtector db_acc = {}) override;
+    void DropAllIndexes() override;
+
+    void DropAllConstraints() override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplArgs reparg = {},
-                                                                      DatabaseAccessProtector db_acc = {}) override;
+    utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(CommitArgs commit_args) override;
+
+    // NOLINTNEXTLINE(google-default-arguments)
+    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitArgs commit_args) override;
 
     void UpdateObjectsCountOnAbort();
 
@@ -222,24 +292,25 @@ class DiskStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
-                                                                      bool unique_access_needed = true) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, CheckCancelFunction cancel_check = neverCancel) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, std::vector<storage::PropertyId> &&properties) override;
+        LabelId label, PropertiesPaths, CheckCancelFunction cancel_check = neverCancel) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
-                                                                      bool unique_access_needed = true) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        EdgeTypeId edge_type, CheckCancelFunction cancel_check = neverCancel) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
-                                                                      PropertyId property) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(PropertyId property) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
+        PropertyId property, CheckCancelFunction cancel_check = neverCancel) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        LabelId label, std::vector<storage::PropertyId> &&properties) override;
+        LabelId label, std::vector<storage::PropertyPath> &&properties) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
 
@@ -257,6 +328,9 @@ class DiskStorage final : public Storage {
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
         std::string_view index_name) override;
+
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(
+        VectorEdgeIndexSpec spec) override;
 
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) override;
@@ -286,10 +360,74 @@ class DiskStorage final : public Storage {
                        PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
         -> PointIterable override;
 
-    std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
+    std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
+        const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
+
+    std::vector<std::tuple<EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
 
     std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
+
+    std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const override;
+
+#ifdef MG_ENTERPRISE
+    // TTL management methods
+    void StartTtl(TTLReplicationArgs /*repl_args*/ = {}) override {
+      storage_->ttl_.Resume();
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::ENABLE,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    void DisableTtl(TTLReplicationArgs /*repl_args*/ = {}) override {
+      auto ttl_label = NameToLabel("TTL");
+      auto ttl_property = NameToProperty("ttl");
+
+      // Drop indices
+      auto index_result = DropIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+      if (index_result.HasError()) {
+        // Silently fail if vertex index already dropped
+      }
+
+      // Check if edge TTL was enabled and drop edge index if needed
+      if (storage_->ttl_.Config().should_run_edge_ttl) {
+        auto edge_index_result = DropGlobalEdgeIndex(ttl_property);
+        if (edge_index_result.HasError()) {
+          // Silently fail if edge index already dropped
+        }
+      }
+
+      storage_->ttl_.Disable();
+
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::DISABLE,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    void StopTtl() override {
+      storage_->ttl_.Pause();
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::STOP,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info, TTLReplicationArgs /*repl_args*/ = {}) override {
+      auto ttl_label = NameToLabel("TTL");
+      auto ttl_property = NameToProperty("ttl");
+
+      // If TTL is not enabled, create required indices and enable TTL
+      if (!storage_->ttl_.Enabled()) {
+        // Create label+property index for TTL
+        (void)CreateIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+        storage_->ttl_.Enable();
+      }
+
+      // Configure TTL
+      if (!storage_->ttl_.Running()) storage_->ttl_.Configure(ttl_info.should_run_edge_ttl);
+      storage_->ttl_.SetInterval(ttl_info.period, ttl_info.start_time);
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::CONFIGURE,
+                                          ttl_info.period, ttl_info.start_time, ttl_info.should_run_edge_ttl);
+    }
+
+    storage::ttl::TtlInfo GetTtlConfig() const override { return storage_->ttl_.Config(); }
+#endif
 
    private:
     VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view);
@@ -300,7 +438,7 @@ class DiskStorage final : public Storage {
   };
 
   using Storage::Access;
-  std::unique_ptr<Accessor> Access(storage::Storage::Accessor::Type rw_type,
+  std::unique_ptr<Accessor> Access(storage::StorageAccessType rw_type,
                                    std::optional<IsolationLevel> override_isolation_level,
                                    std::optional<std::chrono::milliseconds> timeout) override;
 
@@ -443,6 +581,10 @@ class DiskStorage final : public Storage {
   void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/, bool /*periodic*/) override {}
 
   void PrepareForNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
+
+  bool IsAsyncIndexerIdle() const override { return true; /* Disk storage has no async indexer */ }
+
+  bool HasAsyncIndexerStopped() const override { return true; /* Disk storage has no async indexer */ }
 
   uint64_t GetCommitTimestamp();
 

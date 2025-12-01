@@ -10,10 +10,12 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/ast.hpp"
+#include "frontend/ast/ast_storage.hpp"
 #include "query/frontend/ast/query/aggregation.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
 #include "query/frontend/ast/query/exists.hpp"
 #include "query/frontend/ast/query/pattern_comprehension.hpp"
+#include "query/frontend/ast/query/user_profile.hpp"
 #include "utils/typeinfo.hpp"
 
 #include "range/v3/all.hpp"
@@ -142,6 +144,9 @@ constexpr utils::TypeInfo query::AllPropertiesLookup::kType{utils::TypeId::AST_A
 constexpr utils::TypeInfo query::LabelsTest::kType{utils::TypeId::AST_LABELS_TEST, "LabelsTest",
                                                    &query::Expression::kType};
 
+constexpr utils::TypeInfo query::EdgeTypesTest::kType{
+    .id = utils::TypeId::AST_EDGETYPES_TEST, .name = "EdgeTypesTest", .superclass = &Expression::kType};
+
 constexpr utils::TypeInfo query::Function::kType{utils::TypeId::AST_FUNCTION, "Function", &query::Expression::kType};
 
 constexpr utils::TypeInfo query::Reduce::kType{utils::TypeId::AST_REDUCE, "Reduce", &query::Expression::kType};
@@ -197,8 +202,8 @@ query::IndexHint query::IndexHint::Clone(query::AstStorage *storage) const {
   IndexHint object;
   object.index_type_ = index_type_;
   object.label_ix_ = storage->GetLabelIx(label_ix_.name);
-  auto propix_to_propid = [&](auto &&v) { return storage->GetPropertyIx(v.name); };
-  object.property_ixs_ = property_ixs_ | rv::transform(propix_to_propid) | r::to_vector;
+  auto clone_path = [&](PropertyIxPath const &path) { return path.Clone(storage); };
+  object.property_ixs_ = property_ixs_ | rv::transform(clone_path) | r::to_vector;
   return object;
 }
 
@@ -225,8 +230,14 @@ constexpr utils::TypeInfo query::PointIndexQuery::kType{utils::TypeId::AST_POINT
 constexpr utils::TypeInfo query::TextIndexQuery::kType{utils::TypeId::AST_TEXT_INDEX_QUERY, "TextIndexQuery",
                                                        &query::Query::kType};
 
+constexpr utils::TypeInfo query::CreateTextEdgeIndexQuery::kType{utils::TypeId::AST_CREATE_TEXT_EDGE_INDEX_QUERY,
+                                                                 "CreateTextEdgeIndexQuery", &query::Query::kType};
+
 constexpr utils::TypeInfo query::VectorIndexQuery::kType{utils::TypeId::AST_VECTOR_INDEX_QUERY, "VectorIndexQuery",
                                                          &query::Query::kType};
+
+constexpr utils::TypeInfo query::CreateVectorEdgeIndexQuery::kType{utils::TypeId::AST_CREATE_VECTOR_EDGE_INDEX_QUERY,
+                                                                   "CreateVectorEdgeIndexQuery", &query::Query::kType};
 
 constexpr utils::TypeInfo query::Create::kType{utils::TypeId::AST_CREATE, "Create", &query::Clause::kType};
 
@@ -287,6 +298,12 @@ constexpr utils::TypeInfo query::ReplicationInfoQuery::kType{utils::TypeId::AST_
 constexpr utils::TypeInfo query::CoordinatorQuery::kType{utils::TypeId::AST_COORDINATOR_QUERY, "CoordinatorQuery",
                                                          &query::Query::kType};
 
+constexpr utils::TypeInfo query::DropAllIndexesQuery::kType{utils::TypeId::AST_DROP_ALL_INDEXES_QUERY,
+                                                            "DropAllIndexesQuery", &query::Query::kType};
+
+constexpr utils::TypeInfo query::DropAllConstraintsQuery::kType{utils::TypeId::AST_DROP_ALL_CONSTRAINTS_QUERY,
+                                                                "DropAllConstraintsQuery", &query::Query::kType};
+
 constexpr utils::TypeInfo query::DropGraphQuery::kType{utils::TypeId::AST_DROP_GRAPH_QUERY, "DropGraphQuery",
                                                        &query::Query::kType};
 
@@ -294,6 +311,12 @@ constexpr utils::TypeInfo query::LockPathQuery::kType{utils::TypeId::AST_LOCK_PA
                                                       &query::Query::kType};
 
 constexpr utils::TypeInfo query::LoadCsv::kType{utils::TypeId::AST_LOAD_CSV, "LoadCsv", &query::Clause::kType};
+
+constexpr utils::TypeInfo query::LoadParquet::kType{
+    .id = utils::TypeId::AST_LOAD_PARQUET, .name = "LoadParquet", .superclass = &Clause::kType};
+
+constexpr utils::TypeInfo query::LoadJsonl::kType{
+    .id = utils::TypeId::AST_LOAD_JSONL, .name = "LoadJsonl", .superclass = &Clause::kType};
 
 constexpr utils::TypeInfo query::FreeMemoryQuery::kType{utils::TypeId::AST_FREE_MEMORY_QUERY, "FreeMemoryQuery",
                                                         &query::Query::kType};
@@ -315,6 +338,9 @@ constexpr utils::TypeInfo query::RecoverSnapshotQuery::kType{utils::TypeId::AST_
 
 constexpr utils::TypeInfo query::ShowSnapshotsQuery::kType{utils::TypeId::AST_SHOW_SNAPSHOTS_QUERY,
                                                            "ShowSnapshotsQuery", &query::Query::kType};
+
+constexpr utils::TypeInfo query::ShowNextSnapshotQuery::kType{utils::TypeId::AST_SHOW_NEXT_SNAPSHOT_QUERY,
+                                                              "ShowNextSnapshotQuery", &query::Query::kType};
 
 constexpr utils::TypeInfo query::StreamQuery::kType{utils::TypeId::AST_STREAM_QUERY, "StreamQuery",
                                                     &query::Query::kType};
@@ -388,14 +414,19 @@ constexpr utils::TypeInfo query::TtlQuery::kType{utils::TypeId::AST_TTL_QUERY, "
 constexpr utils::TypeInfo query::SessionTraceQuery::kType{utils::TypeId::AST_SESSION_TRACE_QUERY, "SessionTraceQuery",
                                                           &query::Query::kType};
 
+constexpr utils::TypeInfo query::UserProfileQuery::kType{utils::TypeId::AST_USER_PROFILE_QUERY, "UserProfileQuery",
+                                                         &query::Query::kType};
+
 namespace query {
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue>);
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue const *>);
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<void>);
 DEFINE_VISITABLE(Identifier, HierarchicalTreeVisitor);
 
 DEFINE_VISITABLE(NamedExpression, ExpressionVisitor<TypedValue>);
 DEFINE_VISITABLE(NamedExpression, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(NamedExpression, ExpressionVisitor<TypedValue const *>);
 DEFINE_VISITABLE(NamedExpression, ExpressionVisitor<void>);
 bool NamedExpression::Accept(HierarchicalTreeVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
@@ -406,16 +437,22 @@ bool NamedExpression::Accept(HierarchicalTreeVisitor &visitor) {
 
 DEFINE_VISITABLE(Exists, ExpressionVisitor<TypedValue>);
 DEFINE_VISITABLE(Exists, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(Exists, ExpressionVisitor<TypedValue const *>);
 DEFINE_VISITABLE(Exists, ExpressionVisitor<void>);
 bool Exists::Accept(HierarchicalTreeVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
-    pattern_->Accept(visitor);
+    if (HasPattern()) {
+      GetPattern()->Accept(visitor);
+    } else if (HasSubquery()) {
+      GetSubquery()->Accept(visitor);
+    }
   }
   return visitor.PostVisit(*this);
 }
 
 DEFINE_VISITABLE(PatternComprehension, ExpressionVisitor<TypedValue>);
 DEFINE_VISITABLE(PatternComprehension, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(PatternComprehension, ExpressionVisitor<TypedValue const *>);
 DEFINE_VISITABLE(PatternComprehension, ExpressionVisitor<void>);
 bool PatternComprehension::Accept(HierarchicalTreeVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
@@ -432,6 +469,7 @@ bool PatternComprehension::Accept(HierarchicalTreeVisitor &visitor) {
 }
 
 DEFINE_VISITABLE(Aggregation, ExpressionVisitor<TypedValue>);
+DEFINE_VISITABLE(Aggregation, ExpressionVisitor<TypedValue const *>);
 DEFINE_VISITABLE(Aggregation, ExpressionVisitor<TypedValue *>);
 DEFINE_VISITABLE(Aggregation, ExpressionVisitor<void>);
 
@@ -451,6 +489,14 @@ Aggregation::Aggregation(Expression *expression1, Expression *expression2, Aggre
              "expression2 is obligatory in COLLECT_MAP and PROJECT_LISTS, and invalid otherwise");
 }
 
+auto PropertyIxPath::Clone(AstStorage *storage) const -> PropertyIxPath {
+  auto paths_copy = std::vector<memgraph::query::PropertyIx>{};
+  paths_copy.reserve(path.size());
+  for (auto const &prop_ix : path) {
+    paths_copy.emplace_back(storage->GetPropertyIx(prop_ix.name));
+  }
+  return PropertyIxPath{std::move(paths_copy)};
+}
 }  // namespace query
 
 }  // namespace memgraph

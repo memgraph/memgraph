@@ -17,7 +17,6 @@
 
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/marker.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/file.hpp"
 
@@ -38,7 +37,7 @@ class BaseEncoder {
   virtual void WriteEnum(storage::Enum value) = 0;
   virtual void WritePoint2d(storage::Point2d value) = 0;
   virtual void WritePoint3d(storage::Point3d value) = 0;
-  virtual void WritePropertyValue(const PropertyValue &value) = 0;
+  virtual void WriteExternalPropertyValue(const ExternalPropertyValue &value) = 0;
 };
 
 /// Encoder that is used to generate a snapshot/WAL.
@@ -63,7 +62,7 @@ class Encoder final : public BaseEncoder {
   void WriteEnum(storage::Enum value) override;
   void WritePoint2d(storage::Point2d value) override;
   void WritePoint3d(storage::Point3d value) override;
-  void WritePropertyValue(const PropertyValue &value) override;
+  void WriteExternalPropertyValue(const ExternalPropertyValue &value) override;
 
   uint64_t GetPosition();
   void SetPosition(uint64_t position);
@@ -106,10 +105,10 @@ class BaseDecoder {
   virtual std::optional<Enum> ReadEnumValue() = 0;
   virtual std::optional<Point2d> ReadPoint2dValue() = 0;
   virtual std::optional<Point3d> ReadPoint3dValue() = 0;
-  virtual std::optional<PropertyValue> ReadPropertyValue() = 0;
+  virtual std::optional<ExternalPropertyValue> ReadExternalPropertyValue() = 0;
 
   virtual bool SkipString() = 0;
-  virtual bool SkipPropertyValue() = 0;
+  virtual bool SkipExternalPropertyValue() = 0;
 };
 
 /// Decoder that is used to read a generated snapshot/WAL.
@@ -132,10 +131,9 @@ class Decoder final : public BaseDecoder {
   std::optional<Enum> ReadEnumValue() override;
   std::optional<Point2d> ReadPoint2dValue() override;
   std::optional<Point3d> ReadPoint3dValue() override;
-  std::optional<PropertyValue> ReadPropertyValue() override;
-
+  std::optional<ExternalPropertyValue> ReadExternalPropertyValue() override;
   bool SkipString() override;
-  bool SkipPropertyValue() override;
+  bool SkipExternalPropertyValue() override;
 
   std::optional<uint64_t> GetSize();
   std::optional<uint64_t> GetPosition();

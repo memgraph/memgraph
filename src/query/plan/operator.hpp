@@ -27,7 +27,6 @@
 #include "storage/v2/indices/label_property_index.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/bound.hpp"
-#include "utils/fnv.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/synchronized.hpp"
@@ -53,11 +52,11 @@ struct ExpressionRange {
   static auto RegexMatch() -> ExpressionRange;
   static auto Range(std::optional<utils::Bound<Expression *>> lower, std::optional<utils::Bound<Expression *>> upper)
       -> ExpressionRange;
-  static auto In(Expression *value) -> ExpressionRange;
   static auto IsNotNull() -> ExpressionRange;
 
   auto Evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange;
-  auto ResolveAtPlantime(Parameters const &params) const -> std::optional<storage::PropertyValueRange>;
+  auto ResolveAtPlantime(Parameters const &params, storage::NameIdMapper *name_id_mapper) const
+      -> std::optional<storage::PropertyValueRange>;
 
   ExpressionRange(ExpressionRange const &other, AstStorage &storage);
 
@@ -153,6 +152,8 @@ class Union;
 class Cartesian;
 class CallProcedure;
 class LoadCsv;
+class LoadParquet;
+class LoadJsonl;
 class Foreach;
 class EmptyResult;
 class EvaluatePatternFilter;
@@ -162,6 +163,8 @@ class HashJoin;
 class RollUpApply;
 class PeriodicCommit;
 class PeriodicSubquery;
+class SetNestedProperty;
+class RemoveNestedProperty;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelProperties, ScanAllById, ScanAllByEdge,
@@ -171,7 +174,7 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate,
     Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
     Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit,
-    PeriodicSubquery>;
+    PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -296,7 +299,7 @@ class Once : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<LogicalOperator> input() const override;
   void set_input(std::shared_ptr<LogicalOperator>) override;
 
-  std::vector<Symbol> symbols_;
+  std::vector<Symbol> symbols_;  // here as semantic propergation (eg. merge match/create branches)
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -479,8 +482,9 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
     const UniqueCursorPtr input_cursor_;
 
     // Get the existing node (if existing_node_ == true), or create a new node
-    VertexAccessor &OtherVertex(Frame &frame, ExecutionContext &context,
-                                std::vector<memgraph::storage::LabelId> &labels, ExpressionEvaluator &evaluator);
+    VertexAccessor const &OtherVertex(Frame &frame, ExecutionContext &context,
+                                      std::vector<memgraph::storage::LabelId> &labels,
+                                      ExpressionEvaluator &evaluator) const;
   };
 };
 
@@ -783,14 +787,14 @@ class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
    * @param view storage::View used when obtaining vertices.
    */
   ScanAllByLabelProperties(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
-                           std::vector<storage::PropertyId> properties, std::vector<ExpressionRange> expression_ranges,
-                           storage::View view = storage::View::OLD);
+                           std::vector<storage::PropertyPath> properties,
+                           std::vector<ExpressionRange> expression_ranges, storage::View view = storage::View::OLD);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
 
   storage::LabelId label_;
-  std::vector<storage::PropertyId> properties_;
+  std::vector<storage::PropertyPath> properties_;
   std::vector<ExpressionRange> expression_ranges_;
 
   std::string ToString() const override;
@@ -1068,7 +1072,7 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
                  Symbol edge_symbol, EdgeAtom::Type type, EdgeAtom::Direction direction,
                  const std::vector<storage::EdgeTypeId> &edge_types, bool is_reverse, Expression *lower_bound,
                  Expression *upper_bound, bool existing_node, ExpansionLambda filter_lambda,
-                 std::optional<ExpansionLambda> weight_lambda, std::optional<Symbol> total_weight);
+                 std::optional<ExpansionLambda> weight_lambda, std::optional<Symbol> total_weight, Expression *limit);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -1091,6 +1095,9 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   memgraph::query::plan::ExpansionLambda filter_lambda_;
   std::optional<memgraph::query::plan::ExpansionLambda> weight_lambda_;
   std::optional<Symbol> total_weight_;
+
+  /// Limit for the number of paths returned in kshortest path expansion.
+  Expression *limit_;
 
   std::string_view OperatorName() const;
 
@@ -1245,7 +1252,7 @@ class Delete : public memgraph::query::plan::LogicalOperator {
 
   Delete() = default;
 
-  Delete(const std::shared_ptr<LogicalOperator> &input_, const std::vector<Expression *> &expressions, bool detach_);
+  Delete(const std::shared_ptr<LogicalOperator> &input, const std::vector<Expression *> &expressions, bool detach);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1296,6 +1303,12 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
 
   SetProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property, PropertyLookup *lhs,
               Expression *rhs);
+
+  std::shared_ptr<LogicalOperator> input_;
+  storage::PropertyId property_;
+  PropertyLookup *lhs_;
+  Expression *rhs_;
+
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1303,11 +1316,6 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
   bool HasSingleInput() const override { return true; }
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
-
-  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
-  storage::PropertyId property_;
-  PropertyLookup *lhs_;
-  Expression *rhs_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -1321,6 +1329,45 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
 
    private:
     const SetProperty &self_;
+    const UniqueCursorPtr input_cursor_;
+  };
+};
+
+class SetNestedProperty : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  SetNestedProperty() = default;
+
+  SetNestedProperty(const std::shared_ptr<LogicalOperator> &input, std::vector<storage::PropertyId> property_path,
+                    PropertyLookup *lhs, Expression *rhs);
+
+  std::shared_ptr<LogicalOperator> input_;
+  std::vector<storage::PropertyId> property_path_;
+  PropertyLookup *lhs_;
+  Expression *rhs_;
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+ private:
+  class SetNestedPropertyCursor : public Cursor {
+   public:
+    SetNestedPropertyCursor(const SetNestedProperty &, utils::MemoryResource *);
+    bool Pull(Frame &, ExecutionContext &) override;
+    void Shutdown() override;
+    void Reset() override;
+
+   private:
+    const SetNestedProperty &self_;
     const UniqueCursorPtr input_cursor_;
   };
 };
@@ -1425,6 +1472,11 @@ class RemoveProperty : public memgraph::query::plan::LogicalOperator {
   RemoveProperty() = default;
 
   RemoveProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property, PropertyLookup *lhs);
+
+  std::shared_ptr<LogicalOperator> input_;
+  storage::PropertyId property_;
+  PropertyLookup *lhs_;
+
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1432,10 +1484,6 @@ class RemoveProperty : public memgraph::query::plan::LogicalOperator {
   bool HasSingleInput() const override { return true; }
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
-
-  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
-  storage::PropertyId property_;
-  PropertyLookup *lhs_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -1449,6 +1497,45 @@ class RemoveProperty : public memgraph::query::plan::LogicalOperator {
 
    private:
     const RemoveProperty &self_;
+    const UniqueCursorPtr input_cursor_;
+  };
+};
+
+/// Logical operator for removing a nested property from an edge or a vertex.
+class RemoveNestedProperty : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  RemoveNestedProperty() = default;
+
+  RemoveNestedProperty(const std::shared_ptr<LogicalOperator> &input, std::vector<storage::PropertyId> property_path,
+                       PropertyLookup *lhs);
+
+  std::shared_ptr<LogicalOperator> input_;
+  std::vector<storage::PropertyId> property_path_;
+  PropertyLookup *lhs_;
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+ private:
+  class RemoveNestedPropertyCursor : public Cursor {
+   public:
+    RemoveNestedPropertyCursor(const RemoveNestedProperty &, utils::MemoryResource *);
+    bool Pull(Frame &, ExecutionContext &) override;
+    void Shutdown() override;
+    void Reset() override;
+
+   private:
+    const RemoveNestedProperty &self_;
     const UniqueCursorPtr input_cursor_;
   };
 };
@@ -2208,7 +2295,8 @@ class LoadCsv : public memgraph::query::plan::LogicalOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   LoadCsv() = default;
-  LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool with_header, bool ignore_bad,
+  LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file,
+          std::unordered_map<Expression *, Expression *> config_map, bool with_header, bool ignore_bad,
           Expression *delimiter, Expression *quote, Expression *nullif, Symbol row_var);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -2227,10 +2315,63 @@ class LoadCsv : public memgraph::query::plan::LogicalOperator {
   Expression *quote_{nullptr};
   Expression *nullif_{nullptr};
   Symbol row_var_;
+  std::unordered_map<Expression *, Expression *> config_map_;
 
   std::string ToString() const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+};
+
+class LoadParquet : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  LoadParquet() = default;
+  LoadParquet(std::shared_ptr<LogicalOperator> input, Expression *file,
+              std::unordered_map<Expression *, Expression *> config_map, Symbol row_var);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  Expression *file_;
+  std::unordered_map<Expression *, Expression *> config_map_;
+  Symbol row_var_;
+};
+
+class LoadJsonl : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  LoadJsonl() = default;
+  LoadJsonl(std::shared_ptr<LogicalOperator> input, Expression *file,
+            std::unordered_map<Expression *, Expression *> config_map, Symbol row_var);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  Expression *file_;
+  Symbol row_var_;
+  std::unordered_map<Expression *, Expression *> config_map_;
 };
 
 /// Iterates over a collection of elements and applies one or more update
@@ -2293,7 +2434,7 @@ class Apply : public memgraph::query::plan::LogicalOperator {
     void Reset() override;
 
    private:
-    const Apply &self_;
+    [[maybe_unused]] const Apply &self_;
     UniqueCursorPtr input_;
     UniqueCursorPtr subquery_;
     bool pull_input_{true};
@@ -2332,7 +2473,7 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
     void Reset() override;
 
    private:
-    const IndexedJoin &self_;
+    [[maybe_unused]] const IndexedJoin &self_;
     UniqueCursorPtr main_branch_;
     UniqueCursorPtr sub_branch_;
     bool pull_input_{true};
@@ -2385,7 +2526,7 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
 
   RollUpApply() = default;
   RollUpApply(std::shared_ptr<LogicalOperator> &&input, std::shared_ptr<LogicalOperator> &&list_collection_branch,
-              const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol);
+              const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol, bool pass_input = false);
 
   bool HasSingleInput() const override { return false; }
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
@@ -2401,6 +2542,7 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> list_collection_branch_;
   Symbol result_symbol_;
   Symbol list_collection_symbol_;
+  bool pass_input_{false};
 };
 
 class PeriodicCommit : public memgraph::query::plan::LogicalOperator {

@@ -13,10 +13,15 @@
 
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "dbms/rpc.hpp"
 #include "storage/v2/storage.hpp"
 #include "system/state.hpp"
 
 #include "rpc/utils.hpp"
+
+namespace memgraph::rpc {
+class FileReplicationHandler;
+}  // namespace memgraph::rpc
 
 namespace memgraph::dbms {
 
@@ -24,7 +29,7 @@ namespace memgraph::dbms {
 
 void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
-                           slk::Reader *req_reader, slk::Builder *res_builder) {
+                           uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
   using storage::replication::CreateDatabaseRes;
   CreateDatabaseRes res(CreateDatabaseRes::Result::FAILURE);
 
@@ -33,16 +38,16 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
     spdlog::error(
         "Handling CreateDatabase, an enterprise RPC message, without license. Check your license status by running "
         "SHOW LICENSE INFO.");
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
   storage::replication::CreateDatabaseReq req;
-  Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CreateDatabaseReq::kType.name);
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -54,7 +59,7 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("CreateDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -62,20 +67,19 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
     // Create new
     if (auto const new_db = dbms_handler.Update(req.config); new_db.HasValue()) {
       // Successfully create db
-      system_state_access.SetLastCommitedTS(req.new_group_timestamp);
       res = CreateDatabaseRes(CreateDatabaseRes::Result::SUCCESS);
-      spdlog::debug("CreateDatabaseHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
+      spdlog::debug("CreateDatabaseHandler: SUCCESS");
     }
   } catch (...) {
     // Failure
   }
 
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
 void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                          const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
-                         slk::Reader *req_reader, slk::Builder *res_builder) {
+                         uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
   using memgraph::storage::replication::DropDatabaseRes;
   DropDatabaseRes res(DropDatabaseRes::Result::FAILURE);
 
@@ -84,16 +88,16 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
     spdlog::error(
         "Handling DropDatabase, an enterprise RPC message, without license. Check your license status by running SHOW "
         "LICENSE INFO.");
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
   memgraph::storage::replication::DropDatabaseReq req;
-  memgraph::slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::DropDatabaseReq::kType.name);
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -105,7 +109,7 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("DropDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -115,20 +119,79 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
     if (new_db.HasError()) {
       if (new_db.GetError() == DeleteError::NON_EXISTENT) {
         // Nothing to drop
-        system_state_access.SetLastCommitedTS(req.new_group_timestamp);
         res = DropDatabaseRes(DropDatabaseRes::Result::NO_NEED);
       }
     } else {
       // Successfully drop db
-      system_state_access.SetLastCommitedTS(req.new_group_timestamp);
       res = DropDatabaseRes(DropDatabaseRes::Result::SUCCESS);
-      spdlog::debug("DropDatabaseHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
+      spdlog::debug("DropDatabaseHandler: SUCCESS");
     }
   } catch (...) {
     // Failure
   }
 
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(res, request_version, res_builder);
+}
+
+void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                           const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
+                           uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+  using memgraph::storage::replication::RenameDatabaseRes;
+  RenameDatabaseRes res(RenameDatabaseRes::Result::FAILURE);
+
+  // Ignore if no license
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    spdlog::error(
+        "Handling RenameDatabase, an enterprise RPC message, without license. Check your license status by running "
+        "SHOW "
+        "LICENSE INFO.");
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  memgraph::storage::replication::RenameDatabaseReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::RenameDatabaseReq::kType.name);
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  // Note: No need to check epoch, recovery mechanism is done by a full uptodate snapshot
+  //       of the set of databases. Hence no history exists to maintain regarding epoch change.
+  //       If MAIN has changed we need to check this new group_timestamp is consistent with
+  //       what we have so far.
+
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::debug("RenameDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
+                  system_state_access.LastCommitedTS());
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  try {
+    // NOTE: Single communication channel can exist at a time, no other database can be renamed/created/deleted at the
+    // moment.
+    auto rename_result = dbms_handler.Rename(req.old_name, req.new_name);
+    if (rename_result.HasError()) {
+      if (rename_result.GetError() == RenameError::NON_EXISTENT) {
+        // Nothing to rename
+        system_state_access.SetLastCommitedTS(req.new_group_timestamp);
+        res = RenameDatabaseRes(RenameDatabaseRes::Result::NO_NEED);
+      }
+    } else {
+      // Successfully renamed db
+      system_state_access.SetLastCommitedTS(req.new_group_timestamp);
+      res = RenameDatabaseRes(RenameDatabaseRes::Result::SUCCESS);
+      spdlog::debug("RenameDatabaseHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
+    }
+  } catch (...) {
+    // Failure
+    spdlog::trace(R"(RenameDatabaseHandler: Failed to rename database "{}" to "{}".)", req.old_name, req.new_name);
+  }
+
+  rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
 bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs) {
@@ -163,14 +226,14 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
     // Missing db
     try {
       if (dbms_handler.Update(config).HasError()) {
-        spdlog::debug("SystemRecoveryHandler: Failed to update database \"{}\".", config.name);
+        spdlog::debug("SystemRecoveryHandler: Failed to update database \"{}\".", *config.name.str_view());
         return false;
       }
     } catch (const UnknownDatabaseException &) {
       spdlog::debug("SystemRecoveryHandler: UnknownDatabaseException");
       return false;
     }
-    const auto it = std::find(old.begin(), old.end(), config.name);
+    const auto it = std::find(old.begin(), old.end(), *config.name.str_view());
     if (it != old.end()) old.erase(it);
   }
 
@@ -198,12 +261,22 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
               dbms::DbmsHandler &dbms_handler) {
   // NOTE: Register even without license as the user could add a license at run-time
   data.server->rpc_server_.Register<storage::replication::CreateDatabaseRpc>(
-      [&data, system_state_access, &dbms_handler](auto *req_reader, auto *res_builder) mutable {
-        CreateDatabaseHandler(system_state_access, data.uuid_, dbms_handler, req_reader, res_builder);
+      [&data, system_state_access, &dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+        CreateDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<storage::replication::DropDatabaseRpc>(
-      [&data, system_state_access, &dbms_handler](auto *req_reader, auto *res_builder) mutable {
-        DropDatabaseHandler(system_state_access, data.uuid_, dbms_handler, req_reader, res_builder);
+      [&data, system_state_access, &dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+        DropDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
+      });
+  data.server->rpc_server_.Register<storage::replication::RenameDatabaseRpc>(
+      [&data, system_state_access, &dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+        RenameDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
 }
 #endif

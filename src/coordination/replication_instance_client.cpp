@@ -70,10 +70,10 @@ void ReplicationInstanceClient::StartStateCheck() {
   instance_checker_.Run(config_.instance_name, [this, instance_name = config_.instance_name] {
     spdlog::trace("Sending state check message to instance {} on {}.", instance_name,
                   config_.ManagementSocketAddress());
-    if (auto const res = SendStateCheckRpc()) {
-      coord_instance_->InstanceSuccessCallback(instance_name, res);
+    if (auto const maybe_res = SendStateCheckRpc()) {
+      coord_instance_->InstanceSuccessCallback(instance_name, *maybe_res);
     } else {
-      coord_instance_->InstanceFailCallback(instance_name, res);
+      coord_instance_->InstanceFailCallback(instance_name);
     }
   });
 }
@@ -111,6 +111,17 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
   } catch (const rpc::RpcFailedException &e) {
     spdlog::error("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
     metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcFail);
+    return {};
+  }
+}
+
+auto ReplicationInstanceClient::SendGetReplicationLagRpc() const -> std::optional<ReplicationLagInfo> {
+  try {
+    auto stream{rpc_client_.Stream<ReplicationLagRpc>()};
+    auto res = stream.SendAndWait();
+    return res.lag_info_;
+  } catch (const rpc::RpcFailedException &e) {
+    spdlog::error("Failed to receive response to ReplicationLagRpc. Error occurred: {}", e.what());
     return {};
   }
 }

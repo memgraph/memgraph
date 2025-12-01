@@ -65,6 +65,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(MapLiteral &op) override;
   void Visit(MapProjectionLiteral &op) override;
   void Visit(LabelsTest &op) override;
+  void Visit(EdgeTypesTest &op) override;
   void Visit(Aggregation &op) override;
   void Visit(Function &op) override;
   void Visit(Reduce &op) override;
@@ -110,11 +111,13 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, Identifier *expr);
 
 void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::PropertyValue &value);
 
-template <typename T>
-void PrintObject(std::ostream *out, const DbAccessor *dba, const std::vector<T> &vec);
+void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::ExternalPropertyValue &value);
 
-template <typename K, typename V>
-void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V> &map);
+template <typename T, typename A>
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::vector<T, A> &vec);
+
+template <typename K, typename V, typename C, typename A>
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V, C, A> &map);
 
 template <typename K, typename V, typename C, typename A>
 void PrintObject(std::ostream *out, const DbAccessor *dba, const boost::container::flat_map<K, V, C, A> &map);
@@ -126,6 +129,10 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, storage::Enum value);
 void PrintObject(std::ostream *out, storage::Point2d const &value);
 
 void PrintObject(std::ostream *out, storage::Point3d const &value);
+
+void PrintObject(std::ostream *out, const DbAccessor *dba, PropertyIx const &property);
+
+void PrintObject(std::ostream *out, PropertyIx const &property);
 
 template <typename T>
 void PrintObject(std::ostream *out, const DbAccessor * /*dba*/, const T &arg) {
@@ -179,6 +186,12 @@ void PrintObject(std::ostream *out, storage::Point2d const &value) { *out << que
 
 void PrintObject(std::ostream *out, storage::Point3d const &value) { *out << query::CypherConstructionFor(value); }
 
+void PrintObject(std::ostream *out, const DbAccessor * /*dba*/, const PropertyIx &property) {
+  PrintObject(out, property);
+}
+
+void PrintObject(std::ostream *out, PropertyIx const &property) { *out << property.name; }
+
 void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::PropertyValue &value) {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
@@ -205,6 +218,18 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Proper
       PrintObject(out, dba, value.ValueList());
       break;
 
+    case storage::PropertyValue::Type::NumericList:
+      PrintObject(out, dba, value.ValueNumericList());
+      break;
+
+    case storage::PropertyValue::Type::IntList:
+      PrintObject(out, dba, value.ValueIntList());
+      break;
+
+    case storage::PropertyValue::Type::DoubleList:
+      PrintObject(out, dba, value.ValueDoubleList());
+      break;
+
     case storage::PropertyValue::Type::Map:
       PrintObject(out, dba, value.ValueMap());
       break;
@@ -227,15 +252,86 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Proper
   }
 }
 
-template <typename T>
-void PrintObject(std::ostream *out, const DbAccessor *dba, const std::vector<T> &vec) {
+void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::ExternalPropertyValue &value) {
+  switch (value.type()) {
+    case storage::ExternalPropertyValue::Type::Null:
+      *out << "null";
+      break;
+
+    case storage::ExternalPropertyValue::Type::String:
+      PrintObject(out, dba, value.ValueString());
+      break;
+
+    case storage::ExternalPropertyValue::Type::Bool:
+      *out << (value.ValueBool() ? "true" : "false");
+      break;
+
+    case storage::ExternalPropertyValue::Type::Int:
+      PrintObject(out, dba, value.ValueInt());
+      break;
+
+    case storage::ExternalPropertyValue::Type::Double:
+      PrintObject(out, dba, value.ValueDouble());
+      break;
+
+    case storage::ExternalPropertyValue::Type::List:
+      PrintObject(out, dba, value.ValueList());
+      break;
+
+    case storage::ExternalPropertyValue::Type::NumericList:
+      PrintObject(out, dba, value.ValueNumericList());
+      break;
+
+    case storage::ExternalPropertyValue::Type::IntList:
+      PrintObject(out, dba, value.ValueIntList());
+      break;
+
+    case storage::ExternalPropertyValue::Type::DoubleList:
+      PrintObject(out, dba, value.ValueDoubleList());
+      break;
+
+    case storage::ExternalPropertyValue::Type::Map:
+      PrintObject(out, dba, value.ValueMap());
+      break;
+
+    case storage::ExternalPropertyValue::Type::TemporalData:
+      PrintObject(out, dba, value.ValueTemporalData());
+      break;
+
+    case storage::ExternalPropertyValue::Type::ZonedTemporalData:
+      PrintObject(out, dba, value.ValueZonedTemporalData());
+      break;
+    case storage::ExternalPropertyValue::Type::Enum:
+      PrintObject(out, dba, value.ValueEnum());
+      break;
+    case storage::ExternalPropertyValue::Type::Point2d:
+      PrintObject(out, value.ValuePoint2d());
+      break;
+    case storage::ExternalPropertyValue::Type::Point3d:
+      PrintObject(out, value.ValuePoint3d());
+  }
+}
+
+template <typename T, typename K>
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::variant<T, K> &vec) {
+  *out << "[";
+  if (std::holds_alternative<T>(vec)) {
+    PrintObject(out, dba, std::get<T>(vec));
+  } else {
+    PrintObject(out, dba, std::get<K>(vec));
+  }
+  *out << "]";
+}
+
+template <typename T, typename A>
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::vector<T, A> &vec) {
   *out << "[";
   utils::PrintIterable(*out, vec, ", ", [&dba](auto &stream, const auto &item) { PrintObject(&stream, dba, item); });
   *out << "]";
 }
 
-template <typename K, typename V>
-void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V> &map) {
+template <typename K, typename V, typename C, typename A>
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V, C, A> &map) {
   *out << "{";
   utils::PrintIterable(*out, map, ", ", [&dba](auto &stream, const auto &item) {
     PrintObject(&stream, dba, item.first);
@@ -318,9 +414,9 @@ BINARY_OPERATOR_VISIT(SubscriptOperator, "Subscript");
 #undef BINARY_OPERATOR_VISIT
 
 void ExpressionPrettyPrinter::Visit(RangeOperator &op) {
-  op.expr1_->Accept(*this);
+  op.expression1_->Accept(*this);
   *out_ << " And ";
-  op.expr2_->Accept(*this);
+  op.expression2_->Accept(*this);
   *out_ << ")";
 }
 
@@ -354,6 +450,7 @@ void ExpressionPrettyPrinter::Visit(MapProjectionLiteral &op) {
 void ExpressionPrettyPrinter::Visit(AllPropertiesLookup &op) { PrintObject(out_, &op); }
 
 void ExpressionPrettyPrinter::Visit(LabelsTest &op) { PrintOperator(out_, dba_, "LabelsTest", op.expression_); }
+void ExpressionPrettyPrinter::Visit(EdgeTypesTest &op) { PrintOperator(out_, dba_, "EdgeTypesTest", op.expression_); }
 
 void ExpressionPrettyPrinter::Visit(Aggregation &op) { PrintOperator(out_, dba_, "Aggregation", op.op_); }
 
@@ -398,7 +495,7 @@ void ExpressionPrettyPrinter::Visit(Identifier &op) { PrintOperator(out_, dba_, 
 void ExpressionPrettyPrinter::Visit(PrimitiveLiteral &op) { PrintObject(out_, dba_, op.value_); }
 
 void ExpressionPrettyPrinter::Visit(PropertyLookup &op) {
-  PrintOperator(out_, dba_, "PropertyLookup", op.expression_, op.property_.name);
+  PrintOperator(out_, dba_, "PropertyLookup", op.expression_, op.property_path_);
 }
 
 void ExpressionPrettyPrinter::Visit(ParameterLookup &op) {

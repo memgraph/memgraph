@@ -26,7 +26,7 @@
 
 #include "flags/run_time_configurable.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/fnv.hpp"
+import memgraph.utils.fnv;
 
 #include <fmt/core.h>
 
@@ -68,11 +68,18 @@ auto Params2Time(const DateParameters &date_parameters, const LocalTimeParameter
 
 }  // namespace
 
-Date::Date(const int64_t microseconds) {
+Date::Date(std::chrono::microseconds const microseconds) {
   namespace chrono = std::chrono;
-  const auto chrono_micros = chrono::microseconds(microseconds);
-  const auto s_days = chrono::sys_days(chrono::duration_cast<chrono::days>(chrono_micros));
+  const auto s_days = chrono::sys_days(chrono::duration_cast<chrono::days>(microseconds));
   const auto date = chrono::year_month_day(s_days);
+  year = static_cast<int>(date.year());
+  month = static_cast<unsigned>(date.month());
+  day = static_cast<unsigned>(date.day());
+}
+
+Date::Date(std::chrono::days const days_since_epoch) {
+  auto const days = std::chrono::sys_days(days_since_epoch);
+  auto const date = std::chrono::year_month_day{days};
   year = static_cast<int>(date.year());
   month = static_cast<unsigned>(date.month());
   day = static_cast<unsigned>(date.day());
@@ -557,7 +564,7 @@ std::string LocalDateTime::ToStringWTZ() const { return std::format("{:%Y-%m-%dT
 
 Date LocalDateTime::date() const {
   // Date does not support timezones; use calendar time offset
-  return Date{MicrosecondsSinceEpoch()};
+  return Date{std::chrono::microseconds(MicrosecondsSinceEpoch())};
 }
 
 LocalTime LocalDateTime::local_time() const {
@@ -761,24 +768,31 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
   auto get_timezone_designator_start_position = [&get_offset_sign](std::string_view string) {
     const auto utc_position = string.find('Z');
     const auto offset_sign_position = get_offset_sign(string);
-    const auto timezone_name_position = string.find('[');  // Timezone names are enclosed by '[' ']'
+    const auto timezone_name_position = string.find('[');
 
     return std::min({utc_position, offset_sign_position, timezone_name_position});
   };
 
   const auto timezone_designator_start_position = get_timezone_designator_start_position(string);
 
-  if (timezone_designator_start_position == std::string::npos) {
-    throw temporal::InvalidArgumentException("Timezone is not designated.");
+  std::string_view ldt_substring;
+  if (timezone_designator_start_position != std::string::npos) {
+    ldt_substring = {string.data(), timezone_designator_start_position};
+    string.remove_prefix(timezone_designator_start_position);
+  } else {
+    ldt_substring = string;
+    string = "";
   }
-
-  const std::string ldt_substring = {string.data(), timezone_designator_start_position};
-  string.remove_prefix(timezone_designator_start_position);
 
   auto [date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(ldt_substring);
 
+  // If no timezone is specified, assume UTC
   if (string.empty()) {
-    throw temporal::InvalidArgumentException("Timezone is not designated.");
+    return ZonedDateTimeParameters{
+        .date = date_parameters,
+        .local_time = local_time_parameters,
+        .timezone = Timezone(std::chrono::locate_zone("Etc/UTC")),
+    };
   }
 
   if (string.starts_with('Z')) {
@@ -836,6 +850,13 @@ std::chrono::local_time<std::chrono::microseconds> AsLocalTime(int64_t microseco
   return std::chrono::local_time<std::chrono::microseconds>{std::chrono::microseconds(microseconds)};
 }
 
+ZonedDateTime::ZonedDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters,
+                             Timezone timezone) {
+  const std::chrono::local_time<std::chrono::microseconds> duration{
+      std::chrono::microseconds(LocalDateTime(date_parameters, local_time_parameters).MicrosecondsSinceEpoch())};
+  zoned_time = std::chrono::zoned_time(timezone, duration, std::chrono::choose::earliest);
+}
+
 ZonedDateTime::ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters) {
   auto timezone = zoned_date_time_parameters.timezone;
   const std::chrono::local_time<std::chrono::microseconds> duration{std::chrono::microseconds(
@@ -879,6 +900,33 @@ std::string ZonedDateTime::ToString() const {
     return std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{0:%Ez}[{1}]", zoned_time, timezone.TimezoneName());
   }
   return std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{0:%Ez}", zoned_time);
+}
+
+Date ZonedDateTime::AsLocalDate() const {
+  auto local_time = zoned_time.get_local_time();
+  auto days = std::chrono::floor<std::chrono::days>(local_time);
+  auto year_month_day = std::chrono::year_month_day{days};
+
+  return Date{DateParameters{static_cast<uint16_t>(static_cast<int>(year_month_day.year())),
+                             static_cast<uint8_t>(static_cast<unsigned>(year_month_day.month())),
+                             static_cast<uint8_t>(static_cast<unsigned>(year_month_day.day()))}};
+}
+
+LocalTime ZonedDateTime::AsLocalTime() const {
+  auto local_time = zoned_time.get_local_time();
+  auto days = std::chrono::floor<std::chrono::days>(local_time);
+  auto time_of_day = local_time - days;
+
+  return LocalTime{LocalTimeParameters{
+      static_cast<int64_t>(std::chrono::duration_cast<std::chrono::hours>(time_of_day).count()),
+      static_cast<int64_t>(
+          std::chrono::duration_cast<std::chrono::minutes>(time_of_day % std::chrono::hours{1}).count()),
+      static_cast<int64_t>(
+          std::chrono::duration_cast<std::chrono::seconds>(time_of_day % std::chrono::minutes{1}).count()),
+      static_cast<int64_t>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(time_of_day % std::chrono::seconds{1}).count()),
+      static_cast<int64_t>(
+          std::chrono::duration_cast<std::chrono::microseconds>(time_of_day % std::chrono::milliseconds{1}).count())}};
 }
 
 bool ZonedDateTime::operator==(const ZonedDateTime &other) const {
@@ -1058,7 +1106,7 @@ constexpr To CastChronoDouble(const double value) {
 };
 }  // namespace
 
-Duration::Duration(int64_t microseconds) { this->microseconds = microseconds; }
+Duration::Duration(int64_t const microseconds) : microseconds(microseconds) {}
 
 Duration::Duration(const DurationParameters &parameters) {
   microseconds = (CastChronoDouble<std::chrono::days, std::chrono::microseconds>(parameters.day) +
@@ -1071,7 +1119,7 @@ Duration::Duration(const DurationParameters &parameters) {
 }
 
 int64_t Duration::Days() const {
-  std::chrono::microseconds ms(microseconds);
+  std::chrono::microseconds const ms(microseconds);
   return std::chrono::duration_cast<std::chrono::days>(ms).count();
 }
 

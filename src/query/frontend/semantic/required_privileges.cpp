@@ -33,13 +33,20 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(TextIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
+  void Visit(CreateTextEdgeIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
   void Visit(VectorIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
+  void Visit(CreateVectorEdgeIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
   void Visit(AnalyzeGraphQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
   void Visit(AuthQuery &query) override {
     // Special cases
-    if (query.action_ == AuthQuery::Action::SHOW_CURRENT_USER) return;
+    if (query.action_ == AuthQuery::Action::SHOW_CURRENT_USER || query.action_ == AuthQuery::Action::SHOW_CURRENT_ROLE)
+      return;  // No privilege needed to show current user or role
+    if (query.action_ == AuthQuery::Action::CHANGE_PASSWORD) return;  // No privilege needed to change your own password
+
     // Default to AUTH
     AddPrivilege(AuthQuery::Privilege::AUTH);
   }
@@ -84,7 +91,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     }
   }
 
-  void Visit(ConstraintQuery &constraint_query) override { AddPrivilege(AuthQuery::Privilege::CONSTRAINT); }
+  void Visit(ConstraintQuery & /*constraint_query*/) override { AddPrivilege(AuthQuery::Privilege::CONSTRAINT); }
 
   void Visit(CypherQuery &query) override {
     query.single_query_->Accept(*this);
@@ -121,11 +128,19 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(ShowSnapshotsQuery & /* unused */) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
 
+  void Visit(ShowNextSnapshotQuery & /* unused */) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
+
   void Visit(SettingQuery & /*setting_query*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
 
   void Visit(TransactionQueueQuery & /*transaction_queue_query*/) override {}
 
   void Visit(EdgeImportModeQuery & /*edge_import_mode_query*/) override {}
+
+  void Visit(DropAllIndexesQuery & /*drop_all_indexes_query*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
+  void Visit(DropAllConstraintsQuery & /*drop_all_constraints_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::CONSTRAINT);
+  }
 
   void Visit(DropGraphQuery & /*drop_graph_query*/) override {}
 
@@ -134,15 +149,22 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(MultiDatabaseQuery &query) override {
     switch (query.action_) {
       case MultiDatabaseQuery::Action::CREATE:
-      case MultiDatabaseQuery::Action::DROP:
         AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
+        break;
+      case MultiDatabaseQuery::Action::DROP:
+      case MultiDatabaseQuery::Action::RENAME:
+        AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
+        if (query.force_) {
+          AddPrivilege(AuthQuery::Privilege::TRANSACTION_MANAGEMENT);
+        }
         break;
     }
   }
 
   void Visit(UseDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
 
-  void Visit(ShowDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
+  void Visit(ShowDatabaseQuery & /*unused*/) override { /* no privilege needed to show current database */
+  }
 
   void Visit(ShowDatabasesQuery & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); /* OR EDIT */
@@ -172,6 +194,10 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(ShowSchemaInfoQuery & /*schema_info_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
 
   void Visit(SessionTraceQuery & /*session_trace_query*/) override {}
+
+  void Visit(UserProfileQuery & /*user_profile_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::PROFILE_RESTRICTION);
+  }
 
   bool PreVisit(Create & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::CREATE);
@@ -217,6 +243,16 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     return false;
   }
   bool PreVisit(LoadCsv & /*unused*/) override {
+    AddPrivilege(AuthQuery::Privilege::READ_FILE);
+    return false;
+  }
+
+  bool PreVisit(LoadParquet & /*unused*/) override {
+    AddPrivilege(AuthQuery::Privilege::READ_FILE);
+    return false;
+  }
+
+  bool PreVisit(LoadJsonl & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::READ_FILE);
     return false;
   }

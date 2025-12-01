@@ -547,6 +547,26 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(LoadParquet &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(LoadParquet & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(LoadJsonl &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(LoadJsonl & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(RollUpApply &op) override {
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
@@ -577,6 +597,26 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(PeriodicSubquery & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(SetNestedProperty &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(SetNestedProperty & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(RemoveNestedProperty &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(RemoveNestedProperty & /*op*/) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -650,13 +690,30 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (filter.property_filter->value_->GetTypeInfo() != PropertyLookup::kType) {
         continue;
       }
-      auto *rhs_lookup = static_cast<PropertyLookup *>(filter.property_filter->value_);
 
       auto *join_condition = static_cast<EqualOperator *>(filter.expression);
+
+      auto is_property_lookup_with_identifier = [](Expression *expr) -> Identifier * {
+        while (expr) {
+          if (expr->GetTypeInfo() == PropertyLookup::kType) {
+            expr = static_cast<PropertyLookup *>(expr)->expression_;
+          } else if (expr->GetTypeInfo() == Identifier::kType) {
+            return static_cast<Identifier *>(expr);
+          } else {
+            return nullptr;
+          }
+        }
+        return nullptr;
+      };
+      auto *lhs_join_identifier = is_property_lookup_with_identifier(join_condition->expression1_);
+      auto *rhs_join_identifier = is_property_lookup_with_identifier(join_condition->expression2_);
+
+      if (!lhs_join_identifier || !rhs_join_identifier) {
+        continue;
+      }
+
       auto lhs_symbol = filter.property_filter->symbol_;
-      auto lhs_property = filter.property_filter->property_;
-      auto rhs_symbol = symbol_table_->at(*static_cast<Identifier *>(rhs_lookup->expression_));
-      auto rhs_property = rhs_lookup->property_;
+      auto rhs_symbol = symbol_table_->at(*rhs_join_identifier);
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);
 

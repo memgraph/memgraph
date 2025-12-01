@@ -11,8 +11,8 @@
 
 #pragma once
 
-#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
@@ -84,10 +84,8 @@ struct LabelPropertiesIndicesInfo {
   std::size_t label_pos_;
   std::vector<int64_t> properties_pos_;  // -1 means missing
   LabelId label_;
-  std::vector<PropertyId> properties_;
+  std::vector<PropertyPath> properties_;
 };
-
-using PropertiesIds = std::vector<PropertyId>;
 
 struct IndexOrderedPropertyValues {
   IndexOrderedPropertyValues(std::vector<PropertyValue> value) : values_{std::move(value)} {}
@@ -113,7 +111,7 @@ struct PropertiesPermutationHelper {
    * @param properties The ids of the properties to be read, specified in the
    *                   required index order.
    */
-  explicit PropertiesPermutationHelper(std::span<PropertyId const> properties);
+  explicit PropertiesPermutationHelper(std::span<PropertyPath const> properties);
 
   /** Rearranges a vector of monotonically ordered properties (as returned
    * by `Extract`) into the index order.
@@ -127,95 +125,107 @@ struct PropertiesPermutationHelper {
    */
   auto Extract(PropertyStore const &properties) const -> std::vector<PropertyValue>;
 
-  /** Compares the property with id `property_id` and value `value` against the
-   * same property value in the `values` array. If the id is in the index,
-   * returns a pair of the position of the property within the values and
-   * boolean indicating whether the property matches. Otherwise, if the id is
-   * not in the index, `std::nullopt` is returned.
+  /**
+   * Inplace update the `extracted_values` with the current value if relevant
+   * - if outer_prop_id is relevant
+   * - updates all positions in `values` with the correctly extracted nested values from `extracted_values`
    */
-  auto MatchesValue(PropertyId property_id, PropertyValue const &value, IndexOrderedPropertyValues const &values) const
-      -> std::optional<std::pair<std::ptrdiff_t, bool>>;
+  void Update(PropertyId outer_prop_id, PropertyValue const &value, std::vector<PropertyValue> &extracted_values) const;
+
+  /** Compares the property with id `property_id` and value `value` against the
+   * same property values in the `values` array. For every id in the index,
+   * (which may occur multiple times for composite nested indices, such as `a.b`
+   * and `a.c`) the vector will have a pair of the position of the property
+   * (in monotonic property id order), and a boolean indicating whether the
+   * property matches.
+   */
+  auto MatchesValue(PropertyId outer_prop_id, PropertyValue const &value,
+                    IndexOrderedPropertyValues const &cmp_values) const -> std::vector<std::pair<std::ptrdiff_t, bool>>;
 
   /** Efficiently compares multiple values in the property store with the given
    * values. This returns a vector of boolean flags indicating per-element
-   * equality.
+   * equality (in monotonic property id order.)
    */
-  auto MatchesValues(PropertyStore const &properties, IndexOrderedPropertyValues const &values) const
-      -> std::vector<bool>;
+  auto MatchesValues(PropertyStore const &properties,
+                     IndexOrderedPropertyValues const &values) const -> std::vector<bool>;
 
   /** Returns an augmented view over the values in the given vector, where each
-   * element is a tuple comprising: (position, property id, and value).
+   * element is a tuple comprising: (position, [property id path], and value).
    */
   auto WithPropertyId(IndexOrderedPropertyValues const &values) const {
     return ranges::views::enumerate(sorted_properties_) | std::views::transform([&](auto &&p) {
-             return std::tuple{p.first, p.second, std::cref(values.values_[position_lookup_[p.first]])};
+             return std::tuple{p.first, std::cref(p.second), std::cref(values.values_[position_lookup_[p.first]])};
            });
   }
 
  private:
-  std::vector<PropertyId> sorted_properties_;
+  std::vector<PropertyPath> sorted_properties_;
   std::vector<std::size_t> position_lookup_;
   permutation_cycles cycles_;
+  std::map<PropertyId, std::vector<std::size_t>> grouped_by_outer_prop_id_;
 };
 
 class LabelPropertyIndex {
  public:
-  // Becasue of composite index we need to track more info
+  // Because of composite index we need to track more info
   struct IndexInfo {
-    PropertiesIds const *properties_;
+    PropertiesPaths const *new_properties_;
     PropertiesPermutationHelper const *helper_;
 
     friend auto operator<=>(IndexInfo const &, IndexInfo const &) = default;
   };
+
   using AbortableInfo =
-      std::map<LabelId, std::map<PropertiesIds const *, std::vector<std::pair<IndexOrderedPropertyValues, Vertex *>>>>;
+      std::map<LabelId,
+               std::map<PropertiesPaths const *, std::vector<std::pair<IndexOrderedPropertyValues, Vertex *>>>>;
+
+  struct ActiveIndices;
+
   struct AbortProcessor {
+    // TODO: this is a filter for only relevant indicies? If so it should be based off the ActiveIndices
+    //       + via constructor
     std::map<LabelId, std::map<PropertyId, std::vector<IndexInfo>>> l2p;
     std::map<PropertyId, std::map<LabelId, std::vector<IndexInfo>>> p2l;
 
-    void collect_on_label_removal(LabelId label, Vertex *vertex) {
-      const auto &it = l2p.find(label);
-      if (it == l2p.end()) return;
-
-      auto dedup = std::set<IndexInfo>{};
-      for (const auto &[property, index_info] : it->second) {
-        for (auto const &info : index_info) {
-          dedup.insert(info);
-        }
-      }
-      for (auto const &[properties, helper] : dedup) {
-        auto current_values = helper->Extract(vertex->properties);
-        // Only if current_values has at least one non-null value do we need to cleanup its index entry
-        if (ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
-          cleanup_collection[label][properties].emplace_back(
-              helper->ApplyPermutation(std::move(current_values)).values_, vertex);
-        }
-      }
-    }
-
-    void collect_on_property_change(PropertyId propId, Vertex *vertex) {
-      const auto &it = p2l.find(propId);
-      if (it == p2l.end()) return;
-
-      for (auto const &[label, index_info] : it->second) {
-        if (!utils::Contains(vertex->labels, label)) continue;
-        for (auto const &[properties, helper] : index_info) {
-          auto current_values = helper->Extract(vertex->properties);
-          // Only if current_values has at least one non-null value do we need to cleanup its index entry
-          if (ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
-            cleanup_collection[label][properties].emplace_back(
-                helper->ApplyPermutation(std::move(current_values)).values_, vertex);
-          }
-        }
-      }
-    }
+    void CollectOnLabelRemoval(LabelId label, Vertex *vertex);
+    void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
 
     // collection
     AbortableInfo cleanup_collection;
+  };
 
-    void process(LabelPropertyIndex &index, uint64_t start_timestamp) {
-      index.AbortEntries(cleanup_collection, start_timestamp);
-    }
+  struct ActiveIndices {
+    virtual ~ActiveIndices() = default;
+
+    virtual void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
+
+    virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
+
+    virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
+                                     const Transaction &tx) = 0;
+
+    virtual bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
+
+    virtual bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
+
+    virtual auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                                    std::span<PropertyPath const> properties) const
+        -> std::vector<LabelPropertiesIndicesInfo> = 0;
+
+    virtual auto ListIndices(uint64_t start_timestamp) const
+        -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> = 0;
+
+    virtual auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const -> uint64_t = 0;
+
+    virtual auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
+                                        std::span<PropertyValue const> values) const -> uint64_t = 0;
+
+    virtual auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
+                                        std::span<PropertyValueRange const> bounds) const -> uint64_t = 0;
+
+    virtual auto GetAbortProcessor() const -> AbortProcessor = 0;
+
+    virtual void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) = 0;
   };
 
   LabelPropertyIndex() = default;
@@ -226,35 +236,9 @@ class LabelPropertyIndex {
 
   virtual ~LabelPropertyIndex() = default;
 
-  virtual void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
-
-  // Not used for in-memory
-  virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
-
-  virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                   const Transaction &tx) = 0;
-
-  virtual void AbortEntries(AbortableInfo const &, uint64_t start_timestamp) = 0;
-
-  virtual bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) = 0;
-
-  virtual bool IndexExists(LabelId label, std::span<PropertyId const> properties) const = 0;
-
-  virtual auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
-                                                  std::span<PropertyId const> properties) const
-      -> std::vector<LabelPropertiesIndicesInfo> = 0;
-
-  virtual std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const = 0;
-
-  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const = 0;
-
-  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
-                                          std::span<PropertyValue const> values) const = 0;
-
-  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
-                                          std::span<PropertyValueRange const> bounds) const = 0;
-
+  virtual bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties) = 0;
   virtual void DropGraphClearIndices() = 0;
+  virtual auto GetActiveIndices() const -> std::unique_ptr<ActiveIndices> = 0;
 };
 
 }  // namespace memgraph::storage
@@ -264,4 +248,5 @@ template <>
 struct hash<memgraph::storage::PropertyValueRange> {
   size_t operator()(const memgraph::storage::PropertyValueRange &pvr) const noexcept { return pvr.hash(); }
 };
+
 }  // namespace std
