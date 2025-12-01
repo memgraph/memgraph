@@ -64,6 +64,7 @@ jobs:
     if: ${{ inputs.os == 'all' && github.event_name != 'push' }}
     name: "Build Dependency: ${{ inputs.dependency }} for all Distributions"
     strategy:
+      fail-fast: false
       matrix:
         os: [centos-9, centos-10, debian-12 , debian-12-arm, debian-13, debian-13-arm, fedora-42, fedora-42-arm, rocky-10, ubuntu-22.04, ubuntu-24.04, ubuntu-24.04-arm]
         build_type: [Release]
@@ -91,6 +92,7 @@ jobs:
     if: ${{ github.event_name == 'push' }}
     name: "Build and Push Dependencies"
     strategy:
+      fail-fast: false
       matrix:
         os: [centos-9, centos-10, debian-12 , debian-12-arm, debian-13, debian-13-arm, fedora-42, fedora-42-arm, rocky-10, ubuntu-22.04, ubuntu-24.04, ubuntu-24.04-arm]
         build_type: [Release]
