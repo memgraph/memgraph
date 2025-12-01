@@ -94,9 +94,9 @@ jobs:
             --arch $ARCH \
             --build-type $BUILD_TYPE \
             build-memgraph \
-          --conan-remote $CONAN_REMOTE \
-          --conan-username $CONAN_USERNAME \
-          --conan-password $CONAN_PASSWORD
+            --conan-remote $CONAN_REMOTE \
+            --conan-username $CONAN_USERNAME \
+            --conan-password $CONAN_PASSWORD
 
       - name: Copy memgraph binary
         run: |
