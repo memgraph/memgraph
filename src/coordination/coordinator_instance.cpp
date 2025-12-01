@@ -588,9 +588,13 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
     }
   }
 
-  auto repl_clients_info = repl_instances_ | ranges::views::filter(std::not_fn(is_new_main)) |
-                           ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
-                           ranges::to<ReplicationClientsInfo>();
+  auto const data_instances_cache = raft_state_->GetDataInstancesContext();
+
+  auto repl_clients_info =
+      data_instances_cache |
+      ranges::views::filter([&](auto const &instance) { return instance.config.instance_name != new_main_name; }) |
+      ranges::views::transform([&](auto const &instance) { return instance.config.replication_client_info; }) |
+      ranges::to<ReplicationClientsInfo>();
 
   if (!new_main->SendRpc<PromoteToMainRpc>(new_main_uuid, std::move(repl_clients_info))) {
     return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
@@ -640,24 +644,23 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
 
   auto const name_matches = [instance_name](auto &&instance) { return instance.InstanceName() == instance_name; };
 
-  auto instance = std::ranges::find_if(repl_instances_, name_matches);
-  if (instance == repl_instances_.end()) {
+  auto repl_instance = std::ranges::find_if(repl_instances_, name_matches);
+  if (repl_instance == repl_instances_.end()) {
     return DemoteInstanceCoordinatorStatus::NO_INSTANCE_WITH_NAME;
   }
 
-  if (!instance->SendRpc<DemoteMainToReplicaRpc>()) {
-    return DemoteInstanceCoordinatorStatus::RPC_FAILED;
-  }
-
-  auto cluster_state = raft_state_->GetDataInstancesContext();
-
-  auto data_instance = std::ranges::find_if(cluster_state, [instance_name](auto &&data_instance) {
+  auto data_instances_cache = raft_state_->GetDataInstancesContext();
+  auto data_instance = std::ranges::find_if(data_instances_cache, [instance_name](auto const &data_instance) {
     return data_instance.config.instance_name == instance_name;
   });
   data_instance->status = ReplicationRole::REPLICA;
 
+  if (!repl_instance->SendRpc<DemoteMainToReplicaRpc>(data_instance->config.replication_client_info)) {
+    return DemoteInstanceCoordinatorStatus::RPC_FAILED;
+  }
+
   // NOLINTNEXTLINE
-  CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(cluster_state)};
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances_cache)};
 
   if (!raft_state_->AppendClusterUpdate(delta_state)) {
     spdlog::error("Aborting demoting instance. Writing to Raft failed.");
@@ -719,18 +722,26 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
       &repl_instances_.emplace_back(config, this, instance_down_timeout_sec_, instance_health_check_frequency_sec_);
 
   // We do this here not under callbacks because we need to add replica to the current main.
-  if (!new_instance->SendRpc<DemoteMainToReplicaRpc>(curr_main_uuid)) {
+  if (!new_instance->SendRpc<DemoteMainToReplicaRpc>(config.replication_client_info, curr_main_uuid)) {
     spdlog::error("Failed to demote instance {} to replica.", config.instance_name);
     repl_instances_.pop_back();
     return RegisterInstanceCoordinatorStatus::RPC_FAILED;
   }
 
   if (auto const main_name = raft_state_->TryGetCurrentMainName(); main_name.has_value()) {
+    // Find main from the cache
     auto const maybe_current_main = FindReplicationInstance(*main_name, repl_instances_);
-    MG_ASSERT(maybe_current_main.has_value(), "Couldn't find instance {} in local storage.", *main_name);
+    DMG_ASSERT(maybe_current_main.has_value(), "Couldn't find instance {} in local storage.", *main_name);
 
-    if (auto const &current_main = maybe_current_main->get();
-        !current_main.SendRpc<RegisterReplicaOnMainRpc>(curr_main_uuid, new_instance->GetReplicationClientInfo())) {
+    // Find main's config from Raft logs
+    auto const raft_main_cache = std::ranges::find_if(
+        data_instances_cache, [&](auto const &instance) { return instance.config.instance_name == *main_name; });
+
+    DMG_ASSERT(raft_main_cache != std::ranges::end(data_instances_cache),
+               "Couldn't find main instance in Raft logs cache.");
+
+    if (auto const &current_main = maybe_current_main->get(); !current_main.SendRpc<RegisterReplicaOnMainRpc>(
+            curr_main_uuid, raft_main_cache->config.replication_client_info)) {
       spdlog::error("Failed to register instance {} on main instance {}.", config.instance_name, main_name);
       repl_instances_.pop_back();
       return RegisterInstanceCoordinatorStatus::RPC_FAILED;
@@ -1035,10 +1046,13 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
       // Promotion not needed
       return;
     }
-    auto const is_not_main = [instance_name](auto &&instance) { return instance.InstanceName() != instance_name; };
-    auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_main) |
-                             ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
-                             ranges::to<ReplicationClientsInfo>();
+
+    auto const data_instances_cache = raft_state_->GetDataInstancesContext();
+    auto repl_clients_info =
+        data_instances_cache |
+        ranges::views::filter([&](auto const &instance) { return instance.config.instance_name != instance_name; }) |
+        ranges::views::transform([&](auto const &instance) { return instance.config.replication_client_info; }) |
+        ranges::to<ReplicationClientsInfo>();
 
     if (!instance.SendRpc<PromoteToMainRpc>(curr_main_uuid, std::move(repl_clients_info))) {
       spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
@@ -1064,7 +1078,15 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
     if (!instance_state.is_replica) {
       // If instance is not replica, demote it to become replica. If request for demotion failed, return,
       // and you will simply retry on the next ping.
-      if (!instance.SendRpc<DemoteMainToReplicaRpc>(curr_main_uuid)) {
+
+      auto const data_instances = raft_state_->GetDataInstancesContext();
+      auto const instance_raft_cache = std::ranges::find_if(
+          data_instances, [&](auto const &instance) { return instance.config.instance_name == instance_name; });
+      DMG_ASSERT(instance_raft_cache != std::ranges::end(data_instances), "Data instance {} not found in Raft cache",
+                 instance_name);
+
+      if (!instance.SendRpc<DemoteMainToReplicaRpc>(instance_raft_cache->config.replication_client_info,
+                                                    curr_main_uuid)) {
         spdlog::error("Couldn't demote instance {} to replica.", instance_name);
         return;
       }
