@@ -3,4 +3,4 @@ set(integrations_kafka_src_files
 )
 
 add_library(mg-integrations-kafka STATIC ${integrations_kafka_src_files})
-target_link_libraries(mg-integrations-kafka mg-utils librdkafka++ librdkafka Threads::Threads)
+target_link_libraries(mg-integrations-kafka mg-utils RdKafka::rdkafka++ Threads::Threads)
