@@ -133,6 +133,7 @@ print_help () {
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
   echo -e "  --conan-username string       Specify conan username (default \"\")"
   echo -e "  --conan-password string       Specify conan password (default \"\")"
+  echo -e "  --build-dependency string     Specify build dependency (default \"\"). Set to \"all\" to install all dependencies, or a specific dependency name to install only that dependency. Dependencies are specified in the format of \"<package>/<version>\"."
 
   echo -e "\ncopy options (default \"--binary\"):"
   echo -e "  --artifact-name string        Specify a custom name for the copied artifact"
@@ -417,6 +418,7 @@ build_memgraph () {
   local conan_remote=""
   local conan_username=""
   local conan_password=""
+  local build_dependency=""
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --community)
@@ -470,6 +472,10 @@ build_memgraph () {
       ;;
       --conan-password)
         conan_password=$2
+        shift 2
+      ;;
+      --build-dependency)
+        build_dependency=$2
         shift 2
       ;;
       *)
@@ -603,7 +609,23 @@ build_memgraph () {
   fi
 
   CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE"
-  docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s os=Linux -s os.distro=$os"
+  if [[ -n "$build_dependency" ]]; then
+    echo "Installing build dependency: $build_dependency"
+    if [[ "$build_dependency" == "all" ]]; then
+      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+    else
+      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install --requires $build_dependency --lockfile="" --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+    fi
+
+    if [[ -n "$conan_remote" ]]; then
+      echo "Uploading Conan cache to $conan_remote"
+      upload_conan_cache $conan_username $conan_password
+    fi
+
+    exit 0
+  else
+    docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+  fi
   CMD_START="$CMD_START && source build/generators/conanbuild.sh && $ACTIVATE_CARGO"
 
   # Determine preset name based on build type (Conan generates this automatically)
