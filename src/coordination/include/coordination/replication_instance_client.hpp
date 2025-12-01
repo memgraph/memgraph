@@ -54,8 +54,8 @@ using ReplicationClientsInfo = std::vector<ReplicationClientInfo>;
 
 class ReplicationInstanceClient {
  public:
-  explicit ReplicationInstanceClient(std::string instance_name, ReplicationClientInfo repl_client_info,
-                                     io::network::Endpoint mgt_server, CoordinatorInstance *coord_instance,
+  explicit ReplicationInstanceClient(std::string instance_name, io::network::Endpoint mgt_server,
+                                     CoordinatorInstance *coord_instance,
                                      std::chrono::seconds instance_health_check_frequency_sec);
 
   ~ReplicationInstanceClient() = default;
@@ -78,7 +78,6 @@ class ReplicationInstanceClient {
 
   auto SendGetDatabaseHistoriesRpc() const -> std::optional<replication_coordination_glue::InstanceInfo>;
   auto SendGetReplicationLagRpc() const -> std::optional<ReplicationLagInfo>;
-  auto GetReplicationClientInfo() const -> ReplicationClientInfo;
   auto RpcClient() const -> rpc::Client & { return rpc_client_; }
 
   friend bool operator==(ReplicationInstanceClient const &first, ReplicationInstanceClient const &second) {
@@ -89,16 +88,7 @@ class ReplicationInstanceClient {
   auto SendRpc(Args &&...args) const -> bool {
     utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
     try {
-      // Instead of retrieving config_.replication_client_info and sending it again into this function, we have this
-      // compile-time switch which decides specifically to ship config_.replication_client_info for
-      // DemoteMainToReplicaRpc
-      auto stream = std::invoke([&]() {
-        if constexpr (std::same_as<T, DemoteMainToReplicaRpc>) {
-          return rpc_client_.Stream<T>(repl_client_info_, std::forward<Args>(args)...);
-        } else {
-          return rpc_client_.Stream<T>(std::forward<Args>(args)...);
-        }
-      });
+      auto stream = rpc_client_.Stream<T>(std::forward<Args>(args)...);
 
       if (!stream.SendAndWait().success) {
         spdlog::error("Received unsuccessful response to {}.", T::Request::kType.name);
@@ -122,8 +112,6 @@ class ReplicationInstanceClient {
   mutable rpc::Client rpc_client_;
 
   std::string instance_name_;
-  // TODO: (andi) Cached for now but the plan is to remove this from the cache and rely solely on the instance_name_
-  ReplicationClientInfo repl_client_info_;
   CoordinatorInstance *coord_instance_;
 
   std::chrono::seconds instance_health_check_frequency_sec_{1};

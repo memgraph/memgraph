@@ -13,7 +13,6 @@
 
 #include "coordination/replication_instance_client.hpp"
 
-#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/common.hpp"
@@ -39,15 +38,12 @@ RpcInfoMetrics(UnregisterReplicaRpc)
 RpcInfoMetrics(EnableWritingOnMainRpc)
     // clang-format on
 
-    ReplicationInstanceClient::ReplicationInstanceClient(std::string instance_name,
-                                                         ReplicationClientInfo repl_client_info,
-                                                         io::network::Endpoint mgt_server,
+    ReplicationInstanceClient::ReplicationInstanceClient(std::string instance_name, io::network::Endpoint mgt_server,
                                                          CoordinatorInstance *coord_instance,
                                                          const std::chrono::seconds instance_health_check_frequency_sec)
     : rpc_context_{communication::ClientContext{}},
       rpc_client_{std::move(mgt_server), &rpc_context_},
       instance_name_(std::move(instance_name)),
-      repl_client_info_(std::move(repl_client_info)),
       coord_instance_(coord_instance),
       instance_health_check_frequency_sec_(instance_health_check_frequency_sec) {}
 
@@ -76,9 +72,6 @@ void ReplicationInstanceClient::StartStateCheck() {
 void ReplicationInstanceClient::StopStateCheck() { instance_checker_.Stop(); }
 void ReplicationInstanceClient::PauseStateCheck() { instance_checker_.Pause(); }
 void ReplicationInstanceClient::ResumeStateCheck() { instance_checker_.Resume(); }
-
-// TODO: (andi) Can this return const &
-auto ReplicationInstanceClient::GetReplicationClientInfo() const -> ReplicationClientInfo { return repl_client_info_; }
 
 auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<InstanceState> {
   try {

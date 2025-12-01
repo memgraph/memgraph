@@ -73,7 +73,6 @@ class ReplicationInstanceConnector {
   auto PauseStateCheck() -> void;
   auto ResumeStateCheck() -> void;
 
-  auto GetReplicationClientInfo() const -> ReplicationClientInfo;
   auto GetClient() const -> ReplicationInstanceClient const &;
 
  private:

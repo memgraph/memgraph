@@ -48,8 +48,8 @@ ReplicationInstanceConnector::ReplicationInstanceConnector(
     DataInstanceConfig const &config, CoordinatorInstance *coord_instance,
     const std::chrono::seconds instance_down_timeout_sec,
     const std::chrono::seconds instance_health_check_frequency_sec)
-    : client_(ReplicationInstanceClient(config.instance_name, config.replication_client_info, config.mgt_server,
-                                        coord_instance, instance_health_check_frequency_sec)),
+    : client_(ReplicationInstanceClient(config.instance_name, config.mgt_server, coord_instance,
+                                        instance_health_check_frequency_sec)),
       timed_failure_detector_(instance_down_timeout_sec) {}
 
 // Intentional logical constness
@@ -74,10 +74,6 @@ auto ReplicationInstanceConnector::StartStateCheck() -> void { client_.StartStat
 auto ReplicationInstanceConnector::StopStateCheck() -> void { client_.StopStateCheck(); }
 auto ReplicationInstanceConnector::PauseStateCheck() -> void { client_.PauseStateCheck(); }
 auto ReplicationInstanceConnector::ResumeStateCheck() -> void { client_.ResumeStateCheck(); }
-
-auto ReplicationInstanceConnector::GetReplicationClientInfo() const -> ReplicationClientInfo {
-  return client_.GetReplicationClientInfo();
-}
 
 auto ReplicationInstanceConnector::GetClient() const -> ReplicationInstanceClient const & { return client_; }
 
