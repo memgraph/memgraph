@@ -180,7 +180,6 @@ class ScanParallelByEdgeTypePropertyRange;
 class ScanParallelByEdgeProperty;
 class ScanParallelByEdgePropertyValue;
 class ScanParallelByEdgePropertyRange;
-class ScanParallelByEdgeId;
 class ScanChunk;
 class ScanChunkByEdge;
 
@@ -196,7 +195,7 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     ScanParallelByPointDistance, ScanParallelByLabel, ScanParallelByLabelProperties, ScanParallelByEdgeType,
     ScanParallelByEdgeTypeProperty, ScanParallelByWithinbbox, ScanParallelByEdge, ScanParallelByEdgeTypePropertyValue,
     ScanParallelByEdgeTypePropertyRange, ScanParallelByEdgeProperty, ScanParallelByEdgePropertyValue,
-    ScanParallelByEdgeId, ScanParallelByEdgePropertyRange, ScanChunk, ScanChunkByEdge, ParallelMerge>;
+    ScanParallelByEdgePropertyRange, ScanChunk, ScanChunkByEdge, ParallelMerge>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -2120,29 +2119,6 @@ class ScanParallelByEdgeTypePropertyValue : public memgraph::query::plan::ScanPa
 
   storage::EdgeTypeId edge_type_;
   storage::PropertyId property_;
-  Expression *expression_;
-};
-
-/// Parallel scan variant for edges by edge ID.
-class ScanParallelByEdgeId : public memgraph::query::plan::ScanParallel {
- public:
-  static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
-
-  ScanParallelByEdgeId() = default;
-  ScanParallelByEdgeId(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
-                       Symbol state_symbol, Symbol edge_symbol, Symbol node1_symbol, Symbol node2_symbol,
-                       EdgeAtom::Direction direction, Expression *expression);
-  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
-
-  std::string ToString() const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
-
-  Symbol edge_symbol_;
-  Symbol node1_symbol_;
-  Symbol node2_symbol_;
-  EdgeAtom::Direction direction_;
   Expression *expression_;
 };
 
