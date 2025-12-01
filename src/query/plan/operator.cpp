@@ -5786,7 +5786,6 @@ std::vector<Symbol> Aggregate::ModifiedSymbols(const SymbolTable &) const {
   for (const auto &elem : aggregations_) symbols.push_back(elem.output_sym);
   return symbols;
 }
-
 namespace {
 /** Returns the default TypedValue for an Aggregation element.
  * This value is valid both for returning when where are no inputs
@@ -5811,302 +5810,19 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
   }
 }
 
-// Helper functions for validation (extracted from member functions since they don't use any state)
-void EnsureOkForMinMax(const TypedValue &value) {
-  switch (value.type()) {
-    case TypedValue::Type::Bool:
-    case TypedValue::Type::Int:
-    case TypedValue::Type::Double:
-    case TypedValue::Type::String:
-    case TypedValue::Type::Date:
-    case TypedValue::Type::LocalTime:
-    case TypedValue::Type::LocalDateTime:
-    case TypedValue::Type::ZonedDateTime:
-      return;
-    default:
-      throw QueryRuntimeException(
-          "Only boolean, numeric, string, and non-duration temporal values are allowed in MIN and MAX "
-          "aggregations.");
+void DefaultAggregation(ExecutionContext &context, const std::vector<Aggregate::Element> &aggregations,
+                        const auto &remember, FrameWriter &frame_writer) {
+  auto *pull_memory = context.evaluation_context.memory;
+  // place default aggregation values on the frame
+  for (const auto &elem : aggregations) {
+    frame_writer.Write(elem.output_sym, DefaultAggregationOpValue(elem, pull_memory));
+  }
+
+  // place null as remember values on the frame
+  for (const Symbol &remember_sym : remember) {
+    frame_writer.Write(remember_sym, TypedValue(pull_memory));
   }
 }
-
-void EnsureOkForAvgSum(const TypedValue &value) {
-  switch (value.type()) {
-    case TypedValue::Type::Int:
-    case TypedValue::Type::Double:
-      return;
-    default:
-      throw QueryRuntimeException("Only numeric values allowed in SUM and AVG aggregations.");
-  }
-}
-
-void EnsureOkForProjectPath(const TypedValue &value) {
-  switch (value.type()) {
-    case TypedValue::Type::Path:
-      return;
-    default:
-      throw QueryRuntimeException("Only path values allowed in PROJECT aggregation.");
-  }
-}
-
-/** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
- */
-void ProjectList(TypedValue const &arg1, TypedValue const &arg2, Graph &projectedGraph) {
-  if (arg1.type() != TypedValue::Type::List || !std::ranges::all_of(arg1.ValueList(), [](TypedValue const &each) {
-        return each.type() == TypedValue::Type::Vertex || each.type() == TypedValue::Type::Null;
-      })) {
-    throw QueryRuntimeException("project() argument 1 must be a list of nodes or nulls.");
-  }
-
-  if (arg2.type() != TypedValue::Type::List || !std::ranges::all_of(arg2.ValueList(), [](TypedValue const &each) {
-        return each.type() == TypedValue::Type::Edge || each.type() == TypedValue::Type::Null;
-      })) {
-    throw QueryRuntimeException("project() argument 2 must be a list of relationships or nulls.");
-  }
-
-  projectedGraph.Expand(arg1.ValueList(), arg2.ValueList());
-}
-
-// Free function implementations (defined outside anonymous namespace to allow friend access)
-void UpdateImpl(ExpressionEvaluator *evaluator, auto *agg_value, const auto &aggregations) {
-  DMG_ASSERT(aggregations.size() == agg_value->values_.size(),
-             "Expected as much AggregationValue.values_ as there are "
-             "aggregations.");
-  DMG_ASSERT(aggregations.size() == agg_value->counts_.size(),
-             "Expected as much AggregationValue.counts_ as there are "
-             "aggregations.");
-
-  auto count_it = agg_value->counts_.begin();
-  auto value_it = agg_value->values_.begin();
-  auto unique_values_it = agg_value->unique_values_.begin();
-  auto agg_elem_it = aggregations.begin();
-  const auto counts_end = agg_value->counts_.end();
-  for (; count_it != counts_end; ++count_it, ++value_it, ++unique_values_it, ++agg_elem_it) {
-    // COUNT(*) is the only case where input expression is optional
-    // handle it here
-    auto *input_expr_ptr = agg_elem_it->arg1;
-    if (!input_expr_ptr) {
-      *count_it += 1;
-      // value is deferred to post-processing
-      continue;
-    }
-
-    TypedValue input_value = input_expr_ptr->Accept(*evaluator);
-
-    // Aggregations skip Null input values.
-    if (input_value.IsNull()) continue;
-    const auto &agg_op = agg_elem_it->op;
-    if (agg_elem_it->distinct) {
-      auto insert_result = unique_values_it->insert(input_value);
-      if (!insert_result.second) {
-        continue;
-      }
-    }
-    *count_it += 1;
-    if (*count_it == 1) {
-      // first value, nothing to aggregate. check type, set and continue.
-      switch (agg_op) {
-        case Aggregation::Op::MIN:
-        case Aggregation::Op::MAX:
-          EnsureOkForMinMax(input_value);
-          *value_it = std::move(input_value);
-          break;
-        case Aggregation::Op::SUM:
-        case Aggregation::Op::AVG:
-          EnsureOkForAvgSum(input_value);
-          *value_it = std::move(input_value);
-          break;
-        case Aggregation::Op::COUNT:
-          // value is deferred to post-processing
-          break;
-        case Aggregation::Op::COLLECT_LIST:
-          value_it->ValueList().push_back(std::move(input_value));
-          break;
-        case Aggregation::Op::PROJECT_PATH: {
-          EnsureOkForProjectPath(input_value);
-          value_it->ValueGraph().Expand(input_value.ValuePath());
-          break;
-        }
-        case Aggregation::Op::PROJECT_LISTS: {
-          ProjectList(input_value, agg_elem_it->arg2->Accept(*evaluator), value_it->ValueGraph());
-          break;
-        }
-        case Aggregation::Op::COLLECT_MAP:
-          auto key = agg_elem_it->arg2->Accept(*evaluator);
-          if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
-          value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
-          break;
-      }
-      continue;
-    }
-
-    // aggregation of existing values
-    switch (agg_op) {
-      case Aggregation::Op::COUNT:
-        // value is deferred to post-processing
-        break;
-      case Aggregation::Op::MIN: {
-        EnsureOkForMinMax(input_value);
-        try {
-          TypedValue comparison_result = input_value < *value_it;
-          // since we skip nulls we either have a valid comparison, or
-          // an exception was just thrown above
-          // safe to assume a bool TypedValue
-          if (comparison_result.ValueBool()) *value_it = std::move(input_value);
-        } catch (const TypedValueException &) {
-          throw QueryRuntimeException("Unable to get MIN of '{}' and '{}'.", input_value.type(), value_it->type());
-        }
-        break;
-      }
-      case Aggregation::Op::MAX: {
-        //  all comments as for Op::Min
-        EnsureOkForMinMax(input_value);
-        try {
-          TypedValue comparison_result = input_value > *value_it;
-          if (comparison_result.ValueBool()) *value_it = std::move(input_value);
-        } catch (const TypedValueException &) {
-          throw QueryRuntimeException("Unable to get MAX of '{}' and '{}'.", input_value.type(), value_it->type());
-        }
-        break;
-      }
-      case Aggregation::Op::AVG:
-      // for averaging we sum first and divide by count once all
-      // the input has been processed
-      case Aggregation::Op::SUM:
-        EnsureOkForAvgSum(input_value);
-        *value_it = *value_it + input_value;
-        break;
-      case Aggregation::Op::COLLECT_LIST:
-        value_it->ValueList().push_back(std::move(input_value));
-        break;
-      case Aggregation::Op::PROJECT_PATH: {
-        EnsureOkForProjectPath(input_value);
-        value_it->ValueGraph().Expand(input_value.ValuePath());
-        break;
-      }
-
-      case Aggregation::Op::PROJECT_LISTS: {
-        ProjectList(input_value, agg_elem_it->arg2->Accept(*evaluator), value_it->ValueGraph());
-        break;
-      }
-      case Aggregation::Op::COLLECT_MAP:
-        auto key = agg_elem_it->arg2->Accept(*evaluator);
-        if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
-        value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
-        break;
-    }  // end switch over Aggregation::Op enum
-  }    // end loop over all aggregations
-}
-
-void ProcessOneImpl(const Frame &frame, ExpressionEvaluator *evaluator, const std::vector<Expression *> &group_by,
-                    auto &aggregation, auto &reused_group_by, const auto &aggregations,
-                    const std::vector<Symbol> &remember) {
-  // Preallocated group_by, since most of the time the aggregation key won't be unique
-  reused_group_by.clear();
-  evaluator->ResetPropertyLookupCache();
-
-  // TODO: if group_by.size() == 0, aggregation -> there is only one (becasue we are doing *)
-  //       can this be optimised so we don't need to do aggregation.try_emplace which has a hash cost
-  for (Expression *expression : group_by) {
-    reused_group_by.emplace_back(expression->Accept(*evaluator));
-  }
-  auto *mem = aggregation.get_allocator().resource();
-  auto res = aggregation.try_emplace(reused_group_by, mem);
-  auto &agg_value = res.first->second;
-  if (res.second /*was newly inserted*/) {
-    // EnsureInitialized logic inline here
-    if (!agg_value.values_.empty()) {
-      // already initialized
-    } else {
-      const auto num_of_aggregations = aggregations.size();
-      agg_value.values_.reserve(num_of_aggregations);
-      agg_value.unique_values_.reserve(num_of_aggregations);
-
-      auto *mem_for_values = agg_value.values_.get_allocator().resource();
-      for (const auto &agg_elem : aggregations) {
-        agg_value.values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem_for_values));
-        agg_value.unique_values_.emplace_back(typename decltype(agg_value.unique_values_)::value_type(mem_for_values));
-      }
-      agg_value.counts_.resize(num_of_aggregations, 0);
-
-      agg_value.remember_.reserve(remember.size());
-      for (const Symbol &remember_sym : remember) {
-        agg_value.remember_.push_back(frame[remember_sym]);
-      }
-    }
-  }
-  UpdateImpl(evaluator, &agg_value, aggregations);
-}
-
-void DefaultAggregation(auto &frame_writer, ExecutionContext *context, const auto &aggregations, const auto &remember,
-                        auto &aggregation) {
-  if (aggregation.empty()) {
-    auto *pull_memory = context->evaluation_context.memory;
-    // place default aggregation values on the frame
-    for (const auto &elem : aggregations) {
-      frame_writer.Write(elem.output_sym, DefaultAggregationOpValue(elem, pull_memory));
-    }
-
-    // place null as remember values on the frame
-    for (const Symbol &remember_sym : remember) {
-      frame_writer.Write(remember_sym, TypedValue(pull_memory));
-    }
-  }
-}
-
-void PostProcessImpl(ExecutionContext *context, const auto &aggregations, auto &aggregation) {
-  for (size_t pos = 0; pos < aggregations.size(); ++pos) {
-    switch (aggregations[pos].op) {
-      case Aggregation::Op::AVG: {
-        // calculate AVG aggregations (so far they have only been summed)
-        for (auto &kv : aggregation) {
-          auto &agg_value = kv.second;
-          auto count = agg_value.counts_[pos];
-          auto *pull_memory = context->evaluation_context.memory;
-          if (count > 0) {
-            agg_value.values_[pos] = agg_value.values_[pos] / TypedValue(static_cast<double>(count), pull_memory);
-          }
-        }
-        break;
-      }
-      case Aggregation::Op::COUNT: {
-        // Copy counts to be the value
-        for (auto &kv : aggregation) {
-          auto &agg_value = kv.second;
-          agg_value.values_[pos] = agg_value.counts_[pos];
-        }
-        break;
-      }
-      case Aggregation::Op::MIN:
-      case Aggregation::Op::MAX:
-      case Aggregation::Op::SUM:
-      case Aggregation::Op::COLLECT_LIST:
-      case Aggregation::Op::COLLECT_MAP:
-      case Aggregation::Op::PROJECT_PATH:
-      case Aggregation::Op::PROJECT_LISTS:
-        break;
-    }
-  }
-}
-
-// Free function version of ProcessAll
-bool ProcessAllImpl(Frame *frame, ExecutionContext *context, Cursor *input_cursor, const auto &aggregations,
-                    auto &aggregation, auto &reused_group_by, const auto &group_by, const auto &remember) {
-  ExpressionEvaluator evaluator(frame, context->symbol_table, context->evaluation_context, context->db_accessor,
-                                storage::View::NEW, nullptr, &context->number_of_hops);
-
-  bool pulled = false;
-  while (input_cursor->Pull(*frame, *context)) {
-    ProcessOneImpl(*frame, &evaluator, group_by, aggregation, reused_group_by, aggregations, remember);
-    pulled = true;
-  }
-  if (!pulled) return false;
-
-  // post processing
-  PostProcessImpl(context, aggregations, aggregation);
-  return true;
-}
-
 }  // namespace
 
 class AggregateParallelCursor;
@@ -6119,41 +5835,33 @@ class AggregateCursor : public Cursor {
         input_cursor_(self_.input_->MakeCursor(mem)),
         aggregation_(mem),
         reused_group_by_(self.group_by_.size(), mem) {}
-
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
-
     AbortCheck(context);
-
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-
     if (!pulled_all_input_) {
       if (!ProcessAll(&frame, &context) && !self_.group_by_.empty()) return false;
       pulled_all_input_ = true;
       aggregation_it_ = aggregation_.begin();
+
       if (aggregation_.empty()) {
-        DefaultAggregation(frame_writer, &context, self_.aggregations_, self_.remember_, aggregation_);
+        DefaultAggregation(context, self_.aggregations_, self_.remember_, frame_writer);
         return true;
       }
     }
     if (aggregation_it_ == aggregation_.end()) return false;
-
     // place aggregation values on the frame
     auto aggregation_values_it = aggregation_it_->second.values_.begin();
     for (const auto &aggregation_elem : self_.aggregations_)
       frame_writer.Write(aggregation_elem.output_sym, *aggregation_values_it++);
-
     // place remember values on the frame
     auto remember_values_it = aggregation_it_->second.remember_.begin();
     for (const Symbol &remember_sym : self_.remember_) frame_writer.Write(remember_sym, *remember_values_it++);
-
     aggregation_it_++;
     return true;
   }
-
   void Shutdown() override { input_cursor_->Shutdown(); }
-
   void Reset() override {
     input_cursor_->Reset();
     aggregation_.clear();
@@ -6169,7 +5877,6 @@ class AggregateCursor : public Cursor {
   struct AggregationValue {
     explicit AggregationValue(utils::MemoryResource *mem)
         : counts_(mem), values_(mem), remember_(mem), unique_values_(mem) {}
-
     // how many input rows have been aggregated in respective values_ element so
     // far
     // TODO: The counting value type should be changed to an unsigned type once
@@ -6181,12 +5888,9 @@ class AggregateCursor : public Cursor {
     utils::pmr::vector<TypedValue> values_;
     // remember values.
     utils::pmr::vector<TypedValue> remember_;
-
     using TSet = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
-
     utils::pmr::vector<TSet> unique_values_;
   };
-
   const Aggregate &self_;
   const UniqueCursorPtr input_cursor_;
   // storage for aggregated data
@@ -6206,7 +5910,6 @@ class AggregateCursor : public Cursor {
   // this LogicalOp pulls all from the input on it's first pull
   // this switch tracks if this has been performed
   bool pulled_all_input_{false};
-
   /**
    * Pulls from the input operator until exhausted and aggregates the
    * results. If the input operator is not provided, a single call
@@ -6216,7 +5919,72 @@ class AggregateCursor : public Cursor {
    * cache cardinality depends on number of
    * aggregation results, and not on the number of inputs.
    */
-  bool ProcessAll(Frame *frame, ExecutionContext *context);
+  bool ProcessAll(Frame *frame, ExecutionContext *context) {
+    ExpressionEvaluator evaluator(frame, context->symbol_table, context->evaluation_context, context->db_accessor,
+                                  storage::View::NEW, nullptr, &context->number_of_hops);
+
+    bool pulled = false;
+    while (input_cursor_->Pull(*frame, *context)) {
+      ProcessOne(*frame, &evaluator);
+      pulled = true;
+    }
+    if (!pulled) return false;
+
+    // post processing
+    for (size_t pos = 0; pos < self_.aggregations_.size(); ++pos) {
+      switch (self_.aggregations_[pos].op) {
+        case Aggregation::Op::AVG: {
+          // calculate AVG aggregations (so far they have only been summed)
+          for (auto &kv : aggregation_) {
+            AggregationValue &agg_value = kv.second;
+            auto count = agg_value.counts_[pos];
+            auto *pull_memory = context->evaluation_context.memory;
+            if (count > 0) {
+              agg_value.values_[pos] = agg_value.values_[pos] / TypedValue(static_cast<double>(count), pull_memory);
+            }
+          }
+          break;
+        }
+        case Aggregation::Op::COUNT: {
+          // Copy counts to be the value
+          for (auto &kv : aggregation_) {
+            AggregationValue &agg_value = kv.second;
+            agg_value.values_[pos] = agg_value.counts_[pos];
+          }
+          break;
+        }
+        case Aggregation::Op::MIN:
+        case Aggregation::Op::MAX:
+        case Aggregation::Op::SUM:
+        case Aggregation::Op::COLLECT_LIST:
+        case Aggregation::Op::COLLECT_MAP:
+        case Aggregation::Op::PROJECT_PATH:
+        case Aggregation::Op::PROJECT_LISTS:
+          break;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Performs a single accumulation.
+   */
+  void ProcessOne(const Frame &frame, ExpressionEvaluator *evaluator) {
+    // Preallocated group_by, since most of the time the aggregation key won't be unique
+    reused_group_by_.clear();
+    evaluator->ResetPropertyLookupCache();
+
+    // TODO: if self_.group_by_.size() == 0, aggregation_ -> there is only one (becasue we are doing *)
+    //       can this be optimised so we don't need to do aggregation_.try_emplace which has a hash cost
+    for (Expression *expression : self_.group_by_) {
+      reused_group_by_.emplace_back(expression->Accept(*evaluator));
+    }
+    auto *mem = aggregation_.get_allocator().resource();
+    auto res = aggregation_.try_emplace(reused_group_by_, mem);
+    auto &agg_value = res.first->second;
+    if (res.second /*was newly inserted*/) EnsureInitialized(frame, &agg_value);
+    Update(evaluator, &agg_value);
+  }
 
   /** Ensures the new AggregationValue has been initialized. This means
    * that the value vectors are filled with an appropriate number of Nulls,
@@ -6224,30 +5992,214 @@ class AggregateCursor : public Cursor {
    */
   void EnsureInitialized(const Frame &frame, AggregateCursor::AggregationValue *agg_value) const {
     if (!agg_value->values_.empty()) return;
-
     const auto num_of_aggregations = self_.aggregations_.size();
     agg_value->values_.reserve(num_of_aggregations);
     agg_value->unique_values_.reserve(num_of_aggregations);
-
     auto *mem = agg_value->values_.get_allocator().resource();
     for (const auto &agg_elem : self_.aggregations_) {
       agg_value->values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
       agg_value->unique_values_.emplace_back(AggregationValue::TSet(mem));
     }
     agg_value->counts_.resize(num_of_aggregations, 0);
-
     agg_value->remember_.reserve(self_.remember_.size());
     for (const Symbol &remember_sym : self_.remember_) {
       agg_value->remember_.push_back(frame[remember_sym]);
     }
   }
-};
 
-// Member function definitions that use the free functions
-bool AggregateCursor::ProcessAll(Frame *frame, ExecutionContext *context) {
-  return ProcessAllImpl(frame, context, input_cursor_.get(), self_.aggregations_, aggregation_, reused_group_by_,
-                        self_.group_by_, self_.remember_);
-}
+  /** Updates the given AggregationValue with new data. Assumes that
+   * the AggregationValue has been initialized */
+  void Update(ExpressionEvaluator *evaluator, AggregateCursor::AggregationValue *agg_value) {
+    DMG_ASSERT(self_.aggregations_.size() == agg_value->values_.size(),
+               "Expected as much AggregationValue.values_ as there are "
+               "aggregations.");
+    DMG_ASSERT(self_.aggregations_.size() == agg_value->counts_.size(),
+               "Expected as much AggregationValue.counts_ as there are "
+               "aggregations.");
+
+    auto count_it = agg_value->counts_.begin();
+    auto value_it = agg_value->values_.begin();
+    auto unique_values_it = agg_value->unique_values_.begin();
+    auto agg_elem_it = self_.aggregations_.begin();
+    const auto counts_end = agg_value->counts_.end();
+    for (; count_it != counts_end; ++count_it, ++value_it, ++unique_values_it, ++agg_elem_it) {
+      // COUNT(*) is the only case where input expression is optional
+      // handle it here
+      auto *input_expr_ptr = agg_elem_it->arg1;
+      if (!input_expr_ptr) {
+        *count_it += 1;
+        // value is deferred to post-processing
+        continue;
+      }
+
+      TypedValue input_value = input_expr_ptr->Accept(*evaluator);
+
+      // Aggregations skip Null input values.
+      if (input_value.IsNull()) continue;
+      const auto &agg_op = agg_elem_it->op;
+      if (agg_elem_it->distinct) {
+        auto insert_result = unique_values_it->insert(input_value);
+        if (!insert_result.second) {
+          continue;
+        }
+      }
+      *count_it += 1;
+      if (*count_it == 1) {
+        // first value, nothing to aggregate. check type, set and continue.
+        switch (agg_op) {
+          case Aggregation::Op::MIN:
+          case Aggregation::Op::MAX:
+            EnsureOkForMinMax(input_value);
+            *value_it = std::move(input_value);
+            break;
+          case Aggregation::Op::SUM:
+          case Aggregation::Op::AVG:
+            EnsureOkForAvgSum(input_value);
+            *value_it = std::move(input_value);
+            break;
+          case Aggregation::Op::COUNT:
+            // value is deferred to post-processing
+            break;
+          case Aggregation::Op::COLLECT_LIST:
+            value_it->ValueList().push_back(std::move(input_value));
+            break;
+          case Aggregation::Op::PROJECT_PATH: {
+            EnsureOkForProjectPath(input_value);
+            value_it->ValueGraph().Expand(input_value.ValuePath());
+            break;
+          }
+          case Aggregation::Op::PROJECT_LISTS: {
+            ProjectList(input_value, agg_elem_it->arg2->Accept(*evaluator), value_it->ValueGraph());
+            break;
+          }
+          case Aggregation::Op::COLLECT_MAP:
+            auto key = agg_elem_it->arg2->Accept(*evaluator);
+            if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
+            value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
+            break;
+        }
+        continue;
+      }
+
+      // aggregation of existing values
+      switch (agg_op) {
+        case Aggregation::Op::COUNT:
+          // value is deferred to post-processing
+          break;
+        case Aggregation::Op::MIN: {
+          EnsureOkForMinMax(input_value);
+          try {
+            TypedValue comparison_result = input_value < *value_it;
+            // since we skip nulls we either have a valid comparison, or
+            // an exception was just thrown above
+            // safe to assume a bool TypedValue
+            if (comparison_result.ValueBool()) *value_it = std::move(input_value);
+          } catch (const TypedValueException &) {
+            throw QueryRuntimeException("Unable to get MIN of '{}' and '{}'.", input_value.type(), value_it->type());
+          }
+          break;
+        }
+        case Aggregation::Op::MAX: {
+          //  all comments as for Op::Min
+          EnsureOkForMinMax(input_value);
+          try {
+            TypedValue comparison_result = input_value > *value_it;
+            if (comparison_result.ValueBool()) *value_it = std::move(input_value);
+          } catch (const TypedValueException &) {
+            throw QueryRuntimeException("Unable to get MAX of '{}' and '{}'.", input_value.type(), value_it->type());
+          }
+          break;
+        }
+        case Aggregation::Op::AVG:
+        // for averaging we sum first and divide by count once all
+        // the input has been processed
+        case Aggregation::Op::SUM:
+          EnsureOkForAvgSum(input_value);
+          *value_it = *value_it + input_value;
+          break;
+        case Aggregation::Op::COLLECT_LIST:
+          value_it->ValueList().push_back(std::move(input_value));
+          break;
+        case Aggregation::Op::PROJECT_PATH: {
+          EnsureOkForProjectPath(input_value);
+          value_it->ValueGraph().Expand(input_value.ValuePath());
+          break;
+        }
+
+        case Aggregation::Op::PROJECT_LISTS: {
+          ProjectList(input_value, agg_elem_it->arg2->Accept(*evaluator), value_it->ValueGraph());
+          break;
+        }
+        case Aggregation::Op::COLLECT_MAP:
+          auto key = agg_elem_it->arg2->Accept(*evaluator);
+          if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
+          value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
+          break;
+      }  // end switch over Aggregation::Op enum
+    }    // end loop over all aggregations
+  }
+
+  /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
+   */
+  static void ProjectList(TypedValue const &arg1, TypedValue const &arg2, Graph &projectedGraph) {
+    if (arg1.type() != TypedValue::Type::List || !std::ranges::all_of(arg1.ValueList(), [](TypedValue const &each) {
+          return each.type() == TypedValue::Type::Vertex || each.type() == TypedValue::Type::Null;
+        })) {
+      throw QueryRuntimeException("project() argument 1 must be a list of nodes or nulls.");
+    }
+
+    if (arg2.type() != TypedValue::Type::List || !std::ranges::all_of(arg2.ValueList(), [](TypedValue const &each) {
+          return each.type() == TypedValue::Type::Edge || each.type() == TypedValue::Type::Null;
+        })) {
+      throw QueryRuntimeException("project() argument 2 must be a list of relationships or nulls.");
+    }
+
+    projectedGraph.Expand(arg1.ValueList(), arg2.ValueList());
+  }
+
+  /** Checks if the given TypedValue is legal in MIN and MAX. If not
+   * an appropriate exception is thrown. */
+  void EnsureOkForMinMax(const TypedValue &value) const {
+    switch (value.type()) {
+      case TypedValue::Type::Bool:
+      case TypedValue::Type::Int:
+      case TypedValue::Type::Double:
+      case TypedValue::Type::String:
+      case TypedValue::Type::Date:
+      case TypedValue::Type::LocalTime:
+      case TypedValue::Type::LocalDateTime:
+      case TypedValue::Type::ZonedDateTime:
+        return;
+      default:
+        throw QueryRuntimeException(
+            "Only boolean, numeric, string, and non-duration temporal values are allowed in MIN and MAX "
+            "aggregations.");
+    }
+  }
+
+  /** Checks if the given TypedValue is legal in AVG and SUM. If not
+   * an appropriate exception is thrown. */
+  void EnsureOkForAvgSum(const TypedValue &value) const {
+    switch (value.type()) {
+      case TypedValue::Type::Int:
+      case TypedValue::Type::Double:
+        return;
+      default:
+        throw QueryRuntimeException("Only numeric values allowed in SUM and AVG aggregations.");
+    }
+  }
+
+  /** Checks if the given TypedValue is legal in PROJECT_PATH. If not an appropriate exception is thrown. */
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+  void EnsureOkForProjectPath(const TypedValue &value) const {
+    switch (value.type()) {
+      case TypedValue::Type::Path:
+        return;
+      default:
+        throw QueryRuntimeException("Only path values allowed in PROJECT aggregation.");
+    }
+  }
+};
 
 UniqueCursorPtr Aggregate::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::AggregateOperator);
@@ -10100,14 +10052,12 @@ void UnifyAggregations(auto &branch_aggregations, const auto &aggregations) {
   for (int i = 1; i < branch_aggregations.size(); i++) {
     main_aggregation.merge(*branch_aggregations[i]);
   }
-  std::cout << "Merged other_aggregation " << timer.Elapsed().count() << " seconds" << std::endl;
 
   // Combine the results of the aggregations from all cursors into main_aggregation
   for (size_t i = 1; i < branch_aggregations.size(); i++) {
     auto &other_aggregation = *branch_aggregations[i];
 
     // Custom merge for duplicate entries from other_aggregation to main_aggregation
-    std::cout << "Merging other_aggregation " << other_aggregation.size() << std::endl;
     std::for_each(std::execution::parallel_unsequenced_policy(), other_aggregation.begin(), other_aggregation.end(),
                   [&](auto &other_node) {
                     auto main_itr = main_aggregation.find(other_node.first);
@@ -10213,10 +10163,7 @@ void UnifyAggregations(auto &branch_aggregations, const auto &aggregations) {
                       }
                     }
                   });
-    std::cout << "Combined other_aggregations " << timer.Elapsed().count() << " seconds" << std::endl;
   }
-
-  std::cout << "UnifyAggregations took " << timer.Elapsed().count() << " seconds" << std::endl;
 }
 }  // namespace
 
@@ -10254,10 +10201,9 @@ class AggregateParallelCursor : public ParallelBranchCursor {
       if (!ExecuteBranchesInParallel(frame, context, self_, std::move(profile), post_pull_func)) {
         return false;
       }
-
       aggregation_it_ = main_aggregation.begin();
       if (main_aggregation.empty()) {
-        DefaultAggregation(frame_writer, &context, aggregations, remember, main_aggregation);
+        DefaultAggregation(context, aggregations, remember, frame_writer);
         return true;  // Send back default aggregation values
       }
     }

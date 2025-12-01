@@ -36,21 +36,6 @@ struct ParallelChecker : public virtual HierarchicalLogicalOperatorVisitor {
 
   // Parallel operators - return false to stop traversal once we find one
   bool PreVisit(AggregateParallel &) override;
-  bool PreVisit(ParallelMerge &) override;
-  bool PreVisit(ScanParallel &) override;
-  bool PreVisit(ScanParallelByLabel &) override;
-  bool PreVisit(ScanParallelByLabelProperties &) override;
-  bool PreVisit(ScanParallelByPointDistance &) override;
-  bool PreVisit(ScanParallelByWithinbbox &) override;
-  bool PreVisit(ScanParallelByEdge &) override;
-  bool PreVisit(ScanParallelByEdgeType &) override;
-  bool PreVisit(ScanParallelByEdgeTypeProperty &) override;
-  bool PreVisit(ScanParallelByEdgeTypePropertyValue &) override;
-  bool PreVisit(ScanParallelByEdgeTypePropertyRange &) override;
-  bool PreVisit(ScanParallelByEdgeProperty &) override;
-  bool PreVisit(ScanParallelByEdgePropertyValue &) override;
-  bool PreVisit(ScanParallelByEdgePropertyRange &) override;
-  bool PreVisit(ScanParallelByEdgeId &) override;
 
   bool Visit(Once &) override;
 };

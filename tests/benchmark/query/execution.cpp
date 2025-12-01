@@ -153,7 +153,7 @@ static void Distinct(benchmark::State &state) {
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     memgraph::query::ExecutionContext execution_context{
-        .symbol_table = symbol_table, .db_accessor = &dba, .evaluation_context = evaluation_context};
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = plan_and_cost.first->MakeCursor(memory.get());
@@ -200,7 +200,7 @@ static void ExpandVariable(benchmark::State &state) {
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     memgraph::query::ExecutionContext execution_context{
-        .symbol_table = symbol_table, .db_accessor = &dba, .evaluation_context = evaluation_context};
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
@@ -242,7 +242,7 @@ static void ExpandBfs(benchmark::State &state) {
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     memgraph::query::ExecutionContext execution_context{
-        .symbol_table = symbol_table, .db_accessor = &dba, .evaluation_context = evaluation_context};
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
@@ -280,7 +280,7 @@ static void ExpandShortest(benchmark::State &state) {
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     memgraph::query::ExecutionContext execution_context{
-        .symbol_table = symbol_table, .db_accessor = &dba, .evaluation_context = evaluation_context};
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
@@ -324,7 +324,7 @@ static void ExpandWeightedShortest(benchmark::State &state) {
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     memgraph::query::ExecutionContext execution_context{
-        .symbol_table = symbol_table, .db_accessor = &dba, .evaluation_context = evaluation_context};
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
@@ -372,7 +372,7 @@ static void Accumulate(benchmark::State &state) {
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     memgraph::query::ExecutionContext execution_context{
-        .symbol_table = symbol_table, .db_accessor = &dba, .evaluation_context = evaluation_context};
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = accumulate.MakeCursor(memory.get());
@@ -422,7 +422,7 @@ static void Aggregate(benchmark::State &state) {
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     memgraph::query::ExecutionContext execution_context{
-        .symbol_table = symbol_table, .db_accessor = &dba, .evaluation_context = evaluation_context};
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
@@ -475,7 +475,7 @@ static void OrderBy(benchmark::State &state) {
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     memgraph::query::ExecutionContext execution_context{
-        .symbol_table = symbol_table, .db_accessor = &dba, .evaluation_context = evaluation_context};
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = order_by.MakeCursor(memory.get());
@@ -514,7 +514,7 @@ static void Unwind(benchmark::State &state) {
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     memgraph::query::ExecutionContext execution_context{
-        .symbol_table = symbol_table, .db_accessor = &dba, .evaluation_context = evaluation_context};
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
@@ -552,7 +552,7 @@ static void Foreach(benchmark::State &state) {
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     memgraph::query::ExecutionContext execution_context{
-        .symbol_table = symbol_table, .db_accessor = &dba, .evaluation_context = evaluation_context};
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
