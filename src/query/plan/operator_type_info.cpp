@@ -256,9 +256,6 @@ constexpr utils::TypeInfo query::plan::ScanParallelByEdgePropertyRange::kType{
     utils::TypeId::SCAN_PARALLEL_BY_EDGE_PROPERTY_RANGE, "ScanParallelByEdgePropertyRange",
     &query::plan::ScanParallel::kType};
 
-constexpr utils::TypeInfo query::plan::ScanParallelByEdgeId::kType{
-    utils::TypeId::SCAN_PARALLEL_BY_EDGE_ID, "ScanParallelByEdgeId", &query::plan::ScanParallel::kType};
-
 constexpr utils::TypeInfo query::plan::AggregateParallel::kType{.id = utils::TypeId::AGGREGATE_PARALLEL,
                                                                 .name = "AggregateParallel",
                                                                 .superclass = &query::plan::ParallelMerge::kType};
