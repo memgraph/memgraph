@@ -119,6 +119,8 @@ struct Config {
 
   bool force_on_disk{false};  // TODO: cleanup.... remove + make the default storage_mode ON_DISK_TRANSACTIONAL if true
 
+  bool track_label_counts{false};
+
   friend bool operator==(const Config &lrh, const Config &rhs) = default;
 };
 

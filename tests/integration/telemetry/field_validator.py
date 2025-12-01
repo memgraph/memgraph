@@ -383,9 +383,9 @@ def _verify_storage_fields(storage_data: dict) -> bool:
     assert histogram["1-9"] == 2, f"Expected 2 labels in 1-9 bucket, got {histogram['1-9']}"
     assert histogram["10-99"] == 2, f"Expected 2 labels in 10-99 bucket, got {histogram['10-99']}"
     assert histogram["100-999"] == 1, f"Expected 1 label in 100-999 bucket, got {histogram['100-999']}"
-    assert histogram["1K-9999"] == 0, f"Expected 0 labels in 1K-9999 bucket, got {histogram['1K-9999']}"
-    assert histogram["10K-99999"] == 0, f"Expected 0 labels in 10K-99999 bucket, got {histogram['10K-99999']}"
-    assert histogram["100K-999999"] == 0, f"Expected 0 labels in 100K-999999 bucket, got {histogram['100K-999999']}"
+    assert histogram["1K-9.99K"] == 0, f"Expected 0 labels in 1K-9.99K bucket, got {histogram['1K-9.99K']}"
+    assert histogram["10K-99.9K"] == 0, f"Expected 0 labels in 10K-99.9K bucket, got {histogram['10K-99.9K']}"
+    assert histogram["100K-999K"] == 0, f"Expected 0 labels in 100K-999K bucket, got {histogram['100K-999K']}"
     assert histogram["1M+"] == 0, f"Expected 0 labels in 1M+ bucket, got {histogram['1M+']}"
 
     return True

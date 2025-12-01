@@ -160,6 +160,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     vertex->labels.push_back(label);
   });
 
+  storage_->UpdateLabelCount(label, 1);
+
   if (storage_->constraints_.HasTypeConstraints()) {
     if (auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, label)) {
       HandleTypeConstraintViolation(storage_, *maybe_violation);
@@ -232,6 +234,8 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
     *it = vertex->labels.back();
     vertex->labels.pop_back();
   });
+
+  storage_->UpdateLabelCount(label, -1);
 
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);

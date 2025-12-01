@@ -102,8 +102,8 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
       {utils::CompressionLevelToString(utils::CompressionLevel::HIGH), stats.property_store_compression_level[2]}};
   res["label_node_count_histogram"] = {
       {"1-9", stats.label_node_count_histogram[0]},       {"10-99", stats.label_node_count_histogram[1]},
-      {"100-999", stats.label_node_count_histogram[2]},   {"1K-9999", stats.label_node_count_histogram[3]},
-      {"10K-99999", stats.label_node_count_histogram[4]}, {"100K-999999", stats.label_node_count_histogram[5]},
+      {"100-999", stats.label_node_count_histogram[2]},   {"1K-9.99K", stats.label_node_count_histogram[3]},
+      {"10K-99.9K", stats.label_node_count_histogram[4]}, {"100K-999K", stats.label_node_count_histogram[5]},
       {"1M+", stats.label_node_count_histogram[6]}};
 
   return res;
@@ -371,17 +371,9 @@ class DbmsHandler {
         ++stats.property_store_compression_level[static_cast<underlying_type>(
             storage_info.property_store_compression_level)];
 
-        auto storage_acc = db_acc->storage()->Access();
+        auto const label_counts = db_acc->storage()->GetLabelCounts();
 
         constexpr size_t kMaxHistogramBucket = 6;
-        std::unordered_map<storage::LabelId, uint64_t> label_counts;
-        for (auto &&vertex : storage_acc->Vertices(storage::View::OLD)) {
-          auto const labels_result = vertex.Labels(storage::View::OLD);
-          if (labels_result.HasError()) continue;
-          for (auto const label : *labels_result) {
-            ++label_counts[label];
-          }
-        }
         for (auto &&[label, count] : label_counts) {
           std::size_t const bucket = std::min(kMaxHistogramBucket, static_cast<std::size_t>(std::log10(count)));
           ++stats.label_node_count_histogram[bucket];
