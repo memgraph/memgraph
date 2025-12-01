@@ -27,7 +27,7 @@ on:
         default: "5"
       concurrency:
         type: string
-        description: "The number of worker threads"
+        description: "The number of worker threads. If not set, number of nodes will be used instead."
         default: ""
 
 

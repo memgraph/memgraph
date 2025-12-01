@@ -38,7 +38,7 @@ on:
       concurrency:
         description: "The number of worker threads. If not set, number of nodes will be used instead."
         type: string
-        default: ""
+        default: "6"
 
 
   schedule:
