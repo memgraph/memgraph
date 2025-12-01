@@ -34,6 +34,7 @@ class StorageV2Test : public testing::Test {
  public:
   StorageV2Test() {
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
+    config_.track_label_counts = true;
     store = std::make_unique<StorageType>(config_);
   }
 
@@ -45,8 +46,8 @@ class StorageV2Test : public testing::Test {
   }
 
   const std::string testSuite = "storage_v2";
-  std::unique_ptr<memgraph::storage::Storage> store;
   memgraph::storage::Config config_;
+  std::unique_ptr<memgraph::storage::Storage> store;
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
@@ -2647,5 +2648,61 @@ TYPED_TEST(StorageV2Test, DeletedVertexAccessor) {
     const auto maybe_property = deleted_vertex->GetProperty(property, memgraph::storage::View::OLD);
     ASSERT_FALSE(maybe_property.HasError());
     ASSERT_EQ(property_value, *maybe_property);
+  }
+}
+
+TYPED_TEST(StorageV2Test, CountLabelUse) {
+  auto label1 = this->store->NameToLabel("Label1");
+  auto label2 = this->store->NameToLabel("Label2");
+
+  {
+    auto acc = this->store->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto v3 = acc->CreateVertex();
+
+    ASSERT_FALSE(v1.AddLabel(label1).HasError());
+    ASSERT_FALSE(v2.AddLabel(label1).HasError());
+    ASSERT_FALSE(v3.AddLabel(label2).HasError());
+
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  auto counts = this->store->GetLabelCounts();
+  ASSERT_EQ(counts[label1], 2);
+  ASSERT_EQ(counts[label2], 1);
+}
+
+TYPED_TEST(StorageV2Test, CountLabelUseAfterAborts) {
+  auto label1 = this->store->NameToLabel("Label1");
+  auto label2 = this->store->NameToLabel("Label2");
+
+  {
+    auto acc = this->store->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+
+    ASSERT_FALSE(v1.AddLabel(label1).HasError());
+    ASSERT_FALSE(v2.AddLabel(label1).HasError());
+
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto counts = this->store->GetLabelCounts();
+    ASSERT_EQ(counts[label1], 2);
+  }
+
+  {
+    auto acc = this->store->Access();
+    auto v3 = acc->CreateVertex();
+    ASSERT_FALSE(v3.AddLabel(label2).HasError());
+    acc->Abort();
+  }
+
+  {
+    auto counts = this->store->GetLabelCounts();
+    ASSERT_EQ(counts[label1], 2);
+    ASSERT_EQ(counts[label2], 0);
   }
 }

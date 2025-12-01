@@ -22,6 +22,7 @@
 
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
+#include "flags/general.hpp"
 #include "memory/global_memory_control.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/common_function_signatures.hpp"
@@ -217,6 +218,16 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       spdlog::trace(
           "Recovering last durable timestamp {}. Timestamp recovered to {}. Num committed txns recovered to {}.",
           info->last_durable_timestamp, timestamp_, info->num_committed_txns);
+    }
+
+    if (config_.track_label_counts) {
+      auto label_counts_acc = label_counts_.Lock();
+      for (auto const &vertex : vertices_.access()) {
+        if (vertex.deleted) continue;
+        for (auto const label : vertex.labels) {
+          ++(*label_counts_acc)[label];
+        }
+      }
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
              config_.durability.snapshot_on_exit) {
@@ -1216,6 +1227,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 std::swap(*it, *vertex->labels.rbegin());
                 vertex->labels.pop_back();
 
+                storage_->UpdateLabelCount(current->label.value, -1);
+
                 index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
 
                 // we have to remove the vertex from the vector index if this label is indexed and vertex has
@@ -1236,6 +1249,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
                 MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
                 vertex->labels.push_back(current->label.value);
+
+                storage_->UpdateLabelCount(current->label.value, 1);
+
                 // we have to add the vertex to the vector index if this label is indexed and vertex has needed
                 // property
                 const auto &vector_properties = index_abort_processor.vector_.l2p.find(current->label.value);

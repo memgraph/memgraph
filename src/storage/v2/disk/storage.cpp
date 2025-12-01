@@ -935,6 +935,22 @@ StorageInfo DiskStorage::GetInfo() {
   return info;
 }
 
+std::unordered_map<LabelId, uint64_t> DiskStorage::GetLabelCounts() const {
+  std::unordered_map<LabelId, uint64_t> label_counts;
+  if (!config_.track_label_counts) {
+    return label_counts;
+  }
+  auto storage_acc = const_cast<DiskStorage *>(this)->Access();
+  for (auto &&vertex : storage_acc->Vertices(View::OLD)) {
+    auto const labels_result = vertex.Labels(View::OLD);
+    if (labels_result.HasError()) continue;
+    for (auto const label : *labels_result) {
+      ++label_counts[label];
+    }
+  }
+  return label_counts;
+}
+
 void DiskStorage::SetEdgeImportMode(EdgeImportMode edge_import_status) {
   std::unique_lock main_guard{main_lock_};
   if (edge_import_status == edge_import_status_) {
