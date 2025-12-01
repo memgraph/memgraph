@@ -25,6 +25,10 @@ on:
         description: "Number of tenants used in the HA Jepsen test"
         required: true
         default: "5"
+      concurrency:
+        type: string
+        description: "The number of worker threads"
+        default: ""
 
 
 env:
@@ -104,11 +108,13 @@ jobs:
           CLEANUP_PID=$!
           trap "kill $CLEANUP_PID" EXIT
 
+          CONCURRENCY=${{ inputs.concurrency || env.NODES_NO }}
+
           if [[ "${{ inputs.mt }}" == "true" ]]; then
             NEMESIS_SLEEP_SEC=$((90 * ${{ inputs.num-tenants }}))
-            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $NODES_NO --num-tenants ${{ inputs.num-tenants }} --recovery-time 600 --nemesis-start-sleep $NEMESIS_SLEEP_SEC"
+            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --num-tenants ${{ inputs.num-tenants }} --recovery-time 600 --nemesis-start-sleep $NEMESIS_SLEEP_SEC"
           else
-            ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $NODES_NO --recovery-time 600 --nemesis-start-sleep 25"
+            ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --recovery-time 600 --nemesis-start-sleep 25"
           fi
 
           ./run.sh test \

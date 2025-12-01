@@ -84,7 +84,6 @@
                                (gen/sleep (:recovery-time final-generator))
                                (gen/clients (:clients final-generator)))
                    gen)]
-    (info "Concurrency:" (:concurrency opts))
     (merge tests/noop-test
            opts
            {:pure-generators true
