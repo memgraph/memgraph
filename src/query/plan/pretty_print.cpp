@@ -361,6 +361,9 @@ PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out) : dba_(dba), 
     return true;                                                                           \
   }
 
+#define PRE_VISIT_IGNORE(TOp) \
+  bool PlanPrinter::PreVisit(TOp &) { return true; }
+
 PRE_VISIT(CreateNode);
 PRE_VISIT_DBA_TS(CreateExpand);
 PRE_VISIT(Delete);
@@ -381,38 +384,55 @@ PRE_VISIT_DBA_TS(ScanAllByEdgeId);
 PRE_VISIT_DBA_TS(ScanAllByPointDistance);
 PRE_VISIT_DBA_TS(ScanAllByPointWithinbbox);
 
-PRE_VISIT_DBA_TS(ScanChunk);
-PRE_VISIT_DBA_TS(ScanChunkByEdge);
-PRE_VISIT_DBA_TS(ScanParallel);
-PRE_VISIT_DBA_TS(ScanParallelByLabel);
-PRE_VISIT_DBA_TS(ScanParallelByLabelProperties);
-PRE_VISIT_DBA_TS(ScanParallelByPointDistance);
-PRE_VISIT_DBA_TS(ScanParallelByWithinbbox);
-PRE_VISIT_DBA_TS(ScanParallelByEdge);
-PRE_VISIT_DBA_TS(ScanParallelByEdgeType);
-PRE_VISIT_DBA_TS(ScanParallelByEdgeTypeProperty);
-PRE_VISIT_DBA_TS(ScanParallelByEdgeTypePropertyValue);
-PRE_VISIT_DBA_TS(ScanParallelByEdgeTypePropertyRange);
-PRE_VISIT_DBA_TS(ScanParallelByEdgeProperty);
-PRE_VISIT_DBA_TS(ScanParallelByEdgePropertyValue);
-PRE_VISIT_DBA_TS(ScanParallelByEdgePropertyRange);
+namespace {
+std::string ScanChunkToString(const auto &op, const DbAccessor *dba) {
+  // ScanChunk is always connected to a ParallelMerge->ScanParallel variant. Combine the two and return the same plan
+  // that a single threaded query would produce.
+  auto *node = dynamic_cast<ScanParallel *>(op.input_->input().get());
+  if (!node) {
+    throw std::runtime_error("ScanChunk must be connected to a ScanParallel variant");
+  }
+  node->dba_ = dba;
+  auto name = node->ToString();
+  node->dba_ = nullptr;
+  name.replace(name.find("Parallel"), strlen("Parallel"), "All");
+  name.insert(name.find("(") + 1, op.output_symbol_.name() + ", ");
+  return name;
+}
+}  // namespace
 
-bool PlanPrinter::PreVisit(AggregateParallel &op) {
-  (void)op;  // Suppress unused variable warning
-#ifndef NDEBUG
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << op.ToString(); });
-#endif
+bool PlanPrinter::PreVisit(ScanChunk &op) {
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << ScanChunkToString(op, dba_); });
+  return true;
+}
+
+bool PlanPrinter::PreVisit(ScanChunkByEdge &op) {
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << ScanChunkToString(op, dba_); });
+  return true;
+}
+
+PRE_VISIT_IGNORE(ScanParallel);
+PRE_VISIT_IGNORE(ScanParallelByLabel);
+PRE_VISIT_IGNORE(ScanParallelByLabelProperties);
+PRE_VISIT_IGNORE(ScanParallelByPointDistance);
+PRE_VISIT_IGNORE(ScanParallelByWithinbbox);
+PRE_VISIT_IGNORE(ScanParallelByEdge);
+PRE_VISIT_IGNORE(ScanParallelByEdgeType);
+PRE_VISIT_IGNORE(ScanParallelByEdgeTypeProperty);
+PRE_VISIT_IGNORE(ScanParallelByEdgeTypePropertyValue);
+PRE_VISIT_IGNORE(ScanParallelByEdgeTypePropertyRange);
+PRE_VISIT_IGNORE(ScanParallelByEdgeProperty);
+PRE_VISIT_IGNORE(ScanParallelByEdgePropertyValue);
+PRE_VISIT_IGNORE(ScanParallelByEdgePropertyRange);
+
+bool PlanPrinter::PreVisit(AggregateParallel &) {
   // Hinding in the plan, since it is an implementation detail
   // Next operator is always going to be Aggregate, so no information is lost
   is_parallel_ = true;  // Start of parallel execution
   return true;
 }
 
-bool PlanPrinter::PreVisit(ParallelMerge &op) {
-  (void)op;  // Suppress unused variable warning
-#ifndef NDEBUG
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << op.ToString(); });
-#endif
+bool PlanPrinter::PreVisit(ParallelMerge &) {
   // Hinding in the plan, since it is a backend connector, not a logical operator
   is_parallel_ = false;  // End of parallel execution
   return true;
@@ -549,7 +569,11 @@ bool PlanPrinter::PreVisit(query::plan::IndexedJoin &op) {
   op.main_branch_->Accept(*this);
   return false;
 }
+
 #undef PRE_VISIT
+#undef PRE_VISIT_TS
+#undef PRE_VISIT_DBA_TS
+#undef PRE_VISIT_IGNORE
 
 bool PlanPrinter::DefaultPreVisit() {
   WithPrintLn([this](auto &out) { out << StartSymbol() << " Unknown operator!"; });
