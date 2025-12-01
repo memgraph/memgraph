@@ -39,24 +39,20 @@ RpcInfoMetrics(UnregisterReplicaRpc)
 RpcInfoMetrics(EnableWritingOnMainRpc)
     // clang-format on
 
-    ReplicationInstanceClient::ReplicationInstanceClient(DataInstanceConfig config, CoordinatorInstance *coord_instance,
+    ReplicationInstanceClient::ReplicationInstanceClient(std::string instance_name,
+                                                         ReplicationClientInfo repl_client_info,
+                                                         io::network::Endpoint mgt_server,
+                                                         CoordinatorInstance *coord_instance,
                                                          const std::chrono::seconds instance_health_check_frequency_sec)
     : rpc_context_{communication::ClientContext{}},
-      rpc_client_{config.mgt_server, &rpc_context_},
-      config_{std::move(config)},
+      rpc_client_{std::move(mgt_server), &rpc_context_},
+      instance_name_(std::move(instance_name)),
+      repl_client_info_(std::move(repl_client_info)),
       coord_instance_(coord_instance),
       instance_health_check_frequency_sec_(instance_health_check_frequency_sec) {}
 
-auto ReplicationInstanceClient::InstanceName() const -> std::string { return config_.instance_name; }
-
-auto ReplicationInstanceClient::BoltSocketAddress() const -> std::string { return config_.BoltSocketAddress(); }
-
-auto ReplicationInstanceClient::ManagementSocketAddress() const -> std::string {
-  return config_.ManagementSocketAddress();
-}
-auto ReplicationInstanceClient::ReplicationSocketAddress() const -> std::string {
-  return config_.ReplicationSocketAddress();
-}
+// TODO: (andi) Can this return const &
+auto ReplicationInstanceClient::InstanceName() const -> std::string { return instance_name_; }
 
 void ReplicationInstanceClient::StartStateCheck() {
   if (instance_checker_.IsRunning()) {
@@ -67,13 +63,12 @@ void ReplicationInstanceClient::StartStateCheck() {
             "Health check frequency must be greater than 0");
 
   instance_checker_.SetInterval(instance_health_check_frequency_sec_);
-  instance_checker_.Run(config_.instance_name, [this, instance_name = config_.instance_name] {
-    spdlog::trace("Sending state check message to instance {} on {}.", instance_name,
-                  config_.ManagementSocketAddress());
+  // TODO: (andi) Check if StateCheckRpc is getting logged, previously it was logging where it was sending message
+  instance_checker_.Run(instance_name_, [this] {
     if (auto const maybe_res = SendStateCheckRpc()) {
-      coord_instance_->InstanceSuccessCallback(instance_name, *maybe_res);
+      coord_instance_->InstanceSuccessCallback(instance_name_, *maybe_res);
     } else {
-      coord_instance_->InstanceFailCallback(instance_name);
+      coord_instance_->InstanceFailCallback(instance_name_);
     }
   });
 }
@@ -81,9 +76,9 @@ void ReplicationInstanceClient::StartStateCheck() {
 void ReplicationInstanceClient::StopStateCheck() { instance_checker_.Stop(); }
 void ReplicationInstanceClient::PauseStateCheck() { instance_checker_.Pause(); }
 void ReplicationInstanceClient::ResumeStateCheck() { instance_checker_.Resume(); }
-auto ReplicationInstanceClient::GetReplicationClientInfo() const -> ReplicationClientInfo {
-  return config_.replication_client_info;
-}
+
+// TODO: (andi) Can this return const &
+auto ReplicationInstanceClient::GetReplicationClientInfo() const -> ReplicationClientInfo { return repl_client_info_; }
 
 auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<InstanceState> {
   try {
