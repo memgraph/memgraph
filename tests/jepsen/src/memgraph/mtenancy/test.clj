@@ -14,9 +14,10 @@
             [memgraph.utils :as utils]
             [memgraph.query :as mgquery]))
 
-(def registered-replication-instances? (atom false))
-(def added-coordinator-instances? (atom false))
-(def main-set? (atom false))
+(def cluster-setup-done? (atom false))
+(def nodes-imported? (atom false))
+(def edges-imported? (atom false))
+(def databases-created? (atom false))
 
 (def pokec-medium-expected-num-nodes 100000)
 (def pokec-medium-expected-num-edges 1768515) ; one-directional edges
@@ -272,116 +273,117 @@
         ; If leader didn't change but registration was done, we won't even try to register -> all good again.
         ; If leader changes, registration should already be done or not a leader will be printed.
         (if (= first-leader node)
+          (if (compare-and-set! cluster-setup-done? false true)
 
-          (try
-            (utils/with-session bolt-conn session
-              (when (not @registered-replication-instances?)
+            (try
+              (utils/with-session bolt-conn session
+
                 (register-replication-instances session nodes-config)
-                (reset! registered-replication-instances? true))
-
-              (when (not @added-coordinator-instances?)
                 (add-coordinator-instances session node nodes-config)
-                (reset! added-coordinator-instances? true))
-
-              (when (not @main-set?)
                 (set-instance-to-main session first-main)
-                (reset! main-set? true))
 
-              (assoc op :type :ok)) ; NOTE: This doesn't necessarily mean all instances were successfully registered.
+                (assoc op :type :ok)) ; NOTE: This doesn't necessarily mean all instances were successfully registered.
 
-            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-              (info "Registering instances failed because node" node "is down.")
-              (utils/process-service-unavailable-exc op node))
-            (catch Exception e
-              (cond
-                (utils/not-leader? e)
-                (assoc op :type :info :value "Not a leader")
+              (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                (info "Registering instances failed because node" node "is down.")
+                (utils/process-service-unavailable-exc op node))
+              (catch Exception e
+                (cond
+                  (utils/not-leader? e)
+                  (assoc op :type :info :value "Not a leader")
 
-                (utils/adding-coordinator-failed? e)
-                (assoc op :type :info :value "Failed to add coordinator")
+                  (utils/adding-coordinator-failed? e)
+                  (assoc op :type :info :value "Failed to add coordinator")
 
-                :else
-                (assoc op :type :fail :value (str e)))))
+                  :else
+                  (assoc op :type :fail :value (str e)))))
+            (assoc op :type :info :value "CAS failed, cluster already setup."))
 
           (assoc op :type :info :value "Not first leader"))
 
         :create-databases (if (and (mutils/data-instance? node) (is-main? bolt-conn))
-                            (try
-                              (utils/with-session bolt-conn session
-                                (doseq [db (mutils/get-new-dbs num-tenants)]
-                                  ((mgquery/create-database db) session))
+                            (if (compare-and-set! databases-created? false true)
+                              (try
+                                (utils/with-session bolt-conn session
+                                  (doseq [db (mutils/get-new-dbs num-tenants)]
+                                    ((mgquery/create-database db) session))
 
-                                (assoc op :type :ok :value {:str "Created databases" :num-tenants num-tenants}))
+                                  (assoc op :type :ok :value {:str "Created databases" :num-tenants num-tenants}))
 
-                              (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                                (utils/process-service-unavailable-exc op node))
+                                (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                                  (utils/process-service-unavailable-exc op node))
 
-                              (catch org.neo4j.driver.exceptions.ClientException e
-                                (cond
-                                  (utils/concurrent-system-queries? e)
-                                  (assoc op :type :info :value {:str "Concurrent system queries are not allowed"})
+                                (catch org.neo4j.driver.exceptions.ClientException e
+                                  (cond
+                                    (utils/concurrent-system-queries? e)
+                                    (assoc op :type :info :value {:str "Concurrent system queries are not allowed"})
 
-                                  :else
+                                    :else
+                                    (assoc op :type :fail :value (str e))))
+
+                                (catch Exception e
                                   (assoc op :type :fail :value (str e))))
-
-                              (catch Exception e
-                                (assoc op :type :fail :value (str e))))
+                              (assoc op :type :info :value "CAS failed. DBs already created."))
 
                             (assoc op :type :info :value "Not main data instance."))
 
         :import-nodes (if (and (mutils/data-instance? node) (is-main? bolt-conn))
-                        (try
-                          (doseq [db (mutils/get-all-dbs num-tenants)]
-                            (let [session-config (utils/db-session-config db)]
-                              (utils/with-db-session bolt-conn session-config session
-                                (mgquery/create-label-idx session)
-                                (mgquery/create-label-property-idx session)
-                                (mgquery/create-ttl-edge-idx session)
-                                (mgquery/import-pokec-medium-nodes session))))
+                        (if (compare-and-set! nodes-imported? false true)
+                          (try
+                            (doseq [db (mutils/get-all-dbs num-tenants)]
+                              (let [session-config (utils/db-session-config db)]
+                                (utils/with-db-session bolt-conn session-config session
+                                  (mgquery/create-label-idx session)
+                                  (mgquery/create-label-property-idx session)
+                                  (mgquery/create-ttl-edge-idx session)
+                                  (mgquery/import-pokec-medium-nodes session))))
 
-                          (assoc op :type :ok :value {:str "pokec_medium nodes imported"})
+                            (assoc op :type :ok :value {:str "pokec_medium nodes imported"})
 
-                          (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                            (utils/process-service-unavailable-exc op node))
+                            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                              (utils/process-service-unavailable-exc op node))
 
-                          (catch Exception e
-                            (assoc op :type :fail :value (str e))))
+                            (catch Exception e
+                              (assoc op :type :fail :value (str e))))
+                          (assoc op :type :info :value "CAS failed. Nodes already imported."))
 
                         (assoc op :type :info :value "Not main data instance."))
 
         :import-edges (if (and (mutils/data-instance? node) (is-main? bolt-conn))
-                        (try
-                          (doseq [db (mutils/get-all-dbs num-tenants)]
-                            (let [session-config (utils/db-session-config db)]
-                              (utils/with-db-session bolt-conn session-config session
-                                (mgquery/import-pokec-medium-edges session))))
+                        (if (compare-and-set! edges-imported? false true)
+                          (try
+                            (doseq [db (mutils/get-all-dbs num-tenants)]
+                              (let [session-config (utils/db-session-config db)]
+                                (utils/with-db-session bolt-conn session-config session
+                                  (mgquery/import-pokec-medium-edges session))))
 
-                          (assoc op :type :ok :value {:str "pokec_medium edges imported"})
+                            (assoc op :type :ok :value {:str "pokec_medium edges imported"})
 
-                          (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                            (utils/process-service-unavailable-exc op node))
+                            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                              (utils/process-service-unavailable-exc op node))
 
-                          (catch org.neo4j.driver.exceptions.ClientException e
-                            (cond
-                              (utils/not-main-anymore? e)
-                              (assoc op :type :info :value {:str "Not main anymore"})
+                            (catch org.neo4j.driver.exceptions.ClientException e
+                              (cond
+                                (utils/not-main-anymore? e)
+                                (assoc op :type :info :value {:str "Not main anymore"})
 
-                              :else
+                                :else
+                                (assoc op :type :fail :value (str e))))
+
+                            (catch org.neo4j.driver.exceptions.TransientException e
+                              (cond
+                                (utils/sync-replica-down? e)
+                                (assoc op :type :ok :value {:str "Edges deleted. SYNC replica is down."})
+
+                                (utils/conflicting-txns? e)
+                                (assoc op :type :info :value {:str "Conflicting txns"})
+
+                                :else
+                                (assoc op :type :fail :value (str e))))
+
+                            (catch Exception e
                               (assoc op :type :fail :value (str e))))
-
-                          (catch org.neo4j.driver.exceptions.TransientException e
-                            (cond
-                              (utils/sync-replica-down? e)
-                              (assoc op :type :ok :value {:str "Edges deleted. SYNC replica is down."})
-
-                              (utils/conflicting-txns? e)
-                              (assoc op :type :info :value {:str "Conflicting txns"})
-
-                              :else
-                              (assoc op :type :fail :value (str e))))
-
-                          (catch Exception e
-                            (assoc op :type :fail :value (str e))))
+                          (assoc op :type :info :value "CAS failed. Edges already imported."))
 
                         (assoc op :type :info :value "Not main data instance.")))))
 
@@ -555,8 +557,7 @@
                                      (every? #(= % pokec-medium-expected-num-nodes) n3-num-nodes)
                                      (every? #(= % pokec-medium-expected-num-edges) n1-num-edges)
                                      (every? #(= % pokec-medium-expected-num-edges) n2-num-edges)
-                                     (every? #(= % pokec-medium-expected-num-edges) n3-num-edges)
-                                     )
+                                     (every? #(= % pokec-medium-expected-num-edges) n3-num-edges))
                             :empty-partial-coordinators? (empty? partial-coordinators) ; coordinators which have missing coordinators in their reads
                             :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
                             :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
@@ -687,8 +688,7 @@
         license (:license opts)
         num-tenants (:num-tenants opts)
         recovery-time (:recovery-time opts)
-        nemesis-start-sleep (:nemesis-start-sleep opts)
-        ]
+        nemesis-start-sleep (:nemesis-start-sleep opts)]
     {:client    (Client. nodes-config first-leader first-main license organization num-tenants)
      :checker   (checker/compose
                  {:ha-mt     (checker)
