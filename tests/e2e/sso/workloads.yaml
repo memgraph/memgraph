@@ -18,3 +18,7 @@ workloads:
   - name: "SSO self signed certificate"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["sso/test_self_signed_certificate.py"]
+
+  - name: "SSO basic auth permissions"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["sso/test_sso_basic_auth_permissions.py"]
