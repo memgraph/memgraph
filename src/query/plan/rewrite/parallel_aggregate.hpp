@@ -762,15 +762,6 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     return true;
   }
 
-  bool PreVisit(ScanParallelByEdgeId &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-  bool PostVisit(ScanParallelByEdgeId &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
   std::shared_ptr<LogicalOperator> new_root_;
 
  private:
@@ -829,6 +820,10 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     }
 
     // Handle edge scan variants
+    if (scan_type == ScanAllByEdgeId::kType) {
+      // ScanAllByEdgeId returns a single edge, so we can't parallelize it
+      return nullptr;
+    }
     if (scan_type == ScanAllByEdge::kType) {
       auto *scan = dynamic_cast<ScanAllByEdge *>(scan_op.get());
       return std::make_shared<ScanParallelByEdge>(input, scan->view_, num_threads_, state_symbol,
@@ -839,12 +834,6 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
       auto *scan = dynamic_cast<ScanAllByEdgeType *>(scan_op.get());
       return std::make_shared<ScanParallelByEdgeType>(input, scan->view_, num_threads_, state_symbol,
                                                       scan->common_.edge_types[0]);
-    }
-    if (scan_type == ScanAllByEdgeId::kType) {
-      auto *scan = dynamic_cast<ScanAllByEdgeId *>(scan_op.get());
-      return std::make_shared<ScanParallelByEdgeId>(
-          input, scan->view_, num_threads_, state_symbol, scan->common_.edge_symbol, scan->common_.node1_symbol,
-          scan->common_.node2_symbol, scan->common_.direction, scan->expression_->Clone(ast_storage));
     }
     if (scan_type == ScanAllByEdgeTypeProperty::kType) {
       auto *scan = dynamic_cast<ScanAllByEdgeTypeProperty *>(scan_op.get());
