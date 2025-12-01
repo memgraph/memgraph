@@ -45,6 +45,8 @@ on:
         description: "Upload the dependency to the Conan remote."
         default: true
 
+run-name: "Build Conan Dependencies"
+
 jobs:
   build_single_os:
     if: ${{ inputs.os != 'all' && github.event_name != 'push' }}
