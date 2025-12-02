@@ -108,7 +108,15 @@ jobs:
           CLEANUP_PID=$!
           trap "kill $CLEANUP_PID" EXIT
 
-          CONCURRENCY=${{ inputs.concurrency || env.NODES_NO }}
+          if [ -z "${{ inputs.concurrency }}" ]; then
+            MIN=$NODES_NO
+            MAX=$((3 * NODES_NO))
+            CONCURRENCY=$((MIN + RANDOM % (MAX - MIN + 1)))
+            echo "Generated random concurrency: $CONCURRENCY (range: $MIN-$MAX)"
+          else
+            CONCURRENCY=${{ inputs.concurrency }}
+            echo "Using provided concurrency: $CONCURRENCY"
+          fi
 
           if [[ "${{ inputs.mt }}" == "true" ]]; then
             NEMESIS_SLEEP_SEC=$((90 * ${{ inputs.num-tenants }}))
