@@ -47,6 +47,8 @@ jobs:
         runner: ${{ fromJson(needs.prepare-matrix.outputs.runners) }}
     runs-on: [ self-hosted, "${{ matrix.runner }}" ]
     name: Clean Conan Cache for ${{ matrix.runner }}
+    env:
+      LRU_PERIOD: ${{ inputs.lru_period || '1w' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6
@@ -56,5 +58,5 @@ jobs:
           if [[ "${{ inputs.nuclear_option }}" == "true" ]]; then
             ./tools/clean_conan_docker.sh --erase
           else
-            ./tools/clean_conan_docker.sh --lru-period ${{ inputs.lru_period }}
+            ./tools/clean_conan_docker.sh --lru-period "$LRU_PERIOD"
           fi
