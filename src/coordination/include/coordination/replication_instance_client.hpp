@@ -14,8 +14,8 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_state.hpp"
+#include "coordination/replication_lag_info.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/client.hpp"
 #include "utils/event_counter.hpp"
@@ -71,10 +71,7 @@ class ReplicationInstanceClient {
   void PauseStateCheck();
   void ResumeStateCheck();
 
-  auto InstanceName() const -> std::string;
-  auto BoltSocketAddress() const -> std::string;
-  auto ManagementSocketAddress() const -> std::string;
-  auto ReplicationSocketAddress() const -> std::string;
+  auto InstanceName() const -> std::string const &;
 
   auto SendGetDatabaseHistoriesRpc() const -> std::optional<replication_coordination_glue::InstanceInfo>;
   auto SendGetReplicationLagRpc() const -> std::optional<ReplicationLagInfo>;

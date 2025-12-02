@@ -1318,7 +1318,7 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
   auto const max_allowed_lag = raft_state_->GetMaxFailoverReplicaLag();
 
   for (auto const &instance : repl_instances_) {
-    auto const instance_name = instance.InstanceName();
+    auto const &instance_name = instance.InstanceName();
 
     bool const skip_instance = [&instance_name, sync_failover_only, &data_instances]() {
       // if sync failover is false then ASYNC instances can also be used for failover
@@ -1394,7 +1394,7 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
 
 auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
   for (auto const &repl_instance : repl_instances_) {
-    auto const instance_name = repl_instance.InstanceName();
+    auto const &instance_name = repl_instance.InstanceName();
     if (!raft_state_->IsCurrentMain(instance_name)) {
       continue;
     }

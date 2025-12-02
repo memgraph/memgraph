@@ -59,7 +59,7 @@ class ReplicationInstanceConnector {
   auto IsAlive() const -> bool;
   auto LastSuccRespMs() const -> std::chrono::milliseconds;
 
-  auto InstanceName() const -> std::string;
+  auto InstanceName() const -> std::string const &;
 
   auto SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) const -> bool;
 
