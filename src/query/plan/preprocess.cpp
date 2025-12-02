@@ -1116,6 +1116,7 @@ bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
   // pattern comprehensions store the path name in PatternComprehension::variable_.
   if (op.variable_ && op.variable_->user_declared_) {
     std::vector<Symbol> path_elements;
+    path_elements.reserve(op.pattern_->atoms_.size());
     for (auto *const pattern_atom : op.pattern_->atoms_) {
       path_elements.push_back(symbol_table_.at(*pattern_atom->identifier_));
     }
@@ -1267,14 +1268,9 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
       query_part->pattern_comprehension_matchings.append_range(collector.getPatternComprehensionMatchings());
 
       // Handle query part boundaries
-      if (utils::Downcast<With>(clause)) {
-        query_parts.emplace_back(SingleQueryPart{});
-        query_part = &query_parts.back();
-      } else if (utils::Downcast<Unwind>(clause)) {
-        query_parts.emplace_back(SingleQueryPart{});
-        query_part = &query_parts.back();
-      } else if (utils::IsSubtype(*clause, CallProcedure::kType) || utils::IsSubtype(*clause, LoadCsv::kType) ||
-                 utils::IsSubtype(*clause, LoadParquet::kType) || utils::IsSubtype(*clause, LoadJsonl::kType)) {
+      if (utils::Downcast<With>(clause) || utils::Downcast<Unwind>(clause) ||
+          utils::IsSubtype(*clause, CallProcedure::kType) || utils::IsSubtype(*clause, LoadCsv::kType) ||
+          utils::IsSubtype(*clause, LoadParquet::kType) || utils::IsSubtype(*clause, LoadJsonl::kType)) {
         query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();
       } else if (utils::Downcast<Return>(clause)) {
