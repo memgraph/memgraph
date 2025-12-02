@@ -199,9 +199,12 @@ Feature: Pattern comprehensions
 
    Scenario: Pattern comprehension in CREATE property
         Given an empty graph
-        When executing query:
+        And having executed:
             """
             CREATE ()-[:R]->()
+            """
+        When executing query:
+            """
             CREATE (n {prop: [()--() | 1]}) RETURN n.prop AS prop
             """
         Then the result should be:
@@ -210,10 +213,13 @@ Feature: Pattern comprehensions
 
    Scenario: Pattern comprehension in SET
         Given an empty graph
+        And having executed:
+            """
+            CREATE ()-[:R]->(), (n:N)
+            """
         When executing query:
             """
-            CREATE ()-[:R]->(), (n)
-            WITH n MATCH (n) SET n.prop = [()--() | 1] RETURN n.prop AS prop
+            MATCH (n:N) SET n.prop = [()--() | 1] RETURN n.prop AS prop
             """
         Then the result should be:
             | prop   |
@@ -231,9 +237,12 @@ Feature: Pattern comprehensions
 
    Scenario: Pattern comprehension in MERGE ON CREATE SET
         Given an empty graph
-        When executing query:
+        And having executed:
             """
             CREATE ()-[:R]->()
+            """
+        When executing query:
+            """
             MERGE (n:Test) ON CREATE SET n.prop = [()--() | 1] RETURN n.prop AS prop
             """
         Then the result should be:
