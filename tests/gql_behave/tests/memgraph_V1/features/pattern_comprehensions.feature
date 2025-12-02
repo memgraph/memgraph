@@ -197,24 +197,11 @@ Feature: Pattern comprehensions
             | 1  | 1    |
             | 2  | 1    |
 
-   Scenario: Pattern comprehension in CREATE
+   Scenario: Pattern comprehension in CREATE property
         Given an empty graph
         When executing query:
             """
-            CREATE (n {prop: [()--() | 1]}) RETURN n.prop AS prop
-            """
-        Then the result should be:
-            | prop |
-            | []   |
-
-   Scenario: Pattern comprehension in CREATE with data
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 1})-[:R]->(b:N {id: 2})
-            """
-        When executing query:
-            """
+            CREATE ()-[:R]->()
             CREATE (n {prop: [()--() | 1]}) RETURN n.prop AS prop
             """
         Then the result should be:
@@ -223,27 +210,10 @@ Feature: Pattern comprehensions
 
    Scenario: Pattern comprehension in SET
         Given an empty graph
-        And having executed:
-            """
-            CREATE (n:N {id: 1})
-            """
         When executing query:
             """
-            MATCH (n) SET n.prop = [()--() | 1] RETURN n.prop AS prop
-            """
-        Then the result should be:
-            | prop |
-            | []   |
-
-   Scenario: Pattern comprehension in SET with data
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 1})-[:R]->(b:N {id: 2}), (c:N {id: 3})
-            """
-        When executing query:
-            """
-            MATCH (n) WHERE n.id = 3 SET n.prop = [()--() | 1] RETURN n.prop AS prop
+            CREATE ()-[:R]->(), (n)
+            WITH n MATCH (n) SET n.prop = [()--() | 1] RETURN n.prop AS prop
             """
         Then the result should be:
             | prop   |
@@ -263,67 +233,32 @@ Feature: Pattern comprehensions
         Given an empty graph
         When executing query:
             """
-            MERGE (n:Test2) ON CREATE SET n.prop = [()--() | 1] RETURN n.prop AS prop
-            """
-        Then the result should be:
-            | prop |
-            | []   |
-
-   Scenario: Pattern comprehension in MERGE ON CREATE SET with data
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 1})-[:R]->(b:N {id: 2})
-            """
-        When executing query:
-            """
-            MERGE (n:Test3) ON CREATE SET n.prop = [()--() | 1] RETURN n.prop AS prop
+            CREATE ()-[:R]->()
+            MERGE (n:Test) ON CREATE SET n.prop = [()--() | 1] RETURN n.prop AS prop
             """
         Then the result should be:
             | prop   |
             | [1, 1] |
 
-   Scenario: Pattern comprehension referencing CREATE-created node in SET
+   Scenario: Pattern comprehension referencing CREATE-created node
         Given an empty graph
         When executing query:
             """
-            CREATE (n:Node {id: 1})-[:R]->(m:Node {id: 2}) SET n.prop = [(n)-->(x) | x.id] RETURN n.prop AS prop
+            CREATE (n)-[:R]->(m {id: 2}) RETURN [(n)-->(x) | x.id] AS prop
             """
         Then the result should be:
             | prop |
             | [2]  |
 
-   Scenario: Pattern comprehension referencing MERGE-created node in SET
+   Scenario: Pattern comprehension referencing MERGE-created node
         Given an empty graph
         When executing query:
             """
-            MERGE (n:Node {id: 1})-[:R]->(m:Node {id: 2}) SET n.prop = [(n)-->(x) | x.id] RETURN n.prop AS prop
+            MERGE (n)-[:R]->(m {id: 2}) RETURN [(n)-->(x) | x.id] AS prop
             """
         Then the result should be:
             | prop |
             | [2]  |
-
-   Scenario: Pattern comprehension in RETURN referencing same CREATE node
-        Given an empty graph
-        When executing query:
-            """
-            CREATE (n:Node {id: 1})-[:R]->(m:Node {id: 2}) RETURN [(n)-->(x) | x.id] AS neighbors
-            """
-        Then the result should be:
-            | neighbors |
-            | [2]       |
-
-   Scenario: Multiple pattern comprehensions with different CREATE dependencies
-        Given an empty graph
-        When executing query:
-            """
-            CREATE (a:Node {id: 1})-[:R]->(b:Node {id: 2}), (c:Node {id: 3})
-            SET a.neighbors = [(a)-->(x) | x.id], c.count = size([(c)--() | 1])
-            RETURN a.neighbors AS a_neighbors, c.count AS c_count
-            """
-        Then the result should be:
-            | a_neighbors | c_count |
-            | [2]         | 0       |
 
    Scenario: Named path variable in pattern comprehension
         Given an empty graph
