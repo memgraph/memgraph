@@ -45,7 +45,7 @@ using PlanComprehensionFn =
 
 /// Context for on-demand pattern comprehension planning in RETURN/WITH bodies.
 struct PatternComprehensionContext {
-  std::vector<PatternComprehensionMatching> &pending_comprehensions;
+  std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions;
   PlanComprehensionFn plan_fn;
   storage::View view;
 };
@@ -223,9 +223,10 @@ class RuleBasedPlanner {
 
         // Pattern comprehensions are planned on-demand when visited in RETURN/WITH expressions,
         // or before write clauses for comprehensions not in any expression.
-        std::vector<PatternComprehensionMatching> pending_comprehensions(
-            single_query_part.pattern_comprehension_matchings.begin(),
-            single_query_part.pattern_comprehension_matchings.end());
+        std::unordered_map<Symbol, PatternComprehensionMatching> pending_comprehensions;
+        for (const auto &pc : single_query_part.pattern_comprehension_matchings) {
+          pending_comprehensions.emplace(pc.result_symbol, pc);
+        }
 
         // Compute all symbols that will be bound by this query part (from MATCH, CREATE, MERGE, etc.)
         // This is used to determine which comprehension symbols are external references vs. internal.
@@ -275,11 +276,12 @@ class RuleBasedPlanner {
         // Helper to plan and apply all satisfiable comprehensions before write clauses
         auto plan_and_apply_comprehensions = [&]() {
           for (auto it = pending_comprehensions.begin(); it != pending_comprehensions.end();) {
-            if (deps_satisfied(*it)) {
+            const auto &[sym, pc] = *it;
+            if (deps_satisfied(pc)) {
               auto view = write_occurred ? storage::View::NEW : storage::View::OLD;
-              auto op = PlanPatternComprehension(*it, *context.symbol_table, context.bound_symbols, view);
+              auto op = PlanPatternComprehension(pc, *context.symbol_table, context.bound_symbols, view);
               auto symbols = op->ModifiedSymbols(*context.symbol_table);
-              input_op = std::make_unique<RollUpApply>(std::move(input_op), std::move(op), symbols, it->result_symbol);
+              input_op = std::make_unique<RollUpApply>(std::move(input_op), std::move(op), symbols, sym);
               it = pending_comprehensions.erase(it);
             } else {
               ++it;
@@ -1134,7 +1136,7 @@ class RuleBasedPlanner {
 
   std::unique_ptr<LogicalOperator> HandleSubquery(
       std::unique_ptr<LogicalOperator> last_op, std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
-      AstStorage &storage, std::vector<PatternComprehensionMatching> & /*pending_comprehensions*/,
+      AstStorage &storage, std::unordered_map<Symbol, PatternComprehensionMatching> & /*pending_comprehensions*/,
       PlanComprehensionFn & /*plan_fn*/, bool /*write_occurred*/, Expression *commit_frequency) {
     std::unordered_set<Symbol> outer_scope_bound_symbols;
     outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),

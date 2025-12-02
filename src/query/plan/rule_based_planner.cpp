@@ -112,7 +112,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   using HierarchicalTreeVisitor::PreVisit;
   using HierarchicalTreeVisitor::Visit;
 
-  bool Visit(PrimitiveLiteral &) override {
+  bool Visit(PrimitiveLiteral & /*unused*/) override {
     has_aggregation_.emplace_back(false);
     return true;
   }
@@ -474,10 +474,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       const auto result_sym = symbol_table_.at(pattern_comprehension);
       // Find and plan this pattern comprehension on-demand
       auto &pending = pc_ctx_->pending_comprehensions;
-      const auto it = std::ranges::find_if(
-          pending, [&](const PatternComprehensionMatching &m) { return m.result_symbol == result_sym; });
-      if (it != pending.end()) {
-        auto op = pc_ctx_->plan_fn(*it, pc_ctx_->view);
+      if (auto it = pending.find(result_sym); it != pending.end()) {
+        auto op = pc_ctx_->plan_fn(it->second, pc_ctx_->view);
         pattern_comprehension_datas_[result_sym] = PatternComprehensionData(std::move(op), result_sym);
         pending.erase(it);
       }
@@ -681,7 +679,7 @@ std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQuery
     // Use empty pending_comprehensions and null plan_fn since we're only analyzing bound symbols here,
     // not actually building the query plan. Pattern comprehensions will be handled
     // when the subquery is fully planned later.
-    std::vector<PatternComprehensionMatching> empty_pending;
+    std::unordered_map<Symbol, PatternComprehensionMatching> empty_pending;
     PatternComprehensionContext pc_ctx{empty_pending, nullptr, storage::View::OLD};
     auto input_op = impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, pc_ctx, nullptr, false);
     return bound_symbols;
