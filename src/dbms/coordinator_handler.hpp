@@ -16,12 +16,13 @@
 #include <optional>
 #include <string_view>
 
-#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_state.hpp"
 #include "coordination/instance_status.hpp"
 
 #include <vector>
+
+import memgraph.coordination.coordinator_communication_config;
 
 namespace memgraph::dbms {
 

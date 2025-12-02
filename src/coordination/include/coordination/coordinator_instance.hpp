@@ -19,7 +19,6 @@
 #include <optional>
 #include <string_view>
 
-#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance_connector.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
 #include "coordination/coordinator_ops_status.hpp"
@@ -32,6 +31,8 @@
 #include "utils/thread_pool.hpp"
 
 #include <list>
+
+import memgraph.coordination.coordinator_communication_config;
 
 namespace memgraph::coordination {
 

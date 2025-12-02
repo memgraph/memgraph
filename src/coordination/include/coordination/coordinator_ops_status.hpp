@@ -13,6 +13,8 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <cstdint>
+
 namespace memgraph::coordination {
 
 enum class YieldLeadershipStatus : uint8_t { SUCCESS = 0, NOT_LEADER };

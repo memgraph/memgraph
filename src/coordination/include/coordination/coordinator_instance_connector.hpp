@@ -16,8 +16,8 @@
 #include "coordination/coordinator_instance_client.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_status.hpp"
-#include "coordination/utils.hpp"
 
+import memgraph.coordination.utils;
 namespace memgraph::coordination {
 
 class CoordinatorInstanceConnector {

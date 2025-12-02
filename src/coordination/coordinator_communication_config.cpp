@@ -9,14 +9,24 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+module;
+
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/constants.hpp"
+#include "io/network/endpoint.hpp"
+#include "kvstore/kvstore.hpp"
+#include "replication_coordination_glue/mode.hpp"
 #include "utils/uuid.hpp"
 
 #include <nlohmann/json.hpp>
 #include <string>
+
+#endif
+
+module memgraph.coordination.coordinator_communication_config;
+
+#ifdef MG_ENTERPRISE
 
 namespace memgraph::coordination {
 

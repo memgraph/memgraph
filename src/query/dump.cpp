@@ -39,8 +39,6 @@
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 
-#include "range/v3/all.hpp"
-
 namespace r = ranges;
 namespace rv = ranges::views;
 
@@ -351,6 +349,7 @@ void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage:
 }
 
 void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const storage::TextIndexSpec &text_index) {
+  using namespace std::string_view_literals;
   *os << "CREATE TEXT INDEX " << EscapeName(text_index.index_name)
       << " ON :" << EscapeName(dba->LabelToName(text_index.label));
 
@@ -364,6 +363,7 @@ void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const storage::Text
 }
 
 void DumpTextEdgeIndex(std::ostream *os, query::DbAccessor *dba, const storage::TextEdgeIndexSpec &text_edge_index) {
+  using namespace std::string_view_literals;
   *os << "CREATE TEXT EDGE INDEX " << EscapeName(text_edge_index.index_name)
       << " ON :" << EscapeName(dba->EdgeTypeToName(text_edge_index.edge_type));
 

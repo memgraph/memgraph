@@ -11,11 +11,12 @@
 
 #pragma once
 
-#include "coordination/coordinator_communication_config.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/uuid.hpp"
 
 #include <nlohmann/json_fwd.hpp>
+
+import memgraph.coordination.coordinator_communication_config;
 
 #ifdef MG_ENTERPRISE
 

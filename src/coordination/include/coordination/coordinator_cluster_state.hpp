@@ -13,7 +13,6 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance_context.hpp"
 #include "coordination/data_instance_context.hpp"
 #include "replication_coordination_glue/role.hpp"
@@ -22,9 +21,10 @@
 
 #include <libnuraft/nuraft.hxx>
 #include <nlohmann/json_fwd.hpp>
-#include <range/v3/view.hpp>
 
 #include <string>
+
+import memgraph.coordination.coordinator_communication_config;
 
 namespace memgraph::coordination {
 

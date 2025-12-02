@@ -11,8 +11,9 @@
 
 #pragma once
 
-#include "coordination/coordinator_communication_config.hpp"
 #include "rpc/client.hpp"
+
+import memgraph.coordination.coordinator_communication_config;
 
 #ifdef MG_ENTERPRISE
 namespace memgraph::coordination {

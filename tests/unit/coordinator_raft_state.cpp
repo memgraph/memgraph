@@ -10,18 +10,18 @@
 // licenses/APL.txt.
 
 #include "coordination/raft_state.hpp"
-#include "coordination/utils.hpp"
-#include "utils/file.hpp"
+#include "io/network/endpoint.hpp"
+#include "replication_coordination_glue/mode.hpp"
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
-#include "libnuraft/nuraft.hxx"
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.utils;
 
 using memgraph::coordination::CoordinatorInstanceContext;
 using memgraph::coordination::CoordinatorInstanceInitConfig;
-using memgraph::coordination::CoordinatorStateManagerConfig;
 using memgraph::coordination::DataInstanceConfig;
 using memgraph::coordination::DataInstanceContext;
 using memgraph::coordination::RaftState;
@@ -84,6 +84,7 @@ class RaftStateParamTest : public RaftStateTest, public ::testing::WithParamInte
 INSTANTIATE_TEST_SUITE_P(BoolParams, RaftStateParamTest, ::testing::Values(true, false));
 
 TEST_P(RaftStateParamTest, GetMixedRoutingTable) {
+  using namespace std::string_view_literals;
   std::vector<DataInstanceContext> data_instances{};
   auto const curr_uuid = UUID{};
 
@@ -126,7 +127,7 @@ TEST_P(RaftStateParamTest, GetMixedRoutingTable) {
   auto const is_instance_main = [](auto const &instance) { return instance.config.instance_name == "instance1"sv; };
 
   constexpr uint64_t max_read_replica_lag = 10;
-  auto const target_db_name = "a";
+  auto const *target_db_name = "a";
   std::map<std::string, std::map<std::string, int64_t>> replicas_lag{
       {"instance2", std::map<std::string, int64_t>{{"a", 9}, {"b", 15}, {"c", 0}}},
       {"instance3", std::map<std::string, int64_t>{{"a", 12}, {"b", 15}, {"c", 0}}},

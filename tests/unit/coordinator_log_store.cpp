@@ -9,15 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "coordination/coordinator_log_store.hpp"
-#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_state_machine.hpp"
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
+#include "replication_coordination_glue/mode.hpp"
 #include "utils/uuid.hpp"
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
+
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_log_store;
 
 using memgraph::coordination::CoordinatorClusterStateDelta;
 using memgraph::coordination::CoordinatorInstanceContext;

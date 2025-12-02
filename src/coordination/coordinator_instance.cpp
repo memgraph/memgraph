@@ -29,7 +29,6 @@
 #include <communication/bolt/v1/encoder/base_encoder.hpp>
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
-#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
@@ -39,6 +38,7 @@
 #include "coordination/raft_state.hpp"
 #include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
+#include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exponential_backoff.hpp"
@@ -50,9 +50,9 @@
 #include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
-#include <range/v3/range/conversion.hpp>
-#include <range/v3/view/filter.hpp>
-#include <range/v3/view/transform.hpp>
+
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.utils;
 
 namespace memgraph::metrics {
 // Counters
@@ -518,7 +518,7 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
   auto const new_main_uuid = utils::UUID{};
   auto const not_main = [&new_main_name](auto &&instance) { return instance.config.instance_name != new_main_name; };
 
-  for (auto &data_instance : data_instances | ranges::views::filter(not_main)) {
+  for (auto &data_instance : data_instances | std::ranges::views::filter(not_main)) {
     data_instance.status = ReplicationRole::REPLICA;
     data_instance.instance_uuid = new_main_uuid;
   }
@@ -1192,7 +1192,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
       spdlog::error("Couldn't find newest instance for db with uuid {}", db_uuid);
     } else {
       spdlog::info("The latest durable timestamp is {} for db with uuid {}. The following instances have it {}",
-        curr_num_committed_txns, db_uuid, utils::JoinVector(newest_db_instances, ", "));
+                   curr_num_committed_txns, db_uuid, utils::JoinVector(newest_db_instances, ", "));
       update_instances_counter(newest_db_instances);
     }
   }
@@ -1374,8 +1374,9 @@ auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, st
                        ReplicaDBLagData{.num_committed_txns_ = orig_data.second, .num_txns_behind_main_ = 0}};
     };
 
-    auto main_data = maybe_repl_lag_res->dbs_main_committed_txns_ | ranges::views::transform(get_repl_db_lag_data) |
-                     ranges::to<std::map<std::string, ReplicaDBLagData>>();
+    auto main_data = maybe_repl_lag_res->dbs_main_committed_txns_ |
+                     std::ranges::views::transform(get_repl_db_lag_data) |
+                     std::ranges::to<std::map<std::string, ReplicaDBLagData>>();
 
     replicas_res.emplace(instance_name, std::move(main_data));
     return replicas_res;
