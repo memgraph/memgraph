@@ -15,8 +15,6 @@
             [memgraph.query :as mgquery]))
 
 (def cluster-setup-done? (atom false))
-(def nodes-imported? (atom false))
-(def edges-imported? (atom false))
 (def databases-created? (atom false))
 
 (def pokec-medium-expected-num-nodes 100000)
@@ -308,6 +306,17 @@
                                   (doseq [db (mutils/get-new-dbs num-tenants)]
                                     ((mgquery/create-database db) session))
 
+                                  (doseq [db (mutils/get-all-dbs num-tenants)]
+                                    (let [session-config (utils/db-session-config db)]
+                                      (utils/with-db-session bolt-conn session-config session
+                                        (mgquery/create-label-idx session)
+                                        (mgquery/create-label-property-idx session)
+                                        (mgquery/create-ttl-edge-idx session)
+                                        (mgquery/import-pokec-medium-nodes session)
+                                        (mgquery/import-pokec-medium-edges session))))
+
+
+
                                   (assoc op :type :ok :value {:str "Created databases" :num-tenants num-tenants}))
 
                                 (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
@@ -318,6 +327,20 @@
                                     (utils/concurrent-system-queries? e)
                                     (assoc op :type :info :value {:str "Concurrent system queries are not allowed"})
 
+                                    (utils/not-main-anymore? e)
+                                    (assoc op :type :info :value {:str "Not main anymore"})
+
+                                    :else
+                                    (assoc op :type :fail :value (str e))))
+
+                                (catch org.neo4j.driver.exceptions.TransientException e
+                                  (cond
+                                    (utils/sync-replica-down? e)
+                                    (assoc op :type :ok :value {:str "SYNC replica is down during import."})
+
+                                    (utils/conflicting-txns? e)
+                                    (assoc op :type :info :value {:str "Conflicting txns"})
+
                                     :else
                                     (assoc op :type :fail :value (str e))))
 
@@ -325,67 +348,7 @@
                                   (assoc op :type :fail :value (str e))))
                               (assoc op :type :info :value "CAS failed. DBs already created."))
 
-                            (assoc op :type :info :value "Not main data instance."))
-
-        :import-nodes (if (and (mutils/data-instance? node) (is-main? bolt-conn))
-                        (if (compare-and-set! nodes-imported? false true)
-                          (try
-                            (doseq [db (mutils/get-all-dbs num-tenants)]
-                              (let [session-config (utils/db-session-config db)]
-                                (utils/with-db-session bolt-conn session-config session
-                                  (mgquery/create-label-idx session)
-                                  (mgquery/create-label-property-idx session)
-                                  (mgquery/create-ttl-edge-idx session)
-                                  (mgquery/import-pokec-medium-nodes session))))
-
-                            (assoc op :type :ok :value {:str "pokec_medium nodes imported"})
-
-                            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                              (utils/process-service-unavailable-exc op node))
-
-                            (catch Exception e
-                              (assoc op :type :fail :value (str e))))
-                          (assoc op :type :info :value "CAS failed. Nodes already imported."))
-
-                        (assoc op :type :info :value "Not main data instance."))
-
-        :import-edges (if (and (mutils/data-instance? node) (is-main? bolt-conn))
-                        (if (compare-and-set! edges-imported? false true)
-                          (try
-                            (doseq [db (mutils/get-all-dbs num-tenants)]
-                              (let [session-config (utils/db-session-config db)]
-                                (utils/with-db-session bolt-conn session-config session
-                                  (mgquery/import-pokec-medium-edges session))))
-
-                            (assoc op :type :ok :value {:str "pokec_medium edges imported"})
-
-                            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                              (utils/process-service-unavailable-exc op node))
-
-                            (catch org.neo4j.driver.exceptions.ClientException e
-                              (cond
-                                (utils/not-main-anymore? e)
-                                (assoc op :type :info :value {:str "Not main anymore"})
-
-                                :else
-                                (assoc op :type :fail :value (str e))))
-
-                            (catch org.neo4j.driver.exceptions.TransientException e
-                              (cond
-                                (utils/sync-replica-down? e)
-                                (assoc op :type :ok :value {:str "Edges deleted. SYNC replica is down."})
-
-                                (utils/conflicting-txns? e)
-                                (assoc op :type :info :value {:str "Conflicting txns"})
-
-                                :else
-                                (assoc op :type :fail :value (str e))))
-
-                            (catch Exception e
-                              (assoc op :type :fail :value (str e))))
-                          (assoc op :type :info :value "CAS failed. Edges already imported."))
-
-                        (assoc op :type :info :value "Not main data instance.")))))
+                            (assoc op :type :info :value "Not main data instance.")))))
 
   (teardown! [_this _test])
   (close! [this _test]
@@ -475,16 +438,6 @@
                                          (filter #(= :create-databases (:f %)))
                                          (map :value))
 
-            failed-import-nodes (->> history
-                                     (filter #(= :fail (:type %)))
-                                     (filter #(= :import-nodes (:f %)))
-                                     (map :value))
-
-            failed-import-edges (->> history
-                                     (filter #(= :fail (:type %)))
-                                     (filter #(= :import-edges (:f %)))
-                                     (map :value))
-
             failed-show-instances (->> history
                                        (filter #(= :fail (:type %)))
                                        (filter #(= :show-instances-read (:f %)))
@@ -546,8 +499,6 @@
                                      (empty? partial-instances)
                                      (empty? failed-setup-cluster)
                                      (empty? failed-create-databases)
-                                     (empty? failed-import-nodes)
-                                     (empty? failed-import-edges)
                                      (empty? failed-show-instances)
                                      (empty? failed-update-nodes)
                                      (empty? failed-create-ttl-edges)
@@ -569,8 +520,6 @@
                             :n3-all-edges? (every? #(= % pokec-medium-expected-num-edges) n3-num-edges)
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
                             :empty-failed-create-databases? (empty? failed-create-databases) ; There shouldn't be any failed create-databases operations.
-                            :empty-failed-import-nodes? (empty? failed-import-nodes) ; There shouldn't be any failed import-nodes operations.
-                            :empty-failed-import-edges? (empty? failed-import-edges) ; There shouldn't be any failed import-edges operations.
                             :empty-failed-show-instances? (empty? failed-show-instances) ; There shouldn't be any failed show instances operations.
                             :empty-failed-update-nodes? (empty? failed-update-nodes) ; There shouldn't be any failed update nodes operations.
                             :empty-failed-create-ttl-edges? (empty? failed-create-ttl-edges) ; There shouldn't be any failed create-ttl-edges operations.
@@ -589,8 +538,6 @@
                      {:key :n3-not-all-edges :condition (not (:n3-all-edges? initial-result)) :value n3-num-edges}
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
                      {:key :failed-create-databases :condition (not (:empty-failed-create-databases? initial-result)) :value failed-create-databases}
-                     {:key :failed-import-nodes :condition (not (:empty-failed-import-nodes? initial-result)) :value failed-import-nodes}
-                     {:key :failed-import-edges :condition (not (:empty-failed-import-edges? initial-result)) :value failed-import-edges}
                      {:key :failed-get-num-nodes :condition (not (:empty-failed-get-num-nodes? initial-result)) :value failed-get-num-nodes}
                      {:key :failed-get-num-edges :condition (not (:empty-failed-get-num-edges? initial-result)) :value failed-get-num-edges}
                      {:key :failed-update-nodes :condition (not (:empty-failed-update-nodes? initial-result)) :value failed-update-nodes}
@@ -635,16 +582,6 @@
   [_ _]
   {:type :invoke :f :create-databases :value nil})
 
-(defn import-nodes
-  "Invoke import-nodes operation."
-  [_ _]
-  {:type :invoke :f :import-nodes :value nil})
-
-(defn import-edges
-  "Invoke import-edges operation."
-  [_ _]
-  {:type :invoke :f :import-edges :value nil})
-
 (defn get-num-nodes
   "Invoke get-num-nodes op."
   [_ _]
@@ -663,8 +600,6 @@
     (gen/once setup-cluster)
     (gen/sleep 2)
     (gen/once create-databases)
-    (gen/once import-nodes)
-    (gen/once import-edges)
     (gen/sleep 5)
     (gen/delay 2
                (gen/mix [show-instances-reads update-nodes create-ttl-edges delete-ttl-edges])))))
