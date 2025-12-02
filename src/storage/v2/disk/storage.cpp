@@ -940,7 +940,7 @@ std::unordered_map<LabelId, uint64_t> DiskStorage::GetLabelCounts() const {
   if (!config_.track_label_counts) {
     return label_counts;
   }
-  auto storage_acc = const_cast<DiskStorage *>(this)->Access();
+  auto storage_acc = const_cast<DiskStorage *>(this)->ReadOnlyAccess();
   for (auto &&vertex : storage_acc->Vertices(View::OLD)) {
     auto const labels_result = vertex.Labels(View::OLD);
     if (labels_result.HasError()) continue;
