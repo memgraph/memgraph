@@ -62,6 +62,7 @@ target_sources(mg-coordination
         raft_state.cpp
         replication_instance_client.cpp
         replication_instance_connector.cpp
+        utils.cpp
 )
 target_include_directories(mg-coordination PUBLIC include)
 
