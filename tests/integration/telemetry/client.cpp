@@ -78,44 +78,6 @@ int main(int argc, char **argv) {
                                                     .instance_health_check_frequency_sec = std::chrono::seconds(1)});
 #endif
 
-  {
-    auto db = dbms_handler.Get();
-    auto dba = db->storage()->Access();
-
-    auto label_a = dba->NameToLabel("LabelA");
-    auto label_b = dba->NameToLabel("LabelB");
-    auto label_c = dba->NameToLabel("LabelC");
-    auto label_d = dba->NameToLabel("LabelD");
-    auto label_e = dba->NameToLabel("LabelE");
-
-    for (int i = 0; i < 3; ++i) {
-      auto vertex = dba->CreateVertex();
-      MG_ASSERT(vertex.AddLabel(label_a).HasValue());
-    }
-
-    for (int i = 0; i < 7; ++i) {
-      auto vertex = dba->CreateVertex();
-      MG_ASSERT(vertex.AddLabel(label_b).HasValue());
-    }
-
-    for (int i = 0; i < 25; ++i) {
-      auto vertex = dba->CreateVertex();
-      MG_ASSERT(vertex.AddLabel(label_c).HasValue());
-    }
-
-    for (int i = 0; i < 80; ++i) {
-      auto vertex = dba->CreateVertex();
-      MG_ASSERT(vertex.AddLabel(label_d).HasValue());
-    }
-
-    for (int i = 0; i < 200; ++i) {
-      auto vertex = dba->CreateVertex();
-      MG_ASSERT(vertex.AddLabel(label_e).HasValue());
-    }
-
-    MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-  }
-
   memgraph::requests::Init();
   memgraph::telemetry::Telemetry telemetry(FLAGS_endpoint, FLAGS_storage_directory, memgraph::utils::GenerateUUID(),
                                            memgraph::utils::GetMachineId(), false, FLAGS_root_directory,
