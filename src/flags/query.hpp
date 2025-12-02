@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,3 +14,5 @@
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 // DECLARE_bool(cartesian_product_enabled);  Moved to run_time_configurable
+
+DECLARE_int32(hops_limit_recheck_interval);
