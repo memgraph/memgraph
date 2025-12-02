@@ -1,0 +1,60 @@
+name: Clean Worker Conan Cache
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      runner:
+        type: string
+        description: "The runner to clean the conan cache for."
+        required: true
+        default: "all"
+      lru_period:
+        type: string
+        description: "The LRU period to clean the conan cache for."
+        required: true
+        default: "1w"
+      nuclear_option:
+        type: boolean
+        description: "Nuke the local cache entirely."
+        required: true
+        default: false
+
+run-name: Clean Conan Cache
+
+jobs:
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    name: List self-hosted runners
+    outputs:
+      runners: ${{ steps.get-runners.outputs.runners }}
+    steps:
+      - uses: actions/checkout@v1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6
+
+      - name: Get list of self-hosted runners
+        id: get-runners
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUNNER_INPUT: ${{ github.event.inputs.runner || 'all' }}
+        run: |
+          python tools/list_ci_runners.py
+
+  clean-conan-cache:
+    needs: prepare-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: ${{ fromJson(needs.prepare-matrix.outputs.runners) }}
+    runs-on: [ self-hosted, "${{ matrix.runner }}" ]
+    name: Clean Conan Cache for ${{ matrix.runner }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6
+
+      - name: Clean Conan Cache
+        run: |
+          if [[ "${{ inputs.nuclear_option }}" == "true" ]]; then
+            ./tools/clean_conan_docker.sh --erase
+          else
+            ./tools/clean_conan_docker.sh --lru-period ${{ inputs.lru_period }}
+          fi
