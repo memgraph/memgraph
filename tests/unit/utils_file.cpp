@@ -401,7 +401,6 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   memgraph::utils::OutputFile handle;
   handle.Open(file_path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
-  std::default_random_engine engine(586478780);
   std::uniform_int_distribution<int> random_short_wait(1, 10);
 
   const auto sleep_for = [&](int milliseconds) {
@@ -410,6 +409,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
 
   static constexpr size_t number_of_writes = 500;
   std::thread writer_thread([&] {
+    std::default_random_engine engine{586478780};
     uint8_t current_number = 0;
     for (size_t i = 0; i < number_of_writes; ++i) {
       handle.Write(&current_number, 1);
@@ -427,7 +427,8 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   std::vector<std::thread> reader_threads(reader_threads_num);
   memgraph::utils::Synchronized<std::vector<size_t>, memgraph::utils::SpinLock> max_read_counts;
   for (size_t i = 0; i < reader_threads_num; ++i) {
-    reader_threads.emplace_back([&] {
+    reader_threads.emplace_back([&, thread_id = i] {
+      std::default_random_engine engine{586478780 + thread_id};
       for (size_t i = 0; i < number_of_reads; ++i) {
         handle.DisableFlushing();
         auto [buffer, buffer_size] = handle.CurrentBuffer();

@@ -634,8 +634,8 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
       << "Failed to observe TTL deletion when user check returns true";
 
   // Set user check to false - TTL should not run
-  bool user_bool = false;
-  ttl->SetUserCheck([&user_bool]() -> bool { return user_bool; });
+  std::atomic<bool> user_bool{false};
+  ttl->SetUserCheck([&user_bool]() -> bool { return user_bool.load(std::memory_order_acquire); });
 
   // Test 3: Test dynamic behavior - create new vertices and toggle the check
   {
@@ -656,7 +656,7 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
       << "TTL should not run when user check returns false";
 
   // Set user check back to true - TTL should run and delete the older vertex
-  user_bool = true;
+  user_bool.store(true, std::memory_order_release);
 
   // Wait for TTL to delete the older vertex
   ASSERT_TRUE(WaitForVertexCount(db_acc, 1, std::chrono::milliseconds(300)))
