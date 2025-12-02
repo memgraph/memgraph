@@ -50,9 +50,9 @@ def fetch_self_hosted_runners(api_url: str, token: str):
 
 
 def main():
-    token = os.getenv("GITHUB_TOKEN")
+    token = os.getenv("GHA_RUNNER_TOKEN")
     if not token:
-        print("GITHUB_TOKEN is not set", file=sys.stderr)
+        print("GHA_RUNNER_TOKEN is not set", file=sys.stderr)
         sys.exit(1)
 
     # From the workflow input (passed in via env)

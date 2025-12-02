@@ -34,7 +34,7 @@ jobs:
       - name: Get list of self-hosted runners
         id: get-runners
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHA_RUNNER_TOKEN: ${{ secrets.GHA_RUNNER_TOKEN }}
           RUNNER_INPUT: ${{ github.event.inputs.runner || 'all' }}
         run: |
           python tools/list_ci_runners.py
