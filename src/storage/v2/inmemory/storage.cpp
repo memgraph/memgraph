@@ -330,6 +330,14 @@ InMemoryStorage::~InMemoryStorage() {
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
 
+void InMemoryStorage::UpdateLabelCount(LabelId const label, int64_t const change) {
+  if (config_.track_label_counts) {
+    auto label_counts_acc = label_counts_.Lock();
+    auto &count = (*label_counts_acc)[label];
+    count += change;
+  }
+}
+
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage,
                                                     IsolationLevel isolation_level, StorageMode storage_mode,
                                                     StorageAccessType rw_type,
@@ -431,6 +439,17 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
   }
 
   auto &[deleted_vertices, deleted_edges] = *value;
+
+  if (storage_->config_.track_label_counts) {
+    for (auto const &vertex : deleted_vertices) {
+      auto labels = vertex.Labels(View::NEW);
+      if (labels.HasValue()) {
+        for (auto const label : *labels) {
+          storage_->UpdateLabelCount(label, -1);
+        }
+      }
+    }
+  }
 
   // Need to inform the next CollectGarbage call that there are some
   // non-transactional deletions that need to be collected
@@ -1344,10 +1363,16 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               case Delta::Action::DELETE_OBJECT: {
                 vertex->deleted = true;
                 my_deleted_vertices.push_back(vertex->gid);
+                for (auto const label : vertex->labels) {
+                  storage_->UpdateLabelCount(label, -1);
+                }
                 break;
               }
               case Delta::Action::RECREATE_OBJECT: {
                 vertex->deleted = false;
+                for (auto const label : vertex->labels) {
+                  storage_->UpdateLabelCount(label, 1);
+                }
                 break;
               }
             }

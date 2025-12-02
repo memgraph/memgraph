@@ -580,7 +580,8 @@ class DiskStorage final : public Storage {
 
   std::unordered_map<LabelId, uint64_t> GetLabelCounts() const override;
 
-  void UpdateLabelCount(LabelId /*label*/, int64_t /*delta*/) override {}
+  // Disk storage doesn't track and cache live label counts, so this is a no-op
+  void UpdateLabelCount(LabelId /*label*/, int64_t /*change*/) override {}
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/, bool /*periodic*/) override {}
 

@@ -727,13 +727,7 @@ class InMemoryStorage final : public Storage {
 
   std::unordered_map<LabelId, uint64_t> GetLabelCounts() const override { return *label_counts_.Lock(); }
 
-  void UpdateLabelCount(LabelId label, int64_t delta) override {
-    if (config_.track_label_counts) {
-      auto label_counts_acc = label_counts_.Lock();
-      auto &count = (*label_counts_acc)[label];
-      count += delta;
-    }
-  }
+  void UpdateLabelCount(LabelId label, int64_t change) override;
 
  private:
   /// @throw std::system_error
