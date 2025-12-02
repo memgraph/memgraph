@@ -4090,4 +4090,107 @@ TYPED_TEST(TestPlanner, MatchGlobalEdgePropertyIndexWithEdgeTypeFilter) {
   }
 }
 
+TYPED_TEST(TestPlanner, PatternComprehensionWithNamedPath) {
+  // Test MATCH (n) RETURN [path = (n)-->() | length(path)] AS lengths
+  // This tests that named path variables in pattern comprehensions generate ConstructNamedPath in the plan.
+  //
+  // Expected plan structure:
+  //   Produce {lengths}
+  //   RollUpApply
+  //   |\
+  //   | Produce {anon_result}
+  //   | ConstructNamedPath
+  //   | Expand (n)-[anon_edge]->(anon_node)
+  //   | Once
+  //   ScanAll (n)
+  //   Once
+
+  FakeDbAccessor dba;
+
+  // Create the pattern comprehension with a named path variable
+  auto *path_var = IDENT("path");
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      path_var, PATTERN(NODE("n"), EDGE("anon_edge", EdgeAtom::Direction::OUT), NODE("anon_node")), nullptr,
+      FN("length", IDENT("path")));
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(NEXPR("lengths", pattern_comp))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Verify the plan structure
+  // Input branch: ScanAll
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops;
+  input_ops.push_back(std::make_unique<ExpectScanAll>());
+
+  // List collection branch: Once -> Expand -> ConstructNamedPath -> Produce
+  std::list<std::unique_ptr<BaseOpChecker>> list_collection_branch_ops;
+  list_collection_branch_ops.push_back(std::make_unique<ExpectOnce>());
+  list_collection_branch_ops.push_back(std::make_unique<ExpectExpand>());
+  list_collection_branch_ops.push_back(std::make_unique<ExpectConstructNamedPath>());
+  list_collection_branch_ops.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, list_collection_branch_ops), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInForeachBodyWithExternalReference) {
+  // Test FOREACH (x IN [1, 2] | CREATE (n {prop: [(a)-->() WHERE a.id = x | 1]}))
+  // This tests that pattern comprehensions in FOREACH body can reference the loop variable.
+  // The RollUpApply should be INSIDE the Foreach since the pattern comprehension references x.
+  //
+  // Expected plan structure:
+  //   EmptyResult
+  //   Foreach
+  //   |\
+  //   | CreateNode
+  //   | RollUpApply
+  //   | |\
+  //   | | Produce {anon_result}
+  //   | | Expand (a)-[anon_edge]->(anon_node)
+  //   | | Filter {a.id = x}
+  //   | | ScanAll (a)
+  //   | | Once
+  //   | Once
+  //   Once
+
+  FakeDbAccessor dba;
+  auto prop_id = dba.Property("id");
+
+  // Create the pattern comprehension with WHERE clause referencing x
+  auto *where_expr = EQ(PROPERTY_LOOKUP(dba, "a", prop_id), IDENT("x"));
+  auto *pattern_comp =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), EDGE("anon_edge", EdgeAtom::Direction::OUT), NODE("anon_node")),
+                            WHERE(where_expr), LITERAL(1));
+
+  // Create node with property containing pattern comprehension
+  auto *node_n = NODE("n");
+  std::get<0>(node_n->properties_)[this->storage.GetPropertyIx("prop")] = pattern_comp;
+
+  auto *foreach_clause = FOREACH(NEXPR("x", LIST(LITERAL(1), LITERAL(2))), {CREATE(PATTERN(node_n))});
+
+  auto *query = QUERY(SINGLE_QUERY(foreach_clause));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Verify the plan structure - RollUpApply should be inside Foreach
+  auto &plan = planner.plan();
+  auto *empty_result = dynamic_cast<EmptyResult *>(&plan);
+  ASSERT_NE(empty_result, nullptr) << "Root should be EmptyResult";
+
+  auto *foreach_op = dynamic_cast<Foreach *>(empty_result->input_.get());
+  ASSERT_NE(foreach_op, nullptr) << "Should have Foreach operator";
+
+  // The update branch of Foreach should contain RollUpApply -> CreateNode
+  auto *create_node = dynamic_cast<CreateNode *>(foreach_op->update_clauses_.get());
+  ASSERT_NE(create_node, nullptr) << "Foreach update branch should have CreateNode";
+
+  auto *rollup = dynamic_cast<RollUpApply *>(create_node->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply should be inside Foreach (before CreateNode) when pattern comprehension "
+                                "references the loop variable";
+
+  // The input to Foreach should be Once (the list is evaluated once)
+  auto *once = dynamic_cast<Once *>(foreach_op->input_.get());
+  ASSERT_NE(once, nullptr) << "Foreach input should be Once";
+}
+
 }  // namespace
