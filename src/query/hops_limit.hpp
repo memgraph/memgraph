@@ -17,12 +17,17 @@
 #include <memory>
 #include <optional>
 
+#include "flags/query.hpp"
+
 namespace memgraph::query {
 
 struct HopsLimit {
   std::optional<int64_t> limit{std::nullopt};                                                     // Local limit value
   std::shared_ptr<std::atomic<int64_t>> hops_counter{std::make_shared<std::atomic<int64_t>>(0)};  // Global hops counter
   bool is_limit_reached{false};  // Local limit reached flag
+  int64_t hops{0};               // Local copy (to avoid reading from atomic variable in parallel execution)
+  int64_t recheck_interval{
+      FLAGS_hops_limit_recheck_interval};  // Interval at which to recheck the limit (useful for parallel execution)
 
   bool IsUsed() const { return limit.has_value(); }
 
@@ -34,10 +39,22 @@ struct HopsLimit {
   // Return the number of available hops
   int64_t IncrementHopsCount(int64_t increment = 1) {
     if (IsUsed()) {
+      // Once reached the limit, return 0
       if (is_limit_reached) return 0;
-      auto prev_count = hops_counter->fetch_add(increment, std::memory_order_acq_rel);
+      const auto interval = FLAGS_hops_limit_recheck_interval;
+      // Fast path for parallel execution
+      int64_t prev_count = hops;
+      recheck_interval -= increment;
+      if (recheck_interval <= 0) {
+        // Slow path for eventual consistency
+        const auto increment_to_add = interval - recheck_interval;  // Missed increments (with the current increment)
+        prev_count = hops_counter->fetch_add(increment_to_add, std::memory_order_acq_rel);
+        prev_count += increment_to_add - increment;  // Add the missed increments (without the current increment)
+        recheck_interval = interval;
+      }
+      hops = prev_count + increment;
       const auto available_hops = limit.value() - prev_count;
-      is_limit_reached |= (increment > available_hops);
+      is_limit_reached = (increment > available_hops);
       return std::min(increment, available_hops);
     }
     return increment;
