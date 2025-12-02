@@ -38,15 +38,16 @@ struct PatternComprehensionData {
   Symbol result_symbol;
 };
 
-/// Callback type for on-demand planning of pattern comprehensions.
-/// Takes a PatternComprehensionMatching and returns a planned operator.
-using PlanComprehensionFn =
-    std::function<std::unique_ptr<LogicalOperator>(const PatternComprehensionMatching &, storage::View)>;
+/// Interface for planning pattern comprehensions, avoiding std::function overhead.
+struct PatternComprehensionPlanner {
+  virtual ~PatternComprehensionPlanner() = default;
+  virtual std::unique_ptr<LogicalOperator> Plan(const PatternComprehensionMatching &matching, storage::View view) = 0;
+};
 
 /// Context for on-demand pattern comprehension planning in RETURN/WITH bodies.
 struct PatternComprehensionContext {
   std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions;
-  PlanComprehensionFn plan_fn;
+  PatternComprehensionPlanner *planner;
   storage::View view;
 };
 
@@ -194,9 +195,14 @@ Expression *BoolJoin(AstStorage &storage, Expression *expr1, Expression *expr2) 
 ///
 /// @sa MakeLogicalPlan
 template <class TPlanningContext>
-class RuleBasedPlanner {
+class RuleBasedPlanner : public PatternComprehensionPlanner {
  public:
   explicit RuleBasedPlanner(TPlanningContext *context) : context_(context) {}
+
+  /// Implements PatternComprehensionPlanner interface
+  std::unique_ptr<LogicalOperator> Plan(const PatternComprehensionMatching &matching, storage::View view) override {
+    return PlanPatternComprehension(matching, *context_->symbol_table, context_->bound_symbols, view);
+  }
 
   /// @brief The result of plan generation is the root of the generated operator
   /// tree.
@@ -267,19 +273,13 @@ class RuleBasedPlanner {
           });
         };
 
-        // Planning callback for on-demand planning in ReturnBodyContext
-        PlanComprehensionFn plan_fn = [this, &context](const PatternComprehensionMatching &matching,
-                                                       storage::View view) {
-          return PlanPatternComprehension(matching, *context.symbol_table, context.bound_symbols, view);
-        };
-
         // Helper to plan and apply all satisfiable comprehensions before write clauses
         auto plan_and_apply_comprehensions = [&]() {
           for (auto it = pending_comprehensions.begin(); it != pending_comprehensions.end();) {
             const auto &[sym, pc] = *it;
             if (deps_satisfied(pc)) {
               auto view = write_occurred ? storage::View::NEW : storage::View::OLD;
-              auto op = PlanPatternComprehension(pc, *context.symbol_table, context.bound_symbols, view);
+              auto op = Plan(pc, view);
               auto symbols = op->ModifiedSymbols(*context.symbol_table);
               input_op = std::make_unique<RollUpApply>(std::move(input_op), std::move(op), symbols, sym);
               it = pending_comprehensions.erase(it);
@@ -294,7 +294,7 @@ class RuleBasedPlanner {
 
           // Create context with current view for RETURN/WITH
           auto current_view = write_occurred ? storage::View::NEW : storage::View::OLD;
-          PatternComprehensionContext pc_ctx{pending_comprehensions, plan_fn, current_view};
+          PatternComprehensionContext pc_ctx{pending_comprehensions, this, current_view};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
             input_op = impl::GenReturn(*ret, std::move(input_op), *context.symbol_table, context.is_write_query,
@@ -364,7 +364,7 @@ class RuleBasedPlanner {
                                            single_query_part, merge_id);
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
             input_op = HandleSubquery(std::move(input_op), single_query_part.subqueries[subquery_id++],
-                                      *context.symbol_table, *context_->ast_storage, pending_comprehensions, plan_fn,
+                                      *context.symbol_table, *context_->ast_storage, pending_comprehensions,
                                       write_occurred, call_sub->cypher_query_->pre_query_directives_.commit_frequency_);
             if (context.is_write_query && !has_periodic_commit) {
               input_op = std::make_unique<Accumulate>(std::move(input_op),
@@ -1137,7 +1137,7 @@ class RuleBasedPlanner {
   std::unique_ptr<LogicalOperator> HandleSubquery(
       std::unique_ptr<LogicalOperator> last_op, std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
       AstStorage &storage, std::unordered_map<Symbol, PatternComprehensionMatching> & /*pending_comprehensions*/,
-      PlanComprehensionFn & /*plan_fn*/, bool /*write_occurred*/, Expression *commit_frequency) {
+      bool /*write_occurred*/, Expression *commit_frequency) {
     std::unordered_set<Symbol> outer_scope_bound_symbols;
     outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
                                      std::make_move_iterator(context_->bound_symbols.end()));

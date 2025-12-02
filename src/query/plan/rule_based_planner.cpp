@@ -470,12 +470,12 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     // Nested pattern comprehensions are handled inside their parent's operator tree.
     // Also skip if we don't have a planning context (e.g., when analyzing bound
     // symbols in GetSubqueryBoundSymbols) - the actual planning will handle them later.
-    if (aggregations_start_index_stack_.empty() && pc_ctx_) {
+    if (aggregations_start_index_stack_.empty() && pc_ctx_ && pc_ctx_->planner) {
       const auto result_sym = symbol_table_.at(pattern_comprehension);
       // Find and plan this pattern comprehension on-demand
       auto &pending = pc_ctx_->pending_comprehensions;
       if (auto it = pending.find(result_sym); it != pending.end()) {
-        auto op = pc_ctx_->plan_fn(it->second, pc_ctx_->view);
+        auto op = pc_ctx_->planner->Plan(it->second, pc_ctx_->view);
         pattern_comprehension_datas_[result_sym] = PatternComprehensionData(std::move(op), result_sym);
         pending.erase(it);
       }
@@ -676,7 +676,7 @@ std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQuery
   }
 
   if (std::unordered_set<Symbol> bound_symbols; auto *with = utils::Downcast<query::With>(query.remaining_clauses[0])) {
-    // Use empty pending_comprehensions and null plan_fn since we're only analyzing bound symbols here,
+    // Use empty pending_comprehensions and null planner since we're only analyzing bound symbols here,
     // not actually building the query plan. Pattern comprehensions will be handled
     // when the subquery is fully planned later.
     std::unordered_map<Symbol, PatternComprehensionMatching> empty_pending;
