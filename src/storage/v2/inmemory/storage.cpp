@@ -22,7 +22,6 @@
 
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
-#include "flags/general.hpp"
 #include "memory/global_memory_control.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/common_function_signatures.hpp"
