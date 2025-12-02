@@ -69,6 +69,9 @@
     "overrides": {
         "snappy/1.1.9": [
             "snappy/1.2.1"
+        ],
+        "libcurl/[>=7.78.0 <9]": [
+            "libcurl/8.17.0"
         ]
     },
     "config_requires": []
