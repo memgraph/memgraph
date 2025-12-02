@@ -2739,12 +2739,14 @@ TYPED_TEST(TestPlanner, NestedPatternComprehensionInMatchWhere) {
   //   Once
 
   // Inner pattern comprehension: [(n)--() | 1]
+  // Note: First arg is the path variable (nullptr = no named path). The IDENT("n") in the pattern
+  // refers to the outer node n, not a path variable.
   auto *inner_pattern_comp =
-      PATTERN_COMPREHENSION(IDENT("n"), PATTERN(NODE("n"), EDGE("anon4"), NODE("anon5")), nullptr, LITERAL(1));
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("n"), EDGE("anon4"), NODE("anon5")), nullptr, LITERAL(1));
 
   // Outer pattern comprehension: [(n)--() | <inner>]
   auto *outer_pattern_comp =
-      PATTERN_COMPREHENSION(IDENT("n"), PATTERN(NODE("n"), EDGE("anon1"), NODE("anon2")), nullptr, inner_pattern_comp);
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("n"), EDGE("anon1"), NODE("anon2")), nullptr, inner_pattern_comp);
 
   auto *where_expr = EQ(outer_pattern_comp, LIST());
 

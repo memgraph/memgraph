@@ -848,9 +848,14 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         starting_symbols = starting_expansion_operator->ModifiedSymbols(symbol_table);
       }
       std::vector<Symbol> new_expansion_group_symbols;
-      // Initialize with bound_symbols to include external symbols (e.g., FOREACH variables referenced in filters)
-      // then add starting_symbols from the input operator.
-      std::unordered_set<Symbol> new_bound_symbols = bound_symbols;
+      // For single expansion groups (e.g., pattern comprehensions inside FOREACH), include external bound_symbols
+      // so filters referencing those symbols can be extracted.
+      // For multiple expansion groups (Cartesian product), each group should only see its own symbols -
+      // filters referencing symbols from other groups become join conditions applied after the Cartesian.
+      std::unordered_set<Symbol> new_bound_symbols;
+      if (all_expansion_groups.size() == 1) {
+        new_bound_symbols = bound_symbols;
+      }
       new_bound_symbols.insert(starting_symbols.begin(), starting_symbols.end());
       std::unique_ptr<LogicalOperator> expansion_group = GenerateExpansionGroup(
           std::move(starting_expansion_operator), matching, symbol_table, storage, new_bound_symbols,
