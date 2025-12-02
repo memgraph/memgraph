@@ -1129,8 +1129,29 @@ bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
   matching.result_expr->MapTo(symbol_table_.at(op));
   matching.result_symbol = symbol_table_.at(op);
 
-  // Store all expansion symbols - external symbols will be determined at planning time
-  matching.external_symbols = matching.expansion_symbols;
+  // Compute external symbols: symbols used in filter/result that are NOT bound within the comprehension.
+  // External symbols are references to variables from outer scope (e.g., FOREACH variable `x` in
+  // `[(a)-[r]->(b) WHERE a.id = x | b]`).
+  std::unordered_set<Symbol> used_symbols;
+
+  // Collect symbols from filter expression
+  if (op.filter_) {
+    UsedSymbolsCollector filter_collector(symbol_table_);
+    op.filter_->expression_->Accept(filter_collector);
+    used_symbols.insert(filter_collector.symbols_.begin(), filter_collector.symbols_.end());
+  }
+
+  // Collect symbols from result expression
+  UsedSymbolsCollector result_symbol_collector(symbol_table_);
+  op.resultExpr_->Accept(result_symbol_collector);
+  used_symbols.insert(result_symbol_collector.symbols_.begin(), result_symbol_collector.symbols_.end());
+
+  // External symbols = used symbols - expansion symbols (symbols bound within the comprehension)
+  for (const auto &sym : used_symbols) {
+    if (!matching.expansion_symbols.contains(sym)) {
+      matching.external_symbols.insert(sym);
+    }
+  }
 
   pattern_comprehension_matchings_.push_back(std::move(matching));
 

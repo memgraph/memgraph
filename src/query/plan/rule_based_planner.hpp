@@ -250,15 +250,25 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
           symbols_bound_by_query_part.insert(merge_matching.expansion_symbols.begin(),
                                              merge_matching.expansion_symbols.end());
         }
-        // Add symbols from CREATE clauses
-        for (const auto &clause : single_query_part.remaining_clauses) {
+        // Add symbols from CREATE and FOREACH clauses
+        std::function<void(Clause *)> collect_clause_symbols = [&](Clause *clause) {
           if (auto *create = utils::Downcast<Create>(clause)) {
             for (const auto *pattern : create->patterns_) {
               for (const PatternAtom *atom : pattern->atoms_) {
                 symbols_bound_by_query_part.insert(context.symbol_table->at(*atom->identifier_));
               }
             }
+          } else if (auto *foreach_clause = utils::Downcast<query::Foreach>(clause)) {
+            // Add the FOREACH iteration variable
+            symbols_bound_by_query_part.insert(context.symbol_table->at(*foreach_clause->named_expression_));
+            // Recursively collect symbols from nested clauses
+            for (auto *nested : foreach_clause->clauses_) {
+              collect_clause_symbols(nested);
+            }
           }
+        };
+        for (const auto &clause : single_query_part.remaining_clauses) {
+          collect_clause_symbols(clause);
         }
 
         // Track whether a write operation has occurred - comprehensions planned after writes
@@ -274,12 +284,14 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         };
 
         // Helper to plan and apply all satisfiable comprehensions before write clauses
+        // Note: Pattern comprehensions always use View::OLD because:
+        // 1. ExpandVariable (variable-length paths) requires View::OLD
+        // 2. Semantically, comprehensions should see the pre-write graph state
         auto plan_and_apply_comprehensions = [&]() {
           for (auto it = pending_comprehensions.begin(); it != pending_comprehensions.end();) {
             const auto &[sym, pc] = *it;
             if (deps_satisfied(pc)) {
-              auto view = write_occurred ? storage::View::NEW : storage::View::OLD;
-              auto op = Plan(pc, view);
+              auto op = Plan(pc, storage::View::OLD);
               auto symbols = op->ModifiedSymbols(*context.symbol_table);
               input_op = std::make_unique<RollUpApply>(std::move(input_op), std::move(op), symbols, sym);
               it = pending_comprehensions.erase(it);
@@ -361,7 +373,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
             write_occurred = true;
             plan_and_apply_comprehensions();
             input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,
-                                           single_query_part, merge_id);
+                                           single_query_part, merge_id, pending_comprehensions);
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
             input_op = HandleSubquery(std::move(input_op), single_query_part.subqueries[subquery_id++],
                                       *context.symbol_table, *context_->ast_storage, pending_comprehensions,
@@ -409,10 +421,17 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                                             std::unordered_set<Symbol> &bound_symbols,
                                                             storage::View view = storage::View::OLD) {
     std::unique_ptr<LogicalOperator> new_input;
-    MatchContext match_ctx{matching, symbol_table, bound_symbols, view};
+    // Create a copy of bound_symbols and add external symbols from the pattern comprehension.
+    // External symbols are references to variables from outer scope (e.g., FOREACH variable `x`
+    // in `[(a)-[r]->(b) WHERE a.id = x | b]`). These must be in bound_symbols for filter extraction
+    // to work correctly.
+    auto pc_bound_symbols = bound_symbols;
+    pc_bound_symbols.insert(matching.external_symbols.begin(), matching.external_symbols.end());
+
+    MatchContext match_ctx{matching, symbol_table, pc_bound_symbols, view};
     new_input = PlanMatching(match_ctx, std::move(new_input));
     new_input = ApplyNestedPatternComprehensions(std::move(new_input), matching.nested_pattern_comprehensions,
-                                                 symbol_table, bound_symbols, view);
+                                                 symbol_table, pc_bound_symbols, view);
     new_input = std::make_unique<Produce>(std::move(new_input), std::vector{matching.result_expr});
     return new_input;
   }
@@ -1113,17 +1132,39 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     return last_op;
   }
 
-  std::unique_ptr<LogicalOperator> HandleForeachClause(query::Foreach *foreach,
-                                                       std::unique_ptr<LogicalOperator> input_op,
-                                                       const SymbolTable &symbol_table,
-                                                       std::unordered_set<Symbol> &bound_symbols,
-                                                       const SingleQueryPart &query_part, uint64_t &merge_id) {
+  std::unique_ptr<LogicalOperator> HandleForeachClause(
+      query::Foreach *foreach, std::unique_ptr<LogicalOperator> input_op, const SymbolTable &symbol_table,
+      std::unordered_set<Symbol> &bound_symbols, const SingleQueryPart &query_part, uint64_t &merge_id,
+      std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions) {
     const auto &symbol = symbol_table.at(*foreach->named_expression_);
     bound_symbols.insert(symbol);
     std::unique_ptr<LogicalOperator> op = std::make_unique<plan::Once>();
+
+    // Helper to plan comprehensions whose dependencies are now satisfied
+    auto plan_satisfied_comprehensions = [&]() {
+      for (auto it = pending_comprehensions.begin(); it != pending_comprehensions.end();) {
+        const auto &[sym, pc] = *it;
+        // Check if all external symbols are now bound
+        bool deps_satisfied = std::all_of(pc.external_symbols.begin(), pc.external_symbols.end(),
+                                          [&](const Symbol &s) { return bound_symbols.contains(s); });
+        if (deps_satisfied) {
+          auto pc_op = Plan(pc, storage::View::OLD);
+          auto symbols = pc_op->ModifiedSymbols(symbol_table);
+          op = std::make_unique<RollUpApply>(std::move(op), std::move(pc_op), symbols, sym);
+          it = pending_comprehensions.erase(it);
+        } else {
+          ++it;
+        }
+      }
+    };
+
+    // Plan any comprehensions whose dependencies are now satisfied (e.g., referencing the FOREACH variable)
+    plan_satisfied_comprehensions();
+
     for (auto *clause : foreach->clauses_) {
       if (auto *nested_for_each = utils::Downcast<query::Foreach>(clause)) {
-        op = HandleForeachClause(nested_for_each, std::move(op), symbol_table, bound_symbols, query_part, merge_id);
+        op = HandleForeachClause(nested_for_each, std::move(op), symbol_table, bound_symbols, query_part, merge_id,
+                                 pending_comprehensions);
       } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
         op = GenMerge(*merge, std::move(op), query_part.merge_matching[merge_id++]);
       } else {
