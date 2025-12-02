@@ -69,8 +69,10 @@
   "Tests if data instance is main. Returns bool true/false, catches all exceptions."
   [bolt-conn]
   (try
+    #_{:clj-kondo/ignore [:unresolved-symbol]}
     (utils/with-session bolt-conn session
-      (let [role-map (first (reduce conj [] (mgquery/show-replication-role session)))
+      (let [role-map (first (reduce conj [] #_{:clj-kondo/ignore [:unresolved-var]}
+                                    (mgquery/show-replication-role session)))
             role-vec (vec (apply concat role-map))
             role (last role-vec)]
         (info "Role:" role)
@@ -95,6 +97,7 @@
 ; Use Bolt connection to set enterprise.license and organization.name.
   (setup! [this _test]
     (try
+      #_{:clj-kondo/ignore [:unresolved-symbol]}
       (utils/with-session (:bolt-conn this) session
         ((mgquery/set-db-setting "enterprise.license" license) session)
         ((mgquery/set-db-setting "organization.name" organization) session))
@@ -111,8 +114,10 @@
                             [num-nodes
                              (reduce (fn [acc-nodes db]
                                        (let [session-config (utils/db-session-config db)]
+                                         #_{:clj-kondo/ignore [:unresolved-symbol]}
                                          (utils/with-db-session bolt-conn session-config session
-                                           (let [db-num-nodes (->> (mgquery/get-num-nodes session) first :c)]
+                                           (let [db-num-nodes (->> #_{:clj-kondo/ignore [:unresolved-var]}
+                                                               (mgquery/get-num-nodes session) first :c)]
                                              (conj acc-nodes db-num-nodes)))))
 
                                      [] (mutils/get-all-dbs num-tenants))]
@@ -129,8 +134,10 @@
                             [num-edges
                              (reduce (fn [acc-edges db]
                                        (let [session-config (utils/db-session-config db)]
+                                         #_{:clj-kondo/ignore [:unresolved-symbol]}
                                          (utils/with-db-session bolt-conn session-config session
-                                           (let [db-num-edges (->> (mgquery/get-num-edges session) first :c)]
+                                           (let [db-num-edges (->> #_{:clj-kondo/ignore [:unresolved-var]}
+                                                               (mgquery/get-num-edges session) first :c)]
                                              (conj acc-edges db-num-edges)))))
 
                                      [] (mutils/get-all-dbs num-tenants))]
@@ -145,8 +152,10 @@
 ; Show instances should be run only on coordinators/
         :show-instances-read (if (mutils/coord-instance? node)
                                (try
+                                 #_{:clj-kondo/ignore [:unresolved-symbol]}
                                  (utils/with-session bolt-conn session ; Use bolt connection for running show instances.
-                                   (let [instances (reduce conj [] (mgquery/get-all-instances session))]
+                                   (let [instances (reduce conj [] #_{:clj-kondo/ignore [:unresolved-var]}
+                                                           (mgquery/get-all-instances session))]
                                      (assoc op
                                             :type :ok
                                             :value {:instances instances :node node :time (utils/current-local-time-formatted)})))
@@ -160,7 +169,9 @@
                         (try
                           (let [session-config (utils/db-session-config (mutils/get-random-db num-tenants))
                                 random-start-node (rand-int pokec-medium-expected-num-nodes)]
+                            #_{:clj-kondo/ignore [:unresolved-symbol]}
                             (utils/with-db-session bolt-conn session-config session
+                              #_{:clj-kondo/ignore [:unresolved-var]}
                               (mgquery/update-pokec-nodes session {:param random-start-node}))
 
                             (assoc op :type :ok :value {:str "Updated nodes"}))
@@ -195,7 +206,9 @@
                             (try
                               (let [session-config (utils/db-session-config (mutils/get-random-db num-tenants))
                                     random-start-node (rand-int pokec-medium-expected-num-nodes)]
+                                #_{:clj-kondo/ignore [:unresolved-symbol]}
                                 (utils/with-db-session bolt-conn session-config session
+                                  #_{:clj-kondo/ignore [:unresolved-var]}
                                   (mgquery/create-ttl-edges session {:param random-start-node}))
 
                                 (assoc op :type :ok :value {:str "Created TTL edges"}))
@@ -232,7 +245,9 @@
         :delete-ttl-edges (if (and (mutils/data-instance? node) (is-main? bolt-conn))
                             (try
                               (let [session-config (utils/db-session-config (mutils/get-random-db num-tenants))]
+                                #_{:clj-kondo/ignore [:unresolved-symbol]}
                                 (utils/with-db-session bolt-conn session-config session
+                                  #_{:clj-kondo/ignore [:unresolved-var]}
                                   (mgquery/delete-ttl-edges session))
 
                                 (assoc op :type :ok :value {:str "Deleted TTL edges"}))
@@ -274,8 +289,8 @@
           (if (compare-and-set! cluster-setup-done? false true)
 
             (try
+              #_{:clj-kondo/ignore [:unresolved-symbol]}
               (utils/with-session bolt-conn session
-
                 (register-replication-instances session nodes-config)
                 (add-coordinator-instances session node nodes-config)
                 (set-instance-to-main session first-main)
@@ -290,18 +305,19 @@
                   (utils/not-leader? e)
                   (assoc op :type :info :value "Not a leader")
 
-                  (utils/adding-coordinator-failed? e)
-                  (assoc op :type :info :value "Failed to add coordinator")
-
                   :else
                   (assoc op :type :fail :value (str e)))))
             (assoc op :type :info :value "CAS failed, cluster already setup."))
 
           (assoc op :type :info :value "Not first leader"))
 
+        ; Here we create all databases, import nodes on and edges on each DB so the same client (worker thread) could execute all of these operations
+        ; Otherwise, we could get into a situation in which edges get imported before nodes because client responsible for edges gets scheduled before the
+        ; clients responsible for nodes
         :create-databases (if (and (mutils/data-instance? node) (is-main? bolt-conn))
                             (if (compare-and-set! databases-created? false true)
                               (try
+                                #_{:clj-kondo/ignore [:unresolved-symbol]}
                                 (utils/with-session bolt-conn session
                                   (doseq [db (mutils/get-new-dbs num-tenants)]
                                     ((mgquery/create-database db) session))
@@ -309,10 +325,15 @@
                                   (doseq [db (mutils/get-all-dbs num-tenants)]
                                     (let [session-config (utils/db-session-config db)]
                                       (utils/with-db-session bolt-conn session-config session
+                                        #_{:clj-kondo/ignore [:unresolved-var]}
                                         (mgquery/create-label-idx session)
+                                        #_{:clj-kondo/ignore [:unresolved-var]}
                                         (mgquery/create-label-property-idx session)
+                                        #_{:clj-kondo/ignore [:unresolved-var]}
                                         (mgquery/create-ttl-edge-idx session)
+                                        #_{:clj-kondo/ignore [:unresolved-var]}
                                         (mgquery/import-pokec-medium-nodes session)
+                                        #_{:clj-kondo/ignore [:unresolved-var]}
                                         (mgquery/import-pokec-medium-edges session))))
 
 
