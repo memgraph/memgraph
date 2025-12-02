@@ -402,7 +402,8 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
     case storage::ExternalPropertyValue::Type::VectorIndexId: {
       size_t size{0};
       slk::Load(&size, reader);
-      std::vector<std::string> ids(size);
+      utils::small_vector<std::string> ids;
+      ids.reserve(size);
       for (size_t i = 0; i < size; ++i) {
         slk::Load(&ids[i], reader);
       }

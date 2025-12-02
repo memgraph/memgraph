@@ -171,7 +171,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
               ids.push_back(storage_->name_id_mapper_->NameToId(index_name->second));
               return PropertyValue(ids, std::move(vec));
             }
-            return PropertyValue({storage_->name_id_mapper_->NameToId(index_name->second)}, std::move(vec));
+            return PropertyValue(utils::small_vector<uint64_t>{storage_->name_id_mapper_->NameToId(index_name->second)},
+                                 std::move(vec));
           });
           vertex->properties.SetProperty(property_id, vector_index_id);
         }
@@ -408,7 +409,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
     // TODO(@DavIvek): What if this throws before adding a delta?
     if (new_value.IsVectorIndexId()) {
       auto old_value_vector = storage_->indices_.vector_index_.GetVectorProperty(
-          vertex, storage_->name_id_mapper_->IdToName(new_value.ValueVectorIndexIds().front()));
+          vertex, storage_->name_id_mapper_->IdToName(new_value.ValueVectorIndexIds()[0]));
       if (skip_duplicate_write && old_value_vector == new_value.ValueVectorIndexList()) return true;
       old_value = vertex->properties.GetProperty(property);
       if (old_value.IsVectorIndexId()) {
@@ -636,7 +637,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     if (prop_value.IsVectorIndexId()) [[unlikely]] {
       is_in_vector_index = true;
       return storage_->indices_.vector_index_.GetPropertyValue(
-          vertex_, storage_->name_id_mapper_->IdToName(prop_value.ValueVectorIndexIds().front()));
+          vertex_, storage_->name_id_mapper_->IdToName(prop_value.ValueVectorIndexIds()[0]));
     } else {
       return prop_value;
     }

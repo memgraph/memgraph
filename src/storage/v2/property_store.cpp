@@ -1156,7 +1156,7 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
     case Type::VECTOR: {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
-      std::vector<uint64_t> vector_index_ids;
+      utils::small_vector<uint64_t> vector_index_ids;
       vector_index_ids.reserve(*size);
       for (auto i = 0; i < *size; ++i) {
         auto id = reader->ReadUint(Size::INT64);

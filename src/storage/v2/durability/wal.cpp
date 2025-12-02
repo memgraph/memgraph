@@ -835,7 +835,7 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
       auto property_value = vertex->properties.GetProperty(delta.property.key);
       if (property_value.IsVectorIndexId()) {
         property_value.ValueVectorIndexList() = storage->indices_.vector_index_.GetVectorProperty(
-            vertex, storage->name_id_mapper_->IdToName(property_value.ValueVectorIndexIds().front()));
+            vertex, storage->name_id_mapper_->IdToName(property_value.ValueVectorIndexIds()[0]));
       }
       encoder->WriteExternalPropertyValue(ToExternalPropertyValue(property_value, storage->name_id_mapper_.get()));
       break;

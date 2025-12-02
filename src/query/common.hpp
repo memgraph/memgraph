@@ -255,8 +255,8 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
 
     // Check if this property is in a vector index
     if (vertex && storage_accessor) {
-      if (auto vector_index_ids = storage_accessor->IsVertexInVectorIndex(vertex, key)) {
-        property_value = HandleVectorProperty(property_value, *vector_index_ids);
+      if (auto vector_index_ids = storage_accessor->IsVertexInVectorIndex(vertex, key); !vector_index_ids.empty()) {
+        property_value = HandleVectorProperty(property_value, vector_index_ids);
       }
     }
 
@@ -333,8 +333,9 @@ auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::P
     // Check for vector properties and convert them if needed
     if (vertex && storage_accessor) {
       for (auto &[property_id, property_value] : properties) {
-        if (auto vector_index_ids = storage_accessor->IsVertexInVectorIndex(vertex, property_id)) {
-          property_value = HandleVectorProperty(property_value, *vector_index_ids);
+        if (auto vector_index_ids = storage_accessor->IsVertexInVectorIndex(vertex, property_id);
+            !vector_index_ids.empty()) {
+          property_value = HandleVectorProperty(property_value, vector_index_ids);
         }
       }
     }

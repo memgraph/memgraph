@@ -151,7 +151,8 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
 
             mg_vector_index.index.add(&vertex, vector.data());
             auto index_id = name_id_mapper->NameToId(spec.index_name);
-            vertex.properties.SetProperty(spec.property, PropertyValue({index_id}, std::vector<float>{}));
+            vertex.properties.SetProperty(spec.property,
+                                          PropertyValue(utils::small_vector<uint64_t>{index_id}, std::vector<float>{}));
           }
         } catch (...) {
           std::lock_guard guard(exception_mutex);
@@ -230,7 +231,8 @@ void VectorIndex::RecoverIndexEntries(const VectorIndexRecoveryInfo &recovery_in
               auto vector_property = vertex.properties.GetProperty(spec.property);
               auto vec = ListToVector(vector_property);
               mg_vector_index.index.add(&vertex, vec.data(), idx, false);
-              vertex.properties.SetProperty(spec.property, PropertyValue({index_id}, std::vector<float>{}));
+              vertex.properties.SetProperty(
+                  spec.property, PropertyValue(utils::small_vector<uint64_t>{index_id}, std::vector<float>{}));
             }
           }
         }
@@ -314,16 +316,16 @@ void VectorIndex::UpdateRecoveryInfoOnLabelAddition(LabelId label, Vertex *verte
           // vector is already in the recovery info vector and not on the node
           auto vector = std::invoke([&]() {
             for (auto &recovery_info : recovery_info_vec) {
-              if (recovery_info.spec.index_name == name_id_mapper->IdToName(ids.front())) {
+              if (recovery_info.spec.index_name == name_id_mapper->IdToName(ids[0])) {
                 if (auto it = recovery_info.index_entries.find(vertex->gid); it != recovery_info.index_entries.end()) {
                   return it->second;
                 }
                 throw query::VectorSearchException(
-                    fmt::format("Vector index {} not found in recovery info.", name_id_mapper->IdToName(ids.front())));
+                    fmt::format("Vector index {} not found in recovery info.", name_id_mapper->IdToName(ids[0])));
               }
             }
             throw query::VectorSearchException(
-                fmt::format("Vector index {} not found in recovery info.", name_id_mapper->IdToName(ids.front())));
+                fmt::format("Vector index {} not found in recovery info.", name_id_mapper->IdToName(ids[0])));
           });
           return vector;
         }
@@ -331,7 +333,8 @@ void VectorIndex::UpdateRecoveryInfoOnLabelAddition(LabelId label, Vertex *verte
         auto vec = ListToVector(old_property_value);
         vertex->properties.SetProperty(
             recovery_info->spec.property,
-            PropertyValue({name_id_mapper->NameToId(recovery_info->spec.index_name)}, std::vector<float>{}));
+            PropertyValue(utils::small_vector<uint64_t>{name_id_mapper->NameToId(recovery_info->spec.index_name)},
+                          std::vector<float>{}));
         return vec;
       });
       recovery_info->index_entries.emplace(vertex->gid, std::move(vector_to_add));
@@ -369,7 +372,7 @@ void VectorIndex::UpdateRecoveryInfoOnLabelRemoval(LabelId label, Vertex *vertex
           vertex->properties.SetProperty(recovery_info->spec.property, PropertyValue(std::move(double_vector)));
         } else {
           throw query::VectorSearchException(
-              fmt::format("Vector index {} not found in recovery info.", name_id_mapper->IdToName(ids.front())));
+              fmt::format("Vector index {} not found in recovery info.", name_id_mapper->IdToName(ids[0])));
         }
       } else {
         vertex->properties.SetProperty(recovery_info->spec.property, old_property_value);
@@ -407,7 +410,7 @@ void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *
           return PropertyValue(ids, std::move(vec));
         }
         auto vec = ListToVector(old_property_value);
-        return PropertyValue({name_id_mapper->NameToId(it->second)}, std::move(vec));
+        return PropertyValue(utils::small_vector<uint64_t>{name_id_mapper->NameToId(it->second)}, std::move(vec));
       });
       locked_index->add(vertex, vector_index_id.ValueVectorIndexList().data());
 
@@ -443,7 +446,8 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, NameIdMappe
 
 // TODO: unify this with the other UpdateIndex method
 void VectorIndex::UpdateOnSetProperty(const PropertyValue &new_value, Vertex *vertex, NameIdMapper *name_id_mapper) {
-  const auto &index_ids = new_value.IsVectorIndexId() ? new_value.ValueVectorIndexIds() : std::vector<uint64_t>{};
+  const auto &index_ids =
+      new_value.IsVectorIndexId() ? new_value.ValueVectorIndexIds() : utils::small_vector<uint64_t>{};
   for (const auto &index_id : index_ids) {
     auto index_name = name_id_mapper->IdToName(index_id);
     auto label_prop = pimpl->index_name_to_label_prop_.at(index_name);
@@ -507,7 +511,7 @@ std::vector<float> VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *
   auto vector_property = std::invoke([&]() {
     if (value.IsVectorIndexId()) {
       // property is in vector index, so we need to return the list from the vector index
-      return GetVectorProperty(vertex, name_id_mapper->IdToName(value.ValueVectorIndexIds().front()));
+      return GetVectorProperty(vertex, name_id_mapper->IdToName(value.ValueVectorIndexIds()[0]));
     }
     if (value.IsAnyList()) {
       const auto list_size = value.ListSize();
@@ -711,13 +715,13 @@ bool VectorIndex::IsLabelInVectorIndex(LabelId label) const {
   });
 }
 
-std::optional<std::vector<uint64_t>> VectorIndex::IsVertexInVectorIndex(Vertex *vertex, PropertyId property,
-                                                                        NameIdMapper *name_id_mapper) {
+utils::small_vector<uint64_t> VectorIndex::IsVertexInVectorIndex(Vertex *vertex, PropertyId property,
+                                                                 NameIdMapper *name_id_mapper) {
   auto matching_label_props = GetMatchingLabelProps(vertex->labels, std::array{property});
   if (matching_label_props.empty()) {
-    return std::nullopt;
+    return {};
   }
-  std::vector<uint64_t> index_ids;
+  utils::small_vector<uint64_t> index_ids;
   index_ids.reserve(matching_label_props.size());
   for (const auto &label_prop : matching_label_props) {
     auto [_, spec] = pimpl->index_.at(label_prop);

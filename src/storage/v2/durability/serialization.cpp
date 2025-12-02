@@ -611,7 +611,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
       if (!inner_marker || *inner_marker != Marker::TYPE_VECTOR_INDEX_ID) return std::nullopt;
       auto size = ReadSize(this);
       if (!size) return std::nullopt;
-      std::vector<std::string> vector_index_ids;
+      utils::small_vector<std::string> vector_index_ids;
       vector_index_ids.reserve(*size);
       for (auto i = 0; i < *size; ++i) {
         auto index_name = ReadString();

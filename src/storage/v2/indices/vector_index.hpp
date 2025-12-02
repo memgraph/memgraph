@@ -195,8 +195,8 @@ class VectorIndex {
   /// @param vertex The vertex to check.
   /// @param property The property to check.
   /// @return true if the property is in the vector index, false otherwise.
-  std::optional<std::vector<uint64_t>> IsVertexInVectorIndex(Vertex *vertex, PropertyId property,
-                                                             NameIdMapper *name_id_mapper);
+  utils::small_vector<uint64_t> IsVertexInVectorIndex(Vertex *vertex, PropertyId property,
+                                                      NameIdMapper *name_id_mapper);
 
   bool IsPropertyInVectorIndex(PropertyId property) const;
 

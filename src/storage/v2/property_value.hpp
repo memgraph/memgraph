@@ -22,6 +22,7 @@
 #include "storage/v2/temporal.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/small_vector.hpp"
 import memgraph.utils.fnv;
 
 #include <boost/container/flat_map.hpp>
@@ -100,6 +101,7 @@ inline std::partial_ordering CompareNumericValues(const std::variant<int, double
 ///
 /// Values can be of a number of predefined types that are enumerated in
 /// PropertyValue::Type. Each such type corresponds to exactly one C++ type.
+/// TODO(@DavIvek): unify KeyType and VectorIndexIdType here.
 template <typename Alloc, typename KeyType, typename VectorIndexIdType>
 class PropertyValueImpl {
  public:
@@ -120,7 +122,7 @@ class PropertyValueImpl {
   using numeric_list_t =
       std::vector<std::variant<int, double>, typename alloc_trait::template rebind_alloc<std::variant<int, double>>>;
 
-  using vector_index_id_t = std::vector<VectorIndexIdType>;
+  using vector_index_id_t = utils::small_vector<VectorIndexIdType>;
 
   /// Make a Null value
   PropertyValueImpl(allocator_type const &alloc = allocator_type{}) : alloc_{alloc}, type_(Type::Null) {}
@@ -811,7 +813,7 @@ class PropertyValueImpl {
     struct {
       Type type_ = Type::ZonedTemporalData;
       ZonedTemporalData val_;
-    } zoned_temporal_data_v;  // FYI: current largest member at 40B
+    } zoned_temporal_data_v;
     struct {
       Type type_ = Type::Enum;
       Enum val_;
@@ -828,7 +830,7 @@ class PropertyValueImpl {
       Type type_ = Type::VectorIndexId;
       vector_index_id_t vector_index_ids_;
       std::vector<float> vector_;
-    } vector_index_id_v;
+    } vector_index_id_v;  // FYI: current largest member at 48B, can we use small_vector here?
     struct {
       Type type_ = Type::IntList;
       int_list_t val_;
@@ -1255,7 +1257,7 @@ inline auto PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::operator=(Prop
           break;
         case Type::VectorIndexId:
           vector_index_id_v.vector_index_ids_ = other.vector_index_id_v.vector_index_ids_;
-          vector_index_id_v.vector_ = std::vector<float>(other.vector_index_id_v.vector_, alloc_);
+          vector_index_id_v.vector_ = other.vector_index_id_v.vector_;
           break;
       }
       return *this;
@@ -1544,7 +1546,7 @@ inline PropertyValue ToPropertyValue(const ExternalPropertyValue &value, NameIdM
     case PropertyValueType::NumericList:
       return PropertyValue(value.ValueNumericList());
     case PropertyValueType::VectorIndexId: {
-      std::vector<uint64_t> vector_index_ids;
+      typename PropertyValue::vector_index_id_t vector_index_ids;
       const auto &external_vector_index_ids = value.ValueVectorIndexIds();
       vector_index_ids.reserve(external_vector_index_ids.size());
       for (const auto &str : external_vector_index_ids) {
@@ -1607,7 +1609,7 @@ inline ExternalPropertyValue ToExternalPropertyValue(const PropertyValue &value,
     case PropertyValueType::NumericList:
       return ExternalPropertyValue(value.ValueNumericList());
     case PropertyValueType::VectorIndexId: {
-      std::vector<std::string> vector_index_ids;
+      typename ExternalPropertyValue::vector_index_id_t vector_index_ids;
       const auto &internal_vector_index_ids = value.ValueVectorIndexIds();
       vector_index_ids.reserve(internal_vector_index_ids.size());
       for (const auto &id : internal_vector_index_ids) {
@@ -1660,7 +1662,7 @@ struct ExtendedPropertyType {
   }
 };
 
-static_assert(sizeof(PropertyValue) == 40);
+static_assert(sizeof(PropertyValue) == 48);
 static_assert(sizeof(pmr::PropertyValue) == 56);
 
 /**
