@@ -132,6 +132,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
+          --no-conan-cache \
           run
 
       - name: "Build Memgraph binaries"
@@ -141,6 +142,7 @@ jobs:
           --os "$OS" \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --no-conan-cache \
           build-memgraph $ADDITIONAL_BUILD_ARGS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
@@ -202,6 +204,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
+          --no-conan-cache \
           stop --remove
 
       - name: "Create docker image"
