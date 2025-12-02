@@ -29,7 +29,7 @@ while [[ "$#" -gt 0 ]]; do
       shift 2
     ;;
     *)
-      echo "Error: Unknown flag '$1'"
+      echo "Error: Unknown flag '$1'" >&2
       exit 1
     ;;
   esac
