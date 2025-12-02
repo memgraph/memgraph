@@ -738,6 +738,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     auto filters = matching.filters;
     // Copy the named_paths for the same reason.
     auto named_paths = matching.named_paths;
+
     // Try to generate any filters even before the 1st match operator. This
     // optimizes the optional match which filters only on symbols bound in
     // regular match.
@@ -847,7 +848,10 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         starting_symbols = starting_expansion_operator->ModifiedSymbols(symbol_table);
       }
       std::vector<Symbol> new_expansion_group_symbols;
-      std::unordered_set<Symbol> new_bound_symbols{starting_symbols.begin(), starting_symbols.end()};
+      // Initialize with bound_symbols to include external symbols (e.g., FOREACH variables referenced in filters)
+      // then add starting_symbols from the input operator.
+      std::unordered_set<Symbol> new_bound_symbols = bound_symbols;
+      new_bound_symbols.insert(starting_symbols.begin(), starting_symbols.end());
       std::unique_ptr<LogicalOperator> expansion_group = GenerateExpansionGroup(
           std::move(starting_expansion_operator), matching, symbol_table, storage, new_bound_symbols,
           new_expansion_group_symbols, named_paths, filters, view, expansion.expansion_group_id);
