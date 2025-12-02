@@ -18,6 +18,12 @@ setup_node() {
     echo "Could NOT node. Make sure node is installed."
     exit 1
   fi
+
+  if ! command -v pnpm >/dev/null; then
+    echo "pnpm not found, enabling via corepack."
+    corepack enable pnpm 2>/dev/null || corepack enable 2>/dev/null || true
+  fi
+
   if ! command -v pnpm >/dev/null; then
     echo "Could NOT find pnpm. Make sure pnpm is installed."
     exit 1
