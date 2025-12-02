@@ -10,10 +10,14 @@
 // licenses/APL.txt.
 
 #include "coordination/data_instance_context.hpp"
+#include "replication_coordination_glue/mode.hpp"
+
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <nlohmann/json.hpp>
 #include "utils/uuid.hpp"
+
+import memgraph.coordination.coordinator_communication_config;
 
 #ifdef MG_ENTERPRISE
 
