@@ -241,7 +241,7 @@ else
   echo "Skipping librdtsc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
 
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+if [ "${MG_TOOLCHAIN_VERSION}" != "v7"]; then
   # jemalloc ea6b3e973b477b8061e0076bb257dbd7f3faa756
   JEMALLOC_COMMIT_VERSION="5.2.1"
   repo_clone_try_double "${primary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" "jemalloc" "$JEMALLOC_COMMIT_VERSION"
