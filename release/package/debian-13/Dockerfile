@@ -39,6 +39,7 @@ ARG NODE_VERSION
 RUN curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
     && . ~/.nvm/nvm.sh \
     && nvm install ${NODE_VERSION} \
-    && nvm use ${NODE_VERSION}
+    && nvm use ${NODE_VERSION} \
+    && corepack enable pnpm
 
 ENTRYPOINT ["sleep", "infinity"]

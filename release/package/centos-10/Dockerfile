@@ -35,7 +35,8 @@ ARG NODE_VERSION
 RUN curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
     && . ~/.nvm/nvm.sh \
     && nvm install ${NODE_VERSION} \
-    && nvm use ${NODE_VERSION}
+    && nvm use ${NODE_VERSION} \
+    && corepack enable pnpm
 
 # Install PyYAML (only for amzn-2, centos-7, cento-9 and rocky-9)
 RUN pip3 install --user PyYAML
