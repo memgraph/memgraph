@@ -275,23 +275,66 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         // need to use View::NEW to see the newly created/modified data.
         bool write_occurred = false;
 
-        // Helper to check if a comprehension's dependencies are satisfied
+        // Helper to check if a comprehension's dependencies are satisfied.
+        // A comprehension is ready to be planned when ALL its external dependencies are bound:
+        // 1. Explicit external_symbols (from filter/result expressions)
+        // 2. Expansion symbols that reference already-declared variables (e.g., `a` in `[(a)-->(x)|...]`
+        //    when `a` comes from CREATE)
         auto deps_satisfied = [&](const PatternComprehensionMatching &pc) {
-          return std::all_of(pc.external_symbols.begin(), pc.external_symbols.end(), [&](const Symbol &s) {
+          // Check explicit external symbols
+          bool external_ok = std::all_of(pc.external_symbols.begin(), pc.external_symbols.end(), [&](const Symbol &s) {
             if (!symbols_bound_by_query_part.contains(s)) return true;
             return context.bound_symbols.contains(s);
           });
+          if (!external_ok) return false;
+
+          // Check expansion symbols that should be externally bound (i.e., they're in symbols_bound_by_query_part,
+          // meaning they're declared elsewhere in this query part and we should wait for them to be bound)
+          for (const auto &sym : pc.expansion_symbols) {
+            if (symbols_bound_by_query_part.contains(sym) && !context.bound_symbols.contains(sym)) {
+              return false;  // This symbol will be bound later, wait for it
+            }
+          }
+          return true;
+        };
+
+        // Helper to check if a pattern comprehension has variable-length paths.
+        // ExpandVariable requires View::OLD, so comprehensions with VLE must use OLD.
+        auto has_variable_length_expansion = [](const PatternComprehensionMatching &pc) {
+          for (const auto &expansion : pc.expansions) {
+            if (expansion.edge && expansion.edge->IsVariable()) {
+              return true;
+            }
+          }
+          return false;
+        };
+
+        // Helper to check if a pattern comprehension references externally bound symbols.
+        // This includes both explicit external_symbols AND expansion_symbols that were already bound
+        // before the comprehension (e.g., `a` in `[(a)-->(x) | x.id]` when `a` comes from CREATE).
+        auto references_external_symbols = [&](const PatternComprehensionMatching &pc) {
+          // Check explicit external symbols (from filter/result expressions)
+          if (!pc.external_symbols.empty()) return true;
+          // Check if any expansion symbol was already bound (external reference in pattern)
+          for (const auto &sym : pc.expansion_symbols) {
+            if (context.bound_symbols.contains(sym)) return true;
+          }
+          return false;
         };
 
         // Helper to plan and apply all satisfiable comprehensions before write clauses
-        // Note: Pattern comprehensions always use View::OLD because:
-        // 1. ExpandVariable (variable-length paths) requires View::OLD
-        // 2. Semantically, comprehensions should see the pre-write graph state
         auto plan_and_apply_comprehensions = [&]() {
           for (auto it = pending_comprehensions.begin(); it != pending_comprehensions.end();) {
             const auto &[sym, pc] = *it;
             if (deps_satisfied(pc)) {
-              auto op = Plan(pc, storage::View::OLD);
+              // Use View::OLD for variable-length paths (ExpandVariable requires it).
+              // Use View::NEW after writes if the comprehension references externally bound symbols,
+              // so it can see newly created edges/properties on those nodes.
+              auto view =
+                  has_variable_length_expansion(pc)
+                      ? storage::View::OLD
+                      : ((write_occurred && references_external_symbols(pc)) ? storage::View::NEW : storage::View::OLD);
+              auto op = Plan(pc, view);
               auto symbols = op->ModifiedSymbols(*context.symbol_table);
               input_op = std::make_unique<RollUpApply>(std::move(input_op), std::move(op), symbols, sym);
               it = pending_comprehensions.erase(it);

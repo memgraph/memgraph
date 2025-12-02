@@ -1111,6 +1111,19 @@ bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
   PatternComprehensionMatching matching;
   AddMatching({op.pattern_}, op.filter_, symbol_table_, storage_, matching);
 
+  // Handle named path variable (e.g., [path = (a)-[r]->(b) | ...])
+  // Unlike MATCH patterns where the path name is on Pattern::identifier_,
+  // pattern comprehensions store the path name in PatternComprehension::variable_.
+  if (op.variable_ && op.variable_->user_declared_) {
+    std::vector<Symbol> path_elements;
+    for (auto *const pattern_atom : op.pattern_->atoms_) {
+      path_elements.push_back(symbol_table_.at(*pattern_atom->identifier_));
+    }
+    matching.named_paths.emplace(symbol_table_.at(*op.variable_), std::move(path_elements));
+    // Also add the path symbol to expansion_symbols so it's recognized as bound
+    matching.expansion_symbols.insert(symbol_table_.at(*op.variable_));
+  }
+
   // Process nested pattern comprehensions in filters
   for (auto &filter : matching.filters) {
     PatternComprehensionCollector nested_collector(symbol_table_, storage_);

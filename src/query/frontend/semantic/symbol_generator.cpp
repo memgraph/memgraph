@@ -953,6 +953,17 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
 
   const auto &symbol = CreateAnonymousSymbol();
   pc.MapTo(symbol);
+
+  // If there's a named path variable (e.g., [path = (a)-[]->(b) | ...]),
+  // create a PATH symbol for it before the children are visited.
+  // This is necessary because variable_ is visited before pattern_,
+  // so in_pattern is not yet true when Visit(Identifier) is called for variable_.
+  // Without this, Visit(Identifier) will throw UnboundVariableError.
+  if (pc.variable_) {
+    auto path_symbol = GetOrCreateSymbol(pc.variable_->name_, pc.variable_->user_declared_, Symbol::Type::PATH);
+    pc.variable_->MapTo(path_symbol);
+  }
+
   return true;
 }
 
