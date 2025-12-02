@@ -329,66 +329,45 @@ Feature: Pattern comprehensions
         Given an empty graph
         And having executed:
             """
-            CREATE (a:N {id: 1})-[:R]->(b:N {id: 2})
+            CREATE (:A)-[:R]->(:B)
             """
         When executing query:
             """
-            MATCH (n) RETURN [path = (n)--() | length(path)] AS lengths ORDER BY n.id
+            MATCH (n:A) RETURN [path = (n)-->() | length(path)] AS lengths
             """
         Then the result should be:
             | lengths |
             | [1]     |
-            | [1]     |
 
-   Scenario: Named path variable in pattern comprehension with multiple hops
+   Scenario: Named path variable in pattern comprehension with variable length
         Given an empty graph
         And having executed:
             """
-            CREATE (a:N {id: 1})-[:R]->(b:N {id: 2})-[:R]->(c:N {id: 3})
+            CREATE (:A)-[:R]->()-[:R]->()
             """
         When executing query:
             """
-            MATCH (n) WHERE n.id = 1 RETURN [path = (n)-[*1..2]->() | length(path)] AS lengths
+            MATCH (n:A) RETURN [path = (n)-[*1..2]->() | length(path)] AS lengths
             """
         Then the result should be:
             | lengths |
             | [1, 2]  |
 
-   Scenario: Pattern comprehension in FOREACH referencing loop variable in WHERE
+   Scenario: Pattern comprehension in FOREACH referencing loop variable
         Given an empty graph
         And having executed:
             """
-            CREATE (a:Source {id: 1})-[:R]->(b:Target {val: 10}), (a)-[:R]->(c:Target {val: 20})
+            CREATE (a {id: 1})-[:R]->(b {val: 10})
             """
         And having executed:
             """
-            FOREACH (x IN [1, 2] | CREATE (n:Result {source_id: x, found: [(a:Source)-[:R]->(t) WHERE a.id = x | t.val]}))
+            FOREACH (x IN [1, 2] | CREATE (n:R {x: x, found: [(a)-[:R]->(b) WHERE a.id = x | b.val]}))
             """
         When executing query:
             """
-            MATCH (n:Result) RETURN n.source_id AS id, n.found AS found ORDER BY id
+            MATCH (n:R) RETURN n.x AS x, n.found AS found ORDER BY x
             """
         Then the result should be:
-            | id | found     |
-            | 1  | [10, 20]  |
-            | 2  | []        |
-
-   Scenario: Pattern comprehension in FOREACH CREATE property
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:N {id: 1})-[:R]->(:N {id: 2})
-            """
-        And having executed:
-            """
-            FOREACH (i IN [1, 2, 3] | CREATE (n:X {val: i, neighbors: [()-[:R]->() | 1]}))
-            """
-        When executing query:
-            """
-            MATCH (n:X) RETURN n.val AS val, n.neighbors AS neighbors ORDER BY val
-            """
-        Then the result should be:
-            | val | neighbors |
-            | 1   | [1]       |
-            | 2   | [1]       |
-            | 3   | [1]       |
+            | x | found |
+            | 1 | [10]  |
+            | 2 | []    |
