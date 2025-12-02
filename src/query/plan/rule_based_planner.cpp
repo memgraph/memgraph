@@ -680,7 +680,8 @@ std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQuery
     // not actually building the query plan. Pattern comprehensions will be handled
     // when the subquery is fully planned later.
     std::unordered_map<Symbol, PatternComprehensionMatching> empty_pending;
-    PatternComprehensionContext pc_ctx{empty_pending, nullptr, storage::View::OLD};
+    PatternComprehensionContext pc_ctx{
+        .pending_comprehensions = empty_pending, .planner = nullptr, .view = storage::View::OLD};
     auto input_op = impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, pc_ctx, nullptr, false);
     return bound_symbols;
   }
@@ -729,7 +730,7 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
   bool const has_periodic_commit = commit_frequency != nullptr;
   bool const accumulate = is_write && !has_periodic_commit;
   bool advance_command = false;
-  ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage, &pc_ctx);
+  const ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage, &pc_ctx);
   return GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
 }
 
@@ -746,7 +747,7 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
   bool const accumulate = is_write && !has_periodic_commit;
   // No need to advance the command if we only performed reads.
   bool advance_command = is_write;
-  ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, &pc_ctx, with.where_);
+  const ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, &pc_ctx, with.where_);
   auto last_op = GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
 
   // In EXISTS subqueries, we need to preserve outer scope variables
