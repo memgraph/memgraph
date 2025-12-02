@@ -29,7 +29,6 @@
 #include <communication/bolt/v1/encoder/base_encoder.hpp>
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
-#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
@@ -39,6 +38,7 @@
 #include "coordination/raft_state.hpp"
 #include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
+#include "replication_coordination_glue/mode.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exponential_backoff.hpp"
 #include "utils/join_vector.hpp"
@@ -48,9 +48,9 @@
 #include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
-#include <range/v3/range/conversion.hpp>
-#include <range/v3/view/filter.hpp>
-#include <range/v3/view/transform.hpp>
+
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.utils;
 
 namespace {
 using memgraph::coordination::ReplicationInstanceConnector;
@@ -528,7 +528,7 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
   auto const new_main_uuid = utils::UUID{};
   auto const not_main = [&new_main_name](auto &&instance) { return instance.config.instance_name != new_main_name; };
 
-  for (auto &data_instance : data_instances | ranges::views::filter(not_main)) {
+  for (auto &data_instance : data_instances | std::ranges::views::filter(not_main)) {
     data_instance.status = ReplicationRole::REPLICA;
     data_instance.instance_uuid = new_main_uuid;
   }
@@ -592,9 +592,9 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
 
   auto repl_clients_info =
       data_instances_cache |
-      ranges::views::filter([&](auto const &instance) { return instance.config.instance_name != new_main_name; }) |
-      ranges::views::transform([&](auto const &instance) { return instance.config.replication_client_info; }) |
-      ranges::to<ReplicationClientsInfo>();
+      std::ranges::views::filter([&](auto const &instance) { return instance.config.instance_name != new_main_name; }) |
+      std::ranges::views::transform([&](auto const &instance) { return instance.config.replication_client_info; }) |
+      std::ranges::to<ReplicationClientsInfo>();
 
   if (!new_main->SendRpc<PromoteToMainRpc>(new_main_uuid, std::move(repl_clients_info))) {
     return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
@@ -1049,10 +1049,11 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
 
     auto const data_instances_cache = raft_state_->GetDataInstancesContext();
     auto repl_clients_info =
-        data_instances_cache |
-        ranges::views::filter([&](auto const &instance) { return instance.config.instance_name != instance_name; }) |
-        ranges::views::transform([&](auto const &instance) { return instance.config.replication_client_info; }) |
-        ranges::to<ReplicationClientsInfo>();
+        data_instances_cache | std::ranges::views::filter([&](auto const &instance) {
+          return instance.config.instance_name != instance_name;
+        }) |
+        std::ranges::views::transform([&](auto const &instance) { return instance.config.replication_client_info; }) |
+        std::ranges::to<ReplicationClientsInfo>();
 
     if (!instance.SendRpc<PromoteToMainRpc>(curr_main_uuid, std::move(repl_clients_info))) {
       spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
@@ -1411,8 +1412,9 @@ auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, st
                        ReplicaDBLagData{.num_committed_txns_ = orig_data.second, .num_txns_behind_main_ = 0}};
     };
 
-    auto main_data = maybe_repl_lag_res->dbs_main_committed_txns_ | ranges::views::transform(get_repl_db_lag_data) |
-                     ranges::to<std::map<std::string, ReplicaDBLagData>>();
+    auto main_data = maybe_repl_lag_res->dbs_main_committed_txns_ |
+                     std::ranges::views::transform(get_repl_db_lag_data) |
+                     std::ranges::to<std::map<std::string, ReplicaDBLagData>>();
 
     replicas_res.emplace(instance_name, std::move(main_data));
     return replicas_res;

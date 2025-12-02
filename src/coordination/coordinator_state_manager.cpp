@@ -14,13 +14,14 @@
 #include "coordination/coordinator_state_manager.hpp"
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_exceptions.hpp"
-#include "coordination/utils.hpp"
 #include "utils/logging.hpp"
 
 #include <spdlog/spdlog.h>
-
 #include <nlohmann/json.hpp>
-#include <range/v3/view.hpp>
+
+#include <ranges>
+
+import memgraph.coordination.utils;
 
 namespace memgraph::coordination {
 using nuraft::cluster_config;
@@ -66,12 +67,12 @@ void from_json(nlohmann::json const &json_cluster_config, std::shared_ptr<cluste
 
 void to_json(nlohmann::json &j, cluster_config const &cluster_config) {
   auto const servers_vec =
-      ranges::views::transform(
+      std::ranges::views::transform(
           cluster_config.get_servers(),
           [](auto const &server) {
             return std::tuple{static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()};
           }) |
-      ranges::to_vector;
+      std::ranges::to<std::vector>();
   j = nlohmann::json{{kServers, servers_vec},
                      {kPrevLogIdx, cluster_config.get_prev_log_idx()},
                      {kLogIdx, cluster_config.get_log_idx()},

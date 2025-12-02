@@ -19,17 +19,19 @@
 #include <vector>
 
 #include "coordination/constants.hpp"
-#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/logger_wrapper.hpp"
 #include "coordination/raft_state.hpp"
-#include "coordination/utils.hpp"
 #include "utils/counter.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
+
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_log_store;
+import memgraph.coordination.utils;
 
 namespace {
 constexpr std::string_view kStateMgrDurabilityPath = "network";
@@ -423,13 +425,15 @@ auto RaftState::TryGetCurrentMainName() const -> std::optional<std::string> {
 auto RaftState::GetRoutingTable(std::string_view const db_name,
                                 std::map<std::string, std::map<std::string, int64_t>> const &replicas_lag) const
     -> RoutingTable {
-  auto const is_instance_main = [&](auto const &instance) { return IsCurrentMain(instance.config.instance_name); };
+  auto is_instance_main = [&](DataInstanceContext const &instance) -> bool {
+    return IsCurrentMain(instance.config.instance_name);
+  };
   // Fetch data instances from raft log
   auto const raft_log_data_instances = GetDataInstancesContext();
   auto const coord_servers = GetCoordinatorInstancesContext();
 
-  return CreateRoutingTable(raft_log_data_instances, coord_servers, is_instance_main, GetEnabledReadsOnMain(),
-                            GetMaxReplicaReadLag(), db_name, replicas_lag);
+  return CreateRoutingTable(raft_log_data_instances, coord_servers, std::move(is_instance_main),
+                            GetEnabledReadsOnMain(), GetMaxReplicaReadLag(), db_name, replicas_lag);
 }
 
 auto RaftState::GetLeaderId() const -> int32_t { return raft_server_->get_leader(); }

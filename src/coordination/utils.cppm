@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
 #include "coordination/coordinator_instance_context.hpp"
 #include "coordination/data_instance_context.hpp"
@@ -17,27 +17,56 @@
 #include "kvstore/kvstore.hpp"
 #include "utils/logging.hpp"
 
-#include <functional>
 #include <map>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <spdlog/spdlog.h>
-#include <range/v3/range/conversion.hpp>
-#include <range/v3/view/filter.hpp>
-#include <range/v3/view/transform.hpp>
+
+export module memgraph.coordination.utils;
+
+#ifdef MG_ENTERPRISE
+
+export namespace memgraph::coordination {
+
+using RoutingTable = std::vector<std::pair<std::vector<std::string>, std::string>>;
+
+auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, int default_value, LoggerWrapper logger)
+    -> int;
+
+auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_instances,
+                        std::vector<CoordinatorInstanceContext> const &coord_servers,
+                        std::function<bool(DataInstanceContext const &)> is_instance_main_func,
+                        bool enabled_reads_on_main, uint64_t max_replica_read_lag, std::string_view db_name,
+                        std::map<std::string, std::map<std::string, int64_t>> const &replicas_lag) -> RoutingTable;
+
+}  // namespace memgraph::coordination
+
+#endif
+
+module : private;
 
 #ifdef MG_ENTERPRISE
 
 namespace memgraph::coordination {
-auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, int default_value, LoggerWrapper logger)
-    -> int;
-
-using RoutingTable = std::vector<std::pair<std::vector<std::string>, std::string>>;
+auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, int const default_value,
+                            LoggerWrapper logger) -> int {
+  if (auto const maybe_version = durability.Get(key); maybe_version.has_value()) {
+    return std::stoi(maybe_version.value());
+  }
+  logger.Log(
+      nuraft_log_level::INFO,
+      fmt::format("Assuming first start of durability as key value {} for version is missing, storing version {}.", key,
+                  default_value));
+  MG_ASSERT(durability.Put(key, std::to_string(default_value)), "Failed to store durability version.");
+  return default_value;
+}
 
 auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_instances,
-                        std::vector<CoordinatorInstanceContext> const &coord_servers, auto const &is_instance_main_func,
+                        std::vector<CoordinatorInstanceContext> const &coord_servers,
+                        std::function<bool(DataInstanceContext const &)> is_instance_main_func,
                         bool const enabled_reads_on_main, uint64_t const max_replica_read_lag,
                         std::string_view const db_name,
                         std::map<std::string, std::map<std::string, int64_t>> const &replicas_lag) -> RoutingTable {
@@ -47,8 +76,8 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
     return instance.config.BoltSocketAddress();  // non-resolved IP
   };
 
-  auto writers = raft_log_data_instances | ranges::views::filter(is_instance_main_func) |
-                 ranges::views::transform(repl_instance_to_bolt) | ranges::to_vector;
+  auto writers = raft_log_data_instances | std::ranges::views::filter(is_instance_main_func) |
+                 std::ranges::views::transform(repl_instance_to_bolt) | std::ranges::to<std::vector>();
   MG_ASSERT(writers.size() <= 1, "There can be at most one main instance active!");
 
   spdlog::trace("WRITERS");
@@ -71,12 +100,12 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
     }
 
     // return true if cached lag is smaller than max_allowed_replica_read_lag
-    return db_it->second < max_replica_read_lag;
+    return static_cast<uint64_t>(db_it->second) < max_replica_read_lag;
   };
 
-  auto readers = raft_log_data_instances | ranges::views::filter(std::not_fn(is_instance_main_func)) |
-                 ranges::views::filter(lag_filter) | ranges::views::transform(repl_instance_to_bolt) |
-                 ranges::to_vector;
+  auto readers = raft_log_data_instances | std::ranges::views::filter(std::not_fn(is_instance_main_func)) |
+                 std::ranges::views::filter(lag_filter) | std::ranges::views::transform(repl_instance_to_bolt) |
+                 std::ranges::to<std::vector>();
 
   if (enabled_reads_on_main && writers.size() == 1) {
     readers.emplace_back(writers[0]);
@@ -97,7 +126,7 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
 
   auto const get_bolt_server = [](CoordinatorInstanceContext const &context) { return context.bolt_server; };
 
-  auto routers = coord_servers | ranges::views::transform(get_bolt_server) | ranges::to_vector;
+  auto routers = coord_servers | std::ranges::views::transform(get_bolt_server) | std::ranges::to<std::vector>();
   spdlog::trace("ROUTERS:");
   for (auto const &server : routers) {
     spdlog::trace("  {}", server);

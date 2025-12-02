@@ -16,12 +16,13 @@
 #include <spdlog/spdlog.h>
 #include "coordination/constants.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
-#include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_log_store.hpp"
 #include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
 
 #include <optional>
+
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_log_store;
 
 namespace memgraph::coordination {
 

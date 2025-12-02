@@ -9,19 +9,23 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+module;
+
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_log_store.hpp"
 #include "coordination/constants.hpp"
-#include "coordination/coordinator_communication_config.hpp"
-#include "coordination/utils.hpp"
+#include "coordination/log_level.hpp"
+#include "coordination/logger_wrapper.hpp"
 #include "utils/logging.hpp"
-
-#include "kvstore/kvstore.hpp"
 
 #include <ranges>
 
+#include <libnuraft/nuraft.hxx>
 #include <nlohmann/json.hpp>
+
+module memgraph.coordination.coordinator_log_store;
+
+import memgraph.coordination.coordinator_communication_config;
 
 namespace memgraph::coordination {
 using nuraft::buffer_serializer;

@@ -11,7 +11,6 @@
 
 #include <gtest/gtest.h>
 
-#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_slk.hpp"
 #include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/mode.hpp"
@@ -20,6 +19,8 @@
 #include "storage/v2/replication/slk.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/temporal.hpp"
+
+import memgraph.coordination.coordinator_communication_config;
 
 using memgraph::io::network::Endpoint;
 

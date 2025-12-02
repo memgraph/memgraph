@@ -9,24 +9,27 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_communication_config.hpp"
+#include "coordination/constants.hpp"
 #include "coordination/logger_wrapper.hpp"
-
-#include <libnuraft/nuraft.hxx>
 #include "kvstore/kvstore.hpp"
 
-namespace memgraph::coordination {
+#include <libnuraft/nuraft.hxx>
+
+export module memgraph.coordination.coordinator_log_store;
+
+import memgraph.coordination.coordinator_communication_config;
+
+export namespace memgraph::coordination {
 
 using nuraft::buffer;
 using nuraft::int32;
 using nuraft::int64;
 using nuraft::log_entry;
 using nuraft::log_store;
-using nuraft::raft_server;
 
 /**
  * Current version v1 of CoordinatorLogStore is a simple in-memory log store + durability by default.
