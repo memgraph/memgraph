@@ -657,7 +657,6 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   transaction_.async_index_helper_.Track(edge_type);
 
   auto const from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
-  if (from_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
   if (from_result == WriteResult::INTERLEAVED) {
     transaction_.has_interleaved_deltas = true;
     from_vertex->has_uncommitted_interleaved_deltas = true;
@@ -667,7 +666,6 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
     to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
-    if (to_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
     if (to_result == WriteResult::INTERLEAVED) {
       transaction_.has_interleaved_deltas = true;
       to_vertex->has_uncommitted_interleaved_deltas = true;
@@ -785,7 +783,6 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   }
 
   auto const from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
-  if (from_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
   if (from_result == WriteResult::INTERLEAVED) {
     transaction_.has_interleaved_deltas = true;
     from_vertex->has_uncommitted_interleaved_deltas = true;
@@ -795,7 +792,6 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
     to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
-    if (to_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
     if (to_result == WriteResult::INTERLEAVED) {
       transaction_.has_interleaved_deltas = true;
       to_vertex->has_uncommitted_interleaved_deltas = true;

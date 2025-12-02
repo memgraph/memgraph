@@ -130,7 +130,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   return false;
 }
 
-enum class WriteResult : uint8_t { SUCCESS, INTERLEAVED, CONFLICT };
+enum class WriteResult : uint8_t { SUCCESS, INTERLEAVED };
 
 template <typename TObj>
 inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *object, Delta::Action action) {
@@ -156,15 +156,10 @@ inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *ob
     return WriteResult::SUCCESS;
   }
 
-  // If the head delta resulted from a commutative operation from another
-  // (as yet uncommited) transaction, we can prepend an interleaved delta.
-  if (IsResultOfCommutativeOperation(object->delta->action)) {
-    return WriteResult::INTERLEAVED;
-  }
-
-  // Standard MVCC serialization conflict.
-  transaction->has_serialization_error = true;
-  return WriteResult::CONFLICT;
+  // Head delta is from another uncommitted transaction. Since we're performing
+  // an edge create operation, such operations are never serialized error, but
+  // must be marked as interleaved.
+  return WriteResult::INTERLEAVED;
 }
 
 /// This function creates a `DELETE_OBJECT` delta in the transaction and returns
