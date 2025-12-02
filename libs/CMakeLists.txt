@@ -332,13 +332,6 @@ mg_create_linkable_if_no_cmake(librdtsc STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdts
 
 set(ABSL_PROPAGATE_CXX_STD ON)
 
-macro(link_jmalloc)
-  set_path_external_library(jemalloc STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/lib/libjemalloc.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
-endmacro()
-mg_build_if_needed(link_jmalloc "jemalloc")
-
 message(STATUS "MG_TOOLCHAIN_VERSION: ${MG_TOOLCHAIN_VERSION}")
 if(DEFINED MG_TOOLCHAIN_VERSION)
   if(${MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
