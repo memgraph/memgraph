@@ -50,13 +50,13 @@ bool IsConstantLiteral(const Expression *expression) {
 class ReturnBodyContext : public HierarchicalTreeVisitor {
  public:
   ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols,
-                    AstStorage &storage, PatternComprehensionOps &pc_ops, Where *where = nullptr)
+                    AstStorage &storage, PatternComprehensionContext *pc_ctx, Where *where = nullptr)
       : body_(body),
         symbol_table_(symbol_table),
         bound_symbols_(bound_symbols),
         storage_(storage),
         where_(where),
-        has_pattern_comprehension_ops_(!pc_ops.empty()) {
+        pc_ctx_(pc_ctx) {
     // Collect symbols from named expressions.
     output_symbols_.reserve(body_.named_expressions.size());
     if (body.all_identifiers) {
@@ -105,14 +105,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     if (body.limit) {
       body.limit->Accept(*this);
     }
-
-    for (auto const &pc_data : pc_ops) {
-      auto const it = pattern_comprehension_datas_.find(pc_data.result_symbol);
-      if (it == pattern_comprehension_datas_.end()) {
-        throw SemanticException("Pattern comprehension was not initialised! Please contact support.");
-      }
-      it->second.op = pc_data.op;
-    }
+    // Pattern comprehensions are planned on-demand in PostVisit(PatternComprehension&)
   }
 
   using HierarchicalTreeVisitor::PostVisit;
@@ -475,11 +468,19 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
     // Only add top-level pattern comprehensions to pattern_comprehension_datas_.
     // Nested pattern comprehensions are handled inside their parent's operator tree.
-    // Also skip if we don't have pattern comprehension ops (e.g., when analyzing bound
+    // Also skip if we don't have a planning context (e.g., when analyzing bound
     // symbols in GetSubqueryBoundSymbols) - the actual planning will handle them later.
-    if (aggregations_start_index_stack_.empty() && has_pattern_comprehension_ops_) {
-      const auto resultSym = symbol_table_.at(pattern_comprehension);
-      pattern_comprehension_datas_[resultSym] = PatternComprehensionData(&pattern_comprehension, resultSym);
+    if (aggregations_start_index_stack_.empty() && pc_ctx_) {
+      const auto result_sym = symbol_table_.at(pattern_comprehension);
+      // Find and plan this pattern comprehension on-demand
+      auto &pending = pc_ctx_->pending_comprehensions;
+      const auto it = std::ranges::find_if(
+          pending, [&](const PatternComprehensionMatching &m) { return m.result_symbol == result_sym; });
+      if (it != pending.end()) {
+        auto op = pc_ctx_->plan_fn(*it, pc_ctx_->view);
+        pattern_comprehension_datas_[result_sym] = PatternComprehensionData(std::move(op), result_sym);
+        pending.erase(it);
+      }
     }
     return true;
   }
@@ -570,10 +571,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   std::unordered_map<Symbol, PatternComprehensionData> pattern_comprehension_datas_;
   // Stack of aggregation start indices for nested pattern comprehensions
   std::vector<size_t> aggregations_start_index_stack_;
-  // Flag indicating if we have pattern comprehension operators to assign.
-  // When false (e.g., in GetSubqueryBoundSymbols), we skip tracking pattern
+  // Context for on-demand planning of pattern comprehensions.
+  // When non-null, pattern comprehensions are planned as they are visited.
+  // When null (e.g., in GetSubqueryBoundSymbols), we skip tracking pattern
   // comprehensions since they'll be handled during actual subquery planning.
-  bool has_pattern_comprehension_ops_ = false;
+  PatternComprehensionContext *pc_ctx_ = nullptr;
 };
 
 std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> input_op, bool advance_command,
@@ -676,12 +678,12 @@ std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQuery
   }
 
   if (std::unordered_set<Symbol> bound_symbols; auto *with = utils::Downcast<query::With>(query.remaining_clauses[0])) {
-    // Use empty PatternComprehensionOps since we're only analyzing bound symbols here,
+    // Use empty pending_comprehensions and null plan_fn since we're only analyzing bound symbols here,
     // not actually building the query plan. Pattern comprehensions will be handled
     // when the subquery is fully planned later.
-    PatternComprehensionOps empty_pc_ops;
-    auto input_op =
-        impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, empty_pc_ops, nullptr, false);
+    std::vector<PatternComprehensionMatching> empty_pending;
+    PatternComprehensionContext pc_ctx{empty_pending, nullptr, storage::View::OLD};
+    auto input_op = impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, pc_ctx, nullptr, false);
     return bound_symbols;
   }
 
@@ -713,7 +715,7 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           PatternComprehensionOps &pc_ops, Expression *commit_frequency,
+                                           PatternComprehensionContext &pc_ctx, Expression *commit_frequency,
                                            bool in_exists_subquery) {
   // In existential subqueries, we should omit any return clauses as per Neo4j documentation
   if (in_exists_subquery) {
@@ -729,14 +731,14 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
   bool const has_periodic_commit = commit_frequency != nullptr;
   bool const accumulate = is_write && !has_periodic_commit;
   bool advance_command = false;
-  ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage, pc_ops);
+  ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage, &pc_ctx);
   return GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
 }
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                         PatternComprehensionOps &pc_ops, Expression *commit_frequency,
+                                         PatternComprehensionContext &pc_ctx, Expression *commit_frequency,
                                          bool in_exists_subquery) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
   // optional Filter. In case of update and aggregation, we want to accumulate
@@ -746,7 +748,7 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
   bool const accumulate = is_write && !has_periodic_commit;
   // No need to advance the command if we only performed reads.
   bool advance_command = is_write;
-  ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, pc_ops, with.where_);
+  ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, &pc_ctx, with.where_);
   auto last_op = GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
 
   // In EXISTS subqueries, we need to preserve outer scope variables
