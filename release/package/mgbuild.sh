@@ -557,7 +557,7 @@ build_memgraph () {
   docker exec -u mg "$build_container" bash -c "$CMD_START && pip install conan"
 
   # Check if a conan profile exists and create one if needed
-  docker exec -u mg "$build_container" bash -c "$CMD_START && if [ ! -f \"\$HOME/.conan2/profiles/default\" ]; then conan profile detect; fi"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan profile detect --force"
 
   # Install our config
   docker exec -u mg "$build_container" bash -c "$CMD_START && conan config install ./conan_config"
