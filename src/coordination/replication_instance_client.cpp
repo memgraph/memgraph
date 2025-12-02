@@ -47,8 +47,7 @@ RpcInfoMetrics(EnableWritingOnMainRpc)
       coord_instance_(coord_instance),
       instance_health_check_frequency_sec_(instance_health_check_frequency_sec) {}
 
-// TODO: (andi) Can this return const &
-auto ReplicationInstanceClient::InstanceName() const -> std::string { return instance_name_; }
+auto ReplicationInstanceClient::InstanceName() const -> std::string const & { return instance_name_; }
 
 void ReplicationInstanceClient::StartStateCheck() {
   if (instance_checker_.IsRunning()) {

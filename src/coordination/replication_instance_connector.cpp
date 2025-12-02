@@ -64,7 +64,7 @@ auto ReplicationInstanceConnector::LastSuccRespMs() const -> std::chrono::millis
   return timed_failure_detector_.LastSuccRespMs();
 }
 
-auto ReplicationInstanceConnector::InstanceName() const -> std::string { return client_.InstanceName(); }
+auto ReplicationInstanceConnector::InstanceName() const -> std::string const & { return client_.InstanceName(); }
 
 auto ReplicationInstanceConnector::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) const -> bool {
   return replication_coordination_glue::SendSwapMainUUIDRpc(client_.RpcClient(), new_main_uuid);
