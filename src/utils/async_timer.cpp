@@ -96,7 +96,7 @@ std::atomic<bool> shutdown_requested{false};
 
 void *TimerBackgroundWorker(void *args) {
   auto *ti = static_cast<ThreadInfo *>(args);
-  ti->thread_id = syscall(SYS_gettid);
+  ti->thread_id = static_cast<pid_t>(syscall(SYS_gettid));
   ti->setup_done.store(true, std::memory_order_release);
 
   sigset_t ss;
