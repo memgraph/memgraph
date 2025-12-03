@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "coordination/coordinator_state_machine.hpp"
-#include "coordination/constants.hpp"
 #include "coordination/coordinator_state_manager.hpp"
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
@@ -22,6 +21,7 @@
 
 #include <ranges>
 
+import memgraph.coordination.constants;
 import memgraph.coordination.coordinator_communication_config;
 
 using memgraph::coordination::CoordinatorClusterState;

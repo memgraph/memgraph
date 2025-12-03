@@ -12,11 +12,11 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_cluster_state.hpp"
-#include "coordination/constants.hpp"
-#include "utils/logging.hpp"
 
 #include <nlohmann/json.hpp>
 #include <shared_mutex>
+
+import memgraph.coordination.constants;
 
 namespace memgraph::coordination {
 

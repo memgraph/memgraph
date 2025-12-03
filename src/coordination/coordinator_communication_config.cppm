@@ -13,7 +13,6 @@ module;
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/constants.hpp"
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "replication_coordination_glue/mode.hpp"
@@ -27,6 +26,8 @@ module;
 #endif
 
 export module memgraph.coordination.coordinator_communication_config;
+
+import memgraph.coordination.constants;
 
 #ifdef MG_ENTERPRISE
 

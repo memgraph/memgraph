@@ -13,7 +13,8 @@
 
 #include "coordination/data_instance_context.hpp"
 #include <nlohmann/json.hpp>
-#include "coordination/constants.hpp"
+
+import memgraph.coordination.constants;
 
 namespace memgraph::coordination {
 

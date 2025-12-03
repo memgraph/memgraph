@@ -6,10 +6,10 @@ target_sources(mg-coordination
         FILES
         coordinator_communication_config.cppm
         coordinator_log_store.cppm
+        constants.cppm
         utils.cppm
         FILE_SET HEADERS
         FILES
-        include/coordination/constants.hpp
         include/coordination/coordination_observer.hpp
         include/coordination/coordinator_cluster_state.hpp
         include/coordination/coordinator_exceptions.hpp

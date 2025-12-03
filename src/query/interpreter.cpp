@@ -38,7 +38,6 @@
 #include "auth/auth.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/profiles/user_profiles.hpp"
-#include "coordination/constants.hpp"
 #include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_state.hpp"
 #include "dbms/constants.hpp"
@@ -128,6 +127,8 @@
 #ifdef MG_ENTERPRISE
 #include "flags/experimental.hpp"
 #endif
+
+import memgraph.coordination.constants;
 
 namespace r = ranges;
 namespace rv = ranges::views;

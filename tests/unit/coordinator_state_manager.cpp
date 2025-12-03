@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "coordination/coordinator_state_manager.hpp"
-#include "coordination/constants.hpp"
 #include "coordination/logger.hpp"
 
 #include <gtest/gtest.h>
@@ -18,6 +17,7 @@
 #include <nlohmann/json.hpp>
 #include <range/v3/view.hpp>
 
+import memgraph.coordination.constants;
 import memgraph.coordination.coordinator_communication_config;
 
 using memgraph::coordination::CoordinatorInstanceAux;

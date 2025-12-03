@@ -9,13 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
 #include <cstdint>
 #include <string>
 #include <string_view>
 
-namespace memgraph::coordination {
+export module memgraph.coordination.constants;
+
+export namespace memgraph::coordination {
 
 using namespace std::string_view_literals;
 

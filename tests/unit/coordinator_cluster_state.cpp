@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "coordination/coordinator_cluster_state.hpp"
-#include "coordination/constants.hpp"
 #include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
@@ -22,6 +21,8 @@
 
 #include <nlohmann/json.hpp>
 #include <vector>
+
+import memgraph.coordination.constants;
 
 using memgraph::coordination::CoordinatorClusterState;
 using memgraph::coordination::CoordinatorClusterStateDelta;
