@@ -67,6 +67,13 @@ jobs:
     runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "DockerMgBuild", "ARM64"]') || fromJSON((inputs.os == 'centos-10' || inputs.os == 'rocky-10') && '["self-hosted", "DockerMgBuild", "X64", "x86-64-v3"]' || '["self-hosted", "DockerMgBuild", "X64"]') }}
     timeout-minutes: ${{ inputs.arch == 'arm' && 120 || 60 }}
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: "Validate S3 dest dir for official package"
         if: ${{ inputs.push_to_s3 == 'true' && inputs.s3_bucket == 'download.memgraph.com' }}
         run: |
@@ -298,3 +305,10 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
+
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v

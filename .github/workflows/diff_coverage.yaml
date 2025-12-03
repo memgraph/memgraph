@@ -44,6 +44,13 @@ jobs:
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 70
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -160,12 +167,26 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
   clang-tidy-community:
     if: ${{ inputs.run_clang_tidy == 'true' }}
     name: "Clang tidy community"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -231,12 +252,26 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
   clang-tidy-enterprise:
     if: ${{ inputs.run_clang_tidy == 'true' }}
     name: "Clang tidy enterprise"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -301,3 +336,10 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
+
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v

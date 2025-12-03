@@ -56,6 +56,13 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -120,6 +127,13 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
   coverage_build:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Coverage build"
@@ -129,6 +143,13 @@ jobs:
       BUILD_TYPE: Debug
 
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -211,6 +232,13 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
   debug_build:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Debug build"
@@ -220,6 +248,13 @@ jobs:
       BUILD_TYPE: Debug
 
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -323,6 +358,13 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
   debug_integration_test:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Debug integration tests"
@@ -332,6 +374,13 @@ jobs:
       BUILD_TYPE: Debug
 
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -396,6 +445,12 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
 
   malloc_build:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -404,6 +459,13 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -501,12 +563,26 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
   release_build:
     name: "Release build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
     if: ${{ inputs.run_release_tests == 'true' }}
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -611,6 +687,13 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
   release_benchmark_tests:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release Benchmark Tests"
@@ -618,6 +701,13 @@ jobs:
     timeout-minutes: 70
 
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -701,6 +791,13 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
   release_e2e_test:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release End-to-end Test"
@@ -708,6 +805,13 @@ jobs:
     timeout-minutes: 80
 
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -800,6 +904,13 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
   release_durability_stress_tests:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release durability and stress tests"
@@ -807,6 +918,13 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -917,6 +1035,13 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
   release_jepsen_test:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release Jepsen Test"
@@ -924,6 +1049,13 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -1036,6 +1168,13 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
   stress_test_large:
     if: ${{ inputs.run_stress_large == 'true' }}
     name: "Stress test large"
@@ -1043,6 +1182,13 @@ jobs:
     timeout-minutes: 720
 
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -1123,6 +1269,13 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
   release_query_modules_test:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release Query Modules Test"
@@ -1130,6 +1283,13 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -1192,6 +1352,13 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
+
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
 
   aggregate_results:
     name: "Aggregate Test Results"

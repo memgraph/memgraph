@@ -57,6 +57,13 @@ jobs:
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -178,12 +185,26 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
     runs-on: [self-hosted, Linux, "${{ github.event_name == 'merge_group' && 'laufey' || 'benchmark' }}"]
     timeout-minutes: 60
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -295,12 +316,26 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
   e2e:
     if: ${{ inputs.run_e2e == 'true' }}
     name: "End to end tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 110
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -409,12 +444,26 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
   stress:
     if: ${{ inputs.run_stress == 'true' }}
     name: "Stress tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -531,12 +580,26 @@ jobs:
         run: |
           ./tools/docker_cleanup.sh
 
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
   query_modules:
     if: ${{ inputs.run_query_modules == 'true' }}
     name: "Query modules tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Set up repository
         uses: actions/checkout@v4
         with:
@@ -615,3 +678,10 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
+
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v

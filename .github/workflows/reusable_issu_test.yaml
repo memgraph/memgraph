@@ -1,4 +1,4 @@
-name: Reusable ISSU Test 
+name: Reusable ISSU Test
 
 on:
   workflow_call:
@@ -26,6 +26,13 @@ jobs:
     name: ISSU Test
     runs-on: ${{ inputs.arch == 'arm' && fromJSON('["self-hosted", "ARM64", "Kubernetes"]') || fromJSON('["self-hosted", "X64", "Kubernetes"]') }}
     steps:
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -50,7 +57,7 @@ jobs:
         run: |
           docker pull "$NEXT_IMAGE"
           echo "MEMGRAPH_NEXT_DOCKERHUB_IMAGE=${{ env.NEXT_IMAGE }}" >> $GITHUB_ENV
-  
+
       - name: Load Next Image (URL)
         if: ${{ env.NEXT_TYPE == 'url' }}
         run: |
@@ -76,7 +83,7 @@ jobs:
         run: |
           curl -L ${{ env.LAST_IMAGE }} > last.tar.gz
           load_output=$(docker load -i last.tar.gz)
-          
+
           # grab each repo:tag, drop the ":latest" one, pick the first real tag
           repo_tag=$(echo "$load_output" \
             | awk -F': ' '/Loaded image:/ {print $2}' \
@@ -101,3 +108,10 @@ jobs:
       - name: Clean up Docker
         run: |
           ./tools/docker_cleanup.sh
+
+      - name: Show disk space
+        run: |
+          echo -e "\033[1;31mDisk space:\033[0m"
+          df -h
+          echo -e "\033[1;31mDocker system df:\033[0m"
+          docker system df -v
