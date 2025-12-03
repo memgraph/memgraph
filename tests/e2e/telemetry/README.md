@@ -18,7 +18,7 @@ memgraph --telemetry-enabled=True
 ```
 Finally, to run the test:
 ```
-npm install
+pnpm install --frozen-lockfile
 node get-run_id.js
 ```
 
