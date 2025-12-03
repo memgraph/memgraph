@@ -26,8 +26,6 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
-file = "snapshot_recovery"
-
 TMP_DIR = "/tmp/e2e_snapshot_recovery"
 
 import datetime
@@ -127,6 +125,7 @@ def main_test(data_directory, snapshot, database, clean):
     # 5) restart
     # 6) check data
 
+    data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
     connection = connect(host="localhost", port=7687)
     cursor = mt_cursor(connection, database)
 
@@ -195,6 +194,7 @@ def mt_setup():
 
 
 def mt_data_dir(data_directory, database):
+    data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
     if database != "memgraph":
         for entry in os.listdir(data_directory + "/databases"):
             if entry != "memgraph" and entry[0] != "." and os.path.isdir(data_directory + "/databases/" + entry):
@@ -220,7 +220,7 @@ def test_name(request):
 @pytest.mark.parametrize("database", ["memgraph", "other_db"])
 def test_empty(global_snapshot, database, test_name):
     assert global_snapshot is not None, "To snapshot to recover from"
-    data_directory = get_data_path(file, test_name)
+    data_directory = get_data_path("snapshot_recovery", test_name)
     interactive_mg_runner.start(memgraph_instances(data_directory), "default")
     mt_setup()
     main_test(mt_data_dir(data_directory, database), global_snapshot, database, True)
@@ -232,9 +232,10 @@ def test_empty(global_snapshot, database, test_name):
 
 def test_empty_with_local_snapshot(global_snapshot, test_name):
     assert global_snapshot != None, "To snapshot to recover from"
-    data_directory = get_data_path(file, test_name)
+    data_directory = get_data_path("snapshot_recovery", test_name)
     interactive_mg_runner.start(memgraph_instances(data_directory), "default")
-    local_snapshot = data_directory + "/snapshots/" + os.path.basename(global_snapshot)
+    full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
+    local_snapshot = full_data_directory + "/snapshots/" + os.path.basename(global_snapshot)
     shutil.copyfile(global_snapshot, local_snapshot)
     main_test(mt_data_dir(data_directory, "memgraph"), local_snapshot, "memgraph", True)
     interactive_mg_runner.kill_all()
@@ -246,7 +247,7 @@ def test_empty_with_local_snapshot(global_snapshot, test_name):
 @pytest.mark.parametrize("database", ["memgraph", "other_db"])
 def test_only_current_wal(global_snapshot, database, test_name):
     assert global_snapshot != None, "To snapshot to recover from"
-    data_directory = get_data_path(file, test_name)
+    data_directory = get_data_path("snapshot_recovery", test_name)
     interactive_mg_runner.start(memgraph_instances(data_directory), "default")
     mt_setup()
 
@@ -265,7 +266,7 @@ def test_only_current_wal(global_snapshot, database, test_name):
 @pytest.mark.parametrize("database", ["memgraph", "other_db"])
 def test_only_finalized_wals(global_snapshot, database, test_name):
     assert global_snapshot != None, "To snapshot to recover from"
-    data_directory = get_data_path(file, test_name)
+    data_directory = get_data_path("snapshot_recovery", test_name)
     interactive_mg_runner.start(memgraph_instances(data_directory), "default")
     mt_setup()
 
@@ -291,7 +292,7 @@ def test_only_finalized_wals(global_snapshot, database, test_name):
 @pytest.mark.parametrize("database", ["memgraph", "other_db"])
 def test_both_wals(global_snapshot, database, test_name):
     assert global_snapshot != None, "To snapshot to recover from"
-    data_directory = get_data_path(file, test_name)
+    data_directory = get_data_path("snapshot_recovery", test_name)
     interactive_mg_runner.start(memgraph_instances(data_directory), "default")
     mt_setup()
 
@@ -319,9 +320,10 @@ def test_both_wals(global_snapshot, database, test_name):
 def test_snapshot(global_snapshot, global_old_snapshot, test_name):
     assert global_snapshot != None, "To snapshot to recover from"
     assert global_old_snapshot != None, "To snapshot to recover from"
-    data_directory = get_data_path(file, test_name)
-    os.mkdir(data_directory + "/snapshots")
-    shutil.copyfile(global_old_snapshot, data_directory + "/snapshots/" + os.path.basename(global_old_snapshot))
+    data_directory = get_data_path("snapshot_recovery", test_name)
+    full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
+    os.makedirs(full_data_directory + "/snapshots", exist_ok=True)
+    shutil.copyfile(global_old_snapshot, full_data_directory + "/snapshots/" + os.path.basename(global_old_snapshot))
     interactive_mg_runner.start(memgraph_instances(data_directory), "recover_on_startup")
     data_check(connect(host="localhost", port=7687).cursor(), 5)
     main_test(mt_data_dir(data_directory, "memgraph"), global_snapshot, "memgraph", False)
@@ -334,9 +336,10 @@ def test_snapshot(global_snapshot, global_old_snapshot, test_name):
 def test_snapshot_and_current_wal(global_snapshot, global_old_snapshot, test_name):
     assert global_snapshot != None, "To snapshot to recover from"
     assert global_old_snapshot != None, "To snapshot to recover from"
-    data_directory = get_data_path(file, test_name)
-    os.mkdir(data_directory + "/snapshots")
-    shutil.copyfile(global_old_snapshot, data_directory + "/snapshots/" + os.path.basename(global_old_snapshot))
+    data_directory = get_data_path("snapshot_recovery", test_name)
+    full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
+    os.makedirs(full_data_directory + "/snapshots", exist_ok=True)
+    shutil.copyfile(global_old_snapshot, full_data_directory + "/snapshots/" + os.path.basename(global_old_snapshot))
     interactive_mg_runner.start(memgraph_instances(data_directory), "recover_on_startup")
     data_check(connect(host="localhost", port=7687).cursor(), 5)
 
@@ -355,9 +358,10 @@ def test_snapshot_and_current_wal(global_snapshot, global_old_snapshot, test_nam
 def test_snapshot_and_finalized_wals(global_snapshot, global_old_snapshot, test_name):
     assert global_snapshot != None, "To snapshot to recover from"
     assert global_old_snapshot != None, "To snapshot to recover from"
-    data_directory = get_data_path(file, test_name)
-    os.mkdir(data_directory + "/snapshots")
-    shutil.copyfile(global_old_snapshot, data_directory + "/snapshots/" + os.path.basename(global_old_snapshot))
+    data_directory = get_data_path("snapshot_recovery", test_name)
+    full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
+    os.makedirs(full_data_directory + "/snapshots", exist_ok=True)
+    shutil.copyfile(global_old_snapshot, full_data_directory + "/snapshots/" + os.path.basename(global_old_snapshot))
     interactive_mg_runner.start(memgraph_instances(data_directory), "recover_on_startup")
     data_check(connect(host="localhost", port=7687).cursor(), 5)
 
@@ -383,9 +387,10 @@ def test_snapshot_and_finalized_wals(global_snapshot, global_old_snapshot, test_
 def test_snapshot_and_both_wals(global_snapshot, global_old_snapshot, test_name):
     assert global_snapshot != None, "To snapshot to recover from"
     assert global_old_snapshot != None, "To snapshot to recover from"
-    data_directory = get_data_path(file, test_name)
-    os.mkdir(data_directory + "/snapshots")
-    shutil.copyfile(global_old_snapshot, data_directory + "/snapshots/" + os.path.basename(global_old_snapshot))
+    data_directory = get_data_path("snapshot_recovery", test_name)
+    full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
+    os.makedirs(full_data_directory + "/snapshots", exist_ok=True)
+    shutil.copyfile(global_old_snapshot, full_data_directory + "/snapshots/" + os.path.basename(global_old_snapshot))
     interactive_mg_runner.start(memgraph_instances(data_directory), "recover_on_startup")
     data_check(connect(host="localhost", port=7687).cursor(), 5)
 
@@ -413,7 +418,7 @@ def test_snapshot_and_both_wals(global_snapshot, global_old_snapshot, test_name)
 @pytest.mark.parametrize("database", ["memgraph", "other_db"])
 def test_local_snapshot(global_snapshot, database, test_name):
     assert global_snapshot != None, "To snapshot to recover from"
-    data_directory = get_data_path(file, test_name)
+    data_directory = get_data_path("snapshot_recovery", test_name)
     interactive_mg_runner.start(memgraph_instances(data_directory), "default")
     mt_setup()
     connection = connect(host="localhost", port=7687)
@@ -441,7 +446,7 @@ def test_local_snapshot(global_snapshot, database, test_name):
 @pytest.mark.parametrize("database", ["memgraph", "other_db"])
 def test_local_snapshot_and_current_wal(global_snapshot, database, test_name):
     assert global_snapshot != None, "To snapshot to recover from"
-    data_directory = get_data_path(file, test_name)
+    data_directory = get_data_path("snapshot_recovery", test_name)
     interactive_mg_runner.start(memgraph_instances(data_directory), "default")
     mt_setup()
     connection = connect(host="localhost", port=7687)
@@ -475,7 +480,7 @@ def test_marked_commits_after_snapshot(test_name):
     # 5 create more data
     # 6 verify deltas are being released
 
-    data_directory = get_data_path(file, test_name)
+    data_directory = get_data_path("snapshot_recovery", test_name)
     interactive_mg_runner.start(memgraph_instances(data_directory), "default")
 
     connection = connect(host="localhost", port=7687)
@@ -502,7 +507,8 @@ def test_marked_commits_after_snapshot(test_name):
     execute_and_fetch_all(cursor, "MATCH (n) RETURN count(*)")
     execute_and_fetch_all(cursor, "MATCH (n) RETURN count(*)")
     # 4
-    dir_path = Path(os.path.join(data_directory, "snapshots"))
+    full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
+    dir_path = Path(os.path.join(full_data_directory, "snapshots"))
     assert dir_path.exists()
     assert dir_path.is_dir()
     files = [f for f in dir_path.iterdir() if f.is_file()]
@@ -531,7 +537,7 @@ def test_recover_snapshot_already_in_local_dir(global_snapshot, test_name):
     """Test recovering from a snapshot that is already in the local snapshots directory."""
     assert global_snapshot is not None, "Need a snapshot to recover from"
 
-    data_directory = get_data_path(file, test_name)
+    data_directory = get_data_path("snapshot_recovery", test_name)
     interactive_mg_runner.start(memgraph_instances(data_directory), "default")
     mt_setup()
 
@@ -558,13 +564,14 @@ def test_recover_snapshot_already_in_local_dir(global_snapshot, test_name):
     assert result[0][0] == 1, "Should have the original node with id 1"
 
     # Verify .old directory was created and contains the old snapshot
-    old_snapshots_dir = os.path.join(data_directory, "snapshots", ".old")
+    full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
+    old_snapshots_dir = os.path.join(full_data_directory, "snapshots", ".old")
     assert os.path.exists(old_snapshots_dir), ".old directory should exist"
     old_files = os.listdir(old_snapshots_dir)
     assert len(old_files) > 0, ".old directory should contain files"
 
     # Recover from the local snapshot again
-    local_snapshots_dir = os.path.join(data_directory, "snapshots")
+    local_snapshots_dir = os.path.join(full_data_directory, "snapshots")
     local_files = [f for f in os.listdir(local_snapshots_dir) if os.path.isfile(os.path.join(local_snapshots_dir, f))]
     assert len(local_files) == 1, "There should be exactly one snapshot file in the local directory"
     local_snapshot_path = os.path.join(local_snapshots_dir, local_files[0])
@@ -576,7 +583,7 @@ def test_recover_snapshot_already_in_local_dir(global_snapshot, test_name):
     assert result[0][0] == 1, "Should have the original node with id 1"
 
     # Verify .old directory was created and contains the old snapshot
-    old_snapshots_dir = os.path.join(data_directory, "snapshots", ".old")
+    old_snapshots_dir = os.path.join(full_data_directory, "snapshots", ".old")
     assert os.path.exists(old_snapshots_dir), ".old directory should exist"
     old_files = os.listdir(old_snapshots_dir)
     assert len(old_files) > 0, ".old directory should contain files"
@@ -588,7 +595,7 @@ def test_recover_snapshot_already_in_old_dir(global_snapshot, test_name):
     """Test recovering from a snapshot that is already in the .old directory."""
     assert global_snapshot is not None, "Need a snapshot to recover from"
 
-    data_directory = get_data_path(file, test_name)
+    data_directory = get_data_path("snapshot_recovery", test_name)
     interactive_mg_runner.start(memgraph_instances(data_directory), "default")
     mt_setup()
 
@@ -613,7 +620,8 @@ def test_recover_snapshot_already_in_old_dir(global_snapshot, test_name):
     assert result[0][0] == 1, "Should have the original node with id 1"
 
     # Verify .old directory still exists and contains files
-    old_snapshots_dir = os.path.join(data_directory, "snapshots", ".old")
+    full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
+    old_snapshots_dir = os.path.join(full_data_directory, "snapshots", ".old")
     assert os.path.exists(old_snapshots_dir), ".old directory should exist"
     old_files = os.listdir(old_snapshots_dir)
     assert len(old_files) > 0, ".old directory should contain files"
@@ -625,7 +633,7 @@ def test_recover_snapshot_uuid_and_name_update(global_snapshot, test_name):
     """Test that recovered snapshot gets new UUID and name."""
     assert global_snapshot is not None, "Need a snapshot to recover from"
 
-    data_directory = get_data_path(file, test_name)
+    data_directory = get_data_path("snapshot_recovery", test_name)
     interactive_mg_runner.start(memgraph_instances(data_directory), "default")
     mt_setup()
 
@@ -645,14 +653,15 @@ def test_recover_snapshot_uuid_and_name_update(global_snapshot, test_name):
     execute_and_fetch_all(cursor, f'RECOVER SNAPSHOT "{original_snapshot_path}" FORCE;')
 
     # Check that the recovered snapshot has a new name (different from original)
-    snapshots_dir = os.path.join(data_directory, "snapshots")
+    full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
+    snapshots_dir = os.path.join(full_data_directory, "snapshots")
     current_files = [f for f in os.listdir(snapshots_dir) if os.path.isfile(os.path.join(snapshots_dir, f))]
     assert len(current_files) == 1, "Should have exactly one snapshot file"
     new_filename = current_files[0]
     assert new_filename != original_filename, "Recovered snapshot should have a new name"
 
     # Verify the original snapshot is backed up in .old directory
-    old_snapshots_dir = os.path.join(data_directory, "snapshots", ".old")
+    old_snapshots_dir = os.path.join(full_data_directory, "snapshots", ".old")
     assert os.path.exists(old_snapshots_dir), ".old directory should exist"
     old_files = os.listdir(old_snapshots_dir)
     assert original_filename in old_files, "Original snapshot should be backed up in .old directory"
@@ -661,7 +670,7 @@ def test_recover_snapshot_uuid_and_name_update(global_snapshot, test_name):
 
 
 def test_snapshot_on_mode_change_analytical_to_transactional(test_name):
-    data_directory = get_data_path(file, test_name)
+    data_directory = get_data_path("snapshot_recovery", test_name)
     interactive_mg_runner.start(memgraph_instances(data_directory), "default")
     connection = connect(host="localhost", port=7687)
     cursor = connection.cursor()
