@@ -6,4 +6,4 @@ cd "$SCRIPT_DIR"
 source "$SCRIPT_DIR/../../util.sh"
 setup_node
 
-pnpm install
+pnpm install --frozen-lockfile
