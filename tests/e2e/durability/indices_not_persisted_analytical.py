@@ -11,11 +11,10 @@
 
 import os
 import sys
-import tempfile
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all
+from common import connect, execute_and_fetch_all, get_data_path
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -23,6 +22,8 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 )
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
+
+FILE = "indices_not_persisted_analytical"
 
 
 def memgraph_instances(dir):
@@ -54,10 +55,15 @@ def memgraph_instances(dir):
     }
 
 
-def test_indices_not_persisted_in_analytical_mode():
-    data_directory = tempfile.TemporaryDirectory()
+@pytest.fixture
+def test_name(request):
+    return request.node.name
 
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "analytical")
+
+def test_indices_not_persisted_in_analytical_mode(test_name):
+    data_directory = get_data_path(FILE, test_name)
+
+    interactive_mg_runner.start(memgraph_instances(data_directory), "analytical")
     connection = connect(host="localhost", port=7687)
     cursor = connection.cursor()
 
@@ -72,7 +78,7 @@ def test_indices_not_persisted_in_analytical_mode():
 
     interactive_mg_runner.kill_all()
 
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "analytical_recover")
+    interactive_mg_runner.start(memgraph_instances(data_directory), "analytical_recover")
     connection = connect(host="localhost", port=7687)
     cursor = connection.cursor()
 

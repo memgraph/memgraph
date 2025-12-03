@@ -718,7 +718,7 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
     return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
-  AddMetadataDeltaIfTransactional(MetadataDelta::text_index_create, text_index_info);
+  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, text_index_info);
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
 }
@@ -739,7 +739,7 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
     return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
-  AddMetadataDeltaIfTransactional(MetadataDelta::text_edge_index_create, text_edge_index_info);
+  transaction_.md_deltas.emplace_back(MetadataDelta::text_edge_index_create, text_edge_index_info);
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
   return {};
 }
@@ -754,7 +754,7 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
   } else {
     return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  AddMetadataDeltaIfTransactional(MetadataDelta::text_index_drop, index_name);
+  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name);
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
 }

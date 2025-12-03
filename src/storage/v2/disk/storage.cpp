@@ -2064,7 +2064,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(always_invalidate_plan_cache);
   publisher(0 /*timestamp is ignored*/);
 
-  AddMetadataDeltaIfTransactional(MetadataDelta::label_index_create, label);
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
   return {};
@@ -2094,7 +2094,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(always_invalidate_plan_cache);
   publisher(0 /*timestamp is ignored*/);
 
-  AddMetadataDeltaIfTransactional(MetadataDelta::label_property_index_create, label, std::move(properties));
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
@@ -2130,7 +2130,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   // but we still need to call the outer publisher to ensure plan cache is cleared
   storage_->invalidator_->invalidate_now(always_invalidate_plan_cache);
 
-  AddMetadataDeltaIfTransactional(MetadataDelta::label_index_drop, label);
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
   return {};
@@ -2158,7 +2158,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   // but we still need to call the outer publisher to ensure plan cache is cleared
   storage_->invalidator_->invalidate_now(always_invalidate_plan_cache);
 
-  AddMetadataDeltaIfTransactional(MetadataDelta::label_property_index_drop, label, std::move(properties));
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
@@ -2224,7 +2224,7 @@ DiskStorage::DiskAccessor::CreateExistenceConstraint(LabelId label, PropertyId p
     return StorageExistenceConstraintDefinitionError{check.value()};
   }
   existence_constraints->InsertConstraint(label, property);
-  AddMetadataDeltaIfTransactional(MetadataDelta::existence_constraint_create, label, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
 
@@ -2236,7 +2236,7 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::D
   if (!existence_constraints->DropConstraint(label, property)) {
     return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
   }
-  AddMetadataDeltaIfTransactional(MetadataDelta::existence_constraint_drop, label, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);
   return {};
 }
 
@@ -2256,7 +2256,7 @@ DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<
   if (!disk_unique_constraints->InsertConstraint(label, properties, check.GetValue())) {
     return StorageUniqueConstraintDefinitionError{ConstraintDefinitionError{}};
   }
-  AddMetadataDeltaIfTransactional(MetadataDelta::unique_constraint_create, label, properties);
+  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
   return UniqueConstraints::CreationStatus::SUCCESS;
 }
 
@@ -2269,7 +2269,7 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
       ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
-  AddMetadataDeltaIfTransactional(MetadataDelta::unique_constraint_drop, label, properties);
+  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_drop, label, properties);
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
