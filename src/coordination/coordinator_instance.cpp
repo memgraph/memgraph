@@ -33,7 +33,6 @@
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
 #include "coordination/coordinator_instance_management_server_handlers.hpp"
-#include "coordination/coordinator_ops_status.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/replication_instance_client.hpp"
@@ -52,6 +51,7 @@
 #include <nlohmann/json.hpp>
 
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_ops_status;
 import memgraph.coordination.utils;
 
 namespace memgraph::metrics {

@@ -18,13 +18,13 @@
 #include <variant>
 
 #include "coordination/coordinator_instance.hpp"
-#include "coordination/coordinator_ops_status.hpp"
 #include "coordination/data_instance_management_server.hpp"
 #include "coordination/instance_status.hpp"
 
 #include "nlohmann/json_fwd.hpp"
 
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_ops_status;
 
 namespace memgraph::coordination {
 
