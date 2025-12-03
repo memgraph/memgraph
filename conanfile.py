@@ -87,7 +87,7 @@ class Memgraph(ConanFile):
         self.requires("snappy/1.2.1", override=True)
         self.requires("spdlog/1.15.3")
         self.requires("strong_type/v15")
-        self.requires("zlib/1.3.1", override=True, options={"shared": False})
+        self.requires("zlib/1.3.1", override=True)
 
     def build_requirements(self):
         self.tool_requires("cmake/4.1.2")
