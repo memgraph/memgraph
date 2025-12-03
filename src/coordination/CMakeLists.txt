@@ -6,6 +6,7 @@ target_sources(mg-coordination
         FILES
         coordinator_communication_config.cppm
         coordinator_log_store.cppm
+        coordinator_ops_status.cppm
         constants.cppm
         utils.cppm
         FILE_SET HEADERS
