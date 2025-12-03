@@ -39,6 +39,9 @@ env:
   OS: 'debian-12'
   TOOLCHAIN: 'v7'
   NODES_NO: 6
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+  CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+  CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
 
 jobs:
   ha-test:
@@ -89,7 +92,15 @@ jobs:
 
       - name: Build release binary
         run: |
-          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH --build-type $BUILD_TYPE build-memgraph
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            build-memgraph \
+            --conan-remote $CONAN_REMOTE \
+            --conan-username $CONAN_USERNAME \
+            --conan-password $CONAN_PASSWORD
 
       - name: Copy memgraph binary
         run: |
