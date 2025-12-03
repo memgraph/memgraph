@@ -1,6 +1,7 @@
 args: &args
   - "--bolt-port=7687"
   - "--log-level=TRACE"
+  - "--file-download-conn-timeout-sec=15"
 
 load_jsonl_in_memory_cluster: &load_jsonl_in_memory_cluster
   cluster:
@@ -15,4 +16,8 @@ workloads:
   - name: "LOAD JSONL"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["load_jsonl/load_jsonl.py"]
+    <<: *load_jsonl_in_memory_cluster
+  - name: "LOAD S3 JSONL"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["load_jsonl/load_jsonl_s3.py"]
     <<: *load_jsonl_in_memory_cluster

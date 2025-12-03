@@ -1,6 +1,7 @@
 args: &args
   - "--bolt-port=7687"
   - "--log-level=TRACE"
+  - "--file-download-conn-timeout-sec=15"
 
 load_parquet_in_memory_cluster: &load_parquet_in_memory_cluster
   cluster:

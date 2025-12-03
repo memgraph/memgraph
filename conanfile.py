@@ -48,36 +48,54 @@ class Memgraph(ConanFile):
         "aws-sdk-cpp/*:cognito-identity": True,
         "aws-sdk-cpp/*:iam": False,
         "aws-sdk-cpp/*:identity-management": True,
-        "aws-sdk-cpp/*:transfer": False,
+        "aws-sdk-cpp/*:transfer": True,
     }
 
     def requirements(self):
-        self.requires("bzip2/1.0.8")
-        self.requires("fmt/11.2.0")
         # self.requires("gflags/2.2.2") # we cannot use this gflags because we have a custom one!
+        self.requires("abseil/20250512.1")
+        self.requires("antlr4-cppruntime/4.13.2")
+        self.requires("arrow/22.0.0", options={"with_s3": True, "with_snappy": True, "with_mimalloc": False})
+        self.requires(
+            "aws-sdk-cpp/1.11.692",
+            options={
+                "config": True,
+                "s3": True,
+                "monitoring": False,
+                "queues": False,
+                "sqs": False,
+                "access-management": False,
+                "cognito-identity": True,
+                "iam": False,
+                "identity-management": True,
+                "transfer": True,
+                "text-to-speech": False,
+            },
+        )
+        self.requires("asio/1.36.0")
+        self.requires("boost/1.88.0")
+        self.requires("bzip2/1.0.8")
+        self.requires("cppitertools/2.2")
+        self.requires("croncpp/2023.03.30")
+        self.requires("ctre/3.10.0")
+        self.requires("fmt/11.2.0")
+        self.requires("libcurl/8.17.0", override=True)
+        self.requires("mgclient/1.4.3", options={"with_cpp": True})
+        self.requires("range-v3/0.12.0")
+        self.requires("simdjson/4.2.2")
+        self.requires("snappy/1.2.1", override=True)
         self.requires("spdlog/1.15.3")
         self.requires("strong_type/v15")
-        self.requires("boost/1.86.0")
-        self.requires("antlr4-cppruntime/4.13.2")
-        self.requires("cppitertools/2.2")
-        self.requires("ctre/3.9.0")
-        self.requires("abseil/20250512.1")
-        self.requires("croncpp/2023.03.30")
-        self.requires("range-v3/0.12.0")
-        self.requires("asio/1.34.2")
-        self.requires("mgclient/1.4.3", options={"with_cpp": True})
-        self.requires("snappy/1.2.1", override=True)
-        self.requires("arrow/22.0.0", options={"with_s3": True, "with_snappy": True, "with_mimalloc": False})
-        self.requires("simdjson/4.1.0")
+        self.requires("zlib/1.3.1")
 
     def build_requirements(self):
-        self.tool_requires("cmake/4.0.3")
-        self.tool_requires("ninja/1.11.1")
+        self.tool_requires("cmake/4.1.2")
+        self.tool_requires("ninja/1.13.1")
         self.tool_requires("ccache/4.12.1")
         self.tool_requires("antlr4/4.13.1")
 
-        self.test_requires("benchmark/1.9.1")
-        self.test_requires("gtest/1.16.0")
+        self.test_requires("benchmark/1.9.4")
+        self.test_requires("gtest/1.17.0")
 
     def validate(self):
         """Validate configuration before generation"""
@@ -119,6 +137,17 @@ class Memgraph(ConanFile):
         deps = CMakeDeps(self)
         deps.generate()
         tc = CMakeToolchain(self)
+
+        # Automatically set sanitizer CMake flags based on compiler settings
+        if self.settings.get_safe("compiler.asan"):
+            tc.cache_variables["ASAN"] = "ON"
+
+        if self.settings.get_safe("compiler.ubsan"):
+            tc.cache_variables["UBSAN"] = "ON"
+
+        if self.settings.get_safe("compiler.tsan"):
+            tc.cache_variables["TSAN"] = "ON"
+
         tc.generate()
 
         # SBOM generation

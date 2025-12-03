@@ -431,6 +431,7 @@ void FillReturnBody(AstStorage &, ReturnBody &body, Expression *expr, NamedExpre
   // This overload supports `RETURN(expr, AS(name))` construct, since
   // NamedExpression does not inherit Expression.
   named_expr->expression_ = expr;
+  named_expr->is_aliased_ = true;  // Using AS() implies explicit aliasing
   body.named_expressions.emplace_back(named_expr);
 }
 void FillReturnBody(AstStorage &storage, ReturnBody &body, const std::string &name, NamedExpression *named_expr) {
@@ -439,7 +440,9 @@ void FillReturnBody(AstStorage &storage, ReturnBody &body, const std::string &na
 }
 template <class... T>
 void FillReturnBody(AstStorage &storage, ReturnBody &body, Expression *expr, NamedExpression *named_expr, T... rest) {
+  // This overload supports `RETURN(expr, AS(name), ...)`
   named_expr->expression_ = expr;
+  named_expr->is_aliased_ = true;  // Using AS() implies explicit aliasing
   body.named_expressions.emplace_back(named_expr);
   FillReturnBody(storage, body, rest...);
 }

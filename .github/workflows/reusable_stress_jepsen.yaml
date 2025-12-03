@@ -20,6 +20,15 @@ on:
         description: "Duration of Jepsen test (in seconds)"
         required: true
         default: "7200"
+      num-tenants:
+        type: string
+        description: "Number of tenants used in the HA Jepsen test"
+        required: true
+        default: "5"
+      concurrency:
+        type: string
+        description: "The number of worker threads. If not set, number of nodes will be used instead."
+        default: ""
 
 
 env:
@@ -92,6 +101,8 @@ jobs:
           ./run.sh unit-tests --binary ../../build/memgraph
 
       - name: Run Jepsen workload
+        env:
+            INPUT_CONCURRENCY: ${{ inputs.concurrency }}
         run: |
           cd tests/jepsen
 
@@ -99,10 +110,21 @@ jobs:
           CLEANUP_PID=$!
           trap "kill $CLEANUP_PID" EXIT
 
-          if [[ "${{ inputs.mt }}" == "true" ]]; then
-            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $NODES_NO --num-tenants 3 --recovery-time 600 --nemesis-start-sleep 480"
+          if [ -z "$INPUT_CONCURRENCY" ]; then
+            MIN=$NODES_NO
+            MAX=$((3 * NODES_NO))
+            CONCURRENCY=$((MIN + RANDOM % (MAX - MIN + 1)))
+            echo "Generated random concurrency: $CONCURRENCY (range: $MIN-$MAX)"
           else
-            ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $NODES_NO --recovery-time 600 --nemesis-start-sleep 25"
+            CONCURRENCY=$INPUT_CONCURRENCY
+            echo "Using provided concurrency: $CONCURRENCY"
+          fi
+
+          if [[ "${{ inputs.mt }}" == "true" ]]; then
+            NEMESIS_SLEEP_SEC=$((90 * ${{ inputs.num-tenants }}))
+            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --num-tenants ${{ inputs.num-tenants }} --recovery-time 600 --nemesis-start-sleep $NEMESIS_SLEEP_SEC"
+          else
+            ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --recovery-time 600 --nemesis-start-sleep 25"
           fi
 
           ./run.sh test \

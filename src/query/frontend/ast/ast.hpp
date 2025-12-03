@@ -3245,9 +3245,10 @@ class LoadCsv : public memgraph::query::Clause {
   memgraph::query::Expression *quote_{nullptr};
   memgraph::query::Expression *nullif_{nullptr};
   memgraph::query::Identifier *row_var_{nullptr};
+  std::unordered_map<Expression *, Expression *> configs_;
 
   LoadCsv *Clone(AstStorage *storage) const override {
-    LoadCsv *object = storage->Create<LoadCsv>();
+    auto *object = storage->Create<LoadCsv>();
     object->file_ = file_ ? file_->Clone(storage) : nullptr;
     object->with_header_ = with_header_;
     object->ignore_bad_ = ignore_bad_;
@@ -3255,6 +3256,9 @@ class LoadCsv : public memgraph::query::Clause {
     object->quote_ = quote_ ? quote_->Clone(storage) : nullptr;
     object->nullif_ = nullif_;
     object->row_var_ = row_var_ ? row_var_->Clone(storage) : nullptr;
+    for (auto const &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
     return object;
   }
 
@@ -3328,11 +3332,15 @@ class LoadJsonl : public Clause {
 
   Expression *file_;
   Identifier *row_var_{nullptr};
+  std::unordered_map<Expression *, Expression *> configs_;
 
   LoadJsonl *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<LoadJsonl>();
     object->file_ = file_ ? file_->Clone(storage) : nullptr;
     object->row_var_ = row_var_ ? row_var_->Clone(storage) : nullptr;
+    for (auto const &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
     return object;
   }
 

@@ -9,14 +9,12 @@ if(NPROC EQUAL 0)
   set(NPROC 1)
 endif()
 
-find_package(BZip2 REQUIRED)
 find_package(Threads REQUIRED)
 set(GFLAGS_NOTHREADS OFF)
 
 # NOTE: config/generate.py depends on the gflags help XML format.
 find_package(gflags REQUIRED)
 find_package(fmt REQUIRED)
-find_package(ZLIB REQUIRED)
 find_package(spdlog REQUIRED)
 
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR})
@@ -334,13 +332,6 @@ mg_create_linkable_if_no_cmake(librdtsc STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdts
 
 set(ABSL_PROPAGATE_CXX_STD ON)
 
-macro(link_jmalloc)
-  set_path_external_library(jemalloc STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/lib/libjemalloc.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
-endmacro()
-mg_build_if_needed(link_jmalloc "jemalloc")
-
 message(STATUS "MG_TOOLCHAIN_VERSION: ${MG_TOOLCHAIN_VERSION}")
 if(DEFINED MG_TOOLCHAIN_VERSION)
   if(${MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
@@ -355,7 +346,6 @@ macro(build_nuraft)
 endmacro()
 mg_build_if_needed(build_nuraft "nuraft")
 mg_create_linkable_if_no_cmake(nuraft STATIC "${MG_TOOLCHAIN_ROOT}/lib/libnuraft.a" "${MG_TOOLCHAIN_ROOT}/include")
-find_package(OpenSSL REQUIRED)
 target_link_libraries(nuraft INTERFACE openssl::openssl)
 
 # Always build mgcxx locally (not from toolchain)
