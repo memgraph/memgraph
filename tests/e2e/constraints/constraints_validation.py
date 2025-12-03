@@ -315,10 +315,12 @@ def test_cant_create_constraints_in_analytical_mode(memgraph):
 
 
 def test_can_change_storage_mode_after_create_and_drop_constraint(memgraph):
+    memgraph.execute("STORAGE MODE IN_MEMORY_TRANSACTIONAL;")
+
     memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT EXISTS (n.prop);")
     memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT EXISTS (n.prop);")
+
     memgraph.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
-    memgraph.execute("STORAGE MODE IN_MEMORY_TRANSACTIONAL;")
 
 
 if __name__ == "__main__":
