@@ -9,7 +9,6 @@
             [jepsen.nemesis.combined :as nemesis-combined]
             [clojure.tools.logging :refer [info]]
             [clojure.string :as str]
-            [memgraph.mtenancy.utils :as mutils]
             [memgraph
              [support :as s]
              [query :as mgquery]
@@ -114,8 +113,8 @@
                              (nil? leader) main
                              :else (rand-nth [main leader]))
               node-desc (cond
-                          (mutils/data-instance? node-to-kill) "current main"
-                          (mutils/coord-instance? node-to-kill) "current leader"
+                          (utils/data-instance? node-to-kill) "current main"
+                          (utils/coord-instance? node-to-kill) "current leader"
                           :else "random node")]
 
           (info "Killing" node-desc ":" node-to-kill)
