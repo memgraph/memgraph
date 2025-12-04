@@ -9,18 +9,20 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
 #include "replication_coordination_glue/role.hpp"
 #include "utils/uuid.hpp"
 
 #include <nlohmann/json_fwd.hpp>
 
+export module memgraph.coordination.data_instance_context;
+
 import memgraph.coordination.coordinator_communication_config;
 
 #ifdef MG_ENTERPRISE
 
-namespace memgraph::coordination {
+export namespace memgraph::coordination {
 
 // Context saved about each data instance in Raft logs (app log)
 struct DataInstanceContext {

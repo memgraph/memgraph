@@ -11,8 +11,6 @@
 
 module;
 
-#include "coordination/coordinator_instance_context.hpp"
-#include "coordination/data_instance_context.hpp"
 #include "kvstore/kvstore.hpp"
 
 #include <map>
@@ -24,6 +22,8 @@ module;
 
 export module memgraph.coordination.utils;
 
+import memgraph.coordination.coordinator_instance_context;
+import memgraph.coordination.data_instance_context;
 import memgraph.coordination.logger_wrapper;
 
 #ifdef MG_ENTERPRISE

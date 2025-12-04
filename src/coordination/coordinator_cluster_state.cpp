@@ -9,12 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
+module;
 
-#include "coordination/coordinator_cluster_state.hpp"
-
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <shared_mutex>
+
+#include "utils/uuid.hpp"
+
+module memgraph.coordination.coordinator_cluster_state;
+
+#ifdef MG_ENTERPRISE
 
 import memgraph.coordination.constants;
 

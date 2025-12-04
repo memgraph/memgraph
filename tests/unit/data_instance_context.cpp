@@ -9,8 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "coordination/data_instance_context.hpp"
 #include "replication_coordination_glue/mode.hpp"
+#include "replication_coordination_glue/role.hpp"
 
 #include <gtest/gtest.h>
 #include <filesystem>
@@ -18,6 +18,7 @@
 #include "utils/uuid.hpp"
 
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.data_instance_context;
 
 #ifdef MG_ENTERPRISE
 

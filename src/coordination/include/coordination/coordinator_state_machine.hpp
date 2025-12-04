@@ -13,15 +13,20 @@
 
 #ifdef MG_ENTERPRISE
 
-#include <spdlog/spdlog.h>
-#include "coordination/coordinator_cluster_state.hpp"
 #include "kvstore/kvstore.hpp"
+#include "utils/uuid.hpp"
 
 #include <optional>
 
+#include "libnuraft/nuraft.hxx"
+#include "nlohmann/json_fwd.hpp"
+
+import memgraph.coordination.coordinator_cluster_state;
 import memgraph.coordination.constants;
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_log_store;
+import memgraph.coordination.coordinator_instance_context;
+import memgraph.coordination.data_instance_context;
 import memgraph.coordination.logger_wrapper;
 
 namespace memgraph::coordination {

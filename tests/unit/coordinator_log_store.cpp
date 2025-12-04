@@ -13,6 +13,7 @@
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "replication_coordination_glue/mode.hpp"
+#include "replication_coordination_glue/role.hpp"
 #include "utils/uuid.hpp"
 
 #include <gflags/gflags.h>
@@ -20,6 +21,7 @@
 
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_log_store;
+import memgraph.coordination.logger;
 
 using memgraph::coordination::CoordinatorClusterStateDelta;
 using memgraph::coordination::CoordinatorInstanceContext;

@@ -11,10 +11,10 @@
 
 #include "gtest/gtest.h"
 
-#include "coordination/coordinator_instance_context.hpp"
-
 #include <filesystem>
 #include <nlohmann/json.hpp>
+
+import memgraph.coordination.coordinator_instance_context;
 
 using memgraph::coordination::CoordinatorInstanceContext;
 

@@ -9,10 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
+module;
 
-#include "coordination/data_instance_context.hpp"
 #include <nlohmann/json.hpp>
+
+module memgraph.coordination.data_instance_context;
+
+#ifdef MG_ENTERPRISE
 
 import memgraph.coordination.constants;
 
