@@ -8,6 +8,8 @@ target_sources(mg-coordination
         coordinator_log_store.cppm
         coordinator_ops_status.cppm
         constants.cppm
+        instance_status.cppm
+        log_level.cppm
         utils.cppm
         FILE_SET HEADERS
         FILES
@@ -30,7 +32,6 @@ target_sources(mg-coordination
         include/coordination/data_instance_management_server.hpp
         include/coordination/data_instance_management_server_handlers.hpp
         include/coordination/instance_state.hpp
-        include/coordination/instance_status.hpp
         include/coordination/logger.hpp
         include/coordination/logger_wrapper.hpp
         include/coordination/raft_state.hpp

@@ -9,11 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
+
+#include <string>
+
+export module memgraph.coordination.instance_status;
 
 #ifdef MG_ENTERPRISE
 
-namespace memgraph::coordination {
+export namespace memgraph::coordination {
 
 struct InstanceStatus {
   std::string instance_name;

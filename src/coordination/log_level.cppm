@@ -9,13 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#ifdef MG_ENTERPRISE
+module;
 
 #include <cstdint>
 
-namespace memgraph::coordination {
+export module memgraph.coordination.log_level;
+
+#ifdef MG_ENTERPRISE
+
+export namespace memgraph::coordination {
 
 /**
  NuRaft log level:

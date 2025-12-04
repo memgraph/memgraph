@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,12 +13,12 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/log_level.hpp"
 #include "coordination/logger.hpp"
 
 #include <source_location>
 #include <string>
 
+import memgraph.coordination.log_level;
 namespace memgraph::coordination {
 
 class LoggerWrapper {
