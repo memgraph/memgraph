@@ -173,7 +173,7 @@ class Synchronized {
 
   template <class TCallable>
   requires SharedMutex<TMutex> && requires(TCallable &&c, const T &v) { c(v); }
-  decltype(auto) WithReadLock(TCallable &&callable) const { return callable(*ReadLock()); }
+  auto WithReadLock(TCallable &&callable) const { return callable(*ReadLock()); }
   template <class TCallable>
   requires SharedMutex<TMutex> && requires(TCallable &&c, const T &v) { c(v); }
   decltype(auto) TryWithReadLock(TCallable &&callable) const { return callable(*TryReadLock()); }
