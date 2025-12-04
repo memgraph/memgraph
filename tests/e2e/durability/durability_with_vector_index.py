@@ -328,6 +328,178 @@ def test_durability_with_two_vector_indices(connection):
     interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
 
 
+def test_durability_with_two_vector_indices_drop_one(connection):
+    # Goal: That dropping one vector index preserves vectors for remaining index on node with both labels.
+    # 1/ Create two vector indices on same property but different labels
+    # 2/ Create node with both labels
+    # 3/ Drop one index
+    # 4/ Kill and restart
+    # 5/ Validate vector is preserved for remaining index, not on node
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_two_indices_drop_one.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index2 ON :L2(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    # 2/
+    execute_and_fetch_all(cursor, "CREATE (n:L1:L2 {prop1: [1.0, 2.0]});")
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    index_info = sorted(index_info, key=lambda x: x[2])
+    assert len(index_info) == 2
+    assert index_info[0][6] == 1
+    assert index_info[1][6] == 1
+
+    # 3/
+    execute_and_fetch_all(cursor, "DROP VECTOR INDEX test_index;")
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == 1
+
+    # Verify vector is still accessible via remaining index
+    prop = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1;")
+    assert prop[0][0] == [1.0, 2.0]
+
+    prop2 = execute_and_fetch_all(cursor, "MATCH (n:L2) RETURN n.prop1;")
+    assert prop2[0][0] == [1.0, 2.0]
+
+    node = execute_and_fetch_all(cursor, "MATCH (n:L1:L2) RETURN n LIMIT 1;")
+    assert "prop1" not in node[0][0].properties, "Property should not be visible on node when stored in index"
+
+    # 4/
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    # 5/
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == 1
+
+    node = execute_and_fetch_all(cursor, "MATCH (n:L1:L2) RETURN n LIMIT 1;")
+    assert "prop1" not in node[0][0].properties, "Property should not be visible on node when stored in index"
+
+    # Verify vector is still accessible via remaining index after restart
+    prop = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1;")
+    assert prop[0][0] == [1.0, 2.0]
+
+    prop2 = execute_and_fetch_all(cursor, "MATCH (n:L2) RETURN n.prop1;")
+    assert prop2[0][0] == [1.0, 2.0]
+
+    search = execute_and_fetch_all(cursor, "CALL vector_search.search('test_index2', 1, [1.0, 2.0]) YIELD * RETURN *;")
+    assert len(search) == 1
+    assert search[0][0] == 0.0
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
+def test_durability_with_vector_index_drop_single_index(connection):
+    # Goal: That dropping a single vector index restores vectors to property store and persists correctly.
+    # 1/ Create vector index and add nodes
+    # 2/ Drop the index
+    # 3/ Kill and restart
+    # 4/ Validate vectors are in property store, not in any index
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_vector_index_drop_single.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    execute_and_fetch_all(
+        cursor,
+        """CREATE (:L1 {prop1: [1.0, 2.0]})
+           CREATE (:L1 {prop1: [3.0, 4.0]})
+           CREATE (:L1 {prop1: [5.0, 6.0]});""",
+    )
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == 3
+
+    # Verify property is not visible on node when in index
+    node = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
+    assert "prop1" not in node[0][0].properties, "Property should not be visible on node when stored in index"
+
+    # 2/
+    execute_and_fetch_all(cursor, "DROP VECTOR INDEX test_index;")
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 0
+
+    # Verify property is now visible on node after index is dropped
+    node = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
+    assert "prop1" in node[0][0].properties, "Property should be visible on node after index is dropped"
+
+    # Verify vectors are accessible
+    props = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1 ORDER BY n.prop1[0];")
+    assert len(props) == 3
+    assert props[0][0] == [1.0, 2.0]
+    assert props[1][0] == [3.0, 4.0]
+    assert props[2][0] == [5.0, 6.0]
+
+    # 3/
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    # 4/
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 0
+
+    # Verify property is still visible on node after restart
+    node = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
+    assert "prop1" in node[0][0].properties, "Property should be visible on node after restart"
+
+    # Verify all vectors are still accessible
+    props = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1 ORDER BY n.prop1[0];")
+    assert len(props) == 3
+    assert props[0][0] == [1.0, 2.0]
+    assert props[1][0] == [3.0, 4.0]
+    assert props[2][0] == [5.0, 6.0]
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
 def test_durability_with_two_vector_indices_remove_one_label(connection):
     # Goal: That removing one label from node with two labels keeps property in remaining index, not on node.
     # 1/ Create two vector indices on same property but different labels
