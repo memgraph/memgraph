@@ -23,6 +23,7 @@
 
 import memgraph.coordination.constants;
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.logger;
 
 using memgraph::coordination::CoordinatorClusterState;
 using memgraph::coordination::CoordinatorInstanceAux;

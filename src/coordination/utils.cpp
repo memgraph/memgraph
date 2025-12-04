@@ -11,8 +11,6 @@
 
 module;
 
-#include "coordination/coordinator_instance_context.hpp"
-#include "coordination/data_instance_context.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/logging.hpp"
 
@@ -26,6 +24,8 @@ module;
 
 module memgraph.coordination.utils;
 
+import memgraph.coordination.coordinator_instance_context;
+import memgraph.coordination.data_instance_context;
 import memgraph.coordination.log_level;
 import memgraph.coordination.logger_wrapper;
 

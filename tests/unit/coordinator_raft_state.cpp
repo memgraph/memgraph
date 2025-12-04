@@ -12,12 +12,15 @@
 #include "coordination/raft_state.hpp"
 #include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/mode.hpp"
+#include "replication_coordination_glue/role.hpp"
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_instance_context;
+import memgraph.coordination.data_instance_context;
 import memgraph.coordination.utils;
 
 using memgraph::coordination::CoordinatorInstanceContext;

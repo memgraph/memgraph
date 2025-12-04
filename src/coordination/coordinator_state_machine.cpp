@@ -13,17 +13,22 @@
 
 #include "coordination/coordinator_state_machine.hpp"
 
-#include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_state_manager.hpp"
 #include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"
+#include "utils/uuid.hpp"
 
 #include <nlohmann/json.hpp>
 #include <regex>
 
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_cluster_state;
 import memgraph.coordination.constants;
 import memgraph.coordination.coordinator_exceptions;
+import memgraph.coordination.coordinator_instance_context;
+import memgraph.coordination.data_instance_context;
 import memgraph.coordination.log_level;
+import memgraph.coordination.logger_wrapper;
 
 using nuraft::cluster_config;
 using nuraft::ptr;
@@ -327,7 +332,7 @@ auto CoordinatorStateMachine::apply_snapshot(snapshot &s) -> bool {
   return true;
 }
 
-auto CoordinatorStateMachine::free_user_snp_ctx(void *&user_snp_ctx) -> void {}
+auto CoordinatorStateMachine::free_user_snp_ctx(void *& /*user_snp_ctx*/) -> void {}
 
 auto CoordinatorStateMachine::last_snapshot() -> ptr<snapshot> {
   auto ll = std::lock_guard{snapshots_lock_};

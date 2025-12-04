@@ -9,16 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
 #include <cstdint>
 #include <string>
 
 #include <nlohmann/json_fwd.hpp>
 
+export module memgraph.coordination.coordinator_instance_context;
+
 #ifdef MG_ENTERPRISE
 
-namespace memgraph::coordination {
+export namespace memgraph::coordination {
 // Context saved about each coordinator in Raft logs (app log)
 struct CoordinatorInstanceContext {
   int32_t id;

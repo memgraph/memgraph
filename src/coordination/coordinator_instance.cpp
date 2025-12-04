@@ -27,7 +27,6 @@
 #include <vector>
 
 #include <communication/bolt/v1/encoder/base_encoder.hpp>
-#include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
 #include "coordination/coordinator_instance_management_server_handlers.hpp"
@@ -48,6 +47,7 @@
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 
+import memgraph.coordination.coordinator_cluster_state;
 import memgraph.coordination.constants;
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_exceptions;

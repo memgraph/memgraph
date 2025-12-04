@@ -9,12 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
-#ifdef MG_ENTERPRISE
-
-#include "coordination/coordinator_instance_context.hpp"
-#include "coordination/data_instance_context.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/uuid.hpp"
@@ -24,9 +20,15 @@
 
 #include <string>
 
+export module memgraph.coordination.coordinator_cluster_state;
+
+#ifdef MG_ENTERPRISE
+
+import memgraph.coordination.coordinator_instance_context;
+import memgraph.coordination.data_instance_context;
 import memgraph.coordination.coordinator_communication_config;
 
-namespace memgraph::coordination {
+export namespace memgraph::coordination {
 
 using nuraft::buffer;
 // NOLINTNEXTLINE
