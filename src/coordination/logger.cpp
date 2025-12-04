@@ -9,9 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
+module;
 
-#include "coordination/logger.hpp"
+#include <string>
+#include <vector>
+
+#include <spdlog/sinks/daily_file_sink.h>
+
+module memgraph.coordination.logger;
+
+#ifdef MG_ENTERPRISE
 
 namespace {
 constexpr int log_retention_count = 35;

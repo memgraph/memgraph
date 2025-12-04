@@ -9,12 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
 #include <cstdint>
+#include <map>
 #include <string>
 
-namespace memgraph::coordination {
+export module memgraph.coordination.replication_lag_info;
+
+export namespace memgraph::coordination {
 
 struct ReplicaDBLagData {
   uint64_t num_committed_txns_;

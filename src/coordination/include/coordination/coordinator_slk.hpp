@@ -13,14 +13,14 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/instance_state.hpp"
-#include "coordination/replication_lag_info.hpp"
 #include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "slk/serialization.hpp"
 
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.instance_state;
 import memgraph.coordination.instance_status;
+import memgraph.coordination.replication_lag_info;
 
 namespace memgraph::slk {
 

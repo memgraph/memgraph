@@ -13,6 +13,9 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <libnuraft/logger.hxx>
+#include <libnuraft/nuraft.hxx>
+
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_instance_aux.hpp"
 #include "coordination/logger_wrapper.hpp"

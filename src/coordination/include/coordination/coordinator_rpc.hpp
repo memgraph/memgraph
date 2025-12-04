@@ -13,15 +13,15 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/instance_state.hpp"
-#include "coordination/replication_lag_info.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/messages.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/uuid.hpp"
 
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.instance_state;
 import memgraph.coordination.instance_status;
+import memgraph.coordination.replication_lag_info;
 import memgraph.coordination.utils;
 
 namespace memgraph::coordination {
