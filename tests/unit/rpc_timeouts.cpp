@@ -16,12 +16,14 @@
 
 #include "rpc_messages.hpp"
 
-#include "coordination/coordinator_rpc.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "rpc/client.hpp"
 #include "rpc/file_replication_handler.hpp"
 #include "rpc/server.hpp"
-#include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
+#include "rpc/utils.hpp"
+
+import memgraph.coordination.coordinator_rpc;
+// Needs to be included last so that SLK definitions are seen
 
 using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;

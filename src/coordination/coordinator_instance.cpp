@@ -51,6 +51,7 @@ import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_exceptions;
 import memgraph.coordination.coordinator_instance_aux;
 import memgraph.coordination.coordinator_ops_status;
+import memgraph.coordination.coordinator_rpc;
 import memgraph.coordination.instance_state;
 import memgraph.coordination.instance_status;
 import memgraph.coordination.replication_lag_info;

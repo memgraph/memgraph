@@ -13,11 +13,11 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_rpc.hpp"
 #include "coordination/data_instance_management_server.hpp"
 #include "replication_handler/replication_handler.hpp"
 
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_rpc;
 
 namespace memgraph::dbms {
 

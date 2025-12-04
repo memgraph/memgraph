@@ -14,10 +14,11 @@
 #include "coordination/replication_instance_client.hpp"
 
 #include "coordination/coordinator_instance.hpp"
-#include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/common.hpp"
 
 #include <string>
+
+import memgraph.coordination.coordinator_rpc;
 
 namespace memgraph::coordination {
 

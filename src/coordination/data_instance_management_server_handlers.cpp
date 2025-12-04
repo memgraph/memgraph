@@ -12,11 +12,12 @@
 #ifdef MG_ENTERPRISE
 #include "coordination/data_instance_management_server_handlers.hpp"
 
-#include "coordination/coordinator_rpc.hpp"
 #include "coordination/include/coordination/data_instance_management_server.hpp"
 #include "replication/state.hpp"
 
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
+
+import memgraph.coordination.coordinator_rpc;
 
 namespace memgraph::rpc {
 class FileReplicationHandler;

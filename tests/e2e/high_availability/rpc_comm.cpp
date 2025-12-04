@@ -11,10 +11,11 @@
 
 #include <iostream>
 
-#include <coordination/coordinator_rpc.hpp>
 #include <coordination/replication_instance_client.hpp>
 #include <replication_coordination_glue/handler.hpp>
 #include <replication_coordination_glue/mode.hpp>
+
+import memgraph.coordination.coordinator_rpc;
 
 bool SendSwapUUID(const char *address, int port, const char *uuid) {
   try {

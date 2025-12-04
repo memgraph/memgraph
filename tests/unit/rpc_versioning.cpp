@@ -12,7 +12,6 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/common.hpp"
 
 #include "rpc_messages.hpp"
@@ -23,6 +22,7 @@
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
 import memgraph.coordination.instance_state;
+import memgraph.coordination.coordinator_rpc;
 
 using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
