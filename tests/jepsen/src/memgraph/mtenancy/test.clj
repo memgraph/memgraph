@@ -118,7 +118,7 @@
                                          #_{:clj-kondo/ignore [:unresolved-symbol]}
                                          (utils/with-db-session bolt-conn session-config session
                                            (let [db-num-nodes (->> #_{:clj-kondo/ignore [:unresolved-var]}
-                                                               (mgquery/get-num-user-nodes session) first :c)]
+                                                               (mgquery/get-num-nodes session) first :c)]
                                              (conj acc-nodes db-num-nodes)))))
 
                                      [] (mutils/get-all-dbs num-tenants))]
@@ -481,6 +481,7 @@
                                   (filter #(= :ok (:type %)))
                                   (filter #(= :get-num-nodes (:f %)))
                                   (map :value))
+
 
             ok-get-num-edges (->> history
                                   (filter #(= :ok (:type %)))

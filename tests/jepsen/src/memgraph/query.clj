@@ -63,12 +63,12 @@
   CREATE (n1)-[:KNOWS]->(n2);
   ")
 
-
 #_{:clj-kondo/ignore [:unresolved-symbol]}
-(dbclient/defquery get-num-user-nodes
+(dbclient/defquery get-num-nodes
   "
-  MATCH (n:User) RETURN count(n) as c;
+  MATCH (n) RETURN count(n) as c;
   ")
+
 
 #_{:clj-kondo/ignore [:unresolved-symbol]}
 (dbclient/defquery get-num-knows-edges
