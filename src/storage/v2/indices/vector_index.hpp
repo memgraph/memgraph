@@ -124,6 +124,8 @@ class VectorIndex {
   /// @brief Drops all existing indexes.
   void Clear();
 
+  void RemoveNode(Vertex *vertex);
+
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper);
 
   void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper);
@@ -178,10 +180,6 @@ class VectorIndex {
   VectorSearchNodeResults SearchNodes(std::string_view index_name, uint64_t result_set_size,
                                       const std::vector<float> &query_vector) const;
 
-  /// @brief Removes obsolete entries from the index.
-  /// @param token A stop token to allow for cancellation of the operation.
-  void RemoveObsoleteEntries(std::stop_token token) const;
-
   /// @brief Returns an abort processor snapshot used during transaction abort.
   /// @return AbortProcessor containing label/property mappings for vector indices.
   AbortProcessor GetAbortProcessor() const;
@@ -209,8 +207,6 @@ class VectorIndex {
 
   std::unordered_map<LabelId, std::string> GetLabels(PropertyId property) const;
 
-  void RemoveVertexFromIndex(Vertex *vertex, std::string_view index_name);
-
  private:
   /// @brief Gets all label-property combinations that match the given vertex and property.
   /// @param vertex The vertex to check labels against.
@@ -218,6 +214,8 @@ class VectorIndex {
   /// @return A vector of matching LabelPropKey objects.
   std::vector<LabelPropKey> GetMatchingLabelProps(std::span<LabelId const> labels,
                                                   std::span<PropertyId const> properties) const;
+
+  void RemoveVertexFromIndex(Vertex *vertex, std::string_view index_name);
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

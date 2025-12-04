@@ -406,6 +406,11 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
     }
   }
 
+  // Cleanup vector indices
+  for (auto *node : nodes_to_delete) {
+    storage_->indices_.vector_index_.RemoveNode(node);
+  }
+
   auto deleted_vertices = maybe_deleted_vertices.GetValue();
   return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
 }

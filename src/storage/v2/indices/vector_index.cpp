@@ -9,12 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <algorithm>
 #include <cstdint>
 #include <range/v3/algorithm/find_if.hpp>
 #include <ranges>
 #include <shared_mutex>
-#include <stop_token>
 #include <string_view>
 #include <usearch/index_plugins.hpp>
 
@@ -28,7 +26,6 @@
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_dense.hpp"
 #include "utils/algorithm.hpp"
-#include "utils/counter.hpp"
 #include "utils/synchronized.hpp"
 
 namespace r = ranges;
@@ -282,6 +279,15 @@ void VectorIndex::Clear() {
   pimpl->label_to_index_.clear();
 }
 
+void VectorIndex::RemoveNode(Vertex *vertex) {
+  for (auto &[_, index_item] : pimpl->index_) {
+    auto locked_index = index_item.mg_index->MutableSharedLock();
+    if (locked_index->contains(vertex)) {
+      locked_index->remove(vertex);
+    }
+  }
+}
+
 std::vector<LabelPropKey> VectorIndex::GetMatchingLabelProps(std::span<LabelId const> labels,
                                                              std::span<PropertyId const> properties) const {
   auto has_property = [&](const auto &label_prop) { return utils::Contains(properties, label_prop.property()); };
@@ -439,7 +445,9 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, NameIdMappe
       // update index
       auto &[mg_index, _] = pimpl->index_.at(LabelPropKey{label, property});
       auto locked_index = mg_index->MutableSharedLock();
-      locked_index->remove(vertex);
+      if (locked_index->contains(vertex)) {
+        locked_index->remove(vertex);
+      }
     }
   }
 }
@@ -456,7 +464,9 @@ void VectorIndex::UpdateOnSetProperty(const PropertyValue &new_value, Vertex *ve
     bool is_index_full = false;
     {
       auto locked_index = mg_index->MutableSharedLock();
-      locked_index->remove(vertex);
+      if (locked_index->contains(vertex)) {
+        locked_index->remove(vertex);
+      }
       is_index_full = locked_index->size() == locked_index->capacity();
     }
     if (is_index_full) {
@@ -488,7 +498,9 @@ std::vector<float> VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *
   bool is_index_full = false;
   {
     auto locked_index = mg_index->MutableSharedLock();
-    locked_index->remove(vertex);
+    if (locked_index->contains(vertex)) {
+      locked_index->remove(vertex);
+    }
     is_index_full = locked_index->size() == locked_index->capacity();
   }
 
@@ -619,27 +631,6 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
   return result;
 }
 
-void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
-  auto maybe_stop = utils::ResettableCounter(2048);
-  for (auto &[_, index_item] : pimpl->index_) {
-    if (maybe_stop() && token.stop_requested()) {
-      return;
-    }
-    auto &[mg_index, spec] = index_item;
-    auto locked_index = mg_index->MutableSharedLock();
-    std::vector<Vertex *> vertices_to_remove(locked_index->size());
-    locked_index->export_keys(vertices_to_remove.data(), 0, locked_index->size());  // TODO(@DavIvek): not safe
-
-    auto deleted = vertices_to_remove | rv::filter([](const Vertex *vertex) {
-                     auto guard = std::shared_lock{vertex->lock};
-                     return vertex->deleted;
-                   });
-    for (const auto &vertex : deleted) {
-      locked_index->remove(vertex);
-    }
-  }
-}
-
 VectorIndex::AbortProcessor VectorIndex::GetAbortProcessor() const {
   AbortProcessor res{};
   for (const auto &[label_prop, _] : pimpl->index_) {
@@ -759,7 +750,9 @@ void VectorIndex::RemoveVertexFromIndex(Vertex *vertex, std::string_view index_n
   }
   auto &[mg_index, _] = pimpl->index_.at(it->second);
   auto locked_index = mg_index->MutableSharedLock();
-  locked_index->remove(vertex);
+  if (locked_index->contains(vertex)) {
+    locked_index->remove(vertex);
+  }
 }
 
 }  // namespace memgraph::storage
