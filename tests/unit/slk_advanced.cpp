@@ -19,6 +19,7 @@
 #include "storage/v2/replication/slk.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/temporal.hpp"
+#include "utils/uuid.hpp"
 
 import memgraph.coordination.coordinator_communication_config;
 
