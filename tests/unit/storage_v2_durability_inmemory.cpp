@@ -2657,6 +2657,9 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, WalDeathResilience) {
+#if defined(__SANITIZE_THREAD__) || __has_feature(thread_sanitizer)
+  GTEST_SKIP() << "fork() with TSAN is not supported when other threads are running";
+#endif
   pid_t pid = fork();
   if (pid == 0) {
     // Create WALs.
