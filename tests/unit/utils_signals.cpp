@@ -27,8 +27,13 @@
 TEST(Signals, Handler) {
   ASSERT_TRUE(memgraph::utils::SignalHandler::RegisterHandler(memgraph::utils::Signal::SegmentationFault, []() {
     std::cout << "Segmentation Fault" << std::endl;
+#if !defined(__SANITIZE_THREAD__) && !__has_feature(thread_sanitizer)
+    // Creating a stack-trace is not async signal safe, and TSAN
+    // complains about it. For tests with TSAN enabled, the cout output
+    // above suffices to confirm the test is successful.
     memgraph::utils::Stacktrace stacktrace;
     std::cout << stacktrace.dump() << std::endl;
+#endif
   }));
 
   std::raise(SIGSEGV);

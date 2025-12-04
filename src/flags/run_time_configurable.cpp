@@ -105,6 +105,13 @@ DEFINE_string(aws_secret_key, "", "Define AWS secret key for the AWS integration
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_string(aws_endpoint_url, "", "Define AWS endpoint url for the AWS integration.");
 
+// Storage flags
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_gc_aggressive, false, "Enable aggressive garbage collection.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_uint64(file_download_conn_timeout_sec, 10,
+              "Define a timeout for establishing a connection with a remote server during a file download.");
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -132,6 +139,9 @@ constexpr auto kCartesianProductEnabledGFlagsKey = "cartesian-product-enabled";
 constexpr auto kDebugQueryPlansSettingKey = "debug-query-plans";
 constexpr auto kDebugQueryPlansGFlagsKey = "debug-query-plans";
 
+constexpr auto kStorageGcAggressiveSettingKey = "storage-gc-aggressive";
+constexpr auto kStorageGcAggressiveGFlagsKey = "storage-gc-aggressive";
+
 constexpr auto kQueryLogDirectorySettingKey = "query-log-directory";
 constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
 
@@ -141,6 +151,7 @@ constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 constexpr auto kSnapshotPeriodicSettingKey = "storage.snapshot.interval";
 constexpr auto kSnapshotPeriodicGFlagsKey = "storage-snapshot-interval";
 
+// AWS configuration
 constexpr auto kAwsRegionSettingKey = "aws.region";
 constexpr auto kAwsRegionGFlagsKey = "aws_region";
 
@@ -153,6 +164,9 @@ constexpr auto kAwsAccessGFlagsKey = "aws_access_key";
 constexpr auto kAwsEndpointUrlSettingKey = "aws.endpoint_url";
 constexpr auto kAwsEndpointUrlGFlagsKey = "aws_endpoint_url";
 
+constexpr auto kFileDownloadConnTimeoutSecSettingKey = "file.download_conn_timeout_sec";
+constexpr auto kFileDownloadConnTimeoutSecGFlagsKey = "file_download_conn_timeout_sec";
+
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
 std::atomic<double> execution_timeout_sec_;
@@ -160,6 +174,8 @@ std::atomic<bool> hops_limit_partial_results{true};
 std::atomic<bool> cartesian_product_enabled_{true};
 std::atomic<bool> debug_query_plans_{false};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
+std::atomic<bool> storage_gc_aggressive_{false};
+std::atomic<uint64_t> file_download_conn_timeout_sec_;
 
 class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
  public:
@@ -382,6 +398,13 @@ void Initialize() {
       [](const std::string &val) { debug_query_plans_ = val == "true"; }, ValidBoolStr);
 
   /*
+   * Register storage GC aggressive flag
+   */
+  register_flag(
+      kStorageGcAggressiveGFlagsKey, kStorageGcAggressiveSettingKey, kRestore,
+      [](const std::string &val) { storage_gc_aggressive_ = val == "true"; }, ValidBoolStr);
+
+  /*
    * Register timezone setting
    */
   register_flag(
@@ -439,10 +462,27 @@ void Initialize() {
         return {};
       });
 
+  // AWS Section
   register_flag(kAwsRegionGFlagsKey, kAwsRegionSettingKey, kRestore);
   register_flag(kAwsAccessGFlagsKey, kAwsAccessSettingKey, kRestore);
   register_flag(kAwsSecretGFlagsKey, kAwsSecretSettingKey, kRestore);
   register_flag(kAwsEndpointUrlGFlagsKey, kAwsEndpointUrlSettingKey, kRestore);
+
+  register_flag(
+      kFileDownloadConnTimeoutSecGFlagsKey, kFileDownloadConnTimeoutSecSettingKey, kRestore,
+      [](std::string_view val) {
+        file_download_conn_timeout_sec_ = utils::ParseStringToUint64(val);  // throw exception if not ok
+      },
+      [](auto in) -> utils::Settings::ValidatorResult {
+        try {
+          utils::ParseStringToUint64(in);
+          return {};
+        } catch (utils::ParseException const &e) {
+          return {"Input for file_download_connection_timeout_sec cannot be parsed as uint64_t"};
+        }
+      }
+
+  );
 }
 
 std::string GetServerName() {
@@ -459,6 +499,8 @@ bool GetHopsLimitPartialResults() { return hops_limit_partial_results; }
 bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
 
 bool GetDebugQueryPlans() { return debug_query_plans_; }
+
+bool GetStorageGcAggressive() { return storage_gc_aggressive_; }
 
 const std::chrono::time_zone *GetTimezone() { return timezone_; }
 
@@ -492,6 +534,8 @@ auto GetAwsEndpointUrl() -> std::string {
   gflags::GetCommandLineOption(kAwsEndpointUrlGFlagsKey, &endpoint_url);
   return endpoint_url;
 }
+
+auto GetFileDownloadConnTimeoutSec() -> uint64_t { return file_download_conn_timeout_sec_; }
 
 void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
   snapshot_periodic_.Attach(observer);

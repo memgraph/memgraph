@@ -12,22 +12,22 @@ on:
         description: "Base master?"
         default: false
     outputs:
-      pr_number: 
+      pr_number:
         description: "PR number."
         value: ${{ jobs.CreateStagingBranch.outputs.pr_number }}
-      branch_name: 
+      branch_name:
         description: "Branch name."
         value: ${{ jobs.CreateStagingBranch.outputs.branch_name }}
-      commit_sha: 
+      commit_sha:
         description: "Commit SHA."
         value: ${{ jobs.CreateStagingBranch.outputs.commit_sha }}
-      staging_branch: 
+      staging_branch:
         description: "Staging branch."
         value: ${{ jobs.CreateStagingBranch.outputs.staging_branch }}
-      short_sha: 
+      short_sha:
         description: "Short SHA."
         value: ${{ jobs.CreateStagingBranch.outputs.short_sha }}
-      comment_id: 
+      comment_id:
         description: "ID of the created PR comment."
         value: ${{ jobs.CreateStagingBranch.outputs.comment_id }}
 
@@ -53,8 +53,8 @@ jobs:
         id: get_branch_name
         run: |
           # Run the script and read the output into variables
-          read pr_number branch_name commit_sha staging_branch short_sha repo_url repo_owner <<< "$(./tools/external-contributions/get_pr_info.sh "${{ github.event.inputs.pr_number }}" "${{ github.token }}")"
-          
+          read pr_number branch_name commit_sha staging_branch short_sha repo_url repo_owner <<< "$(./tools/external-contributions/get_pr_info.sh "${{ github.event.inputs.pr_number }}" "${{ github.token }}" "${{ inputs.base_master }}")"
+
           # Set GitHub output variables
           echo "pr_number=$pr_number" >> $GITHUB_OUTPUT
           echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
@@ -77,7 +77,7 @@ jobs:
         run: |
           git config user.name "GitHub Actions"
           git config user.email "github-actions@github.com"
-          
+
           ./tools/external-contributions/create_staging_branch.sh \
             "${{ github.event.inputs.base_master }}" \
             "${{ steps.get_branch_name.outputs.branch_name }}" \
@@ -93,6 +93,7 @@ jobs:
           echo "Base master: ${{ github.event.inputs.base_master }}"
 
       - name: Create PR comment
+        continue-on-error: true  # NOTE: older branches may not have the code to create this comment
         id: create_pr_comment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -101,13 +102,13 @@ jobs:
           output=$(python3 ./tools/external-contributions/pr_comment.py \
             "${{ github.event.inputs.pr_number }}" \
             "${{ steps.get_branch_name.outputs.staging_branch }}")
-          
+
           # Display the output
           echo "$output"
-          
+
           # Extract the COMMENT_ID from the output
           comment_id=$(echo "$output" | grep "^COMMENT_ID=" | cut -d'=' -f2-)
-          
+
           if [ -n "$comment_id" ]; then
             echo "comment_id=$comment_id" >> $GITHUB_OUTPUT
             echo "Comment ID captured: $comment_id"

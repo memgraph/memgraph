@@ -7,13 +7,13 @@
 set -e
 
 if [ "$#" -ne 2 ]; then
-    echo "Usage: $0 <PR_NUMBER> <GITHUB_TOKEN>"
+    echo "Usage: $0 <PR_NUMBER> <GITHUB_TOKEN> <BASE_MASTER>"
     echo "Example: $0 123 \${{ github.token }}"
     exit 1
 fi
-
 PR_NUMBER="$1"
 GITHUB_TOKEN="$2"
+BASE_MASTER="$3"
 
 # Fetch PR details using GitHub API
 PR_INFO=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
@@ -34,6 +34,9 @@ fi
 
 # Create staging branch name
 STAGING_BRANCH="staging/${COMMIT_SHA:0:7}"
+if [ "$BASE_MASTER" = "true" ]; then
+    STAGING_BRANCH="${STAGING_BRANCH}-master"
+fi
 SHORT_SHA="${COMMIT_SHA:0:7}"
 
 # Output all variables in a single line (space-separated)

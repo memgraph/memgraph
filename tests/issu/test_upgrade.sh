@@ -57,8 +57,8 @@ while [ "$#" -gt 0 ]; do
 done
 
 # -- Handle breaking change with multi-label access control ---
-CUTOFF_COMMIT="0ecc78c280bccbe77388af1075f4d26a9f16904b"
-CUTOFF_VERSION="3.7.0"
+CUTOFF_COMMIT="87ea38a14d3b4dc13edb1c4a0efdacbedc406dd5"
+CUTOFF_VERSION="3.7.1"
 
 # echo the commit-ish if present in the tag; empty otherwise
 extract_commit_from_tag() {
@@ -115,7 +115,7 @@ behavior_for_tag() {
       echo "auth_pre_upgrade.cypherl"   # tag is at/after the bad commit
       return
     else
-      echo "auth_pre_upgrade_pre_3.7.cypherl"   # tag is before the bad commit (or on another branch)
+      echo "auth_pre_upgrade_pre_3.7.1.cypherl"   # tag is before the bad commit (or on another branch)
       return
     fi
   fi
@@ -129,7 +129,7 @@ behavior_for_tag() {
   fi
 
   if version_lt "$v" "$CUTOFF_VERSION"; then
-    echo "auth_pre_upgrade_pre_3.7.cypherl"   # version is before 3.7.0
+    echo "auth_pre_upgrade_pre_3.7.1.cypherl"   # version is before 3.7.1
   else
     echo "auth_pre_upgrade.cypherl"   # 3.7.0 or later
   fi

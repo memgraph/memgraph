@@ -14,21 +14,21 @@
 
 namespace memgraph::query {
 
-auto FrameWriter::ResetInListCache(const Symbol &symbol) -> void {
+auto FrameWriter::ResetCache(const Symbol &symbol) -> void {
   if (frame_change_collector_) {
-    frame_change_collector_->ResetInListCache(symbol);
+    frame_change_collector_->ResetCache(symbol);
   }
 }
 
 auto FrameWriter::Write(const Symbol &symbol, TypedValue &&value) -> TypedValue & {
   auto &inserted_value = frame_.elems_[symbol.position()] = std::move(value);
-  ResetInListCache(symbol);
+  ResetCache(symbol);
   return inserted_value;
 }
 
 auto FrameWriter::WriteAt(const Symbol &symbol, TypedValue &&value) -> TypedValue & {
   auto &inserted_value = frame_.elems_.at(symbol.position()) = std::move(value);
-  ResetInListCache(symbol);
+  ResetCache(symbol);
   return inserted_value;
 }
 }  // namespace memgraph::query

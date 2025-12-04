@@ -3,8 +3,6 @@ set(test_prefix memgraph__unit__)
 find_package(fmt REQUIRED)
 find_package(Threads REQUIRED)
 find_package(antlr4-runtime REQUIRED)
-find_package(antlr4 REQUIRED)
-
 
 include_directories(${antlr4-runtime_INCLUDE_DIR})
 
@@ -24,7 +22,6 @@ target_precompile_headers(memgraph_unit_main PRIVATE
 add_library(storage_test_utils storage_test_utils.cpp)
 target_link_libraries(storage_test_utils mg::storage)
 
-find_package(OpenSSL REQUIRED)
 find_package(Boost REQUIRED CONFIG COMPONENTS filesystem)
 
 # Test integrations-kafka
@@ -104,8 +101,8 @@ add_unit_test(query_expression_evaluator
     LINK_TARGETS mg-query
 )
 
-add_unit_test(query_inlist_cache
-    SOURCES query_inlist_cache.cpp
+add_unit_test(query_cache
+    SOURCES query_cache.cpp
     LINK_TARGETS mg-query
 )
 
@@ -323,6 +320,12 @@ add_unit_test(utils_algorithm
     LINK_TARGETS mg-utils
 )
 
+
+add_unit_test(utils_aws
+    SOURCES utils_aws.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_barrier
     SOURCES utils_barrier.cpp
     LINK_TARGETS mg-utils
@@ -492,6 +495,11 @@ add_unit_test(lru_cache
 add_unit_test(utils_static_vector
     SOURCES utils_static_vector.cpp
     LINK_TARGETS mg::utils
+)
+
+add_unit_test(utils_stack
+    SOURCES utils_stack.cpp
+    LINK_TARGETS mg-utils
 )
 
 add_unit_test(exponential_backoff

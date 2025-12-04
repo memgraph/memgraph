@@ -354,9 +354,6 @@ def test_given_supernode_when_expanding_then_expand_other_way_around(memgraph):
 
     assert expected_explain_after_analysis == result_with_analysis
 
-    memgraph.execute("DROP INDEX ON :SuperNode(id);")
-    memgraph.execute("DROP INDEX ON :Node(id);")
-
 
 def test_given_supernode_when_subquery_then_carry_information_to_subquery(memgraph):
     memgraph.execute("FOREACH (i in range(1, 1000) | CREATE (:Node {id: i}));")
@@ -432,10 +429,6 @@ def test_given_supernode_when_subquery_then_carry_information_to_subquery(memgra
     result_with_analysis = [x[QUERY_PLAN] for x in result_with_analysis]
 
     assert expected_explain_after_analysis == result_with_analysis
-
-    memgraph.execute("DROP INDEX ON :SuperNode(id);")
-    memgraph.execute("DROP INDEX ON :Node(id);")
-    memgraph.execute("DROP INDEX ON :Node2(id);")
 
 
 def test_given_supernode_when_subquery_and_union_then_carry_information(memgraph):
@@ -556,10 +549,6 @@ def test_given_supernode_when_subquery_and_union_then_carry_information(memgraph
     result_with_analysis = [x[QUERY_PLAN] for x in result_with_analysis]
 
     assert expected_explain_after_analysis == result_with_analysis
-
-    memgraph.execute("DROP INDEX ON :SuperNode(id);")
-    memgraph.execute("DROP INDEX ON :Node(id);")
-    memgraph.execute("DROP INDEX ON :Node2(id);")
 
 
 def test_given_empty_graph_when_analyzing_graph_return_zero_degree(memgraph):

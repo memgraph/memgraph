@@ -628,6 +628,8 @@ class Storage {
       return transaction_.active_indices_.CheckIndicesAreReady(required_indices);
     }
 
+    bool TransactionHasSerializationError() const { return transaction_.has_serialization_error; }
+
     // TTL methods
     ttl::TTL &ttl() { return storage_->ttl_; }
 
@@ -698,13 +700,7 @@ class Storage {
 
   virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) = 0;
 
-  void FreeMemory() {
-    if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
-      FreeMemory(std::unique_lock{main_lock_}, false);
-    } else {
-      FreeMemory({}, false);
-    }
-  }
+  void FreeMemory() { FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, false); }
 
   virtual std::unique_ptr<Accessor> Access(StorageAccessType rw_type,
                                            std::optional<IsolationLevel> override_isolation_level,

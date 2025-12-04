@@ -29,39 +29,39 @@ fi
 # Check if staging branch already exists
 if git show-ref --verify --quiet refs/heads/"$STAGING_BRANCH" || git show-ref --verify --quiet refs/remotes/origin/"$STAGING_BRANCH"; then
     echo "WARNING: Staging branch '$STAGING_BRANCH' already exists. Using existing branch."
-    
+
     # Checkout the existing staging branch
     if git show-ref --verify --quiet refs/heads/"$STAGING_BRANCH"; then
         git checkout "$STAGING_BRANCH"
     else
         git checkout -b "$STAGING_BRANCH" origin/"$STAGING_BRANCH"
     fi
-    
+
     echo "Using existing staging branch: $STAGING_BRANCH"
 else
     if [ "$BASE_MASTER" = "true" ]; then
         echo "Creating staging branch from master and merging feature branch..."
-        
+
         # Create staging branch from base reference
         git checkout master
         git pull origin master
         git checkout -b "$STAGING_BRANCH"
-        
+
         # Merge the feature branch into staging
         if [ "$REPO_OWNER" = "memgraph" ]; then
             git merge "$COMMIT_SHA" --no-edit
         else
-            git merge "$REPO_URL" "$COMMIT_SHA" --no-edit
+            git merge "$BRANCH_NAME" --no-edit
         fi
-        
+
         echo "Created staging branch from master and merged feature branch"
     else
         echo "Creating direct copy of feature branch..."
-        
+
         # Create staging branch as direct copy of feature branch
         git checkout "$COMMIT_SHA"
         git checkout -b "$STAGING_BRANCH"
-        
+
         echo "Created direct copy of feature branch"
     fi
 fi
@@ -70,4 +70,4 @@ fi
 echo "Pushing staging branch: $STAGING_BRANCH"
 git push origin "$STAGING_BRANCH"
 
-echo "Successfully created and pushed staging branch: $STAGING_BRANCH" 
+echo "Successfully created and pushed staging branch: $STAGING_BRANCH"

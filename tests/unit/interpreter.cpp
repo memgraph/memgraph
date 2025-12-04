@@ -15,7 +15,6 @@
 
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
-#include "csv/parsing.hpp"
 #include "disk_test_utils.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
@@ -40,6 +39,8 @@
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
 #include "utils/synchronized.hpp"
+
+import memgraph.csv.parsing;
 
 namespace {
 

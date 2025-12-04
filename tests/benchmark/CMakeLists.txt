@@ -2,7 +2,6 @@ set(test_prefix ${test_bench_prefix})
 
 find_package(gflags REQUIRED)
 find_package(antlr4-runtime REQUIRED)
-find_package(antlr4 REQUIRED)
 find_package(range-v3 REQUIRED)
 
 include_directories(${antlr4-runtime_INCLUDE_DIR})
@@ -76,3 +75,6 @@ target_link_libraries(${test_prefix}storage_v2_enum_store_bench mg::storage)
 
 add_benchmark(thread_safe_memory.cpp)
 target_link_libraries(${test_prefix}thread_safe_memory mg-utils)
+
+add_benchmark(stack_erase_if.cpp)
+target_link_libraries(${test_prefix}stack_erase_if mg-utils)

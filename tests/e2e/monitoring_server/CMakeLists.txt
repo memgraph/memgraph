@@ -1,6 +1,5 @@
 find_package(gflags REQUIRED)
 find_package(Boost REQUIRED)
-find_package(OpenSSL REQUIRED)
 
 add_library(monitoring_common common.cpp)
 target_link_libraries(monitoring_common PUBLIC

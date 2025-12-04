@@ -208,7 +208,6 @@ find_package(strong_type REQUIRED)
 find_package(Boost REQUIRED)
 find_package(BZip2 REQUIRED)
 find_package(antlr4-runtime REQUIRED)
-find_package(antlr4 REQUIRED)
 find_package(cppitertools REQUIRED)
 find_package(ctre REQUIRED)
 find_package(absl REQUIRED)
@@ -217,6 +216,8 @@ find_package(range-v3 REQUIRED)
 find_package(asio REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(Snappy REQUIRED)
+find_package(Arrow REQUIRED)
+find_package(AWSSDK REQUIRED CONFIG COMPONENTS s3)
 
 # Now load mgclient which depends on OpenSSL
 find_package(OpenSSL REQUIRED)
@@ -408,7 +409,7 @@ if (ASAN)
 endif()
 
 if (TSAN)
-  message(WARNING "Disabling jemalloc as it doesn't work well with ASAN")
+  message(WARNING "Disabling jemalloc as it doesn't work well with TSAN")
   set(ENABLE_JEMALLOC OFF)
   # ThreadSanitizer generally requires all code to be compiled with -fsanitize=thread.
   # If some code (e.g. dynamic libraries) is not compiled with the flag, it can

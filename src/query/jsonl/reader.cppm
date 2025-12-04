@@ -9,28 +9,30 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
-#include "query/arrow_parquet/parquet_file_config.hpp"
+#include <functional>
+#include <string>
+
 #include "query/typed_value.hpp"
-#include "utils/memory.hpp"
-#include "utils/pmr/vector.hpp"
 
-namespace memgraph::query {
+import memgraph.utils.aws;
 
+export module memgraph.query.jsonl.reader;
+
+export namespace memgraph::query {
 using Row = TypedValue::TMap;
-using Header = utils::pmr::vector<TypedValue::TString>;
 
-class ParquetReader {
+class JsonlReader {
  public:
-  explicit ParquetReader(ParquetFileConfig parquet_file_config, utils::MemoryResource *resource);
-  ~ParquetReader();
+  explicit JsonlReader(std::string file, std::optional<utils::S3Config> s3_cfg, std::pmr::memory_resource *resource,
+                       std::function<void()> abort_check);
+  ~JsonlReader();
 
-  ParquetReader(ParquetReader const &other) = delete;
-  ParquetReader &operator=(ParquetReader const &other) = delete;
-
-  ParquetReader(ParquetReader &&other) = default;
-  ParquetReader &operator=(ParquetReader &&other) = default;
+  JsonlReader(JsonlReader const &other) = delete;
+  JsonlReader &operator=(JsonlReader const &other) = delete;
+  JsonlReader(JsonlReader &&other) = default;
+  JsonlReader &operator=(JsonlReader &&other) = default;
 
   auto GetNextRow(Row &out) -> bool;
 
@@ -38,4 +40,5 @@ class ParquetReader {
   struct impl;
   std::unique_ptr<impl> pimpl_;
 };
+
 }  // namespace memgraph::query

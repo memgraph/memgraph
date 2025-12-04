@@ -2840,7 +2840,7 @@ PreparedQuery PrepareCypherQuery(
     interpreter.LogQueryMessage(fmt::format("Explain plan:\n{}", printed_plan.str()));
   }
 
-  PrepareInListCaching(plan->ast_storage(), frame_change_collector);
+  PrepareCaching(plan->ast_storage(), frame_change_collector);
   summary->insert_or_assign("cost_estimate", plan->cost());
   interpreter.LogQueryMessage(fmt::format("Plan cost: {}", plan->cost()));
   bool is_profile_query = false;
@@ -2867,7 +2867,7 @@ PreparedQuery PrepareCypherQuery(
       plan, parsed_query.parameters, is_profile_query, dba, interpreter_context, execution_memory,
       std::move(user_or_role), std::move(stopping_context), dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
       interpreter.query_logger_, trigger_context_collector, memory_limit,
-      frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr, hops_limit
+      frame_change_collector->AnyCaches() ? frame_change_collector : nullptr, hops_limit
 #ifdef MG_ENTERPRISE
       ,
       user_resource
@@ -3008,7 +3008,7 @@ PreparedQuery PrepareProfileQuery(
   auto cypher_query_plan =
       CypherQueryToPlan(parsed_inner_query.stripped_query, std::move(parsed_inner_query.ast_storage), cypher_query,
                         parsed_inner_query.parameters, plan_cache, dba);
-  PrepareInListCaching(cypher_query_plan->ast_storage(), frame_change_collector);
+  PrepareCaching(cypher_query_plan->ast_storage(), frame_change_collector);
 
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
   for (const auto &hint : hints) {
@@ -4942,8 +4942,9 @@ PreparedQuery PrepareEdgeImportModeQuery(ParsedQuery parsed_query, CurrentDB &cu
                        RWType::NONE};
 }
 
-PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
-                                         replication_coordination_glue::ReplicationRole replication_role) {
+// NOLINTNEXTLINE
+PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                         CurrentDB &current_db) {
   if (in_explicit_transaction) {
     throw CreateSnapshotInMulticommandTxException();
   }
@@ -4957,14 +4958,12 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
 
   Callback callback;
   callback.header = {"path"};
-  callback.fn = [storage, replication_role]() mutable -> std::vector<std::vector<TypedValue>> {
+  callback.fn = [storage]() mutable -> std::vector<std::vector<TypedValue>> {
     auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
     constexpr bool kForce = true;
-    const auto maybe_path = mem_storage->CreateSnapshot(replication_role, kForce);
+    const auto maybe_path = mem_storage->CreateSnapshot(kForce);
     if (maybe_path.HasError()) {
       switch (maybe_path.GetError()) {
-        case storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica:
-          throw utils::BasicException("Failed to create a snapshot. Replica instances are not allowed to create them.");
         case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
           spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
           break;
@@ -5067,7 +5066,7 @@ PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explic
     const auto res = static_cast<storage::InMemoryStorage *>(storage)->ShowSnapshots();
     infos.reserve(res.size());
     for (const auto &info : res) {
-      infos.push_back({TypedValue{info.path.string()}, TypedValue{static_cast<int64_t>(info.start_timestamp)},
+      infos.push_back({TypedValue{info.path.string()}, TypedValue{static_cast<int64_t>(info.durable_timestamp)},
                        TypedValue{info.creation_time.ToStringWTZ()},
                        TypedValue{utils::GetReadableSize(static_cast<double>(info.size))}});
     }
@@ -7528,9 +7527,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
       prepared_query = PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, this);
     } else if (utils::Downcast<CreateSnapshotQuery>(parsed_query.query)) {
-      auto const replication_role = interpreter_context_->repl_state.ReadLock()->GetRole();
-      prepared_query =
-          PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, replication_role);
+      prepared_query = PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<RecoverSnapshotQuery>(parsed_query.query)) {
       auto const replication_role = interpreter_context_->repl_state.ReadLock()->GetRole();
       prepared_query =

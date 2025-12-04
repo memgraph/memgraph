@@ -1,12 +1,16 @@
 name: Run benchmark on pokec large dataset
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
 
 jobs:
   benchmark_on_pokec_large:
     name: "Benchmark on pokec large dataset"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild, x86-64-v3]
+    runs-on: [self-hosted, Linux, benchmark]
     timeout-minutes: 720
     env:
       THREADS: 24

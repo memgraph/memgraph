@@ -53,6 +53,10 @@ on:
         type: boolean
         description: "Package malloc build?"
         default: false
+      generate_sbom:
+        type: boolean
+        description: "Generate SBOM"
+        default: false
 
   workflow_call:
     inputs:
@@ -89,6 +93,11 @@ on:
         type: boolean
         description: "Package malloc build?"
         default: false
+      generate_sbom:
+        type: boolean
+        description: "Generate SBOM"
+        default: false
+
 jobs:
   PackageSetup:
     runs-on: ubuntu-latest
@@ -114,6 +123,7 @@ jobs:
       workflow_input_push_to_github: ${{ steps.setup.outputs.workflow_input_push_to_github }}
       workflow_input_s3_dest_dir: ${{ steps.setup.outputs.workflow_input_s3_dest_dir }}
       workflow_input_malloc: ${{ steps.setup.outputs.workflow_input_malloc }}
+      workflow_input_generate_sbom: ${{ steps.setup.outputs.workflow_input_generate_sbom }}
     env:
       GH_CONTEXT: ${{ toJson(github) }}
       GH_CONTEXT_FILE_NAME: github_context.json
@@ -144,6 +154,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   CentOS10:
@@ -161,6 +172,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Debian12:
@@ -178,6 +190,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Debian12-arm:
@@ -195,6 +208,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Debian13:
@@ -212,6 +226,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Debian13-arm:
@@ -229,6 +244,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Docker-v6:
@@ -246,6 +262,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Docker-v6-arm:
@@ -263,6 +280,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Fedora42:
@@ -280,6 +298,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Fedora42-arm:
@@ -297,6 +316,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   RockyLinux10:
@@ -314,6 +334,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Ubuntu22_04:
@@ -331,6 +352,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Ubuntu24_04:
@@ -348,6 +370,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Ubuntu24_04-arm:
@@ -365,6 +388,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
   Ubuntu24_04-malloc:
@@ -382,4 +406,5 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit

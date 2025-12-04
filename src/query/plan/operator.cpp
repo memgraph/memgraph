@@ -26,14 +26,13 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
-#include "memory/query_memory_control.hpp"
-#include "query/common.hpp"
+#include "ctre.hpp"
 #include "spdlog/spdlog.h"
 
-#include "csv/parsing.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "license/license.hpp"
-#include "query/arrow_parquet/parquet_file_config.hpp"
-#include "query/arrow_parquet/reader.hpp"
+#include "memory/query_memory_control.hpp"
+#include "query/common.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -55,7 +54,6 @@
 #include "utils/algorithm.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
-import memgraph.utils.fnv;
 #include "utils/java_string_formatter.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
@@ -73,6 +71,12 @@ import memgraph.utils.fnv;
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
 #include "vertex_accessor.hpp"
+
+import memgraph.csv.parsing;
+import memgraph.query.arrow_parquet.reader;
+import memgraph.query.jsonl.reader;
+import memgraph.utils.aws;
+import memgraph.utils.fnv;
 
 namespace r = ranges;
 namespace rv = r::views;
@@ -4399,9 +4403,6 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::NEW, context.frame_change_collector, &context.number_of_hops);
     for (auto *named_expr : self_.named_expressions_) {
-      if (context.frame_change_collector) {
-        context.frame_change_collector->ResetInListCache(*named_expr);
-      }
       named_expr->Accept(evaluator);
     }
     return true;
@@ -5726,9 +5727,6 @@ class AccumulateCursor : public Cursor {
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     auto row_it = (cache_it_++)->begin();
     for (const Symbol &symbol : self_.symbols_) {
-      if (context.frame_change_collector) {
-        context.frame_change_collector->ResetInListCache(symbol);
-      }
       frame_writer.Write(symbol, *row_it++);
     }
     return true;
@@ -5831,17 +5829,11 @@ class AggregateCursor : public Cursor {
         // place default aggregation values on the frame
         for (const auto &elem : self_.aggregations_) {
           frame_writer.Write(elem.output_sym, DefaultAggregationOpValue(elem, pull_memory));
-          if (context.frame_change_collector) {
-            context.frame_change_collector->ResetInListCache(elem.output_sym);
-          }
         }
 
         // place null as remember values on the frame
         for (const Symbol &remember_sym : self_.remember_) {
           frame_writer.Write(remember_sym, TypedValue(pull_memory));
-          if (context.frame_change_collector) {
-            context.frame_change_collector->ResetInListCache(remember_sym);
-          }
         }
         return true;
       }
@@ -6451,9 +6443,6 @@ class OrderByCursor : public Cursor {
     auto output_sym_it = self_.output_symbols_.begin();
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     for (TypedValue &output : *cache_it_) {
-      if (context.frame_change_collector) {
-        context.frame_change_collector->ResetInListCache(*output_sym_it);
-      }
       frame_writer.Write(*output_sym_it++, std::move(output));
     }
     cache_it_++;
@@ -6732,9 +6721,6 @@ class UnwindCursor : public Cursor {
       if (input_value_it_ == input_value_.end()) continue;
 
       frame_writer.Write(self_.output_symbol_, std::move(*input_value_it_++));
-      if (context.frame_change_collector) {
-        context.frame_change_collector->ResetInListCache(self_.output_symbol_);
-      }
       return true;
     }
   }
@@ -6988,9 +6974,6 @@ class CartesianCursor : public Cursor {
     auto restore_frame = [&frame_writer, &context](const auto &symbols, const auto &restore_from) {
       for (const auto &symbol : symbols) {
         frame_writer.Write(symbol, restore_from[symbol.position()]);
-        if (context.frame_change_collector) {
-          context.frame_change_collector->ResetInListCache(symbol);
-        }
       }
     };
 
@@ -7084,9 +7067,6 @@ class OutputTableCursor : public Cursor {
     if (current_row_ < rows_.size()) {
       for (size_t i = 0; i < self_.output_symbols_.size(); ++i) {
         frame_writer.Write(self_.output_symbols_[i], rows_[current_row_][i]);
-        if (context.frame_change_collector) {
-          context.frame_change_collector->ResetInListCache(self_.output_symbols_[i]);
-        }
       }
       current_row_++;
       return true;
@@ -7143,9 +7123,6 @@ class OutputTableStreamCursor : public Cursor {
       MG_ASSERT(row->size() == self_->output_symbols_.size(), "Wrong number of columns in row!");
       for (size_t i = 0; i < self_->output_symbols_.size(); ++i) {
         frame_writer.Write(self_->output_symbols_[i], row->at(i));
-        if (context.frame_change_collector) {
-          context.frame_change_collector->ResetInListCache(self_->output_symbols_[i]);
-        }
       }
       return true;
     }
@@ -7289,6 +7266,10 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // TODO: What about cross library boundary exceptions? OMG C++?! <- should be fine since moving to shared libstd
     proc.cb(&proc_args, &graph, result, &proc_memory);
 
+    if (graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
+      static_cast<void>(mgp_result_set_error_msg(result, "Unable to commit due to serialization error."));
+    }
+
     auto leaked_bytes = memory_tracking_resource.GetAllocatedBytes();
     if (leaked_bytes > 0U) {
       spdlog::warn("Query procedure '{}' leaked {} *tracked* bytes", fully_qualified_procedure_name, leaked_bytes);
@@ -7299,6 +7280,10 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     mgp_memory proc_memory{memory};
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
+
+    if (graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
+      static_cast<void>(mgp_result_set_error_msg(result, "Unable to commit due to serialization error."));
+    }
   }
 }
 
@@ -7435,9 +7420,6 @@ class CallProcedureCursor : public Cursor {
     auto &values = result_row_it_->values;
     for (int i = 0; i < self_->result_fields_.size(); ++i) {
       frame_writer.Write(self_->result_symbols_[i], std::move(values[i]));
-      if (context.frame_change_collector) {
-        context.frame_change_collector->ResetInListCache(self_->result_symbols_[i]);
-      }
     }
     ++result_row_it_;
     if (!result_.is_transactional) {
@@ -7553,7 +7535,8 @@ std::string CallProcedure::ToString() const {
                      utils::IterableToString(result_symbols_, ", ", [](const auto &sym) { return sym.name(); }));
 }
 
-LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool with_header, bool ignore_bad,
+LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file,
+                 std::unordered_map<Expression *, Expression *> config_map, bool with_header, bool ignore_bad,
                  Expression *delimiter, Expression *quote, Expression *nullif, Symbol row_var)
     : input_(input ? input : (std::make_shared<Once>())),
       file_(file),
@@ -7562,7 +7545,8 @@ LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool 
       delimiter_(delimiter),
       quote_(quote),
       nullif_(nullif),
-      row_var_(std::move(row_var)) {
+      row_var_(std::move(row_var)),
+      config_map_(std::move(config_map)) {
   MG_ASSERT(file_, "Something went wrong - '{}' member file_ shouldn't be a nullptr", __func__);
 }
 
@@ -7579,6 +7563,27 @@ std::vector<Symbol> LoadCsv::ModifiedSymbols(const SymbolTable &sym_table) const
 };
 
 namespace {
+
+auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
+                    ExpressionVisitor<TypedValue> &evaluator)
+    -> std::optional<std::map<std::string, std::string, std::less<>>> {
+  if (std::ranges::any_of(config_map, [&evaluator](const auto &entry) {
+        auto key_expr = entry.first->Accept(evaluator);
+        auto value_expr = entry.second->Accept(evaluator);
+        return !key_expr.IsString() || !value_expr.IsString();
+      })) {
+    spdlog::error("Config map must contain only string keys and values!");
+    return std::nullopt;
+  }
+
+  return rv::all(config_map) | rv::transform([&evaluator](const auto &entry) {
+           auto key_expr = entry.first->Accept(evaluator);
+           auto value_expr = entry.second->Accept(evaluator);
+           return std::pair{key_expr.ValueString(), value_expr.ValueString()};
+         }) |
+         ranges::to<std::map<std::string, std::string, std::less<>>>;
+}
+
 // copy-pasted from interpreter.cpp
 TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluator *eval) {
   return expression ? expression->Accept(*eval) : TypedValue(eval->GetMemoryResource());
@@ -7621,18 +7626,28 @@ TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header,
   return {std::move(m), mem};
 }
 
+// Builds a map of run-time settings
+auto BuildRunTimeS3Config() -> std::map<std::string, std::string, std::less<>> {
+  std::map<std::string, std::string, std::less<>> config;
+  config.emplace(utils::kAwsRegionQuerySetting, memgraph::flags::run_time::GetAwsRegion());
+  config.emplace(utils::kAwsAccessKeyQuerySetting, memgraph::flags::run_time::GetAwsAccessKey());
+  config.emplace(utils::kAwsSecretKeyQuerySetting, memgraph::flags::run_time::GetAwsSecretKey());
+  config.emplace(utils::kAwsEndpointUrlQuerySetting, memgraph::flags::run_time::GetAwsEndpointUrl());
+  return config;
+}
+
 }  // namespace
 
 class LoadCsvCursor : public Cursor {
   const LoadCsv *self_;
   const UniqueCursorPtr input_cursor_;
-  bool did_pull_;
-  std::optional<csv::Reader> reader_{};
+  bool did_pull_{false};
+  std::optional<csv::Reader> reader_;
   std::optional<utils::pmr::string> nullif_;
 
  public:
   LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)), did_pull_{false} {}
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -7675,9 +7690,6 @@ class LoadCsvCursor : public Cursor {
           CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory),
                            nullif_));
     }
-    if (context.frame_change_collector) {
-      context.frame_change_collector->ResetInListCache(self_->row_var_);
-    }
     return true;
   }
 
@@ -7695,10 +7707,29 @@ class LoadCsvCursor : public Cursor {
     auto maybe_delim = ToOptionalString(&evaluator, self_->delimiter_);
     auto maybe_quote = ToOptionalString(&evaluator, self_->quote_);
 
+    auto maybe_config_map = ParseConfigMap(self_->config_map_, evaluator);
+
+    if (!maybe_config_map) {
+      throw QueryRuntimeException("Failed to parse config map for LOAD CSV clause!");
+    }
+
+    if (maybe_config_map->size() > 4) {
+      throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
+                                  utils::kAwsRegionQuerySetting, utils::kAwsAccessKeyQuerySetting,
+                                  utils::kAwsSecretKeyQuerySetting, utils::kAwsEndpointUrlQuerySetting);
+    }
+
+    constexpr auto s3_matcher = ctre::starts_with<"s3://">;
+
+    std::optional<utils::S3Config> s3_config;
+    if (s3_matcher(*maybe_file)) {
+      s3_config.emplace(utils::S3Config::Build(std::move(*maybe_config_map), BuildRunTimeS3Config()));
+    }
+
     // No need to check if maybe_file is std::nullopt, as the parser makes sure
     // we can't get a nullptr for the 'file_' member in the LoadCsv clause.
     return csv::Reader(
-        csv::CsvSource::Create(*maybe_file),
+        csv::CsvSource::Create(std::string{*maybe_file}, std::move(s3_config)),
         csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
         eval_context->memory);
   }
@@ -7731,29 +7762,6 @@ std::unique_ptr<LogicalOperator> LoadCsv::Clone(AstStorage *storage) const {
 }
 
 std::string LoadCsv::ToString() const { return fmt::format("LoadCsv {{{}}}", row_var_.name()); };
-
-namespace {
-
-auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
-                    PrimitiveLiteralExpressionEvaluator &evaluator)
-    -> std::optional<std::map<std::string, std::string, std::less<>>> {
-  if (std::ranges::any_of(config_map, [&evaluator](const auto &entry) {
-        auto key_expr = entry.first->Accept(evaluator);
-        auto value_expr = entry.second->Accept(evaluator);
-        return !key_expr.IsString() || !value_expr.IsString();
-      })) {
-    spdlog::error("Config map must contain only string keys and values!");
-    return std::nullopt;
-  }
-
-  return rv::all(config_map) | rv::transform([&evaluator](const auto &entry) {
-           auto key_expr = entry.first->Accept(evaluator);
-           auto value_expr = entry.second->Accept(evaluator);
-           return std::pair{key_expr.ValueString(), value_expr.ValueString()};
-         }) |
-         ranges::to<std::map<std::string, std::string, std::less<>>>;
-}
-}  // namespace
 
 LoadParquet::LoadParquet(std::shared_ptr<LogicalOperator> input, Expression *file,
                          std::unordered_map<Expression *, Expression *> config_map, Symbol row_var)
@@ -7807,13 +7815,16 @@ class LoadParquetCursor : public Cursor {
 
       if (maybe_config_map->size() > 4) {
         throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
-                                    kAwsAccessKeyQuerySetting, kAwsAccessKeyQuerySetting, kAwsSecretKeyQuerySetting,
-                                    kAwsEndpointUrlQuerySetting);
+                                    utils::kAwsRegionQuerySetting, utils::kAwsAccessKeyQuerySetting,
+                                    utils::kAwsSecretKeyQuerySetting, utils::kAwsEndpointUrlQuerySetting);
       }
+
+      auto abort_check_erased = context.stopping_context.MakeMaybeAborter(1);
 
       // No need to check if maybe_file is std::nullopt, as the parser makes sure
       // we can't get a nullptr for the 'file_' member in the LoadParquet clause
-      reader_.emplace(ParquetFileConfig::FromQueryConfig(std::string{maybe_file}, std::move(*maybe_config_map)), mem);
+      reader_.emplace(maybe_file, utils::S3Config::Build(std::move(*maybe_config_map), BuildRunTimeS3Config()), mem,
+                      std::move(abort_check_erased));
     }
 
     if (input_cursor_->Pull(frame, context)) {
@@ -7838,10 +7849,6 @@ class LoadParquetCursor : public Cursor {
       }
     });
 
-    if (context.frame_change_collector) {
-      context.frame_change_collector->ResetInListCache(self_->row_var_);
-    }
-
     return true;
   }
 
@@ -7855,6 +7862,9 @@ UniqueCursorPtr LoadParquet::MakeCursor(utils::MemoryResource *mem) const {
 
 std::unique_ptr<LogicalOperator> LoadParquet::Clone(AstStorage *storage) const {
   auto object = std::make_unique<LoadParquet>();
+  for (const auto &[key, value] : config_map_) {
+    object->config_map_[key->Clone(storage)] = value->Clone(storage);
+  }
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->file_ = file_ ? file_->Clone(storage) : nullptr;
   object->row_var_ = row_var_;
@@ -7862,6 +7872,111 @@ std::unique_ptr<LogicalOperator> LoadParquet::Clone(AstStorage *storage) const {
 }
 
 std::string LoadParquet::ToString() const { return fmt::format("LoadParquet {{{}}}", row_var_.name()); }
+
+LoadJsonl::LoadJsonl(std::shared_ptr<LogicalOperator> input, Expression *file,
+                     std::unordered_map<Expression *, Expression *> config_map, Symbol row_var)
+    : input_(input ? input : (std::make_shared<Once>())),
+      file_(file),
+      row_var_(std::move(row_var)),
+      config_map_(std::move(config_map)) {
+  MG_ASSERT(file_, "Something went wrong - LoadJsonl's member file_ shouldn't be a nullptr");
+}
+
+ACCEPT_WITH_INPUT(LoadJsonl);
+
+class LoadJsonlCursor;
+
+std::vector<Symbol> LoadJsonl::OutputSymbols(const SymbolTable & /*sym_table*/) const { return {row_var_}; };
+
+std::vector<Symbol> LoadJsonl::ModifiedSymbols(const SymbolTable &sym_table) const {
+  auto symbols = input_->ModifiedSymbols(sym_table);
+  symbols.push_back(row_var_);
+  return symbols;
+};
+
+class LoadJsonlCursor : public Cursor {
+  const LoadJsonl *self_;
+  const UniqueCursorPtr input_cursor_;
+  bool did_pull_{false};
+  std::optional<JsonlReader> reader_;
+
+ public:
+  LoadJsonlCursor(const LoadJsonl *self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler const oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(*self_);
+    AbortCheck(context);
+
+    auto *mem = context.evaluation_context.memory;
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+    if (UNLIKELY(!reader_.has_value())) {
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{context.evaluation_context};
+      auto maybe_file = self_->file_->Accept(evaluator).ValueString();
+
+      constexpr auto s3_matcher = ctre::starts_with<"s3://">;
+
+      auto maybe_config_map = ParseConfigMap(self_->config_map_, evaluator);
+
+      if (!maybe_config_map) {
+        throw QueryRuntimeException("Failed to parse config map for LOAD JSONL clause!");
+      }
+
+      if (maybe_config_map->size() > 4) {
+        throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
+                                    utils::kAwsRegionQuerySetting, utils::kAwsAccessKeyQuerySetting,
+                                    utils::kAwsSecretKeyQuerySetting, utils::kAwsEndpointUrlQuerySetting);
+      }
+
+      std::optional<utils::S3Config> s3_config;
+      if (s3_matcher(maybe_file)) {
+        s3_config.emplace(utils::S3Config::Build(std::move(*maybe_config_map), BuildRunTimeS3Config()));
+      }
+
+      auto abort_check_erased = context.stopping_context.MakeMaybeAborter(1);
+
+      reader_.emplace(std::string{maybe_file}, std::move(s3_config), mem, std::move(abort_check_erased));
+    }
+
+    if (input_cursor_->Pull(frame, context)) {
+      if (did_pull_) {
+        throw QueryRuntimeException(
+            "LOAD JSONL can be executed only once, please check if the cardinality of the operator before LOAD JSONL "
+            "is 1");
+      }
+      did_pull_ = true;
+    }
+
+    Row row_{mem};
+
+    if (!reader_->GetNextRow(row_)) {
+      return false;
+    }
+
+    frame_writer.Write(self_->row_var_, TypedValue(std::move(row_), mem));
+
+    return true;
+  }
+
+  void Reset() override { input_cursor_->Reset(); }
+  void Shutdown() override { input_cursor_->Shutdown(); }
+};
+
+UniqueCursorPtr LoadJsonl::MakeCursor(utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<LoadJsonlCursor>(mem, this, mem);
+}
+
+std::unique_ptr<LogicalOperator> LoadJsonl::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<LoadJsonl>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->file_ = file_ ? file_->Clone(storage) : nullptr;
+  object->row_var_ = row_var_;
+  return object;
+}
+
+std::string LoadJsonl::ToString() const { return fmt::format("LoadJsonl {{{}}}", row_var_.name()); }
 
 class ForeachCursor : public Cursor {
  public:
@@ -8154,9 +8269,6 @@ class HashJoinCursor : public Cursor {
     auto restore_frame = [&frame_writer, &context](const auto &symbols, const auto &restore_from) {
       for (const auto &symbol : symbols) {
         frame_writer.Write(symbol, restore_from[symbol.position()]);
-        if (context.frame_change_collector) {
-          context.frame_change_collector->ResetInListCache(symbol);
-        }
       }
     };
 
@@ -8313,11 +8425,6 @@ class RollUpApplyCursor : public Cursor {
       while (list_collection_cursor_->Pull(frame, context)) {
         // collect values from the list collection branch
         result.ValueList().emplace_back(frame[self_.list_collection_symbol_]);
-      }
-
-      // Clear frame change collector
-      if (context.frame_change_collector) {
-        context.frame_change_collector->ResetInListCache(self_.list_collection_symbol_);
       }
 
       frame_writer.Write(self_.result_symbol_, result);
