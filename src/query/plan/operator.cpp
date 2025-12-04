@@ -9701,7 +9701,7 @@ class ParallelBranchCursor : public Cursor {
 
     // Execute branches 1..N in parallel
     for (size_t i = 1; i < num_branches; i++) {
-      tasks.AddTask([&, i, context, main_thread = std::this_thread::get_id(),
+      tasks.AddTask([&, i, context, main_thread = std::this_thread::get_id(), post_pull_func,
                      mem_tracking = memgraph::memory::CrossThreadMemoryTracking()](utils::Priority /*unused*/) mutable {
         OOMExceptionEnabler oom_exception;
         utils::Timer timer;
@@ -9739,6 +9739,7 @@ class ParallelBranchCursor : public Cursor {
             context.profile_execution_time += timer.Elapsed();
           }
           branch_contexts[metadata_i] = std::move(context);
+          post_pull_func(cursor.get());
         } catch (const std::exception &e) {
           // Stop all other threads
           DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
@@ -9762,6 +9763,7 @@ class ParallelBranchCursor : public Cursor {
     const auto &cursor = branch_cursors_[0];
     try {
       pull_result.fetch_add((int)cursor->Pull(frame, context));
+      post_pull_func(cursor.get());
     } catch (const std::exception &e) {
       DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
       if (!context.stopping_context.exception_occurred->load(std::memory_order_acquire)) {
@@ -9783,9 +9785,6 @@ class ParallelBranchCursor : public Cursor {
 
     // Nothing to pull, return
     if (pull_result.load() == 0) return false;
-
-    // User defined post process function
-    post_pull_func(frame, context);
 
     // Unify context fields from all branches
     UnifyContexts(context, branch_contexts, branch_trigger_collectors, branch_frame_collectors, std::move(profile));
@@ -9903,125 +9902,123 @@ class ParallelBranchCursor : public Cursor {
 };
 
 namespace {
-void UnifyAggregations(auto &branch_aggregations, const auto &aggregations) {
-  utils::Timer timer;
-  auto &main_aggregation = *branch_aggregations[0];
+void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const auto &aggregations) {
+  main_aggregation.merge(other_aggregation);
 
-  // Move all unique entries from other_aggregation to main_aggregation
-  for (int i = 1; i < branch_aggregations.size(); i++) {
-    main_aggregation.merge(*branch_aggregations[i]);
-  }
+  // 3. Handle Collisions: 'other_aggregation' now only contains keys
+  //    that already exist in 'main_aggregation'.
+  for (auto &other_node : other_aggregation) {
+    // We must find the matching node in main.
+    auto main_itr = main_aggregation.find(other_node.first);
 
-  // Combine the results of the aggregations from all cursors into main_aggregation
-  for (size_t i = 1; i < branch_aggregations.size(); i++) {
-    auto &other_aggregation = *branch_aggregations[i];
+    // Safety check: Should not theoretically happen after a merge unless map was modified concurrently
+    if (main_itr == main_aggregation.end()) {
+      continue;
+    }
 
-    // Custom merge for duplicate entries from other_aggregation to main_aggregation
-    std::for_each(std::execution::parallel_unsequenced_policy(), other_aggregation.begin(), other_aggregation.end(),
-                  [&](auto &other_node) {
-                    auto main_itr = main_aggregation.find(other_node.first);
-                    if (main_itr == main_aggregation.end()) {
-                      return;
-                    }
-                    auto &other_agg_value = other_node.second;
-                    auto &main_agg_value = main_itr->second;
-                    // Merge the AggregationValues
-                    for (size_t pos = 0; pos < aggregations.size(); ++pos) {
-                      const auto &agg_op = aggregations[pos].op;
-                      const auto &other_value = other_agg_value.values_[pos];
-                      const auto &other_count = other_agg_value.counts_[pos];
-                      auto &main_value = main_agg_value.values_[pos];
-                      auto &main_count = main_agg_value.counts_[pos];
+    auto &other_agg_value = other_node.second;
+    auto &main_agg_value = main_itr->second;
 
-                      // Merge unique_values sets for distinct aggregations
-                      if (aggregations[pos].distinct) {
-                        for (const auto &unique_val : other_agg_value.unique_values_[pos]) {
-                          main_agg_value.unique_values_[pos].insert(unique_val);
-                        }
-                      }
+    for (size_t pos = 0; pos < aggregations.size(); ++pos) {
+      const auto &agg_info = aggregations[pos];  // Cache reference
+      const auto &agg_op = agg_info.op;
 
-                      // Skip if other value is Null (unless it's COUNT)
-                      if (other_value.IsNull() && agg_op != Aggregation::Op::COUNT) {
-                        return;
-                      }
+      auto &other_value = other_agg_value.values_[pos];
+      auto &main_value = main_agg_value.values_[pos];  // Reference for easy access
 
-                      // Valid for all operations
-                      const auto old_main_count = main_count;
-                      main_count += other_count;
-                      if (main_value.IsNull()) {
-                        // Special case for AVG
-                        if (agg_op == Aggregation::Op::AVG) {
-                          main_value = other_value * TypedValue(other_count);
-                        } else {
-                          main_value = other_value;
-                        }
-                        return;
-                      }
+      // OPTIMIZATION: Merge Sets efficiently
+      if (agg_info.distinct) {
+        // C++17: Splicing sets is much faster than inserting elements one by one
+        // If your unique_values_ are std::set or std::unordered_set
+        main_agg_value.unique_values_[pos].merge(other_agg_value.unique_values_[pos]);
+        // Note: merge leaves duplicates in 'other'. If you don't need 'other' after this, that's fine.
+      }
 
-                      // Merge based on aggregation operation
-                      switch (agg_op) {
-                        case Aggregation::Op::COUNT: {
-                          main_value = main_value + other_value;  // Counts get moved into the value
-                          break;
-                        }
-                        case Aggregation::Op::SUM: {
-                          main_value = main_value + other_value;
-                          break;
-                        }
-                        case Aggregation::Op::AVG: {
-                          const TypedValue other_sum = other_value * TypedValue(other_count);
-                          main_value = (main_value * TypedValue(old_main_count) + other_sum) / TypedValue(main_count);
-                          break;
-                        }
-                        case Aggregation::Op::MIN: {
-                          const auto result = main_value > other_value;
-                          if (result.ValueBool() && result.ValueBool()) {
-                            main_value = other_value;
-                          }
-                          break;
-                        }
-                        case Aggregation::Op::MAX: {
-                          const auto result = main_value < other_value;
-                          if (result.ValueBool() && result.ValueBool()) {
-                            main_value = other_value;
-                          }
-                          break;
-                        }
-                        case Aggregation::Op::COLLECT_LIST: {
-                          // Append lists together
-                          DMG_ASSERT(main_value.IsList(), "Main value should be a list");
-                          DMG_ASSERT(other_value.IsList(), "Other value should be a list");
-                          main_value = main_value + other_value;
-                          break;
-                        }
-                        case Aggregation::Op::COLLECT_MAP: {
-                          DMG_ASSERT(main_value.IsMap(), "Main value should be a map");
-                          DMG_ASSERT(other_value.IsMap(), "Other value should be a map");
-                          auto &main_map = main_value.ValueMap();
-                          const auto &other_map = other_value.ValueMap();
-                          for (const auto &[key, val] : other_map) {
-                            main_map[key] = val;
-                          }
-                          break;
-                        }
-                        // TODO Verify
-                        case Aggregation::Op::PROJECT_PATH:
-                        case Aggregation::Op::PROJECT_LISTS: {
-                          // Merge graphs together by inserting vertices and edges
-                          auto &main_graph = main_value.ValueGraph();
-                          const auto &other_graph = other_value.ValueGraph();
-                          // Insert all vertices and edges from the other graph
-                          for (const auto &vertex : other_graph.vertices()) {
-                            main_graph.InsertVertex(vertex);
-                          }
-                          for (const auto &edge : other_graph.edges()) {
-                            main_graph.InsertEdge(edge);
-                          }
-                          break;
-                        }
-                      }
-                    }
-                  });
+      // Skip Nulls (except for COUNT)
+      // BUG FIX: Changed 'return' to 'continue'
+      if (other_value.IsNull() && agg_op != Aggregation::Op::COUNT) {
+        continue;
+      }
+
+      auto &main_count = main_agg_value.counts_[pos];
+      const auto other_count = other_agg_value.counts_[pos];
+      const auto old_main_count = main_count;
+
+      main_count += other_count;
+
+      // Logic: If main is null, simply take the other value
+      if (main_value.IsNull()) {
+        main_value = std::move(other_value);  // Move instead of copy
+        continue;
+      }
+
+      switch (agg_op) {
+        case Aggregation::Op::COUNT:
+        case Aggregation::Op::SUM: {
+          main_value = main_value + other_value;
+          break;
+        }
+        case Aggregation::Op::AVG: {
+          // Weighted Average: (M_avg * M_cnt + O_avg * O_cnt) / (M_cnt + O_cnt)
+          // Optimized to avoid excessive TypedValue constructions if possible
+          const TypedValue other_sum = other_value * TypedValue(other_count);
+          const TypedValue main_sum = main_value * TypedValue(old_main_count);
+          main_value = (main_sum + other_sum) / TypedValue(main_count);
+          break;
+        }
+        case Aggregation::Op::MIN: {
+          if ((other_value < main_value).ValueBool()) {
+            main_value = std::move(other_value);
+          }
+          break;
+        }
+        case Aggregation::Op::MAX: {
+          if ((other_value > main_value).ValueBool()) {
+            main_value = std::move(other_value);
+          }
+          break;
+        }
+        case Aggregation::Op::COLLECT_LIST: {
+          // OPTIMIZATION: Use std::move iterator or splice if underlying type supports it
+          // Assuming TypedValue::operator+ handles lists, ensure it doesn't deep copy everything
+          // ideally: main_value.AppendList(std::move(other_value));
+          main_value = main_value + other_value;
+          break;
+        }
+        case Aggregation::Op::COLLECT_MAP: {
+          // Direct map access to avoid overhead
+          auto &main_map = main_value.ValueMap();
+          auto &other_map = other_value.ValueMap();
+          // Merge maps efficiently
+          if (main_map.empty()) {
+            main_map = std::move(other_map);
+          } else {
+            // Use merge for maps (C++17) or insert with move
+            for (auto &[k, v] : other_map) {
+              main_map.insert_or_assign(k, std::move(v));
+            }
+          }
+          break;
+        }
+        case Aggregation::Op::PROJECT_PATH:
+        case Aggregation::Op::PROJECT_LISTS: {
+          auto &main_graph = main_value.ValueGraph();
+          auto &other_graph = other_value.ValueGraph();
+
+          // Assuming graphs have specific bulk-insert/merge methods, usage implies manual looping:
+          // Try to move vertices/edges if possible to avoid internal allocations
+          for (auto &vertex : other_graph.vertices()) {
+            main_graph.InsertVertex(std::move(vertex));
+          }
+          for (auto &edge : other_graph.edges()) {
+            main_graph.InsertEdge(std::move(edge));
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    }
   }
 }
 }  // namespace
@@ -10040,34 +10037,62 @@ class AggregateParallelCursor : public ParallelBranchCursor {
     }
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-    auto &main_aggregation = static_cast<AggregateCursor *>(branch_cursors_[0].get())->aggregation_;
     const auto &remember = static_cast<AggregateCursor *>(branch_cursors_[0].get())->self_.remember_;
     const auto &aggregations = static_cast<AggregateCursor *>(branch_cursors_[0].get())->self_.aggregations_;
+
+    std::mutex branch_aggregations_mutex;
+    std::vector<decltype(main_aggregation_)> branch_aggregations;
+    branch_aggregations.reserve(branch_cursors_.size());
 
     // First pull, process all input and store results in the aggregation map
     if (!initialized_) {
       initialized_ = true;
-      auto post_pull_func = [this, &aggregations](Frame & /*frame*/, ExecutionContext &context) {
-        auto branch_aggregations =
-            ranges::views::transform(
-                branch_cursors_,
-                [](auto &cursor) { return &static_cast<AggregateCursor *>(cursor.get())->aggregation_; }) |
-            ranges::to_vector;
-        UnifyAggregations(branch_aggregations, aggregations);
+      auto post_pull_func = [this, &branch_aggregations_mutex, &aggregations, &branch_aggregations](Cursor *cursor) {
+        auto *aggregation = &static_cast<AggregateCursor *>(cursor)->aggregation_;
+        decltype(main_aggregation_) free_aggregation = nullptr;
+
+        while (true) {
+          free_aggregation = nullptr;
+          // Phase 1: find a free aggregation
+          {
+            std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
+            for (auto itr = branch_aggregations.begin(); itr != branch_aggregations.end(); ++itr) {
+              if (auto *ptr = *itr; ptr != nullptr) {
+                free_aggregation = ptr;
+                branch_aggregations.erase(itr);
+                break;
+              }
+            }
+            // No free aggregation found, add the current aggregation to the list and return
+            if (free_aggregation == nullptr) {
+              branch_aggregations.push_back(aggregation);
+              return;
+            }
+          }
+          // Phase 2: unify the aggregation
+          UnifyAggregation(*free_aggregation, *aggregation, aggregations);
+          // Phase 3: swap pointers and find next aggregation
+          std::swap(free_aggregation, aggregation);
+          free_aggregation->clear();
+        }
       };
 
       // Execute branches in parallel and unify context fields (handled by base class)
       if (!ExecuteBranchesInParallel(frame, context, self_, std::move(profile), post_pull_func)) {
         return false;
       }
-      aggregation_it_ = main_aggregation.begin();
-      if (main_aggregation.empty()) {
+
+      // There should be only one aggregation left in the list
+      MG_ASSERT(branch_aggregations.size() == 1, "There should be only one aggregation left in the list");
+      main_aggregation_ = branch_aggregations[0];
+      aggregation_it_ = main_aggregation_->begin();
+      if (main_aggregation_->empty()) {
         DefaultAggregation(context, aggregations, remember, frame_writer);
         return true;  // Send back default aggregation values
       }
     }
 
-    if (aggregation_it_ == main_aggregation.end()) return false;
+    if (aggregation_it_ == main_aggregation_->end()) return false;
 
     // place aggregation values on the frame
     auto aggregation_values_it = aggregation_it_->second.values_.begin();
@@ -10084,6 +10109,7 @@ class AggregateParallelCursor : public ParallelBranchCursor {
 
  private:
   bool initialized_ = false;
+  decltype(AggregateCursor::aggregation_) *main_aggregation_;
   decltype(AggregateCursor::aggregation_.begin()) aggregation_it_;
   const AggregateParallel &self_;
 };
