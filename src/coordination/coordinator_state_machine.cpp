@@ -23,6 +23,7 @@
 
 import memgraph.coordination.constants;
 import memgraph.coordination.coordinator_exceptions;
+import memgraph.coordination.log_level;
 
 using nuraft::cluster_config;
 using nuraft::ptr;

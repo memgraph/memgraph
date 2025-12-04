@@ -12,6 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_state_manager.hpp"
+#include "coordination/coordinator_observer.hpp"
 #include "utils/logging.hpp"
 
 #include <spdlog/spdlog.h>
@@ -20,7 +21,7 @@
 #include <ranges>
 
 import memgraph.coordination.coordinator_exceptions;
-import memgraph.coordination.coordinator_observer;
+import memgraph.coordination.log_level;
 import memgraph.coordination.utils;
 
 namespace memgraph::coordination {
