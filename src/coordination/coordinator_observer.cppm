@@ -9,21 +9,27 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+export module memgraph.coordination.coordinator_observer;
+
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordination_observer.hpp"
-#include "coordination/coordinator_instance.hpp"
+import memgraph.coordination.coordinator_instance_aux;
 
-#include <nlohmann/json.hpp>
+export namespace memgraph::coordination {
 
-namespace memgraph::coordination {
+class CoordinatorInstance;
 
-CoordinationClusterChangeObserver::CoordinationClusterChangeObserver(CoordinatorInstance *instance)
-    : instance_{instance} {}
+class CoordinationClusterChangeObserver {
+ public:
+  explicit CoordinationClusterChangeObserver(CoordinatorInstance *instance) : instance_{instance} {}
 
-void CoordinationClusterChangeObserver::Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
-  instance_->UpdateClientConnectors(coord_instances_aux);
-}
+  void Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
+    instance_->UpdateClientConnectors(coord_instances_aux);
+  }
+
+ private:
+  CoordinatorInstance *instance_;
+};
 
 }  // namespace memgraph::coordination
 

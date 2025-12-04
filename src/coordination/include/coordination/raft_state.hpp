@@ -17,12 +17,12 @@
 
 #include "coordination/coordinator_state_machine.hpp"
 #include "coordination/coordinator_state_manager.hpp"
-#include "coordination_observer.hpp"
 
 #include <libnuraft/logger.hxx>
 #include <libnuraft/nuraft.hxx>
 
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_observer;
 import memgraph.coordination.utils;
 
 namespace memgraph::coordination {

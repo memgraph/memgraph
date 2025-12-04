@@ -9,16 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
 #include <cstdint>
 #include <string>
 
 #include <nlohmann/json_fwd.hpp>
 
+export module memgraph.coordination.coordinator_instance_aux;
+
 #ifdef MG_ENTERPRISE
 
-namespace memgraph::coordination {
+export namespace memgraph::coordination {
 // Context saved about each coordinator in raft_server::aux field. This info is stored upon starting coordinator and
 // cannot change. We use json (de)serialization.
 struct CoordinatorInstanceAux {

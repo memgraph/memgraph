@@ -18,7 +18,6 @@
 #include <thread>
 #include <vector>
 
-#include "coordination/logger_wrapper.hpp"
 #include "coordination/raft_state.hpp"
 #include "utils/counter.hpp"
 #include "utils/file.hpp"
@@ -30,6 +29,7 @@
 import memgraph.coordination.constants;
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_exceptions;
+import memgraph.coordination.logger_wrapper;
 import memgraph.coordination.coordinator_log_store;
 import memgraph.coordination.utils;
 
