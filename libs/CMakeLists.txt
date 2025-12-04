@@ -9,14 +9,12 @@ if(NPROC EQUAL 0)
   set(NPROC 1)
 endif()
 
-find_package(BZip2 REQUIRED)
 find_package(Threads REQUIRED)
 set(GFLAGS_NOTHREADS OFF)
 
 # NOTE: config/generate.py depends on the gflags help XML format.
 find_package(gflags REQUIRED)
 find_package(fmt REQUIRED)
-find_package(ZLIB REQUIRED)
 find_package(spdlog REQUIRED)
 
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR})
@@ -334,13 +332,6 @@ mg_create_linkable_if_no_cmake(librdtsc STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdts
 
 set(ABSL_PROPAGATE_CXX_STD ON)
 
-macro(link_jmalloc)
-  set_path_external_library(jemalloc STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/lib/libjemalloc.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
-endmacro()
-mg_build_if_needed(link_jmalloc "jemalloc")
-
 message(STATUS "MG_TOOLCHAIN_VERSION: ${MG_TOOLCHAIN_VERSION}")
 if(DEFINED MG_TOOLCHAIN_VERSION)
   if(${MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
@@ -355,7 +346,6 @@ macro(build_nuraft)
 endmacro()
 mg_build_if_needed(build_nuraft "nuraft")
 mg_create_linkable_if_no_cmake(nuraft STATIC "${MG_TOOLCHAIN_ROOT}/lib/libnuraft.a" "${MG_TOOLCHAIN_ROOT}/include")
-find_package(OpenSSL REQUIRED)
 target_link_libraries(nuraft INTERFACE openssl::openssl)
 
 # Always build mgcxx locally (not from toolchain)
@@ -396,42 +386,3 @@ set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/fp16/include
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/stringzilla/include)
-
-macro(build_arrow)
-  set(ARROW_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/arrow)
-  set(ARROW_LIBDIR "${ARROW_ROOT}/lib")
-
-  add_external_project(arrow
-    SOURCE_DIR ${ARROW_ROOT}/cpp
-    CMAKE_ARGS
-      -DCMAKE_INSTALL_PREFIX=${ARROW_ROOT}
-      -DCMAKE_INSTALL_LIBDIR=lib
-      -DARROW_PARQUET=ON
-      -DARROW_WITH_SNAPPY=ON
-      -DARROW_FILESYSTEM=ON
-      -DARROW_BUILD_STATIC=ON
-      -DARROW_S3=ON
-      -DARROW_BUILD_SHARED=OFF
-      -DARROW_MIMALLOC=OFF
-      -DARROW_WITH_RE2=OFF
-      -DARROW_WITH_UTF8PROC=OFF
-      -DARROW_DEPENDENCY_SOURCE=BUNDLED
-    BUILD_BYPRODUCTS
-      "${ARROW_LIBDIR}/libarrow.a" "${ARROW_LIBDIR}/libarrowd.a"
-      "${ARROW_LIBDIR}/libparquet.a" "${ARROW_LIBDIR}/libparquetd.a"
-      "${ARROW_LIBDIR}/libarrow_bundled_dependencies.a"
-  )
-
-  # handle debug build with `d` suffix
-  set(_d "$<$<CONFIG:Debug>:d>")
-  set(_arrow_libs "${ARROW_LIBDIR}/libparquet${_d}.a;${ARROW_LIBDIR}/libarrow${_d}.a;${ARROW_LIBDIR}/libarrow_bundled_dependencies.a")
-
-  add_library(arrow INTERFACE IMPORTED GLOBAL)
-  set_target_properties(arrow PROPERTIES
-    INTERFACE_INCLUDE_DIRECTORIES "${ARROW_ROOT}/include"
-    INTERFACE_LINK_LIBRARIES "${_arrow_libs}"
-  )
-  add_dependencies(arrow arrow-proj)
-  file(MAKE_DIRECTORY ${ARROW_ROOT}/include)
-endmacro()
-build_arrow()

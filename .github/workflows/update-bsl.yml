@@ -1,0 +1,61 @@
+name: Update BSL Change Date
+
+on:
+  workflow_dispatch:
+    inputs:
+      bsl_date:
+        description: "BSL change date (format YYYY-DD-MM)"
+        required: false
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      bsl_date:
+        description: "BSL change date (format YYYY-DD-MM)"
+        required: false
+        type: string
+        default: ""
+
+run-name: Update BSL change date
+
+jobs:
+  update_bsl_change_description:
+    name: Update BSL change date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: master
+
+      - name: Set BSL date
+        env:
+          INPUT_BSL_DATE: ${{ inputs.bsl_date }}
+        run: |
+          if [ -z "$INPUT_BSL_DATE" ]; then
+              # Should be today's date + 4 years
+              BSL_DATE="$(date -u +%Y-%d-%m -d '+4 years')"
+          else
+              BSL_DATE=$INPUT_BSL_DATE
+          fi
+          echo "BSL_DATE=$BSL_DATE" >> $GITHUB_ENV
+
+      - name: Update BSL change date
+        run: |
+          sed -i "s/CHANGE DATE:.*$/CHANGE DATE:            $BSL_DATE/" licenses/BSL.txt
+
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "Update BSL change date to ${{ env.BSL_DATE }}"
+          title: "Update BSL change date to ${{ env.BSL_DATE }}"
+          body: "Update BSL change date to ${{ env.BSL_DATE }}"
+          branch: "update-bsl-change-date-${{ env.BSL_DATE }}"
+          base: master
+          labels: |
+            infrastructure
+            Docs unnecessary
+          draft: false
+          maintainer-can-modify: true

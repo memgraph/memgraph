@@ -270,14 +270,19 @@ class RuleBasedPlanner {
           } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);
             context.bound_symbols.insert(row_sym);
-            input_op = std::make_unique<plan::LoadCsv>(std::move(input_op), load_csv->file_, load_csv->with_header_,
-                                                       load_csv->ignore_bad_, load_csv->delimiter_, load_csv->quote_,
-                                                       load_csv->nullif_, row_sym);
+            input_op = std::make_unique<plan::LoadCsv>(
+                std::move(input_op), load_csv->file_, load_csv->configs_, load_csv->with_header_, load_csv->ignore_bad_,
+                load_csv->delimiter_, load_csv->quote_, load_csv->nullif_, row_sym);
           } else if (auto *load_parquet = utils::Downcast<query::LoadParquet>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_parquet->row_var_);
             context.bound_symbols.insert(row_sym);
             input_op = std::make_unique<plan::LoadParquet>(std::move(input_op), load_parquet->file_,
                                                            load_parquet->configs_, row_sym);
+          } else if (auto *load_jsonl = utils::Downcast<query::LoadJsonl>(clause)) {
+            const auto &row_sym = context.symbol_table->at(*load_jsonl->row_var_);
+            context.bound_symbols.insert(row_sym);
+            input_op = std::make_unique<plan::LoadJsonl>(std::move(input_op), load_jsonl->file_, load_jsonl->configs_,
+                                                         row_sym);
           } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
             context.is_write_query = true;
             input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,
@@ -1027,10 +1032,14 @@ class RuleBasedPlanner {
         impl::GetSubqueryBoundSymbols(subquery->query_parts[0].single_query_parts, symbol_table, storage, pc_ops);
 
     auto subquery_op = Plan(*subquery);
+    auto subquery_bound_symbols = subquery_op->OutputSymbols(*context_->symbol_table);
 
     context_->bound_symbols.clear();
     context_->bound_symbols.insert(std::make_move_iterator(outer_scope_bound_symbols.begin()),
                                    std::make_move_iterator(outer_scope_bound_symbols.end()));
+
+    context_->bound_symbols.insert(std::make_move_iterator(subquery_bound_symbols.begin()),
+                                   std::make_move_iterator(subquery_bound_symbols.end()));
 
     auto subquery_has_return = true;
     if (subquery_op->GetTypeInfo() == EmptyResult::kType) {

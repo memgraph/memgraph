@@ -110,3 +110,18 @@ def subgraph_remove_vertex_and_out_edges_get_vertices(
         ctx.graph.delete_edge(edge)
     ctx.graph.delete_vertex(vertex)
     return [mgp.Record(node=vertex) for vertex in ctx.graph.vertices]
+
+
+@mgp.write_proc
+def set_property_wrapped(
+    ctx: mgp.ProcCtx, object: mgp.Any, name: str, value: mgp.Nullable[mgp.Any]
+) -> mgp.Record(success=bool, error=mgp.Nullable[str]):
+    """
+    Like set_property but catches exceptions and returns them.
+    Used to test serialization error handling in query modules.
+    """
+    try:
+        object.properties.set(name, value)
+        return mgp.Record(success=True, error=None)
+    except Exception as e:
+        return mgp.Record(success=False, error=str(e))

@@ -13,6 +13,7 @@
 
 #include <string>
 
+#include "frontend/ast/ast.hpp"
 #include "spdlog/spdlog.h"
 
 namespace memgraph::utils {
@@ -44,6 +45,15 @@ struct FrameChangeId {
     query::Expression *expr_;
   };
 };
+
+inline FrameChangeId GetFrameChangeId(const memgraph::query::RegexMatch &regex_match) {
+  if (regex_match.regex_->GetTypeInfo() == memgraph::query::Identifier::kType) {
+    const auto *identifier = utils::Downcast<memgraph::query::Identifier>(regex_match.regex_);
+    MG_ASSERT(identifier->symbol_pos_ != -1);
+    return FrameChangeId{identifier->symbol_pos_};
+  }
+  return FrameChangeId{regex_match.regex_};
+}
 
 // Get ID by which FrameChangeCollector struct can cache in_list.expression2_
 inline FrameChangeId GetFrameChangeId(const memgraph::query::InListOperator &in_list) {

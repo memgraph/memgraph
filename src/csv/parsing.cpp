@@ -9,7 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "csv/parsing.hpp"
+module;
+
+#include "requests/requests.hpp"
+#include "utils/memory.hpp"
+#include "utils/on_scope_exit.hpp"
+#include "utils/pmr/string.hpp"
+#include "utils/pmr/vector.hpp"
+#include "utils/string.hpp"
 
 #include <string_view>
 
@@ -18,12 +25,52 @@
 #include <boost/iostreams/filtering_stream.hpp>
 #include <ctre.hpp>
 
-#include "requests/requests.hpp"
-#include "utils/file.hpp"
-#include "utils/on_scope_exit.hpp"
-#include "utils/string.hpp"
+module memgraph.csv.parsing;
+import memgraph.utils.aws;
 
 using PlainStream = boost::iostreams::filtering_istream;
+
+namespace {
+
+enum class CompressionMethod : uint8_t {
+  NONE,
+  GZip,
+  BZip2,
+};
+
+/// Detect compression based on magic sequences
+auto DetectCompressionMethod(std::istream &is) -> CompressionMethod {
+  // Ensure stream is reset
+  auto const on_exit = memgraph::utils::OnScopeExit{[&]() { is.seekg(std::ios::beg); }};
+
+  // Note we must use bytes for comparison, not char
+  //
+  std::byte c{};  // this gets reused
+  auto const next_byte = [&](std::byte &b) { return bool(is.get(reinterpret_cast<char &>(b))); };
+  if (!next_byte(c)) return CompressionMethod::NONE;
+
+  auto const as_bytes = []<typename... Args>(Args... args) {
+    return std::array<std::byte, sizeof...(Args)>{std::byte(args)...};
+  };
+
+  // Gzip - 0x1F8B
+  constexpr static auto gzip_seq = as_bytes(0x1F, 0x8B);
+  if (c == gzip_seq[0]) {
+    if (!next_byte(c) || c != gzip_seq[1]) return CompressionMethod::NONE;
+    return CompressionMethod::GZip;
+  }
+
+  // BZip2 - 0x425A68
+  constexpr static auto bzip_seq = as_bytes(0x42, 0x5A, 0x68);
+  if (c == bzip_seq[0]) {
+    if (!next_byte(c) || c != bzip_seq[1]) return CompressionMethod::NONE;
+    if (!next_byte(c) || c != bzip_seq[2]) return CompressionMethod::NONE;
+    return CompressionMethod::BZip2;
+  }
+  return CompressionMethod::NONE;
+}
+
+}  // namespace
 
 namespace memgraph::csv {
 
@@ -72,44 +119,6 @@ Reader::impl::impl(CsvSource source, Reader::Config cfg, utils::MemoryResource *
   read_config_.quote = cfg.quote ? std::move(*cfg.quote) : utils::pmr::string{"\"", memory_};
   InitializeStream();
   TryInitializeHeader();
-}
-
-enum class CompressionMethod : uint8_t {
-  NONE,
-  GZip,
-  BZip2,
-};
-
-/// Detect compression based on magic sequences
-auto DetectCompressionMethod(std::istream &is) -> CompressionMethod {
-  // Ensure stream is reset
-  auto const on_exit = utils::OnScopeExit{[&]() { is.seekg(std::ios::beg); }};
-
-  // Note we must use bytes for comparison, not char
-  //
-  std::byte c{};  // this gets reused
-  auto const next_byte = [&](std::byte &b) { return bool(is.get(reinterpret_cast<char &>(b))); };
-  if (!next_byte(c)) return CompressionMethod::NONE;
-
-  auto const as_bytes = []<typename... Args>(Args... args) {
-    return std::array<std::byte, sizeof...(Args)>{std::byte(args)...};
-  };
-
-  // Gzip - 0x1F8B
-  constexpr static auto gzip_seq = as_bytes(0x1F, 0x8B);
-  if (c == gzip_seq[0]) {
-    if (!next_byte(c) || c != gzip_seq[1]) return CompressionMethod::NONE;
-    return CompressionMethod::GZip;
-  }
-
-  // BZip2 - 0x425A68
-  constexpr static auto bzip_seq = as_bytes(0x42, 0x5A, 0x68);
-  if (c == bzip_seq[0]) {
-    if (!next_byte(c) || c != bzip_seq[1]) return CompressionMethod::NONE;
-    if (!next_byte(c) || c != bzip_seq[2]) return CompressionMethod::NONE;
-    return CompressionMethod::BZip2;
-  }
-  return CompressionMethod::NONE;
 }
 
 Reader::Reader(CsvSource source, Reader::Config cfg, utils::MemoryResource *mem)
@@ -371,26 +380,41 @@ FileCsvSource::FileCsvSource(std::filesystem::path path) : path_(std::move(path)
 }
 std::istream &FileCsvSource::GetStream() { return stream_; }
 
+S3CsvSource::S3CsvSource(std::string uri, utils::S3Config const &s3_config) {
+  utils::GetS3Object(std::move(uri), s3_config, stream_);
+}
+
+std::istream &S3CsvSource::GetStream() { return stream_; }
+
+UrlCsvSource::UrlCsvSource(std::string url) : StreamCsvSource{requests::UrlToStringStream(std::move(url))} {}
+
+StreamCsvSource::StreamCsvSource(std::stringstream stream) : stream_{std::move(stream)} {}
+
+std::istream &StreamCsvSource::GetStream() { return stream_; }
+
+template memgraph::csv::CsvSource::CsvSource(memgraph::csv::FileCsvSource);
+template memgraph::csv::CsvSource::CsvSource(memgraph::csv::UrlCsvSource);
+template memgraph::csv::CsvSource::CsvSource(memgraph::csv::StreamCsvSource);
+template memgraph::csv::CsvSource::CsvSource(memgraph::csv::S3CsvSource);
+
+auto CsvSource::Create(std::string csv_location, std::optional<utils::S3Config> s3_cfg) -> CsvSource {
+  constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
+  constexpr auto s3_matcher = ctre::starts_with<"s3://">;
+
+  if (url_matcher(csv_location)) {
+    return CsvSource{csv::UrlCsvSource{std::move(csv_location)}};
+  }
+
+  if (s3_matcher(csv_location)) {
+    DMG_ASSERT(s3_cfg.has_value(), "S3Config doesn't have a value");
+    return CsvSource{S3CsvSource{std::move(csv_location), *s3_cfg}};
+  }
+
+  return CsvSource{csv::FileCsvSource{std::move(csv_location)}};
+}
+
 std::istream &CsvSource::GetStream() {
   return *std::visit([](auto &&source) { return std::addressof(source.GetStream()); }, source_);
 }
 
-auto CsvSource::Create(const utils::pmr::string &csv_location) -> CsvSource {
-  constexpr auto protocol_matcher = ctre::starts_with<"(https?|ftp)://">;
-  if (protocol_matcher(csv_location)) {
-    return csv::UrlCsvSource{csv_location.c_str()};
-  }
-  return csv::FileCsvSource{csv_location};
-}
-
-// Helper for UrlCsvSource
-auto urlToStringStream(const char *url) -> std::stringstream {
-  auto ss = std::stringstream{};
-  if (!requests::DownloadToStream(url, ss)) {
-    throw CsvReadException("CSV was unable to be fetched from {}", url);
-  }
-  return ss;
-};
-
-UrlCsvSource::UrlCsvSource(const char *url) : StreamCsvSource{urlToStringStream(url)} {}
 }  // namespace memgraph::csv

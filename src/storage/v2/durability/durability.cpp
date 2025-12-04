@@ -141,7 +141,7 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
     try {
       auto info = ReadSnapshotInfo(item.path());
       if (uuid.empty() || info.uuid == uuid) {
-        snapshot_files.emplace_back(item.path(), std::move(info.uuid), info.start_timestamp);
+        snapshot_files.emplace_back(item.path(), std::move(info.uuid), info.durable_timestamp);
       } else {
         spdlog::warn("Skipping snapshot file '{}' because UUIDs does not match!", item.path());
       }
@@ -508,7 +508,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     std::optional<RecoveredSnapshot> recovered_snapshot;
 
     for (auto it = snapshot_files.rbegin(); it != snapshot_files.rend(); ++it) {
-      const auto &[path, file_uuid, _] = *it;
+      auto const &path = (*it).path;
+      auto const &file_uuid = (*it).uuid;
       if (file_uuid != last_snapshot_uuid_str) {
         spdlog::warn("The snapshot file {} isn't related to the latest snapshot file!", path);
         continue;
@@ -573,7 +574,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     }
 
     // sort by path
-    std::sort(wal_files.begin(), wal_files.end());
+    std::ranges::sort(wal_files);
 
     // UUID used for durability is the UUID of the last WAL file.
     // Same for the epoch id.

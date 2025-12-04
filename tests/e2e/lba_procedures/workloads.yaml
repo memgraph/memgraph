@@ -43,11 +43,11 @@ schema_info_setup_queries: &schema_info_setup_queries
   - "CREATE USER admin;"
   - "GRANT ALL PRIVILEGES TO admin;"
   - "GRANT CREATE, DELETE ON NODES CONTAINING LABELS * TO admin;"
-  - "GRANT CREATE, DELETE ON EDGES CONTAINING TYPES * TO admin;"
+  - "GRANT CREATE, DELETE ON EDGES OF TYPE * TO admin;"
   - "CREATE USER josip;"
   - "GRANT STATS TO josip;"
   - "GRANT READ ON NODES CONTAINING LABELS * TO josip"
-  - "GRANT READ ON EDGES CONTAINING TYPES * TO josip"
+  - "GRANT READ ON EDGES OF TYPE * TO josip"
   - "CREATE USER toni;"
   - "GRANT STATS TO toni;"
   - "GRANT READ ON NODES CONTAINING LABELS * TO toni"
@@ -57,7 +57,7 @@ schema_info_setup_queries: &schema_info_setup_queries
   - "GRANT READ ON NODES CONTAINING LABELS :Public TO kate"
   - "GRANT STATS TO kate;"
   - "CREATE USER matea"
-  - "GRANT READ ON EDGES CONTAINING TYPES :TYPE TO matea"
+  - "GRANT READ ON EDGES OF TYPE :TYPE TO matea"
   - "GRANT STATS TO matea;"
 
 

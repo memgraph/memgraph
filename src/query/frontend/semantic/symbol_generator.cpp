@@ -288,6 +288,16 @@ bool SymbolGenerator::PostVisit(LoadParquet &load_parquet) {
   return true;
 }
 
+bool SymbolGenerator::PreVisit(LoadJsonl & /*load_jsonl*/) { return false; }
+
+bool SymbolGenerator::PostVisit(LoadJsonl &load_jsonl) {
+  if (HasSymbol(load_jsonl.row_var_->name_)) {
+    throw RedeclareVariableError(load_jsonl.row_var_->name_);
+  }
+  load_jsonl.row_var_->MapTo(CreateSymbol(load_jsonl.row_var_->name_, true));
+  return true;
+}
+
 bool SymbolGenerator::PreVisit(Return &ret) {
   auto &scope = scopes_.back();
   scope.in_return = true;

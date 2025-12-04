@@ -356,6 +356,8 @@ class DbAccessor final {
 
   auto GetTransactionId() { return accessor_->GetTransactionId(); }
 
+  bool TransactionHasSerializationError() const { return accessor_->TransactionHasSerializationError(); }
+
   VerticesIterable Vertices(storage::View view) { return VerticesIterable(accessor_->Vertices(view)); }
 
   VerticesIterable Vertices(storage::View view, storage::LabelId label) {

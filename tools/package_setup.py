@@ -92,6 +92,7 @@ class PackageSetup:
                 "s3_dest_dir": "",
                 "push_to_github": "false",
                 "malloc": "false",
+                "generate_sbom": "false",
             }
 
     def _setup_workflow_dispatch(self) -> None:

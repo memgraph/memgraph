@@ -9,13 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "csv/parsing.hpp"
-#include "gtest/gtest.h"
+#include "utils/pmr/string.hpp"
+#include "utils/pmr/vector.hpp"
 #include "utils/string.hpp"
+
+#include <filesystem>
 
 #include <boost/iostreams/filter/bzip2.hpp>
 #include <boost/iostreams/filter/gzip.hpp>
 #include <boost/iostreams/filtering_stream.hpp>
+#include "gtest/gtest.h"
+
+import memgraph.csv.parsing;
 
 using namespace memgraph::csv;
 
@@ -137,7 +142,7 @@ TEST_P(CsvReaderTest, CommaDelimiter) {
   memgraph::utils::pmr::string quote{"\"", mem};
 
   Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = Reader(FileCsvSource{filepath}, cfg, mem);
+  auto reader = Reader(CsvSource{FileCsvSource{filepath}}, cfg, mem);
 
   auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(*parsed_row, ToPmrColumns(columns));
@@ -160,7 +165,7 @@ TEST_P(CsvReaderTest, SemicolonDelimiter) {
   const bool with_header = false;
   const bool ignore_bad = false;
   const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = Reader(FileCsvSource{filepath}, cfg, mem);
+  auto reader = Reader(CsvSource{FileCsvSource{filepath}}, cfg, mem);
 
   auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(*parsed_row, ToPmrColumns(columns));
@@ -193,7 +198,7 @@ TEST_P(CsvReaderTest, SkipBad) {
     const bool with_header = false;
     const bool ignore_bad = true;
     const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-    auto reader = Reader(FileCsvSource{filepath}, cfg, mem);
+    auto reader = Reader(CsvSource{FileCsvSource{filepath}}, cfg, mem);
 
     auto parsed_row = reader.GetNextRow(mem);
     ASSERT_EQ(*parsed_row, ToPmrColumns(columns_good));
@@ -205,7 +210,7 @@ TEST_P(CsvReaderTest, SkipBad) {
     const bool with_header = false;
     const bool ignore_bad = false;
     const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-    auto reader = Reader(FileCsvSource{filepath}, cfg, mem);
+    auto reader = Reader(CsvSource{FileCsvSource{filepath}}, cfg, mem);
 
     EXPECT_THROW(reader.GetNextRow(mem), CsvReadException);
   }
@@ -232,7 +237,7 @@ TEST_P(CsvReaderTest, AllRowsValid) {
   const bool with_header = false;
   const bool ignore_bad = false;
   const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = Reader(FileCsvSource{filepath}, cfg);
+  auto reader = Reader(CsvSource{FileCsvSource{filepath}}, cfg);
 
   const auto pmr_columns = ToPmrColumns(columns);
   while (auto parsed_row = reader.GetNextRow(mem)) {
@@ -261,7 +266,7 @@ TEST_P(CsvReaderTest, SkipAllRows) {
   const bool with_header = false;
   const bool ignore_bad = true;
   const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = Reader(FileCsvSource{filepath}, cfg);
+  auto reader = Reader(CsvSource{FileCsvSource{filepath}}, cfg);
 
   auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(parsed_row, std::nullopt);
@@ -288,7 +293,7 @@ TEST_P(CsvReaderTest, WithHeader) {
   const bool with_header = true;
   const bool ignore_bad = false;
   const Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
-  auto reader = Reader(FileCsvSource{filepath}, cfg);
+  auto reader = Reader(CsvSource{FileCsvSource{filepath}}, cfg);
 
   const auto pmr_header = ToPmrColumns(header);
   ASSERT_EQ(reader.GetHeader(), pmr_header);
@@ -324,7 +329,7 @@ TEST_P(CsvReaderTest, MultilineQuotedString) {
   const bool with_header = false;
   const bool ignore_bad = true;
   const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = Reader(FileCsvSource{filepath}, cfg);
+  auto reader = Reader(CsvSource{FileCsvSource{filepath}}, cfg);
 
   auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(*parsed_row, ToPmrColumns(first_row));
@@ -356,7 +361,7 @@ TEST_P(CsvReaderTest, EmptyColumns) {
   const bool with_header = false;
   const bool ignore_bad = false;
   const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = Reader(FileCsvSource{filepath}, cfg);
+  auto reader = Reader(CsvSource{FileCsvSource{filepath}}, cfg);
 
   for (const auto &expected_row : expected_rows) {
     const auto pmr_expected_row = ToPmrColumns(expected_row);
