@@ -13,11 +13,10 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/logger.hpp"
-
 #include <source_location>
 #include <string>
 
+import memgraph.coordination.logger;
 import memgraph.coordination.log_level;
 namespace memgraph::coordination {
 

@@ -13,7 +13,6 @@
 
 #include "coordination/coordinator_state_manager.hpp"
 #include "coordination/coordination_observer.hpp"
-#include "coordination/coordinator_exceptions.hpp"
 #include "utils/logging.hpp"
 
 #include <spdlog/spdlog.h>
@@ -21,6 +20,7 @@
 
 #include <ranges>
 
+import memgraph.coordination.coordinator_exceptions;
 import memgraph.coordination.utils;
 
 namespace memgraph::coordination {

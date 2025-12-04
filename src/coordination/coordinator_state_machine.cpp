@@ -14,7 +14,6 @@
 #include "coordination/coordinator_state_machine.hpp"
 
 #include "coordination/coordinator_cluster_state.hpp"
-#include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_state_manager.hpp"
 #include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"
@@ -23,6 +22,7 @@
 #include <regex>
 
 import memgraph.coordination.constants;
+import memgraph.coordination.coordinator_exceptions;
 
 using nuraft::cluster_config;
 using nuraft::ptr;

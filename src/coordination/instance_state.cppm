@@ -9,15 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#ifdef MG_ENTERPRISE
+module;
 
 #include "utils/uuid.hpp"
 
 #include <optional>
 
-namespace memgraph::coordination {
+export module memgraph.coordination.instance_state;
+
+#ifdef MG_ENTERPRISE
+
+export namespace memgraph::coordination {
 
 struct InstanceStateV1 {
   bool is_replica;                  // MAIN or REPLICA

@@ -14,7 +14,6 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_rpc.hpp"
-#include "coordination/instance_state.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/client.hpp"
 #include "utils/event_counter.hpp"
@@ -22,6 +21,8 @@
 #include "utils/scheduler.hpp"
 
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.instance_state;
+import memgraph.coordination.replication_lag_info;
 
 namespace memgraph::metrics {
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)

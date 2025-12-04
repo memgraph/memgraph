@@ -5,17 +5,20 @@ target_sources(mg-coordination
         FILE_SET CXX_MODULES
         FILES
         coordinator_communication_config.cppm
+        coordinator_exceptions.cppm
         coordinator_log_store.cppm
         coordinator_ops_status.cppm
         constants.cppm
+        instance_state.cppm
         instance_status.cppm
+        logger.cppm
         log_level.cppm
+        replication_lag_info.cppm
         utils.cppm
         FILE_SET HEADERS
         FILES
         include/coordination/coordination_observer.hpp
         include/coordination/coordinator_cluster_state.hpp
-        include/coordination/coordinator_exceptions.hpp
         include/coordination/coordinator_instance.hpp
         include/coordination/coordinator_instance_aux.hpp
         include/coordination/coordinator_instance_client.hpp
@@ -31,13 +34,10 @@ target_sources(mg-coordination
         include/coordination/data_instance_context.hpp
         include/coordination/data_instance_management_server.hpp
         include/coordination/data_instance_management_server_handlers.hpp
-        include/coordination/instance_state.hpp
-        include/coordination/logger.hpp
         include/coordination/logger_wrapper.hpp
         include/coordination/raft_state.hpp
         include/coordination/replication_instance_client.hpp
         include/coordination/replication_instance_connector.hpp
-        include/coordination/replication_lag_info.hpp
 
 
         PRIVATE

@@ -11,6 +11,10 @@
 
 #pragma once
 
+#include <cstdint>
+#include <string>
+#include <vector>
+
 namespace memgraph::replication_coordination_glue {
 
 // Multiple versions because of changes in the RPC protocol, we need this in order to support ISSU

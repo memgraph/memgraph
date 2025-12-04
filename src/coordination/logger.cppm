@@ -9,12 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
-#ifdef MG_ENTERPRISE
-
-#include <spdlog/common.h>
-#include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/spdlog.h>
 #include <string>
 // clang-format off
@@ -23,9 +19,13 @@
 #include <libnuraft/logger.hxx>
 // clang-format on
 
+export module memgraph.coordination.logger;
+
+#ifdef MG_ENTERPRISE
+
 import memgraph.coordination.log_level;
 
-namespace memgraph::coordination {
+export namespace memgraph::coordination {
 
 using nuraft::logger;
 
