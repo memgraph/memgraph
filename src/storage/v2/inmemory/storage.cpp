@@ -290,15 +290,16 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     };
   }
 
-  if (config_.gc.type == Config::Gc::Type::PERIODIC) {
-    // TODO: move out of storage have one global gc_runner_
-    gc_runner_.SetInterval(config_.gc.interval);
-    gc_runner_.Run("Storage GC", [this] { this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true); });
-  }
   if (timestamp_ == kTimestampInitialId) {
     commit_log_.emplace();
   } else {
     commit_log_.emplace(timestamp_);
+  }
+
+  if (config_.gc.type == Config::Gc::Type::PERIODIC) {
+    // TODO: move out of storage have one global gc_runner_
+    gc_runner_.SetInterval(config_.gc.interval);
+    gc_runner_.Run("Storage GC", [this] { this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true); });
   }
 
   flags::run_time::SnapshotPeriodicAttach(snapshot_periodic_observer_);
