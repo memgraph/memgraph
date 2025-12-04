@@ -15,6 +15,7 @@
 
 #include <optional>
 
+#include "coordination/coordinator_observer.hpp"
 #include "coordination/coordinator_state_machine.hpp"
 #include "coordination/coordinator_state_manager.hpp"
 
@@ -22,12 +23,9 @@
 #include <libnuraft/nuraft.hxx>
 
 import memgraph.coordination.coordinator_communication_config;
-import memgraph.coordination.coordinator_observer;
 import memgraph.coordination.utils;
 
 namespace memgraph::coordination {
-
-class CoordinatorInstance;
 
 using BecomeLeaderCb = std::function<void()>;
 using BecomeFollowerCb = std::function<void()>;

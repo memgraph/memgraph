@@ -13,14 +13,17 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordinator_observer.hpp"
+
 #include <libnuraft/logger.hxx>
 #include <libnuraft/nuraft.hxx>
 
 #include "kvstore/kvstore.hpp"
 
+#include "nlohmann/json_fwd.hpp"
+
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_instance_aux;
-import memgraph.coordination.coordinator_observer;
 import memgraph.coordination.logger_wrapper;
 import memgraph.coordination.coordinator_log_store;
 

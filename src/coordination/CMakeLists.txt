@@ -8,14 +8,13 @@ target_sources(mg-coordination
         coordinator_exceptions.cppm
         coordinator_instance_aux.cppm
         coordinator_log_store.cppm
-        coordinator_observer.cppm
         coordinator_ops_status.cppm
         constants.cppm
         instance_state.cppm
         instance_status.cppm
         logger.cppm
         log_level.cppm
-        logger_wrappr.cppm
+        logger_wrapper.cppm
         replication_lag_info.cppm
         utils.cppm
         FILE_SET HEADERS
@@ -27,6 +26,7 @@ target_sources(mg-coordination
         include/coordination/coordinator_instance_context.hpp
         include/coordination/coordinator_instance_management_server.hpp
         include/coordination/coordinator_instance_management_server_handlers.hpp
+        include/coordination/coordinator_observer.hpp
         include/coordination/coordinator_rpc.hpp
         include/coordination/coordinator_slk.hpp
         include/coordination/coordinator_state.hpp
@@ -51,6 +51,7 @@ target_sources(mg-coordination
         coordinator_instance_management_server.cpp
         coordinator_instance_management_server_handlers.cpp
         coordinator_log_store.cpp
+        coordinator_observer.cpp
         coordinator_rpc.cpp
         coordinator_state.cpp
         coordinator_state_machine.cpp

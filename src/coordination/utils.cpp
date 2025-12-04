@@ -26,6 +26,7 @@ module;
 
 module memgraph.coordination.utils;
 
+import memgraph.coordination.log_level;
 import memgraph.coordination.logger_wrapper;
 
 #ifdef MG_ENTERPRISE
