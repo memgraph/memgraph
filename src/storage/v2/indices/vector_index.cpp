@@ -71,6 +71,7 @@ struct VectorIndex::Impl {
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
 VectorIndex::~VectorIndex() = default;
 
+// TODO(@DavIvek): add flag for parallel creation of the index
 bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                               NameIdMapper *name_id_mapper,
                               std::optional<SnapshotObserverInfo> const & /*snapshot_info*/) {
@@ -103,7 +104,6 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
     const auto num_workers = static_cast<std::size_t>(FLAGS_bolt_num_workers);
     auto chunks = vertices.create_chunks(num_workers);
 
-    // Resizing the underlying index is not thread-safe, so protect it with a mutex.
     std::exception_ptr first_exception;
     std::mutex exception_mutex;
     std::vector<std::jthread> workers;
@@ -180,6 +180,7 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
   return true;
 }
 
+// TODO(@DavIvek): add flag for parallel recovery of the index
 void VectorIndex::RecoverIndexEntries(const VectorIndexRecoveryInfo &recovery_info,
                                       utils::SkipList<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
@@ -253,18 +254,36 @@ void VectorIndex::RecoverIndexEntries(const VectorIndexRecoveryInfo &recovery_in
                             .spec = spec});
 }
 
-bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices) {
+bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices,
+                            NameIdMapper *name_id_mapper) {
   auto it = pimpl->index_name_to_label_prop_.find(index_name);
   if (it == pimpl->index_name_to_label_prop_.end()) {
     return false;
   }
-  const auto &label_prop = it->second;
+  auto label_prop = it->second;
+  auto &[mg_index, _] = pimpl->index_.at(label_prop);
+  auto locked_index = mg_index->MutableSharedLock();
+
+  auto restore_vector_on_vertex = [&](auto *vertex) {
+    std::vector<double> vector(locked_index->dimensions());
+    locked_index->get(vertex, vector.data());
+    vertex->properties.SetProperty(label_prop.property(), PropertyValue(std::move(vector)));
+  };
+
   for (auto &vertex : vertices) {
-    if (!utils::Contains(vertex.labels, label_prop.label())) {
-      continue;
+    if (locked_index->contains(&vertex)) {
+      auto vector_property = vertex.properties.GetProperty(label_prop.property());
+      if (vector_property.IsVectorIndexId()) {
+        auto &ids = vector_property.ValueVectorIndexIds();
+        ids.erase(r::remove(ids, name_id_mapper->NameToId(index_name)), ids.end());
+        if (ids.empty()) {
+          restore_vector_on_vertex(&vertex);
+        }
+      } else {
+        restore_vector_on_vertex(&vertex);
+      }
+      locked_index->remove(&vertex);
     }
-    vertex.properties.SetProperty(label_prop.property(),
-                                  PropertyValue());  // TODO: consider adding vector back to property store
   }
   pimpl->index_.erase(label_prop);
   pimpl->index_name_to_label_prop_.erase(it);
@@ -293,6 +312,34 @@ std::vector<LabelPropKey> VectorIndex::GetMatchingLabelProps(std::span<LabelId c
   auto has_property = [&](const auto &label_prop) { return utils::Contains(properties, label_prop.property()); };
   auto has_label = [&](const auto &label_prop) { return utils::Contains(labels, label_prop.label()); };
   return pimpl->index_ | rv::keys | rv::filter(has_label) | rv::filter(has_property) | r::to<std::vector>();
+}
+
+void VectorIndex::UpdateRecoveryInfoOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
+                                                std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
+                                                utils::SkipList<Vertex>::Accessor &vertices) {
+  auto restore_vector_on_vertex = [&](auto *vertex, auto &vector, auto property_id) {
+    auto double_vector =
+        vector | rv::transform([](float value) { return static_cast<double>(value); }) | r::to<std::vector<double>>();
+    vertex->properties.SetProperty(property_id, PropertyValue(std::move(double_vector)));
+  };
+  for (auto &recovery_info : recovery_info_vec) {
+    if (recovery_info.spec.index_name == index_name) {
+      for (auto &[gid, vector] : recovery_info.index_entries) {
+        auto vertex = vertices.find(gid);
+        if (vertex == vertices.end()) continue;
+        auto vertex_property = vertex->properties.GetProperty(recovery_info.spec.property);
+        if (vertex_property.IsVectorIndexId()) {
+          auto &ids = vertex_property.ValueVectorIndexIds();
+          ids.erase(r::remove(ids, name_id_mapper->NameToId(index_name)), ids.end());
+          if (ids.empty()) {
+            restore_vector_on_vertex(&*vertex, vector, recovery_info.spec.property);
+          }
+        } else {
+          restore_vector_on_vertex(&*vertex, vector, recovery_info.spec.property);
+        }
+      }
+    }
+  }
 }
 
 void VectorIndex::UpdateRecoveryInfoOnLabelAddition(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper,

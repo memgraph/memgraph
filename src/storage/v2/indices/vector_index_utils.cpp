@@ -193,8 +193,8 @@ PropertyValue GetVectorAsPropertyValue(const std::shared_ptr<utils::Synchronized
                                        KeyType key) {
   auto locked_index = index->ReadLock();
   const auto dimension = locked_index->dimensions();
-  std::vector<unum::usearch::f64_t> vector(dimension);
-  const auto retrieved_count = locked_index->get(key, vector.data(), 1);
+  std::vector<double> vector(dimension);
+  const auto retrieved_count = locked_index->get(key, vector.data());
   if (retrieved_count == 0) {
     return {};
   }

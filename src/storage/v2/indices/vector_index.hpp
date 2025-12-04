@@ -104,6 +104,10 @@ class VectorIndex {
                    NameIdMapper *name_id_mapper,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
+  static void UpdateRecoveryInfoOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
+                                            std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
+                                            utils::SkipList<Vertex>::Accessor &vertices);
+
   static void UpdateRecoveryInfoOnLabelAddition(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper,
                                                 std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
 
@@ -119,7 +123,8 @@ class VectorIndex {
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
   /// @return true if the index was dropped successfully, false otherwise.
-  bool DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices);
+  bool DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices,
+                 NameIdMapper *name_id_mapper);
 
   /// @brief Drops all existing indexes.
   void Clear();

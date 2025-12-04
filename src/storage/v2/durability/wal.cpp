@@ -1416,10 +1416,9 @@ std::optional<RecoveryInfo> LoadWal(
             data.capacity, scalar_kind);
       },
       [&](WalVectorIndexDrop const &data) {
-        auto vertices_acc = vertices->access();
-        if (!indices->vector_index_.DropIndex(data.index_name, vertices_acc)) {
-          // TODO: drop from vector edge index if it exists
-        }
+        // TODO(@DavIvek): edge index drop
+        VectorIndex::UpdateRecoveryInfoOnIndexDrop(data.index_name, name_id_mapper,
+                                                   indices_constraints->indices.vector_indices, vertex_acc);
       },
       [&](WalTtlOperation const &data) {
         switch (data.operation_type) {

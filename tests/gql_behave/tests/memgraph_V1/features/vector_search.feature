@@ -550,3 +550,124 @@ Feature: Vector search related features
         Then the result should be:
             | distance | node  | similarity |
             | 0.0      | (:L2) | 1.0        |
+
+    Scenario: Dropping vector index restores vectors to vertex properties
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (n1:L1 {prop1: [1.0, 2.0]})
+            CREATE (n2:L1 {prop1: [3.0, 4.0]})
+            CREATE (n3:L1 {prop1: [5.0, 6.0]})
+            """
+
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 3    | 'f32'       | 'label+property_vector' |
+
+        When executing query:
+            """
+            MATCH (n:L1) RETURN n.prop1;
+            """
+
+        Then the result should be:
+            | n.prop1    |
+            | [1.0, 2.0] |
+            | [3.0, 4.0] |
+            | [5.0, 6.0] |
+
+        And having executed
+            """
+            DROP VECTOR INDEX test_index
+            """
+
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+
+        When executing query:
+            """
+            MATCH (n:L1) RETURN n.prop1 ORDER BY n.prop1[0];
+            """
+
+        Then the result should be:
+            | n.prop1    |
+            | [1.0, 2.0] |
+            | [3.0, 4.0] |
+            | [5.0, 6.0] |
+
+    Scenario: Dropping one vector index preserves vectors for remaining index
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And with new vector index test_index2 on :L2(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (n:L1:L2 {prop1: [1.0, 2.0]})
+            """
+
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+
+        Then the result should be:
+            | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+
+        When executing query:
+            """
+            MATCH (n) RETURN n.prop1 ORDER BY n.prop1[0];
+            """
+
+        Then the result should be:
+            | n.prop1    |
+            | [1.0, 2.0] |
+
+        And having executed
+            """
+            DROP VECTOR INDEX test_index
+            """
+
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+
+        Then the result should be:
+            | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n        |
+            | (:L1:L2) |
+
+        When executing query:
+            """
+            MATCH (n:L1) RETURN n.prop1 ORDER BY n.prop1[0];
+            """
+        Then the result should be:
+            | n.prop1    |
+            | [1.0, 2.0] |
+
+        When executing query:
+            """
+            CALL vector_search.search("test_index2", 2, [1.0, 2.0]) YIELD * RETURN *;
+            """
+
+        Then the result should be:
+            | distance | node     | similarity |
+            | 0.0      | (:L1:L2) | 1.0        |
