@@ -450,6 +450,9 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     // On replica, we start the explicit txn with BEGIN; and keep executing match (n) return n
     // After receiving FinalizeCommitRpc, replica will show there is a vertex, in that way
     // manifesting non-repeatable reads phenomenon.
+    // This has another consequence. A WAL file will contain deltas with commit ts e.g 100 although the last durable
+    // timestamp for the transaction which commits these deltas will be different because of the fact that we are
+    // taking here another commit timestamp.
     auto &commit_ts = two_pc_cache_.commit_accessor_->GetCommitTimestamp();
     DMG_ASSERT(commit_ts.has_value(), "Commit ts without a value");
     auto guard = std::lock_guard{mem_storage->engine_lock_};
