@@ -10,7 +10,6 @@
              [client :as jclient]]
             [jepsen.checker.timeline :as timeline]
             [memgraph.high-availability.bank.nemesis :as nemesis]
-            [memgraph.high-availability.utils :as hautils]
             [memgraph.utils :as utils]
             [memgraph.query :as mgquery]))
 
@@ -149,7 +148,7 @@
           node (:node this)]
       (case (:f op)
       ; Show instances should be run only on coordinator.
-        :show-instances-read (if (hautils/coord-instance? node)
+        :show-instances-read (if (utils/coord-instance? node)
                                (try
                                  (utils/with-session bolt-conn session ; Use bolt connection for running show instances.
                                    (let [instances (->> (mgquery/get-all-instances session) (reduce conj []))]
@@ -162,7 +161,7 @@
                                    (assoc op :type :fail :value (str e))))
                                (assoc op :type :info :value "Not coordinator"))
       ; Reading balances should be done only on data instances -> use bolt connection.
-        :read-balances (if (hautils/data-instance? node)
+        :read-balances (if (utils/data-instance? node)
                          (try
                            (utils/with-session bolt-conn session
                              (let [accounts (->> (mgquery/get-all-accounts session) (map :n) (reduce conj []))
@@ -183,7 +182,7 @@
         ; If the transferring succeeds, return :ok, otherwise return :fail.
         ; Allow the exception due to down sync replica.
         :transfer
-        (if (hautils/data-instance? node)
+        (if (utils/data-instance? node)
           (let [transfer-info (:value op)]
             (try
               (dbclient/with-transaction bolt-conn txn
@@ -199,20 +198,17 @@
                 (assoc op :type :info :value (str "One of the nodes [" (:from transfer-info) ", " (:to transfer-info) "] participating in transfer is down")))
               (catch Exception e
                 (cond
-                    (utils/query-forbidden-on-replica? e)
-                    (assoc op :type :info :value "Query forbidden on replica")
+                  (utils/query-forbidden-on-replica? e)
+                  (assoc op :type :info :value "Query forbidden on replica")
 
-                    (utils/query-forbidden-on-main? e)
-                    (assoc op :type :info :value "Query forbidden on main")
+                  (utils/query-forbidden-on-main? e)
+                  (assoc op :type :info :value "Query forbidden on main")
 
-                    (utils/sync-replica-down? e)
-                    (assoc op :type :info :value "SYNC replica is down")
+                  (utils/sync-replica-down? e)
+                  (assoc op :type :info :value "SYNC replica is down")
 
-                    (utils/main-unwriteable? e)
-                    (assoc op :type :info :value {:str "Cannot commit because main is currently non-writeable."})
-
-                )
-                 )))
+                  (utils/main-unwriteable? e)
+                  (assoc op :type :info :value {:str "Cannot commit because main is currently non-writeable."})))))
           (assoc op :type :info :value "Not data instance"))
 
         :setup-cluster
@@ -248,7 +244,7 @@
           (assoc op :type :info :value "Not coordinator"))
 
         :initialize-data
-        (if (hautils/data-instance? node)
+        (if (utils/data-instance? node)
 
           (try
             (dbclient/with-transaction bolt-conn txn

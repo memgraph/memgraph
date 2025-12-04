@@ -7,6 +7,48 @@
            (java.time.format DateTimeFormatter)
            (org.neo4j.driver Driver)))
 
+
+(defn data-instance?
+  "Is node data instances?"
+  [node]
+  (some #(= % node) #{"n1" "n2" "n3"}))
+
+(defn coord-instance?
+  "Is node coordinator instances?"
+  [node]
+  (some #(= % node) #{"n4" "n5" "n6"}))
+
+
+(defn leader?
+  [instance]
+  (= (:role instance) "leader"))
+
+(defn extract-coord-name
+  "We could use any server. We cannot just use name because in Memgraph coordinator's name is written as 'coordinator_{id}'."
+  [bolt-server]
+  (first (string/split bolt-server #":")))
+
+(defn get-current-leader
+  "Returns the name of the current leader. If there is no leader or more than one leader, throws exception."
+  [instances]
+  (let [leaders (filter leader? instances)
+        num-leaders (count leaders)
+        leader
+        (cond (= num-leaders 1) (first leaders)
+              (= num-leaders 0) nil
+              :else (throw (Exception. "Expected at most one leader.")))
+        leader-name (if (nil? leader) nil (extract-coord-name (:bolt_server leader)))]
+    leader-name))
+
+
+; By modifying batch-size, we are testing the configuration in a different replication sitauations.
+; Each situation won't last equally because of a different number of deltas.
+(defn batch-size
+  "Number of nodes to import in the batch."
+  []
+  (let [res (rand-nth [100 500 1000 5000 10000 50000])]
+    res))
+
 (defn current-local-time-formatted
   "Get current time in HH:mm:ss.SSS"
   []
@@ -101,8 +143,7 @@
 (defn txn-timeout?
   "Txn timeout has occurred."
   [e]
-  (string/includes? (str e) "Transaction was asked to abort because of transaction timeout."
- ))
+  (string/includes? (str e) "Transaction was asked to abort because of transaction timeout."))
 
 (defn server-no-longer-available
   "Accepts exception e as argument."
