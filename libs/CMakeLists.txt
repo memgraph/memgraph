@@ -279,16 +279,16 @@ target_link_libraries(librdkafka INTERFACE openssl::openssl ZLIB::ZLIB sasl2)
 mg_create_linkable_if_no_cmake(librdkafka++ STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdkafka++.a" "${MG_TOOLCHAIN_ROOT}/include")
 target_link_libraries(librdkafka++ INTERFACE librdkafka)
 
-macro(build_protobuf)
-    set(PROTOBUF_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/protobuf/lib)
-    import_external_library(protobuf STATIC
-      ${PROTOBUF_ROOT}/lib/libprotobuf.a
-      ${PROTOBUF_ROOT}/include
-      BUILD_IN_SOURCE 1
-      CONFIGURE_COMMAND true)
-endmacro()
-#mg_build_if_needed(build_protobuf "protobuf")
-mg_create_linkable_if_no_cmake(protobuf STATIC "${MG_TOOLCHAIN_ROOT}/lib/libprotobuf.a" "${MG_TOOLCHAIN_ROOT}/include")
+# macro(build_protobuf)
+#     set(PROTOBUF_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/protobuf/lib)
+#     import_external_library(protobuf STATIC
+#       ${PROTOBUF_ROOT}/lib/libprotobuf.a
+#       ${PROTOBUF_ROOT}/include
+#       BUILD_IN_SOURCE 1
+#       CONFIGURE_COMMAND true)
+# endmacro()
+# #mg_build_if_needed(build_protobuf "protobuf")
+# mg_create_linkable_if_no_cmake(protobuf STATIC "${MG_TOOLCHAIN_ROOT}/lib/libprotobuf.a" "${MG_TOOLCHAIN_ROOT}/include")
 
 macro(build_pulsar)
     import_external_library(pulsar STATIC
