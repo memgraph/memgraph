@@ -280,3 +280,6 @@ repo_clone_try_double "${primary_urls[arrow]}" "${secondary_urls[arrow]}" "arrow
 # nlohmann_json
 nlohmann_json_tag="v3.11.3"
 repo_clone_try_double "${primary_urls[nlohmann_json]}" "${secondary_urls[nlohmann_json]}" "nlohmann_json" "$nlohmann_json_tag"
+pushd nlohmann_json
+patch -p1 < "${working_dir}/nlohmann_json3.11.3.patch"
+popd
