@@ -9,7 +9,6 @@
             [jepsen.nemesis.combined :as nemesis-combined]
             [clojure.tools.logging :refer [info]]
             [clojure.string :as str]
-            [memgraph.high-availability.utils :as hautils]
             [memgraph
              [support :as s]
              [query :as mgquery]
@@ -87,15 +86,15 @@
       (utils/with-session conn session
         (let [instances (->> (mgquery/get-all-instances session) (reduce conj []))
               main (get-current-main instances)
-              leader (hautils/get-current-leader instances)
+              leader (utils/get-current-leader instances)
               node-to-kill (cond
                              (and (nil? main) (nil? leader)) (rand-nth ns)
                              (nil? main) leader
                              (nil? leader) main
                              :else (rand-nth [main leader]))
               node-desc (cond
-                          (hautils/data-instance? node-to-kill) "current main"
-                          (hautils/coord-instance? node-to-kill) "current leader"
+                          (utils/data-instance? node-to-kill) "current main"
+                          (utils/coord-instance? node-to-kill) "current leader"
                           :else "random node")]
 
           (info "Killing" node-desc ":" node-to-kill)
