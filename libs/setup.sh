@@ -241,22 +241,26 @@ else
   echo "Skipping librdtsc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
 
-# jemalloc ea6b3e973b477b8061e0076bb257dbd7f3faa756
-JEMALLOC_COMMIT_VERSION="5.2.1"
-repo_clone_try_double "${primary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" "jemalloc" "$JEMALLOC_COMMIT_VERSION"
-# this is hack for cmake in libs to set path, and for FindJemalloc to use Jemalloc_INCLUDE_DIR
-pushd jemalloc
-./autogen.sh
-export CC=clang
-./configure \
-  --disable-cxx \
-  --with-lg-page=12 \
-  --with-lg-hugepage=21 \
-  --enable-shared=no --prefix=$working_dir \
-  --with-jemalloc-prefix=je_ \
-  --with-malloc-conf="background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
-make -j$CPUS install
-popd
+if [ "${MG_TOOLCHAIN_VERSION}" != "v7"]; then
+  # jemalloc ea6b3e973b477b8061e0076bb257dbd7f3faa756
+  JEMALLOC_COMMIT_VERSION="5.2.1"
+  repo_clone_try_double "${primary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" "jemalloc" "$JEMALLOC_COMMIT_VERSION"
+  # this is hack for cmake in libs to set path, and for FindJemalloc to use Jemalloc_INCLUDE_DIR
+  pushd jemalloc
+  ./autogen.sh
+  export CC=clang
+  ./configure \
+    --disable-cxx \
+    --with-lg-page=12 \
+    --with-lg-hugepage=21 \
+    --enable-shared=no --prefix=$working_dir \
+    --with-jemalloc-prefix=je_ \
+    --with-malloc-conf="background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
+  make -j$CPUS install
+  popd
+else
+  echo "Skipping jemalloc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
+fi
 
 # mgcxx (text search)
 mgcxx_tag="v0.0.10"

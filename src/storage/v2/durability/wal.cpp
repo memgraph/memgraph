@@ -1444,8 +1444,8 @@ std::optional<RecoveryInfo> LoadWal(
 
   for (uint64_t i = 0; i < info.num_deltas; ++i) {
     // Read WAL delta header to find out the delta timestamp.
-    if (auto timestamp = ReadWalDeltaHeader(&wal);
-        (!last_applied_delta_timestamp || timestamp > *last_applied_delta_timestamp)) {
+    if (auto delta_ts = ReadWalDeltaHeader(&wal);
+        (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp)) {
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal, *version);
 
@@ -1459,10 +1459,10 @@ std::optional<RecoveryInfo> LoadWal(
       if (should_commit) {
         // First delta which is not WalTransactionStart -> allocate RecoveryInfo
         if (!ret.has_value()) {
-          ret.emplace(RecoveryInfo{.next_timestamp = timestamp + 1, .last_durable_timestamp = timestamp});
+          ret.emplace(RecoveryInfo{.next_timestamp = delta_ts + 1, .last_durable_timestamp = delta_ts});
         } else {
-          ret->next_timestamp = std::max(ret->next_timestamp, timestamp + 1);
-          ret->last_durable_timestamp = timestamp;
+          ret->next_timestamp = std::max(ret->next_timestamp, delta_ts + 1);
+          ret->last_durable_timestamp = delta_ts;
         }
 
         std::visit(delta_apply, delta.data_);

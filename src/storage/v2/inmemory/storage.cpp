@@ -3280,6 +3280,7 @@ void InMemoryStorage::CreateSnapshotHandler(
 }
 
 EdgeInfo ExtractEdgeInfo(Vertex *from_vertex, const Edge *edge_ptr) {
+  std::shared_lock const guard{from_vertex->lock};
   for (const auto &out_edge : from_vertex->out_edges) {
     const auto [edge_type, other_vertex, edge_ref] = out_edge;
     if (edge_ref.ptr == edge_ptr) {

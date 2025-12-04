@@ -1,0 +1,96 @@
+name: Build Conan Dependency
+
+on:
+  workflow_call:
+    inputs:
+      dependency:
+        type: string
+        description: "The dependency to build."
+        required: true
+        default: all
+      os:
+        type: string
+        description: "The OS to build the dependency for."
+        required: true
+        default: ubuntu-24.04
+      build_type:
+        type: string
+        description: "The build type to build the dependency for."
+        required: true
+        default: Release
+      additional_build_args:
+        type: string
+        description: "Additional build arguments to pass to the build command."
+        default: ''
+      upload:
+        type: boolean
+        description: "Upload the dependency to the Conan remote."
+        default: true
+
+env:
+  TOOLCHAIN: v7
+  OS: ${{ inputs.os }}
+  ARCH: ${{ endsWith(inputs.os, '-arm') && 'arm' || 'amd' }}
+  BUILD_TYPE: ${{ inputs.build_type }}
+  UPLOAD: ${{ inputs.upload }}
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+  CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+  CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+  DEPENDENCY: ${{ inputs.dependency }}
+  ADDITIONAL_BUILD_ARGS: ${{ inputs.additional_build_args }}
+
+jobs:
+  build_dependency:
+    runs-on: [self-hosted, Linux, "${{ endsWith(inputs.os, '-arm') && 'ARM64' || 'X64' }}", DockerMgBuild]
+    name: "Build Conan Dependency: ${{ inputs.dependency }} on ${{ inputs.os }}"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      - name: Build dependency
+        run: |
+          if [[ "$UPLOAD" == "true" ]]; then
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            build-memgraph $ADDITIONAL_BUILD_ARGS \
+            --conan-remote $CONAN_REMOTE \
+            --conan-username $CONAN_USERNAME \
+            --conan-password $CONAN_PASSWORD \
+            --build-dependency $DEPENDENCY
+          else
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            build-memgraph $ADDITIONAL_BUILD_ARGS \
+            --build-dependency $DEPENDENCY
+          fi
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/docker_cleanup.sh

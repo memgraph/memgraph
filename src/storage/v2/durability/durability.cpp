@@ -570,7 +570,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     }
 
     // sort by path
-    std::sort(wal_files.begin(), wal_files.end());
+    std::ranges::sort(wal_files);
 
     // UUID used for durability is the UUID of the last WAL file.
     // Same for the epoch id.
