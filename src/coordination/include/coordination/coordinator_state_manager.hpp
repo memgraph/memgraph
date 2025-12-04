@@ -16,12 +16,12 @@
 #include <libnuraft/logger.hxx>
 #include <libnuraft/nuraft.hxx>
 
-#include "coordination/coordination_observer.hpp"
-#include "coordination/coordinator_instance_aux.hpp"
-#include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
 
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_instance_aux;
+import memgraph.coordination.coordinator_observer;
+import memgraph.coordination.logger_wrapper;
 import memgraph.coordination.coordinator_log_store;
 
 namespace memgraph::coordination {

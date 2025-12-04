@@ -27,7 +27,6 @@
 #include <vector>
 
 #include <communication/bolt/v1/encoder/base_encoder.hpp>
-#include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
@@ -50,6 +49,7 @@
 
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_exceptions;
+import memgraph.coordination.coordinator_observer;
 import memgraph.coordination.coordinator_ops_status;
 import memgraph.coordination.instance_status;
 import memgraph.coordination.utils;

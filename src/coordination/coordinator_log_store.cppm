@@ -13,7 +13,6 @@ module;
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
 
 #include <libnuraft/nuraft.hxx>
@@ -22,7 +21,7 @@ export module memgraph.coordination.coordinator_log_store;
 
 import memgraph.coordination.constants;
 import memgraph.coordination.coordinator_communication_config;
-
+import memgraph.coordination.logger_wrapper;
 export namespace memgraph::coordination {
 
 using nuraft::buffer;

@@ -6,21 +6,22 @@ target_sources(mg-coordination
         FILES
         coordinator_communication_config.cppm
         coordinator_exceptions.cppm
+        coordinator_instance_aux.cppm
         coordinator_log_store.cppm
+        coordinator_observer.cppm
         coordinator_ops_status.cppm
         constants.cppm
         instance_state.cppm
         instance_status.cppm
         logger.cppm
         log_level.cppm
+        logger_wrappr.cppm
         replication_lag_info.cppm
         utils.cppm
         FILE_SET HEADERS
         FILES
-        include/coordination/coordination_observer.hpp
         include/coordination/coordinator_cluster_state.hpp
         include/coordination/coordinator_instance.hpp
-        include/coordination/coordinator_instance_aux.hpp
         include/coordination/coordinator_instance_client.hpp
         include/coordination/coordinator_instance_connector.hpp
         include/coordination/coordinator_instance_context.hpp
@@ -34,14 +35,12 @@ target_sources(mg-coordination
         include/coordination/data_instance_context.hpp
         include/coordination/data_instance_management_server.hpp
         include/coordination/data_instance_management_server_handlers.hpp
-        include/coordination/logger_wrapper.hpp
         include/coordination/raft_state.hpp
         include/coordination/replication_instance_client.hpp
         include/coordination/replication_instance_connector.hpp
 
 
         PRIVATE
-        coordination_observer.cpp
         coordinator_cluster_state.cpp
         coordinator_communication_config.cpp
         coordinator_instance.cpp
@@ -59,8 +58,6 @@ target_sources(mg-coordination
         data_instance_context.cpp
         data_instance_management_server.cpp
         data_instance_management_server_handlers.cpp
-        logger.cpp
-        logger_wrapper.cpp
         raft_state.cpp
         replication_instance_client.cpp
         replication_instance_connector.cpp

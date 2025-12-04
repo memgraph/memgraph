@@ -13,7 +13,6 @@ module;
 
 #include "coordination/coordinator_instance_context.hpp"
 #include "coordination/data_instance_context.hpp"
-#include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/logging.hpp"
 
@@ -26,6 +25,8 @@ module;
 #include <spdlog/spdlog.h>
 
 module memgraph.coordination.utils;
+
+import memgraph.coordination.logger_wrapper;
 
 #ifdef MG_ENTERPRISE
 

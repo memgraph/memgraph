@@ -9,11 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
-
-#include "coordination/coordinator_instance_aux.hpp"
+module;
 
 #include <nlohmann/json.hpp>
+
+module memgraph.coordination.coordinator_instance_aux;
+
+#ifdef MG_ENTERPRISE
 
 static constexpr std::string_view kId{"id"};
 static constexpr std::string_view kManagementServer{"management_server"};

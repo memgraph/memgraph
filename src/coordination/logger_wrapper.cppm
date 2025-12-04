@@ -9,23 +9,29 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#ifdef MG_ENTERPRISE
+module;
 
 #include <source_location>
 #include <string>
 
+export module memgraph.coordination.logger_wrapper;
+
+#ifdef MG_ENTERPRISE
+
 import memgraph.coordination.logger;
 import memgraph.coordination.log_level;
-namespace memgraph::coordination {
+
+export namespace memgraph::coordination {
 
 class LoggerWrapper {
  public:
-  explicit LoggerWrapper(Logger *logger);
+  explicit LoggerWrapper(Logger *logger) : logger_(logger) {}
 
   void Log(nuraft_log_level level, std::string const &log_line,
-           std::source_location location = std::source_location::current()) const;
+           std::source_location location = std::source_location::current()) const {
+    logger_->put_details(static_cast<int>(level), location.file_name(), location.function_name(), location.line(),
+                         log_line);
+  }
 
  private:
   Logger *logger_;
