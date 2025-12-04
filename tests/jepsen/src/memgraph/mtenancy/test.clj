@@ -118,7 +118,7 @@
                                          #_{:clj-kondo/ignore [:unresolved-symbol]}
                                          (utils/with-db-session bolt-conn session-config session
                                            (let [db-num-nodes (->> #_{:clj-kondo/ignore [:unresolved-var]}
-                                                               (mgquery/get-num-nodes session) first :c)]
+                                                               (mgquery/get-num-user-nodes session) first :c)]
                                              (conj acc-nodes db-num-nodes)))))
 
                                      [] (mutils/get-all-dbs num-tenants))]
@@ -138,7 +138,7 @@
                                          #_{:clj-kondo/ignore [:unresolved-symbol]}
                                          (utils/with-db-session bolt-conn session-config session
                                            (let [db-num-edges (->> #_{:clj-kondo/ignore [:unresolved-var]}
-                                                               (mgquery/get-num-edges session) first :c)]
+                                                               (mgquery/get-num-knows-edges session) first :c)]
                                              (conj acc-edges db-num-edges)))))
 
                                      [] (mutils/get-all-dbs num-tenants))]
