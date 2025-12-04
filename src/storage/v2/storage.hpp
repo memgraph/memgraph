@@ -736,6 +736,10 @@ class Storage {
 
   virtual StorageInfo GetInfo() = 0;
 
+  virtual std::unordered_map<LabelId, uint64_t> GetLabelCounts() const = 0;
+
+  virtual void UpdateLabelCount(LabelId label, int64_t change) = 0;
+
   virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
 
   virtual void PrepareForNewEpoch() = 0;
