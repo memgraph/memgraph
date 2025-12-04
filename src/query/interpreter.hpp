@@ -27,7 +27,6 @@
 #include "utils/synchronized.hpp"
 
 #ifdef MG_ENTERPRISE
-#include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/replication_lag_info.hpp"
 #include "utils/resource_monitoring.hpp"
@@ -39,6 +38,8 @@ extern const Event FailedPrepare;
 extern const Event FailedPull;
 extern const Event SuccessfulQuery;
 }  // namespace memgraph::metrics
+
+import memgraph.coordination.instance_status;
 
 namespace memgraph::query {
 

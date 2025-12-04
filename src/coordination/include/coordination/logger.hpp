@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,8 +13,6 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/log_level.hpp"
-
 #include <spdlog/common.h>
 #include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/spdlog.h>
@@ -24,6 +22,8 @@
 #include <libnuraft/nuraft.hxx>
 #include <libnuraft/logger.hxx>
 // clang-format on
+
+import memgraph.coordination.log_level;
 
 namespace memgraph::coordination {
 
