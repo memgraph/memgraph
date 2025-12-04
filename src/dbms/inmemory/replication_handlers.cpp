@@ -444,12 +444,21 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
   if (req.decision) {
-    spdlog::trace("Trying to finalize on replica");
+    // If strict sync replica is invoking FinalizeCommitPhase, we need to take the engine lock again
+    // and get the new in-memory commit timestamp. Otherwise, the following situation is possible:
+    // main executes create() and sends PrepareCommitRpc to replica
+    // On replica, we start the explicit txn with BEGIN; and keep executing match (n) return n
+    // After receiving FinalizeCommitRpc, replica will show there is a vertex, in that way
+    // manifesting non-repeatable reads phenomenon.
+    auto &commit_ts = two_pc_cache_.commit_accessor_->GetCommitTimestamp();
+    DMG_ASSERT(commit_ts.has_value(), "Commit ts without a value");
+    auto guard = std::lock_guard{mem_storage->engine_lock_};
+    commit_ts.emplace(mem_storage->GetCommitTimestamp());
     two_pc_cache_.commit_accessor_->FinalizeCommitPhase(req.durability_commit_timestamp);
-    spdlog::trace("Finalized on replica");
+    spdlog::trace("Finalized txn on replica");
   } else {
     two_pc_cache_.commit_accessor_->AbortAndResetCommitTs();
-    spdlog::trace("Aborted storage on replica");
+    spdlog::trace("Aborted txn on replica");
   }
 
   two_pc_cache_.commit_accessor_.reset();
