@@ -19,19 +19,18 @@
 #include <optional>
 #include <string_view>
 
-#include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_instance_connector.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
-#include "coordination/coordinator_ops_status.hpp"
-#include "coordination/data_instance_management_server.hpp"
-#include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
-#include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/thread_pool.hpp"
 
 #include <list>
+
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_instance_connector;
+import memgraph.coordination.coordinator_ops_status;
+import memgraph.coordination.instance_status;
 
 namespace memgraph::coordination {
 
@@ -127,8 +126,6 @@ class CoordinatorInstance {
   auto GetTelemetryJson() const -> nlohmann::json;
 
  private:
-  auto FindReplicationInstance(std::string_view replication_instance_name)
-      -> std::optional<std::reference_wrapper<ReplicationInstanceConnector>>;
   auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
   auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 

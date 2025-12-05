@@ -9,23 +9,28 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
 #include <cstdint>
 #include <string>
 
-namespace memgraph::coordination {
+#include <nlohmann/json_fwd.hpp>
 
-struct ReplicaDBLagData {
-  uint64_t num_committed_txns_;
-  uint64_t num_txns_behind_main_;
+export module memgraph.coordination.coordinator_instance_context;
+
+#ifdef MG_ENTERPRISE
+
+export namespace memgraph::coordination {
+// Context saved about each coordinator in Raft logs (app log)
+struct CoordinatorInstanceContext {
+  int32_t id;
+  std::string bolt_server;
+
+  friend bool operator==(CoordinatorInstanceContext const &, CoordinatorInstanceContext const &) = default;
 };
 
-struct ReplicationLagInfo {
-  // db -> num_committed_txns on main
-  std::map<std::string, uint64_t> dbs_main_committed_txns_;
-  // instance -> db -> data
-  std::map<std::string, std::map<std::string, ReplicaDBLagData>> replicas_info_;
-};
-
+void to_json(nlohmann::json &j, CoordinatorInstanceContext const &context);
+void from_json(nlohmann::json const &j, CoordinatorInstanceContext &context);
 }  // namespace memgraph::coordination
+
+#endif

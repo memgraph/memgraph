@@ -9,19 +9,26 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
+module;
 
-#include "coordination/logger_wrapper.hpp"
+#include <cstdint>
+#include <map>
+#include <string>
 
-namespace memgraph::coordination {
+export module memgraph.coordination.replication_lag_info;
 
-LoggerWrapper::LoggerWrapper(Logger *logger) : logger_(logger) {}
+export namespace memgraph::coordination {
 
-void LoggerWrapper::Log(nuraft_log_level level, std::string const &log_line, std::source_location location) const {
-  logger_->put_details(static_cast<int>(level), location.file_name(), location.function_name(), location.line(),
-                       log_line);
-}
+struct ReplicaDBLagData {
+  uint64_t num_committed_txns_;
+  uint64_t num_txns_behind_main_;
+};
+
+struct ReplicationLagInfo {
+  // db -> num_committed_txns on main
+  std::map<std::string, uint64_t> dbs_main_committed_txns_;
+  // instance -> db -> data
+  std::map<std::string, std::map<std::string, ReplicaDBLagData>> replicas_info_;
+};
 
 }  // namespace memgraph::coordination
-
-#endif

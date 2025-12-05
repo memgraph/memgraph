@@ -9,28 +9,22 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "coordination/coordinator_observer.hpp"
+#include "coordination/coordinator_instance.hpp"
+
+#include <nlohmann/json.hpp>
+
 #ifdef MG_ENTERPRISE
-
-#pragma once
-
-#include "coordination/coordinator_instance_client.hpp"
-#include "coordination/coordinator_rpc.hpp"
-#include "coordination/instance_status.hpp"
-#include "coordination/utils.hpp"
 
 namespace memgraph::coordination {
 
-class CoordinatorInstanceConnector {
- public:
-  explicit CoordinatorInstanceConnector(ManagementServerConfig const &config) : client_{config} {}
+CoordinationClusterChangeObserver::CoordinationClusterChangeObserver(CoordinatorInstance *instance)
+    : instance_{instance} {}
 
-  auto SendShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
-
-  auto SendGetRoutingTable(std::string_view db_name) const -> std::optional<RoutingTable>;
-
- private:
-  mutable CoordinatorInstanceClient client_;
-};
+void CoordinationClusterChangeObserver::Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
+  instance_->UpdateClientConnectors(coord_instances_aux);
+}
 
 }  // namespace memgraph::coordination
+
 #endif
