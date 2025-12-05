@@ -9675,7 +9675,7 @@ class ParallelBranchCursor : public Cursor {
    * @return true if any branch returned true from Pull(), false otherwise
    */
   bool ExecuteBranchesInParallel(Frame &frame, ExecutionContext &context, const LogicalOperator &self, auto &&profile,
-                                 auto &&post_pull_func) {
+                                 auto &&pre_pull_func, auto &&post_pull_func) {
     if (branch_cursors_.empty()) {
       return false;
     }
@@ -9729,6 +9729,7 @@ class ParallelBranchCursor : public Cursor {
         Frame frame_local(0);  // No need to allocate the frame, it will be copied after the pull
 
         try {
+          pre_pull_func(cursor.get());
           pull_result.fetch_add((int)cursor->Pull(frame_local, context));
           // Store the context copy after execution for unification
           // Force state reset (life extended through the context)
@@ -9903,21 +9904,14 @@ class ParallelBranchCursor : public Cursor {
 
 namespace {
 void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const auto &aggregations) {
-  main_aggregation.merge(other_aggregation);
-
-  // 3. Handle Collisions: 'other_aggregation' now only contains keys
-  //    that already exist in 'main_aggregation'.
-  for (auto &other_node : other_aggregation) {
-    // We must find the matching node in main.
-    auto main_itr = main_aggregation.find(other_node.first);
-
-    // Safety check: Should not theoretically happen after a merge unless map was modified concurrently
-    if (main_itr == main_aggregation.end()) {
+  for (auto other_itr = other_aggregation.begin(); other_itr != other_aggregation.end();) {
+    auto node = other_aggregation.extract(other_itr++);
+    auto [main_itr, main_inserted, other_node] = main_aggregation.insert(std::move(node));
+    if (main_inserted) {
       continue;
     }
-
-    auto &other_agg_value = other_node.second;
     auto &main_agg_value = main_itr->second;
+    auto &other_agg_value = other_node.mapped();
 
     for (size_t pos = 0; pos < aggregations.size(); ++pos) {
       const auto &agg_info = aggregations[pos];  // Cache reference
@@ -10041,13 +10035,26 @@ class AggregateParallelCursor : public ParallelBranchCursor {
     const auto &aggregations = static_cast<AggregateCursor *>(branch_cursors_[0].get())->self_.aggregations_;
 
     std::mutex branch_aggregations_mutex;
-    std::vector<decltype(main_aggregation_)> branch_aggregations;
-    branch_aggregations.reserve(branch_cursors_.size());
+    std::queue<decltype(main_aggregation_)> branch_aggregations;
 
     // First pull, process all input and store results in the aggregation map
     if (!initialized_) {
       initialized_ = true;
-      auto post_pull_func = [this, &branch_aggregations_mutex, &aggregations, &branch_aggregations](Cursor *cursor) {
+      auto pre_pull_func = [&branch_aggregations_mutex, &branch_aggregations](Cursor *cursor) {
+        // Try to find a free aggregation to reuse
+        decltype(main_aggregation_) free_aggregation = nullptr;
+        {
+          std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
+          if (!branch_aggregations.empty()) {
+            free_aggregation = branch_aggregations.front();
+            branch_aggregations.pop();
+          }
+        }
+        if (free_aggregation != nullptr) {
+          static_cast<AggregateCursor *>(cursor)->aggregation_ = std::move(*free_aggregation);
+        }
+      };
+      auto post_pull_func = [&branch_aggregations_mutex, &aggregations, &branch_aggregations](Cursor *cursor) {
         auto *aggregation = &static_cast<AggregateCursor *>(cursor)->aggregation_;
         decltype(main_aggregation_) free_aggregation = nullptr;
 
@@ -10056,16 +10063,11 @@ class AggregateParallelCursor : public ParallelBranchCursor {
           // Phase 1: find a free aggregation
           {
             std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
-            for (auto itr = branch_aggregations.begin(); itr != branch_aggregations.end(); ++itr) {
-              if (auto *ptr = *itr; ptr != nullptr) {
-                free_aggregation = ptr;
-                branch_aggregations.erase(itr);
-                break;
-              }
-            }
-            // No free aggregation found, add the current aggregation to the list and return
-            if (free_aggregation == nullptr) {
-              branch_aggregations.push_back(aggregation);
+            if (!branch_aggregations.empty()) {
+              free_aggregation = branch_aggregations.front();
+              branch_aggregations.pop();
+            } else {
+              branch_aggregations.push(aggregation);
               return;
             }
           }
@@ -10078,13 +10080,13 @@ class AggregateParallelCursor : public ParallelBranchCursor {
       };
 
       // Execute branches in parallel and unify context fields (handled by base class)
-      if (!ExecuteBranchesInParallel(frame, context, self_, std::move(profile), post_pull_func)) {
+      if (!ExecuteBranchesInParallel(frame, context, self_, std::move(profile), pre_pull_func, post_pull_func)) {
         return false;
       }
 
       // There should be only one aggregation left in the list
       MG_ASSERT(branch_aggregations.size() == 1, "There should be only one aggregation left in the list");
-      main_aggregation_ = branch_aggregations[0];
+      main_aggregation_ = branch_aggregations.front();
       aggregation_it_ = main_aggregation_->begin();
       if (main_aggregation_->empty()) {
         DefaultAggregation(context, aggregations, remember, frame_writer);
@@ -10109,7 +10111,7 @@ class AggregateParallelCursor : public ParallelBranchCursor {
 
  private:
   bool initialized_ = false;
-  decltype(AggregateCursor::aggregation_) *main_aggregation_;
+  decltype(AggregateCursor::aggregation_) *main_aggregation_;  // Reusing from AggregateCursor
   decltype(AggregateCursor::aggregation_.begin()) aggregation_it_;
   const AggregateParallel &self_;
 };
