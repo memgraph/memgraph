@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,24 +9,29 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#ifdef MG_ENTERPRISE
-
-#include "coordination/log_level.hpp"
-#include "coordination/logger.hpp"
+module;
 
 #include <source_location>
 #include <string>
 
-namespace memgraph::coordination {
+export module memgraph.coordination.logger_wrapper;
+
+#ifdef MG_ENTERPRISE
+
+import memgraph.coordination.logger;
+import memgraph.coordination.log_level;
+
+export namespace memgraph::coordination {
 
 class LoggerWrapper {
  public:
-  explicit LoggerWrapper(Logger *logger);
+  explicit LoggerWrapper(Logger *logger) : logger_(logger) {}
 
   void Log(nuraft_log_level level, std::string const &log_line,
-           std::source_location location = std::source_location::current()) const;
+           std::source_location location = std::source_location::current()) const {
+    logger_->put_details(static_cast<int>(level), location.file_name(), location.function_name(), location.line(),
+                         log_line);
+  }
 
  private:
   Logger *logger_;
