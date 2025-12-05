@@ -428,7 +428,9 @@ if current_version is None:
         )
 
         # just use latest version found locally in tags
-        tag = get_output("git", "tag", "|", "grep", "-v", "rc", "|", "tail", "-n", "1")
+        tags = get_output("git", "tag").strip().split('\n')
+        non_rc_tags = [t for t in tags if 'rc' not in t and t]
+        tag = non_rc_tags[-1] if non_rc_tags else ""
         if tag:
             # regex match for x.y.z format
             match = re.match(r"^v[0-9]+\.[0-9]+\.[0-9]+$", tag)
