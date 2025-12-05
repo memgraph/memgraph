@@ -235,4 +235,10 @@ bool RemoveIndexIdFromProperty(PropertyValue &property_value, uint64_t index_id)
   return ids.empty();  // Return true if should restore (no more IDs)
 }
 
+void ValidateVectorDimension(const std::vector<float> &vector, std::uint16_t expected_dimension) {
+  if (vector.size() != expected_dimension) {
+    throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
+  }
+}
+
 }  // namespace memgraph::storage

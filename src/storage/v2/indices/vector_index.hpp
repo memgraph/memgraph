@@ -272,9 +272,13 @@ class VectorIndex {
   /// @param vertices Accessor to the vertices skip list.
   /// @param name_id_mapper Mapper for name/ID conversions.
   /// @param recovery_entries Optional map of recovery entries (nullptr for create, non-null for recovery).
-  static void PopulateIndexFromVertices(mg_vector_index_t &mg_vector_index, const VectorIndexSpec &spec,
-                                        utils::SkipList<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
-                                        const std::unordered_map<Gid, std::vector<float>> *recovery_entries);
+  static void PopulateIndexFromVerticesForCreate(mg_vector_index_t &mg_vector_index, const VectorIndexSpec &spec,
+                                                 utils::SkipList<Vertex>::Accessor &vertices,
+                                                 NameIdMapper *name_id_mapper);
+  static void PopulateIndexFromVerticesForRecovery(mg_vector_index_t &mg_vector_index, const VectorIndexSpec &spec,
+                                                   utils::SkipList<Vertex>::Accessor &vertices,
+                                                   NameIdMapper *name_id_mapper,
+                                                   const std::unordered_map<Gid, std::vector<float>> &recovery_entries);
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

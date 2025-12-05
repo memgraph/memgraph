@@ -34,6 +34,37 @@ namespace rv = r::views;
 
 namespace memgraph::storage {
 
+namespace {
+
+template <typename ChunkProcessor>
+void ExecuteParallelWorkers(utils::SkipList<Vertex>::Accessor &vertices, ChunkProcessor processor) {
+  auto chunks = vertices.create_chunks(FLAGS_bolt_num_workers);
+  std::exception_ptr first_exception;
+  std::mutex exception_mutex;
+  std::vector<std::jthread> workers;
+  workers.reserve(chunks.size());
+  for (const auto &[idx, chunk] : rv::enumerate(chunks)) {
+    workers.emplace_back([&, idx, processor] {
+      try {
+        processor(chunk, idx);
+      } catch (...) {
+        std::lock_guard guard(exception_mutex);
+        if (!first_exception) {
+          first_exception = std::current_exception();
+        }
+      }
+    });
+  }
+
+  for (auto &worker : workers) {
+    worker.join();
+  }
+  if (first_exception) {
+    std::rethrow_exception(first_exception);
+  }
+}
+}  // namespace
+
 // unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
 // operations.
 using synchronized_mg_vector_index_t = utils::Synchronized<mg_vector_index_t, std::shared_mutex>;
@@ -100,99 +131,72 @@ std::pair<mg_vector_index_t, LabelPropKey> VectorIndex::CreateIndexStructure(con
   return {std::move(mg_vector_index.index), label_prop};
 }
 
-// Helper function to populate index with vertices (used by both CreateIndex and RecoverIndexEntries)
-void VectorIndex::PopulateIndexFromVertices(mg_vector_index_t &mg_vector_index, const VectorIndexSpec &spec,
-                                            utils::SkipList<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
-                                            const std::unordered_map<Gid, std::vector<float>> *recovery_entries) {
-  const auto num_workers = static_cast<std::size_t>(FLAGS_bolt_num_workers);
-  auto chunks = vertices.create_chunks(num_workers);
+// Helper function to populate index with vertices during index creation
+void VectorIndex::PopulateIndexFromVerticesForCreate(mg_vector_index_t &mg_vector_index, const VectorIndexSpec &spec,
+                                                     utils::SkipList<Vertex>::Accessor &vertices,
+                                                     NameIdMapper *name_id_mapper) {
+  ExecuteParallelWorkers(vertices, [&](auto &chunk, auto idx) {
+    for (auto &vertex : chunk) {
+      if (!utils::Contains(vertex.labels, spec.label_id)) {
+        continue;
+      }
 
-  std::exception_ptr first_exception;
-  std::mutex exception_mutex;
-  std::vector<std::jthread> workers;
-  workers.reserve(chunks.size());
+      auto property = vertex.properties.GetProperty(spec.property);
+      if (property.IsNull()) {
+        continue;
+      }
+      if (!property.IsAnyList()) {
+        throw query::VectorSearchException("Vector index property must be a list.");
+      }
+      auto vector = ListToVector(property);
+      ValidateVectorDimension(vector, spec.dimension);
 
-  const bool is_recovery = recovery_entries != nullptr;
-  for (const auto &[idx, chunk] : rv::enumerate(chunks)) {
-    workers.emplace_back([&, idx, is_recovery] {
-      try {
-        for (auto &vertex : chunk) {
-          std::vector<float> vector;
-          bool should_add = false;
-          bool should_set_property = false;
+      const auto is_index_full = mg_vector_index.size() == mg_vector_index.capacity();
+      if (is_index_full) {
+        throw query::VectorSearchException("Vector index is full. Try creating index with larger capacity.");
+      }
+      mg_vector_index.add(&vertex, vector.data(), idx, false);
+      vertex.properties.SetProperty(
+          spec.property, PropertyValue(utils::small_vector<uint64_t>{name_id_mapper->NameToId(spec.index_name)},
+                                       std::vector<float>{}));
+    }
+  });
+}
 
-          if (is_recovery) {
-            // Recovery path: check recovery entries first
-            if (auto it = recovery_entries->find(vertex.gid); it != recovery_entries->end()) {
-              vector = it->second;
-              should_add = !vector.empty();
-            } else {
-              // Check if vertex should be added based on labels/properties
-              if (utils::Contains(vertex.labels, spec.label_id) &&
-                  r::contains(vertex.properties.ExtractPropertyIds(), spec.property)) {
-                auto vector_property = vertex.properties.GetProperty(spec.property);
-                vector = ListToVector(vector_property);
-                should_add = true;
-                should_set_property = true;
-              }
-            }
-          } else {
-            // Create path: check label and property
-            if (!utils::Contains(vertex.labels, spec.label_id)) {
-              continue;
-            }
-            auto property = vertex.properties.GetProperty(spec.property);
-            if (property.IsNull()) {
-              continue;
-            }
-            if (!property.IsAnyList()) {
-              throw query::VectorSearchException("Vector index property must be a list.");
-            }
-            vector = ListToVector(property);
-            should_add = true;
-            should_set_property = true;
+// Helper function to populate index with vertices during recovery
+void VectorIndex::PopulateIndexFromVerticesForRecovery(
+    mg_vector_index_t &mg_vector_index, const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+    NameIdMapper *name_id_mapper, const std::unordered_map<Gid, std::vector<float>> &recovery_entries) {
+  ExecuteParallelWorkers(vertices, [&](auto &chunk, auto idx) {
+    for (auto &vertex : chunk) {
+      std::vector<float> vector;
+      bool should_set_property = false;
 
-            // Check if index is full (only for create path)
-            const auto is_index_full = mg_vector_index.size() == mg_vector_index.capacity();
-            if (is_index_full) {
-              throw query::VectorSearchException("Vector index is full. Try creating index with larger capacity.");
-            }
-          }
-
-          if (should_add) {
-            if (vector.size() != spec.dimension) {
-              throw query::VectorSearchException(
-                  "Vector index property must have the same number of dimensions as the index.");
-            }
-
-            if (is_recovery) {
-              mg_vector_index.add(&vertex, vector.data(), idx, false);
-            } else {
-              mg_vector_index.add(&vertex, vector.data());
-            }
-
-            if (should_set_property) {
-              auto index_id = name_id_mapper->NameToId(spec.index_name);
-              vertex.properties.SetProperty(
-                  spec.property, PropertyValue(utils::small_vector<uint64_t>{index_id}, std::vector<float>{}));
-            }
-          }
-        }
-      } catch (...) {
-        std::lock_guard guard(exception_mutex);
-        if (!first_exception) {
-          first_exception = std::current_exception();
+      if (auto it = recovery_entries.find(vertex.gid); it != recovery_entries.end()) {
+        vector = it->second;
+      } else {
+        if (utils::Contains(vertex.labels, spec.label_id) &&
+            r::contains(vertex.properties.ExtractPropertyIds(), spec.property)) {
+          auto vector_property = vertex.properties.GetProperty(spec.property);
+          vector = ListToVector(vector_property);
+          should_set_property = true;
+        } else {
+          continue;
         }
       }
-    });
-  }
+      if (vector.empty()) {
+        continue;
+      }
 
-  for (auto &worker : workers) {
-    worker.join();
-  }
-  if (first_exception) {
-    std::rethrow_exception(first_exception);
-  }
+      ValidateVectorDimension(vector, spec.dimension);
+      mg_vector_index.add(&vertex, vector.data(), idx, false);
+      if (should_set_property) {
+        vertex.properties.SetProperty(
+            spec.property, PropertyValue(utils::small_vector<uint64_t>{name_id_mapper->NameToId(spec.index_name)},
+                                         std::vector<float>{}));
+      }
+    }
+  });
 }
 
 // TODO(@DavIvek): add flag for parallel creation of the index
@@ -201,11 +205,8 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
                               std::optional<SnapshotObserverInfo> const & /*snapshot_info*/) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   try {
-    // Create the index structure
     auto [mg_vector_index, label_prop] = CreateIndexStructure(spec);
-
-    // Populate the index with vertices
-    PopulateIndexFromVertices(mg_vector_index, spec, vertices, name_id_mapper, nullptr);
+    PopulateIndexFromVerticesForCreate(mg_vector_index, spec, vertices, name_id_mapper);
 
     pimpl->index_.try_emplace(
         label_prop, IndexItem{.mg_index = std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(
@@ -228,9 +229,7 @@ void VectorIndex::RecoverIndexEntries(const VectorIndexRecoveryInfo &recovery_in
   const auto &spec = recovery_info.spec;
   auto [mg_vector_index, label_prop] = CreateIndexStructure(spec);
 
-  // Populate the index with vertices using recovery entries
-  PopulateIndexFromVertices(mg_vector_index, spec, vertices, name_id_mapper, &recovery_info.index_entries);
-
+  PopulateIndexFromVerticesForRecovery(mg_vector_index, spec, vertices, name_id_mapper, recovery_info.index_entries);
   pimpl->index_.try_emplace(
       label_prop, IndexItem{.mg_index = std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(
                                 std::move(mg_vector_index)),

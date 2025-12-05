@@ -170,6 +170,9 @@ PropertyValue CreateVectorIndexIdProperty(const std::vector<float> &vector,
 /// @return true if the property should be restored (no more index IDs), false otherwise.
 bool RemoveIndexIdFromProperty(PropertyValue &property_value, uint64_t index_id);
 
+// Helper function to validate vector dimension
+void ValidateVectorDimension(const std::vector<float> &vector, std::uint16_t expected_dimension);
+
 /// @brief Updates a single vector index with a vector (common logic for vertex and edge indices).
 /// @tparam IndexItemType Type of the index item (must have mg_index and spec members).
 /// @tparam KeyType Type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
