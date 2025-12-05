@@ -9,24 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#ifdef MG_ENTERPRISE
+module;
 
 #include "utils/exceptions.hpp"
 
-namespace memgraph::coordination {
-class CoordinatorRegisterInstanceException final : public utils::BasicException {
- public:
-  explicit CoordinatorRegisterInstanceException(const std::string_view what) noexcept
-      : BasicException("Failed to create instance: " + std::string(what)) {}
+export module memgraph.coordination.coordinator_exceptions;
 
-  template <class... Args>
-  explicit CoordinatorRegisterInstanceException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
-      : CoordinatorRegisterInstanceException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+#ifdef MG_ENTERPRISE
 
-  SPECIALIZE_GET_EXCEPTION_NAME(CoordinatorRegisterInstanceException)
-};
+export namespace memgraph::coordination {
 
 class RaftServerStartException final : public utils::BasicException {
  public:
@@ -59,50 +50,6 @@ class RaftAddServerException final : public utils::BasicException {
       : RaftAddServerException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(RaftAddServerException)
-};
-
-class RaftBecomeLeaderException final : public utils::BasicException {
- public:
-  explicit RaftBecomeLeaderException(std::string_view what) noexcept : BasicException(what) {}
-
-  template <class... Args>
-  explicit RaftBecomeLeaderException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
-      : RaftBecomeLeaderException(fmt::format(fmt, std::forward<Args>(args)...)) {}
-
-  SPECIALIZE_GET_EXCEPTION_NAME(RaftBecomeLeaderException)
-};
-
-class RaftCouldNotFindEntryException final : public utils::BasicException {
- public:
-  explicit RaftCouldNotFindEntryException(std::string_view what) noexcept : BasicException(what) {}
-
-  template <class... Args>
-  explicit RaftCouldNotFindEntryException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
-      : RaftCouldNotFindEntryException(fmt::format(fmt, std::forward<Args>(args)...)) {}
-
-  SPECIALIZE_GET_EXCEPTION_NAME(RaftCouldNotFindEntryException)
-};
-
-class RaftCouldNotParseFlagsException final : public utils::BasicException {
- public:
-  explicit RaftCouldNotParseFlagsException(std::string_view what) noexcept : BasicException(what) {}
-
-  template <class... Args>
-  explicit RaftCouldNotParseFlagsException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
-      : RaftCouldNotParseFlagsException(fmt::format(fmt, std::forward<Args>(args)...)) {}
-
-  SPECIALIZE_GET_EXCEPTION_NAME(RaftCouldNotParseFlagsException)
-};
-
-class InvalidRoutingTableException final : public utils::BasicException {
- public:
-  explicit InvalidRoutingTableException(std::string_view what) noexcept : BasicException(what) {}
-
-  template <class... Args>
-  explicit InvalidRoutingTableException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
-      : InvalidRoutingTableException(fmt::format(fmt, std::forward<Args>(args)...)) {}
-
-  SPECIALIZE_GET_EXCEPTION_NAME(InvalidRoutingTableException)
 };
 
 class StoreSnapshotToDiskException final : public utils::BasicException {

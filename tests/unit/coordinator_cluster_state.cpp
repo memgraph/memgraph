@@ -9,8 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "coordination/coordinator_cluster_state.hpp"
 #include "io/network/endpoint.hpp"
+#include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/uuid.hpp"
 
@@ -20,6 +20,12 @@
 
 #include <nlohmann/json.hpp>
 #include <vector>
+
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_cluster_state;
+import memgraph.coordination.coordinator_instance_context;
+import memgraph.coordination.data_instance_context;
+import memgraph.coordination.constants;
 
 using memgraph::coordination::CoordinatorClusterState;
 using memgraph::coordination::CoordinatorClusterStateDelta;

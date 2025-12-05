@@ -11,8 +11,9 @@
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
-#include "coordination/coordinator_instance.hpp"
 #include "utils/functional.hpp"
+
+import memgraph.coordination.coordinator_instance;
 
 using memgraph::coordination::CoordinatorInstance;
 using memgraph::replication_coordination_glue::InstanceDBInfo;

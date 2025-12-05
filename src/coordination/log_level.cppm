@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,24 +9,27 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+module;
+
+#include <cstdint>
+
+export module memgraph.coordination.log_level;
+
 #ifdef MG_ENTERPRISE
 
-#pragma once
+export namespace memgraph::coordination {
 
-#include "coordination/coordinator_instance_aux.hpp"
+/**
+ NuRaft log level:
+ *    Trace:    6
+ *    Debug:    5
+ *    Info:     4
+ *    Warning:  3
+ *    Error:    2
+ *    Fatal:    1
+ */
 
-namespace memgraph::coordination {
-
-class CoordinatorInstance;
-
-class CoordinationClusterChangeObserver {
- public:
-  explicit CoordinationClusterChangeObserver(CoordinatorInstance *instance);
-  void Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
-
- private:
-  CoordinatorInstance *instance_;
-};
+enum class nuraft_log_level : uint8_t { FATAL = 1, ERROR = 2, WARNING = 3, INFO = 4, DEBUG = 5, TRACE = 6 };
 
 }  // namespace memgraph::coordination
 

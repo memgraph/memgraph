@@ -13,8 +13,9 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
+
+import memgraph.coordination.coordinator_instance;
 
 namespace memgraph::coordination {
 class CoordinatorInstanceManagementServerHandlers {

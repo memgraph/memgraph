@@ -9,9 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#ifdef MG_ENTERPRISE
+module;
 
 #include <atomic>
 #include <functional>
@@ -19,26 +17,31 @@
 #include <optional>
 #include <string_view>
 
-#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance_connector.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
-#include "coordination/coordinator_ops_status.hpp"
-#include "coordination/data_instance_management_server.hpp"
-#include "coordination/instance_status.hpp"
-#include "coordination/raft_state.hpp"
-#include "coordination/replication_instance_client.hpp"
-#include "coordination/replication_instance_connector.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/thread_pool.hpp"
 
 #include <list>
 
-namespace memgraph::coordination {
+export module memgraph.coordination.coordinator_instance;
 
-struct NewMainRes {
-  std::string instance_name;
-  uint64_t latest_durable_timestamp;
-};
+#ifdef MG_ENTERPRISE
+
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_instance_aux;
+import memgraph.coordination.coordinator_ops_status;
+import memgraph.coordination.instance_state;
+import memgraph.coordination.instance_status;
+import memgraph.coordination.raft_state;
+import memgraph.coordination.replication_lag_info;
+import memgraph.coordination.utils;
+
+namespace memgraph::coordination {
+class ReplicationInstanceConnector;
+}  // namespace memgraph::coordination
+
+export namespace memgraph::coordination {
 
 enum class FailoverStatus : uint8_t {
   SUCCESS,
@@ -127,8 +130,6 @@ class CoordinatorInstance {
   auto GetTelemetryJson() const -> nlohmann::json;
 
  private:
-  auto FindReplicationInstance(std::string_view replication_instance_name)
-      -> std::optional<std::reference_wrapper<ReplicationInstanceConnector>>;
   auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
   auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 

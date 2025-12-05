@@ -13,9 +13,6 @@
 
 #include "coordination/coordinator_state.hpp"
 
-#include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_instance.hpp"
-#include "coordination/coordinator_ops_status.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
@@ -24,6 +21,10 @@
 #include <optional>
 #include <string_view>
 #include <variant>
+
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_instance;
+import memgraph.coordination.coordinator_ops_status;
 
 namespace memgraph::coordination {
 

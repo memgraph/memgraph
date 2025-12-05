@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,25 +9,24 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
+
+#include <nlohmann/json.hpp>
+
+module memgraph.coordination.coordinator_observer;
 
 #ifdef MG_ENTERPRISE
 
-#include <cstdint>
+import memgraph.coordination.coordinator_instance;
 
 namespace memgraph::coordination {
 
-/**
- NuRaft log level:
- *    Trace:    6
- *    Debug:    5
- *    Info:     4
- *    Warning:  3
- *    Error:    2
- *    Fatal:    1
- */
+CoordinationClusterChangeObserver::CoordinationClusterChangeObserver(CoordinatorInstance *instance)
+    : instance_{instance} {}
 
-enum class nuraft_log_level : uint8_t { FATAL = 1, ERROR = 2, WARNING = 3, INFO = 4, DEBUG = 5, TRACE = 6 };
+void CoordinationClusterChangeObserver::Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
+  instance_->UpdateClientConnectors(coord_instances_aux);
+}
 
 }  // namespace memgraph::coordination
 

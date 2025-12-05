@@ -13,12 +13,18 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordination_observer.hpp"
-#include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_instance_aux.hpp"
-#include "coordination/coordinator_log_store.hpp"
-#include "coordination/logger_wrapper.hpp"
+#include <libnuraft/logger.hxx>
+#include <libnuraft/nuraft.hxx>
+
 #include "kvstore/kvstore.hpp"
+
+#include "nlohmann/json_fwd.hpp"
+
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_instance_aux;
+import memgraph.coordination.logger_wrapper;
+import memgraph.coordination.coordinator_log_store;
+import memgraph.coordination.coordinator_observer;
 
 namespace memgraph::coordination {
 using nuraft::cluster_config;
