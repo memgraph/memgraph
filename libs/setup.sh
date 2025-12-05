@@ -9,7 +9,7 @@ cd "${working_dir}"
 WGET_OR_CLONE_TIMEOUT=60
 
 #  if the toolchain hasn't been activated, activate it
-if [ -z "$MG_TOOLCHAIN_VERSION" ]; then
+if [[ -z "$MG_TOOLCHAIN_VERSION" ]]; then
   echo "Activating toolchain"
   source /opt/toolchain-v7/activate
 
@@ -52,7 +52,7 @@ clone () {
     # execution but the whole script should continue executing because we might
     # clone the same repo from a different source.
 
-    if [ "$shallow" = true ]; then
+    if [[ "$shallow" = true ]]; then
       timeout $WGET_OR_CLONE_TIMEOUT git clone --depth 1 --branch "$checkout_id" "$git_repo" "$dir_name" || return 1
     else
       timeout $WGET_OR_CLONE_TIMEOUT git clone "$git_repo" "$dir_name" || return 1
@@ -96,8 +96,8 @@ clone () {
 file_get_try_double () {
     primary_url="$1"
     secondary_url="$2"
-    if [ -z "$primary_url" ]; then echo "Primary should not be empty." && exit 1; fi
-    if [ -z "$secondary_url" ]; then echo "Secondary should not be empty." && exit 1; fi
+    if [[ -z "$primary_url" ]]; then echo "Primary should not be empty." && exit 1; fi
+    if [[ -z "$secondary_url" ]]; then echo "Secondary should not be empty." && exit 1; fi
     filename="$(basename "$secondary_url")"
     if [[ "$use_cache" == true ]]; then
       echo "Download primary from $primary_url secondary from $secondary_url"
@@ -115,10 +115,10 @@ repo_clone_try_double () {
     folder_name="$3"
     ref="$4"
     shallow="${5:-false}"
-    if [ -z "$primary_url" ]; then echo "Primary should not be empty." && exit 1; fi
-    if [ -z "$secondary_url" ]; then echo "Secondary should not be empty." && exit 1; fi
-    if [ -z "$folder_name" ]; then echo "Clone folder should not be empty." && exit 1; fi
-    if [ -z "$ref" ]; then echo "Git clone ref should not be empty." && exit 1; fi
+    if [[ -z "$primary_url" ]]; then echo "Primary should not be empty." && exit 1; fi
+    if [[ -z "$secondary_url" ]]; then echo "Secondary should not be empty." && exit 1; fi
+    if [[ -z "$folder_name" ]]; then echo "Clone folder should not be empty." && exit 1; fi
+    if [[ -z "$ref" ]]; then echo "Git clone ref should not be empty." && exit 1; fi
     if [[ "$use_cache" == true ]]; then
       echo "Cloning primary from $primary_url secondary from $secondary_url"
       # Redirect primary/cache to /dev/null to make it less confusing for a new contributor because only CI has access to the cache.
@@ -147,7 +147,7 @@ declare -A primary_urls=(
   ["rapidcheck"]="http://$local_cache_host/git/rapidcheck.git"
   ["libbcrypt"]="http://$local_cache_host/git/libbcrypt.git"
   ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
-  ["neo4j"]="http://$local_cache_host/file/neo4j-community-5.6.0-unix.tar.gz"
+  ["neo4j"]="http://$local_cache_host/neo4j-community-5.6.0-unix.tar.gz"
   ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
@@ -156,6 +156,7 @@ declare -A primary_urls=(
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
   ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
   ["usearch"]="http://$local_cache_host/git/usearch.git"
+  ["nlohmann_json"]="http://$local_cache_host/git/json.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -175,6 +176,7 @@ declare -A secondary_urls=(
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
   ["mgcxx"]="https://github.com/memgraph/mgcxx.git"
   ["usearch"]="https://github.com/unum-cloud/usearch.git"
+  ["nlohmann_json"]="https://github.com/nlohmann/json.git"
 )
 
 # Skip download if we are under the latest toolchains (>= 6).
@@ -183,7 +185,7 @@ declare -A secondary_urls=(
 # you also have to adjust the CMake setup.
 skip_if_under_toolchain () {
   artifact_name=$1 && shift 1
-  if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+  if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
     $@
   else
     echo "Skipping $artifact_name download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
@@ -211,7 +213,7 @@ skip_if_under_toolchain "mgconsole" repo_clone_try_double "${primary_urls[mgcons
 librdkafka_tag="v2.6.1" # (2024-12-05)
 skip_if_under_toolchain "librdkafka" repo_clone_try_double "${primary_urls[librdkafka]}" "${secondary_urls[librdkafka]}" "librdkafka" "$librdkafka_tag" true
 
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
   protobuf_tag="v3.12.4"
   repo_clone_try_double "${primary_urls[protobuf]}" "${secondary_urls[protobuf]}" "protobuf" "$protobuf_tag" true
   pushd protobuf
@@ -221,7 +223,7 @@ else
   echo "Skipping protobuf download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
 
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
   pulsar_tag="v2.8.1"
   repo_clone_try_double "${primary_urls[pulsar]}" "${secondary_urls[pulsar]}" "pulsar" "$pulsar_tag" true
   pushd pulsar
@@ -231,7 +233,7 @@ else
   echo "Skipping pulsar download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
 
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
   librdtsc_tag="v0.3"
   repo_clone_try_double "${primary_urls[librdtsc]}" "${secondary_urls[librdtsc]}" "librdtsc" "$librdtsc_tag" true
   pushd librdtsc
@@ -241,7 +243,7 @@ else
   echo "Skipping librdtsc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
 
-if [ "${MG_TOOLCHAIN_VERSION}" != "v7"]; then
+if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
   # jemalloc ea6b3e973b477b8061e0076bb257dbd7f3faa756
   JEMALLOC_COMMIT_VERSION="5.2.1"
   repo_clone_try_double "${primary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" "jemalloc" "$JEMALLOC_COMMIT_VERSION"
@@ -268,7 +270,22 @@ repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx
 
 # usearch (shallow clone to reduce flakiness)
 usearch_ref="v2.15.3"
-repo_clone_try_double "${primary_urls[usearch]}" "${secondary_urls[usearch]}" "usearch" "$usearch_ref" true
+if [[ "$use_cache" == true ]]; then
+  # This is a bit of a hack to allow us to fetch submodules form the cache
+  git -c url.http://mgdeps-cache:8000/git/.insteadOf=https://github.com/ \
+  clone --recurse-submodules "${primary_urls[usearch]}" usearch || \
+  git clone --recurse-submodules "${secondary_urls[usearch]}" usearch 
+else
+  git clone --recurse-submodules "${secondary_urls[usearch]}" usearch
+fi
 pushd usearch
+git checkout "$usearch_ref"
 git submodule update --init --recursive
+popd
+
+# nlohmann_json
+nlohmann_json_tag="v3.11.3"
+repo_clone_try_double "${primary_urls[nlohmann_json]}" "${secondary_urls[nlohmann_json]}" "nlohmann_json" "$nlohmann_json_tag"
+pushd nlohmann_json
+patch -p1 < "${working_dir}/nlohmann_json3.11.3.patch"
 popd

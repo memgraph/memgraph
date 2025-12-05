@@ -60,7 +60,7 @@ config_only=false
 keep_build=false
 skip_os_deps=false
 VENV_DIR="${VENV_DIR:-env}"
-
+offline=false
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -95,6 +95,11 @@ while [[ $# -gt 0 ]]; do
             keep_build=true
             shift
             ;;
+        --offline)
+            skip_os_deps=true
+            offline=true
+            shift
+            ;;
         --help|-h)
             show_help
             ;;
@@ -117,8 +122,24 @@ if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" && "$BUILD
     exit 1
 fi
 
+# Initialize arrays for arguments
+INIT_ARGS=()
+CONAN_INSTALL_ARGS=(
+  .
+  --build=missing
+  -pr:h memgraph_template_profile
+  -pr:b memgraph_build_profile
+  -s build_type="$BUILD_TYPE"
+  -s os.distro="$DISTRO"
+)
+
+if [[ "$offline" = true ]]; then
+    INIT_ARGS+=("--offline")
+    CONAN_INSTALL_ARGS+=("--no-remote")
+fi
+
 # delete existing build directory
-if [ "$keep_build" = false ]; then
+if [[ "$keep_build" = false ]]; then
     if [ -d "build" ]; then
         echo "Deleting existing build directory"
         rm -rf build
@@ -128,7 +149,7 @@ else
 fi
 
 # run check for operating system dependencies
-if [ "$skip_os_deps" = false ]; then
+if [[ "$skip_os_deps" = false ]]; then
     if ! ./environment/os/install_deps.sh check TOOLCHAIN_RUN_DEPS; then
         echo "Error: Dependency check failed for TOOLCHAIN_RUN_DEPS"
         exit 1
@@ -154,7 +175,7 @@ else
 fi
 
 # check if a conan profile exists
-if [ ! -f "$HOME/.conan2/profiles/default" ]; then
+if [[ ! -f "$HOME/.conan2/profiles/default" ]]; then
     echo "Creating conan profile"
     conan profile detect
 fi
@@ -163,8 +184,8 @@ fi
 conan config install conan_config
 
 # fetch libs that aren't provided by conan yet
-if [ "$skip_init" = false ]; then
-    ./init
+if [[ "$skip_init" = false ]]; then
+    ./init "${INIT_ARGS[@]}"
 fi
 
 # Function to check if a CMake boolean variable is enabled
@@ -203,13 +224,7 @@ else
 fi
 
 # install conan dependencies
-MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install \
-  . \
-  --build=missing \
-  -pr:h memgraph_template_profile \
-  -pr:b memgraph_build_profile \
-  -s build_type="$BUILD_TYPE" \
-  -s os.distro="$DISTRO"
+MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install "${CONAN_INSTALL_ARGS[@]}"
 
 export CLASSPATH=
 export LD_LIBRARY_PATH=
