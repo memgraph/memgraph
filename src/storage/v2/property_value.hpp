@@ -12,6 +12,7 @@
 #pragma once
 
 #include <iosfwd>
+#include <ranges>
 #include <string>
 #include <vector>
 
@@ -25,7 +26,6 @@
 import memgraph.utils.fnv;
 
 #include <boost/container/flat_map.hpp>
-#include "range/v3/all.hpp"
 
 namespace memgraph::storage {
 
@@ -429,8 +429,20 @@ class PropertyValueImpl {
       case Type::List:
         alloc_trait::construct(alloc_, &list_v.val_, other.list_v.val_.begin(), other.list_v.val_.end());
         return;
+      // case Type::Map:
+      // alloc_trait::construct(alloc_, &map_v.val_, other.map_v.val_.begin(), other.map_v.val_.end());
       case Type::Map:
-        alloc_trait::construct(alloc_, &map_v.val_, other.map_v.val_.begin(), other.map_v.val_.end());
+        new (&map_v.val_) decltype(map_v.val_)(alloc_);
+        map_v.val_.reserve(other.map_v.val_.size());
+        for (const auto &[k, v] : other.map_v.val_) {
+          map_v.val_.emplace_hint(map_v.val_.end(), k, PropertyValueImpl{v, alloc_});
+        }
+        return;
+        // alloc_trait::construct(alloc_, &map_v.val_, alloc_);
+        // map_v.val_.reserve(other.map_v.val_.size());
+        // for (const auto &[k, v] : other.map_v.val_) {
+        //   map_v.val_.emplace_hint(map_v.val_.end(), k, PropertyValueImpl{v, alloc_});
+        // }
         return;
       case Type::TemporalData:
         temporal_data_v.val_ = other.temporal_data_v.val_;
@@ -958,7 +970,7 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
       auto const &m1 = first.ValueMap();
       auto const &m2 = second.ValueMap();
       if (m1.size() != m2.size()) return m1.size() <=> m2.size();
-      for (auto &&[v1, v2] : ranges::views::zip(m1, m2)) {
+      for (auto &&[v1, v2] : std::ranges::views::zip(m1, m2)) {
         auto key_cmp_res = v1.first <=> v2.first;
         if (key_cmp_res != std::weak_ordering::equivalent) return key_cmp_res;
         auto val_cmp_res = v1.second <=> v2.second;

@@ -9,24 +9,29 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/constants.hpp"
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "utils/uuid.hpp"
 
 #include <chrono>
+#include <nlohmann/json_fwd.hpp>
 #include <string>
 #include <utility>
 
-#include <nlohmann/json_fwd.hpp>
+#endif
 
-namespace memgraph::coordination {
+export module memgraph.coordination.coordinator_communication_config;
 
+import memgraph.coordination.constants;
+
+#ifdef MG_ENTERPRISE
+
+export namespace memgraph::coordination {
 inline constexpr auto *kDefaultManagementServerIp = "0.0.0.0";
 
 struct ReplicationInstanceInitConfig {
@@ -128,4 +133,5 @@ void to_json(nlohmann::json &j, InstanceUUIDUpdate const &instance_uuid_update);
 void from_json(nlohmann::json const &j, InstanceUUIDUpdate &instance_uuid_update);
 
 }  // namespace memgraph::coordination
+
 #endif

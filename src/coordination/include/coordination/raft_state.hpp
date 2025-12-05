@@ -15,19 +15,21 @@
 
 #include <optional>
 
-#include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_state_machine.hpp"
+#include "coordination/coordinator_observer.hpp"
 #include "coordination/coordinator_state_manager.hpp"
-#include "coordination/utils.hpp"
-#include "coordination_observer.hpp"
+#include "utils/uuid.hpp"
 
 #include <libnuraft/logger.hxx>
 #include <libnuraft/nuraft.hxx>
 
-namespace memgraph::coordination {
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_cluster_state;
+import memgraph.coordination.coordinator_instance_context;
+import memgraph.coordination.data_instance_context;
+import memgraph.coordination.coordinator_state_machine;
+import memgraph.coordination.utils;
 
-class CoordinatorInstance;
-struct DataInstanceConfig;
+namespace memgraph::coordination {
 
 using BecomeLeaderCb = std::function<void()>;
 using BecomeFollowerCb = std::function<void()>;

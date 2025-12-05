@@ -9,22 +9,27 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+module;
+
+#include "rpc/client.hpp"
+
+export module memgraph.coordination.coordinator_instance_client;
+
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordination_observer.hpp"
-#include "coordination/coordinator_instance.hpp"
+import memgraph.coordination.coordinator_communication_config;
 
-#include <nlohmann/json.hpp>
+export namespace memgraph::coordination {
 
-namespace memgraph::coordination {
+class CoordinatorInstanceClient {
+ public:
+  explicit CoordinatorInstanceClient(ManagementServerConfig const &config);
 
-CoordinationClusterChangeObserver::CoordinationClusterChangeObserver(CoordinatorInstance *instance)
-    : instance_{instance} {}
+  auto RpcClient() const -> rpc::Client &;
 
-void CoordinationClusterChangeObserver::Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
-  instance_->UpdateClientConnectors(coord_instances_aux);
-}
-
+ private:
+  communication::ClientContext rpc_context_;
+  mutable rpc::Client rpc_client_;
+};
 }  // namespace memgraph::coordination
-
 #endif

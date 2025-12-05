@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <filesystem>
+#include <ranges>
 
 #include <nlohmann/json.hpp>
 #include "query/exceptions.hpp"
@@ -20,7 +21,7 @@
 #include "storage/v2/vertex.hpp"
 #include "utils/string.hpp"
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 namespace memgraph::storage {
 
@@ -130,9 +131,7 @@ std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &prope
                         r::to<std::vector<PropertyPath>>();
   auto property_values = property_store.ExtractPropertyValuesMissingAsNull(property_paths);
 
-  return rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
-           return std::make_pair(property_id_value_pair.first, property_id_value_pair.second);
-         }) |
+  return rv::zip_transform(std::make_pair<PropertyId const &, PropertyValue &>, properties, property_values) |
          r::to<std::map<PropertyId, PropertyValue>>();
 }
 

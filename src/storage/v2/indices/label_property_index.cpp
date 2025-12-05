@@ -11,9 +11,10 @@
 
 #include "label_property_index.hpp"
 
+#include <ranges>
 #include <span>
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 namespace memgraph::storage {
@@ -54,12 +55,12 @@ auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
 
 PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath const> properties)
     : sorted_properties_(properties.begin(), properties.end()) {
-  auto inverse_permutation = rv::iota(size_t{}, properties.size()) | r::to_vector;
+  auto inverse_permutation = rv::iota(size_t{}, properties.size()) | r::to<std::vector>();
   r::sort(rv::zip(inverse_permutation, sorted_properties_), std::less{},
           [](auto const &value) -> decltype(auto) { return std::get<1>(value); });
   position_lookup_ = std::move(inverse_permutation);
   cycles_ = build_permutation_cycles(position_lookup_);
-  for (auto const &[pos, path] : ranges::views::enumerate(sorted_properties_)) {
+  for (auto const &[pos, path] : std::ranges::views::enumerate(sorted_properties_)) {
     auto const outer_prop_id = path[0];
     grouped_by_outer_prop_id_[outer_prop_id].emplace_back(pos);
   }
@@ -108,7 +109,7 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, Propert
     auto const *nested_value = ReadNestedPropertyValue(value, path | rv::drop(1));
     return {index, nested_value && *nested_value == cmp_value};
   };
-  return relevant_paths | rv::transform(is_match) | r::to_vector;
+  return relevant_paths | rv::transform(is_match) | r::to<std::vector>();
 }
 
 auto PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties,
@@ -137,7 +138,7 @@ void LabelPropertyIndex::AbortProcessor::CollectOnPropertyChange(PropertyId prop
     for (auto const &[properties, helper] : index_info) {
       auto current_values = helper->Extract(vertex->properties);
       // Only if current_values has at least one non-null value do we need to cleanup its index entry
-      if (ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
+      if (std::ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
         cleanup_collection[label][properties].emplace_back(helper->ApplyPermutation(std::move(current_values)).values_,
                                                            vertex);
       }
@@ -158,7 +159,7 @@ void LabelPropertyIndex::AbortProcessor::CollectOnLabelRemoval(LabelId label, Ve
   for (auto const &[properties, helper] : dedup) {
     auto current_values = helper->Extract(vertex->properties);
     // Only if current_values has at least one non-null value do we need to cleanup its index entry
-    if (ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
+    if (std::ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
       cleanup_collection[label][properties].emplace_back(helper->ApplyPermutation(std::move(current_values)).values_,
                                                          vertex);
     }

@@ -10,7 +10,18 @@
 // licenses/APL.txt.
 
 #ifdef MG_ENTERPRISE
+
 #include "coordination/coordinator_instance_connector.hpp"
+#include "coordination/coordinator_rpc.hpp"
+
+#include <optional>
+#include <string_view>
+#include <vector>
+
+#include "spdlog/spdlog.h"
+
+import memgraph.coordination.instance_status;
+import memgraph.coordination.utils;
 
 namespace memgraph::coordination {
 

@@ -53,16 +53,13 @@ class ReplicationInstanceConnector {
   ReplicationInstanceConnector &operator=(ReplicationInstanceConnector &&other) noexcept = delete;
   ~ReplicationInstanceConnector() = default;
 
-  auto OnFailPing() -> bool;
-  auto OnSuccessPing() -> void;
+  auto OnFailPing() const -> bool;
+  auto OnSuccessPing() const -> void;
 
   auto IsAlive() const -> bool;
   auto LastSuccRespMs() const -> std::chrono::milliseconds;
 
-  auto InstanceName() const -> std::string;
-  auto BoltSocketAddress() const -> std::string;
-  auto ManagementSocketAddress() const -> std::string;
-  auto ReplicationSocketAddress() const -> std::string;
+  auto InstanceName() const -> std::string const &;
 
   auto SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) const -> bool;
 
@@ -76,12 +73,11 @@ class ReplicationInstanceConnector {
   auto PauseStateCheck() -> void;
   auto ResumeStateCheck() -> void;
 
-  auto GetReplicationClientInfo() const -> ReplicationClientInfo;
   auto GetClient() const -> ReplicationInstanceClient const &;
 
  private:
   ReplicationInstanceClient client_;
-  TimedFailureDetector timed_failure_detector_;
+  mutable TimedFailureDetector timed_failure_detector_;
 
   friend bool operator==(ReplicationInstanceConnector const &first,
                          ReplicationInstanceConnector const &second) = default;

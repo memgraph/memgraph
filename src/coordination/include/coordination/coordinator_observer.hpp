@@ -11,21 +11,25 @@
 
 #pragma once
 
-#include "coordination/coordinator_communication_config.hpp"
-#include "rpc/client.hpp"
-
 #ifdef MG_ENTERPRISE
+
+#include <vector>
+
+import memgraph.coordination.coordinator_instance_aux;
+
 namespace memgraph::coordination {
+class CoordinatorInstance;
 
-class CoordinatorInstanceClient {
+class CoordinationClusterChangeObserver {
  public:
-  explicit CoordinatorInstanceClient(ManagementServerConfig const &config);
+  explicit CoordinationClusterChangeObserver(CoordinatorInstance *instance);
 
-  auto RpcClient() const -> rpc::Client &;
+  void Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
 
  private:
-  communication::ClientContext rpc_context_;
-  mutable rpc::Client rpc_client_;
+  CoordinatorInstance *instance_;
 };
+
 }  // namespace memgraph::coordination
+
 #endif

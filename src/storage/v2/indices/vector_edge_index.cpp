@@ -18,7 +18,7 @@
 #include "storage/v2/id_types.hpp"
 #include "utils/synchronized.hpp"
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 namespace memgraph::storage {

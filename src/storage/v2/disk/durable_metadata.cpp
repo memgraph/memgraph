@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <charconv>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -21,7 +22,7 @@
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/string.hpp"
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 namespace {

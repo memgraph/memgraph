@@ -17,6 +17,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -40,8 +41,7 @@ namespace memgraph::storage {
 
 namespace {
 
-namespace r = ranges;
-namespace rv = r::views;
+namespace r = std::ranges;
 
 // `PropertyValue` is a very large object. It is implemented as a `union` of all
 // possible types that could be stored as a property value. That causes the
@@ -2570,7 +2570,7 @@ auto PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_pro
     };
 
     auto safe_reader = SafeReader{reader, get_result, apply_result, std::nullopt};
-    for (auto [pos, property] : ranges::views::enumerate(ordered_properties)) {
+    for (auto [pos, property] : std::ranges::views::enumerate(ordered_properties)) {
       auto const &value = values[position_lookup[pos]];
       safe_reader(std::tuple{property, std::cref(value)}, std::tuple{std::cref(value), pos});
     }
