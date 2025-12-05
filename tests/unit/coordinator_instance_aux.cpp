@@ -9,13 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "coordination/coordinator_instance_aux.hpp"
 #include <gtest/gtest.h>
 #include <filesystem>
 
 #include <nlohmann/json.hpp>
 
 #ifdef MG_ENTERPRISE
+
+import memgraph.coordination.coordinator_instance_aux;
 
 using memgraph::coordination::CoordinatorInstanceAux;
 

@@ -9,11 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
+#include <cstdint>
+
+export module memgraph.coordination.coordinator_ops_status;
+
+export namespace memgraph::coordination {
 #ifdef MG_ENTERPRISE
-
-namespace memgraph::coordination {
 
 enum class YieldLeadershipStatus : uint8_t { SUCCESS = 0, NOT_LEADER };
 enum class SetCoordinatorSettingStatus : uint8_t { SUCCESS = 0, RAFT_LOG_ERROR, UNKNOWN_SETTING, INVALID_ARGUMENT };
@@ -74,6 +77,6 @@ enum class DemoteInstanceCoordinatorStatus : uint8_t {
 };
 
 enum class ReconcileClusterStateStatus : uint8_t { SUCCESS = 0, FAIL, SHUTTING_DOWN, NOT_LEADER_ANYMORE };
+#endif
 
 }  // namespace memgraph::coordination
-#endif
