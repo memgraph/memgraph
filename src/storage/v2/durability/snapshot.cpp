@@ -8482,7 +8482,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   // Set success flag (to disable cleanup).
   success = true;
 
-  return {info, recovery_info, std::move(indices_constraints)};
+  return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
@@ -8696,6 +8696,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
   utils::EnsureDirOrDie(snapshot_directory);
 
   // Create snapshot file.
+  // For InMemoryStorage, we always have a value for last_durable_ts_
   auto path = snapshot_directory / MakeSnapshotName(transaction->last_durable_ts_ ? *transaction->last_durable_ts_
                                                                                   : transaction->start_timestamp);
   spdlog::info("Starting snapshot creation to {}", path);

@@ -59,6 +59,7 @@ jobs:
     secrets: inherit
 
   UpdatePRComment:
+    continue-on-error: true  # NOTE: older branches may not have the code to create this comment
     needs: [CallCreateStagingBranch, TriggerDiffWorkflow]
     runs-on: ubuntu-latest
     if: always()
@@ -77,7 +78,7 @@ jobs:
             status="false"
             echo "❌ Diff workflow failed"
           fi
-          
+
           python3 ./tools/external-contributions/pr_comment_update.py \
             "${{ needs.CallCreateStagingBranch.outputs.comment_id }}" \
             "${{ github.event.inputs.pr_number }}" \

@@ -3245,9 +3245,10 @@ class LoadCsv : public memgraph::query::Clause {
   memgraph::query::Expression *quote_{nullptr};
   memgraph::query::Expression *nullif_{nullptr};
   memgraph::query::Identifier *row_var_{nullptr};
+  std::unordered_map<Expression *, Expression *> configs_;
 
   LoadCsv *Clone(AstStorage *storage) const override {
-    LoadCsv *object = storage->Create<LoadCsv>();
+    auto *object = storage->Create<LoadCsv>();
     object->file_ = file_ ? file_->Clone(storage) : nullptr;
     object->with_header_ = with_header_;
     object->ignore_bad_ = ignore_bad_;
@@ -3255,6 +3256,9 @@ class LoadCsv : public memgraph::query::Clause {
     object->quote_ = quote_ ? quote_->Clone(storage) : nullptr;
     object->nullif_ = nullif_;
     object->row_var_ = row_var_ ? row_var_->Clone(storage) : nullptr;
+    for (auto const &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
     return object;
   }
 
@@ -3294,7 +3298,7 @@ class LoadParquet : public Clause {
   Identifier *row_var_{nullptr};
 
   LoadParquet *Clone(AstStorage *storage) const override {
-    LoadParquet *object = storage->Create<LoadParquet>();
+    auto *object = storage->Create<LoadParquet>();
     object->file_ = file_ ? file_->Clone(storage) : nullptr;
     for (const auto &[key, value] : configs_) {
       object->configs_[key->Clone(storage)] = value->Clone(storage);
@@ -3306,6 +3310,43 @@ class LoadParquet : public Clause {
  protected:
   explicit LoadParquet(Expression *file, Identifier *row_var) : file_(file), row_var_(row_var) {
     DMG_ASSERT(row_var, "LoadParquet cannot take nullptr for identifier");
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class LoadJsonl : public Clause {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  LoadJsonl() = default;
+
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      row_var_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  Expression *file_;
+  Identifier *row_var_{nullptr};
+  std::unordered_map<Expression *, Expression *> configs_;
+
+  LoadJsonl *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<LoadJsonl>();
+    object->file_ = file_ ? file_->Clone(storage) : nullptr;
+    object->row_var_ = row_var_ ? row_var_->Clone(storage) : nullptr;
+    for (auto const &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
+    return object;
+  }
+
+ protected:
+  explicit LoadJsonl(Expression *file, Identifier *row_var) : file_(file), row_var_(row_var) {
+    DMG_ASSERT(row_var, "LoadJsonl cannot take nullptr for identifier");
   }
 
  private:

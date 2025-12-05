@@ -59,6 +59,13 @@ bool GetCartesianProductEnabled();
 bool GetDebugQueryPlans();
 
 /**
+ * @brief Get the storage GC aggressive value
+ *
+ * @return bool
+ */
+bool GetStorageGcAggressive();
+
+/**
  * @brief Get the current timezone object
  *
  * @return const std::chrono::time_zone*
@@ -95,6 +102,12 @@ auto GetAwsSecretKey() -> std::string;
  * @return std::string
  */
 auto GetAwsEndpointUrl() -> std::string;
+
+/**
+ * @brief Get the file_download_timeout run-time config value
+ * @return uint64_t
+ */
+auto GetFileDownloadConnTimeoutSec() -> uint64_t;
 
 /**
  * @brief Attach observer to the global snapshor period variable

@@ -1291,6 +1291,12 @@ TYPED_TEST(TestSymbolGenerator, Subqueries) {
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")));
   EXPECT_THROW(MakeSymbolTable(query), SemanticException);
 
+  // WITH 1 AS x CALL { RETURN 2 AS x } RETURN x
+  // Yields exception because aliased return in subquery conflicts with outer scope variable
+  subquery = QUERY(SINGLE_QUERY(RETURN(LITERAL(2), AS("x"))));
+  query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("x")), CALL_SUBQUERY(subquery), RETURN("x")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
   // MATCH (n) CALL { MATCH (m) RETURN m.prop } RETURN n
   // Yields exception because m.prop must be aliased before returning
   subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN("m.prop")));

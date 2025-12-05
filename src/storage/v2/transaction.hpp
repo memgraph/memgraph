@@ -103,7 +103,7 @@ struct Transaction {
         start_timestamp(start_timestamp),
         command_id(0),
         md_deltas(utils::NewDeleteResource()),
-        must_abort(false),
+        has_serialization_error(false),
         isolation_level(isolation_level),
         storage_mode(storage_mode),
         edge_import_mode_active(edge_import_mode_active),
@@ -171,7 +171,7 @@ struct Transaction {
 
   delta_container deltas;
   utils::pmr::list<MetadataDelta> md_deltas;
-  bool must_abort{};
+  bool has_serialization_error{};
   IsolationLevel isolation_level{};
   StorageMode storage_mode{};
   bool edge_import_mode_active{false};

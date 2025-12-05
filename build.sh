@@ -60,7 +60,7 @@ config_only=false
 keep_build=false
 skip_os_deps=false
 VENV_DIR="${VENV_DIR:-env}"
-
+offline=false
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -95,6 +95,11 @@ while [[ $# -gt 0 ]]; do
             keep_build=true
             shift
             ;;
+        --offline)
+            skip_os_deps=true
+            offline=true
+            shift
+            ;;
         --help|-h)
             show_help
             ;;
@@ -106,14 +111,35 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Detect distro
+source environment/util.sh
+DISTRO="$(operating_system)"
+echo "Distro: $DISTRO"
+
 # Validate build type
 if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" && "$BUILD_TYPE" != "Debug" ]]; then
     echo "Error: --build-type must be either 'Release', 'RelWithDebInfo', or 'Debug'"
     exit 1
 fi
 
+# Initialize arrays for arguments
+INIT_ARGS=()
+CONAN_INSTALL_ARGS=(
+  .
+  --build=missing
+  -pr:h memgraph_template_profile
+  -pr:b memgraph_build_profile
+  -s build_type="$BUILD_TYPE"
+  -s os.distro="$DISTRO"
+)
+
+if [[ "$offline" = true ]]; then
+    INIT_ARGS+=("--offline")
+    CONAN_INSTALL_ARGS+=("--no-remote")
+fi
+
 # delete existing build directory
-if [ "$keep_build" = false ]; then
+if [[ "$keep_build" = false ]]; then
     if [ -d "build" ]; then
         echo "Deleting existing build directory"
         rm -rf build
@@ -123,7 +149,7 @@ else
 fi
 
 # run check for operating system dependencies
-if [ "$skip_os_deps" = false ]; then
+if [[ "$skip_os_deps" = false ]]; then
     if ! ./environment/os/install_deps.sh check TOOLCHAIN_RUN_DEPS; then
         echo "Error: Dependency check failed for TOOLCHAIN_RUN_DEPS"
         exit 1
@@ -149,14 +175,17 @@ else
 fi
 
 # check if a conan profile exists
-if [ ! -f "$HOME/.conan2/profiles/default" ]; then
+if [[ ! -f "$HOME/.conan2/profiles/default" ]]; then
     echo "Creating conan profile"
     conan profile detect
 fi
 
+# Install custom conan settings
+conan config install conan_config
+
 # fetch libs that aren't provided by conan yet
-if [ "$skip_init" = false ]; then
-    ./init
+if [[ "$skip_init" = false ]]; then
+    ./init "${INIT_ARGS[@]}"
 fi
 
 # Function to check if a CMake boolean variable is enabled
@@ -173,9 +202,6 @@ cmake_var_enabled() {
     return 1
 }
 
-# Use the new combined profile template
-PROFILE_TEMPLATE="./memgraph_template_profile"
-
 # Build sanitizer list from CMAKE_ARGS
 MG_SANITIZERS=""
 declare -A sanitizer_map=(
@@ -190,7 +216,6 @@ for cmake_var in "${!sanitizer_map[@]}"; do
     fi
 done
 
-echo "Using profile template: $PROFILE_TEMPLATE"
 if [[ -n "$MG_SANITIZERS" ]]; then
     echo "Sanitizers enabled: $MG_SANITIZERS"
     export MG_SANITIZERS="$MG_SANITIZERS"
@@ -199,19 +224,28 @@ else
 fi
 
 # install conan dependencies
-MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install \
-  . \
-  --build=missing \
-  -pr "$PROFILE_TEMPLATE" \
-  -s build_type="$BUILD_TYPE"
+MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install "${CONAN_INSTALL_ARGS[@]}"
+
+export CLASSPATH=
+export LD_LIBRARY_PATH=
+export DYLD_LIBRARY_PATH=
 source build/generators/conanbuild.sh
 
 # Determine preset name based on build type (Conan generates this automatically)
 # Convert to lowercase for preset name: Release -> conan-release
 PRESET="conan-$(echo "$BUILD_TYPE" | tr '[:upper:]' '[:lower:]')"
 
-# Configure cmake with additional arguments
-cmake --preset $PRESET $CMAKE_ARGS
+# Filter out sanitizer flags from CMAKE_ARGS since conanfile.py handles them automatically
+# via compiler settings (compiler.asan, compiler.ubsan, compiler.tsan)
+FILTERED_CMAKE_ARGS=""
+for arg in $CMAKE_ARGS; do
+    if [[ ! "$arg" =~ ^-D(ASAN|UBSAN|TSAN)(=|:|$) ]]; then
+        FILTERED_CMAKE_ARGS="$FILTERED_CMAKE_ARGS $arg"
+    fi
+done
+
+# Configure cmake with additional arguments (sanitizer flags automatically set by Conan)
+cmake --preset $PRESET $FILTERED_CMAKE_ARGS
 
 if [[ "$config_only" = true ]]; then
     exit 0

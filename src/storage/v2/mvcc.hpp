@@ -99,7 +99,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
     return true;
   }
 
-  transaction->must_abort = true;
+  transaction->has_serialization_error = true;
   return false;
 }
 

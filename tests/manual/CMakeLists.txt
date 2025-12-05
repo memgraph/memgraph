@@ -2,7 +2,6 @@ set(test_prefix memgraph__manual__)
 
 find_package(gflags REQUIRED)
 find_package(antlr4-runtime REQUIRED)
-find_package(antlr4 REQUIRED)
 
 include_directories(${antlr4-runtime_INCLUDE_DIR})
 

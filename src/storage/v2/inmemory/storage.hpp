@@ -113,13 +113,7 @@ class InMemoryStorage final : public Storage {
 
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
-  enum class CreateSnapshotError : uint8_t {
-    DisabledForReplica,
-    ReachedMaxNumTries,
-    AbortSnapshot,
-    AlreadyRunning,
-    NothingNewToWrite
-  };
+  enum class CreateSnapshotError : uint8_t { ReachedMaxNumTries, AbortSnapshot, AlreadyRunning, NothingNewToWrite };
   enum class RecoverSnapshotError : uint8_t {
     DisabledForReplica,
     NonEmptyStorage,
@@ -702,8 +696,7 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> CreateSnapshot(
-      memgraph::replication_coordination_glue::ReplicationRole replication_role, bool force = false);
+  utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> CreateSnapshot(bool force = false);
 
   utils::BasicResult<InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
       std::filesystem::path path, bool force,
@@ -733,18 +726,8 @@ class InMemoryStorage final : public Storage {
   }
 
  private:
-  /// The force parameter determines the behaviour of the garbage collector.
-  /// If it's set to true, it will behave as a global operation, i.e. it can't
-  /// be part of a transaction, and no other transaction can be active at the same time.
-  /// This allows it to delete immediately vertices without worrying that some other
-  /// transaction is possibly using it. If there are active transactions when this method
-  /// is called with force set to true, it will fallback to the same method with the force
-  /// set to false.
-  /// If it's set to false, it will execute in parallel with other transactions, ensuring
-  /// that no object in use can be deleted.
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  template <bool force>
   void CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard, bool periodic);
 
   bool InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch);
@@ -779,7 +762,7 @@ class InMemoryStorage final : public Storage {
   std::unique_ptr<utils::OutputFile> lock_file_handle_ = std::make_unique<utils::OutputFile>();
 
   utils::Scheduler snapshot_runner_;
-  std::mutex snapshot_lock_;
+  utils::ResourceLock snapshot_lock_;
   std::atomic_bool snapshot_running_{false};
   std::atomic_bool abort_snapshot_{false};
 

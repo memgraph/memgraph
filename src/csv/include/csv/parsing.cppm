@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,7 @@
  *
  */
 
-#pragma once
+module;
 
 #include <cstdint>
 #include <filesystem>
@@ -24,14 +24,25 @@
 #include <optional>
 #include <string>
 #include <variant>
-#include <vector>
 
 #include "utils/exceptions.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/result.hpp"
 
-namespace memgraph::csv {
+export module memgraph.csv.parsing;
+
+import memgraph.utils.aws;
+
+namespace {
+template <typename T>
+concept Streamable = requires(T t) {
+  { t.GetStream() } -> std::convertible_to<std::istream &>;
+};
+
+}  // namespace
+
+export namespace memgraph::csv {
 
 class CsvReadException : public utils::BasicException {
   using utils::BasicException::BasicException;
@@ -48,10 +59,20 @@ class FileCsvSource {
   std::ifstream stream_;
 };
 
+class S3CsvSource {
+ public:
+  explicit S3CsvSource(std::string uri, utils::S3Config const &s3_config);
+
+  std::istream &GetStream();
+
+ private:
+  std::stringstream stream_;
+};
+
 class StreamCsvSource {
  public:
-  StreamCsvSource(std::stringstream stream) : stream_{std::move(stream)} {}
-  std::istream &GetStream() { return stream_; }
+  explicit StreamCsvSource(std::stringstream stream);
+  std::istream &GetStream();
 
  private:
   std::stringstream stream_;
@@ -59,19 +80,24 @@ class StreamCsvSource {
 
 class UrlCsvSource : public StreamCsvSource {
  public:
-  UrlCsvSource(char const *url);
+  explicit UrlCsvSource(std::string url);
 };
+
+static_assert(Streamable<FileCsvSource>);
+static_assert(Streamable<S3CsvSource>);
+static_assert(Streamable<UrlCsvSource>);
+static_assert(Streamable<StreamCsvSource>);
 
 class CsvSource {
  public:
-  static auto Create(utils::pmr::string const &csv_location) -> CsvSource;
-  CsvSource(FileCsvSource source) : source_{std::move(source)} {}
-  CsvSource(StreamCsvSource source) : source_{std::move(source)} {}
-  CsvSource(UrlCsvSource source) : source_{std::move(source)} {}
+  static auto Create(std::string csv_location, std::optional<utils::S3Config> s3_cfg) -> CsvSource;
+  template <Streamable T>
+  explicit CsvSource(T source) : source_{std::move(source)} {}
+
   std::istream &GetStream();
 
  private:
-  std::variant<FileCsvSource, UrlCsvSource, StreamCsvSource> source_;
+  std::variant<FileCsvSource, UrlCsvSource, StreamCsvSource, S3CsvSource> source_;
 };
 
 class Reader {
@@ -88,8 +114,8 @@ class Reader {
 
     bool with_header{false};
     bool ignore_bad{false};
-    std::optional<utils::pmr::string> delimiter{};
-    std::optional<utils::pmr::string> quote{};
+    std::optional<utils::pmr::string> delimiter;
+    std::optional<utils::pmr::string> quote;
   };
 
   using Row = utils::pmr::vector<utils::pmr::string>;

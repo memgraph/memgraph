@@ -43,41 +43,51 @@ on:
         type: string
         description: "Git ref to checkout. Default value is the current ref."
         default: ''
+      generate_sbom:
+        type: boolean
+        description: "Generate SBOM"
+        default: false
 
 env:
   TOOLCHAIN: v7
+  GENERATE_SBOM: ${{ inputs.generate_sbom }}
+  ARCH: ${{ inputs.arch }}
+  BUILD_TYPE: ${{ inputs.build_type }}
+  OS: ${{ inputs.os }}
+  ADDITIONAL_BUILD_ARGS: ${{ inputs.additional_build_args }}
+  PUSH_TO_GITHUB: ${{ inputs.push_to_github }}
+  PUSH_TO_S3: ${{ inputs.push_to_s3 }}
+  S3_BUCKET: ${{ inputs.s3_bucket }}
+  S3_REGION: ${{ inputs.s3_region }}
+  S3_DEST_DIR: ${{ inputs.s3_dest_dir }}
+  REF: ${{ inputs.ref }}
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+  CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+  CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
 
 jobs:
   PackageAndUpload:
     runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "DockerMgBuild", "ARM64"]') || fromJSON((inputs.os == 'centos-10' || inputs.os == 'rocky-10') && '["self-hosted", "DockerMgBuild", "X64", "x86-64-v3"]' || '["self-hosted", "DockerMgBuild", "X64"]') }}
     timeout-minutes: ${{ inputs.arch == 'arm' && 120 || 60 }}
-    env:
-      mgdeps_cache_host: "${{ inputs.arch == 'arm' && 'false' || 'mgdeps-cache' }}" # Required because strange is not connected to memgraph openVPN
-      INPUT_OS: "${{ inputs.os }}"
     steps:
       - name: "Validate S3 dest dir for official package"
         if: ${{ inputs.push_to_s3 == 'true' && inputs.s3_bucket == 'download.memgraph.com' }}
         run: |
-          if [[ "${{ inputs.build_type }}" == 'RelWithDebInfo' ]]; then
+          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' ]]; then
             echo -e "Error: You are pushing a RelWithDebInfo build to 'download.memgraph.com'."
             exit 1
           fi
-          if ! [[ "${{ inputs.s3_dest_dir }}" =~ memgraph/v[0-9]\.[0-9]+\.[0-9]+$ ]]; then
-            echo -e "Error: ${{ inputs.s3_dest_dir }} is not a valid official format. When pushing to 'download.memgraph.com' the dest dir has to match format 'memgraph/vX.Y.Z'!"
+          if ! [[ "$S3_DEST_DIR" =~ memgraph/v[0-9]\.[0-9]+\.[0-9]+$ ]]; then
+            echo -e "Error: $S3_DEST_DIR is not a valid official format. When pushing to 'download.memgraph.com' the dest dir has to match format 'memgraph/vX.Y.Z'!"
             exit 1
           fi
-          echo -e "Passed: Dest dir ${{ inputs.s3_dest_dir }} has a valid official format."
+          echo -e "Passed: Dest dir $S3_DEST_DIR has a valid official format."
 
       - name: "Set up repository"
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
-
-      - name: "Unlock keychain for current session" # Required beacuse ARM builds run on macos
-        # if: ${{ inputs.arch == 'arm' }}
-        if: false
-        run: security -v unlock-keychain -p ${{ secrets.SELF_HOSTED_RUNNER_PASSWORD }} ~/Library/Keychains/login.keychain-db
 
       - name: "Log in to Docker Hub"
         uses: ./.github/actions/docker-login
@@ -87,20 +97,20 @@ jobs:
 
       - name: "Set artifact name and dir"
         run: |
-          artifact_name="$INPUT_OS"
+          artifact_name="$OS"
           artifact_dir='build/output'
-          if [[ "${{ inputs.additional_build_args }}" == *"--for-docker"* ]]; then
+          if [[ "$ADDITIONAL_BUILD_ARGS" == *"--for-docker"* ]]; then
             artifact_name='docker'
             echo "FOR_DOCKER=true" >> $GITHUB_ENV
             echo "DOCKER_ARTIFACT_DIR=${artifact_dir}/docker" >> $GITHUB_ENV
           fi
-          if [[ "${{ inputs.additional_build_args }}" == *"--disable-jemalloc"* ]]; then
+          if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
             artifact_name="${artifact_name}-malloc"
           fi
-          if [[ "${{ inputs.arch }}" == 'arm' ]]; then
+          if [[ "$ARCH" == 'arm' ]]; then
             artifact_name="${artifact_name}-aarch64"
           fi
-          if [[ "${{ inputs.build_type }}" == 'RelWithDebInfo' ]]; then
+          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' ]]; then
             artifact_name="${artifact_name}-relwithdebinfo"
           fi
           echo "ARTIFACT_NAME=$artifact_name" >> $GITHUB_ENV
@@ -108,7 +118,11 @@ jobs:
 
       - name: Set Additional Build Args
         run: |
-          args="${{ inputs.additional_build_args }} --disable-testing"
+          if [[ -z "$ADDITIONAL_BUILD_ARGS" ]]; then
+            args="--disable-testing"
+          else
+            args="$ADDITIONAL_BUILD_ARGS --disable-testing"
+          fi
           echo "ADDITIONAL_BUILD_ARGS=$args" >> $GITHUB_ENV
           echo "Final build args: $args"
 
@@ -116,46 +130,58 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os "$INPUT_OS" \
-          --arch ${{ inputs.arch }} \
+          --os "$OS" \
+          --arch $ARCH \
           run
 
       - name: "Build Memgraph binaries"
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os "$INPUT_OS" \
-          --arch ${{ inputs.arch }} \
-          --build-type ${{ inputs.build_type }} \
-          --mgdeps-cache-host ${{ env.mgdeps_cache_host }} \
-          build-memgraph ${{ env.ADDITIONAL_BUILD_ARGS }}
+          --os "$OS" \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          build-memgraph $ADDITIONAL_BUILD_ARGS \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: "Make package"
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os "$INPUT_OS" \
-          --arch ${{ inputs.arch }} \
-          --build-type ${{ inputs.build_type }} \
+          --os "$OS" \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
           package-memgraph
 
       - name: "Copy package"
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os "$INPUT_OS" \
-          --arch ${{ inputs.arch }} \
+          --os "$OS" \
+          --arch $ARCH \
           copy \
           --package \
-          --dest-dir ${{ env.PACKAGE_ARTIFACT_DIR }}
+          --dest-dir $PACKAGE_ARTIFACT_DIR
+
+      - name: "Copy SBOM"
+        if: ${{ env.GENERATE_SBOM == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          copy \
+          --sbom
 
       - name: "Build heaptrack"
         if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os "$INPUT_OS" \
-          --arch ${{ inputs.arch }} \
+          --os "$OS" \
+          --arch $ARCH \
           build-heaptrack
 
       - name: "Copy heaptrack"
@@ -164,8 +190,8 @@ jobs:
           mkdir -p release/docker
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os "$INPUT_OS" \
-          --arch ${{ inputs.arch }} \
+          --os "$OS" \
+          --arch $ARCH \
           copy-heaptrack \
           --dest-dir "$(pwd)/release/docker"
 
@@ -174,8 +200,8 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os "$INPUT_OS" \
-          --arch ${{ inputs.arch }} \
+          --os "$OS" \
+          --arch $ARCH \
           stop --remove
 
       - name: "Create docker image"
@@ -183,12 +209,25 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os "$INPUT_OS" \
-          --arch ${{ inputs.arch }} \
-          --build-type ${{ inputs.build_type }} \
+          --os "$OS" \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
           package-docker \
-          --src-dir ${{ env.PACKAGE_ARTIFACT_DIR }} \
-          --dest-dir ${{ env.DOCKER_ARTIFACT_DIR }}
+          --src-dir $PACKAGE_ARTIFACT_DIR \
+          --dest-dir $DOCKER_ARTIFACT_DIR \
+          --generate-sbom $GENERATE_SBOM
+
+      - name: "Generate Build SBOM"
+        if: ${{ env.GENERATE_SBOM == 'true'  && env.FOR_DOCKER != 'true' }}
+        run: |
+          ./tools/sbom/build-sbom.sh
+
+      - name: "Upload SBOM Files"
+        if: ${{ env.GENERATE_SBOM == 'true' }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: memgraph-sbom
+          path: sbom/
 
       - name: "Rename Package"
         if: github.ref == 'refs/heads/master' && !inputs.ref
@@ -207,26 +246,26 @@ jobs:
           commit="$(git rev-parse HEAD | cut -c1-12)"
 
           # set the artifact directory containing the file we want to rename
-          if [ "${{ env.FOR_DOCKER }}" == "true" ]; then
-            artifact_path="${{ env.DOCKER_ARTIFACT_DIR }}"
+          if [ "$FOR_DOCKER" == "true" ]; then
+            artifact_path="$DOCKER_ARTIFACT_DIR"
           else
-            artifact_path="${{ env.PACKAGE_ARTIFACT_DIR }}"
+            artifact_path="$PACKAGE_ARTIFACT_DIR"
           fi
 
           # find the existing file name
           old_name="$(ls -1 $artifact_path/memgraph* 2>/dev/null | head -n 1)"
 
           # determine new name
-          if [ "${{ env.FOR_DOCKER }}" == "true" ]; then
+          if [ "$FOR_DOCKER" == "true" ]; then
             new_name="memgraph-${tag}_pr${pr}_${commit}"
-            if [[ "${{ inputs.build_type }}" == 'RelWithDebInfo' ]]; then
+            if [[ "$BUILD_TYPE" == 'RelWithDebInfo' ]]; then
               new_name="${new_name}-relwithdebinfo"
             fi
             new_name="${new_name}-docker.tar.gz"
-          elif [[ "$INPUT_OS" == *"debian"* || "$INPUT_OS" == *"ubuntu"* ]]; then
-            new_name="memgraph_${tag}+pr${pr}~${commit}-1_${{ inputs.arch }}64.deb"
-          elif [[ "$INPUT_OS" == *"centos"* || "$INPUT_OS" == *"fedora"* || "$INPUT_OS" == *"rocky"* ]]; then
-            if [[ "${{ inputs.arch }}" == "amd" ]]; then
+          elif [[ "$OS" == *"debian"* || "$OS" == *"ubuntu"* ]]; then
+            new_name="memgraph_${tag}+pr${pr}~${commit}-1_${ARCH}64.deb"
+          elif [[ "$OS" == *"centos"* || "$OS" == *"fedora"* || "$OS" == *"rocky"* ]]; then
+            if [[ "$ARCH" == "amd" ]]; then
               arch_str="x86_64"
             else
               arch_str="aarch64"
@@ -247,7 +286,7 @@ jobs:
       - name: "Upload to S3"
         if: ${{ inputs.push_to_s3 == 'true' }}
         run:
-          aws s3 sync $SOURCE_DIR s3://${{ inputs.s3_bucket }}/$DEST_DIR
+          aws s3 sync $SOURCE_DIR s3://${S3_BUCKET}/$DEST_DIR
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
@@ -259,7 +298,6 @@ jobs:
         if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
         run: |
           rm -rf release/docker/heaptrack
-
 
       - name: "Clean up Docker"
         if: always()

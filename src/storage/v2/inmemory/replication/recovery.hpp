@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "flags/general.hpp"
 #include "rpc/messages.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/replication/recovery.hpp"
@@ -36,7 +35,7 @@ class InMemoryStorage;
 struct WalChainInfo {
   bool covered_by_wals;
   uint64_t prev_seq_num;
-  int64_t first_useful_wal;
+  uint64_t first_useful_wal;
 };
 
 inline auto GetFilePathWithoutDataDir(std::filesystem::path const &orig, std::filesystem::path const &root_data_dir)
@@ -116,12 +115,12 @@ auto GetLatestSnapshot(const InMemoryStorage *main_storage) -> std::optional<dur
 auto GetWalChainInfo(std::vector<durability::WalDurabilityInfo> const &wal_files, uint64_t replica_commit)
     -> WalChainInfo;
 
-auto FirstWalAfterSnapshot(std::vector<durability::WalDurabilityInfo> const &wal_files, uint64_t snap_start_ts,
-                           int64_t first_useful_wal) -> int64_t;
+auto FirstWalAfterSnapshot(std::vector<durability::WalDurabilityInfo> const &wal_files, uint64_t snap_durable_ts,
+                           uint64_t first_useful_wal) -> uint64_t;
 
 // Copy and lock the chain part we need, from oldest to newest
 auto GetRecoveryWalFiles(utils::FileRetainer::FileLockerAccessor *locker_acc,
-                         std::vector<durability::WalDurabilityInfo> const &wal_files, int64_t first_useful_wal)
+                         std::vector<durability::WalDurabilityInfo> const &wal_files, uint64_t first_useful_wal)
     -> std::optional<RecoveryWals>;
 
 }  // namespace memgraph::storage

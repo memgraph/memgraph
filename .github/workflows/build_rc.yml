@@ -205,13 +205,14 @@ jobs:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
-      additional_build_args: "--for-docker${{ matrix.malloc == 'false' && '' || ' --disable-jemalloc' }}"
+      additional_build_args: "--for-docker${{ matrix.malloc == true && ' --disable-jemalloc' || '' }}"
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: "memgraph/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+      generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.build_type == 'Release' && matrix.arch == 'amd') && true || false }}
     secrets: inherit
 
   TriggerMAGEBuild:
