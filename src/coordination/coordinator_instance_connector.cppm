@@ -9,17 +9,20 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
-
-#pragma once
+module;
 
 #include "coordination/coordinator_instance_client.hpp"
 #include "coordination/coordinator_rpc.hpp"
 
+export module memgraph.coordination.coordinator_instance_connector;
+
+#ifdef MG_ENTERPRISE
+
+import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.instance_status;
 import memgraph.coordination.utils;
 
-namespace memgraph::coordination {
+export namespace memgraph::coordination {
 
 class CoordinatorInstanceConnector {
  public:
