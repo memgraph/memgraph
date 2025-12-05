@@ -433,7 +433,7 @@ if current_version is None:
         tag = non_rc_tags[-1] if non_rc_tags else ""
         if tag:
             # regex match for x.y.z format
-            match = re.match(r"^v[0-9]+\.[0-9]+\.[0-9]+$", tag)
+            match = re.match(r"^v[\d]+\.[\d]+\.[\d]+$", tag)
             if match:
                 version_str = match.group(0)[1:]
             else:
