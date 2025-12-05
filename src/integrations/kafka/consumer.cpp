@@ -203,7 +203,7 @@ Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
   }
 
   RdKafka::Metadata *raw_metadata = nullptr;
-  if (const auto err = consumer_->metadata(true, nullptr, &raw_metadata, 1000); err != RdKafka::ERR_NO_ERROR) {
+  if (const auto err = consumer_->metadata(true, nullptr, &raw_metadata, 5000); err != RdKafka::ERR_NO_ERROR) {
     delete raw_metadata;
     throw ConsumerFailedToInitializeException(info_.consumer_name, RdKafka::err2str(err));
   }
