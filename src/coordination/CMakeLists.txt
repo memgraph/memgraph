@@ -11,6 +11,7 @@ target_sources(mg-coordination
         coordinator_instance_context.cppm
         coordinator_log_store.cppm
         coordinator_ops_status.cppm
+        coordinator_state_machine.cppm
         constants.cppm
         data_instance_context.cppm
         instance_state.cppm
@@ -31,7 +32,6 @@ target_sources(mg-coordination
         include/coordination/coordinator_rpc.hpp
         include/coordination/coordinator_slk.hpp
         include/coordination/coordinator_state.hpp
-        include/coordination/coordinator_state_machine.hpp
         include/coordination/coordinator_state_manager.hpp
         include/coordination/data_instance_management_server.hpp
         include/coordination/data_instance_management_server_handlers.hpp
