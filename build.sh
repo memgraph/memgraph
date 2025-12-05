@@ -133,13 +133,13 @@ CONAN_INSTALL_ARGS=(
   -s os.distro="$DISTRO"
 )
 
-if [ "$offline" = true ]; then
+if [[ "$offline" = true ]]; then
     INIT_ARGS+=("--offline")
     CONAN_INSTALL_ARGS+=("--no-remote")
 fi
 
 # delete existing build directory
-if [ "$keep_build" = false ]; then
+if [[ "$keep_build" = false ]]; then
     if [ -d "build" ]; then
         echo "Deleting existing build directory"
         rm -rf build
@@ -149,7 +149,7 @@ else
 fi
 
 # run check for operating system dependencies
-if [ "$skip_os_deps" = false ]; then
+if [[ "$skip_os_deps" = false ]]; then
     if ! ./environment/os/install_deps.sh check TOOLCHAIN_RUN_DEPS; then
         echo "Error: Dependency check failed for TOOLCHAIN_RUN_DEPS"
         exit 1
@@ -175,7 +175,7 @@ else
 fi
 
 # check if a conan profile exists
-if [ ! -f "$HOME/.conan2/profiles/default" ]; then
+if [[ ! -f "$HOME/.conan2/profiles/default" ]]; then
     echo "Creating conan profile"
     conan profile detect
 fi
@@ -184,7 +184,7 @@ fi
 conan config install conan_config
 
 # fetch libs that aren't provided by conan yet
-if [ "$skip_init" = false ]; then
+if [[ "$skip_init" = false ]]; then
     ./init "${INIT_ARGS[@]}"
 fi
 
