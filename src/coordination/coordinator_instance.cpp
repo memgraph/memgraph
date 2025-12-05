@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
+module;
 
 #include <algorithm>
 #include <atomic>
@@ -27,11 +27,8 @@
 #include <vector>
 
 #include <communication/bolt/v1/encoder/base_encoder.hpp>
-#include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
 #include "coordination/coordinator_instance_management_server_handlers.hpp"
-#include "coordination/coordinator_observer.hpp"
-#include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "utils/event_counter.hpp"
@@ -44,6 +41,10 @@
 #include <spdlog/spdlog.h>
 #include <libnuraft/nuraft.hxx>
 #include <nlohmann/json.hpp>
+
+module memgraph.coordination.coordinator_instance;
+
+#ifdef MG_ENTERPRISE
 
 import memgraph.coordination.coordinator_cluster_state;
 import memgraph.coordination.constants;

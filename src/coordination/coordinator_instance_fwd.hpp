@@ -9,27 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#ifdef MG_ENTERPRISE
-
-#include <vector>
-
-import memgraph.coordination.coordinator_instance_aux;
-
 namespace memgraph::coordination {
 class CoordinatorInstance;
-
-class CoordinationClusterChangeObserver {
- public:
-  explicit CoordinationClusterChangeObserver(CoordinatorInstance *instance);
-
-  void Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
-
- private:
-  CoordinatorInstance *instance_;
-};
-
 }  // namespace memgraph::coordination
-
-#endif

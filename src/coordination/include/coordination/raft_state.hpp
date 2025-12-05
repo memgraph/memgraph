@@ -15,7 +15,6 @@
 
 #include <optional>
 
-#include "coordination/coordinator_observer.hpp"
 #include "coordination/coordinator_state_manager.hpp"
 #include "utils/uuid.hpp"
 
@@ -26,6 +25,7 @@ import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_cluster_state;
 import memgraph.coordination.coordinator_instance_context;
 import memgraph.coordination.data_instance_context;
+import memgraph.coordination.coordinator_observer;
 import memgraph.coordination.coordinator_state_machine;
 import memgraph.coordination.utils;
 
