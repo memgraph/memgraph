@@ -102,55 +102,47 @@ from functools import wraps
 #   https://fedoraproject.org/wiki/Package_Versioning_Examples
 
 
+def check_connection(host, timeout=3.0):
+    try:
+        socket.create_connection(host, timeout=timeout)
+        return True
+    except Exception:
+        return False
+
+
+def check_dns_availability(timeout=0.05):
+    dns_addresses = [
+        "1.1.1.1",
+        "1.0.0.1",
+        "8.8.8.8",
+        "8.8.4.4",
+    ]
+
+    for address in dns_addresses:
+        result = check_connection((address, 53), timeout)
+        if result:
+            return True
+    return False
+
+
 def can_connect_to_github(url="https://www.github.com", timeout=3):
     """
-    Check if we can connect to GitHub with a proper timeout that includes DNS resolution.
+    Check if we can connect to GitHub.
 
-    The issue with urllib.request.urlopen() is that its timeout only applies to the
-    socket connection and reading, not DNS resolution. DNS can take 30+ seconds if
-    the DNS server is unreachable. This function uses a threading-based timeout to
-    ensure the entire operation (including DNS) is bounded.
+    We first check if we can resolve the DNS addresses (otherwise the DNS lookup
+    for GitHub will take much longer than the timeout), and then we check if we
+    can connect to the GitHub server.
     """
-    result = [None]  # Use list to allow modification from nested function
-    exception = [None]
 
-    def connect():
-        try:
-            # Parse URL to get hostname and port
-            from urllib.parse import urlparse
-
-            parsed = urlparse(url)
-            hostname = parsed.hostname
-            port = parsed.port or (443 if parsed.scheme == "https" else 80)
-
-            # Use socket.create_connection() which handles DNS resolution with timeout
-            # This is more reliable than urllib.request.urlopen() for timeout control
-            sock = socket.create_connection((hostname, port), timeout=timeout)
-            sock.close()
-            result[0] = True
-        except Exception as e:
-            exception[0] = e
-            result[0] = False
-
-    t0 = time.time()
-    thread = threading.Thread(target=connect, daemon=True)
-    thread.start()
-    thread.join(timeout=timeout)
-
-    t1 = time.time()
-    elapsed = t1 - t0
-
-    if thread.is_alive():
-        # Thread is still running, timeout occurred
-        print(f"Could not connect to GitHub - timeout after {elapsed:.2f} seconds", flush=True, file=sys.stderr)
+    if not check_dns_availability():
+        print("Warning: Could not connect to GitHub - DNS resolution failed", flush=True, file=sys.stderr)
         return False
 
-    if result[0] is True:
-        return True
-    else:
-        exc_type = type(exception[0]).__name__ if exception[0] else "Unknown"
-        print(f"Could not connect to GitHub in {elapsed:.2f} seconds: {exc_type}", flush=True, file=sys.stderr)
+    if not check_connection(url, timeout):
+        print("Warning: Could not connect to GitHub - connection failed", flush=True, file=sys.stderr)
         return False
+
+    return True
 
 
 def retry(retry_limit, timeout=100):
