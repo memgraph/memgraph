@@ -329,7 +329,7 @@ try:
                 if can_connect:
                     get_output("git", "fetch", "origin", "master")
                 else:
-                    print("WARNING: Could not connect to GitHub. Unable to fetch master branch.", file=sys.stderr)
+                    print("WARNING: Could not connect to GitHub. Unable to fetch master branch, continuing with local branch.", file=sys.stderr)
             except Exception:
                 pass
         else:
@@ -338,11 +338,10 @@ try:
             if can_connect:
                 get_output("git", "fetch", "origin", "master")
             else:
-                print("WARNING: Could not connect to GitHub. Unable to fetch master branch.", file=sys.stderr)
-                print("Fatal error while ensuring local master branch.", file=sys.stderr)
+                print("FATAL ERROR: Could not connect to GitHub. Unable to fetch master branch.", file=sys.stderr)
                 sys.exit(1)
 except Exception:
-    print("Fatal error while ensuring local master branch.", file=sys.stderr)
+    print("FATAL ERROR: Could not ensure local master branch.", file=sys.stderr)
     sys.exit(1)
 
 # Get current commit hashes.
