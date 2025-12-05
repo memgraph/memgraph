@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "replication_handler/replication_handler.hpp"
+
+#include "coordination/coordinator_rpc.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "replication/replication_client.hpp"

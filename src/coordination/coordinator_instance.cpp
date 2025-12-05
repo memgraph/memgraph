@@ -19,6 +19,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <ranges>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
@@ -31,6 +32,7 @@
 #include "coordination/coordinator_instance_management_server.hpp"
 #include "coordination/coordinator_instance_management_server_handlers.hpp"
 #include "coordination/coordinator_observer.hpp"
+#include "coordination/coordinator_rpc.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
@@ -448,10 +450,10 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
     return ReconcileClusterStateStatus::SUCCESS;
   }
 
-  auto current_mains =
-      raft_state_data_instances | ranges::views::filter([raft_state_ptr = raft_state_.get()](auto const &instance) {
-        return raft_state_ptr->IsCurrentMain(instance.config.instance_name);
-      });
+  auto current_mains = raft_state_data_instances |
+                       std::ranges::views::filter([raft_state_ptr = raft_state_.get()](auto const &instance) {
+                         return raft_state_ptr->IsCurrentMain(instance.config.instance_name);
+                       });
 
   auto const num_mains = std::ranges::distance(current_mains);
 
@@ -614,7 +616,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
     return instance.config.instance_name != new_main_name;
   };
   // replicas already have status replica
-  for (auto &data_instance : data_instances | ranges::views::filter(not_main_raft)) {
+  for (auto &data_instance : data_instances | std::ranges::views::filter(not_main_raft)) {
     data_instance.instance_uuid = new_main_uuid;
   }
 

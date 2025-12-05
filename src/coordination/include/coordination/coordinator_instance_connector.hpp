@@ -13,14 +13,18 @@
 
 #pragma once
 
-#include "coordination/coordinator_instance_client.hpp"
-#include "coordination/coordinator_rpc.hpp"
+#include <optional>
+#include <string_view>
+#include <vector>
 
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_instance_client;
 import memgraph.coordination.instance_status;
 import memgraph.coordination.utils;
 
 namespace memgraph::coordination {
 
+// TODO: (andi) Good candidate for module private fragment
 class CoordinatorInstanceConnector {
  public:
   explicit CoordinatorInstanceConnector(ManagementServerConfig const &config) : client_{config} {}

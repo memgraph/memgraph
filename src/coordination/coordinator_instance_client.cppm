@@ -9,14 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
 #include "rpc/client.hpp"
 
-import memgraph.coordination.coordinator_communication_config;
+export module memgraph.coordination.coordinator_instance_client;
 
 #ifdef MG_ENTERPRISE
-namespace memgraph::coordination {
+
+import memgraph.coordination.coordinator_communication_config;
+
+export namespace memgraph::coordination {
 
 class CoordinatorInstanceClient {
  public:

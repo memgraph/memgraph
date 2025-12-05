@@ -11,6 +11,8 @@
 
 /// TODO: clear dependencies
 
+#include <ranges>
+
 #include "storage/v2/disk/label_property_index.hpp"
 #include "utils/disk_utils.hpp"
 #include "utils/exceptions.hpp"
@@ -185,7 +187,7 @@ auto DiskLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp
     return {label, {PropertyPath{property}}};
   };
 
-  return index_ | ranges::views::transform(convert) | ranges::to_vector;
+  return index_ | std::ranges::views::transform(convert) | std::ranges::to<std::vector>();
 }
 
 auto DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(LabelId /*label*/,
@@ -228,8 +230,8 @@ auto DiskLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
     -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   // NOTE: only looking for singular property index, as disk does not support composite indices
-  for (auto &&[l_pos, label] : ranges::views::enumerate(labels)) {
-    for (auto [p_pos, property] : ranges::views::enumerate(properties)) {
+  for (auto &&[l_pos, label] : std::ranges::views::enumerate(labels)) {
+    for (auto [p_pos, property] : std::ranges::views::enumerate(properties)) {
       if (IndexReady(label, std::array{property})) {
         // NOLINTNEXTLINE(google-runtime-int)
         res.emplace_back(l_pos, std::vector{static_cast<long>(p_pos)}, label, std::vector{property});
