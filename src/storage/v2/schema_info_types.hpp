@@ -155,6 +155,9 @@ struct PropertyInfo {
           case PropertyValueType::Point3d:
             ss << "Point3D";
             break;
+          case PropertyValueType::VectorIndexId:
+            ss << "VectorIndexId";
+            break;
         }
       }
       type_info.emplace("type", ss.str());

@@ -13,9 +13,18 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <shared_mutex>
+#include <string_view>
+#include <vector>
 
+#include "flags/bolt.hpp"
 #include "query/exceptions.hpp"
+#include "spdlog/spdlog.h"
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
+#include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
@@ -30,7 +39,7 @@ enum class VectorIndexType : uint8_t {
 /// @param type The VectorIndexType to convert.
 /// @return A string representation of the VectorIndexType.
 /// @throws query::VectorSearchException if the type is unsupported.
-inline constexpr const char *VectorIndexTypeToString(VectorIndexType type) {
+constexpr const char *VectorIndexTypeToString(VectorIndexType type) {
   switch (type) {
     case VectorIndexType::ON_NODES:
       return "label+property_vector";
@@ -58,201 +67,156 @@ struct VectorIndexConfigMap {
 /// @param metric The metric kind to convert.
 /// @return A string representation of the metric kind.
 /// @throws query::VectorSearchException if the metric kind is unsupported.
-inline const char *NameFromMetric(unum::usearch::metric_kind_t metric) {
-  switch (metric) {
-    case unum::usearch::metric_kind_t::l2sq_k:
-      return "l2sq";
-    case unum::usearch::metric_kind_t::ip_k:
-      return "ip";
-    case unum::usearch::metric_kind_t::cos_k:
-      return "cos";
-    case unum::usearch::metric_kind_t::haversine_k:
-      return "haversine";
-    case unum::usearch::metric_kind_t::divergence_k:
-      return "divergence";
-    case unum::usearch::metric_kind_t::pearson_k:
-      return "pearson";
-    case unum::usearch::metric_kind_t::hamming_k:
-      return "hamming";
-    case unum::usearch::metric_kind_t::tanimoto_k:
-      return "tanimoto";
-    case unum::usearch::metric_kind_t::sorensen_k:
-      return "sorensen";
-    default:
-      throw query::VectorSearchException(
-          "Unsupported metric kind. Supported metrics are l2sq, ip, cos, haversine, divergence, pearson, hamming, "
-          "tanimoto, and sorensen.");
-  }
-}
+const char *NameFromMetric(unum::usearch::metric_kind_t metric);
 
 /// @brief Converts a metric name to its corresponding metric kind.
 /// @param name The name of the metric.
 /// @return The corresponding metric kind.
 /// @throws query::VectorSearchException if the metric name is unsupported.
-inline unum::usearch::metric_kind_t MetricFromName(std::string_view name) {
-  if (name == "l2sq" || name == "euclidean_sq") {
-    return unum::usearch::metric_kind_t::l2sq_k;
-  }
-  if (name == "ip" || name == "inner" || name == "dot") {
-    return unum::usearch::metric_kind_t::ip_k;
-  }
-  if (name == "cos" || name == "angular") {
-    return unum::usearch::metric_kind_t::cos_k;
-  }
-  if (name == "haversine") {
-    return unum::usearch::metric_kind_t::haversine_k;
-  }
-  if (name == "divergence") {
-    return unum::usearch::metric_kind_t::divergence_k;
-  }
-  if (name == "pearson") {
-    return unum::usearch::metric_kind_t::pearson_k;
-  }
-  if (name == "hamming") {
-    return unum::usearch::metric_kind_t::hamming_k;
-  }
-  if (name == "tanimoto") {
-    return unum::usearch::metric_kind_t::tanimoto_k;
-  }
-  if (name == "sorensen") {
-    return unum::usearch::metric_kind_t::sorensen_k;
-  }
-  throw query::VectorSearchException(
-      fmt::format("Unsupported metric name: {}. Supported metrics are l2sq, ip, cos, haversine, divergence, pearson, "
-                  "hamming, tanimoto, and sorensen.",
-                  name));
-}
+unum::usearch::metric_kind_t MetricFromName(std::string_view name);
 
 /// @brief Converts a scalar kind to its string representation.
 /// @param scalar The scalar kind to convert.
 /// @return A string representation of the scalar kind.
 /// @throws query::VectorSearchException if the scalar kind is unsupported.
-inline const char *NameFromScalar(unum::usearch::scalar_kind_t scalar) {
-  switch (scalar) {
-    case unum::usearch::scalar_kind_t::b1x8_k:
-      return "b1x8";
-    case unum::usearch::scalar_kind_t::u40_k:
-      return "u40";
-    case unum::usearch::scalar_kind_t::uuid_k:
-      return "uuid";
-    case unum::usearch::scalar_kind_t::bf16_k:
-      return "bf16";
-    case unum::usearch::scalar_kind_t::f64_k:
-      return "f64";
-    case unum::usearch::scalar_kind_t::f32_k:
-      return "f32";
-    case unum::usearch::scalar_kind_t::f16_k:
-      return "f16";
-    case unum::usearch::scalar_kind_t::f8_k:
-      return "f8";
-    case unum::usearch::scalar_kind_t::u64_k:
-      return "u64";
-    case unum::usearch::scalar_kind_t::u32_k:
-      return "u32";
-    case unum::usearch::scalar_kind_t::u16_k:
-      return "u16";
-    case unum::usearch::scalar_kind_t::u8_k:
-      return "u8";
-    case unum::usearch::scalar_kind_t::i64_k:
-      return "i64";
-    case unum::usearch::scalar_kind_t::i32_k:
-      return "i32";
-    case unum::usearch::scalar_kind_t::i16_k:
-      return "i16";
-    case unum::usearch::scalar_kind_t::i8_k:
-      return "i8";
-    default:
-      throw query::VectorSearchException(
-          "Unsupported scalar kind. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
-          "u64, u32, u16, u8, i64, i32, i16, and i8.");
-  }
-}
+const char *NameFromScalar(unum::usearch::scalar_kind_t scalar);
 
 /// @brief Converts a scalar name to its corresponding scalar kind.
 /// @param name The name of the scalar.
 /// @return The corresponding scalar kind.
 /// @throws query::VectorSearchException if the scalar name is unsupported.
-inline unum::usearch::scalar_kind_t ScalarFromName(std::string_view name) {
-  if (name == "b1x8" || name == "binary") {
-    return unum::usearch::scalar_kind_t::b1x8_k;
-  }
-  if (name == "u40") {
-    return unum::usearch::scalar_kind_t::u40_k;
-  }
-  if (name == "uuid") {
-    return unum::usearch::scalar_kind_t::uuid_k;
-  }
-  if (name == "bf16" || name == "bfloat16") {
-    return unum::usearch::scalar_kind_t::bf16_k;
-  }
-  if (name == "f64" || name == "float64" || name == "double") {
-    return unum::usearch::scalar_kind_t::f64_k;
-  }
-  if (name == "f32" || name == "float32" || name == "float") {
-    return unum::usearch::scalar_kind_t::f32_k;
-  }
-  if (name == "f16" || name == "float16") {
-    return unum::usearch::scalar_kind_t::f16_k;
-  }
-  if (name == "f8" || name == "float8") {
-    return unum::usearch::scalar_kind_t::f8_k;
-  }
-  if (name == "u64" || name == "uint64") {
-    return unum::usearch::scalar_kind_t::u64_k;
-  }
-  if (name == "u32" || name == "uint32") {
-    return unum::usearch::scalar_kind_t::u32_k;
-  }
-  if (name == "u16" || name == "uint16") {
-    return unum::usearch::scalar_kind_t::u16_k;
-  }
-  if (name == "u8" || name == "uint8") {
-    return unum::usearch::scalar_kind_t::u8_k;
-  }
-  if (name == "i64" || name == "int64") {
-    return unum::usearch::scalar_kind_t::i64_k;
-  }
-  if (name == "i32" || name == "int32") {
-    return unum::usearch::scalar_kind_t::i32_k;
-  }
-  if (name == "i16" || name == "int16") {
-    return unum::usearch::scalar_kind_t::i16_k;
-  }
-  if (name == "i8" || name == "int8") {
-    return unum::usearch::scalar_kind_t::i8_k;
-  }
-
-  throw query::VectorSearchException(
-      fmt::format("Unsupported scalar name: {}. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
-                  "u64, u32, u16, u8, i64, i32, i16, and i8.",
-                  name));
-}
+unum::usearch::scalar_kind_t ScalarFromName(std::string_view name);
 
 /// @brief Converts a distance to a similarity score based on the metric kind.
 /// @param metric The metric kind used for the distance.
 /// @param distance The distance value to convert.
 /// @return The similarity score corresponding to the distance.
 /// @throws query::VectorSearchException if the metric kind is unsupported.
-inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double distance) {
-  switch (metric) {
-    case unum::usearch::metric_kind_t::ip_k:
-    case unum::usearch::metric_kind_t::cos_k:
-    case unum::usearch::metric_kind_t::pearson_k:
-    case unum::usearch::metric_kind_t::hamming_k:
-    case unum::usearch::metric_kind_t::tanimoto_k:
-    case unum::usearch::metric_kind_t::sorensen_k:
-    case unum::usearch::metric_kind_t::jaccard_k:
-      return 1.0 - distance;
+double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double distance);
 
-    case unum::usearch::metric_kind_t::l2sq_k:
-    case unum::usearch::metric_kind_t::haversine_k:
-    case unum::usearch::metric_kind_t::divergence_k:
-      return 1.0 / (1.0 + distance);
-
-    default:
-      throw query::VectorSearchException(
-          fmt::format("Unsupported metric kind for similarity calculation: {}", NameFromMetric(metric)));
+/// @brief Retrieves a vector from a USearch index using the get method and returns it as a PropertyValue of type
+/// double.
+/// @tparam IndexType The type of the USearch index (e.g., mg_vector_index_t or mg_vector_edge_index_t).
+/// @tparam KeyType The type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
+/// @param index The USearch index to retrieve the vector from.
+/// @param key The key to look up in the index.
+/// @return A PropertyValue containing the vector as a list of double values.
+/// @throws query::VectorSearchException if the key is not found in the index or if retrieval fails.
+template <typename IndexType, typename KeyType>
+PropertyValue GetVectorAsPropertyValue(const std::shared_ptr<utils::Synchronized<IndexType, std::shared_mutex>> &index,
+                                       KeyType key) {
+  auto locked_index = index->ReadLock();
+  const auto dimension = locked_index->dimensions();
+  std::vector<double> vector(dimension);
+  const auto retrieved_count = locked_index->get(key, vector.data());
+  if (retrieved_count == 0) {
+    return {};
   }
+  std::vector<PropertyValue> double_values;
+  double_values.reserve(dimension);
+  for (const auto &value : vector) {
+    double_values.emplace_back(static_cast<double>(value));
+  }
+  return PropertyValue(std::move(double_values));
+}
+
+/// @brief Retrieves a vector from a USearch index using the get method and returns it as a list of float values.
+/// @tparam IndexType The type of the USearch index (e.g., mg_vector_index_t or mg_vector_edge_index_t).
+/// @tparam KeyType The type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
+/// @param index The USearch index to retrieve the vector from.
+/// @param key The key to look up in the index.
+/// @return A list of float values representing the vector.
+/// @throws query::VectorSearchException if the key is not found in the index or if retrieval fails.
+template <typename IndexType, typename KeyType>
+std::vector<float> GetVector(const std::shared_ptr<utils::Synchronized<IndexType, std::shared_mutex>> &index,
+                             KeyType key) {
+  auto locked_index = index->ReadLock();
+  const auto dimension = locked_index->dimensions();
+  std::vector<unum::usearch::f32_t> vector(dimension);
+  const auto retrieved_count = locked_index->get(key, vector.data(), 1);
+  if (retrieved_count == 0) {
+    return {};
+  }
+  return vector;
+}
+
+/// @brief Converts a PropertyValue list to a vector of floats.
+/// @param value The PropertyValue to convert. Must be a list of numeric values (floats or integers).
+/// @return A vector of float values.
+/// @throws query::VectorSearchException if the value is not a list or contains non-numeric values.
+std::vector<float> ListToVector(const PropertyValue &value);
+
+/// @brief Converts a vector of floats to a vector of doubles (for PropertyValue storage).
+/// @param vector The vector of floats to convert.
+/// @return A vector of double values.
+std::vector<double> FloatVectorToDoubleVector(const std::vector<float> &vector);
+
+/// @brief Restores a vector property on a vertex by setting it as a PropertyValue with double values.
+/// @param vertex The vertex to restore the property on.
+/// @param property_id The property ID to restore.
+/// @param vector The vector of float values to restore.
+void RestoreVectorOnVertex(Vertex *vertex, PropertyId property_id, const std::vector<float> &vector);
+
+/// @brief Creates a PropertyValue from a vector and index IDs for vector index storage.
+/// @param vector The vector of float values.
+/// @param index_ids The index IDs associated with this vector.
+/// @return A PropertyValue containing the vector index ID and vector data.
+PropertyValue CreateVectorIndexIdProperty(const std::vector<float> &vector,
+                                          const utils::small_vector<uint64_t> &index_ids);
+
+/// @brief Removes an index ID from a property's vector index ID list.
+/// @param property_value The property value to modify (must be a VectorIndexId).
+/// @param index_id The index ID to remove.
+/// @return true if the property should be restored (no more index IDs), false otherwise.
+bool RemoveIndexIdFromProperty(PropertyValue &property_value, uint64_t index_id);
+
+// Helper function to validate vector dimension
+void ValidateVectorDimension(const std::vector<float> &vector, std::uint16_t expected_dimension);
+
+/// @brief Updates a single vector index with a vector (common logic for vertex and edge indices).
+/// @tparam IndexItemType Type of the index item (must have mg_index and spec members).
+/// @tparam KeyType Type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
+/// @param index_item The index item containing the synchronized index and spec.
+/// @param key The key to add/update in the index.
+/// @param vector The vector data to add.
+/// @param update_capacity Whether to update the spec.capacity after resizing (default: true).
+/// @throws query::VectorSearchException if dimension mismatch or resize fails.
+template <typename IndexItemType, typename KeyType>
+void UpdateSingleVectorIndex(IndexItemType &index_item, KeyType key, const std::vector<float> &vector,
+                             bool update_capacity = true) {
+  auto &[mg_index, spec] = index_item;
+  bool is_index_full = false;
+  {
+    auto locked_index = mg_index->MutableSharedLock();
+    if (locked_index->contains(key)) {
+      locked_index->remove(key);
+    }
+    is_index_full = locked_index->size() == locked_index->capacity();
+  }
+
+  if (is_index_full) {
+    spdlog::warn("Vector index is full, resizing...");
+    auto exclusively_locked_index = mg_index->Lock();
+    const auto new_size = spec.resize_coefficient * exclusively_locked_index->capacity();
+    const unum::usearch::index_limits_t new_limits(new_size, FLAGS_bolt_num_workers);
+    if (!exclusively_locked_index->try_reserve(new_limits)) {
+      throw query::VectorSearchException("Failed to resize vector index.");
+    }
+    if (update_capacity) {
+      spec.capacity = exclusively_locked_index->capacity();  // capacity might be larger than the requested capacity
+    }
+  }
+
+  if (vector.empty()) {
+    return;
+  }
+
+  if (spec.dimension != vector.size()) {
+    throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
+  }
+
+  auto locked_index = mg_index->MutableSharedLock();
+  locked_index->add(key, vector.data());
 }
 
 }  // namespace memgraph::storage

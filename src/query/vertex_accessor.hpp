@@ -68,7 +68,8 @@ class VertexAccessor final {
   }
 
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
-    return SetProperty(key, storage::PropertyValue());
+    auto value = storage::PropertyValue();
+    return SetProperty(key, value);
   }
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
