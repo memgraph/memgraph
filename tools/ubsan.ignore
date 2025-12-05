@@ -1,2 +1,4 @@
 
 src:/opt/toolchain-v7/lib/clang/20/include/emmintrin.h
+src:rdvarint.h
+src:*librd*/src/rdvarint.h
