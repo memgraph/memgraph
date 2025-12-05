@@ -9,9 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
-
-#include "coordination/coordinator_state_machine.hpp"
+module;
 
 #include "coordination/coordinator_state_manager.hpp"
 #include "utils/atomic_utils.hpp"
@@ -20,6 +18,10 @@
 
 #include <nlohmann/json.hpp>
 #include <regex>
+
+module memgraph.coordination.coordinator_state_machine;
+
+#ifdef MG_ENTERPRISE
 
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_cluster_state;
