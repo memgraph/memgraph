@@ -147,7 +147,7 @@ declare -A primary_urls=(
   ["rapidcheck"]="http://$local_cache_host/git/rapidcheck.git"
   ["libbcrypt"]="http://$local_cache_host/git/libbcrypt.git"
   ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
-  ["neo4j"]="http://$local_cache_host/file/neo4j-community-5.6.0-unix.tar.gz"
+  ["neo4j"]="http://$local_cache_host/neo4j-community-5.6.0-unix.tar.gz"
   ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
@@ -156,11 +156,7 @@ declare -A primary_urls=(
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
   ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
   ["usearch"]="http://$local_cache_host/git/usearch.git"
-<<<<<<< HEAD
-  ["arrow"]="http://$local_cache_host/git/arrow.git"
-  ["nlohmann_json"]="http://$local_cache_host/git/nlohmann_json.git"
-=======
->>>>>>> master
+  ["nlohmann_json"]="http://$local_cache_host/git/json.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -180,11 +176,7 @@ declare -A secondary_urls=(
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
   ["mgcxx"]="https://github.com/memgraph/mgcxx.git"
   ["usearch"]="https://github.com/unum-cloud/usearch.git"
-<<<<<<< HEAD
-  ["arrow"]="https://github.com/apache/arrow"
   ["nlohmann_json"]="https://github.com/nlohmann/json.git"
-=======
->>>>>>> master
 )
 
 # Skip download if we are under the latest toolchains (>= 6).
@@ -251,7 +243,7 @@ else
   echo "Skipping librdtsc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
 
-if [ "${MG_TOOLCHAIN_VERSION}" != "v7"]; then
+if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
   # jemalloc ea6b3e973b477b8061e0076bb257dbd7f3faa756
   JEMALLOC_COMMIT_VERSION="5.2.1"
   repo_clone_try_double "${primary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" "jemalloc" "$JEMALLOC_COMMIT_VERSION"
@@ -278,8 +270,16 @@ repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx
 
 # usearch (shallow clone to reduce flakiness)
 usearch_ref="v2.15.3"
-repo_clone_try_double "${primary_urls[usearch]}" "${secondary_urls[usearch]}" "usearch" "$usearch_ref" true
+if [[ "$use_cache" == true ]]; then
+  # This is a bit of a hack to allow us to fetch submodules form the cache
+  git -c url.http://mgdeps-cache:8000/git/.insteadOf=https://github.com/ \
+  clone --recurse-submodules "${primary_urls[usearch]}" usearch || \
+  git clone --recurse-submodules "${secondary_urls[usearch]}" usearch 
+else
+  git clone --recurse-submodules "${secondary_urls[usearch]}" usearch
+fi
 pushd usearch
+git checkout "$usearch_ref"
 git submodule update --init --recursive
 popd
 

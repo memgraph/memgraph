@@ -13,6 +13,8 @@ function print_help () {
     echo -e "  -h\tdisplay this help and exit"
     echo -e "  --without-libs-setup\tskip the step for setting up libs"
     echo -e "  --ci\tscript is being run inside ci"
+    echo -e "  --offline\tscript is being run offline"
+    echo -e "  \t\t(NOTE: this will still try to install dependencies from the internet if the dependency cache is not present)"
 }
 
 
@@ -36,6 +38,11 @@ else
           --skip-package-check)
             shift
             check_system_packages=false
+          ;;
+          --offline)
+            ci=true
+            check_system_packages=false
+            shift
           ;;
           *)
               # unknown option

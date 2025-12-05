@@ -60,7 +60,8 @@ config_only=false
 keep_build=false
 skip_os_deps=false
 VENV_DIR="${VENV_DIR:-env}"
-
+OFFLINE_ARG=""
+CONAN_OFFLINE_ARG=""
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -93,6 +94,12 @@ while [[ $# -gt 0 ]]; do
             skip_init=true
             skip_os_deps=true
             keep_build=true
+            shift
+            ;;
+        --offline)
+            OFFLINE_ARG="--offline"
+            skip_os_deps=true
+            CONAN_OFFLINE_ARG="--no-remote"
             shift
             ;;
         --help|-h)
@@ -159,7 +166,7 @@ conan config install conan_config
 
 # fetch libs that aren't provided by conan yet
 if [ "$skip_init" = false ]; then
-    ./init
+    ./init $OFFLINE_ARG
 fi
 
 # Function to check if a CMake boolean variable is enabled
@@ -203,7 +210,8 @@ MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install \
   --build=missing \
   -pr:h memgraph_template_profile \
   -pr:b memgraph_build_profile \
-  -s build_type="$BUILD_TYPE"
+  -s build_type="$BUILD_TYPE" \
+  $CONAN_OFFLINE_ARG
 
 export CLASSPATH=
 export LD_LIBRARY_PATH=
