@@ -13,10 +13,13 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/replication_instance_client.hpp"
+#include <chrono>
 
+#include "rpc/messages.hpp"
 #include "utils/uuid.hpp"
 
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.replication_instance_client;
 namespace memgraph::coordination {
 
 class TimedFailureDetector {

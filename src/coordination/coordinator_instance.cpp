@@ -32,7 +32,6 @@
 #include "coordination/coordinator_instance_management_server_handlers.hpp"
 #include "coordination/coordinator_observer.hpp"
 #include "coordination/raft_state.hpp"
-#include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "utils/event_counter.hpp"

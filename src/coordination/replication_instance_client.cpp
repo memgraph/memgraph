@@ -9,15 +9,19 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
-
-#include "coordination/replication_instance_client.hpp"
+module;
 
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/common.hpp"
+#include "utils/event_counter.hpp"
+#include "utils/metrics_timer.hpp"
 
 #include <string>
+
+module memgraph.coordination.replication_instance_client;
+
+#ifdef MG_ENTERPRISE
 
 namespace memgraph::coordination {
 
