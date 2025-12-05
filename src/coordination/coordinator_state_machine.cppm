@@ -9,21 +9,29 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
-#ifdef MG_ENTERPRISE
-
-#include <spdlog/spdlog.h>
-#include "coordination/constants.hpp"
-#include "coordination/coordinator_cluster_state.hpp"
-#include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_log_store.hpp"
-#include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
+#include "utils/uuid.hpp"
 
 #include <optional>
 
-namespace memgraph::coordination {
+#include "libnuraft/nuraft.hxx"
+#include "nlohmann/json_fwd.hpp"
+
+export module memgraph.coordination.coordinator_state_machine;
+
+#ifdef MG_ENTERPRISE
+
+import memgraph.coordination.coordinator_cluster_state;
+import memgraph.coordination.constants;
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_log_store;
+import memgraph.coordination.coordinator_instance_context;
+import memgraph.coordination.data_instance_context;
+import memgraph.coordination.logger_wrapper;
+
+export namespace memgraph::coordination {
 
 using nuraft::async_result;
 using nuraft::buffer;

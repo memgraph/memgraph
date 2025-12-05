@@ -15,8 +15,6 @@
 
 #include <nlohmann/json_fwd.hpp>
 
-using namespace std::string_view_literals;
-
 namespace memgraph::replication_coordination_glue {
 
 enum class ReplicationMode : std::uint8_t { SYNC, ASYNC, STRICT_SYNC };
