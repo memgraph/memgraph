@@ -1010,7 +1010,7 @@ test_memgraph() {
       fi
     ;;
     unit-coverage)
-      local setup_lsan_ubsan="export LSAN_OPTIONS=suppressions=$BUILD_DIR/../tools/lsan.supp && export UBSAN_OPTIONS=suppressions=$BUILD_DIR/../tools/ubsan.ignore && export UBSAN_OPTIONS=halt_on_error=1"
+      local setup_lsan_ubsan="export LSAN_OPTIONS=suppressions=$BUILD_DIR/../tools/lsan.supp && export UBSAN_OPTIONS='suppressions=$BUILD_DIR/../tools/ubsan.ignore:halt_on_error=1'"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && $setup_lsan_ubsan "'&& ctest -R memgraph__unit --output-on-failure -j$(nproc)'
     ;;
     leftover-CTest)
