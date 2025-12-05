@@ -21,7 +21,6 @@
 
 #include "coordination/coordinator_instance_connector.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
-#include "coordination/raft_state.hpp"
 #include "coordination/replication_instance_connector.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/thread_pool.hpp"
@@ -29,8 +28,10 @@
 #include <list>
 
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_instance_aux;
 import memgraph.coordination.coordinator_ops_status;
 import memgraph.coordination.instance_status;
+import memgraph.coordination.raft_state;
 
 namespace memgraph::coordination {
 
