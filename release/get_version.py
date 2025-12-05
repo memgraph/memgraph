@@ -108,26 +108,51 @@ def can_connect_to_github(url="https://www.github.com", timeout=3):
 
     The issue with urllib.request.urlopen() is that its timeout only applies to the
     socket connection and reading, not DNS resolution. DNS can take 30+ seconds if
-    the DNS server is unreachable. This function uses socket.create_connection() with a timeout
-    to ensure the entire operation (including DNS) is bounded.
+    the DNS server is unreachable. This function uses a threading-based timeout to
+    ensure the entire operation (including DNS) is bounded.
     """
+    result = [None]  # Use list to allow modification from nested function
+    exception = [None]
+
+    def connect():
+        try:
+            # Parse URL to get hostname and port
+            from urllib.parse import urlparse
+
+            parsed = urlparse(url)
+            hostname = parsed.hostname
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+            # Use socket.create_connection() which handles DNS resolution with timeout
+            # This is more reliable than urllib.request.urlopen() for timeout control
+            sock = socket.create_connection((hostname, port), timeout=timeout)
+            sock.close()
+            result[0] = True
+        except Exception as e:
+            exception[0] = e
+            result[0] = False
+
     t0 = time.time()
-    try:
-        from urllib.parse import urlparse
-        parsed = urlparse(url)
-        hostname = parsed.hostname
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
-        sock = socket.create_connection((hostname, port), timeout=timeout)
-        sock.close()
-        t1 = time.time()
-        elapsed = t1 - t0
+    thread = threading.Thread(target=connect, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+
+    t1 = time.time()
+    elapsed = t1 - t0
+
+    if thread.is_alive():
+        # Thread is still running, timeout occurred
+        print(f"Could not connect to GitHub - timeout after {elapsed:.2f} seconds", flush=True, file=sys.stderr)
+        return False
+
+    if result[0] is True:
         return True
-    except Exception as e:
-        t1 = time.time()
-        elapsed = t1 - t0
-        exc_type = type(e).__name__
+    else:
+        exc_type = type(exception[0]).__name__ if exception[0] else "Unknown"
         print(f"Could not connect to GitHub in {elapsed:.2f} seconds: {exc_type}", flush=True, file=sys.stderr)
         return False
+
+
 def retry(retry_limit, timeout=100):
     def inner_func(func):
         @wraps(func)
