@@ -9,7 +9,7 @@ cd "${working_dir}"
 WGET_OR_CLONE_TIMEOUT=60
 
 #  if the toolchain hasn't been activated, activate it
-if [ -z "$MG_TOOLCHAIN_VERSION" ]; then
+if [[ -z "$MG_TOOLCHAIN_VERSION" ]]; then
   echo "Activating toolchain"
   source /opt/toolchain-v7/activate
 
@@ -52,7 +52,7 @@ clone () {
     # execution but the whole script should continue executing because we might
     # clone the same repo from a different source.
 
-    if [ "$shallow" = true ]; then
+    if [[ "$shallow" = true ]]; then
       timeout $WGET_OR_CLONE_TIMEOUT git clone --depth 1 --branch "$checkout_id" "$git_repo" "$dir_name" || return 1
     else
       timeout $WGET_OR_CLONE_TIMEOUT git clone "$git_repo" "$dir_name" || return 1
@@ -96,8 +96,8 @@ clone () {
 file_get_try_double () {
     primary_url="$1"
     secondary_url="$2"
-    if [ -z "$primary_url" ]; then echo "Primary should not be empty." && exit 1; fi
-    if [ -z "$secondary_url" ]; then echo "Secondary should not be empty." && exit 1; fi
+    if [[ -z "$primary_url" ]]; then echo "Primary should not be empty." && exit 1; fi
+    if [[ -z "$secondary_url" ]]; then echo "Secondary should not be empty." && exit 1; fi
     filename="$(basename "$secondary_url")"
     if [[ "$use_cache" == true ]]; then
       echo "Download primary from $primary_url secondary from $secondary_url"
@@ -115,10 +115,10 @@ repo_clone_try_double () {
     folder_name="$3"
     ref="$4"
     shallow="${5:-false}"
-    if [ -z "$primary_url" ]; then echo "Primary should not be empty." && exit 1; fi
-    if [ -z "$secondary_url" ]; then echo "Secondary should not be empty." && exit 1; fi
-    if [ -z "$folder_name" ]; then echo "Clone folder should not be empty." && exit 1; fi
-    if [ -z "$ref" ]; then echo "Git clone ref should not be empty." && exit 1; fi
+    if [[ -z "$primary_url" ]]; then echo "Primary should not be empty." && exit 1; fi
+    if [[ -z "$secondary_url" ]]; then echo "Secondary should not be empty." && exit 1; fi
+    if [[ -z "$folder_name" ]]; then echo "Clone folder should not be empty." && exit 1; fi
+    if [[ -z "$ref" ]]; then echo "Git clone ref should not be empty." && exit 1; fi
     if [[ "$use_cache" == true ]]; then
       echo "Cloning primary from $primary_url secondary from $secondary_url"
       # Redirect primary/cache to /dev/null to make it less confusing for a new contributor because only CI has access to the cache.
@@ -185,7 +185,7 @@ declare -A secondary_urls=(
 # you also have to adjust the CMake setup.
 skip_if_under_toolchain () {
   artifact_name=$1 && shift 1
-  if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+  if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
     $@
   else
     echo "Skipping $artifact_name download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
@@ -213,7 +213,7 @@ skip_if_under_toolchain "mgconsole" repo_clone_try_double "${primary_urls[mgcons
 librdkafka_tag="v2.6.1" # (2024-12-05)
 skip_if_under_toolchain "librdkafka" repo_clone_try_double "${primary_urls[librdkafka]}" "${secondary_urls[librdkafka]}" "librdkafka" "$librdkafka_tag" true
 
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
   protobuf_tag="v3.12.4"
   repo_clone_try_double "${primary_urls[protobuf]}" "${secondary_urls[protobuf]}" "protobuf" "$protobuf_tag" true
   pushd protobuf
@@ -223,7 +223,7 @@ else
   echo "Skipping protobuf download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
 
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
   pulsar_tag="v2.8.1"
   repo_clone_try_double "${primary_urls[pulsar]}" "${secondary_urls[pulsar]}" "pulsar" "$pulsar_tag" true
   pushd pulsar
@@ -233,7 +233,7 @@ else
   echo "Skipping pulsar download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
 
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
   librdtsc_tag="v0.3"
   repo_clone_try_double "${primary_urls[librdtsc]}" "${secondary_urls[librdtsc]}" "librdtsc" "$librdtsc_tag" true
   pushd librdtsc
@@ -243,7 +243,7 @@ else
   echo "Skipping librdtsc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
 
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
   # jemalloc ea6b3e973b477b8061e0076bb257dbd7f3faa756
   JEMALLOC_COMMIT_VERSION="5.2.1"
   repo_clone_try_double "${primary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" "jemalloc" "$JEMALLOC_COMMIT_VERSION"
