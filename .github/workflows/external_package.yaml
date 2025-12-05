@@ -1,5 +1,8 @@
 name: "Package Memgraph (External)"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.inputs.pr_number }}
+  cancel-in-progress: true
 on:
   workflow_dispatch:
     inputs:
