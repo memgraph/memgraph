@@ -152,83 +152,71 @@ void *MonotonicBufferResource::do_allocate(size_t bytes, size_t alignment) {
 
 // ThreadSafeMonotonicBufferResource implementation
 
+thread_local ThreadSafeMonotonicBufferResource::ThreadLocalState
+    *ThreadSafeMonotonicBufferResource::thread_local_cache_ = nullptr;
+thread_local uint64_t ThreadSafeMonotonicBufferResource::last_resource_id_ = 0;
+std::atomic<uint64_t> ThreadSafeMonotonicBufferResource::resource_id_ = 1;
+
+ThreadSafeMonotonicBufferResource::ThreadLocalState &ThreadSafeMonotonicBufferResource::thread_local_state() {
+  if (last_resource_id_ != id_) {
+    last_resource_id_ = id_;
+    thread_local_cache_ = static_cast<ThreadLocalState *>(pthread_getspecific(thread_local_block_key_));
+  }
+  ThreadLocalState *state = thread_local_cache_;
+  if (!state) {
+    // Allocate space for the ThreadLocalState using the upstream memory resource
+    // This is a small, one-time allocation per thread, so using the upstream directly is fine
+    void *state_mem = memory_->allocate(sizeof(ThreadLocalState), alignof(ThreadLocalState));
+    if (!state_mem) {
+      throw BadAlloc("Failed to allocate thread-local state");
+    }
+    state = new (state_mem) ThreadLocalState{};
+    state->next_buffer_size = initial_buffer_size_;
+    pthread_setspecific(thread_local_block_key_, reinterpret_cast<void *>(state));
+    thread_local_cache_ = state;
+  }
+  return *state;
+}
+
 /// Release all allocated memory back to the upstream resource
 void ThreadSafeMonotonicBufferResource::Release() {
-  // Reset all memory
-  Block *current = head_.load(std::memory_order_acquire);
-  while (current) {
-    Block *next = current->next;
-    memory_->deallocate(current, current->total_size(), alignof(Block));
-    current = next;
+  // Release all blocks from the global list
+  std::lock_guard<std::mutex> lock(blocks_mutex_);
+  for (auto it = blocks_.begin(); it != blocks_.end(); ++it) {
+    Block *block = *it;
+    memory_->deallocate(block, block->total_size(), alignof(Block));
   }
-  head_.store(nullptr, std::memory_order_release);
+  blocks_.clear();
 }
 
 void *ThreadSafeMonotonicBufferResource::do_allocate(size_t bytes, size_t alignment) {
-  // Try lock-free allocation first
-  const auto [block, ptr] = try_lock_free_allocation(bytes, alignment);
-  if (ptr) {
-    CheckAllocationSizeOverflow(ptr, bytes);
-    return ptr;
+  ThreadLocalState &state = thread_local_state();
+
+  // Try to allocate from the thread-local block
+  if (state.current_block) {
+    // Calculate the current position in the block
+    char *current_ptr = state.current_block->begin() + state.current_size;
+    void *aligned_ptr = current_ptr;
+    size_t available = state.current_block->capacity - state.current_size;
+
+    if (std::align(alignment, bytes, aligned_ptr, available)) {
+      // Success: update the thread-local size
+      const size_t aligned_offset = reinterpret_cast<char *>(aligned_ptr) - state.current_block->begin();
+      state.current_size = aligned_offset + bytes;
+      CheckAllocationSizeOverflow(aligned_ptr, bytes);
+      return aligned_ptr;
+    }
   }
 
-  // Fallback to blocking allocation
-  return allocate_with_lock(block, bytes, alignment);
-}
-
-std::pair<ThreadSafeMonotonicBufferResource::Block *, void *>
-ThreadSafeMonotonicBufferResource::try_lock_free_allocation(size_t bytes, size_t alignment) {
-  // Get the head block
-  auto *block = head_.load(std::memory_order_acquire);
-  if (!block) {
-    return {nullptr, nullptr};  // No blocks available
-  }
-
-  // Try to reserve space in the block
-  // Since we can't know the exact current ptr, reserve for the worst case
-  auto size_to_reserve = bytes + alignment - 1;
-  if (size_to_reserve > block->capacity) {
-    return {block, nullptr};
-  }
-
-  const auto old_size = block->size.fetch_add(size_to_reserve, std::memory_order_acq_rel);
-  if (old_size + size_to_reserve > block->capacity) {
-    // Failure: return nullptr
-    // NOTE: Small optimization: don't pay the penalty of another atomic operation (fetch_sub), block is full (move on
-    // to the next)
-    // Adding a new block also alows us to not scan over the blocks and just rely on the head_
-    return {block, nullptr};
-  }
-  // Success: return the aligned pointer
-  void *aligned_void_ptr = block->begin() + old_size;
-  if (!std::align(alignment, bytes, aligned_void_ptr, size_to_reserve)) {
-    // Not enough space, return failure
-    return {block, nullptr};
-  }
-  return {block, aligned_void_ptr};
-}
-
-void *ThreadSafeMonotonicBufferResource::allocate_with_lock(Block *last_block, size_t bytes, size_t alignment) {
+  // Need a new block - allocate with lock
   std::unique_lock<std::mutex> lock(alloc_mutex_);
 
-  // Double-check that we still need a new block
-  auto *current_block = head_.load(std::memory_order_acquire);
-  while (current_block && current_block != last_block) {
-    lock.unlock();
-    // Try lock-free allocation one more time
-    auto [block, ptr] = try_lock_free_allocation(bytes, alignment);
-    if (ptr) {
-      CheckAllocationSizeOverflow(ptr, bytes);
-      return ptr;
-    }
-    last_block = block;
-    lock.lock();  // Make sure to lock before loading head
-    current_block = head_.load(std::memory_order_acquire);
+  // Double-check: maybe another thread allocated a block we can use
+  // But since we're using thread-local blocks, we just allocate a new one
+  auto *new_block = allocate_new_block(state, bytes + alignment - 1);
+  if (!new_block) {
+    throw BadAlloc("Failed to allocate new block");
   }
-
-  // Allocate new block with enough space for alignment
-  auto *const new_block = allocate_new_block(current_block, bytes + alignment - 1);
-  DMG_ASSERT(new_block, "Failed to throw on new block allocation error");
 
   // Try to align the pointer
   void *aligned_ptr = new_block->begin();
@@ -239,19 +227,18 @@ void *ThreadSafeMonotonicBufferResource::allocate_with_lock(Block *last_block, s
 
   CheckAllocationSizeOverflow(aligned_ptr, bytes);
 
-  // Update new size
-  const size_t new_size = new_block->capacity - available + bytes;
-  new_block->size.store(new_size, std::memory_order_release);
+  // Update thread-local state
+  state.current_block = new_block;
+  const size_t aligned_offset = reinterpret_cast<char *>(aligned_ptr) - new_block->begin();
+  state.current_size = aligned_offset + bytes;
 
-  // Update the head atomically
-  head_.store(new_block, std::memory_order_release);
   return aligned_ptr;
 }
 
-ThreadSafeMonotonicBufferResource::Block *ThreadSafeMonotonicBufferResource::allocate_new_block(Block *current_head,
+ThreadSafeMonotonicBufferResource::Block *ThreadSafeMonotonicBufferResource::allocate_new_block(ThreadLocalState &state,
                                                                                                 size_t min_size) {
-  // Use the next_buffer_size_ for exponential growth, but ensure it's at least min_size
-  const size_t block_size = std::max(next_buffer_size_, min_size);
+  // Use the thread-local next_buffer_size for exponential growth, but ensure it's at least min_size
+  const size_t block_size = std::max(state.next_buffer_size, min_size);
 
   // Allocate memory for block header + data
   size_t total_size = sizeof(Block) + block_size;
@@ -268,10 +255,17 @@ ThreadSafeMonotonicBufferResource::Block *ThreadSafeMonotonicBufferResource::all
   }
 
   // Create new block at the beginning of the allocated memory
-  auto *new_block = new (new_buffer) Block(current_head, 0, total_size - sizeof(Block));
+  auto *new_block = new (new_buffer) Block(nullptr, 0, total_size - sizeof(Block));
 
-  // Grow the next buffer size for future allocations
-  next_buffer_size_ = GrowMonotonicBuffer(next_buffer_size_, std::numeric_limits<size_t>::max() - sizeof(Block));
+  // Add to global list for cleanup
+  {
+    std::lock_guard<std::mutex> lock(blocks_mutex_);
+    blocks_.emplace_front(new_block);
+  }
+
+  // Grow the thread-local next buffer size for future allocations
+  state.next_buffer_size =
+      GrowMonotonicBuffer(state.next_buffer_size, std::numeric_limits<size_t>::max() - sizeof(Block));
 
   return new_block;
 }
