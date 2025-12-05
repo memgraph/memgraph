@@ -13,6 +13,8 @@
         "range-v3/0.12.0#4c05d91d7b40e6b91b44b5345ac64408%1689218196.637",
         "openssl/3.6.0#89e8af1d4a21afcac0557079d23d8890%1759746682.365",
         "mgclient/1.4.3#acde49e45b64f83be2b6ad993226a4b7%1724630575.998",
+        "lz4/1.9.4#4ed63aa8e019d795cd3b8c0d2dd66cda%1743433190.812",
+        "librdkafka/2.12.1#4c3f08ad769b4eb69cbbf1807891b4ea%1761226066.097",
         "libevent/2.1.12#7a7a21762e2b4ed13d29aee3e10c19e7%1751271631.406",
         "libcurl/8.17.0#5f7b5b769dc3468ce693048cd8d7dd64%1764325761.224",
         "gtest/1.17.0#5224b3b3ff3b4ce1133cbdd27d53ee7d%1755784855.585",
@@ -69,6 +71,9 @@
     "overrides": {
         "snappy/1.1.9": [
             "snappy/1.2.1"
+        ],
+        "zlib/[>=1.2.11 <2]": [
+            "zlib/1.3.1#b8bc2603263cf7eccbd6e17e66b0ed76"
         ],
         "libcurl/[>=7.78.0 <9]": [
             "libcurl/8.17.0"

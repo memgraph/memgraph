@@ -80,13 +80,14 @@ class Memgraph(ConanFile):
         self.requires("ctre/3.10.0")
         self.requires("fmt/11.2.0")
         self.requires("libcurl/8.17.0", override=True)
+        self.requires("librdkafka/2.12.1")
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
         self.requires("range-v3/0.12.0")
         self.requires("simdjson/4.2.2")
         self.requires("snappy/1.2.1", override=True)
         self.requires("spdlog/1.15.3")
         self.requires("strong_type/v15")
-        self.requires("zlib/1.3.1")
+        self.requires("zlib/1.3.1", override=True)
 
     def build_requirements(self):
         self.tool_requires("cmake/4.1.2")
