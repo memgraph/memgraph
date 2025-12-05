@@ -17,16 +17,12 @@
 #include <fmt/core.h>
 #include "query/exceptions.hpp"
 #include "range/v3/algorithm/remove.hpp"
-#include "range/v3/to_container.hpp"
-#include "ranges"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
-#include "utils/algorithm.hpp"
 
 namespace r = ranges;
 namespace rv = r::views;
-
 namespace memgraph::storage {
 
 const char *NameFromMetric(unum::usearch::metric_kind_t metric) {

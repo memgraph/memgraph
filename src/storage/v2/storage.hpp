@@ -535,7 +535,7 @@ class Storage {
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
         std::string_view index_name) = 0;
 
-    virtual utils::small_vector<uint64_t> IsVertexInVectorIndex(Vertex *vertex, PropertyId property) = 0;
+    virtual utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) = 0;
 
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(
         VectorEdgeIndexSpec spec) = 0;

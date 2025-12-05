@@ -153,31 +153,9 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     }
   }
 
-  if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
+  if (r::find(vertex_->labels, label) != vertex_->labels.end()) return false;
 
-  utils::AtomicMemoryBlock([transaction = transaction_, vertex = vertex_, &label, this]() {
-    // Handle potential vector index changes -> here we are checking if we need to transfer properties from property
-    // store to vector index
-    if (auto properties = storage_->indices_.vector_index_.GetProperties(label); !properties.empty()) {
-      auto vertex_properties = vertex->properties.ExtractPropertyIds();
-      for (auto property_id : vertex_properties) {
-        if (auto index_name = properties.find(property_id); index_name != properties.end()) {
-          auto old_property_value = vertex->properties.GetProperty(property_id);
-          auto vec = storage_->indices_.vector_index_.UpdateIndex(old_property_value, vertex, index_name->second,
-                                                                  storage_->name_id_mapper_.get());
-          auto vector_index_id = std::invoke([&]() {
-            if (old_property_value.IsVectorIndexId()) {
-              auto ids = old_property_value.ValueVectorIndexIds();
-              ids.push_back(storage_->name_id_mapper_->NameToId(index_name->second));
-              return PropertyValue(ids, std::move(vec));
-            }
-            return PropertyValue(utils::small_vector<uint64_t>{storage_->name_id_mapper_->NameToId(index_name->second)},
-                                 std::move(vec));
-          });
-          vertex->properties.SetProperty(property_id, vector_index_id);
-        }
-      }
-    }
+  utils::AtomicMemoryBlock([transaction = transaction_, vertex = vertex_, &label]() {
     CreateAndLinkDelta(transaction, vertex, Delta::RemoveLabelTag(), label);
     vertex->labels.push_back(label);
   });
@@ -197,7 +175,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
   if (transaction_->constraint_verification_info) transaction_->constraint_verification_info->AddedLabel(vertex_);
-  storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_);
+  storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_, storage_->name_id_mapper_.get());
   transaction_->UpdateOnChangeLabel(label, vertex_);
 
   // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
@@ -249,28 +227,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   auto it = r::find(vertex_->labels, label);
   if (it == vertex_->labels.end()) return false;
 
-  utils::AtomicMemoryBlock([transaction = transaction_, vertex = vertex_, &label, &it, this]() {
-    // Handle potential vector index changes -> here we are checking if we need to transfer properties from vector index
-    // to property store
-    if (auto properties = storage_->indices_.vector_index_.GetProperties(label); !properties.empty()) {
-      auto vertex_properties = vertex->properties.ExtractPropertyIds();
-      for (auto property_id : vertex_properties) {
-        if (auto index_name = properties.find(property_id); index_name != properties.end()) {
-          auto old_vertex_property_value = vertex->properties.GetProperty(property_id);
-          auto &ids = old_vertex_property_value.ValueVectorIndexIds();
-          ids.erase(r::remove(ids, storage_->name_id_mapper_->NameToId(index_name->second)), ids.end());
-          auto old_vector_property_value =
-              storage_->indices_.vector_index_.GetPropertyValue(vertex, index_name->second);
-          storage_->indices_.vector_index_.UpdateIndex(
-              PropertyValue(), vertex, index_name->second,
-              storage_->name_id_mapper_.get());  // we are removing property from index
-          vertex->properties.SetProperty(
-              property_id, ids.empty() ? old_vector_property_value
-                                       : old_vertex_property_value);  // we transfer list to property store only if it's
-                                                                      // not in any index anymore
-        }
-      }
-    }
+  utils::AtomicMemoryBlock([transaction = transaction_, vertex = vertex_, &label, &it]() {
     CreateAndLinkDelta(transaction, vertex, Delta::AddLabelTag(), label);
     *it = vertex->labels.back();
     vertex->labels.pop_back();
@@ -278,7 +235,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
 
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
-  storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_);
+  storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_, storage_->name_id_mapper_.get());
   transaction_->UpdateOnChangeLabel(label, vertex_);
 
   // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
@@ -302,7 +259,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    has_label = std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end();
+    has_label = r::contains(vertex_->labels, label);
     delta = vertex_->delta;
   }
 
@@ -415,15 +372,14 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
       if (old_value.IsVectorIndexId()) {
         old_value.ValueVectorIndexList() = std::move(old_value_vector);
       }
-      storage_->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, storage_->name_id_mapper_.get());
-      vertex->properties.SetProperty(property, new_value);
+      storage_->indices_.vector_index_.UpdateIndex(new_value, vertex, std::nullopt, storage_->name_id_mapper_.get());
     } else {
       old_value = vertex->properties.GetProperty(property);
       if (skip_duplicate_write && old_value == new_value) {
         return true;
       }
-      vertex->properties.SetProperty(property, new_value);
     }
+    vertex->properties.SetProperty(property, new_value);
     CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
     if (schema_acc) {
       std::visit(
@@ -456,7 +412,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
       transaction_->constraint_verification_info->RemovedProperty(vertex_);
     }
   }
-  storage_->indices_.UpdateOnSetProperty(property, new_value, vertex_, *transaction_, storage_->name_id_mapper_.get());
+  storage_->indices_.UpdateOnSetProperty(property, new_value, vertex_, *transaction_);
   transaction_->UpdateOnSetProperty(property, old_value, new_value, vertex_);
 
   return std::move(old_value);
@@ -485,7 +441,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
     for (const auto &[property, new_value] : properties) {
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
       // TODO: defer until once all properties have been set, to make fewer entries ?
-      storage->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, storage->name_id_mapper_.get());
+      storage->indices_.vector_index_.UpdateIndex(new_value, vertex, std::nullopt, storage->name_id_mapper_.get());
       transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
@@ -550,7 +506,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
       } else {
         CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
       }
-      storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction, storage->name_id_mapper_.get());
+      storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
       transaction->UpdateOnSetProperty(id, old_value, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
@@ -592,32 +548,32 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 
   using ReturnType = decltype(vertex_->properties.Properties());
   std::optional<ReturnType> properties;
-  utils::AtomicMemoryBlock([storage = storage_, transaction = transaction_, vertex = vertex_, &properties,
-                            &schema_acc]() {
-    properties.emplace(vertex->properties.Properties());
-    if (!properties.has_value()) {
-      return;
-    }
-    auto new_value = PropertyValue();
-    for (const auto &[property, old_value] : *properties) {
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
-      storage->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, storage->name_id_mapper_.get());
-      storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction, storage->name_id_mapper_.get());
-      transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
-      if (schema_acc) {
-        std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                       acc.SetProperty(vertex, property, ExtendedPropertyType{},
-                                                       ExtendedPropertyType{old_value});
-                                     },
-                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                   *schema_acc);
-      }
-    }
-    if (transaction->constraint_verification_info) {
-      transaction->constraint_verification_info->RemovedProperty(vertex);
-    }
-    vertex->properties.ClearProperties();
-  });
+  utils::AtomicMemoryBlock(
+      [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &schema_acc]() {
+        properties.emplace(vertex->properties.Properties());
+        if (!properties.has_value()) {
+          return;
+        }
+        auto new_value = PropertyValue();
+        for (const auto &[property, old_value] : *properties) {
+          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+          storage->indices_.vector_index_.UpdateIndex(new_value, vertex, std::nullopt, storage->name_id_mapper_.get());
+          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
+          transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
+          if (schema_acc) {
+            std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                           acc.SetProperty(vertex, property, ExtendedPropertyType{},
+                                                           ExtendedPropertyType{old_value});
+                                         },
+                                         [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                       *schema_acc);
+          }
+        }
+        if (transaction->constraint_verification_info) {
+          transaction->constraint_verification_info->RemovedProperty(vertex);
+        }
+        vertex->properties.ClearProperties();
+      });
 
   return properties.has_value() ? std::move(properties.value()) : ReturnType{};
 }

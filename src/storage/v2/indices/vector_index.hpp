@@ -186,21 +186,16 @@ class VectorIndex {
 
   void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper);
 
-  /// @brief Updates the index when a property is modified on a vertex.
-  /// @param property The property that was modified.
-  /// @param value The new value of the property.
-  /// @param vertex The vertex on which the property was modified.
-  void UpdateOnSetProperty(const PropertyValue &new_value, Vertex *vertex, NameIdMapper *name_id_mapper);
-
   void AbortEntries(NameIdMapper *name_id_mapper, AbortableInfo &cleanup_collection);
 
-  /// @brief Updates the index when a property is modified on a vertex.
+  /// @brief Updates the vector index when a property is modified on a vertex.
   /// @param value The new value of the property.
   /// @param vertex The vertex on which the property was modified.
-  /// @param index_name The name of the index to update.
-  /// @return The vector of the vertex as a PropertyValue.
-  std::vector<float> UpdateIndex(const PropertyValue &value, Vertex *vertex, std::string_view index_name,
-                                 NameIdMapper *name_id_mapper);
+  /// @param index_name Optional name of the index to update. If not provided and value is VectorIndexId, updates all
+  /// indices.
+  /// @param name_id_mapper Mapper for name/ID conversions.
+  void UpdateIndex(const PropertyValue &value, Vertex *vertex, std::optional<std::string_view> index_name,
+                   NameIdMapper *name_id_mapper);
 
   /// @brief Retrieves the vector of a vertex as a PropertyValue.
   /// @param vertex The vertex to retrieve the vector from.
@@ -249,28 +244,20 @@ class VectorIndex {
   /// @param vertex The vertex to check.
   /// @param property The property to check.
   /// @return true if the property is in the vector index, false otherwise.
-  utils::small_vector<uint64_t> IsVertexInVectorIndex(Vertex *vertex, PropertyId property,
-                                                      NameIdMapper *name_id_mapper);
-
-  bool IsPropertyInVectorIndex(PropertyId property) const;
-
-  bool IsLabelInVectorIndex(LabelId label) const;
+  utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property,
+                                                           NameIdMapper *name_id_mapper);
 
   /// @brief Gets all properties that have vector indices for the given label.
   /// @param label The label to get the properties for.
   /// @return A map of property ids to index names.
   std::unordered_map<PropertyId, std::string> GetProperties(LabelId label) const;
 
+  /// @brief Gets all labels that have vector indices for the given property.
+  /// @param property The property to get the labels for.
+  /// @return A map of label ids to index names.
   std::unordered_map<LabelId, std::string> GetLabels(PropertyId property) const;
 
  private:
-  /// @brief Gets all label-property combinations that match the given vertex and property.
-  /// @param vertex The vertex to check labels against.
-  /// @param property The property to match.
-  /// @return A vector of matching LabelPropKey objects.
-  std::vector<LabelPropKey> GetMatchingLabelProps(std::span<LabelId const> labels,
-                                                  std::span<PropertyId const> properties) const;
-
   void RemoveVertexFromIndex(Vertex *vertex, std::string_view index_name);
 
   /// @brief Creates the index structure (metric, index, and internal maps) without populating it.

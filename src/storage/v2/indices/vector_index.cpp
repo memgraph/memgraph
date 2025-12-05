@@ -287,112 +287,106 @@ void VectorIndex::RemoveNode(Vertex *vertex) {
   }
 }
 
-std::vector<LabelPropKey> VectorIndex::GetMatchingLabelProps(std::span<LabelId const> labels,
-                                                             std::span<PropertyId const> properties) const {
-  auto has_property = [&](const auto &label_prop) { return utils::Contains(properties, label_prop.property()); };
-  auto has_label = [&](const auto &label_prop) { return utils::Contains(labels, label_prop.label()); };
-  return pimpl->index_ | rv::keys | rv::filter(has_label) | rv::filter(has_property) | r::to<std::vector>();
-}
-
 void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper) {
   auto matching_index_properties = GetProperties(label);
+  if (matching_index_properties.empty()) {
+    return;
+  }
+
   auto vertex_properties = vertex->properties.ExtractPropertyIds();
-  for (const auto &property : vertex_properties) {
-    if (auto it = matching_index_properties.find(property); it != matching_index_properties.end()) {
-      // update index
-      auto old_property_value = vertex->properties.GetProperty(property);
-      auto &[mg_index, _] = pimpl->index_.at(LabelPropKey{label, property});
-      auto locked_index = mg_index->MutableSharedLock();
+  for (auto property_id : vertex_properties) {
+    if (auto index_name = matching_index_properties.find(property_id); index_name != matching_index_properties.end()) {
+      auto old_property_value = vertex->properties.GetProperty(property_id);
+      UpdateIndex(old_property_value, vertex, std::optional{index_name->second}, name_id_mapper);
+      auto vec = GetVectorProperty(vertex, index_name->second);
       auto vector_index_id = std::invoke([&]() {
         if (old_property_value.IsVectorIndexId()) {
-          auto &ids = old_property_value.ValueVectorIndexIds();
-          ids.push_back(name_id_mapper->NameToId(it->second));
-          auto vec = GetVector(mg_index, vertex);
+          auto ids = old_property_value.ValueVectorIndexIds();
+          ids.push_back(name_id_mapper->NameToId(index_name->second));
           return PropertyValue(ids, std::move(vec));
         }
-        auto vec = ListToVector(old_property_value);
-        return PropertyValue(utils::small_vector<uint64_t>{name_id_mapper->NameToId(it->second)}, std::move(vec));
+        return PropertyValue(utils::small_vector<uint64_t>{name_id_mapper->NameToId(index_name->second)},
+                             std::move(vec));
       });
-      locked_index->add(vertex, vector_index_id.ValueVectorIndexList().data());
-
-      // update vertex property store
-      vertex->properties.SetProperty(property, vector_index_id);
+      vertex->properties.SetProperty(property_id, vector_index_id);
     }
   }
 }
 
 void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper) {
   auto matching_index_properties = GetProperties(label);
-  auto vertex_properties = vertex->properties.ExtractPropertyIds();
-  for (const auto &property : vertex_properties) {
-    if (auto it = matching_index_properties.find(property); it != matching_index_properties.end()) {
-      // update vertex property store
-      auto old_vertex_property_value = vertex->properties.GetProperty(property);
-      auto &ids = old_vertex_property_value.ValueVectorIndexIds();
-      ids.erase(r::remove(ids, name_id_mapper->NameToId(it->second)), ids.end());
-      if (ids.empty()) {
-        const auto vector_property = GetPropertyValue(vertex, it->second);
-        vertex->properties.SetProperty(property, vector_property);
-      } else {
-        vertex->properties.SetProperty(property, old_vertex_property_value);
-      }
+  if (matching_index_properties.empty()) {
+    return;
+  }
 
-      // update index
-      auto &[mg_index, _] = pimpl->index_.at(LabelPropKey{label, property});
-      auto locked_index = mg_index->MutableSharedLock();
-      if (locked_index->contains(vertex)) {
-        locked_index->remove(vertex);
-      }
+  auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  for (auto property_id : vertex_properties) {
+    if (auto index_name = matching_index_properties.find(property_id); index_name != matching_index_properties.end()) {
+      auto old_vertex_property_value = vertex->properties.GetProperty(property_id);
+      auto &ids = old_vertex_property_value.ValueVectorIndexIds();
+      ids.erase(r::remove(ids, name_id_mapper->NameToId(index_name->second)), ids.end());
+      auto old_vector_property_value = GetPropertyValue(vertex, index_name->second);
+      UpdateIndex(PropertyValue(), vertex, std::optional{index_name->second},
+                  name_id_mapper);  // we are removing property from index
+      vertex->properties.SetProperty(property_id,
+                                     ids.empty() ? old_vector_property_value
+                                                 : old_vertex_property_value);  // we transfer list to property store
+                                                                                // only if it's not in any index anymore
     }
   }
 }
 
-void VectorIndex::UpdateOnSetProperty(const PropertyValue &new_value, Vertex *vertex, NameIdMapper *name_id_mapper) {
-  if (!new_value.IsVectorIndexId()) {
+void VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *vertex, std::optional<std::string_view> index_name,
+                              NameIdMapper *name_id_mapper) {
+  // If index_name is provided, update that specific index
+  if (index_name.has_value()) {
+    auto it = pimpl->index_name_to_label_prop_.find(*index_name);
+    if (it == pimpl->index_name_to_label_prop_.end()) {
+      throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", *index_name));
+    }
+
+    if (value.IsNull()) {
+      // Setting a null value is equivalent to removing the vertex from the index
+      auto &index_item = pimpl->index_.at(it->second);
+      auto locked_index = index_item.mg_index->MutableSharedLock();
+      locked_index->remove(vertex);
+      return;
+    }
+
+    auto vector_property = std::invoke([&]() {
+      if (value.IsVectorIndexId()) {
+        // property is in vector index, so we need to get the list from the vector index
+        return GetVectorProperty(vertex, name_id_mapper->IdToName(value.ValueVectorIndexIds()[0]));
+      }
+      if (value.IsAnyList()) {
+        return ListToVector(value);
+      }
+      throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+    });
+
+    auto &index_item = pimpl->index_.at(it->second);
+    UpdateSingleVectorIndex(index_item, vertex, vector_property, true);
     return;
   }
 
-  const auto &vector_property = new_value.ValueVectorIndexList();
-  if (vector_property.empty()) {
+  // If index_name is not provided, handle VectorIndexId case (update all indices)
+  if (!value.IsVectorIndexId()) {
     return;
   }
 
-  const auto &index_ids = new_value.ValueVectorIndexIds();
+  const auto &vector_property = value.ValueVectorIndexList();
+  const auto &index_ids = value.ValueVectorIndexIds();
   for (const auto &index_id : index_ids) {
-    auto index_name = name_id_mapper->IdToName(index_id);
-    auto label_prop = pimpl->index_name_to_label_prop_.at(index_name);
+    auto idx_name = name_id_mapper->IdToName(index_id);
+    auto label_prop = pimpl->index_name_to_label_prop_.at(idx_name);
     auto &index_item = pimpl->index_.at(label_prop);
+    if (vector_property.empty()) {
+      auto locked_index = index_item.mg_index->MutableSharedLock();
+      locked_index->remove(vertex);
+      continue;
+    }
     UpdateSingleVectorIndex(index_item, vertex, vector_property, false);
   }
-}
-
-std::vector<float> VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *vertex, std::string_view index_name,
-                                            NameIdMapper *name_id_mapper) {
-  auto it = pimpl->index_name_to_label_prop_.find(index_name);
-  if (it == pimpl->index_name_to_label_prop_.end()) {
-    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
-  }
-
-  if (value.IsNull()) {
-    // if property is null, that means that the vertex should not be in the index and we shouldn't do any other
-    // updates
-    return {};
-  }
-
-  auto vector_property = std::invoke([&]() {
-    if (value.IsVectorIndexId()) {
-      // property is in vector index, so we need to return the list from the vector index
-      return GetVectorProperty(vertex, name_id_mapper->IdToName(value.ValueVectorIndexIds()[0]));
-    }
-    if (value.IsAnyList()) {
-      return ListToVector(value);
-    }
-    throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
-  });
-
-  auto &index_item = pimpl->index_.at(it->second);
-  UpdateSingleVectorIndex(index_item, vertex, vector_property, true);
-  return vector_property;
 }
 
 PropertyValue VectorIndex::GetPropertyValue(Vertex *vertex, std::string_view index_name) const {
@@ -473,95 +467,24 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
   return result;
 }
 
-VectorIndex::AbortProcessor VectorIndex::GetAbortProcessor() const {
-  AbortProcessor res{};
-  for (const auto &[label_prop, _] : pimpl->index_) {
-    const auto label = label_prop.label();
-    const auto property = label_prop.property();
-    res.l2p[label].emplace_back(property);
-    res.p2l[property].emplace_back(label);
-  }
-  return res;
-}
-
-void VectorIndex::AbortEntries(NameIdMapper *name_id_mapper, AbortableInfo &cleanup_collection) {
-  for (auto &[vertex, info] : cleanup_collection) {
-    auto &[labels_to_add, labels_to_remove, property_to_abort] = info;
-    for (const auto &label : labels_to_remove) {
-      UpdateOnRemoveLabel(label, vertex, name_id_mapper);
-    }
-    for (const auto &label : labels_to_add) {
-      UpdateOnAddLabel(label, vertex, name_id_mapper);
-    }
-    for (const auto &[property, value] : property_to_abort) {
-      if (value.IsVectorIndexId()) {
-        UpdateOnSetProperty(value, vertex, name_id_mapper);
-      } else {
-        for (const auto &index_name : GetLabels(property)) {
-          RemoveVertexFromIndex(vertex, index_name.second);
-        }
-      }
-    }
-  }
-}
-
-void VectorIndex::AbortProcessor::CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
-  const auto &properties = l2p.find(label);
-  auto has_any_property = [&](const auto &property) { return vertex->properties.HasProperty(property); };
-  if (properties == l2p.end() || !r::any_of(properties->second, has_any_property)) return;
-  auto &[label_to_add, label_to_remove, _] = cleanup_collection[vertex];
-  label_to_remove.insert(label);
-  label_to_add.erase(label);
-}
-
-void VectorIndex::AbortProcessor::CollectOnLabelAddition(LabelId label, Vertex *vertex) {
-  const auto &properties = l2p.find(label);
-  auto has_any_property = [&](const auto &property) { return vertex->properties.HasProperty(property); };
-  if (properties == l2p.end() || !r::any_of(properties->second, has_any_property)) return;
-  auto &[label_to_add, label_to_remove, _] = cleanup_collection[vertex];
-  label_to_add.insert(label);
-  label_to_remove.erase(label);
-}
-
-void VectorIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value,
-                                                          Vertex *vertex) {
-  const auto &labels = p2l.find(propId);
-  auto has_any_label = [&](const auto &label) { return utils::Contains(vertex->labels, label); };
-  if (labels == p2l.end() || !r::any_of(labels->second, has_any_label)) return;
-  auto &[_, label_to_remove, property_to_abort] = cleanup_collection[vertex];
-  property_to_abort[propId] = old_value;
-}
-
 bool VectorIndex::IndexExists(std::string_view index_name) const {
   return pimpl->index_name_to_label_prop_.contains(index_name);
 }
 
-bool VectorIndex::IsPropertyInVectorIndex(PropertyId property) const {
-  return r::any_of(pimpl->index_, [&](const auto &label_prop_index_item) {
-    return label_prop_index_item.second.spec.property == property;
-  });
-}
-
-bool VectorIndex::IsLabelInVectorIndex(LabelId label) const {
-  return r::any_of(pimpl->index_, [&](const auto &label_prop_index_item) {
-    return label_prop_index_item.second.spec.label_id == label;
-  });
-}
-
-utils::small_vector<uint64_t> VectorIndex::IsVertexInVectorIndex(Vertex *vertex, PropertyId property,
-                                                                 NameIdMapper *name_id_mapper) {
-  auto matching_label_props = GetMatchingLabelProps(vertex->labels, std::array{property});
+utils::small_vector<uint64_t> VectorIndex::GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property,
+                                                                      NameIdMapper *name_id_mapper) {
+  auto has_property = [&](const auto &label_prop) { return label_prop.property() == property; };
+  auto has_label = [&](const auto &label_prop) { return utils::Contains(vertex->labels, label_prop.label()); };
+  auto matching_label_props =
+      pimpl->index_ | rv::keys | rv::filter(has_label) | rv::filter(has_property) | r::to<std::vector<LabelPropKey>>();
   if (matching_label_props.empty()) {
     return {};
   }
-  utils::small_vector<uint64_t> index_ids;
-  index_ids.reserve(matching_label_props.size());
-  for (const auto &label_prop : matching_label_props) {
-    auto [_, spec] = pimpl->index_.at(label_prop);
-    auto index_id = name_id_mapper->NameToId(spec.index_name);
-    index_ids.emplace_back(index_id);
-  }
-  return index_ids;
+  return matching_label_props | rv::transform([&](const auto &label_prop) {
+           auto [_, spec] = pimpl->index_.at(label_prop);
+           return name_id_mapper->NameToId(spec.index_name);
+         }) |
+         r::to<utils::small_vector<uint64_t>>();
 }
 
 std::unordered_map<PropertyId, std::string> VectorIndex::GetProperties(LabelId label) const {
@@ -595,6 +518,65 @@ void VectorIndex::RemoveVertexFromIndex(Vertex *vertex, std::string_view index_n
   if (locked_index->contains(vertex)) {
     locked_index->remove(vertex);
   }
+}
+
+void VectorIndex::AbortEntries(NameIdMapper *name_id_mapper, AbortableInfo &cleanup_collection) {
+  for (auto &[vertex, info] : cleanup_collection) {
+    auto &[labels_to_add, labels_to_remove, property_to_abort] = info;
+    for (const auto &label : labels_to_remove) {
+      UpdateOnRemoveLabel(label, vertex, name_id_mapper);
+    }
+    for (const auto &label : labels_to_add) {
+      UpdateOnAddLabel(label, vertex, name_id_mapper);
+    }
+    for (const auto &[property, value] : property_to_abort) {
+      if (value.IsVectorIndexId()) {
+        UpdateIndex(value, vertex, std::nullopt, name_id_mapper);
+      } else {
+        for (const auto &index_name : GetLabels(property)) {
+          RemoveVertexFromIndex(vertex, index_name.second);
+        }
+      }
+    }
+  }
+}
+
+VectorIndex::AbortProcessor VectorIndex::GetAbortProcessor() const {
+  AbortProcessor res{};
+  for (const auto &[label_prop, _] : pimpl->index_) {
+    const auto label = label_prop.label();
+    const auto property = label_prop.property();
+    res.l2p[label].emplace_back(property);
+    res.p2l[property].emplace_back(label);
+  }
+  return res;
+}
+
+void VectorIndex::AbortProcessor::CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
+  const auto &properties = l2p.find(label);
+  auto has_any_property = [&](const auto &property) { return vertex->properties.HasProperty(property); };
+  if (properties == l2p.end() || !r::any_of(properties->second, has_any_property)) return;
+  auto &[label_to_add, label_to_remove, _] = cleanup_collection[vertex];
+  label_to_remove.insert(label);
+  label_to_add.erase(label);
+}
+
+void VectorIndex::AbortProcessor::CollectOnLabelAddition(LabelId label, Vertex *vertex) {
+  const auto &properties = l2p.find(label);
+  auto has_any_property = [&](const auto &property) { return vertex->properties.HasProperty(property); };
+  if (properties == l2p.end() || !r::any_of(properties->second, has_any_property)) return;
+  auto &[label_to_add, label_to_remove, _] = cleanup_collection[vertex];
+  label_to_add.insert(label);
+  label_to_remove.erase(label);
+}
+
+void VectorIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value,
+                                                          Vertex *vertex) {
+  const auto &labels = p2l.find(propId);
+  auto has_any_label = [&](const auto &label) { return utils::Contains(vertex->labels, label); };
+  if (labels == p2l.end() || !r::any_of(labels->second, has_any_label)) return;
+  auto &[_, label_to_remove, property_to_abort] = cleanup_collection[vertex];
+  property_to_abort[propId] = old_value;
 }
 
 // VectorIndexRecovery implementation
