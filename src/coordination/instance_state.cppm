@@ -36,10 +36,18 @@ struct InstanceState {
       replicas_num_txns;  // if main, return num of committed txns for each instance
 
   // Follows the logic of other RPC versioning code. For responses, we downgrade newer version to the older version
-  InstanceStateV1 Downgrade() const {
-    return {.is_replica = is_replica, .uuid = uuid, .is_writing_enabled = is_writing_enabled};
-  }
+  InstanceStateV1 Downgrade() const;
 };
+
+}  // namespace memgraph::coordination
+
+module : private;
+
+namespace memgraph::coordination {
+
+InstanceStateV1 InstanceState::Downgrade() const {
+  return {.is_replica = is_replica, .uuid = uuid, .is_writing_enabled = is_writing_enabled};
+}
 
 }  // namespace memgraph::coordination
 
