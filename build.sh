@@ -60,8 +60,7 @@ config_only=false
 keep_build=false
 skip_os_deps=false
 VENV_DIR="${VENV_DIR:-env}"
-OFFLINE_ARG=""
-CONAN_OFFLINE_ARG=""
+offline=false
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -97,9 +96,8 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --offline)
-            OFFLINE_ARG="--offline"
             skip_os_deps=true
-            CONAN_OFFLINE_ARG="--no-remote"
+            offline=true
             shift
             ;;
         --help|-h)
@@ -117,6 +115,21 @@ done
 if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" && "$BUILD_TYPE" != "Debug" ]]; then
     echo "Error: --build-type must be either 'Release', 'RelWithDebInfo', or 'Debug'"
     exit 1
+fi
+
+# Initialize arrays for arguments
+INIT_ARGS=()
+CONAN_INSTALL_ARGS=(
+  .
+  --build=missing
+  -pr:h memgraph_template_profile
+  -pr:b memgraph_build_profile
+  -s build_type="$BUILD_TYPE"
+)
+
+if [ "$offline" = true ]; then
+    INIT_ARGS+=("--offline")
+    CONAN_INSTALL_ARGS+=("--no-remote")
 fi
 
 # delete existing build directory
@@ -166,7 +179,7 @@ conan config install conan_config
 
 # fetch libs that aren't provided by conan yet
 if [ "$skip_init" = false ]; then
-    ./init $OFFLINE_ARG
+    ./init "${INIT_ARGS[@]}"
 fi
 
 # Function to check if a CMake boolean variable is enabled
@@ -205,13 +218,7 @@ else
 fi
 
 # install conan dependencies
-MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install \
-  . \
-  --build=missing \
-  -pr:h memgraph_template_profile \
-  -pr:b memgraph_build_profile \
-  -s build_type="$BUILD_TYPE" \
-  $CONAN_OFFLINE_ARG
+MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install "${CONAN_INSTALL_ARGS[@]}"
 
 export CLASSPATH=
 export LD_LIBRARY_PATH=
