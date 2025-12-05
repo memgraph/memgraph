@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
+module;
 
 #include <chrono>
 #include <functional>
@@ -18,17 +18,29 @@
 #include <thread>
 #include <vector>
 
-#include "coordination/raft_state.hpp"
+#include "coordination/coordinator_observer.hpp"
+#include "coordination/coordinator_state_manager.hpp"
 #include "utils/counter.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
+#include "utils/uuid.hpp"
 
 #include <spdlog/spdlog.h>
+#include <libnuraft/nuraft.hxx>
 #include <nlohmann/json.hpp>
+
+module memgraph.coordination.raft_state;
+
+#ifdef MG_ENTERPRISE
 
 import memgraph.coordination.constants;
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_cluster_state;
 import memgraph.coordination.coordinator_exceptions;
+import memgraph.coordination.coordinator_instance_aux;
+import memgraph.coordination.coordinator_instance_context;
+import memgraph.coordination.coordinator_state_machine;
 import memgraph.coordination.logger;
 import memgraph.coordination.logger_wrapper;
 import memgraph.coordination.coordinator_log_store;

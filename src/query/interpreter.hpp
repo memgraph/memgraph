@@ -27,8 +27,9 @@
 #include "utils/synchronized.hpp"
 
 #ifdef MG_ENTERPRISE
-#include "coordination/raft_state.hpp"
 #include "utils/resource_monitoring.hpp"
+import memgraph.coordination.raft_state;
+import memgraph.coordination.utils;
 #endif
 
 namespace memgraph::metrics {
