@@ -1019,8 +1019,8 @@ std::optional<RecoveryInfo> LoadWal(
         if (schema_info) old_labels.emplace(vertex->labels);
         vertex->labels.push_back(label_id);
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
-        VectorIndex::UpdateRecoveryInfoOnLabelAddition(label_id, &*vertex, name_id_mapper,
-                                                       indices_constraints->indices.vector_indices);
+        VectorIndexRecovery::UpdateOnLabelAddition(label_id, &*vertex, name_id_mapper,
+                                                   indices_constraints->indices.vector_indices);
       },
       [&](WalVertexRemoveLabel const &data) {
         const auto vertex = vertex_acc.find(data.gid);
@@ -1035,8 +1035,8 @@ std::optional<RecoveryInfo> LoadWal(
         std::swap(*it, vertex->labels.back());
         vertex->labels.pop_back();
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
-        VectorIndex::UpdateRecoveryInfoOnLabelRemoval(label_id, &*vertex, name_id_mapper,
-                                                      indices_constraints->indices.vector_indices);
+        VectorIndexRecovery::UpdateOnLabelRemoval(label_id, &*vertex, name_id_mapper,
+                                                  indices_constraints->indices.vector_indices);
       },
       [&](WalVertexSetProperty const &data) {
         const auto vertex = vertex_acc.find(data.gid);
@@ -1048,8 +1048,8 @@ std::optional<RecoveryInfo> LoadWal(
           const auto old_type = vertex->properties.GetExtendedPropertyType(property_id);
           schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(property_value)}, old_type);
         }
-        VectorIndex::UpdateRecoveryInfoOnPropertyChange(property_id, property_value, &*vertex,
-                                                        indices_constraints->indices.vector_indices);
+        VectorIndexRecovery::UpdateOnPropertyChange(property_id, property_value, &*vertex,
+                                                    indices_constraints->indices.vector_indices);
         vertex->properties.SetProperty(property_id, property_value);
       },
       [&](WalEdgeCreate const &data) {
@@ -1417,8 +1417,8 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalVectorIndexDrop const &data) {
         // TODO(@DavIvek): edge index drop
-        VectorIndex::UpdateRecoveryInfoOnIndexDrop(data.index_name, name_id_mapper,
-                                                   indices_constraints->indices.vector_indices, vertex_acc);
+        VectorIndexRecovery::UpdateOnIndexDrop(data.index_name, name_id_mapper,
+                                               indices_constraints->indices.vector_indices, vertex_acc);
         indices_constraints->indices.vector_indices.erase(
             r::remove_if(indices_constraints->indices.vector_indices,
                          [&](const auto &recovery_info) { return recovery_info.spec.index_name == data.index_name; }),

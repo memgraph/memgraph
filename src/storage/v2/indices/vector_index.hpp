@@ -15,13 +15,15 @@
 #include <unordered_map>
 
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
+#include "usearch/index_dense.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
+
+using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
 
 /// @struct VectorIndexInfo
 /// @brief Represents information about a vector index in the system.
@@ -60,6 +62,68 @@ struct VectorIndexSpec {
 struct VectorIndexRecoveryInfo {
   VectorIndexSpec spec;
   std::unordered_map<Gid, std::vector<float>> index_entries;
+};
+
+// Forward declaration
+class NameIdMapper;
+
+/// @struct VectorIndexRecovery
+/// @brief Handles recovery operations for vector indices during WAL replay and snapshot recovery.
+///
+/// This struct encapsulates all recovery-related operations for vector indices,
+/// separating recovery logic from the main VectorIndex class for better
+/// separation of concerns and testability.
+struct VectorIndexRecovery {
+  /// @brief Updates recovery info when an index is dropped.
+  /// @param index_name The name of the index being dropped.
+  /// @param name_id_mapper Mapper for name/ID conversions.
+  /// @param recovery_info_vec The vector of recovery info to update.
+  /// @param vertices Accessor to the vertices skip list.
+  static void UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
+                                std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
+                                utils::SkipList<Vertex>::Accessor &vertices);
+
+  /// @brief Updates recovery info when a label is added to a vertex.
+  /// @param label The label being added.
+  /// @param vertex The vertex receiving the label.
+  /// @param name_id_mapper Mapper for name/ID conversions.
+  /// @param recovery_info_vec The vector of recovery info to update.
+  static void UpdateOnLabelAddition(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper,
+                                    std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
+
+  /// @brief Updates recovery info when a label is removed from a vertex.
+  /// @param label The label being removed.
+  /// @param vertex The vertex losing the label.
+  /// @param name_id_mapper Mapper for name/ID conversions.
+  /// @param recovery_info_vec The vector of recovery info to update.
+  static void UpdateOnLabelRemoval(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper,
+                                   std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
+
+  /// @brief Updates recovery info when a property changes on a vertex.
+  /// @param property The property that changed.
+  /// @param value The new property value.
+  /// @param vertex The vertex with the changed property.
+  /// @param recovery_info_vec The vector of recovery info to update.
+  static void UpdateOnPropertyChange(PropertyId property, PropertyValue &value, Vertex *vertex,
+                                     std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
+
+ private:
+  /// @brief Finds all recovery info entries matching a given label.
+  /// @param label The label to match.
+  /// @param recovery_info_vec The vector of recovery info to search.
+  /// @return Vector of pointers to matching recovery info entries.
+  static std::vector<VectorIndexRecoveryInfo *> FindMatchingIndices(
+      LabelId label, std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
+
+  /// @brief Extracts a vector from a property value, handling VectorIndexId cases.
+  /// @param value The property value to extract from.
+  /// @param vertex The vertex containing the property.
+  /// @param recovery_info_vec The recovery info vector to look up vectors in.
+  /// @param name_id_mapper Mapper for name/ID conversions.
+  /// @return The extracted vector of floats.
+  static std::vector<float> ExtractVectorForRecovery(const PropertyValue &value, Vertex *vertex,
+                                                     const std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
+                                                     NameIdMapper *name_id_mapper);
 };
 
 /// @class VectorIndex
@@ -103,19 +167,6 @@ class VectorIndex {
   bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                    NameIdMapper *name_id_mapper,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
-
-  static void UpdateRecoveryInfoOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
-                                            std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
-                                            utils::SkipList<Vertex>::Accessor &vertices);
-
-  static void UpdateRecoveryInfoOnLabelAddition(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper,
-                                                std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
-
-  static void UpdateRecoveryInfoOnLabelRemoval(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper,
-                                               std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
-
-  static void UpdateRecoveryInfoOnPropertyChange(PropertyId property, PropertyValue &value, Vertex *vertex,
-                                                 std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
 
   void RecoverIndexEntries(const VectorIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
                            NameIdMapper *name_id_mapper);
@@ -221,6 +272,22 @@ class VectorIndex {
                                                   std::span<PropertyId const> properties) const;
 
   void RemoveVertexFromIndex(Vertex *vertex, std::string_view index_name);
+
+  /// @brief Creates the index structure (metric, index, and internal maps) without populating it.
+  /// @param spec The specification for the index to be created.
+  /// @return A pair containing the created index and the label_prop key.
+  /// @throws query::VectorSearchException if the index already exists or creation fails.
+  std::pair<mg_vector_index_t, LabelPropKey> CreateIndexStructure(const VectorIndexSpec &spec);
+
+  /// @brief Populates an index with vertices from the skip list (used by both CreateIndex and RecoverIndexEntries).
+  /// @param mg_vector_index The index to populate.
+  /// @param spec The index specification.
+  /// @param vertices Accessor to the vertices skip list.
+  /// @param name_id_mapper Mapper for name/ID conversions.
+  /// @param recovery_entries Optional map of recovery entries (nullptr for create, non-null for recovery).
+  static void PopulateIndexFromVertices(mg_vector_index_t &mg_vector_index, const VectorIndexSpec &spec,
+                                        utils::SkipList<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
+                                        const std::unordered_map<Gid, std::vector<float>> *recovery_entries);
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

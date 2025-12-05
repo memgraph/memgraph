@@ -16,10 +16,16 @@
 
 #include <fmt/core.h>
 #include "query/exceptions.hpp"
-#include "storage/v2/indices/vector_edge_index.hpp"
+#include "range/v3/algorithm/remove.hpp"
+#include "range/v3/to_container.hpp"
+#include "ranges"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
-#include "usearch/index_dense.hpp"
+#include "usearch/index_plugins.hpp"
+#include "utils/algorithm.hpp"
+
+namespace r = ranges;
+namespace rv = r::views;
 
 namespace memgraph::storage {
 
@@ -188,50 +194,6 @@ double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double distan
   }
 }
 
-template <typename IndexType, typename KeyType>
-PropertyValue GetVectorAsPropertyValue(const std::shared_ptr<utils::Synchronized<IndexType, std::shared_mutex>> &index,
-                                       KeyType key) {
-  auto locked_index = index->ReadLock();
-  const auto dimension = locked_index->dimensions();
-  std::vector<double> vector(dimension);
-  const auto retrieved_count = locked_index->get(key, vector.data());
-  if (retrieved_count == 0) {
-    return {};
-  }
-  std::vector<PropertyValue> double_values;
-  double_values.reserve(dimension);
-  for (const auto &value : vector) {
-    double_values.emplace_back(static_cast<double>(value));
-  }
-  return PropertyValue(std::move(double_values));
-}
-
-template <typename IndexType, typename KeyType>
-std::vector<float> GetVector(const std::shared_ptr<utils::Synchronized<IndexType, std::shared_mutex>> &index,
-                             KeyType key) {
-  auto locked_index = index->ReadLock();
-  const auto dimension = locked_index->dimensions();
-  std::vector<unum::usearch::f32_t> vector(dimension);
-  const auto retrieved_count = locked_index->get(key, vector.data(), 1);
-  if (retrieved_count == 0) {
-    return {};
-  }
-  return vector;
-}
-
-using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
-// using mg_vector_edge_index_t = unum::usearch::index_dense_gt<VectorEdgeIndex::EdgeIndexEntry,
-// unum::usearch::uint40_t>;
-
-template PropertyValue GetVectorAsPropertyValue<mg_vector_index_t, Vertex *>(
-    const std::shared_ptr<utils::Synchronized<mg_vector_index_t, std::shared_mutex>> &index, Vertex *key);
-
-template std::vector<float> GetVector<mg_vector_index_t, Vertex *>(
-    const std::shared_ptr<utils::Synchronized<mg_vector_index_t, std::shared_mutex>> &index, Vertex *key);
-// template PropertyValue GetVectorAsPropertyValue<mg_vector_edge_index_t, VectorEdgeIndex::EdgeIndexEntry>(const
-// std::shared_ptr<utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>> &index,
-// VectorEdgeIndex::EdgeIndexEntry &key);
-
 std::vector<float> ListToVector(const PropertyValue &value) {
   if (value.IsNull()) {
     return {};
@@ -252,6 +214,29 @@ std::vector<float> ListToVector(const PropertyValue &value) {
     return vector;
   }
   throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+}
+
+std::vector<double> FloatVectorToDoubleVector(const std::vector<float> &vector) {
+  return vector | rv::transform([](float value) { return static_cast<double>(value); }) | r::to<std::vector<double>>();
+}
+
+void RestoreVectorOnVertex(Vertex *vertex, PropertyId property_id, const std::vector<float> &vector) {
+  auto double_vector = FloatVectorToDoubleVector(vector);
+  vertex->properties.SetProperty(property_id, PropertyValue(std::move(double_vector)));
+}
+
+PropertyValue CreateVectorIndexIdProperty(const std::vector<float> & /*vector*/,
+                                          const utils::small_vector<uint64_t> &index_ids) {
+  return PropertyValue(index_ids, std::vector<float>{});
+}
+
+bool RemoveIndexIdFromProperty(PropertyValue &property_value, uint64_t index_id) {
+  if (!property_value.IsVectorIndexId()) {
+    return true;  // Not a vector index ID, should restore
+  }
+  auto &ids = property_value.ValueVectorIndexIds();
+  ids.erase(ranges::remove(ids, index_id), ids.end());
+  return ids.empty();  // Return true if should restore (no more IDs)
 }
 
 }  // namespace memgraph::storage
