@@ -9,14 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
-
-#include "coordination/replication_instance_connector.hpp"
+module;
 
 #include "replication_coordination_glue/handler.hpp"
 
 #include <chrono>
 #include <string>
+
+module memgraph.coordination.replication_instance_connector;
+
+#ifdef MG_ENTERPRISE
 
 namespace memgraph::coordination {
 

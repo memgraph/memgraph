@@ -33,7 +33,6 @@
 #include "coordination/coordinator_observer.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/replication_instance_client.hpp"
-#include "coordination/replication_instance_connector.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exponential_backoff.hpp"
@@ -53,6 +52,7 @@ import memgraph.coordination.coordinator_instance_aux;
 import memgraph.coordination.coordinator_ops_status;
 import memgraph.coordination.instance_state;
 import memgraph.coordination.instance_status;
+import memgraph.coordination.replication_instance_connector;
 import memgraph.coordination.replication_lag_info;
 import memgraph.coordination.utils;
 

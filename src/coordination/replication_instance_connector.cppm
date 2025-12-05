@@ -9,15 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
+
+#include "coordination/replication_instance_client.hpp"
+#include "utils/uuid.hpp"
+
+export module memgraph.coordination.replication_instance_connector;
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/replication_instance_client.hpp"
+import memgraph.coordination.coordinator_communication_config;
 
-#include "utils/uuid.hpp"
-
-namespace memgraph::coordination {
+export namespace memgraph::coordination {
 
 class TimedFailureDetector {
  public:

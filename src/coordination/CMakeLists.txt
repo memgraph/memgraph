@@ -18,6 +18,7 @@ target_sources(mg-coordination
         logger.cppm
         log_level.cppm
         logger_wrapper.cppm
+        replication_instance_connector.cppm
         replication_lag_info.cppm
         utils.cppm
         FILE_SET HEADERS
@@ -37,7 +38,6 @@ target_sources(mg-coordination
         include/coordination/data_instance_management_server_handlers.hpp
         include/coordination/raft_state.hpp
         include/coordination/replication_instance_client.hpp
-        include/coordination/replication_instance_connector.hpp
 
 
         PRIVATE
