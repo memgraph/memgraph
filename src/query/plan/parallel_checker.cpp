@@ -8,11 +8,20 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-#pragma once
 
-#include "gflags/gflags.h"
+#include "query/plan/parallel_checker.hpp"
+namespace memgraph::query::plan {
+bool ParallelChecker::PreVisit(AggregateParallel &) {
+  is_parallelized_ = true;
+  return false;
+}
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-// DECLARE_bool(cartesian_product_enabled);  Moved to run_time_configurable
+bool ParallelChecker::Visit(Once &) { return false; }  // NOLINT(hicpp-named-parameter)
 
-DECLARE_int32(hops_limit_recheck_interval);
+void ParallelChecker::CheckParallelized(const LogicalOperator &root) {
+  is_parallelized_ = false;
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  const_cast<LogicalOperator *>(&root)->Accept(*this);
+}
+
+}  // namespace memgraph::query::plan

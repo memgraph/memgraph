@@ -13,10 +13,13 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <execution>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <queue>
+#include <span>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -27,6 +30,9 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 #include "ctre.hpp"
+#include "flags/bolt.hpp"
+#include "memory/query_memory_control.hpp"
+#include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
 #include "flags/run_time_configurable.hpp"
@@ -44,6 +50,7 @@
 #include "query/plan/scoped_profile.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
@@ -70,6 +77,7 @@
 #include "utils/readable_size.hpp"
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
+#include "utils/timer.hpp"
 #include "vertex_accessor.hpp"
 
 import memgraph.csv.parsing;
@@ -786,7 +794,10 @@ class ScanAllCursor : public Cursor {
     AbortCheck(context);
 
     while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
-      if (!input_cursor_->Pull(frame, context)) return false;
+      if (!input_cursor_->Pull(frame, context)) {
+        return false;
+      }
+      start_time_ = std::chrono::steady_clock::now();
       // We need a getter function, because in case of exhausting a lazy
       // iterable, we cannot simply reset it by calling begin().
       auto next_vertices = get_vertices_(frame, context);
@@ -804,6 +815,7 @@ class ScanAllCursor : public Cursor {
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     frame_writer.Write(output_symbol_, *vertices_it_.value());
     ++vertices_it_.value();
+    called_++;
     return true;
   }
 
@@ -839,6 +851,8 @@ class ScanAllCursor : public Cursor {
   std::optional<decltype(vertices_.value().begin())> vertices_it_;
   std::optional<decltype(vertices_.value().end())> vertices_end_it_;
   const char *op_name_;
+  int called_{0};
+  std::chrono::steady_clock::time_point start_time_;
 };
 template <typename TEdgesFun>
 class ScanAllByEdgeCursor : public Cursor {
@@ -1101,6 +1115,94 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgeTypeProperty::Clone(AstStorage *st
   return object;
 }
 
+namespace {
+std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optional<utils::Bound<Expression *>> bound,
+                                                                      ExpressionEvaluator &evaluator) {
+  if (!bound) return std::nullopt;
+  const auto &value = bound->value()->Accept(evaluator);
+  try {
+    const auto &property_value = value.ToPropertyValue(evaluator.GetNameIdMapper());
+    switch (property_value.type()) {
+      case storage::PropertyValue::Type::Bool:
+      case storage::PropertyValue::Type::List:
+      case storage::PropertyValue::Type::NumericList:
+      case storage::PropertyValue::Type::IntList:
+      case storage::PropertyValue::Type::DoubleList:
+      case storage::PropertyValue::Type::Map:
+      case storage::PropertyValue::Type::Enum:
+      case storage::PropertyValueType::Point2d:
+      case storage::PropertyValueType::Point3d:
+        // Prevent indexed lookup with something that would fail if we did
+        // the original filter with `operator<`. Note, for some reason,
+        // Cypher does not support comparing boolean values.
+        throw QueryRuntimeException("Range operator does not provide comparison methods for type {}.", value.type());
+      case storage::PropertyValue::Type::Null:
+      case storage::PropertyValue::Type::Int:
+      case storage::PropertyValue::Type::Double:
+      case storage::PropertyValue::Type::String:
+      case storage::PropertyValue::Type::TemporalData:
+      case storage::PropertyValue::Type::ZonedTemporalData:
+        return std::make_optional(utils::Bound<storage::PropertyValue>(property_value, bound->type()));
+    }
+  } catch (const TypedValueException &) {
+    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+  }
+}
+
+// Helper function to evaluate an expression and convert it to a property value.
+std::optional<storage::PropertyValue> EvaluateExpressionToPropertyValue(Expression *expression, Frame &frame,
+                                                                        ExecutionContext &context, storage::View view) {
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view,
+                                nullptr, &context.number_of_hops);
+  auto value = expression->Accept(evaluator);
+  if (value.IsNull()) {
+    return std::nullopt;
+  }
+  if (!value.IsPropertyValue()) {
+    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+  }
+  return value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
+}
+
+// Helper function to convert bounds and check for null values.
+std::pair<std::optional<utils::Bound<storage::PropertyValue>>, std::optional<utils::Bound<storage::PropertyValue>>>
+ConvertBoundsAndCheckNull(std::optional<utils::Bound<Expression *>> lower_bound,
+                          std::optional<utils::Bound<Expression *>> upper_bound, ExpressionEvaluator &evaluator) {
+  auto maybe_lower = TryConvertToBound(lower_bound, evaluator);
+  auto maybe_upper = TryConvertToBound(upper_bound, evaluator);
+
+  // If any bound is null, then the comparison would result in nulls.
+  // This is treated as not satisfying the filter.
+  if (maybe_lower && maybe_lower->value().IsNull()) {
+    return {std::nullopt, std::nullopt};
+  }
+  if (maybe_upper && maybe_upper->value().IsNull()) {
+    return {std::nullopt, std::nullopt};
+  }
+
+  return {maybe_lower, maybe_upper};
+}
+
+// Helper function to evaluate expression ranges and check for null bounds.
+// Returns nullopt if any bound is null.
+std::optional<std::vector<storage::PropertyValueRange>> EvaluateExpressionRangesAndCheckNull(
+    const std::vector<ExpressionRange> &expression_ranges, ExpressionEvaluator &evaluator) {
+  auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
+  auto prop_value_ranges = expression_ranges | rv::transform(to_property_value_range) | ranges::to_vector;
+
+  auto const bound_is_null = [](auto &&range) {
+    return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
+  };
+
+  // If either upper or lower bounds are `null`, then nothing can satisfy the filter.
+  if (ranges::any_of(prop_value_ranges, bound_is_null)) {
+    return std::nullopt;
+  }
+
+  return prop_value_ranges;
+}
+}  // namespace
+
 ScanAllByEdgeTypePropertyValue::ScanAllByEdgeTypePropertyValue(const std::shared_ptr<LogicalOperator> &input,
                                                                Symbol edge_symbol, Symbol node1_symbol,
                                                                Symbol node2_symbol, EdgeAtom::Direction direction,
@@ -1120,16 +1222,9 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource
       -> std::optional<decltype(context.db_accessor->Edges(view_, common_.edge_types[0], property_,
                                                            storage::PropertyValue()))> {
     auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
-                                  nullptr, &context.number_of_hops);
-    auto value = expression_->Accept(evaluator);
-    if (value.IsNull()) return std::nullopt;
-    if (!value.IsPropertyValue()) {
-      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-    }
-    return std::make_optional(
-        db->Edges(view_, common_.edge_types[0], property_,
-                  value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper())));
+    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
+    if (!maybe_prop_value) return std::nullopt;
+    return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, *maybe_prop_value));
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
@@ -1167,41 +1262,6 @@ ScanAllByEdgeTypePropertyRange::ScanAllByEdgeTypePropertyRange(
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeTypePropertyRange)
 
-namespace {
-std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optional<utils::Bound<Expression *>> bound,
-                                                                      ExpressionEvaluator &evaluator) {
-  if (!bound) return std::nullopt;
-  const auto &value = bound->value()->Accept(evaluator);
-  try {
-    const auto &property_value = value.ToPropertyValue(evaluator.GetNameIdMapper());
-    switch (property_value.type()) {
-      case storage::PropertyValue::Type::Bool:
-      case storage::PropertyValue::Type::List:
-      case storage::PropertyValue::Type::NumericList:
-      case storage::PropertyValue::Type::IntList:
-      case storage::PropertyValue::Type::DoubleList:
-      case storage::PropertyValue::Type::Map:
-      case storage::PropertyValue::Type::Enum:
-      case storage::PropertyValueType::Point2d:
-      case storage::PropertyValueType::Point3d:
-        // Prevent indexed lookup with something that would fail if we did
-        // the original filter with `operator<`. Note, for some reason,
-        // Cypher does not support comparing boolean values.
-        throw QueryRuntimeException("Range operator does not provide comparison methods for type {}.", value.type());
-      case storage::PropertyValue::Type::Null:
-      case storage::PropertyValue::Type::Int:
-      case storage::PropertyValue::Type::Double:
-      case storage::PropertyValue::Type::String:
-      case storage::PropertyValue::Type::TemporalData:
-      case storage::PropertyValue::Type::ZonedTemporalData:
-        return std::make_optional(utils::Bound<storage::PropertyValue>(property_value, bound->type()));
-    }
-  } catch (const TypedValueException &) {
-    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-  }
-}
-}  // namespace
-
 UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyRangeOperator);
 
@@ -1212,13 +1272,8 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
                                   nullptr, &context.number_of_hops);
 
-    auto maybe_lower = TryConvertToBound(lower_bound_, evaluator);
-    auto maybe_upper = TryConvertToBound(upper_bound_, evaluator);
-
-    // If any bound is null, then the comparison would result in nulls. This
-    // is treated as not satisfying the filter, so return no vertices.
-    if (maybe_lower && maybe_lower->value().IsNull()) return std::nullopt;
-    if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
+    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    if (!maybe_lower && !maybe_upper) return std::nullopt;
 
     return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, maybe_lower, maybe_upper));
   };
@@ -1306,15 +1361,9 @@ UniqueCursorPtr ScanAllByEdgePropertyValue::MakeCursor(utils::MemoryResource *me
       -> std::optional<decltype(context.db_accessor->Edges(view_, common_.edge_types[0], property_,
                                                            storage::PropertyValue()))> {
     auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
-                                  nullptr, &context.number_of_hops);
-    auto value = expression_->Accept(evaluator);
-    if (value.IsNull()) return std::nullopt;
-    if (!value.IsPropertyValue()) {
-      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-    }
-    return std::make_optional(db->Edges(
-        view_, property_, value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper())));
+    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
+    if (!maybe_prop_value) return std::nullopt;
+    return std::make_optional(db->Edges(view_, property_, *maybe_prop_value));
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
@@ -1360,13 +1409,8 @@ UniqueCursorPtr ScanAllByEdgePropertyRange::MakeCursor(utils::MemoryResource *me
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
                                   nullptr, &context.number_of_hops);
 
-    auto maybe_lower = TryConvertToBound(lower_bound_, evaluator);
-    auto maybe_upper = TryConvertToBound(upper_bound_, evaluator);
-
-    // If any bound is null, then the comparison would result in nulls. This
-    // is treated as not satisfying the filter, so return no vertices.
-    if (maybe_lower && maybe_lower->value().IsNull()) return std::nullopt;
-    if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
+    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    if (!maybe_lower && !maybe_upper) return std::nullopt;
 
     return std::make_optional(db->Edges(view_, property_, maybe_lower, maybe_upper));
   };
@@ -1423,20 +1467,12 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
                                   nullptr, &context.number_of_hops);
 
-    auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
-    auto prop_value_ranges = expression_ranges_ | rv::transform(to_property_value_range) | ranges::to_vector;
-
-    auto const bound_is_null = [](auto &&range) {
-      return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
-    };
-
-    // If either upper or lower bounds are `null`, then nothing can satisy the
-    // filter.
-    if (ranges::any_of(prop_value_ranges, bound_is_null)) {
+    auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
+    if (!maybe_prop_value_ranges) {
       return std::nullopt;
     }
 
-    return std::make_optional(db->Vertices(view_, label_, properties_, prop_value_ranges));
+    return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanAllByLabelProperties");
@@ -5777,7 +5813,6 @@ std::vector<Symbol> Aggregate::ModifiedSymbols(const SymbolTable &) const {
   for (const auto &elem : aggregations_) symbols.push_back(elem.output_sym);
   return symbols;
 }
-
 namespace {
 /** Returns the default TypedValue for an Aggregation element.
  * This value is valid both for returning when where are no inputs
@@ -5801,60 +5836,59 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
       return TypedValue(query::Graph(memory));
   }
 }
+
+void DefaultAggregation(ExecutionContext &context, const std::vector<Aggregate::Element> &aggregations,
+                        const auto &remember, FrameWriter &frame_writer) {
+  auto *pull_memory = context.evaluation_context.memory;
+  // place default aggregation values on the frame
+  for (const auto &elem : aggregations) {
+    frame_writer.Write(elem.output_sym, DefaultAggregationOpValue(elem, pull_memory));
+  }
+
+  // place null as remember values on the frame
+  for (const Symbol &remember_sym : remember) {
+    frame_writer.Write(remember_sym, TypedValue(pull_memory));
+  }
+}
 }  // namespace
+
+class AggregateParallelCursor;
 
 class AggregateCursor : public Cursor {
  public:
+  friend class AggregateParallelCursor;
   AggregateCursor(const Aggregate &self, utils::MemoryResource *mem)
       : self_(self),
         input_cursor_(self_.input_->MakeCursor(mem)),
         aggregation_(mem),
         reused_group_by_(self.group_by_.size(), mem) {}
-
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
-
     AbortCheck(context);
-
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-
     if (!pulled_all_input_) {
       if (!ProcessAll(&frame, &context) && !self_.group_by_.empty()) return false;
       pulled_all_input_ = true;
       aggregation_it_ = aggregation_.begin();
 
       if (aggregation_.empty()) {
-        auto *pull_memory = context.evaluation_context.memory;
-        // place default aggregation values on the frame
-        for (const auto &elem : self_.aggregations_) {
-          frame_writer.Write(elem.output_sym, DefaultAggregationOpValue(elem, pull_memory));
-        }
-
-        // place null as remember values on the frame
-        for (const Symbol &remember_sym : self_.remember_) {
-          frame_writer.Write(remember_sym, TypedValue(pull_memory));
-        }
+        DefaultAggregation(context, self_.aggregations_, self_.remember_, frame_writer);
         return true;
       }
     }
     if (aggregation_it_ == aggregation_.end()) return false;
-
     // place aggregation values on the frame
     auto aggregation_values_it = aggregation_it_->second.values_.begin();
     for (const auto &aggregation_elem : self_.aggregations_)
       frame_writer.Write(aggregation_elem.output_sym, *aggregation_values_it++);
-
     // place remember values on the frame
     auto remember_values_it = aggregation_it_->second.remember_.begin();
     for (const Symbol &remember_sym : self_.remember_) frame_writer.Write(remember_sym, *remember_values_it++);
-
     aggregation_it_++;
     return true;
   }
-
   void Shutdown() override { input_cursor_->Shutdown(); }
-
   void Reset() override {
     input_cursor_->Reset();
     aggregation_.clear();
@@ -5870,7 +5904,6 @@ class AggregateCursor : public Cursor {
   struct AggregationValue {
     explicit AggregationValue(utils::MemoryResource *mem)
         : counts_(mem), values_(mem), remember_(mem), unique_values_(mem) {}
-
     // how many input rows have been aggregated in respective values_ element so
     // far
     // TODO: The counting value type should be changed to an unsigned type once
@@ -5882,12 +5915,9 @@ class AggregateCursor : public Cursor {
     utils::pmr::vector<TypedValue> values_;
     // remember values.
     utils::pmr::vector<TypedValue> remember_;
-
     using TSet = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
-
     utils::pmr::vector<TSet> unique_values_;
   };
-
   const Aggregate &self_;
   const UniqueCursorPtr input_cursor_;
   // storage for aggregated data
@@ -5907,7 +5937,6 @@ class AggregateCursor : public Cursor {
   // this LogicalOp pulls all from the input on it's first pull
   // this switch tracks if this has been performed
   bool pulled_all_input_{false};
-
   /**
    * Pulls from the input operator until exhausted and aggregates the
    * results. If the input operator is not provided, a single call
@@ -5990,18 +6019,15 @@ class AggregateCursor : public Cursor {
    */
   void EnsureInitialized(const Frame &frame, AggregateCursor::AggregationValue *agg_value) const {
     if (!agg_value->values_.empty()) return;
-
     const auto num_of_aggregations = self_.aggregations_.size();
     agg_value->values_.reserve(num_of_aggregations);
     agg_value->unique_values_.reserve(num_of_aggregations);
-
     auto *mem = agg_value->values_.get_allocator().resource();
     for (const auto &agg_elem : self_.aggregations_) {
       agg_value->values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
       agg_value->unique_values_.emplace_back(AggregationValue::TSet(mem));
     }
     agg_value->counts_.resize(num_of_aggregations, 0);
-
     agg_value->remember_.reserve(self_.remember_.size());
     for (const Symbol &remember_sym : self_.remember_) {
       agg_value->remember_.push_back(frame[remember_sym]);
@@ -6971,7 +6997,7 @@ class CartesianCursor : public Cursor {
     }
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-    auto restore_frame = [&frame_writer, &context](const auto &symbols, const auto &restore_from) {
+    auto restore_frame = [&frame_writer](const auto &symbols, const auto &restore_from) {
       for (const auto &symbol : symbols) {
         frame_writer.Write(symbol, restore_from[symbol.position()]);
       }
@@ -8266,7 +8292,7 @@ class HashJoinCursor : public Cursor {
     }
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-    auto restore_frame = [&frame_writer, &context](const auto &symbols, const auto &restore_from) {
+    auto restore_frame = [&frame_writer](const auto &symbols, const auto &restore_from) {
       for (const auto &symbol : symbols) {
         frame_writer.Write(symbol, restore_from[symbol.position()]);
       }
@@ -8862,5 +8888,1258 @@ query::plan::Aggregate::Element query::plan::Aggregate::Element::Clone(query::As
   object.distinct = distinct;
   return object;
 }
+
+ScanChunk::ScanChunk(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view,
+                     Symbol state_symbol)
+    : ScanAll(input, std::move(output_symbol), view), state_symbol_(state_symbol) {
+  DMG_ASSERT(dynamic_cast<ParallelMerge *>(input.get()) != nullptr, "Input must be a ParallelMerge");
+}
+
+ACCEPT_WITH_INPUT(ScanChunk)
+
+UniqueCursorPtr ScanChunk::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO
+
+  auto vertices = [state_symbol = state_symbol_, state = std::unique_ptr<ParallelStateOnFrame>()](
+                      Frame &frame,
+                      ExecutionContext & /*context*/) mutable -> std::optional<VerticesChunkedIterable::Chunk> {
+    // Make sure state is valid for duration of the cursor
+    state = ParallelStateOnFrame::PopFromFrame(frame, state_symbol);
+    if (!state) return std::nullopt;
+    return state->GetVerticesChunk();
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                view_, std::move(vertices), "ScanChunk");
+}
+
+std::string ScanChunk::ToString() const { return fmt::format("ScanChunk ({})", output_symbol_.name()); }
+
+std::unique_ptr<LogicalOperator> ScanChunk::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanChunk>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->output_symbol_ = output_symbol_;
+  object->view_ = view_;
+  object->state_symbol_ = state_symbol_;
+  return object;
+}
+
+ScanChunkByEdge::ScanChunkByEdge(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
+                                 Symbol node2_symbol, EdgeAtom::Direction direction,
+                                 const std::vector<storage::EdgeTypeId> &edge_types, storage::View view,
+                                 Symbol state_symbol)
+    : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, edge_types, view),
+      state_symbol_(state_symbol) {}
+
+ACCEPT_WITH_INPUT(ScanChunkByEdge)
+
+UniqueCursorPtr ScanChunkByEdge::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeOperator);
+
+  auto edges = [state_symbol = state_symbol_, state = std::unique_ptr<ParallelStateOnFrame>()](
+                   Frame &frame, ExecutionContext & /*context*/) mutable -> std::optional<EdgesChunkedIterable::Chunk> {
+    state = ParallelStateOnFrame::PopFromFrame(frame, state_symbol);
+    if (!state) return std::nullopt;
+    return state->GetEdgesChunk();
+  };
+
+  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(edges)>>(mem, *this, input_->MakeCursor(mem), view_,
+                                                                   std::move(edges), "ScanChunkByEdge");
+}
+
+std::vector<Symbol> ScanChunkByEdge::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(common_.edge_symbol);
+  symbols.emplace_back(common_.node1_symbol);
+  symbols.emplace_back(common_.node2_symbol);
+  return symbols;
+}
+
+std::string ScanChunkByEdge::ToString() const {
+  return fmt::format(
+      "ScanChunkByEdge ({}){}[{}{}]{}({})", common_.node1_symbol.name(),
+      common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
+      utils::IterableToString(common_.edge_types, "|",
+                              [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
+      common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", common_.node2_symbol.name());
+}
+
+std::unique_ptr<LogicalOperator> ScanChunkByEdge::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanChunkByEdge>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->common_ = common_;
+  object->view_ = view_;
+  object->state_symbol_ = state_symbol_;
+  return object;
+}
+
+template <typename TChunksFun>
+class ScanParallelCursor : public Cursor {
+ public:
+  ScanParallelCursor(const ScanParallel &self, utils::MemoryResource *mem, TChunksFun get_chunks)
+      : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), get_chunks_(std::move(get_chunks)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+    size_t index = 0;
+
+    // Use the actual return type from get_chunks_ (can be VerticesChunkedIterable or EdgesChunkedIterable)
+    using ChunksType = std::invoke_result_t<TChunksFun, Frame &, ExecutionContext &>;
+    std::shared_ptr<ChunksType> chunks;
+
+    {
+      // Make sure frame is valid no matter how we exit the scope
+      auto safe_frame = utils::OnScopeExit{[&]() {
+        if (frame.elems().empty()) {
+          frame = Frame(context.symbol_table.max_position(), context.evaluation_context.memory);
+        }
+      }};
+      std::unique_lock lock(mutex_);
+
+      if (all_pulled_) return false;  // Everything was pulled
+
+      if (index_ == 0 || index_ >= self_.num_threads_) {
+        if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
+        chunks_.reset();
+        bool res = input_cursor_->Pull(*frame_, context);
+        if (!res) {
+          all_pulled_ = true;
+          return false;
+        }
+        index_ = 0;
+        chunks_ = std::make_shared<ChunksType>(get_chunks_(*frame_, context));
+      }
+
+      frame = *frame_;  // Copy the filled frame
+      chunks = chunks_;
+      index = index_++;
+    }
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    ParallelStateOnFrame::PushToFrame(frame_writer, context.evaluation_context.memory, self_.state_symbol_, chunks,
+                                      index);
+    return true;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override { input_cursor_->Reset(); }
+
+ private:
+  mutable std::mutex mutex_;
+  size_t index_{0};
+  std::shared_ptr<typename std::result_of<TChunksFun(Frame &, ExecutionContext &)>::type> chunks_;
+  const ScanParallel &self_;
+  std::optional<Frame> frame_{std::nullopt};
+  const UniqueCursorPtr input_cursor_;
+  TChunksFun get_chunks_;
+  bool all_pulled_{false};
+};
+
+UniqueCursorPtr ScanParallel::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO
+
+  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+    // Make sure chunks is valid for duration of the cursor
+    auto *db = context.db_accessor;
+    return db->ChunkedVertices(view_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+ScanParallel::ScanParallel(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                           Symbol state_symbol)
+    : input_(input), view_(view), num_threads_(num_threads), state_symbol_(state_symbol) {}
+
+ACCEPT_WITH_INPUT(ScanParallel)
+
+std::string ScanParallel::ToString() const { return fmt::format("ScanParallel (threads: {})", num_threads_); }
+
+std::unique_ptr<LogicalOperator> ScanParallel::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallel>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  return object;
+}
+
+ScanParallelByLabel::ScanParallelByLabel(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                         size_t num_threads, Symbol state_symbol, storage::LabelId label)
+    : ScanParallel(input, view, num_threads, state_symbol), label_(label) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByLabel)
+
+UniqueCursorPtr ScanParallelByLabel::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+
+  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return db->ChunkedVertices(view_, label_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByLabel::ToString() const {
+  return fmt::format("ScanParallelByLabel (threads: {}, label: {})", num_threads_, label_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByLabel::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByLabel>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->label_ = label_;
+  return object;
+}
+
+ScanParallelByEdgeType::ScanParallelByEdgeType(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                               size_t num_threads, Symbol state_symbol, storage::EdgeTypeId edge_type)
+    : ScanParallel(input, view, num_threads, state_symbol), edge_type_(edge_type) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgeType)
+
+UniqueCursorPtr ScanParallelByEdgeType::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+
+  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return db->ChunkedEdges(view_, edge_type_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByEdgeType::ToString() const {
+  return fmt::format("ScanParallelByEdgeType (threads: {}, edge_type: {})", num_threads_, edge_type_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeType::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgeType>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->edge_type_ = edge_type_;
+  return object;
+}
+
+ScanParallelByLabelProperties::ScanParallelByLabelProperties(const std::shared_ptr<LogicalOperator> &input,
+                                                             storage::View view, size_t num_threads,
+                                                             Symbol state_symbol, storage::LabelId label,
+                                                             std::vector<storage::PropertyPath> properties,
+                                                             std::vector<ExpressionRange> expression_ranges)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      label_(label),
+      properties_(std::move(properties)),
+      expression_ranges_(std::move(expression_ranges)) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByLabelProperties)
+
+UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
+                                  nullptr, &context.number_of_hops);
+
+    auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
+    if (!maybe_prop_value_ranges) {
+      // Return empty chunks if bounds are null - need to handle this case
+      // For now, we'll create a dummy chunks object, but this might need special handling
+      return db->ChunkedVertices(view_, label_, properties_, std::vector<storage::PropertyValueRange>{}, num_threads_);
+    }
+
+    return db->ChunkedVertices(view_, label_, properties_, *maybe_prop_value_ranges, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByLabelProperties::ToString() const {
+  return fmt::format("ScanParallelByLabelProperties (threads: {}, label: {})", num_threads_, label_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByLabelProperties::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByLabelProperties>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->label_ = label_;
+  object->properties_ = properties_;
+  object->expression_ranges_ = expression_ranges_ |
+                               rv::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
+                               ranges::to_vector;
+  return object;
+}
+
+ScanParallelByEdgeTypeProperty::ScanParallelByEdgeTypeProperty(const std::shared_ptr<LogicalOperator> &input,
+                                                               storage::View view, size_t num_threads,
+                                                               Symbol state_symbol, storage::EdgeTypeId edge_type,
+                                                               storage::PropertyId property)
+    : ScanParallel(input, view, num_threads, state_symbol), edge_type_(edge_type), property_(property) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgeTypeProperty)
+
+UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+
+  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return db->ChunkedEdges(view_, edge_type_, property_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByEdgeTypeProperty::ToString() const {
+  return fmt::format("ScanParallelByEdgeTypeProperty (threads: {}, edge_type: {}, property: {})", num_threads_,
+                     edge_type_.AsUint(), property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypeProperty::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgeTypeProperty>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->edge_type_ = edge_type_;
+  object->property_ = property_;
+  return object;
+}
+
+ScanParallelByEdgeTypePropertyRange::ScanParallelByEdgeTypePropertyRange(
+    const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads, Symbol state_symbol,
+    storage::EdgeTypeId edge_type, storage::PropertyId property, std::optional<Bound> lower_bound,
+    std::optional<Bound> upper_bound)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      edge_type_(edge_type),
+      property_(property),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgeTypePropertyRange)
+
+UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
+                                  nullptr, &context.number_of_hops);
+
+    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    if (!maybe_lower && !maybe_upper) {
+      // Return empty chunks - need special handling
+      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, num_threads_);
+    }
+
+    return db->ChunkedEdges(view_, edge_type_, property_, maybe_lower, maybe_upper, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByEdgeTypePropertyRange::ToString() const {
+  return fmt::format("ScanParallelByEdgeTypePropertyRange (threads: {}, edge_type: {}, property: {})", num_threads_,
+                     edge_type_.AsUint(), property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyRange::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgeTypePropertyRange>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->edge_type_ = edge_type_;
+  object->property_ = property_;
+  if (lower_bound_) {
+    object->lower_bound_.emplace(
+        utils::Bound<Expression *>(lower_bound_->value()->Clone(storage), lower_bound_->type()));
+  }
+  if (upper_bound_) {
+    object->upper_bound_.emplace(
+        utils::Bound<Expression *>(upper_bound_->value()->Clone(storage), upper_bound_->type()));
+  }
+  return object;
+}
+
+ScanParallelByEdgeProperty::ScanParallelByEdgeProperty(const std::shared_ptr<LogicalOperator> &input,
+                                                       storage::View view, size_t num_threads, Symbol state_symbol,
+                                                       storage::PropertyId property)
+    : ScanParallel(input, view, num_threads, state_symbol), property_(property) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgeProperty)
+
+UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+
+  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return db->ChunkedEdges(view_, property_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByEdgeProperty::ToString() const {
+  return fmt::format("ScanParallelByEdgeProperty (threads: {}, property: {})", num_threads_, property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeProperty::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgeProperty>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->property_ = property_;
+  return object;
+}
+
+ScanParallelByEdgePropertyValue::ScanParallelByEdgePropertyValue(const std::shared_ptr<LogicalOperator> &input,
+                                                                 storage::View view, size_t num_threads,
+                                                                 Symbol state_symbol, storage::PropertyId property,
+                                                                 Expression *expression)
+    : ScanParallel(input, view, num_threads, state_symbol), property_(property), expression_(expression) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgePropertyValue)
+
+UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
+    if (!maybe_prop_value) {
+      // Return empty chunks - need special handling
+      return db->ChunkedEdges(view_, property_, storage::PropertyValue(), num_threads_);
+    }
+    return db->ChunkedEdges(view_, property_, *maybe_prop_value, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByEdgePropertyValue::ToString() const {
+  return fmt::format("ScanParallelByEdgePropertyValue (threads: {}, property: {})", num_threads_, property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyValue::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgePropertyValue>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->property_ = property_;
+  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  return object;
+}
+
+ScanParallelByEdgePropertyRange::ScanParallelByEdgePropertyRange(const std::shared_ptr<LogicalOperator> &input,
+                                                                 storage::View view, size_t num_threads,
+                                                                 Symbol state_symbol, storage::PropertyId property,
+                                                                 std::optional<Bound> lower_bound,
+                                                                 std::optional<Bound> upper_bound)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      property_(property),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgePropertyRange)
+
+UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_,
+                                  nullptr, &context.number_of_hops);
+
+    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    if (!maybe_lower && !maybe_upper) {
+      return db->ChunkedEdges(view_, property_, std::nullopt, std::nullopt, num_threads_);
+    }
+
+    return db->ChunkedEdges(view_, property_, maybe_lower, maybe_upper, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByEdgePropertyRange::ToString() const {
+  return fmt::format("ScanParallelByEdgePropertyRange (threads: {}, property: {})", num_threads_, property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyRange::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgePropertyRange>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->property_ = property_;
+  if (lower_bound_) {
+    object->lower_bound_.emplace(
+        utils::Bound<Expression *>(lower_bound_->value()->Clone(storage), lower_bound_->type()));
+  }
+  if (upper_bound_) {
+    object->upper_bound_.emplace(
+        utils::Bound<Expression *>(upper_bound_->value()->Clone(storage), upper_bound_->type()));
+  }
+  return object;
+}
+
+ScanParallelByPointDistance::ScanParallelByPointDistance(const std::shared_ptr<LogicalOperator> &input,
+                                                         storage::View view, size_t num_threads, Symbol state_symbol,
+                                                         storage::LabelId label, storage::PropertyId property,
+                                                         Expression *cmp_value, Expression *boundary_value,
+                                                         PointDistanceCondition boundary_condition)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      label_(label),
+      property_(property),
+      cmp_value_(cmp_value),
+      boundary_value_(boundary_value),
+      boundary_condition_(boundary_condition) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByPointDistance)
+
+UniqueCursorPtr ScanParallelByPointDistance::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+  // Note: PointVertices doesn't have a chunked version, so we fall back to regular vertices with label
+  // This is a limitation that should be addressed in the future
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    // For now, we can't chunk point distance queries, so we use regular label-based chunking
+    // This is not ideal but maintains compatibility
+    return db->ChunkedVertices(view_, label_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByPointDistance::ToString() const {
+  return fmt::format("ScanParallelByPointDistance (threads: {}, label: {})", num_threads_, label_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByPointDistance::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByPointDistance>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->label_ = label_;
+  object->property_ = property_;
+  object->cmp_value_ = cmp_value_ ? cmp_value_->Clone(storage) : nullptr;
+  object->boundary_value_ = boundary_value_ ? boundary_value_->Clone(storage) : nullptr;
+  object->boundary_condition_ = boundary_condition_;
+  return object;
+}
+
+ScanParallelByWithinbbox::ScanParallelByWithinbbox(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                                   size_t num_threads, Symbol state_symbol, storage::LabelId label,
+                                                   storage::PropertyId property, Expression *bottom_left,
+                                                   Expression *top_right, Expression *boundary_value)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      label_(label),
+      property_(property),
+      bottom_left_(bottom_left),
+      top_right_(top_right),
+      boundary_value_(boundary_value) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByWithinbbox)
+
+UniqueCursorPtr ScanParallelByWithinbbox::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+  // Note: PointVertices doesn't have a chunked version, so we fall back to regular vertices with label
+  // This is a limitation that should be addressed in the future
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    // For now, we can't chunk point within bbox queries, so we use regular label-based chunking
+    // This is not ideal but maintains compatibility
+    return db->ChunkedVertices(view_, label_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByWithinbbox::ToString() const {
+  return fmt::format("ScanParallelByWithinbbox (threads: {}, label: {})", num_threads_, label_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByWithinbbox::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByWithinbbox>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->label_ = label_;
+  object->property_ = property_;
+  object->bottom_left_ = bottom_left_ ? bottom_left_->Clone(storage) : nullptr;
+  object->top_right_ = top_right_ ? top_right_->Clone(storage) : nullptr;
+  object->boundary_value_ = boundary_value_ ? boundary_value_->Clone(storage) : nullptr;
+  return object;
+}
+
+ScanParallelByEdge::ScanParallelByEdge(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                       size_t num_threads, Symbol state_symbol, Symbol edge_symbol, Symbol node1_symbol,
+                                       Symbol node2_symbol, EdgeAtom::Direction direction)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      edge_symbol_(edge_symbol),
+      node1_symbol_(node1_symbol),
+      node2_symbol_(node2_symbol),
+      direction_(direction) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdge)
+
+UniqueCursorPtr ScanParallelByEdge::MakeCursor(utils::MemoryResource * /*mem*/) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeOperator);
+  throw utils::NotYetImplemented("Parallel scan over edges!");
+}
+
+std::string ScanParallelByEdge::ToString() const {
+  return fmt::format("ScanParallelByEdge (threads: {})", num_threads_);
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdge::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdge>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->edge_symbol_ = edge_symbol_;
+  object->node1_symbol_ = node1_symbol_;
+  object->node2_symbol_ = node2_symbol_;
+  object->direction_ = direction_;
+  return object;
+}
+
+ScanParallelByEdgeTypePropertyValue::ScanParallelByEdgeTypePropertyValue(
+    const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads, Symbol state_symbol,
+    storage::EdgeTypeId edge_type, storage::PropertyId property, Expression *expression)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      edge_type_(edge_type),
+      property_(property),
+      expression_(expression) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgeTypePropertyValue)
+
+UniqueCursorPtr ScanParallelByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
+  // Note: There's no ChunkedEdges(edge_type, property, value) method, so we use the range version
+  // with equal bounds to simulate the value lookup
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
+    if (!maybe_prop_value) {
+      // Return empty chunks
+      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, num_threads_);
+    }
+    // Use range with equal bounds to simulate value lookup
+    auto bound = utils::MakeBoundInclusive(*maybe_prop_value);
+    return db->ChunkedEdges(view_, edge_type_, property_, bound, bound, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+}
+
+std::string ScanParallelByEdgeTypePropertyValue::ToString() const {
+  return fmt::format("ScanParallelByEdgeTypePropertyValue (threads: {}, edge_type: {}, property: {})", num_threads_,
+                     edge_type_.AsUint(), property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyValue::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgeTypePropertyValue>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->edge_type_ = edge_type_;
+  object->property_ = property_;
+  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  return object;
+}
+
+class ParallelMergeCursor;
+
+ParallelMerge::ParallelMerge(const std::shared_ptr<LogicalOperator> &input) : input_(input) {
+  DMG_ASSERT(dynamic_cast<ScanParallel *>(input.get()) != nullptr, "Input must be a ScanParallel");
+}
+
+ACCEPT_WITH_INPUT(ParallelMerge)
+
+std::string ParallelMerge::ToString() const { return "ParallelMerge"; }
+
+std::unique_ptr<LogicalOperator> ParallelMerge::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ParallelMerge>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  return object;
+}
+
+std::vector<Symbol> ParallelMerge::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+UniqueCursorPtr ParallelMerge::MakeCursor(utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<ParallelMergeCursor>(mem, *this, mem);
+}
+
+class ParallelMergeCursor : public Cursor {
+ public:
+  ParallelMergeCursor(const ParallelMerge &self, utils::MemoryResource *mem)
+      : self_(self),
+        collection_scheduler_(std::invoke([&]() -> std::shared_ptr<utils::CollectionScheduler> {
+          return std::exchange(plan_creation_helper_.collection_scheduler_, nullptr);
+        })),
+        input_cursor_(std::invoke([&]() {
+          if (!plan_creation_helper_.cursor_) {
+            plan_creation_helper_.cursor_ = self_.input_->MakeCursor(mem);
+          }
+          return plan_creation_helper_.cursor_;
+        })) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    auto res = input_cursor_->Pull(frame, context);
+
+    // Source aggregation cannot schedule collection unitl we made a first pass through the query
+    // Otherwise all would block on the first scan parallel operator and wait until (potentially) evrything has been
+    // pulled We would fallback to single threaded execution for all subsequent parallel operators. This is hacky, but
+    // it works. The real solution is to convert cursors into coroutines and yield here.
+    if (collection_scheduler_) {
+      // Scheduler paralle work for this section
+      collection_scheduler_->Trigger();
+      collection_scheduler_.reset();
+    }
+    return res;
+  }
+
+  void Shutdown() override {
+    if (input_cursor_) input_cursor_->Shutdown();
+    input_cursor_.reset();
+  }
+
+  void Reset() override {
+    if (input_cursor_) input_cursor_->Reset();
+  }
+
+  static void ResetPlanCreationHelper() { plan_creation_helper_.reset(); }
+
+  struct PlanCreationHelper {
+    PlanCreationHelper(std::shared_ptr<utils::CollectionScheduler> collection_scheduler) {
+      ParallelMergeCursor::plan_creation_helper_.reset();
+      ParallelMergeCursor::plan_creation_helper_.collection_scheduler_ = collection_scheduler;
+    }
+    ~PlanCreationHelper() { ParallelMergeCursor::ResetPlanCreationHelper(); }
+  };
+
+  struct CreationHelper {
+    void reset() {
+      cursor_.reset();
+      collection_scheduler_.reset();
+    }
+    std::shared_ptr<Cursor> cursor_{nullptr};
+    std::shared_ptr<utils::CollectionScheduler> collection_scheduler_{nullptr};
+  };
+
+ private:
+  const ParallelMerge &self_;
+  static thread_local CreationHelper plan_creation_helper_;
+  std::shared_ptr<utils::CollectionScheduler> collection_scheduler_{nullptr};
+  std::shared_ptr<Cursor> input_cursor_;
+};
+
+thread_local ParallelMergeCursor::CreationHelper ParallelMergeCursor::plan_creation_helper_{nullptr};
+
+/**
+ * Generic base class for parallel branch execution.
+ * Handles creating multiple cursors, executing them in parallel, and unifying context fields.
+ * Derived classes should override MergeResults() to implement domain-specific merging logic.
+ */
+class ParallelBranchCursor : public Cursor {
+ public:
+  ParallelBranchCursor(const std::shared_ptr<LogicalOperator> &branch_input, size_t num_threads,
+                       utils::MemoryResource *mem)
+      : collection_scheduler_(std::make_shared<utils::CollectionScheduler>(nullptr, nullptr)),
+        branch_cursors_(std::invoke([&]() {
+          ParallelMergeCursor::PlanCreationHelper helper{collection_scheduler_};
+          std::vector<UniqueCursorPtr> cursors;
+          const auto effective_num_threads = std::min(num_threads, static_cast<size_t>(FLAGS_bolt_num_workers));
+          cursors.reserve(effective_num_threads);
+          for (size_t i = 0; i < effective_num_threads; i++) {
+            cursors.push_back(branch_input->MakeCursor(mem));
+          }
+          return cursors;
+        })) {}
+
+  void Shutdown() override {
+    for (const auto &cursor : branch_cursors_) cursor->Shutdown();
+  }
+
+  void Reset() override {
+    for (const auto &cursor : branch_cursors_) cursor->Reset();
+  }
+
+ protected:
+  /**
+   * Execute all branches in parallel and unify context fields.
+   * The first branch (index 0) runs on the main thread, others run in parallel tasks.
+   *
+   * @param frame Frame for the main branch (branch 0)
+   * @param context Execution context (will be modified to unify branch results)
+   * @param self Reference to the operator for profiling
+   * @return true if any branch returned true from Pull(), false otherwise
+   */
+  bool ExecuteBranchesInParallel(Frame &frame, ExecutionContext &context, const LogicalOperator &self, auto &&profile,
+                                 auto &&pre_pull_func, auto &&post_pull_func) {
+    if (branch_cursors_.empty()) {
+      return false;
+    }
+
+    // Make sure auth is thread safe
+    if (context.auth_checker) {
+      context.auth_checker->MakeThreadSafe();
+    }
+
+    AbortCheck(context);
+
+    std::atomic_int pull_result = 0;
+    const auto num_branches = branch_cursors_.size();
+    const auto num_branches_without_main = num_branches - 1;
+
+    utils::TaskCollection tasks(num_branches);
+    std::vector<std::exception_ptr> exceptions(num_branches, nullptr);
+    // Store context copies from each branch for unification after execution
+    std::vector<ExecutionContext> branch_contexts(num_branches_without_main);
+    // Store collector copies for each branch (they're not thread-safe, so each branch needs its own)
+    std::vector<std::optional<TriggerContextCollector>> branch_trigger_collectors(num_branches_without_main);
+    std::vector<std::optional<FrameChangeCollector>> branch_frame_collectors(num_branches_without_main);
+
+    // Execute branches 1..N in parallel
+    for (size_t i = 1; i < num_branches; i++) {
+      tasks.AddTask([&, i, context, main_thread = std::this_thread::get_id(), post_pull_func,
+                     mem_tracking = memgraph::memory::CrossThreadMemoryTracking()](utils::Priority /*unused*/) mutable {
+        OOMExceptionEnabler oom_exception;
+        utils::Timer timer;
+        mem_tracking.StartTracking();  // automatically stops
+        // Create parallel operator entry in branch's stats tree
+        context.stats_root = nullptr;
+        context.stats = plan::ProfilingStats();
+        SCOPED_PROFILE_OP_BY_REF(self);
+
+        DMG_ASSERT(context.auth_checker->IsThreadSafe(), "Auth checker is not thread safe");
+        const auto &cursor = branch_cursors_[i];
+        const auto metadata_i = i - 1;
+        if (context.frame_change_collector != nullptr) {
+          auto &collector =
+              branch_frame_collectors[metadata_i].emplace(context.frame_change_collector->get_allocator());
+          context.frame_change_collector = &collector;
+        }
+        if (context.trigger_context_collector != nullptr) {
+          // Create a copy of the main trigger context collector for this branch
+          auto &collector = branch_trigger_collectors[metadata_i].emplace(*context.trigger_context_collector);
+          context.trigger_context_collector = &collector;
+        }
+
+        // TODO Could crash if there is nothing to pull
+        Frame frame_local(0);  // No need to allocate the frame, it will be copied after the pull
+
+        try {
+          pre_pull_func(cursor.get());
+          pull_result.fetch_add((int)cursor->Pull(frame_local, context));
+          // Store the context copy after execution for unification
+          // Force state reset (life extended through the context)
+          const_cast<std::optional<ScopedProfile> &>(profile).reset();
+          if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen
+            // NOTE: Parallel operators have to PullAll, so no need to worry about switching threads (at the bolt level)
+            // Main thread is handled by the higher level
+            context.profile_execution_time += timer.Elapsed();
+          }
+          branch_contexts[metadata_i] = std::move(context);
+          post_pull_func(cursor.get());
+        } catch (const std::exception &e) {
+          // Stop all other threads
+          DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
+          if (context.stopping_context.exception_occurred->load(std::memory_order_acquire)) {
+            // Exception already occurred, skip this thread
+            return;
+          }
+          // Set exception occurred flag and pass exception to the main thread
+          context.stopping_context.exception_occurred->store(true, std::memory_order_release);
+          exceptions[i] = std::current_exception();
+          return;
+        }
+      });
+    }
+
+    collection_scheduler_->SetCollection(std::make_shared<utils::TaskCollection>(std::move(tasks)));
+    collection_scheduler_->SetPool(context.worker_pool);
+
+    // TODO Reuse the same logic as each thread
+    // Execute branch 0 on the main thread
+    const auto &cursor = branch_cursors_[0];
+    try {
+      pull_result.fetch_add((int)cursor->Pull(frame, context));
+      post_pull_func(cursor.get());
+    } catch (const std::exception &e) {
+      DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
+      if (!context.stopping_context.exception_occurred->load(std::memory_order_acquire)) {
+        // Exception occurred on the main thread, set flag and pass exception to the main thread
+        context.stopping_context.exception_occurred->store(true, std::memory_order_release);
+        exceptions[0] = std::current_exception();
+      }
+    }
+
+    collection_scheduler_->WaitOrSteal();
+
+    // Check for exceptions
+    if (const auto exception_it = std::find_if(exceptions.begin(), exceptions.end(),
+                                               [](const std::exception_ptr &e) { return e != nullptr; });
+        exception_it != exceptions.end()) {
+      // Just rethrow the first exception
+      std::rethrow_exception(*exception_it);
+    }
+
+    // Nothing to pull, return
+    if (pull_result.load() == 0) return false;
+
+    // Unify context fields from all branches
+    UnifyContexts(context, branch_contexts, branch_trigger_collectors, branch_frame_collectors, std::move(profile));
+
+    return true;
+  }
+
+  /**
+   * Unify context fields from all branches into the main context.
+   */
+  void UnifyContexts(ExecutionContext &context, std::vector<ExecutionContext> &branch_contexts,
+                     const std::vector<std::optional<TriggerContextCollector>> &branch_trigger_collectors,
+                     const std::vector<std::optional<FrameChangeCollector>> &branch_frame_collectors, auto &&profile) {
+    plan::ProfilingStats *parallel_stats = context.stats_root;  // save before resetting the profile
+    const_cast<std::optional<ScopedProfile> &>(profile).reset();
+
+    // Helper to find all ancestors of a stats node
+    auto FindAncestors = [](plan::ProfilingStats &root,
+                            plan::ProfilingStats *target) -> std::vector<plan::ProfilingStats *> {
+      std::vector<plan::ProfilingStats *> ancestors;
+      std::function<bool(plan::ProfilingStats &, plan::ProfilingStats *)> FindPath =
+          [&FindPath, &ancestors, target](plan::ProfilingStats &current, plan::ProfilingStats *parent) -> bool {
+        if (&current == target) {
+          // Found the target - add the parent to ancestors if it exists
+          if (parent != nullptr) ancestors.push_back(parent);
+          return true;  // Found it
+        }
+        for (auto &child : current.children) {
+          if (FindPath(child, &current)) {
+            if (parent != nullptr) ancestors.push_back(parent);
+            return true;
+          }
+        }
+        return false;
+      };
+      FindPath(root, nullptr);
+      return ancestors;
+    };
+
+    // Find ancestors once (they don't change during merging)
+    std::vector<plan::ProfilingStats *> ancestors;
+    if (context.is_profile_query && parallel_stats != nullptr) {
+      ancestors = FindAncestors(context.stats, parallel_stats);
+    }
+
+    DMG_ASSERT(branch_contexts.size() == branch_frame_collectors.size() &&
+                   branch_contexts.size() == branch_trigger_collectors.size(),
+               "Branch contexts, frame collectors and trigger collectors must have the same size");
+
+    // Unify context fields from all branches into the main context
+    for (size_t branch_index = 0; branch_index < branch_contexts.size(); branch_index++) {
+      auto &branch_ctx = branch_contexts[branch_index];
+      // Unify number_of_hops: sum across all branches
+      context.number_of_hops += branch_ctx.number_of_hops;
+
+      // Unify execution_stats: sum all counters across branches
+      for (size_t key_idx = 0; key_idx < context.execution_stats.counters.size(); ++key_idx) {
+        context.execution_stats.counters[key_idx] += branch_ctx.execution_stats.counters[key_idx];
+      }
+
+      // Unify evaluation_context.counters: sum counters by key across branches
+      for (const auto &[counter_key, counter_value] : branch_ctx.evaluation_context.counters) {
+        context.evaluation_context.counters[counter_key] += counter_value;
+      }
+
+      // Unify frame_change_collector: merge collected data from branch into main collector
+      if (context.frame_change_collector != nullptr && branch_frame_collectors[branch_index].has_value()) {
+        context.frame_change_collector->MergeFrom(branch_frame_collectors[branch_index].value());
+      }
+
+      // Unify trigger_context_collector: merge collected trigger data from branch into main collector
+      if (context.trigger_context_collector != nullptr && branch_trigger_collectors[branch_index].has_value()) {
+        context.trigger_context_collector->MergeFrom(branch_trigger_collectors[branch_index].value());
+      }
+
+      // Unify profiling stats: merge stats trees
+      if (context.is_profile_query && parallel_stats != nullptr && branch_ctx.stats.key == parallel_stats->key) {
+        // Update CPU time
+        context.profile_execution_time += branch_ctx.profile_execution_time;
+        // Merge stats by recursively combining stats with the same key
+        std::function<void(plan::ProfilingStats &, plan::ProfilingStats &)> MergeProfilingStats =
+            [&MergeProfilingStats](plan::ProfilingStats &main_stats, plan::ProfilingStats &branch_stats) {
+              // Add hits and cycles
+              main_stats.actual_hits += branch_stats.actual_hits;
+              main_stats.num_cycles += branch_stats.num_cycles;
+
+              if (main_stats.children.size() < branch_stats.children.size()) {
+                std::swap(main_stats.children, branch_stats.children);
+                // throw std::runtime_error(
+                //     "Main stats children size is less than branch stats children size");  // TODO Fix this
+              }
+
+              for (int j = 0; j < branch_stats.children.size(); j++) {
+                auto &main_child = main_stats.children[j];
+                auto &branch_child = branch_stats.children[j];
+                if (main_child.name == branch_child.name) {
+                  MergeProfilingStats(main_child, branch_child);
+                } else {
+                  throw std::runtime_error("Main child or branch child name mismatch");  // TODO Fix this
+                }
+              }
+            };
+        // Merge stats trees
+        MergeProfilingStats(*parallel_stats, branch_ctx.stats);
+        // Add the branch's delta cycles to all ancestor stats
+        for (auto *ancestor : ancestors) {
+          ancestor->num_cycles += branch_ctx.stats.num_cycles;
+        }
+      }
+    }
+  }
+
+  std::shared_ptr<utils::CollectionScheduler> collection_scheduler_;
+  const std::vector<UniqueCursorPtr> branch_cursors_;
+};
+
+namespace {
+void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const auto &aggregations) {
+  for (auto other_itr = other_aggregation.begin(); other_itr != other_aggregation.end();) {
+    auto node = other_aggregation.extract(other_itr++);
+    auto [main_itr, main_inserted, other_node] = main_aggregation.insert(std::move(node));
+    if (main_inserted) {
+      continue;
+    }
+    auto &main_agg_value = main_itr->second;
+    auto &other_agg_value = other_node.mapped();
+
+    for (size_t pos = 0; pos < aggregations.size(); ++pos) {
+      const auto &agg_info = aggregations[pos];  // Cache reference
+      const auto &agg_op = agg_info.op;
+
+      auto &other_value = other_agg_value.values_[pos];
+      auto &main_value = main_agg_value.values_[pos];  // Reference for easy access
+
+      // OPTIMIZATION: Merge Sets efficiently
+      if (agg_info.distinct) {
+        // C++17: Splicing sets is much faster than inserting elements one by one
+        // If your unique_values_ are std::set or std::unordered_set
+        main_agg_value.unique_values_[pos].merge(other_agg_value.unique_values_[pos]);
+        // Note: merge leaves duplicates in 'other'. If you don't need 'other' after this, that's fine.
+      }
+
+      // Skip Nulls (except for COUNT)
+      // BUG FIX: Changed 'return' to 'continue'
+      if (other_value.IsNull() && agg_op != Aggregation::Op::COUNT) {
+        continue;
+      }
+
+      auto &main_count = main_agg_value.counts_[pos];
+      const auto other_count = other_agg_value.counts_[pos];
+      const auto old_main_count = main_count;
+
+      main_count += other_count;
+
+      // Logic: If main is null, simply take the other value
+      if (main_value.IsNull()) {
+        main_value = std::move(other_value);  // Move instead of copy
+        continue;
+      }
+
+      switch (agg_op) {
+        case Aggregation::Op::COUNT:
+        case Aggregation::Op::SUM: {
+          main_value = main_value + other_value;
+          break;
+        }
+        case Aggregation::Op::AVG: {
+          // Weighted Average: (M_avg * M_cnt + O_avg * O_cnt) / (M_cnt + O_cnt)
+          // Optimized to avoid excessive TypedValue constructions if possible
+          const TypedValue other_sum = other_value * TypedValue(other_count);
+          const TypedValue main_sum = main_value * TypedValue(old_main_count);
+          main_value = (main_sum + other_sum) / TypedValue(main_count);
+          break;
+        }
+        case Aggregation::Op::MIN: {
+          if ((other_value < main_value).ValueBool()) {
+            main_value = std::move(other_value);
+          }
+          break;
+        }
+        case Aggregation::Op::MAX: {
+          if ((other_value > main_value).ValueBool()) {
+            main_value = std::move(other_value);
+          }
+          break;
+        }
+        case Aggregation::Op::COLLECT_LIST: {
+          // OPTIMIZATION: Use std::move iterator or splice if underlying type supports it
+          // Assuming TypedValue::operator+ handles lists, ensure it doesn't deep copy everything
+          // ideally: main_value.AppendList(std::move(other_value));
+          main_value = main_value + other_value;
+          break;
+        }
+        case Aggregation::Op::COLLECT_MAP: {
+          // Direct map access to avoid overhead
+          auto &main_map = main_value.ValueMap();
+          auto &other_map = other_value.ValueMap();
+          // Merge maps efficiently
+          if (main_map.empty()) {
+            main_map = std::move(other_map);
+          } else {
+            // Use merge for maps (C++17) or insert with move
+            for (auto &[k, v] : other_map) {
+              main_map.insert_or_assign(k, std::move(v));
+            }
+          }
+          break;
+        }
+        case Aggregation::Op::PROJECT_PATH:
+        case Aggregation::Op::PROJECT_LISTS: {
+          auto &main_graph = main_value.ValueGraph();
+          auto &other_graph = other_value.ValueGraph();
+
+          // Assuming graphs have specific bulk-insert/merge methods, usage implies manual looping:
+          // Try to move vertices/edges if possible to avoid internal allocations
+          for (auto &vertex : other_graph.vertices()) {
+            main_graph.InsertVertex(std::move(vertex));
+          }
+          for (auto &edge : other_graph.edges()) {
+            main_graph.InsertEdge(std::move(edge));
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    }
+  }
+}
+}  // namespace
+
+class AggregateParallelCursor : public ParallelBranchCursor {
+ public:
+  AggregateParallelCursor(const AggregateParallel &self, utils::MemoryResource *mem)
+      : ParallelBranchCursor(self.input_, self.num_threads_, mem), self_(self) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    if (branch_cursors_.empty()) {
+      return false;
+    }
+
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    const auto &remember = static_cast<AggregateCursor *>(branch_cursors_[0].get())->self_.remember_;
+    const auto &aggregations = static_cast<AggregateCursor *>(branch_cursors_[0].get())->self_.aggregations_;
+
+    std::mutex branch_aggregations_mutex;
+    std::queue<decltype(main_aggregation_)> branch_aggregations;
+
+    // First pull, process all input and store results in the aggregation map
+    if (!initialized_) {
+      initialized_ = true;
+      auto pre_pull_func = [&branch_aggregations_mutex, &branch_aggregations](Cursor *cursor) {
+        // Try to find a free aggregation to reuse
+        decltype(main_aggregation_) free_aggregation = nullptr;
+        {
+          std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
+          if (!branch_aggregations.empty()) {
+            free_aggregation = branch_aggregations.front();
+            branch_aggregations.pop();
+          }
+        }
+        if (free_aggregation != nullptr) {
+          static_cast<AggregateCursor *>(cursor)->aggregation_ = std::move(*free_aggregation);
+        }
+      };
+      auto post_pull_func = [&branch_aggregations_mutex, &aggregations, &branch_aggregations](Cursor *cursor) {
+        auto *aggregation = &static_cast<AggregateCursor *>(cursor)->aggregation_;
+        decltype(main_aggregation_) free_aggregation = nullptr;
+
+        while (true) {
+          free_aggregation = nullptr;
+          // Phase 1: find a free aggregation
+          {
+            std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
+            if (!branch_aggregations.empty()) {
+              free_aggregation = branch_aggregations.front();
+              branch_aggregations.pop();
+            } else {
+              branch_aggregations.push(aggregation);
+              return;
+            }
+          }
+          // Phase 2: unify the aggregation
+          UnifyAggregation(*free_aggregation, *aggregation, aggregations);
+          // Phase 3: swap pointers and find next aggregation
+          std::swap(free_aggregation, aggregation);
+          free_aggregation->clear();
+        }
+      };
+
+      // Execute branches in parallel and unify context fields (handled by base class)
+      if (!ExecuteBranchesInParallel(frame, context, self_, std::move(profile), pre_pull_func, post_pull_func)) {
+        return false;
+      }
+
+      // There should be only one aggregation left in the list
+      MG_ASSERT(branch_aggregations.size() == 1, "There should be only one aggregation left in the list");
+      main_aggregation_ = branch_aggregations.front();
+      aggregation_it_ = main_aggregation_->begin();
+      if (main_aggregation_->empty()) {
+        DefaultAggregation(context, aggregations, remember, frame_writer);
+        return true;  // Send back default aggregation values
+      }
+    }
+
+    if (aggregation_it_ == main_aggregation_->end()) return false;
+
+    // place aggregation values on the frame
+    auto aggregation_values_it = aggregation_it_->second.values_.begin();
+    for (const auto &aggregation_elem : aggregations)
+      frame_writer.Write(aggregation_elem.output_sym, *aggregation_values_it++);
+
+    // place remember values on the frame
+    auto remember_values_it = aggregation_it_->second.remember_.begin();
+    for (const Symbol &remember_sym : remember) frame_writer.Write(remember_sym, *remember_values_it++);
+
+    aggregation_it_++;
+    return true;
+  }
+
+ private:
+  bool initialized_ = false;
+  decltype(AggregateCursor::aggregation_) *main_aggregation_;  // Reusing from AggregateCursor
+  decltype(AggregateCursor::aggregation_.begin()) aggregation_it_;
+  const AggregateParallel &self_;
+};
+
+AggregateParallel::AggregateParallel(const std::shared_ptr<LogicalOperator> &agg_inputs, size_t num_threads)
+    : input_(agg_inputs), num_threads_(num_threads) {
+  DMG_ASSERT(dynamic_cast<Aggregate *>(agg_inputs.get()) != nullptr, "Input must be an Aggregate");
+  DMG_ASSERT(num_threads > 0, "Number of threads must be greater than 0");
+}
+
+UniqueCursorPtr AggregateParallel::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::AggregateOperator);
+
+  return MakeUniqueCursorPtr<AggregateParallelCursor>(mem, *this, mem);
+}
+
+std::vector<Symbol> AggregateParallel::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = std::vector<Symbol>();
+  auto right = input_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), right.begin(), right.end());
+  return symbols;
+}
+
+ACCEPT_WITH_INPUT(AggregateParallel);
 
 }  // namespace memgraph::query::plan
