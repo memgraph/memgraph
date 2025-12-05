@@ -42,3 +42,7 @@ workloads:
   - name: "HA auth"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/auth.py"]
+
+  - name: "HA large cluster"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/large_cluster.py"]
