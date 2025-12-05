@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
+import memgraph.coordination.coordinator_cluster_state;
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_instance_context;
 import memgraph.coordination.coordinator_state_machine;

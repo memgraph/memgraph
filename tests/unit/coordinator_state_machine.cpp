@@ -13,6 +13,7 @@
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "replication_coordination_glue/mode.hpp"
+#include "utils/uuid.hpp"
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
@@ -20,6 +21,7 @@
 
 #include <ranges>
 
+import memgraph.coordination.coordinator_cluster_state;
 import memgraph.coordination.constants;
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_state_machine;
