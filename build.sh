@@ -111,6 +111,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Detect distro
+source environment/util.sh
+DISTRO="$(operating_system)"
+echo "Distro: $DISTRO"
+
 # Validate build type
 if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" && "$BUILD_TYPE" != "Debug" ]]; then
     echo "Error: --build-type must be either 'Release', 'RelWithDebInfo', or 'Debug'"
@@ -125,6 +130,7 @@ CONAN_INSTALL_ARGS=(
   -pr:h memgraph_template_profile
   -pr:b memgraph_build_profile
   -s build_type="$BUILD_TYPE"
+  -s os.distro="$DISTRO"
 )
 
 if [ "$offline" = true ]; then
