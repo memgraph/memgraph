@@ -80,14 +80,24 @@ namespace memgraph::utils {
 
 namespace {
 struct ThreadInfo {
-  pid_t thread_id;
+  pid_t thread_id{0};
   std::atomic<bool> setup_done{false};
 };
 
+// Static state for the background timer thread - at namespace scope so Shutdown() can access
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+pthread_t background_timer_thread{};
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+ThreadInfo thread_info{};
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+std::once_flag timer_thread_setup_flag;
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+std::atomic<bool> shutdown_requested{false};
+
 void *TimerBackgroundWorker(void *args) {
-  auto *thread_info = static_cast<ThreadInfo *>(args);
-  thread_info->thread_id = syscall(SYS_gettid);
-  thread_info->setup_done.store(true, std::memory_order_release);
+  auto *ti = static_cast<ThreadInfo *>(args);
+  ti->thread_id = static_cast<pid_t>(syscall(SYS_gettid));
+  ti->setup_done.store(true, std::memory_order_release);
 
   sigset_t ss;
   sigemptyset(&ss);
@@ -98,6 +108,11 @@ void *TimerBackgroundWorker(void *args) {
     siginfo_t si;
     int result = sigwaitinfo(&ss, &si);
 
+    // Check for shutdown request after waking up
+    if (shutdown_requested.load(std::memory_order_acquire)) {
+      return nullptr;
+    }
+
     if (result <= 0) {
       continue;
     }
@@ -107,7 +122,7 @@ void *TimerBackgroundWorker(void *args) {
       std::memcpy(&flag_id, &si.si_value.sival_ptr, sizeof(flag_id));
       MarkDone(flag_id);
     } else if (si.si_code == SI_TKILL) {
-      pthread_exit(nullptr);
+      return nullptr;
     }
   }
 }
@@ -121,10 +136,6 @@ AsyncTimer::AsyncTimer(double seconds)
             "The AsyncTimer cannot handle larger time values than {:f}, the specified value: {:f}",
             max_seconds_as_double, seconds);
   MG_ASSERT(seconds >= 0.0, "The AsyncTimer cannot handle negative time values: {:f}", seconds);
-
-  static pthread_t background_timer_thread;
-  static ThreadInfo thread_info;
-  static std::once_flag timer_thread_setup_flag;
 
   std::call_once(timer_thread_setup_flag, [] {
     pthread_create(&background_timer_thread, nullptr, TimerBackgroundWorker, &thread_info);
@@ -193,5 +204,21 @@ void AsyncTimer::ReleaseResources() {
 }
 
 void AsyncTimer::GCRun() { ExpirationFlagsGC(); }
+
+void AsyncTimer::Shutdown() {
+  // Only shutdown if the thread was ever created
+  if (thread_info.setup_done.load(std::memory_order_acquire)) {
+    shutdown_requested.store(true, std::memory_order_release);
+    // Send signal to wake up the thread from sigwaitinfo()
+    pthread_kill(background_timer_thread, SIGTIMER);
+  }
+}
+
+void AsyncTimer::AwaitShutdown() {
+  // Only wait if the thread was ever created
+  if (thread_info.setup_done.load(std::memory_order_acquire)) {
+    pthread_join(background_timer_thread, nullptr);
+  }
+}
 
 }  // namespace memgraph::utils

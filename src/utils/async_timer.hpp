@@ -37,6 +37,14 @@ class AsyncTimer {
 
   static void GCRun();
 
+  /// Signals the background timer thread to stop (non-blocking).
+  /// Safe to call even if no AsyncTimer was ever created.
+  static void Shutdown();
+
+  /// Waits for the background timer thread to exit (blocking).
+  /// Safe to call even if no AsyncTimer was ever created.
+  static void AwaitShutdown();
+
  private:
   void ReleaseResources();
 
