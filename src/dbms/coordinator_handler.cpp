@@ -11,6 +11,8 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <cstdint>
+#include <map>
 #include <optional>
 #include <string_view>
 
