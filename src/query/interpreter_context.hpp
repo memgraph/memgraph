@@ -34,7 +34,7 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 #ifdef MG_ENTERPRISE
-#include "coordination/coordinator_state.hpp"
+import memgraph.coordination.coordinator_state;
 #endif
 
 namespace memgraph::dbms {
