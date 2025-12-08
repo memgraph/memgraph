@@ -11,7 +11,10 @@
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
+
+#include "replication_coordination_glue/common.hpp"
 #include "utils/functional.hpp"
+#include "utils/uuid.hpp"
 
 import memgraph.coordination.coordinator_instance;
 
