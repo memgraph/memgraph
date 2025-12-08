@@ -9,16 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
-#ifdef MG_ENTERPRISE
-
-#include <libnuraft/logger.hxx>
-#include <libnuraft/nuraft.hxx>
+#include "libnuraft/nuraft.hxx"
+#include "nlohmann/json_fwd.hpp"
 
 #include "kvstore/kvstore.hpp"
 
-#include "nlohmann/json_fwd.hpp"
+export module memgraph.coordination.coordinator_state_manager;
+
+#ifdef MG_ENTERPRISE
 
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_instance_aux;
@@ -26,9 +26,8 @@ import memgraph.coordination.logger_wrapper;
 import memgraph.coordination.coordinator_log_store;
 import memgraph.coordination.coordinator_observer;
 
-namespace memgraph::coordination {
+export namespace memgraph::coordination {
 using nuraft::cluster_config;
-using nuraft::logger;
 using nuraft::srv_config;
 using nuraft::srv_state;
 using nuraft::state_mgr;

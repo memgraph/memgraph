@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "coordination/coordinator_state_manager.hpp"
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "replication_coordination_glue/mode.hpp"
@@ -17,6 +16,11 @@
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
+#include <libnuraft/async.hxx>
+#include <libnuraft/buffer.hxx>
+#include <libnuraft/cluster_config.hxx>
+#include <libnuraft/snapshot.hxx>
+#include <libnuraft/srv_config.hxx>
 #include <nlohmann/json.hpp>
 
 #include <ranges>
@@ -24,8 +28,11 @@
 import memgraph.coordination.coordinator_cluster_state;
 import memgraph.coordination.constants;
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_instance_aux;
 import memgraph.coordination.coordinator_state_machine;
+import memgraph.coordination.coordinator_state_manager;
 import memgraph.coordination.logger;
+import memgraph.coordination.logger_wrapper;
 
 using memgraph::coordination::CoordinatorClusterState;
 using memgraph::coordination::CoordinatorInstanceAux;
