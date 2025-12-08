@@ -5072,7 +5072,7 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
       .privileges = std::move(parsed_query.required_privileges),
       .query_handler = [db_acc = *current_db.db_acc_, replication_role, path = std::move(path_value.ValueString()),
                         force = recover_query->force_](AnyStream * /*stream*/, std::optional<int> /*n*/) mutable
-      -> std::optional<QueryHandlerResult> {
+          -> std::optional<QueryHandlerResult> {
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
         if (auto maybe_error = mem_storage->RecoverSnapshot(path, force, replication_role); !maybe_error.has_value()) {
           switch (maybe_error.error()) {
