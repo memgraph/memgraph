@@ -28,7 +28,7 @@
 
 #ifdef MG_ENTERPRISE
 #include "utils/resource_monitoring.hpp"
-import memgraph.coordination.raft_state;
+import memgraph.coordination.coordinator_instance;
 import memgraph.coordination.utils;
 #endif
 

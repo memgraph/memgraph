@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "rpc/messages.hpp"
 #include "rpc/version.hpp"
 #include "slk/serialization.hpp"
 #include "utils/function_traits.hpp"
@@ -52,16 +53,24 @@ void SendFinalResponse(TResponse const &res, uint64_t const response_version, sl
   spdlog::trace("[RpcServer] sent {}, version {}. {}", TResponse::kType.name, response_version, description);
 }
 
+// Special type of RPC message
+struct InProgressRes {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_IN_PROGRESS_RES, .name = "InProgressRes"};
+  static constexpr uint64_t kVersion{1};
+
+  InProgressRes() = default;
+};
+
 inline void SendInProgressMsg(slk::Builder *builder) {
   if (!builder->IsEmpty()) {
     throw slk::SlkBuilderException("InProgress RPC message can only be sent when the builder's buffer is empty.");
   }
   constexpr ProtocolMessageHeader message_header{.protocol_version = current_protocol_version,
-                                                 .message_id = storage::replication::InProgressRes::kType.id,
-                                                 .message_version = storage::replication::InProgressRes::kVersion};
+                                                 .message_id = InProgressRes::kType.id,
+                                                 .message_version = InProgressRes::kVersion};
   SaveMessageHeader(message_header, builder);
   builder->Finalize();
-  spdlog::trace("[RpcServer] sent {}", storage::replication::InProgressRes::kType.name);
+  spdlog::trace("[RpcServer] sent {}", InProgressRes::kType.name);
 }
 
 // T must be the newest type in the sequence of requests

@@ -17,6 +17,9 @@
 
 #include "utils/uuid.hpp"
 
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.instance_state;
+
 namespace memgraph::coordination {
 
 class TimedFailureDetector {
@@ -43,9 +46,11 @@ class TimedFailureDetector {
 // Contains embedded timed failure detector
 class ReplicationInstanceConnector {
  public:
-  ReplicationInstanceConnector(DataInstanceConfig const &config, CoordinatorInstance *coord_instance,
-                               std::chrono::seconds instance_down_timeout_sec,
-                               std::chrono::seconds instance_health_check_frequency_sec);
+  ReplicationInstanceConnector(
+      DataInstanceConfig const &config,
+      std::function<void(std::string_view instance_name, InstanceState const &instance_state)> succ_cb,
+      std::function<void(std::string_view instance_name)> fail_cb, std::chrono::seconds instance_down_timeout_sec,
+      std::chrono::seconds instance_health_check_frequency_sec);
 
   ReplicationInstanceConnector(ReplicationInstanceConnector const &other) = delete;
   ReplicationInstanceConnector &operator=(ReplicationInstanceConnector const &other) = delete;

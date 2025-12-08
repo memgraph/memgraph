@@ -9,9 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#ifdef MG_ENTERPRISE
+module;
 
 #include <atomic>
 #include <functional>
@@ -27,18 +25,20 @@
 
 #include <list>
 
+export module memgraph.coordination.coordinator_instance;
+
+#ifdef MG_ENTERPRISE
+
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_instance_aux;
 import memgraph.coordination.coordinator_ops_status;
+import memgraph.coordination.instance_state;
 import memgraph.coordination.instance_status;
 import memgraph.coordination.raft_state;
+import memgraph.coordination.replication_lag_info;
+import memgraph.coordination.utils;
 
-namespace memgraph::coordination {
-
-struct NewMainRes {
-  std::string instance_name;
-  uint64_t latest_durable_timestamp;
-};
+export namespace memgraph::coordination {
 
 enum class FailoverStatus : uint8_t {
   SUCCESS,
