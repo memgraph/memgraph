@@ -9,14 +9,42 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
+module;
 
-#include "coordination/replication_instance_client.hpp"
-
+#include "communication/context.hpp"
 #include "coordination/coordinator_rpc.hpp"
+#include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/common.hpp"
+#include "rpc/exceptions.hpp"
+#include "utils/event_counter.hpp"
+#include "utils/metrics_timer.hpp"
 
 #include <string>
+
+// Must be in global module fragment for external linkage
+namespace memgraph::metrics {
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define GenerateRpcCounterEvents(RPC) \
+  extern const Event RPC##Success;    \
+  extern const Event RPC##Fail;       \
+  extern const Event RPC##_us;
+
+// clang-format off
+GenerateRpcCounterEvents(PromoteToMainRpc)
+GenerateRpcCounterEvents(DemoteMainToReplicaRpc)
+GenerateRpcCounterEvents(RegisterReplicaOnMainRpc)
+GenerateRpcCounterEvents(UnregisterReplicaRpc)
+GenerateRpcCounterEvents(EnableWritingOnMainRpc)
+GenerateRpcCounterEvents(StateCheckRpc)
+GenerateRpcCounterEvents(GetDatabaseHistoriesRpc)
+// clang-format on
+
+#undef GenerateRpcCounterEvents
+}  // namespace memgraph::metrics
+
+module memgraph.coordination.replication_instance_client;
+
+#ifdef MG_ENTERPRISE
 
 import memgraph.coordination.instance_state;
 import memgraph.coordination.replication_lag_info;
