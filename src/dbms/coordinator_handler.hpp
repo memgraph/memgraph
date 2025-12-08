@@ -13,14 +13,15 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <cstdint>
+#include <map>
 #include <optional>
 #include <string_view>
 #include <vector>
 
-#include "coordination/coordinator_state.hpp"
-
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_ops_status;
+import memgraph.coordination.coordinator_state;
 import memgraph.coordination.instance_status;
 import memgraph.coordination.replication_lag_info;
 

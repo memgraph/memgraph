@@ -9,10 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
+module;
 
-#include "coordination/coordinator_state.hpp"
-
+#include "coordination/data_instance_management_server.hpp"
+#include "io/network/endpoint.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
@@ -21,6 +21,10 @@
 #include <optional>
 #include <string_view>
 #include <variant>
+
+module memgraph.coordination.coordinator_state;
+
+#ifdef MG_ENTERPRISE
 
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_instance;
