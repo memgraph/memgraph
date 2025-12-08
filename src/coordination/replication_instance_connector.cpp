@@ -18,6 +18,9 @@
 #include <chrono>
 #include <string>
 
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.instance_state;
+
 namespace memgraph::coordination {
 
 TimedFailureDetector::TimedFailureDetector(std::chrono::seconds const instance_down_timeout_sec)
@@ -45,10 +48,12 @@ auto TimedFailureDetector::Restore() -> void {
 }
 
 ReplicationInstanceConnector::ReplicationInstanceConnector(
-    DataInstanceConfig const &config, CoordinatorInstance *coord_instance,
-    const std::chrono::seconds instance_down_timeout_sec,
+    DataInstanceConfig const &config,
+    std::function<void(std::string_view instance_name, InstanceState const &instance_state)> succ_cb,
+    std::function<void(std::string_view instance_name)> fail_cb, std::chrono::seconds instance_down_timeout_sec,
     const std::chrono::seconds instance_health_check_frequency_sec)
-    : client_(ReplicationInstanceClient(config, coord_instance, instance_health_check_frequency_sec)),
+    : client_(ReplicationInstanceClient(config.instance_name, config.mgt_server, std::move(succ_cb), std::move(fail_cb),
+                                        instance_health_check_frequency_sec)),
       timed_failure_detector_(instance_down_timeout_sec) {}
 
 void ReplicationInstanceConnector::OnSuccessPing() { timed_failure_detector_.Restore(); }

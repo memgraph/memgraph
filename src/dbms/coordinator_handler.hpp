@@ -22,6 +22,7 @@
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_ops_status;
 import memgraph.coordination.instance_status;
+import memgraph.coordination.replication_lag_info;
 
 namespace memgraph::dbms {
 

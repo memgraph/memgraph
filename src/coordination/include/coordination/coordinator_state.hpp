@@ -17,14 +17,16 @@
 #include <string_view>
 #include <variant>
 
-#include "coordination/coordinator_instance.hpp"
 #include "coordination/data_instance_management_server.hpp"
 
 #include "nlohmann/json_fwd.hpp"
 
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_ops_status;
+import memgraph.coordination.coordinator_instance;
 import memgraph.coordination.instance_status;
+import memgraph.coordination.replication_lag_info;
+import memgraph.coordination.utils;
 
 namespace memgraph::coordination {
 

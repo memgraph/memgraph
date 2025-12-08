@@ -13,12 +13,13 @@
 
 #include "coordination/replication_instance_client.hpp"
 
-#include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/common.hpp"
 
 #include <string>
+
+import memgraph.coordination.instance_state;
+import memgraph.coordination.replication_lag_info;
 
 namespace memgraph::coordination {
 
@@ -39,12 +40,16 @@ RpcInfoMetrics(UnregisterReplicaRpc)
 RpcInfoMetrics(EnableWritingOnMainRpc)
     // clang-format on
 
-    ReplicationInstanceClient::ReplicationInstanceClient(DataInstanceConfig config, CoordinatorInstance *coord_instance,
-                                                         const std::chrono::seconds instance_health_check_frequency_sec)
+    ReplicationInstanceClient::ReplicationInstanceClient(
+        std::string instance_name, io::network::Endpoint mgt_server,
+        std::function<void(std::string_view instance_name, InstanceState const &instance_state)> succ_cb,
+        std::function<void(std::string_view instance_name)> fail_cb,
+        const std::chrono::seconds instance_health_check_frequency_sec)
     : rpc_context_{communication::ClientContext{}},
-      rpc_client_{config.mgt_server, &rpc_context_},
-      config_{std::move(config)},
-      coord_instance_(coord_instance),
+      rpc_client_{std::move(mgt_server), &rpc_context_},
+      instance_name_(std::move(instance_name)),
+      succ_cb_(std::move(succ_cb)),
+      fail_cb_(std::move(fail_cb)),
       instance_health_check_frequency_sec_(instance_health_check_frequency_sec) {}
 
 auto ReplicationInstanceClient::InstanceName() const -> std::string { return config_.instance_name; }
@@ -71,9 +76,9 @@ void ReplicationInstanceClient::StartStateCheck() {
     spdlog::trace("Sending state check message to instance {} on {}.", instance_name,
                   config_.ManagementSocketAddress());
     if (auto const maybe_res = SendStateCheckRpc()) {
-      coord_instance_->InstanceSuccessCallback(instance_name, *maybe_res);
+      succ_cb_(instance_name_, *maybe_res);
     } else {
-      coord_instance_->InstanceFailCallback(instance_name);
+      fail_cb_(instance_name_);
     }
   });
 }

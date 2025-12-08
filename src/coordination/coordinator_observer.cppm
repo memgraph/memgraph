@@ -11,21 +11,25 @@
 
 module;
 
-#include <nlohmann/json.hpp>
+#include <functional>
+#include <vector>
 
-module memgraph.coordination.coordinator_observer;
+export module memgraph.coordination.coordinator_observer;
 
 #ifdef MG_ENTERPRISE
 
-namespace memgraph::coordination {
+import memgraph.coordination.coordinator_instance_aux;
+export namespace memgraph::coordination {
 
-CoordinationClusterChangeObserver::CoordinationClusterChangeObserver(
-    std::function<void(std::vector<CoordinatorInstanceAux> const &)> func)
-    : func_{std::move(func)} {}
+class CoordinationClusterChangeObserver {
+ public:
+  explicit CoordinationClusterChangeObserver(std::function<void(std::vector<CoordinatorInstanceAux> const &)> func);
 
-void CoordinationClusterChangeObserver::Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
-  func_(coord_instances_aux);
-}
+  void Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
+
+ private:
+  std::function<void(std::vector<CoordinatorInstanceAux> const &)> func_;
+};
 
 }  // namespace memgraph::coordination
 

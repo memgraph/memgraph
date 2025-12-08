@@ -51,13 +51,15 @@ struct RpcInfo {
   static const metrics::Event timerLabel;
 };
 
-class CoordinatorInstance;
 using ReplicationClientsInfo = std::vector<ReplicationClientInfo>;
 
 class ReplicationInstanceClient {
  public:
-  explicit ReplicationInstanceClient(DataInstanceConfig config, CoordinatorInstance *coord_instance,
-                                     std::chrono::seconds instance_health_check_frequency_sec);
+  explicit ReplicationInstanceClient(
+      std::string instance_name, io::network::Endpoint mgt_server,
+      std::function<void(std::string_view instance_name, InstanceState const &instance_state)> succ_cb,
+      std::function<void(std::string_view instance_name)> fail_cb,
+      std::chrono::seconds instance_health_check_frequency_sec);
 
   ~ReplicationInstanceClient() = default;
 
@@ -122,8 +124,9 @@ class ReplicationInstanceClient {
   communication::ClientContext rpc_context_;
   mutable rpc::Client rpc_client_;
 
-  DataInstanceConfig config_;
-  CoordinatorInstance *coord_instance_;
+  std::string instance_name_;
+  std::function<void(std::string_view instance_name, InstanceState const &instance_state)> succ_cb_;
+  std::function<void(std::string_view instance_name)> fail_cb_;
 
   std::chrono::seconds instance_health_check_frequency_sec_{1};
   utils::Scheduler instance_checker_;

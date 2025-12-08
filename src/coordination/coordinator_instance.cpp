@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
+module;
 
 #include <algorithm>
 #include <atomic>
@@ -27,11 +27,9 @@
 #include <vector>
 
 #include <communication/bolt/v1/encoder/base_encoder.hpp>
-#include "coordination/coordinator_instance.hpp"
+#include "coordination/coordinator_instance_connector.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
 #include "coordination/coordinator_instance_management_server_handlers.hpp"
-#include "coordination/coordinator_observer.hpp"
-#include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
@@ -46,19 +44,6 @@
 #include <spdlog/spdlog.h>
 #include <libnuraft/nuraft.hxx>
 #include <nlohmann/json.hpp>
-
-import memgraph.coordination.coordinator_cluster_state;
-import memgraph.coordination.constants;
-import memgraph.coordination.coordinator_communication_config;
-import memgraph.coordination.coordinator_exceptions;
-import memgraph.coordination.coordinator_instance_aux;
-import memgraph.coordination.coordinator_instance_context;
-import memgraph.coordination.coordinator_ops_status;
-import memgraph.coordination.instance_state;
-import memgraph.coordination.instance_status;
-import memgraph.coordination.raft_state;
-import memgraph.coordination.replication_lag_info;
-import memgraph.coordination.utils;
 
 namespace memgraph::metrics {
 // Counters
@@ -79,6 +64,43 @@ extern const Event ChooseMostUpToDateInstance_us;
 extern const Event GetHistories_us;
 extern const Event DataFailover_us;
 }  // namespace memgraph::metrics
+
+module memgraph.coordination.coordinator_instance;
+
+#ifdef MG_ENTERPRISE
+
+import memgraph.coordination.coordinator_cluster_state;
+import memgraph.coordination.constants;
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_exceptions;
+import memgraph.coordination.coordinator_instance_aux;
+import memgraph.coordination.coordinator_instance_context;
+import memgraph.coordination.coordinator_observer;
+import memgraph.coordination.coordinator_ops_status;
+import memgraph.coordination.instance_state;
+import memgraph.coordination.instance_status;
+import memgraph.coordination.raft_state;
+import memgraph.coordination.replication_lag_info;
+import memgraph.coordination.utils;
+
+namespace {
+using memgraph::coordination::ReplicationInstanceConnector;
+
+auto FindReplicationInstance(std::string_view replication_instance_name,
+                             std::list<ReplicationInstanceConnector> const &repl_instances)
+    -> std::optional<std::reference_wrapper<const ReplicationInstanceConnector>> {
+  auto const repl_instance =
+      std::ranges::find_if(repl_instances, [replication_instance_name](ReplicationInstanceConnector const &instance) {
+        return instance.InstanceName() == replication_instance_name;
+      });
+
+  if (repl_instance != repl_instances.end()) {
+    return std::ref(*repl_instance);
+  }
+
+  return std::nullopt;
+}
+}  // namespace
 
 namespace memgraph::coordination {
 namespace {
@@ -101,8 +123,10 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
   // Delay constructing of Raft state until everything is constructed in coordinator instance
   // since raft state will call become leader callback or become follower callback on construction.
   // If something is not yet constructed in coordinator instance, we get UB
-  raft_state_ = std::make_unique<RaftState>(config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback(),
-                                            CoordinationClusterChangeObserver{this});
+  raft_state_ = std::make_unique<RaftState>(
+      config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback(),
+      CoordinationClusterChangeObserver{
+          [this](std::vector<CoordinatorInstanceAux> const &aux) { this->UpdateClientConnectors(aux); }});
   UpdateClientConnectors(raft_state_->GetCoordinatorInstancesAux());
   raft_state_->InitRaftServer();
 }
@@ -453,8 +477,13 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   }
 
   std::ranges::for_each(raft_state_data_instances, [this](auto const &data_instance) {
-    auto &instance = repl_instances_.emplace_back(data_instance.config, this, instance_down_timeout_sec_,
-                                                  instance_health_check_frequency_sec_);
+    auto &instance = repl_instances_.emplace_back(
+        data_instance.config,
+        [this](std::string_view instance_name, InstanceState const &instance_state) {
+          this->InstanceSuccessCallback(instance_name, instance_state);
+        },
+        [this](std::string_view instance_name) { this->InstanceFailCallback(instance_name); },
+        instance_down_timeout_sec_, instance_health_check_frequency_sec_);
     instance.StartStateCheck();
   });
 
@@ -708,8 +737,13 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
-  auto *new_instance =
-      &repl_instances_.emplace_back(config, this, instance_down_timeout_sec_, instance_health_check_frequency_sec_);
+  auto *new_instance = &repl_instances_.emplace_back(
+      config,
+      [this](std::string_view instance_name, InstanceState const &instance_state) {
+        this->InstanceSuccessCallback(instance_name, instance_state);
+      },
+      [this](std::string_view instance_name) { this->InstanceFailCallback(instance_name); }, instance_down_timeout_sec_,
+      instance_health_check_frequency_sec_);
 
   // We do this here not under callbacks because we need to add replica to the current main.
   if (!new_instance->SendRpc<DemoteMainToReplicaRpc>(curr_main_uuid)) {
