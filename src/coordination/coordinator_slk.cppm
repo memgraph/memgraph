@@ -9,20 +9,23 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#ifdef MG_ENTERPRISE
+module;
 
 #include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "slk/serialization.hpp"
+#include "utils/uuid.hpp"
+
+export module memgraph.coordination.coordinator_slk;
+
+#ifdef MG_ENTERPRISE
 
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.instance_state;
 import memgraph.coordination.instance_status;
 import memgraph.coordination.replication_lag_info;
 
-namespace memgraph::slk {
+export namespace memgraph::slk {
 
 using ReplicationClientInfo = coordination::ReplicationClientInfo;
 using InstanceStatus = coordination::InstanceStatus;
