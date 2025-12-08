@@ -9,9 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
+module;
 
-#include "coordination/coordinator_instance_client.hpp"
+#include "rpc/client.hpp"
+
+module memgraph.coordination.coordinator_instance_client;
+
+#ifdef MG_ENTERPRISE
+import memgraph.coordination.coordinator_communication_config;
+// TODO: (andi) Good candidate for module private fragment
 
 namespace memgraph::coordination {
 
