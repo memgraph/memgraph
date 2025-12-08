@@ -11,13 +11,16 @@
 
 module;
 
-#include "coordination/coordinator_instance_client.hpp"
+#include <optional>
+#include <string_view>
+#include <vector>
 
 export module memgraph.coordination.coordinator_instance_connector;
 
 #ifdef MG_ENTERPRISE
 
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_instance_client;
 import memgraph.coordination.instance_status;
 import memgraph.coordination.utils;
 
