@@ -69,5 +69,5 @@ target_include_directories(mg-coordination PUBLIC include)
 find_package(range-v3 REQUIRED)
 
 target_link_libraries(mg-coordination
-    PUBLIC mg::utils mg::rpc mg::slk mg::io mg::repl_coord_glue range-v3::range-v3 nuraft mg-replication_handler
+    PUBLIC mg-events mg::utils mg::rpc mg::slk mg::io mg::repl_coord_glue range-v3::range-v3 nuraft mg-replication_handler
 )

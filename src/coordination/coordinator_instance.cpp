@@ -43,6 +43,26 @@ module;
 #include <libnuraft/nuraft.hxx>
 #include <nlohmann/json.hpp>
 
+namespace memgraph::metrics {
+// Counters
+extern const Event SuccessfulFailovers;
+extern const Event RaftFailedFailovers;
+extern const Event NoAliveInstanceFailedFailovers;
+extern const Event BecomeLeaderSuccess;
+extern const Event FailedToBecomeLeader;
+extern const Event ShowInstance;
+extern const Event ShowInstances;
+extern const Event DemoteInstance;
+extern const Event UnregisterReplInstance;
+extern const Event RemoveCoordInstance;
+// Histogram
+extern const Event InstanceSuccCallback_us;
+extern const Event InstanceFailCallback_us;
+extern const Event ChooseMostUpToDateInstance_us;
+extern const Event GetHistories_us;
+extern const Event DataFailover_us;
+}  // namespace memgraph::metrics
+
 module memgraph.coordination.coordinator_instance;
 
 #ifdef MG_ENTERPRISE
@@ -79,26 +99,6 @@ auto FindReplicationInstance(std::string_view replication_instance_name,
   return std::nullopt;
 }
 }  // namespace
-
-namespace memgraph::metrics {
-// Counters
-extern const Event SuccessfulFailovers;
-extern const Event RaftFailedFailovers;
-extern const Event NoAliveInstanceFailedFailovers;
-extern const Event BecomeLeaderSuccess;
-extern const Event FailedToBecomeLeader;
-extern const Event ShowInstance;
-extern const Event ShowInstances;
-extern const Event DemoteInstance;
-extern const Event UnregisterReplInstance;
-extern const Event RemoveCoordInstance;
-// Histogram
-extern const Event InstanceSuccCallback_us;
-extern const Event InstanceFailCallback_us;
-extern const Event ChooseMostUpToDateInstance_us;
-extern const Event GetHistories_us;
-extern const Event DataFailover_us;
-}  // namespace memgraph::metrics
 
 namespace memgraph::coordination {
 namespace {
