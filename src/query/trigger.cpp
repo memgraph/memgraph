@@ -11,6 +11,8 @@
 
 #include "query/trigger.hpp"
 
+#include <algorithm>
+
 #include "dbms/database.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"
@@ -153,19 +155,23 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
 Trigger::Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                  const TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
                  DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
-                 std::shared_ptr<QueryUserOrRole> owner, std::string_view db_name)
+                 std::shared_ptr<QueryUserOrRole> owner, std::string_view db_name, SecurityDefiner security_definer)
     : name_{std::move(name)},
       parsed_statements_{ParseQuery(query, user_parameters, query_cache, query_config)},
       event_type_{event_type},
-      owner_{std::move(owner)} {
+      owner_{std::move(owner)},
+      security_definer_{security_definer} {
   // We check immediately if the query is valid by trying to create a plan.
-  GetPlan(db_accessor, db_name);
+  // TODO (ivan): is this needed the security definer is invoker? are permissions for being able to create a trigger
+  // checked elsewhere?
+  GetPlan(db_accessor, db_name, owner_);
 }
 
 Trigger::TriggerPlan::TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std::vector<IdentifierInfo> identifiers)
     : cached_plan(std::move(logical_plan)), identifiers(std::move(identifiers)) {}
 
-std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, std::string_view db_name) const {
+std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, std::string_view db_name,
+                                                       std::shared_ptr<QueryUserOrRole> triggering_user) const {
   std::lock_guard plan_guard{plan_lock_};
   if (!parsed_statements_.is_cacheable || !trigger_plan_) {
     auto identifiers = GetPredefinedIdentifiers(event_type_);
@@ -177,30 +183,38 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
 
     std::vector<Identifier *> predefined_identifiers;
     predefined_identifiers.reserve(identifiers.size());
-    std::transform(identifiers.begin(), identifiers.end(), std::back_inserter(predefined_identifiers),
-                   [](auto &identifier) { return &identifier.first; });
+    std::ranges::transform(identifiers, std::back_inserter(predefined_identifiers),
+                           [](auto &identifier) { return &identifier.first; });
 
     auto logical_plan = MakeLogicalPlan(std::move(ast_storage), utils::Downcast<CypherQuery>(parsed_statements_.query),
                                         parsed_statements_.parameters, db_accessor, predefined_identifiers);
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
-  if (owner_ && !owner_->IsAuthorized(parsed_statements_.required_privileges, db_name, &up_to_date_policy)) {
-    throw utils::BasicException("The owner of trigger '{}' is not authorized to execute the query!", name_);
+
+  if (security_definer_ == SecurityDefiner::DEFINER) {
+    if (!owner_->IsAuthorized(parsed_statements_.required_privileges, db_name, &up_to_date_policy)) {
+      throw utils::BasicException("The owner of trigger '{}' is not authorized to execute the query!", name_);
+    }
+  } else if (security_definer_ == SecurityDefiner::INVOKER) {
+    if (!triggering_user->IsAuthorized(parsed_statements_.required_privileges, db_name, &up_to_date_policy)) {
+      throw utils::BasicException("The user who invoked the trigger '{}' is not authorized to execute the query!",
+                                  name_);
+    }
   }
   return trigger_plan_;
 }
 
 void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
-                      std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context,
-                      bool is_main) const {
+                      std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context, bool is_main,
+                      std::shared_ptr<QueryUserOrRole> triggering_user) const {
   if (!context.ShouldEventTrigger(event_type_)) {
     return;
   }
 
   spdlog::debug("Executing trigger '{}'", name_);
-  auto trigger_plan = GetPlan(dba, db_acc->name());
+  auto trigger_plan = GetPlan(dba, db_acc->name(), triggering_user);
   MG_ASSERT(trigger_plan, "Invalid trigger plan received");
   auto &[plan, identifiers] = *trigger_plan;
 
@@ -221,6 +235,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   ctx.evaluation_context.memory = execution_memory;
   ctx.protector = dbms::DatabaseProtector{db_acc}.clone();
   ctx.is_main = is_main;
+  ctx.user_or_role = triggering_user;
 
   auto cursor = plan.plan().MakeCursor(execution_memory);
   Frame frame{plan.symbol_table().max_position(), execution_memory};
