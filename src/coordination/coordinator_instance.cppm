@@ -13,17 +13,20 @@ module;
 
 #include <atomic>
 #include <functional>
+#include <list>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string_view>
 
-#include "coordination/coordinator_instance_management_server.hpp"
 #include "coordination/data_instance_management_server.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "utils/resource_lock.hpp"
+#include "utils/spin_lock.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
 
-#include <list>
+#include "nlohmann/json_fwd.hpp"
 
 export module memgraph.coordination.coordinator_instance;
 
@@ -32,6 +35,7 @@ export module memgraph.coordination.coordinator_instance;
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_instance_aux;
 import memgraph.coordination.coordinator_instance_connector;
+import memgraph.coordination.coordinator_instance_management_server;
 import memgraph.coordination.coordinator_ops_status;
 import memgraph.coordination.instance_state;
 import memgraph.coordination.instance_status;

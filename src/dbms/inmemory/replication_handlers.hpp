@@ -13,12 +13,9 @@
 
 #include "dbms/dbms_handler_fwd.hpp"
 #include "replication/statefwd.hpp"
+#include "rpc/file_replication_handler.hpp"
 #include "storage/v2/inmemory/storagefwd.hpp"
 #include "storage/v2/replication/serialization.hpp"
-
-namespace memgraph::rpc {
-class FileReplicationHandler;
-}  // namespace memgraph::rpc
 
 namespace memgraph::dbms {
 

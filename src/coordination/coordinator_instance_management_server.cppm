@@ -9,25 +9,26 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#ifdef MG_ENTERPRISE
+module;
 
 #include "rpc/server.hpp"
 
+export module memgraph.coordination.coordinator_instance_management_server;
+
 import memgraph.coordination.coordinator_communication_config;
 
-namespace memgraph::coordination {
+#ifdef MG_ENTERPRISE
+export namespace memgraph::coordination {
 
-class DataInstanceManagementServer {
+class CoordinatorInstanceManagementServer {
  public:
-  explicit DataInstanceManagementServer(const ManagementServerConfig &config);
-  DataInstanceManagementServer(const DataInstanceManagementServer &) = delete;
-  DataInstanceManagementServer(DataInstanceManagementServer &&) = delete;
-  DataInstanceManagementServer &operator=(const DataInstanceManagementServer &) = delete;
-  DataInstanceManagementServer &operator=(DataInstanceManagementServer &&) = delete;
+  explicit CoordinatorInstanceManagementServer(const ManagementServerConfig &config);
+  CoordinatorInstanceManagementServer(const CoordinatorInstanceManagementServer &) = delete;
+  CoordinatorInstanceManagementServer(CoordinatorInstanceManagementServer &&) = delete;
+  CoordinatorInstanceManagementServer &operator=(const CoordinatorInstanceManagementServer &) = delete;
+  CoordinatorInstanceManagementServer &operator=(CoordinatorInstanceManagementServer &&) = delete;
 
-  ~DataInstanceManagementServer();
+  ~CoordinatorInstanceManagementServer();
 
   bool Start();
 
@@ -40,6 +41,5 @@ class DataInstanceManagementServer {
   communication::ServerContext rpc_server_context_;
   rpc::Server rpc_server_;
 };
-
 }  // namespace memgraph::coordination
 #endif

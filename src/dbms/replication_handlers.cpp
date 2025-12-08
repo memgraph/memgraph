@@ -17,11 +17,8 @@
 #include "storage/v2/storage.hpp"
 #include "system/state.hpp"
 
+#include "rpc/file_replication_handler.hpp"
 #include "rpc/utils.hpp"
-
-namespace memgraph::rpc {
-class FileReplicationHandler;
-}  // namespace memgraph::rpc
 
 namespace memgraph::dbms {
 
