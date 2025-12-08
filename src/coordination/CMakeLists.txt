@@ -17,6 +17,7 @@ target_sources(mg-coordination
         coordinator_log_store.cppm
         coordinator_observer.cppm
         coordinator_ops_status.cppm
+        coordinator_slk.cppm
         coordinator_state.cppm
         coordinator_state_machine.cppm
         coordinator_state_manager.cppm
@@ -37,7 +38,6 @@ target_sources(mg-coordination
         FILE_SET HEADERS
         FILES
         include/coordination/coordinator_rpc.hpp
-        include/coordination/coordinator_slk.hpp
 
 
         PRIVATE

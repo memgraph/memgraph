@@ -11,7 +11,6 @@
 
 #include <gtest/gtest.h>
 
-#include "coordination/coordinator_slk.hpp"
 #include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "slk_common.hpp"
@@ -22,6 +21,7 @@
 #include "utils/uuid.hpp"
 
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_slk;
 
 using memgraph::io::network::Endpoint;
 
