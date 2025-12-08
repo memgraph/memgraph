@@ -9,9 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
+module;
 
-#include "coordination/data_instance_management_server.hpp"
+#include "communication/context.hpp"
+
+module memgraph.coordination.data_instance_management_server;
+
+import memgraph.coordination.coordinator_communication_config;
+
+#ifdef MG_ENTERPRISE
 
 namespace memgraph::coordination {
 
