@@ -18,7 +18,7 @@ module;
 #include <thread>
 #include <vector>
 
-#include "coordination/coordinator_state_manager.hpp"
+#include "kvstore/kvstore.hpp"
 #include "utils/counter.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -41,6 +41,7 @@ import memgraph.coordination.coordinator_instance_aux;
 import memgraph.coordination.coordinator_instance_context;
 import memgraph.coordination.coordinator_observer;
 import memgraph.coordination.coordinator_state_machine;
+import memgraph.coordination.coordinator_state_manager;
 import memgraph.coordination.logger;
 import memgraph.coordination.logger_wrapper;
 import memgraph.coordination.coordinator_log_store;

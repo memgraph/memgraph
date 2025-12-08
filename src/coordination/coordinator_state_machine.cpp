@@ -11,11 +11,11 @@
 
 module;
 
-#include "coordination/coordinator_state_manager.hpp"
 #include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"
 #include "utils/uuid.hpp"
 
+#include <libnuraft/snapshot.hxx>
 #include <nlohmann/json.hpp>
 #include <regex>
 
@@ -28,6 +28,7 @@ import memgraph.coordination.coordinator_cluster_state;
 import memgraph.coordination.constants;
 import memgraph.coordination.coordinator_exceptions;
 import memgraph.coordination.coordinator_instance_context;
+import memgraph.coordination.coordinator_state_manager;
 import memgraph.coordination.data_instance_context;
 import memgraph.coordination.log_level;
 import memgraph.coordination.logger_wrapper;

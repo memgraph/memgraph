@@ -9,17 +9,25 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
+module;
 
-#include "coordination/coordinator_state_manager.hpp"
 #include "utils/logging.hpp"
 
 #include <spdlog/spdlog.h>
+#include <libnuraft/cluster_config.hxx>
+#include <libnuraft/srv_config.hxx>
+#include <libnuraft/srv_state.hxx>
+#include <libnuraft/state_mgr.hxx>
 #include <nlohmann/json.hpp>
 
 #include <ranges>
 
+module memgraph.coordination.coordinator_state_manager;
+
+#ifdef MG_ENTERPRISE
+
 import memgraph.coordination.coordinator_exceptions;
+import memgraph.coordination.coordinator_instance_aux;
 import memgraph.coordination.coordinator_observer;
 import memgraph.coordination.log_level;
 import memgraph.coordination.utils;
