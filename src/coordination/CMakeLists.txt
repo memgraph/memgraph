@@ -10,6 +10,7 @@ target_sources(mg-coordination
         coordinator_instance.cppm
         coordinator_instance_aux.cppm
         coordinator_instance_context.cppm
+        coordinator_instance_connector.cppm
         coordinator_log_store.cppm
         coordinator_observer.cppm
         coordinator_ops_status.cppm
@@ -28,7 +29,6 @@ target_sources(mg-coordination
         FILE_SET HEADERS
         FILES
         include/coordination/coordinator_instance_client.hpp
-        include/coordination/coordinator_instance_connector.hpp
         include/coordination/coordinator_instance_management_server.hpp
         include/coordination/coordinator_instance_management_server_handlers.hpp
         include/coordination/coordinator_rpc.hpp

@@ -9,8 +9,19 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+module;
+
+#include <optional>
+#include <string_view>
+#include <vector>
+
+#include "coordination/coordinator_rpc.hpp"
+
+#include "spdlog/spdlog.h"
+
+module memgraph.coordination.coordinator_instance_connector;
+
 #ifdef MG_ENTERPRISE
-#include "coordination/coordinator_instance_connector.hpp"
 
 namespace memgraph::coordination {
 
