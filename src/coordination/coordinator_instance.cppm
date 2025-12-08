@@ -19,6 +19,7 @@ module;
 
 #include "coordination/coordinator_instance_connector.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
+#include "coordination/replication_instance_connector.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/thread_pool.hpp"
 
@@ -36,10 +37,6 @@ import memgraph.coordination.instance_status;
 import memgraph.coordination.raft_state;
 import memgraph.coordination.replication_lag_info;
 import memgraph.coordination.utils;
-
-namespace memgraph::coordination {
-class ReplicationInstanceConnector;
-}  // namespace memgraph::coordination
 
 export namespace memgraph::coordination {
 

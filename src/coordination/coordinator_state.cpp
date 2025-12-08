@@ -25,6 +25,8 @@
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_instance;
 import memgraph.coordination.coordinator_ops_status;
+import memgraph.coordination.replication_lag_info;
+import memgraph.coordination.utils;
 
 namespace memgraph::coordination {
 

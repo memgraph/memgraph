@@ -11,6 +11,7 @@
 
 module;
 
+#include <functional>
 #include <vector>
 
 export module memgraph.coordination.coordinator_observer;
@@ -18,21 +19,16 @@ export module memgraph.coordination.coordinator_observer;
 #ifdef MG_ENTERPRISE
 
 import memgraph.coordination.coordinator_instance_aux;
-
-namespace memgraph::coordination {
-class CoordinatorInstance;
-}  // namespace memgraph::coordination
-
 export namespace memgraph::coordination {
 
 class CoordinationClusterChangeObserver {
  public:
-  explicit CoordinationClusterChangeObserver(CoordinatorInstance *instance);
+  explicit CoordinationClusterChangeObserver(std::function<void(std::vector<CoordinatorInstanceAux> const &)> func);
 
   void Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
 
  private:
-  CoordinatorInstance *instance_;
+  std::function<void(std::vector<CoordinatorInstanceAux> const &)> func_;
 };
 
 }  // namespace memgraph::coordination

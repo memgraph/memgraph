@@ -17,15 +17,14 @@ module memgraph.coordination.coordinator_observer;
 
 #ifdef MG_ENTERPRISE
 
-import memgraph.coordination.coordinator_instance;
-
 namespace memgraph::coordination {
 
-CoordinationClusterChangeObserver::CoordinationClusterChangeObserver(CoordinatorInstance *instance)
-    : instance_{instance} {}
+CoordinationClusterChangeObserver::CoordinationClusterChangeObserver(
+    std::function<void(std::vector<CoordinatorInstanceAux> const &)> func)
+    : func_{std::move(func)} {}
 
 void CoordinationClusterChangeObserver::Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
-  instance_->UpdateClientConnectors(coord_instances_aux);
+  func_(coord_instances_aux);
 }
 
 }  // namespace memgraph::coordination
