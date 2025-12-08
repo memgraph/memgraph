@@ -26,10 +26,9 @@ module;
 #include <utility>
 #include <vector>
 
-#include <communication/bolt/v1/encoder/base_encoder.hpp>
-#include "coordination/coordinator_instance_management_server.hpp"
-#include "coordination/coordinator_instance_management_server_handlers.hpp"
+#include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "coordination/coordinator_rpc.hpp"
+#include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exponential_backoff.hpp"
@@ -73,6 +72,8 @@ import memgraph.coordination.coordinator_exceptions;
 import memgraph.coordination.coordinator_instance_aux;
 import memgraph.coordination.coordinator_instance_context;
 import memgraph.coordination.coordinator_instance_connector;
+import memgraph.coordination.coordinator_instance_management_server;
+import memgraph.coordination.coordinator_instance_management_server_handlers;
 import memgraph.coordination.coordinator_observer;
 import memgraph.coordination.coordinator_ops_status;
 import memgraph.coordination.instance_state;
