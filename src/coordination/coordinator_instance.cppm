@@ -19,7 +19,7 @@ module;
 
 #include "coordination/coordinator_instance_management_server.hpp"
 #include "coordination/data_instance_management_server.hpp"
-#include "coordination/replication_instance_connector.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/thread_pool.hpp"
 
@@ -36,6 +36,7 @@ import memgraph.coordination.coordinator_ops_status;
 import memgraph.coordination.instance_state;
 import memgraph.coordination.instance_status;
 import memgraph.coordination.raft_state;
+import memgraph.coordination.replication_instance_connector;
 import memgraph.coordination.replication_lag_info;
 import memgraph.coordination.utils;
 

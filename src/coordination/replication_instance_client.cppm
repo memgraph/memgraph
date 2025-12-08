@@ -9,9 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#ifdef MG_ENTERPRISE
+module;
 
 #include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/common.hpp"
@@ -20,10 +18,7 @@
 #include "utils/metrics_timer.hpp"
 #include "utils/scheduler.hpp"
 
-import memgraph.coordination.coordinator_communication_config;
-import memgraph.coordination.instance_state;
-import memgraph.coordination.replication_lag_info;
-
+// Must be in global module fragment for external linkage
 namespace memgraph::metrics {
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GenerateRpcCounterEvents(RPC) \
@@ -42,7 +37,15 @@ GenerateRpcCounterEvents(GetDatabaseHistoriesRpc)
 // clang-format on
 }  // namespace memgraph::metrics
 
-namespace memgraph::coordination {
+export module memgraph.coordination.replication_instance_client;
+
+#ifdef MG_ENTERPRISE
+
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.instance_state;
+import memgraph.coordination.replication_lag_info;
+
+export namespace memgraph::coordination {
 
 template <rpc::IsRpc T>
 struct RpcInfo {
