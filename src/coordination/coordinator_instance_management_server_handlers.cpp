@@ -9,17 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
+module;
 
-#include "coordination/coordinator_instance_management_server_handlers.hpp"
 #include "coordination/coordinator_rpc.hpp"
-
+#include "rpc/file_replication_handler.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
-namespace memgraph::rpc {
-class FileReplicationHandler;
-}  // namespace memgraph::rpc
+module memgraph.coordination.coordinator_instance_management_server_handlers;
 
+#ifdef MG_ENTERPRISE
 namespace memgraph::coordination {
 
 void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceManagementServer &server,

@@ -9,7 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "coordination/coordinator_instance_management_server.hpp"
+module;
+
+#include "communication/context.hpp"
+
+module memgraph.coordination.coordinator_instance_management_server;
+
+import memgraph.coordination.coordinator_communication_config;
 
 #ifdef MG_ENTERPRISE
 namespace memgraph::coordination {

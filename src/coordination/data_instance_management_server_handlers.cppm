@@ -9,19 +9,19 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
+
+#include "coordination/coordinator_rpc.hpp"
+#include "replication_handler/replication_handler.hpp"
+
+export module memgraph.coordination.data_instance_management_server_handlers;
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_rpc.hpp"
-#include "coordination/data_instance_management_server.hpp"
-#include "replication_handler/replication_handler.hpp"
-
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.data_instance_management_server;
 
-namespace memgraph::dbms {
-
-class DbmsHandler;
+export namespace memgraph::dbms {
 
 class DataInstanceManagementServerHandlers {
  public:

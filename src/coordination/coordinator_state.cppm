@@ -15,8 +15,6 @@ module;
 #include <string_view>
 #include <variant>
 
-#include "coordination/data_instance_management_server.hpp"
-
 #include "nlohmann/json_fwd.hpp"
 
 export module memgraph.coordination.coordinator_state;
@@ -26,6 +24,7 @@ export module memgraph.coordination.coordinator_state;
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_ops_status;
 import memgraph.coordination.coordinator_instance;
+import memgraph.coordination.data_instance_management_server;
 import memgraph.coordination.instance_status;
 import memgraph.coordination.replication_lag_info;
 import memgraph.coordination.utils;

@@ -9,15 +9,20 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
+
+#include <cstdint>
+
+#include "slk/serialization.hpp"
+
+export module memgraph.coordination.coordinator_instance_management_server_handlers;
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_instance_management_server.hpp"
-
+import memgraph.coordination.coordinator_instance_management_server;
 import memgraph.coordination.coordinator_instance;
 
-namespace memgraph::coordination {
+export namespace memgraph::coordination {
 class CoordinatorInstanceManagementServerHandlers {
  public:
   static void Register(CoordinatorInstanceManagementServer &server, CoordinatorInstance const &coordinator_instance);

@@ -11,7 +11,6 @@
 
 module;
 
-#include "coordination/data_instance_management_server.hpp"
 #include "io/network/endpoint.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
@@ -29,6 +28,7 @@ module memgraph.coordination.coordinator_state;
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_instance;
 import memgraph.coordination.coordinator_ops_status;
+import memgraph.coordination.data_instance_management_server;
 import memgraph.coordination.replication_lag_info;
 import memgraph.coordination.utils;
 
