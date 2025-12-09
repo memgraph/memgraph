@@ -11,7 +11,6 @@
 
 module;
 
-#include "coordination/coordinator_rpc.hpp"
 #include "replication_handler/replication_handler.hpp"
 
 export module memgraph.coordination.data_instance_management_server_handlers;
@@ -19,6 +18,7 @@ export module memgraph.coordination.data_instance_management_server_handlers;
 #ifdef MG_ENTERPRISE
 
 import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_rpc;
 import memgraph.coordination.data_instance_management_server;
 
 export namespace memgraph::dbms {

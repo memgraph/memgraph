@@ -9,14 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#ifdef MG_ENTERPRISE
+module;
 
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/messages.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/uuid.hpp"
+
+export module memgraph.coordination.coordinator_rpc;
+
+#ifdef MG_ENTERPRISE
 
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.instance_state;
@@ -24,7 +26,7 @@ import memgraph.coordination.instance_status;
 import memgraph.coordination.replication_lag_info;
 import memgraph.coordination.utils;
 
-namespace memgraph::coordination {
+export namespace memgraph::coordination {
 
 struct PromoteToMainReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_FAILOVER_REQ, .name = "PromoteToMainReq"};
@@ -318,7 +320,7 @@ struct StateCheckReq {
   static void Load(StateCheckReq *self, memgraph::slk::Reader *reader);
   static void Save(const StateCheckReq &self, memgraph::slk::Builder *builder);
 
-  static StateCheckReq Upgrade(StateCheckReqV1 const &) { return StateCheckReq{}; }
+  static StateCheckReq Upgrade(StateCheckReqV1 const & /*arg*/) { return StateCheckReq{}; }
 
   StateCheckReq() = default;
 };

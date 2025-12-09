@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "replication_handler/replication_handler.hpp"
-#include "coordination/coordinator_rpc.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "replication/replication_client.hpp"
@@ -22,6 +21,8 @@
 #include "utils/timer.hpp"
 
 #include <spdlog/spdlog.h>
+
+import memgraph.coordination.coordinator_rpc;
 
 namespace memgraph::replication {
 
@@ -350,7 +351,7 @@ auto ReplicationHandler::GetRole() const -> replication_coordination_glue::Repli
 std::variant<coordination::GetDatabaseHistoriesResV1, coordination::GetDatabaseHistoriesRes>
 ReplicationHandler::GetDatabasesHistories(uint64_t const request_version) const {
   if (request_version == coordination::GetDatabaseHistoriesReqV1::kVersion) {
-    replication_coordination_glue::InstanceInfoV1 results;
+    coordination::InstanceInfoV1 results;
     results.last_committed_system_timestamp = system_.LastCommittedSystemTimestamp();
     dbms_handler_.ForEach([&results](dbms::DatabaseAccess db_acc) {
       auto const &repl_storage_state = db_acc->storage()->repl_storage_state_;

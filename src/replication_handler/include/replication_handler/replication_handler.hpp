@@ -14,7 +14,6 @@
 
 #include "auth/auth.hpp"
 #include "auth/profiles/user_profiles.hpp"
-#include "coordination/coordinator_rpc.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "flags/experimental.hpp"
 #include "replication/include/replication/state.hpp"
@@ -25,6 +24,9 @@
 #include "utils/event_histogram.hpp"
 #include "utils/metrics_timer.hpp"
 #include "utils/result.hpp"
+
+import memgraph.coordination.coordinator_rpc;
+import memgraph.coordination.replication_lag_info;
 
 namespace memgraph::metrics {
 extern const Event SystemRecoveryRpc_us;

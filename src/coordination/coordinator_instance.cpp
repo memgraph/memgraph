@@ -19,6 +19,7 @@ module;
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <ranges>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
@@ -27,14 +28,15 @@ module;
 #include <vector>
 
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
-#include "coordination/coordinator_rpc.hpp"
 #include "io/network/endpoint.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exponential_backoff.hpp"
 #include "utils/join_vector.hpp"
 #include "utils/logging.hpp"
 #include "utils/metrics_timer.hpp"
+#include "utils/uuid.hpp"
 
 #include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
@@ -76,6 +78,7 @@ import memgraph.coordination.coordinator_instance_management_server;
 import memgraph.coordination.coordinator_instance_management_server_handlers;
 import memgraph.coordination.coordinator_observer;
 import memgraph.coordination.coordinator_ops_status;
+import memgraph.coordination.coordinator_rpc;
 import memgraph.coordination.instance_state;
 import memgraph.coordination.instance_status;
 import memgraph.coordination.raft_state;
@@ -458,10 +461,10 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
     return ReconcileClusterStateStatus::SUCCESS;
   }
 
-  auto current_mains =
-      raft_state_data_instances | ranges::views::filter([raft_state_ptr = raft_state_.get()](auto const &instance) {
-        return raft_state_ptr->IsCurrentMain(instance.config.instance_name);
-      });
+  auto current_mains = raft_state_data_instances |
+                       std::ranges::views::filter([raft_state_ptr = raft_state_.get()](auto const &instance) {
+                         return raft_state_ptr->IsCurrentMain(instance.config.instance_name);
+                       });
 
   auto const num_mains = std::ranges::distance(current_mains);
 
@@ -629,7 +632,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
     return instance.config.instance_name != new_main_name;
   };
   // replicas already have status replica
-  for (auto &data_instance : data_instances | ranges::views::filter(not_main_raft)) {
+  for (auto &data_instance : data_instances | std::ranges::views::filter(not_main_raft)) {
     data_instance.instance_uuid = new_main_uuid;
   }
 

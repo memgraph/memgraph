@@ -15,11 +15,11 @@ module;
 #include <string_view>
 #include <vector>
 
-#include "coordination/coordinator_rpc.hpp"
-
 #include "spdlog/spdlog.h"
 
 module memgraph.coordination.coordinator_instance_connector;
+
+import memgraph.coordination.coordinator_rpc;
 
 #ifdef MG_ENTERPRISE
 

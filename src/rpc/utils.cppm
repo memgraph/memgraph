@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
 #include "rpc/messages.hpp"
 #include "rpc/version.hpp"
@@ -17,6 +17,8 @@
 #include "utils/function_traits.hpp"
 
 #include "spdlog/spdlog.h"
+
+export module memgraph.rpc.utils;
 
 namespace memgraph::rpc {
 
@@ -29,7 +31,8 @@ concept HasDowngrade = requires(const std::remove_cvref_t<T> &res) {
 template <RpcMessage TResponse>
 void SaveWithDowngrade(TResponse const &res, uint64_t const response_version, slk::Builder *builder) {
   if (response_version == TResponse::kVersion) {
-    slk::Save(res, builder);
+    using slk::Save;
+    Save(res, builder);
     return;
   }
   if constexpr (HasDowngrade<TResponse>) {
@@ -77,7 +80,8 @@ inline void SendInProgressMsg(slk::Builder *builder) {
 template <RpcMessage TRequest>
 void LoadWithUpgrade(TRequest &req, uint64_t const request_version, slk::Reader *reader) {
   if (request_version == TRequest::kVersion) {
-    slk::Load(&req, reader);
+    using slk::Load;
+    Load(&req, reader);
     return;
   }
   if constexpr (requires { &TRequest::Upgrade; }) {

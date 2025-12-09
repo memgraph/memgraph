@@ -9,13 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
-
-#include "coordination/coordinator_rpc.hpp"
+module;
 
 #include "slk/serialization.hpp"
+#include "utils/uuid.hpp"
+
+module memgraph.coordination.coordinator_rpc;
+
+#ifdef MG_ENTERPRISE
 
 import memgraph.coordination.coordinator_slk;
+
 namespace memgraph {
 
 namespace coordination {

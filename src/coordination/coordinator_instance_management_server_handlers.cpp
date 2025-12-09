@@ -11,13 +11,15 @@
 
 module;
 
-#include "coordination/coordinator_rpc.hpp"
 #include "rpc/file_replication_handler.hpp"
-#include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
+#include "rpc/utils.hpp"
 
 module memgraph.coordination.coordinator_instance_management_server_handlers;
 
 #ifdef MG_ENTERPRISE
+
+import memgraph.coordination.coordinator_rpc;
+
 namespace memgraph::coordination {
 
 void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceManagementServer &server,

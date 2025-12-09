@@ -12,7 +12,6 @@
 module;
 
 #include "communication/context.hpp"
-#include "coordination/coordinator_rpc.hpp"
 #include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/exceptions.hpp"
@@ -46,6 +45,7 @@ module memgraph.coordination.replication_instance_client;
 
 #ifdef MG_ENTERPRISE
 
+import memgraph.coordination.coordinator_rpc;
 import memgraph.coordination.instance_state;
 import memgraph.coordination.replication_lag_info;
 

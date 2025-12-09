@@ -73,6 +73,7 @@
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
 
+import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.data_instance_management_server_handlers;
 
 namespace memgraph::metrics {
