@@ -14,6 +14,7 @@
 #include <pthread.h>
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
@@ -166,11 +167,7 @@ ThreadSafeMonotonicBufferResource::ThreadLocalState &ThreadSafeMonotonicBufferRe
   if (!state) {
     // Allocate space for the ThreadLocalState using the upstream memory resource
     // This is a small, one-time allocation per thread, so using the upstream directly is fine
-    void *state_mem = memory_->allocate(sizeof(ThreadLocalState), alignof(ThreadLocalState));
-    if (!state_mem) {
-      throw BadAlloc("Failed to allocate thread-local state");
-    }
-    state = new (state_mem) ThreadLocalState{};
+    state = new ThreadLocalState{};
     state->next_buffer_size = initial_buffer_size_;
     pthread_setspecific(thread_local_block_key_, reinterpret_cast<void *>(state));
     thread_local_cache_ = state;
@@ -209,11 +206,7 @@ void *ThreadSafeMonotonicBufferResource::do_allocate(size_t bytes, size_t alignm
   }
 
   // Need a new block - allocate with lock
-  std::unique_lock<std::mutex> lock(alloc_mutex_);
-
-  // Double-check: maybe another thread allocated a block we can use
-  // But since we're using thread-local blocks, we just allocate a new one
-  auto *new_block = allocate_new_block(state, bytes + alignment - 1);
+  auto *new_block = allocate_new_block(state, bytes, alignment);
   if (!new_block) {
     throw BadAlloc("Failed to allocate new block");
   }
@@ -236,19 +229,21 @@ void *ThreadSafeMonotonicBufferResource::do_allocate(size_t bytes, size_t alignm
 }
 
 ThreadSafeMonotonicBufferResource::Block *ThreadSafeMonotonicBufferResource::allocate_new_block(ThreadLocalState &state,
-                                                                                                size_t min_size) {
+                                                                                                size_t min_size,
+                                                                                                size_t alignment) {
   // Use the thread-local next_buffer_size for exponential growth, but ensure it's at least min_size
   const size_t block_size = std::max(state.next_buffer_size, min_size);
 
   // Allocate memory for block header + data
   size_t total_size = sizeof(Block) + block_size;
+  const auto align = std::max(alignment, alignof(std::max_align_t));
   // Size must be a multiple of alignof(Block)
-  if (const auto maybe_total_size = RoundUint64ToMultiple(total_size, alignof(Block))) {
+  if (const auto maybe_total_size = RoundUint64ToMultiple(total_size, align)) {
     total_size = *maybe_total_size;
   } else {
     throw BadAlloc("Allocation size overflow");
   }
-  void *new_buffer = memory_->allocate(total_size, alignof(Block));
+  void *new_buffer = memory_->allocate(total_size, align);
 
   if (!new_buffer) {
     throw BadAlloc("Failed to allocate new block");
@@ -321,69 +316,37 @@ void *Pool::Allocate() {
 void Pool::Deallocate(void *p) {
   *reinterpret_cast<std::byte **>(p) = std::exchange(free_list_, reinterpret_cast<std::byte *>(p));
 }
-
-thread_local ThreadSafePool::Node **ThreadSafePool::head_cache_ = nullptr;
+thread_local ThreadSafePool::ThreadLocalState *ThreadSafePool::tls_cache_ = nullptr;
 thread_local uint64_t ThreadSafePool::last_pool_ = 0;
 std::atomic<uint64_t> ThreadSafePool::pool_id_ = 1;
 
-ThreadSafePool::Node *&ThreadSafePool::thread_local_head() {
+ThreadSafePool::ThreadLocalState *ThreadSafePool::thread_state() {
   if (last_pool_ != id_) {
     last_pool_ = id_;
-    head_cache_ = static_cast<Node **>(pthread_getspecific(thread_local_head_key_));
+    tls_cache_ = static_cast<ThreadLocalState *>(pthread_getspecific(thread_local_key_));
   }
-  Node **head_ptr = head_cache_;
-  if (!head_ptr) {
-    // Allocate space for the Node* pointer
-    // Use an allocator that just drops the memory (no need to destroy each pointer <- it just points to managed memory)
-    head_ptr = static_cast<Node **>(block_memory_resource_.allocate(sizeof(Node *)));
-    if (!head_ptr) {
-      throw BadAlloc("Failed to allocate thread-local head pointer");
-    }
-    *head_ptr = nullptr;
-    pthread_setspecific(thread_local_head_key_, reinterpret_cast<void *>(head_ptr));
-    head_cache_ = head_ptr;
+  ThreadLocalState *state = tls_cache_;
+  if (!state) {
+    // Initialize
+    state = new ThreadLocalState{};
+    pthread_setspecific(thread_local_key_, reinterpret_cast<void *>(state));
+    tls_cache_ = state;
   }
-  return *head_ptr;
+  return state;
 }
 
-// carve a new block and link its nodes
-ThreadSafePool::Node *ThreadSafePool::carve_block() {
-  // Allocate a new chunk
+// OPTIMIZED: Just allocate the chunk. Do NOT touch the memory.
+// This prevents the "thundering herd" of page faults and clear_page calls.
+void *ThreadSafePool::carve_block() {
+  // Allocate a new chunk (Virtual Memory only)
   void *raw = chunk_memory_->allocate(chunk_size(), chunk_alignment());
   {
-    // Push back to the global list
+    // Push back to the global list for cleanup later
     const std::unique_lock lock(mtx_);
     chunks_.emplace_front(raw);
   }
-
-  // Link the blocks in the chunk
-  Node *prev = nullptr;
-  for (std::size_t i = 0; i < blocks_per_chunk_; ++i) {
-    Node *node = reinterpret_cast<Node *>(reinterpret_cast<char *>(raw) + (i * block_size_));
-    node->next = prev;
-    prev = node;
-  }
-
-  // Return the top node - caller will update their thread-local head
-  return prev;
-}
-
-void *ThreadSafePool::pop_head() {
-  Node *&head = thread_local_head();
-  if (head) {
-    auto *node = head;
-    head = head->next;
-    node->next = nullptr;
-    return reinterpret_cast<void *>(node);
-  }
-  return nullptr;
-}
-
-void ThreadSafePool::push_head(void *p) {
-  Node *node = static_cast<Node *>(p);
-  Node *&head = thread_local_head();
-  node->next = head;
-  head = node;
+  // Return the raw pointer immediately
+  return raw;
 }
 
 ThreadSafePool::ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks, MemoryResource *chunk_memory)
@@ -391,8 +354,7 @@ ThreadSafePool::ThreadSafePool(std::size_t block_size, std::size_t blocks_per_ch
       blocks_per_chunk_(blocks_per_chunks),
       id_{pool_id_.fetch_add(1)},
       chunk_memory_(chunk_memory) {
-  // Create instance-specific pthread key for thread-local storage
-  if (pthread_key_create(&thread_local_head_key_, nullptr) != 0) {
+  if (pthread_key_create(&thread_local_key_, nullptr) != 0) {
     throw BadAlloc("Failed to create pthread key for thread-local storage");
   }
 }
@@ -404,31 +366,54 @@ ThreadSafePool::~ThreadSafePool() {
     }
     chunks_.clear();
   }
-  // Clean up the pthread key
-  pthread_key_delete(thread_local_head_key_);
+  auto *ptr = static_cast<ThreadLocalState *>(pthread_getspecific(thread_local_key_));
+  delete ptr;
+  pthread_key_delete(thread_local_key_);
   last_pool_ = 0;
-  head_cache_ = nullptr;
+  tls_cache_ = nullptr;
 }
 
 void *ThreadSafePool::Allocate() {
-  if (thread_local_head()) {
-    auto *head = thread_local_head();
-    thread_local_head() = head->next;
-    return head;
+  ThreadLocalState *state = thread_state();
+
+  // 1. Hot Path: Pop from the free list (recycled nodes)
+  // These pages are likely already physically mapped and hot in cache.
+  if (state->free_list_head) {
+    Node *node = state->free_list_head;
+    state->free_list_head = node->next;
+    return node;
   }
-  auto *head = carve_block();
-  thread_local_head() = head->next;
-  return head;
+
+  // 2. Warm Path: Bump allocation from current chunk
+  // This lazily triggers page faults one by one as we cross 4KB boundaries.
+  if (state->cursor && (state->cursor + block_size_ <= state->end)) {
+    void *p = state->cursor;
+    state->cursor += block_size_;
+    return p;
+  }
+
+  // 3. Cold Path: Carve a new chunk
+  void *raw = carve_block();
+
+  // Initialize the bump pointers
+  state->cursor = static_cast<char *>(raw);
+  state->end = state->cursor + chunk_size();
+
+  // Return the first block
+  void *p = state->cursor;
+  state->cursor += block_size_;
+  return p;
 }
 
 void ThreadSafePool::Deallocate(void *p) noexcept {
   try {
+    ThreadLocalState *state = thread_state();
     Node *node = static_cast<Node *>(p);
-    node->next = thread_local_head();
-    thread_local_head() = node;
+
+    // Push onto the free list
+    node->next = state->free_list_head;
+    state->free_list_head = node;
   } catch (...) {
-    // If thread_local_head() throws, we can't do much in a noexcept function
-    // This should not happen in normal operation
     std::terminate();
   }
 }

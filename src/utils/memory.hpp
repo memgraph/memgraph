@@ -229,6 +229,8 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
   /// Destructor - releases all allocated memory
   ~ThreadSafeMonotonicBufferResource() override {
     Release();
+    auto *ptr = static_cast<ThreadLocalState *>(pthread_getspecific(thread_local_block_key_));
+    delete ptr;
     pthread_key_delete(thread_local_block_key_);
   }
 
@@ -261,7 +263,7 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
   };
 
   /// Thread-local storage structure
-  struct ThreadLocalState {
+  struct alignas(64) ThreadLocalState {
     Block *current_block{nullptr};
     size_t current_size{0};         // Track size separately for thread-local block
     size_t next_buffer_size{1024};  // Track next buffer size for exponential growth (thread-local)
@@ -273,7 +275,6 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
 
   MemoryResource *memory_{NewDeleteResource()};
   mutable std::mutex blocks_mutex_;                        // For managing global block list
-  mutable std::mutex alloc_mutex_;                         // For allocating new blocks
   std::forward_list<Block *, Allocator<Block *>> blocks_;  // Global list of all blocks for cleanup
   const size_t initial_buffer_size_{1024};                 // Initial buffer size for new threads
   const uint64_t id_;
@@ -288,7 +289,10 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
 
   // Local methods
   ThreadLocalState &thread_local_state();
-  Block *allocate_new_block(ThreadLocalState &state, size_t min_size);
+  Block *allocate_new_block(ThreadLocalState &state, size_t min_size, size_t alignment);
+
+ public:
+  static constexpr size_t block_size = sizeof(Block);
 };
 
 namespace impl {
@@ -352,35 +356,41 @@ class Pool final {
 
   void Deallocate(void *p);
 };
-
 class ThreadSafePool {
   struct Node {
     Node *next;
   };
 
-  static thread_local Node **head_cache_;
+  // We need to store more state per thread now:
+  // 1. The free list (recycled nodes)
+  // 2. The bump pointer (for fresh, untouched memory)
+  struct alignas(64) ThreadLocalState {
+    Node *free_list_head = nullptr;
+    char *cursor = nullptr;  // Current position in the fresh chunk
+    char *end = nullptr;     // End of the fresh chunk
+  };
+
+  static thread_local ThreadLocalState *tls_cache_;  // Updated type
   static thread_local uint64_t last_pool_;
   static std::atomic<uint64_t> pool_id_;
-  ThreadSafeMonotonicBufferResource block_memory_resource_{1024};  // Used for thread-local head pointers
+
   std::mutex mtx_;
-  AList<void *> chunks_;  // store allocated blocks for destruction
+  AList<void *> chunks_;
 
   const std::size_t block_size_;
   const std::size_t blocks_per_chunk_;
   const uint64_t id_;
-  MemoryResource *chunk_memory_;         // Needs to be thread safe
-  pthread_key_t thread_local_head_key_;  // Instance-specific pthread key
+  MemoryResource *chunk_memory_;
+  pthread_key_t thread_local_key_;  // Renamed for clarity
 
   size_t chunk_size() const { return blocks_per_chunk_ * block_size_; }
   size_t chunk_alignment() const { return Ceil2(block_size_); }
 
-  Node *carve_block();
+  // Returns raw memory chunk, does NOT initialize linked list
+  void *carve_block();
 
-  Node *&thread_local_head();
-
-  void *pop_head();
-
-  void push_head(void *p);
+  // Helper to get the full state struct
+  ThreadLocalState *thread_state();
 
  public:
   explicit ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks = 1024,
