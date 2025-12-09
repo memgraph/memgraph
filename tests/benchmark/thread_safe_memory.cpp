@@ -212,25 +212,4 @@ static void BM_HighContention(benchmark::State &state) {
 
 BENCHMARK(BM_HighContention)->RangeMultiplier(2)->Range(2, 16)->UseRealTime()->Unit(benchmark::kMicrosecond);
 
-// Release performance benchmark
-static void BM_ReleasePerformance(benchmark::State &state) {
-  ThreadSafeMonotonicBufferResource mem(1024 * 1024);
-  const int num_allocations = state.range(0);
-
-  // Pre-allocate memory
-  std::vector<void *> ptrs;
-  ptrs.reserve(num_allocations);
-
-  for (int i = 0; i < num_allocations; ++i) {
-    ptrs.push_back(mem.allocate(64, 8));
-  }
-
-  for (auto _ : state) {
-    mem.Release();
-    benchmark::DoNotOptimize(mem);
-  }
-}
-
-BENCHMARK(BM_ReleasePerformance)->RangeMultiplier(10)->Range(100, 10000)->UseRealTime()->Unit(benchmark::kMicrosecond);
-
 BENCHMARK_MAIN();
