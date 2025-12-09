@@ -9809,7 +9809,7 @@ class ParallelBranchCursor : public Cursor {
         context.stats = plan::ProfilingStats();
         SCOPED_PROFILE_OP_BY_REF(self);
 
-        DMG_ASSERT(context.auth_checker->IsThreadSafe(), "Auth checker is not thread safe");
+        DMG_ASSERT(!context.auth_checker || context.auth_checker->IsThreadSafe(), "Auth checker is not thread safe");
         const auto &cursor = branch_cursors_[i];
         const auto metadata_i = i - 1;
         if (context.frame_change_collector != nullptr) {
@@ -10018,23 +10018,49 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
       auto &other_value = other_agg_value.values_[pos];
       auto &main_value = main_agg_value.values_[pos];  // Reference for easy access
 
-      // OPTIMIZATION: Merge Sets efficiently
-      if (agg_info.distinct) {
-        // C++17: Splicing sets is much faster than inserting elements one by one
-        // If your unique_values_ are std::set or std::unordered_set
-        main_agg_value.unique_values_[pos].merge(other_agg_value.unique_values_[pos]);
-        // Note: merge leaves duplicates in 'other'. If you don't need 'other' after this, that's fine.
-      }
-
-      // Skip Nulls (except for COUNT)
-      // BUG FIX: Changed 'return' to 'continue'
-      if (other_value.IsNull() && agg_op != Aggregation::Op::COUNT) {
-        continue;
-      }
-
       auto &main_count = main_agg_value.counts_[pos];
       const auto other_count = other_agg_value.counts_[pos];
       const auto old_main_count = main_count;
+
+      // Special case for DISTINCT
+      if (agg_info.distinct) {
+        auto &main_unique_values = main_agg_value.unique_values_[pos];
+        auto &other_unique_values = other_agg_value.unique_values_[pos];
+        const auto other_unique_values_size = other_unique_values.size();
+        main_unique_values.merge(other_unique_values);
+        // Note: merge leaves duplicates in 'other'.
+        if (other_unique_values.size() == other_unique_values_size) continue;  // No new values added (nothing to do)
+        main_count = main_unique_values.size();
+        switch (agg_op) {
+          case Aggregation::Op::COUNT: {
+            main_value = main_value + other_value - TypedValue((int64_t)other_unique_values.size());
+          } break;
+          case Aggregation::Op::SUM: {
+            TypedValue left_sum{0};
+            std::for_each(other_unique_values.begin(), other_unique_values.end(),
+                          [&](const auto &val) { left_sum = left_sum + val; });
+            main_value = main_value + other_value - left_sum;
+          } break;
+          case Aggregation::Op::AVG: {
+            TypedValue left_sum{0};
+            std::for_each(other_unique_values.begin(), other_unique_values.end(),
+                          [&](const auto &val) { left_sum = left_sum + val; });
+            const TypedValue other_sum = other_value * TypedValue(other_count);
+            const TypedValue main_sum = main_value * TypedValue(old_main_count);
+            main_value = (main_sum + other_sum - left_sum) / TypedValue(main_count);
+          } break;
+          default:
+            // TODO
+            break;
+        }
+        // TODO: Some are the same
+        continue;
+      }
+
+      // Skip Nulls (except for COUNT)
+      if (other_value.IsNull() && agg_op != Aggregation::Op::COUNT) {
+        continue;
+      }
 
       main_count += other_count;
 
@@ -10046,6 +10072,7 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
 
       switch (agg_op) {
         case Aggregation::Op::COUNT:
+          [[fallthrough]];
         case Aggregation::Op::SUM: {
           main_value = main_value + other_value;
           break;
@@ -10140,29 +10167,30 @@ class AggregateParallelCursor : public ParallelBranchCursor {
       initialized_ = true;
       auto pre_pull_func = [&branch_aggregations_mutex, &branch_aggregations](Cursor *cursor) {
         // Try to find a free aggregation to reuse
-        decltype(main_aggregation_) free_aggregation = nullptr;
+        decltype(main_aggregation_) complete_aggregation = nullptr;
         {
           std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
           if (!branch_aggregations.empty()) {
-            free_aggregation = branch_aggregations.front();
+            complete_aggregation = branch_aggregations.front();
             branch_aggregations.pop();
           }
         }
-        if (free_aggregation != nullptr) {
-          static_cast<AggregateCursor *>(cursor)->aggregation_ = std::move(*free_aggregation);
+        // Reuse already completed section if available
+        if (complete_aggregation != nullptr) {
+          static_cast<AggregateCursor *>(cursor)->aggregation_ = std::move(*complete_aggregation);
         }
       };
       auto post_pull_func = [&branch_aggregations_mutex, &aggregations, &branch_aggregations](Cursor *cursor) {
         auto *aggregation = &static_cast<AggregateCursor *>(cursor)->aggregation_;
-        decltype(main_aggregation_) free_aggregation = nullptr;
+        decltype(main_aggregation_) complete_aggregation = nullptr;
 
         while (true) {
-          free_aggregation = nullptr;
+          complete_aggregation = nullptr;
           // Phase 1: find a free aggregation
           {
             std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
             if (!branch_aggregations.empty()) {
-              free_aggregation = branch_aggregations.front();
+              complete_aggregation = branch_aggregations.front();
               branch_aggregations.pop();
             } else {
               branch_aggregations.push(aggregation);
@@ -10170,10 +10198,7 @@ class AggregateParallelCursor : public ParallelBranchCursor {
             }
           }
           // Phase 2: unify the aggregation
-          UnifyAggregation(*free_aggregation, *aggregation, aggregations);
-          // Phase 3: swap pointers and find next aggregation
-          std::swap(free_aggregation, aggregation);
-          free_aggregation->clear();
+          UnifyAggregation(*aggregation, *complete_aggregation, aggregations);
         }
       };
 
@@ -10183,7 +10208,7 @@ class AggregateParallelCursor : public ParallelBranchCursor {
       }
 
       // There should be only one aggregation left in the list
-      MG_ASSERT(branch_aggregations.size() == 1, "There should be only one aggregation left in the list");
+      DMG_ASSERT(branch_aggregations.size() == 1, "There should be only one aggregation left in the list");
       main_aggregation_ = branch_aggregations.front();
       aggregation_it_ = main_aggregation_->begin();
       if (main_aggregation_->empty()) {
@@ -10194,14 +10219,17 @@ class AggregateParallelCursor : public ParallelBranchCursor {
 
     if (aggregation_it_ == main_aggregation_->end()) return false;
 
+    // TODO Free unused cursors
+
     // place aggregation values on the frame
-    auto aggregation_values_it = aggregation_it_->second.values_.begin();
+    size_t pos = 0;
     for (const auto &aggregation_elem : aggregations)
-      frame_writer.Write(aggregation_elem.output_sym, *aggregation_values_it++);
+      frame_writer.Write(aggregation_elem.output_sym, aggregation_it_->second.values_[pos++]);
 
     // place remember values on the frame
-    auto remember_values_it = aggregation_it_->second.remember_.begin();
-    for (const Symbol &remember_sym : remember) frame_writer.Write(remember_sym, *remember_values_it++);
+    pos = 0;
+    for (const Symbol &remember_sym : remember)
+      frame_writer.Write(remember_sym, aggregation_it_->second.remember_[pos++]);
 
     aggregation_it_++;
     return true;
