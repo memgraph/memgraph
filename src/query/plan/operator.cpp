@@ -6343,10 +6343,11 @@ std::unique_ptr<LogicalOperator> Aggregate::Clone(AstStorage *storage) const {
 }
 
 std::string Aggregate::ToString() const {
-  return fmt::format(
-      "Aggregate {{{0}}} {{{1}}}",
-      utils::IterableToString(aggregations_, ", ", [](const auto &aggr) { return aggr.output_sym.name(); }),
-      utils::IterableToString(remember_, ", ", [](const auto &sym) { return sym.name(); }));
+  return fmt::format("Aggregate {{{0}}} {{{1}}}",
+                     utils::IterableToString(
+                         aggregations_, ", ",
+                         [](const auto &aggr) { return (aggr.distinct ? "DISTINCT " : "") + aggr.output_sym.name(); }),
+                     utils::IterableToString(remember_, ", ", [](const auto &sym) { return sym.name(); }));
 }
 
 Skip::Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression)

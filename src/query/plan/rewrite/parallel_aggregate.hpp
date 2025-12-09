@@ -216,6 +216,34 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
       return true;
     };
 
+    // Special case for DISTINCT operator - we don't support parallelizing DISTINCT operators
+    // We will try to move the DISTINCT under the aggregation function
+    // Rewrite MATCH(n) WITH DISTINCT n RETURN count(*) to MATCH(n) RETURN count(DISTINCT n)
+    auto rewrite_distinct = [&](Aggregate &op) {
+      // Find pair of Distinct and Produce operators
+      if (auto *distinct_op = dynamic_cast<Distinct *>(op.input().get())) {
+        auto *maybe_produce = dynamic_cast<Produce *>(distinct_op->input().get());
+        if (!maybe_produce || maybe_produce->named_expressions_.size() != 1) return;
+        // Support only if aggregation is the top operator
+        if (prev_ops_.size() != 1) return;
+        auto *parent = dynamic_cast<Produce *>(prev_ops_.front());
+        if (!parent || parent->named_expressions_.size() != 1) return;
+        // COUNT(*) is the only case where input expression is optional
+        auto agg = op.aggregations_.begin();
+        if (op.aggregations_.size() != 1 || agg->op != Aggregation::Op::COUNT) return;
+        auto *named_expr = *maybe_produce->named_expressions_.begin();
+        if (agg->arg1 != nullptr && agg->arg1 != named_expr->expression_) return;
+        // TODO Make sure op is the top operator
+        // Rewrite the query to MATCH(n) RETURN count(DISTINCT n)
+        agg->distinct = true;
+        agg->arg1 = named_expr->expression_;
+        agg->arg2 = nullptr;
+        // Remove the Produce and Distinct operators
+        op.set_input(maybe_produce->input());
+      }
+    };
+    rewrite_distinct(op);
+
     // Collect symbols needed by this Aggregate (from group_by and aggregations)
     std::set<Symbol::Position_t> required_symbols;
     DependantSymbolVisitor symbol_visitor(required_symbols);
