@@ -33,4 +33,18 @@ class CoordinationClusterChangeObserver {
 
 }  // namespace memgraph::coordination
 
+module : private;
+
+namespace memgraph::coordination {
+
+CoordinationClusterChangeObserver::CoordinationClusterChangeObserver(
+    std::function<void(std::vector<CoordinatorInstanceAux> const &)> func)
+    : func_{std::move(func)} {}
+
+void CoordinationClusterChangeObserver::Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
+  func_(coord_instances_aux);
+}
+
+}  // namespace memgraph::coordination
+
 #endif

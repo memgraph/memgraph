@@ -13,7 +13,12 @@ module;
 
 #include <cstdint>
 
+#include "coordination/coordinator_rpc.hpp"
+#include "rpc/file_replication_handler.hpp"
 #include "slk/serialization.hpp"
+
+// Include it last because of SLK definitions
+#include "rpc/utils.hpp"
 
 export module memgraph.coordination.coordinator_instance_management_server_handlers;
 
@@ -36,4 +41,47 @@ class CoordinatorInstanceManagementServerHandlers {
 };
 
 }  // namespace memgraph::coordination
+
+module : private;
+
+namespace memgraph::coordination {
+
+void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceManagementServer &server,
+                                                           CoordinatorInstance const &coordinator_instance) {
+  server.Register<ShowInstancesRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                                        uint64_t const request_version, slk::Reader *req_reader,
+                                        slk::Builder *res_builder) -> void {
+    CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(coordinator_instance, request_version, req_reader,
+                                                                      res_builder);
+  });
+
+  server.Register<GetRoutingTableRpc>(
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+        CoordinatorInstanceManagementServerHandlers::GetRoutingTableHandler(coordinator_instance, request_version,
+                                                                            req_reader, res_builder);
+      });
+}
+
+void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(CoordinatorInstance const &coordinator_instance,
+                                                                       uint64_t const request_version,
+                                                                       slk::Reader *req_reader,
+                                                                       slk::Builder *res_builder) {
+  ShowInstancesReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+  ShowInstancesRes const rpc_res{coordinator_instance.ShowInstancesAsLeader()};
+  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+}
+
+void CoordinatorInstanceManagementServerHandlers::GetRoutingTableHandler(
+    CoordinatorInstance const &coordinator_instance, uint64_t request_version, slk::Reader *req_reader,
+    slk::Builder *res_builder) {
+  GetRoutingTableReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+  GetRoutingTableRes const rpc_res{coordinator_instance.GetRoutingTable(req.db_name_)};
+  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+}
+
+}  // namespace memgraph::coordination
+
 #endif

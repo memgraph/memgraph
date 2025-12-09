@@ -15,6 +15,10 @@ module;
 #include <string_view>
 #include <vector>
 
+#include "coordination/coordinator_rpc.hpp"
+
+#include "spdlog/spdlog.h"
+
 export module memgraph.coordination.coordinator_instance_connector;
 
 #ifdef MG_ENTERPRISE
@@ -37,6 +41,36 @@ class CoordinatorInstanceConnector {
  private:
   mutable CoordinatorInstanceClient client_;
 };
+}  // namespace memgraph::coordination
+
+module : private;
+
+namespace memgraph::coordination {
+
+auto CoordinatorInstanceConnector::SendShowInstances() const -> std::optional<std::vector<InstanceStatus>> {
+  try {
+    spdlog::trace("Sending ShowInstancesRPC to endpoint {}", client_.RpcClient().Endpoint().SocketAddress());
+    auto stream{client_.RpcClient().Stream<ShowInstancesRpc>()};
+    auto res = stream.SendAndWait();
+    return res.instances_status_;
+  } catch (std::exception const &e) {
+    spdlog::error("Failed to send ShowInstancesRPC: {}", e.what());
+    return std::nullopt;
+  }
+}
+
+auto CoordinatorInstanceConnector::SendGetRoutingTable(std::string_view const db_name) const
+    -> std::optional<RoutingTable> {
+  try {
+    auto stream{client_.RpcClient().Stream<GetRoutingTableRpc>(std::string{db_name})};
+    auto res = stream.SendAndWait();
+    return res.routing_table_;
+  } catch (std::exception const &e) {
+    spdlog::error("Failed to receive response to GetRoutingTableRpc: {}", e.what());
+    return std::nullopt;
+  }
+}
 
 }  // namespace memgraph::coordination
+
 #endif

@@ -45,19 +45,13 @@ target_sources(mg-coordination
         coordinator_communication_config.cpp
         coordinator_instance.cpp
         coordinator_instance_aux.cpp
-        coordinator_instance_client.cpp
-        coordinator_instance_connector.cpp
         coordinator_instance_context.cpp
-        coordinator_instance_management_server.cpp
-        coordinator_instance_management_server_handlers.cpp
         coordinator_log_store.cpp
-        coordinator_observer.cpp
         coordinator_rpc.cpp
         coordinator_state.cpp
         coordinator_state_machine.cpp
         coordinator_state_manager.cpp
         data_instance_context.cpp
-        data_instance_management_server.cpp
         data_instance_management_server_handlers.cpp
         raft_state.cpp
         replication_instance_client.cpp

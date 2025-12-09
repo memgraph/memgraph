@@ -15,9 +15,9 @@ module;
 
 export module memgraph.coordination.coordinator_instance_client;
 
-import memgraph.coordination.coordinator_communication_config;
-
 #ifdef MG_ENTERPRISE
+
+import memgraph.coordination.coordinator_communication_config;
 
 export namespace memgraph::coordination {
 
@@ -32,4 +32,15 @@ class CoordinatorInstanceClient {
   mutable rpc::Client rpc_client_;
 };
 }  // namespace memgraph::coordination
+
+module : private;
+
+namespace memgraph::coordination {
+
+CoordinatorInstanceClient::CoordinatorInstanceClient(ManagementServerConfig const &config)
+    : rpc_context_{communication::ClientContext{}}, rpc_client_{config.endpoint, &rpc_context_} {}
+
+auto CoordinatorInstanceClient::RpcClient() const -> rpc::Client & { return rpc_client_; }
+}  // namespace memgraph::coordination
+
 #endif

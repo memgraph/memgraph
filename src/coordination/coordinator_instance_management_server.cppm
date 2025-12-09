@@ -11,6 +11,7 @@
 
 module;
 
+#include "communication/context.hpp"
 #include "rpc/server.hpp"
 
 export module memgraph.coordination.coordinator_instance_management_server;
@@ -42,4 +43,30 @@ class CoordinatorInstanceManagementServer {
   rpc::Server rpc_server_;
 };
 }  // namespace memgraph::coordination
+
+module : private;
+namespace memgraph::coordination {
+
+namespace {
+
+// NOTE: The coordinator server doesn't need more than 1 processing thread - it's not a bottleneck
+constexpr auto kCoordInstanceManagementServerThreads = 1;
+
+}  // namespace
+
+CoordinatorInstanceManagementServer::CoordinatorInstanceManagementServer(const ManagementServerConfig &config)
+    : rpc_server_context_{communication::ServerContext{}},
+      rpc_server_{config.endpoint, &rpc_server_context_, kCoordInstanceManagementServerThreads} {}
+
+CoordinatorInstanceManagementServer::~CoordinatorInstanceManagementServer() {
+  if (rpc_server_.IsRunning()) {
+    rpc_server_.Shutdown();
+  }
+  rpc_server_.AwaitShutdown();
+}
+
+bool CoordinatorInstanceManagementServer::Start() { return rpc_server_.Start(); }
+
+}  // namespace memgraph::coordination
+
 #endif
