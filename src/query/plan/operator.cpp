@@ -5845,6 +5845,8 @@ void DefaultAggregation(ExecutionContext &context, const std::vector<Aggregate::
     frame_writer.Write(remember_sym, TypedValue(pull_memory));
   }
 }
+
+inline size_t align_forward(size_t ptr, size_t alignment) { return (ptr + (alignment - 1)) & ~(alignment - 1); }
 }  // namespace
 
 class AggregateParallelCursor;
@@ -5874,12 +5876,13 @@ class AggregateCursor : public Cursor {
     }
     if (aggregation_it_ == aggregation_.end()) return false;
     // place aggregation values on the frame
-    auto aggregation_values_it = aggregation_it_->second.values_.begin();
+    size_t pos = 0;
     for (const auto &aggregation_elem : self_.aggregations_)
-      frame_writer.Write(aggregation_elem.output_sym, *aggregation_values_it++);
+      frame_writer.Write(aggregation_elem.output_sym, aggregation_it_->second.values_[pos++]);
     // place remember values on the frame
-    auto remember_values_it = aggregation_it_->second.remember_.begin();
-    for (const Symbol &remember_sym : self_.remember_) frame_writer.Write(remember_sym, *remember_values_it++);
+    pos = 0;
+    for (const Symbol &remember_sym : self_.remember_)
+      frame_writer.Write(remember_sym, aggregation_it_->second.remember_[pos++]);
     aggregation_it_++;
     return true;
   }
@@ -5896,29 +5899,128 @@ class AggregateCursor : public Cursor {
   // Does NOT include the group-by values since those are a key in the
   // aggregation map. The vectors in an AggregationValue contain one element for
   // each aggregation in this LogicalOp.
-  struct AggregationValue {
-    explicit AggregationValue(utils::MemoryResource *mem)
-        : counts_(mem), values_(mem), remember_(mem), unique_values_(mem) {}
-    // how many input rows have been aggregated in respective values_ element so
-    // far
-    // TODO: The counting value type should be changed to an unsigned type once
-    // TypedValue can support signed integer values larger than 64bits so that
-    // precision isn't lost.
-    utils::pmr::vector<int64_t> counts_;
-    // aggregated values. Initially Null (until at least one input row with a
-    // valid value gets processed)
-    utils::pmr::vector<TypedValue> values_;
-    // remember values.
-    utils::pmr::vector<TypedValue> remember_;
+  struct CompactAggregationValue {
     using TSet = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
-    utils::pmr::vector<TSet> unique_values_;
+
+    // Pointers to the start of our arrays within the single memory block
+    int64_t *counts_ = nullptr;
+    TypedValue *values_ = nullptr;
+    TypedValue *remember_ = nullptr;
+    TSet *unique_values_ = nullptr;
+
+    // We store the allocation details to free it later
+    utils::MemoryResource *mem_resource_;
+    void *raw_block_ = nullptr;
+    size_t total_alloc_size_ = 0;
+
+    // Capacities (needed for destruction)
+    size_t num_aggs_;
+    size_t num_rem_;
+
+    // Track if logical initialization has been done
+    bool initialized_ = false;
+
+    // Disable copy
+    CompactAggregationValue(const CompactAggregationValue &) = delete;
+    CompactAggregationValue &operator=(const CompactAggregationValue &) = delete;
+
+    CompactAggregationValue(CompactAggregationValue &&other) noexcept
+        : counts_(std::exchange(other.counts_, nullptr)),
+          values_(std::exchange(other.values_, nullptr)),
+          remember_(std::exchange(other.remember_, nullptr)),
+          unique_values_(std::exchange(other.unique_values_, nullptr)),
+          mem_resource_(other.mem_resource_),
+          raw_block_(std::exchange(other.raw_block_, nullptr)),
+          total_alloc_size_(other.total_alloc_size_),
+          num_aggs_(other.num_aggs_),
+          num_rem_(other.num_rem_),
+          initialized_(other.initialized_) {}
+
+    CompactAggregationValue &operator=(CompactAggregationValue &&other) noexcept {
+      if (this != &other) {
+        // Clean up current resources
+        free_resources();
+
+        // Transfer ownership
+        counts_ = std::exchange(other.counts_, nullptr);
+        values_ = std::exchange(other.values_, nullptr);
+        remember_ = std::exchange(other.remember_, nullptr);
+        unique_values_ = std::exchange(other.unique_values_, nullptr);
+
+        mem_resource_ = other.mem_resource_;
+        raw_block_ = std::exchange(other.raw_block_, nullptr);
+
+        total_alloc_size_ = other.total_alloc_size_;
+        num_aggs_ = other.num_aggs_;
+        num_rem_ = other.num_rem_;
+        initialized_ = other.initialized_;
+      }
+      return *this;
+    }
+
+    CompactAggregationValue(utils::MemoryResource *mem, size_t num_aggregations, size_t num_remember)
+        : mem_resource_(mem), num_aggs_(num_aggregations), num_rem_(num_remember) {
+      // Calculate Layout
+      size_t offset = 0;
+      // Counts (int64_t)
+      offset = align_forward(offset, alignof(int64_t));
+      size_t offset_counts = offset;
+      offset += sizeof(int64_t) * num_aggs_;
+      // Values (TypedValue)
+      offset = align_forward(offset, alignof(TypedValue));
+      size_t offset_values = offset;
+      offset += sizeof(TypedValue) * num_aggs_;
+      // Remember (TypedValue)
+      // Note: reusing alignment of TypedValue
+      size_t offset_remember = offset;
+      offset += sizeof(TypedValue) * num_rem_;
+      // Unique Values (TSet)
+      offset = align_forward(offset, alignof(TSet));
+      size_t offset_unique = offset;
+      offset += sizeof(TSet) * num_aggs_;
+
+      // Allocate ONE block
+      total_alloc_size_ = offset;
+      raw_block_ = mem->allocate(total_alloc_size_, max_align);
+      char *base = static_cast<char *>(raw_block_);
+
+      // Setup Pointers
+      counts_ = reinterpret_cast<int64_t *>(base + offset_counts);
+      values_ = reinterpret_cast<TypedValue *>(base + offset_values);
+      remember_ = reinterpret_cast<TypedValue *>(base + offset_remember);
+      unique_values_ = reinterpret_cast<TSet *>(base + offset_unique);
+
+      // Construct Objects (Placement New)
+      // Initialize counts to 0
+      std::uninitialized_fill_n(counts_, num_aggs_, 0);
+      // NOTE: We defer construction of 'values_' and 'remember_' to EnsureInitialized
+      // Construct Sets (Must pass the allocator!)
+      for (size_t i = 0; i < num_aggs_; ++i) new (&unique_values_[i]) TSet(mem);
+    }
+
+    ~CompactAggregationValue() { free_resources(); }
+
+   private:
+    static constexpr size_t max_align = std::max({alignof(int64_t), alignof(TypedValue), alignof(TSet)});
+
+    void free_resources() {
+      if (!raw_block_) return;
+      // Destruct objects in reverse order
+      for (size_t i = 0; i < num_aggs_; ++i) unique_values_[i].~TSet();
+      for (size_t i = 0; i < num_rem_; ++i) remember_[i].~TypedValue();
+      for (size_t i = 0; i < num_aggs_; ++i) values_[i].~TypedValue();
+      // Deallocate memory
+      mem_resource_->deallocate(raw_block_, total_alloc_size_, max_align);
+      raw_block_ = nullptr;
+    }
   };
+
   const Aggregate &self_;
   const UniqueCursorPtr input_cursor_;
   // storage for aggregated data
   // map key is the vector of group-by values
   // map value is an AggregationValue struct
-  utils::pmr::unordered_map<utils::pmr::vector<TypedValue>, AggregationValue,
+  utils::pmr::unordered_map<utils::pmr::vector<TypedValue>, CompactAggregationValue,
                             // use FNV collection hashing specialized for a
                             // vector of TypedValues
                             utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
@@ -5958,7 +6060,7 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::AVG: {
           // calculate AVG aggregations (so far they have only been summed)
           for (auto &kv : aggregation_) {
-            AggregationValue &agg_value = kv.second;
+            CompactAggregationValue &agg_value = kv.second;
             auto count = agg_value.counts_[pos];
             auto *pull_memory = context->evaluation_context.memory;
             if (count > 0) {
@@ -5970,7 +6072,7 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::COUNT: {
           // Copy counts to be the value
           for (auto &kv : aggregation_) {
-            AggregationValue &agg_value = kv.second;
+            CompactAggregationValue &agg_value = kv.second;
             agg_value.values_[pos] = agg_value.counts_[pos];
           }
           break;
@@ -6002,7 +6104,7 @@ class AggregateCursor : public Cursor {
       reused_group_by_.emplace_back(expression->Accept(*evaluator));
     }
     auto *mem = aggregation_.get_allocator().resource();
-    auto res = aggregation_.try_emplace(reused_group_by_, mem);
+    auto res = aggregation_.try_emplace(reused_group_by_, mem, self_.aggregations_.size(), self_.remember_.size());
     auto &agg_value = res.first->second;
     if (res.second /*was newly inserted*/) EnsureInitialized(frame, &agg_value);
     Update(evaluator, &agg_value);
@@ -6012,44 +6114,38 @@ class AggregateCursor : public Cursor {
    * that the value vectors are filled with an appropriate number of Nulls,
    * counts are set to 0 and remember values are remembered.
    */
-  void EnsureInitialized(const Frame &frame, AggregateCursor::AggregationValue *agg_value) const {
-    if (!agg_value->values_.empty()) return;
-    const auto num_of_aggregations = self_.aggregations_.size();
-    agg_value->values_.reserve(num_of_aggregations);
-    agg_value->unique_values_.reserve(num_of_aggregations);
-    auto *mem = agg_value->values_.get_allocator().resource();
+  void EnsureInitialized(const Frame &frame, CompactAggregationValue *agg_value) const {
+    if (agg_value->initialized_) return;
+    agg_value->initialized_ = true;
+    auto *mem = agg_value->mem_resource_;
+    size_t idx = 0;
     for (const auto &agg_elem : self_.aggregations_) {
-      agg_value->values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
-      agg_value->unique_values_.emplace_back(AggregationValue::TSet(mem));
+      new (&agg_value->values_[idx++]) TypedValue(DefaultAggregationOpValue(agg_elem, mem));
+      // unique_values_ sets are already constructed and empty from constructor
     }
-    agg_value->counts_.resize(num_of_aggregations, 0);
-    agg_value->remember_.reserve(self_.remember_.size());
+    // counts_ are already 0 from constructor
+    // Populate Remembered values
+    size_t rem_idx = 0;
     for (const Symbol &remember_sym : self_.remember_) {
-      agg_value->remember_.push_back(frame[remember_sym]);
+      // Copy value from frame
+      new (&agg_value->remember_[rem_idx++]) TypedValue(frame[remember_sym]);
     }
   }
 
   /** Updates the given AggregationValue with new data. Assumes that
    * the AggregationValue has been initialized */
-  void Update(ExpressionEvaluator *evaluator, AggregateCursor::AggregationValue *agg_value) {
-    DMG_ASSERT(self_.aggregations_.size() == agg_value->values_.size(),
+  void Update(ExpressionEvaluator *evaluator, AggregateCursor::CompactAggregationValue *agg_value) {
+    DMG_ASSERT(self_.aggregations_.size() == agg_value->num_aggs_,
                "Expected as much AggregationValue.values_ as there are "
                "aggregations.");
-    DMG_ASSERT(self_.aggregations_.size() == agg_value->counts_.size(),
-               "Expected as much AggregationValue.counts_ as there are "
-               "aggregations.");
 
-    auto count_it = agg_value->counts_.begin();
-    auto value_it = agg_value->values_.begin();
-    auto unique_values_it = agg_value->unique_values_.begin();
-    auto agg_elem_it = self_.aggregations_.begin();
-    const auto counts_end = agg_value->counts_.end();
-    for (; count_it != counts_end; ++count_it, ++value_it, ++unique_values_it, ++agg_elem_it) {
+    for (size_t pos = 0; pos < agg_value->num_aggs_; ++pos) {
+      const auto &agg_elem = self_.aggregations_[pos];
       // COUNT(*) is the only case where input expression is optional
       // handle it here
-      auto *input_expr_ptr = agg_elem_it->arg1;
+      auto *input_expr_ptr = agg_elem.arg1;
       if (!input_expr_ptr) {
-        *count_it += 1;
+        agg_value->counts_[pos] += 1;
         // value is deferred to post-processing
         continue;
       }
@@ -6058,46 +6154,46 @@ class AggregateCursor : public Cursor {
 
       // Aggregations skip Null input values.
       if (input_value.IsNull()) continue;
-      const auto &agg_op = agg_elem_it->op;
-      if (agg_elem_it->distinct) {
-        auto insert_result = unique_values_it->insert(input_value);
+      const auto &agg_op = agg_elem.op;
+      if (agg_elem.distinct) {
+        auto insert_result = agg_value->unique_values_[pos].insert(input_value);
         if (!insert_result.second) {
           continue;
         }
       }
-      *count_it += 1;
-      if (*count_it == 1) {
+      agg_value->counts_[pos] += 1;
+      if (agg_value->counts_[pos] == 1) {
         // first value, nothing to aggregate. check type, set and continue.
         switch (agg_op) {
           case Aggregation::Op::MIN:
           case Aggregation::Op::MAX:
             EnsureOkForMinMax(input_value);
-            *value_it = std::move(input_value);
+            agg_value->values_[pos] = std::move(input_value);
             break;
           case Aggregation::Op::SUM:
           case Aggregation::Op::AVG:
             EnsureOkForAvgSum(input_value);
-            *value_it = std::move(input_value);
+            agg_value->values_[pos] = std::move(input_value);
             break;
           case Aggregation::Op::COUNT:
             // value is deferred to post-processing
             break;
           case Aggregation::Op::COLLECT_LIST:
-            value_it->ValueList().push_back(std::move(input_value));
+            agg_value->values_[pos].ValueList().push_back(std::move(input_value));
             break;
           case Aggregation::Op::PROJECT_PATH: {
             EnsureOkForProjectPath(input_value);
-            value_it->ValueGraph().Expand(input_value.ValuePath());
+            agg_value->values_[pos].ValueGraph().Expand(input_value.ValuePath());
             break;
           }
           case Aggregation::Op::PROJECT_LISTS: {
-            ProjectList(input_value, agg_elem_it->arg2->Accept(*evaluator), value_it->ValueGraph());
+            ProjectList(input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueGraph());
             break;
           }
           case Aggregation::Op::COLLECT_MAP:
-            auto key = agg_elem_it->arg2->Accept(*evaluator);
+            auto key = agg_elem.arg2->Accept(*evaluator);
             if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
-            value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
+            agg_value->values_[pos].ValueMap().emplace(key.ValueString(), std::move(input_value));
             break;
         }
         continue;
@@ -6111,13 +6207,14 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::MIN: {
           EnsureOkForMinMax(input_value);
           try {
-            TypedValue comparison_result = input_value < *value_it;
+            TypedValue comparison_result = input_value < agg_value->values_[pos];
             // since we skip nulls we either have a valid comparison, or
             // an exception was just thrown above
             // safe to assume a bool TypedValue
-            if (comparison_result.ValueBool()) *value_it = std::move(input_value);
+            if (comparison_result.ValueBool()) agg_value->values_[pos] = std::move(input_value);
           } catch (const TypedValueException &) {
-            throw QueryRuntimeException("Unable to get MIN of '{}' and '{}'.", input_value.type(), value_it->type());
+            throw QueryRuntimeException("Unable to get MIN of '{}' and '{}'.", input_value.type(),
+                                        agg_value->values_[pos].type());
           }
           break;
         }
@@ -6125,10 +6222,11 @@ class AggregateCursor : public Cursor {
           //  all comments as for Op::Min
           EnsureOkForMinMax(input_value);
           try {
-            TypedValue comparison_result = input_value > *value_it;
-            if (comparison_result.ValueBool()) *value_it = std::move(input_value);
+            TypedValue comparison_result = input_value > agg_value->values_[pos];
+            if (comparison_result.ValueBool()) agg_value->values_[pos] = std::move(input_value);
           } catch (const TypedValueException &) {
-            throw QueryRuntimeException("Unable to get MAX of '{}' and '{}'.", input_value.type(), value_it->type());
+            throw QueryRuntimeException("Unable to get MAX of '{}' and '{}'.", input_value.type(),
+                                        agg_value->values_[pos].type());
           }
           break;
         }
@@ -6137,25 +6235,25 @@ class AggregateCursor : public Cursor {
         // the input has been processed
         case Aggregation::Op::SUM:
           EnsureOkForAvgSum(input_value);
-          *value_it = *value_it + input_value;
+          agg_value->values_[pos] = agg_value->values_[pos] + input_value;
           break;
         case Aggregation::Op::COLLECT_LIST:
-          value_it->ValueList().push_back(std::move(input_value));
+          agg_value->values_[pos].ValueList().push_back(std::move(input_value));
           break;
         case Aggregation::Op::PROJECT_PATH: {
           EnsureOkForProjectPath(input_value);
-          value_it->ValueGraph().Expand(input_value.ValuePath());
+          agg_value->values_[pos].ValueGraph().Expand(input_value.ValuePath());
           break;
         }
 
         case Aggregation::Op::PROJECT_LISTS: {
-          ProjectList(input_value, agg_elem_it->arg2->Accept(*evaluator), value_it->ValueGraph());
+          ProjectList(input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueGraph());
           break;
         }
         case Aggregation::Op::COLLECT_MAP:
-          auto key = agg_elem_it->arg2->Accept(*evaluator);
+          auto key = agg_elem.arg2->Accept(*evaluator);
           if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
-          value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
+          agg_value->values_[pos].ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
     }    // end loop over all aggregations
