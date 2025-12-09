@@ -314,6 +314,7 @@ enum class TypeId : uint64_t {
   AST_USER_PROFILE_QUERY,
   AST_LOAD_PARQUET,
   AST_LOAD_JSONL,
+  AST_DISTINCT,
 
   // Symbol
   SYMBOL = 4000,
