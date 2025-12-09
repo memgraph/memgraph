@@ -578,7 +578,15 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
       // If we encounter another Aggregate or AggregateParallel, abandon the current one
       // The nested Aggregate will be processed when we visit it
       // This prevents trying to parallelize outer Aggregates that depend on inner ones
-      if (current->GetTypeInfo() == Aggregate::kType || current->GetTypeInfo() == AggregateParallel::kType) {
+      const auto current_type = current->GetTypeInfo();
+      if (current_type == Aggregate::kType || current_type == AggregateParallel::kType) {
+        return target_scan != nullptr;
+      }
+      // Unsupported operators
+      if (current_type == Distinct::kType) {
+        spdlog::info(
+            "Query has unsupported parallel DISTINCT operator. Try rewriting the query to move DISTINCT under the "
+            "aggregation function.");
         return target_scan != nullptr;
       }
 
