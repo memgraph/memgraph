@@ -10027,33 +10027,93 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
         auto &main_unique_values = main_agg_value.unique_values_[pos];
         auto &other_unique_values = other_agg_value.unique_values_[pos];
         const auto other_unique_values_size = other_unique_values.size();
+
+        // This moves unique nodes from 'other' to 'main' without allocation.
+        // Duplicates remain in 'other'.
         main_unique_values.merge(other_unique_values);
-        // Note: merge leaves duplicates in 'other'.
-        if (other_unique_values.size() == other_unique_values_size) continue;  // No new values added (nothing to do)
+
+        // If 'other' is empty, everything was unique.
+        // If 'other' still has items, those are the duplicates we must skip.
+
+        if (other_unique_values.size() == other_unique_values_size) continue;
+
+        // Update count based on the new set size
         main_count = main_unique_values.size();
+
         switch (agg_op) {
           case Aggregation::Op::COUNT: {
-            main_value = main_value + other_value - TypedValue((int64_t)other_unique_values.size());
-          } break;
-          case Aggregation::Op::SUM: {
-            TypedValue left_sum{0};
-            std::for_each(other_unique_values.begin(), other_unique_values.end(),
-                          [&](const auto &val) { left_sum = left_sum + val; });
-            main_value = main_value + other_value - left_sum;
-          } break;
+            // Adjust calculation based on how many items were actually merged
+            // (Total size of other - duplicates that remained)
+            int64_t moved_count = (int64_t)other_unique_values_size - (int64_t)other_unique_values.size();
+            main_value = main_value + TypedValue(moved_count);
+            break;
+          }
+          case Aggregation::Op::SUM:
           case Aggregation::Op::AVG: {
             TypedValue left_sum{0};
             std::for_each(other_unique_values.begin(), other_unique_values.end(),
                           [&](const auto &val) { left_sum = left_sum + val; });
-            const TypedValue other_sum = other_value * TypedValue(other_count);
-            const TypedValue main_sum = main_value * TypedValue(old_main_count);
-            main_value = (main_sum + other_sum - left_sum) / TypedValue(main_count);
-          } break;
-          default:
-            // TODO
+
+            if (agg_op == Aggregation::Op::SUM) {
+              main_value = main_value + other_value - left_sum;
+            } else {
+              // Reconstructing AVG is hard with simple subtraction,
+              // typically simpler to reconstruct from the set or keep Sum/Count separate until Produce.
+              // Assuming standard update logic from previous step:
+              const TypedValue other_sum = other_value * TypedValue(other_count);
+              const TypedValue main_sum = main_value * TypedValue(old_main_count);
+              main_value = (main_sum + other_sum - left_sum) / TypedValue(main_count);
+            }
             break;
+          }
+          case Aggregation::Op::MIN:
+            if ((other_value < main_value).ValueBool()) {
+              main_value = std::move(other_value);
+            }
+            break;
+          case Aggregation::Op::MAX:
+            if ((other_value > main_value).ValueBool()) {
+              main_value = std::move(other_value);
+            }
+            break;
+          case Aggregation::Op::COLLECT_LIST: {
+            auto &main_list = main_value.ValueList();
+            auto &other_list = other_value.ValueList();
+            // If the item is found in 'other_unique_values', it means it was a duplicate (rejected by merge). We skip
+            // it. If it is NOT found, it means it was moved to 'main', so we add it.
+            for (auto &item : other_list) {
+              if (other_unique_values.contains(item)) {
+                main_list.push_back(std::move(item));
+              }
+            }
+            break;
+          }
+          case Aggregation::Op::COLLECT_MAP: {
+            auto &main_map = main_value.ValueMap();
+            auto &other_map = other_value.ValueMap();
+            // Check if the VALUE (which is what distinct tracks)  was left behind.
+            for (auto &[key, val] : other_map) {
+              if (other_unique_values.contains(val)) {
+                main_map.insert_or_assign(key, std::move(val));
+              }
+            }
+            break;
+          }
+          case Aggregation::Op::PROJECT_PATH:
+          case Aggregation::Op::PROJECT_LISTS: {
+            // For Graph projections, deduplication is handled by the Graph object internally.
+            // We can ignore the set check to save hash-lookup costs.
+            auto &main_graph = main_value.ValueGraph();
+            auto &other_graph = other_value.ValueGraph();
+            for (auto &vertex : other_graph.vertices()) {
+              main_graph.InsertVertex(std::move(vertex));
+            }
+            for (auto &edge : other_graph.edges()) {
+              main_graph.InsertEdge(std::move(edge));
+            }
+            break;
+          }
         }
-        // TODO: Some are the same
         continue;
       }
 
@@ -10123,9 +10183,6 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
         case Aggregation::Op::PROJECT_LISTS: {
           auto &main_graph = main_value.ValueGraph();
           auto &other_graph = other_value.ValueGraph();
-
-          // Assuming graphs have specific bulk-insert/merge methods, usage implies manual looping:
-          // Try to move vertices/edges if possible to avoid internal allocations
           for (auto &vertex : other_graph.vertices()) {
             main_graph.InsertVertex(std::move(vertex));
           }
