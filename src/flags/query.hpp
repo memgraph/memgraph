@@ -14,5 +14,3 @@
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 // DECLARE_bool(cartesian_product_enabled);  Moved to run_time_configurable
-
-DECLARE_int32(hops_limit_recheck_interval);

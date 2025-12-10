@@ -29,6 +29,7 @@
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/shared_quota.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/visitor.hpp"
 
@@ -2209,7 +2210,7 @@ class Skip : public memgraph::query::plan::LogicalOperator {
     // init to_skip_ to -1, indicating
     // that it's still unknown (input has not been Pulled yet)
     int64_t to_skip_{-1};
-    int64_t skipped_{0};
+    std::optional<utils::SharedQuota> shared_quota_{std::nullopt};
   };
 };
 
@@ -2299,7 +2300,7 @@ class Limit : public memgraph::query::plan::LogicalOperator {
     // init limit_ to -1, indicating
     // that it's still unknown (Cursor has not been Pulled yet)
     int64_t limit_{-1};
-    int64_t pulled_{0};
+    std::optional<utils::SharedQuota> shared_quota_{std::nullopt};
   };
 };
 

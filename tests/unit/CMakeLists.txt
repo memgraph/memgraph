@@ -477,6 +477,11 @@ add_unit_test(utils_settings
     LINK_TARGETS mg-utils mg-settings
 )
 
+add_unit_test(utils_shared_quota
+    SOURCES utils_shared_quota.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_temporal
     SOURCES utils_temporal.cpp
     LINK_TARGETS mg-utils mg-flags

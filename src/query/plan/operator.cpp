@@ -6397,9 +6397,11 @@ bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
 
       to_skip_ = to_skip.ValueInt();
       if (to_skip_ < 0) throw QueryRuntimeException("Number of elements to skip must be non-negative.");
+      shared_quota_.emplace(to_skip_);
     }
-
-    if (skipped_++ < to_skip_) continue;
+    // Skip until we skipped the quota
+    if (shared_quota_ && shared_quota_->Increment() > 0) continue;
+    shared_quota_.reset();  // consumed all quota, reset the shared quota
     return true;
   }
   return false;
@@ -6410,7 +6412,7 @@ void Skip::SkipCursor::Shutdown() { input_cursor_->Shutdown(); }
 void Skip::SkipCursor::Reset() {
   input_cursor_->Reset();
   to_skip_ = -1;
-  skipped_ = 0;
+  shared_quota_.reset();
 }
 
 Limit::Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
@@ -6462,10 +6464,11 @@ bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
 
     limit_ = limit.ValueInt();
     if (limit_ < 0) throw QueryRuntimeException("Limit on number of returned elements must be non-negative.");
+    shared_quota_.emplace(limit_);
   }
 
   // check we have not exceeded the limit before pulling
-  if (pulled_++ >= limit_) return false;
+  if (shared_quota_->Increment() <= 0) return false;
 
   return input_cursor_->Pull(frame, context);
 }
@@ -6475,7 +6478,7 @@ void Limit::LimitCursor::Shutdown() { input_cursor_->Shutdown(); }
 void Limit::LimitCursor::Reset() {
   input_cursor_->Reset();
   limit_ = -1;
-  pulled_ = 0;
+  shared_quota_.reset();
 }
 
 OrderBy::OrderBy(const std::shared_ptr<LogicalOperator> &input, const std::vector<SortItem> &order_by,
