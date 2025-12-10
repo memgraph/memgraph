@@ -19,7 +19,6 @@ module;
 #include <optional>
 #include <string_view>
 
-#include "coordination/data_instance_management_server.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/spin_lock.hpp"

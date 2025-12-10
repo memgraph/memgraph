@@ -69,13 +69,13 @@ RpcInfoMetrics(EnableWritingOnMainRpc)
     // clang-format on
 
     ReplicationInstanceClient::ReplicationInstanceClient(
-        std::string instance_name, io::network::Endpoint mgt_server,
+        DataInstanceConfig config,
         std::function<void(std::string_view instance_name, InstanceState const &instance_state)> succ_cb,
         std::function<void(std::string_view instance_name)> fail_cb,
         const std::chrono::seconds instance_health_check_frequency_sec)
     : rpc_context_{communication::ClientContext{}},
-      rpc_client_{std::move(mgt_server), &rpc_context_},
-      instance_name_(std::move(instance_name)),
+      rpc_client_{config.mgt_server, &rpc_context_},
+      config_(std::move(config)),
       succ_cb_(std::move(succ_cb)),
       fail_cb_(std::move(fail_cb)),
       instance_health_check_frequency_sec_(instance_health_check_frequency_sec) {}
@@ -104,9 +104,9 @@ void ReplicationInstanceClient::StartStateCheck() {
     spdlog::trace("Sending state check message to instance {} on {}.", instance_name,
                   config_.ManagementSocketAddress());
     if (auto const maybe_res = SendStateCheckRpc()) {
-      succ_cb_(instance_name_, *maybe_res);
+      succ_cb_(instance_name, *maybe_res);
     } else {
-      fail_cb_(instance_name_);
+      fail_cb_(instance_name);
     }
   });
 }

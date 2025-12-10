@@ -86,25 +86,6 @@ import memgraph.coordination.replication_instance_connector;
 import memgraph.coordination.replication_lag_info;
 import memgraph.coordination.utils;
 
-namespace {
-using memgraph::coordination::ReplicationInstanceConnector;
-
-auto FindReplicationInstance(std::string_view replication_instance_name,
-                             std::list<ReplicationInstanceConnector> const &repl_instances)
-    -> std::optional<std::reference_wrapper<const ReplicationInstanceConnector>> {
-  auto const repl_instance =
-      std::ranges::find_if(repl_instances, [replication_instance_name](ReplicationInstanceConnector const &instance) {
-        return instance.InstanceName() == replication_instance_name;
-      });
-
-  if (repl_instance != repl_instances.end()) {
-    return std::ref(*repl_instance);
-  }
-
-  return std::nullopt;
-}
-}  // namespace
-
 namespace memgraph::coordination {
 namespace {
 constexpr int kDisconnectedCluster = 1;

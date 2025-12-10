@@ -59,7 +59,7 @@ using ReplicationClientsInfo = std::vector<ReplicationClientInfo>;
 class ReplicationInstanceClient {
  public:
   explicit ReplicationInstanceClient(
-      std::string instance_name, io::network::Endpoint mgt_server,
+      DataInstanceConfig config,
       std::function<void(std::string_view instance_name, InstanceState const &instance_state)> succ_cb,
       std::function<void(std::string_view instance_name)> fail_cb,
       std::chrono::seconds instance_health_check_frequency_sec);
@@ -127,7 +127,7 @@ class ReplicationInstanceClient {
   communication::ClientContext rpc_context_;
   mutable rpc::Client rpc_client_;
 
-  std::string instance_name_;
+  DataInstanceConfig config_;
   std::function<void(std::string_view instance_name, InstanceState const &instance_state)> succ_cb_;
   std::function<void(std::string_view instance_name)> fail_cb_;
 
