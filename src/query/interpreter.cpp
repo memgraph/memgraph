@@ -7776,7 +7776,7 @@ auto make_commit_arg(bool is_main, dbms::DatabaseAccess const &db_acc) {
 }
 
 void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context,
-                            TriggerContext original_trigger_context) {
+                            TriggerContext original_trigger_context, std::shared_ptr<QueryUserOrRole> triggering_user) {
   // Run the triggers
   for (const auto &trigger : db_acc->trigger_store()->AfterCommitTriggers().access()) {
     QueryAllocator execution_memory{};
@@ -7793,7 +7793,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
       auto is_main = interpreter_context->repl_state.ReadLock()->IsMain();
       trigger.Execute(&db_accessor, db_acc, execution_memory.resource(), flags::run_time::GetExecutionTimeout(),
                       &interpreter_context->is_shutting_down, /* transaction_status = */ nullptr, trigger_context,
-                      is_main);
+                      is_main, triggering_user);
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
       db_accessor.Abort();
@@ -7994,7 +7994,7 @@ void Interpreter::Commit() {
         auto is_main = interpreter_context_->repl_state.ReadLock()->IsMain();
         trigger.Execute(&*current_db_.execution_db_accessor_, *current_db_.db_acc_, execution_memory.resource(),
                         flags::run_time::GetExecutionTimeout(), &interpreter_context_->is_shutting_down,
-                        &transaction_status_, *trigger_context, is_main);
+                        &transaction_status_, *trigger_context, is_main, user_or_role_);
       } catch (const utils::BasicException &e) {
         throw utils::BasicException(
             fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.Name(), e.what()));
@@ -8084,9 +8084,9 @@ void Interpreter::Commit() {
   // ordered execution of after commit triggers are not guaranteed.
   if (trigger_context && db->trigger_store()->AfterCommitTriggers().size() > 0) {
     db->AddTask([db_acc = *current_db_.db_acc_, interpreter_context = interpreter_context_,
-                 trigger_context = std::move(*trigger_context),
+                 trigger_context = std::move(*trigger_context), triggering_user = user_or_role_,
                  user_transaction = std::shared_ptr(std::move(current_db_.db_transactional_accessor_))]() mutable {
-      RunTriggersAfterCommit(db_acc, interpreter_context, std::move(trigger_context));
+      RunTriggersAfterCommit(db_acc, interpreter_context, std::move(trigger_context), triggering_user);
       user_transaction->FinalizeTransaction();
       SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
     });

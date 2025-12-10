@@ -33,15 +33,22 @@ namespace memgraph::query {
 struct QueryCacheEntry;
 
 enum class TransactionStatus;
+
 struct Trigger {
+  enum class SecurityDefiner : uint8_t {
+    INVOKER = 0,  // trigger is executed with the permissions of the user who invoked the trigger
+    DEFINER = 1   // trigger is executed with the permissions of the user who defined the trigger
+  };
+
   explicit Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                    TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                    const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner,
-                   std::string_view db_name);
+                   std::string_view db_name, SecurityDefiner security_definer = SecurityDefiner::INVOKER);
 
   void Execute(DbAccessor *dba, memgraph::dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
                double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
-               std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context, bool is_main) const;
+               std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context, bool is_main,
+               std::shared_ptr<QueryUserOrRole> triggering_user) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
   // NOLINTNEXTLINE (modernize-use-nullptr)
@@ -64,7 +71,8 @@ struct Trigger {
     PlanWrapper cached_plan;
     std::vector<IdentifierInfo> identifiers;
   };
-  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor, std::string_view db_name) const;
+  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor, std::string_view db_name,
+                                       std::shared_ptr<QueryUserOrRole> triggering_user) const;
 
   std::string name_;
   ParsedQuery parsed_statements_;
@@ -74,6 +82,7 @@ struct Trigger {
   mutable utils::RWSpinLock plan_lock_;
   mutable std::shared_ptr<TriggerPlan> trigger_plan_;
   std::shared_ptr<QueryUserOrRole> owner_;
+  SecurityDefiner security_definer_{SecurityDefiner::INVOKER};
 };
 
 enum class TriggerPhase : uint8_t { BEFORE_COMMIT, AFTER_COMMIT };
