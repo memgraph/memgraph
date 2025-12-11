@@ -979,8 +979,8 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull) {
 
     std::vector<PropertyPath> ids;
     ids.reserve(data.size());
-    std::ranges::transform(ids_to_read, std::back_inserter(ids),
-                           [](auto id) -> PropertyPath { return {PropertyId::FromInt(id)}; });
+    r::transform(ids_to_read, std::back_inserter(ids),
+                 [](auto id) -> PropertyPath { return {PropertyId::FromInt(id)}; });
 
     auto const read_values = store.ExtractPropertyValuesMissingAsNull(ids);
     ASSERT_EQ(ids_to_read.size(), read_values.size());

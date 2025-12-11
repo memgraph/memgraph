@@ -63,6 +63,9 @@
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::query::procedure;
 
+namespace r = std::ranges;
+namespace rv = r::views;
+
 namespace {
 
 void *MgpAlignedAllocImpl(memgraph::utils::MemoryResource &memory, const size_t size_in_bytes, const size_t alignment) {
@@ -361,18 +364,18 @@ bool IsDeleted(const mgp_vertex *vertex) { return vertex->getImpl().impl_.vertex
 bool IsDeleted(const mgp_edge *edge) { return edge->impl.IsDeleted(); }
 
 bool ContainsDeleted(const mgp_path *path) {
-  return std::ranges::any_of(path->vertices, [](const auto &vertex) { return IsDeleted(&vertex); }) ||
-         std::ranges::any_of(path->edges, [](const auto &edge) { return IsDeleted(&edge); });
+  return r::any_of(path->vertices, [](const auto &vertex) { return IsDeleted(&vertex); }) ||
+         r::any_of(path->edges, [](const auto &edge) { return IsDeleted(&edge); });
 }
 
 bool ContainsDeleted(const mgp_list *list) {
-  return std::ranges::any_of(list->elems, [](const auto &elem) { return ContainsDeleted(&elem); });
+  return r::any_of(list->elems, [](const auto &elem) { return ContainsDeleted(&elem); });
 }
 
 bool ContainsDeleted(const mgp_map *map) {
   return std::visit(
       [](const auto &items) {
-        return std::ranges::any_of(items, [](const auto &item) { return ContainsDeleted(&item.second); });
+        return r::any_of(items, [](const auto &item) { return ContainsDeleted(&item.second); });
       },
       map->items);
 }
@@ -3101,12 +3104,11 @@ mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, c
         const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
         const auto property_path = std::visit(
             [property](auto *impl) {
-              const auto property_path_as_str =
-                  std::string_view{property} | ranges::views::split('.') | ranges::to<std::vector<std::string>>();
-              return property_path_as_str | ranges::views::transform([impl](const auto &property_id) {
-                       return impl->NameToProperty(property_id);
+              return std::string_view{property} | rv::split('.') | rv::transform([impl](auto &&part) {
+                       auto sv = std::string_view{part.begin(), part.end()};
+                       return impl->NameToProperty(sv);
                      }) |
-                     ranges::to<std::vector<memgraph::storage::PropertyId>>();
+                     r::to<std::vector<memgraph::storage::PropertyId>>();
             },
             graph->impl);
         const auto index_res = std::visit(
@@ -3128,12 +3130,11 @@ mgp_error mgp_drop_label_property_index(mgp_graph *graph, const char *label, con
         const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
         const auto property_path = std::visit(
             [property](auto *impl) {
-              const auto property_path_as_str =
-                  std::string_view{property} | ranges::views::split('.') | ranges::to<std::vector<std::string>>();
-              return property_path_as_str | ranges::views::transform([impl](const auto &property_id) {
-                       return impl->NameToProperty(property_id);
+              return std::string_view{property} | rv::split('.') | rv::transform([impl](auto &&part) {
+                       auto sv = std::string_view{part.begin(), part.end()};
+                       return impl->NameToProperty(sv);
                      }) |
-                     ranges::to<std::vector<memgraph::storage::PropertyId>>();
+                     r::to<std::vector>();
             },
             graph->impl);
 
@@ -3158,10 +3159,9 @@ mgp_error create_and_append_label_property_to_mgp_list(
         [label_id = label_property_pair.first](const auto *impl) { return impl->LabelToName(label_id); }, graph->impl);
     const auto property_path_str = std::visit(
         [property_path = label_property_pair.second](const auto *impl) {
-          return property_path | ranges::views::transform([impl](const auto &property_id) {
-                   return impl->PropertyToName(property_id);
-                 }) |
-                 ranges::views::join('.') | ranges::to<std::string>();
+          return property_path |
+                 rv::transform([impl](auto &&property_id) { return impl->PropertyToName(property_id); }) |
+                 rv::join_with('.') | r::to<std::string>();
         },
         graph->impl);
 

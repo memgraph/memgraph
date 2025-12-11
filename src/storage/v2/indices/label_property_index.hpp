@@ -146,15 +146,16 @@ struct PropertiesPermutationHelper {
    * values. This returns a vector of boolean flags indicating per-element
    * equality (in monotonic property id order.)
    */
-  auto MatchesValues(PropertyStore const &properties,
-                     IndexOrderedPropertyValues const &values) const -> std::vector<bool>;
+  auto MatchesValues(PropertyStore const &properties, IndexOrderedPropertyValues const &values) const
+      -> std::vector<bool>;
 
   /** Returns an augmented view over the values in the given vector, where each
    * element is a tuple comprising: (position, [property id path], and value).
    */
   auto WithPropertyId(IndexOrderedPropertyValues const &values) const {
-    return ranges::views::enumerate(sorted_properties_) | std::views::transform([&](auto &&p) {
-             return std::tuple{p.first, std::cref(p.second), std::cref(values.values_[position_lookup_[p.first]])};
+    return rv::enumerate(sorted_properties_) | rv::transform([&](auto &&p) {
+             return std::tuple{std::get<0>(p), std::cref(std::get<1>(p)),
+                               std::cref(values.values_[position_lookup_[std::get<0>(p)]])};
            });
   }
 

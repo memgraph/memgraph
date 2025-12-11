@@ -481,7 +481,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   handle.Close();
   // Check if any of the threads read the entire data.
   ASSERT_TRUE(max_read_counts.WithLock([&](auto &read_counts) {
-    return std::any_of(read_counts.cbegin(), read_counts.cend(),
-                       [](const auto read_count) { return read_count == number_of_writes; });
+    return r::any_of(read_counts.cbegin(), read_counts.cend(),
+                     [](const auto read_count) { return read_count == number_of_writes; });
   }));
 }

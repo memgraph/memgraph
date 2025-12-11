@@ -937,17 +937,16 @@ bool TypedValue::ContainsDeleted() const {
       return false;
     // Reference types
     case Type::List:
-      return std::ranges::any_of(list_v, [](const auto &elem) { return elem.ContainsDeleted(); });
+      return r::any_of(list_v, [](const auto &elem) { return elem.ContainsDeleted(); });
     case Type::Map:
-      return std::ranges::any_of(map_v, [](const auto &item) { return item.second.ContainsDeleted(); });
+      return r::any_of(map_v, [](const auto &item) { return item.second.ContainsDeleted(); });
     case Type::Vertex:
       return vertex_v.impl_.vertex_->deleted;
     case Type::Edge:
       return edge_v.IsDeleted();
     case Type::Path:
-      return std::ranges::any_of(path_v->vertices(),
-                                 [](auto &vertex_acc) { return vertex_acc.impl_.vertex_->deleted; }) ||
-             std::ranges::any_of(path_v->edges(), [](auto &edge_acc) { return edge_acc.IsDeleted(); });
+      return r::any_of(path_v->vertices(), [](auto &vertex_acc) { return vertex_acc.impl_.vertex_->deleted; }) ||
+             r::any_of(path_v->edges(), [](auto &edge_acc) { return edge_acc.IsDeleted(); });
     case Type::Graph:
     case Type::Function:
       throw TypedValueException("Value of unknown type");
@@ -1417,8 +1416,8 @@ bool IsTemporalType(const TypedValue::Type type) {
   static constexpr std::array temporal_types{TypedValue::Type::Date, TypedValue::Type::LocalTime,
                                              TypedValue::Type::LocalDateTime, TypedValue::Type::ZonedDateTime,
                                              TypedValue::Type::Duration};
-  return std::any_of(temporal_types.begin(), temporal_types.end(),
-                     [type](const auto temporal_type) { return temporal_type == type; });
+  return r::any_of(temporal_types.begin(), temporal_types.end(),
+                   [type](const auto temporal_type) { return temporal_type == type; });
 };
 }  // namespace
 

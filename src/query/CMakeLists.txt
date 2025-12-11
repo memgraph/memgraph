@@ -24,7 +24,6 @@ set_target_properties(mg-module-support  PROPERTIES
 
 find_package(antlr4-runtime REQUIRED)
 find_package(cppitertools REQUIRED)
-find_package(range-v3 REQUIRED)
 find_package(simdjson REQUIRED)
 
 find_program(ANTLR4_EXECUTABLE antlr4 REQUIRED)
@@ -126,7 +125,6 @@ target_link_libraries(mg-query
     PUBLIC
     dl
     cppitertools::cppitertools
-    range-v3::range-v3
     Python3::Python
     mg-integrations-pulsar
     mg-integrations-kafka

@@ -230,7 +230,7 @@ void TestWebsocketWithoutAnyUsers(std::unique_ptr<mg::Client> &mg_client, const 
   const auto received_messages = websocket_client.GetReceivedMessages();
   spdlog::info("Received {} messages.", received_messages.size());
   MG_ASSERT(!received_messages.empty(), "There are no received messages!");
-  std::ranges::for_each(received_messages, AssertLogMessage);
+  r::for_each(received_messages, AssertLogMessage);
 
   spdlog::info("Finishing websocket connection without any users.");
 }
@@ -252,7 +252,7 @@ void TestWebsocketWithAuthentication(std::unique_ptr<mg::Client> &mg_client, con
   spdlog::info("Received {} messages.", received_messages.size());
 
   MG_ASSERT(!received_messages.empty(), "There are no received messages!");
-  std::ranges::for_each(received_messages, AssertLogMessage);
+  r::for_each(received_messages, AssertLogMessage);
 
   spdlog::info("Finishing websocket connection with users.");
 }

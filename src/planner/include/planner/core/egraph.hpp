@@ -23,6 +23,7 @@
 
 #endif
 
+#include <ranges>
 #include "planner/core/eclass.hpp"
 #include "planner/core/eids.hpp"
 #include "planner/core/enode.hpp"
@@ -30,7 +31,9 @@
 #include "planner/core/union_find.hpp"
 
 #include <boost/unordered/unordered_flat_map.hpp>
-#include <range/v3/all.hpp>
+
+namespace r = std::ranges;
+namespace rv = r::views;
 
 namespace memgraph::planner::core {
 namespace detail {
@@ -137,14 +140,14 @@ struct EGraph : private detail::EGraphBase {
   /**
    * @brief Get range of all canonical e-class IDs
    */
-  auto canonical_class_ids() const { return classes_ | ranges::views::keys; }
+  auto canonical_class_ids() const { return classes_ | rv::keys; }
 
   /**
    * @brief Get range of all canonical e-classes
    */
   auto canonical_classes() const {
-    return ranges::views::transform(
-        classes_, [](const auto &pair) { return std::make_pair(pair.first, std::cref(*pair.second)); });
+    return rv::transform(classes_,
+                         [](const auto &pair) { return std::make_pair(pair.first, std::cref(*pair.second)); });
   }
 
   /**

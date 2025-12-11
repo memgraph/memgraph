@@ -10,8 +10,8 @@
 // licenses/APL.txt.
 
 #include <algorithm>
-#include <cstdint>
 #include <cstdlib>
+#include <ranges>
 #include <string>
 #include <string_view>
 
@@ -20,11 +20,9 @@
 
 #include <fmt/core.h>
 #include <spdlog/spdlog.h>
-#include <range/v3/range/conversion.hpp>
-#include <range/v3/view/drop_while.hpp>
-#include <range/v3/view/take_while.hpp>
-#include <range/v3/view/transform.hpp>
 
+namespace r = std::ranges;
+namespace rv = r::views;
 namespace memgraph::flags {
 
 std::string CoordinationSetup::ToString() {
@@ -54,7 +52,7 @@ void SetFinalCoordinationSetup() {
                                                    std::getenv(kMgCoordinatorId), std::getenv(kMgNuRaftLogFile),
                                                    std::getenv(kMgCoordinatorHostname)};
 
-  bool const any_envs_set = std::ranges::any_of(maybe_coord_envs, [](char const *env) { return env != nullptr; });
+  bool const any_envs_set = r::any_of(maybe_coord_envs, [](char const *env) { return env != nullptr; });
 
   auto const is_flag_set = []<typename T>(T const &flag) { return flag != T{}; };
 
@@ -80,12 +78,11 @@ void SetFinalCoordinationSetup() {
 
       auto const is_space = [](auto c) { return c == ' '; };
 
-      return std::string_view{flag} | ranges::views::drop_while(is_space) |
-             ranges::views::take_while(std::not_fn(is_space)) | ranges::to<std::string>;
+      return std::string_view{flag} | rv::drop_while(is_space) | rv::take_while(std::not_fn(is_space)) |
+             r::to<std::string>();
     };
 
-    auto const coord_envs =
-        maybe_coord_envs | ranges::views::transform(trim) | ranges::to<std::vector<std::optional<std::string>>>;
+    auto const coord_envs = maybe_coord_envs | rv::transform(trim) | r::to<std::vector<std::optional<std::string>>>();
 
     if (any_envs_set) {
       spdlog::trace("Coordinator will be initialized using environment variables.");

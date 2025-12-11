@@ -30,7 +30,7 @@ void AssertLogMessage(std::string const &log_message) {
   MG_ASSERT(json_message.at("event").is_string(), "Event is not a string!");
   MG_ASSERT(json_message.at("event").get<std::string>() == "log", "Event is not equal to `log`!");
   MG_ASSERT(json_message.at("level").is_string(), "Level is not a string!");
-  MG_ASSERT(std::ranges::count(kSupportedLogLevels, json_message.at("level")) == 1);
+  MG_ASSERT(r::count(kSupportedLogLevels, json_message.at("level")) == 1);
   MG_ASSERT(json_message.at("message").is_string(), "Message is not a string!");
 }
 

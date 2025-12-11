@@ -1952,9 +1952,7 @@ struct PropertyIxPath {
 
   std::vector<memgraph::query::PropertyIx> path;
 
-  auto AsPathString() const -> std::string {
-    return utils::Join(path | ranges::views::transform(&PropertyIx::name), ".");
-  }
+  auto AsPathString() const -> std::string { return utils::Join(path | rv::transform(&PropertyIx::name), "."); }
   auto Clone(AstStorage *storage) const -> PropertyIxPath;
   friend bool operator==(PropertyIxPath const &, PropertyIxPath const &) = default;
   friend bool operator<(PropertyIxPath const &, PropertyIxPath const &) = default;

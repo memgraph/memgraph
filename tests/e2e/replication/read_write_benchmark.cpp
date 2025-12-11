@@ -96,7 +96,7 @@ int main(int argc, char **argv) {
         }
 
         auto find_value = [&](std::string_view key) -> std::optional<int64_t> {
-          auto it = std::ranges::find_if(*maybe_rows, [&](const auto &row) { return row[0].ValueString() == key; });
+          auto it = r::find_if(*maybe_rows, [&](const auto &row) { return row[0].ValueString() == key; });
           if (it != maybe_rows->end()) {
             return (*it)[1].ValueInt();
           }

@@ -16,7 +16,7 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace memgraph::storage {
 
 void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextIndexSpec &index_info) {

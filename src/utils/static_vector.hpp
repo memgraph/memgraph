@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -185,11 +185,11 @@ struct static_vector {
 
   static_vector() = default;
 
-  static_vector(const static_vector &other) : size_{other.size_} { std::ranges::uninitialized_copy(other, *this); }
+  static_vector(const static_vector &other) : size_{other.size_} { r::uninitialized_copy(other, *this); }
 
   static_vector(static_vector &&other) noexcept : size_{other.size_} {
-    std::ranges::uninitialized_move(other, *this);
-    std::ranges::destroy(other);
+    r::uninitialized_move(other, *this);
+    r::destroy(other);
     other.size_ = 0;
   }
 
@@ -212,7 +212,7 @@ struct static_vector {
     if (size_ < other.size_) {
       // copy construct
       auto dst_ctr_end = begin() + other.size_;
-      std::ranges::uninitialized_copy(src_assign_end, other.cend(), dst_assign_end, dst_ctr_end);
+      r::uninitialized_copy(src_assign_end, other.cend(), dst_assign_end, dst_ctr_end);
       size_ = other.size_;
     } else if (other.size_ < size_) {
       // destroy
@@ -237,7 +237,7 @@ struct static_vector {
       if (size_ < other.size_) {
         // move construct
         auto dst_ctr_end = begin() + other.size_;
-        std::ranges::uninitialized_move(src_assign_end, other.end(), dst_assign_end, dst_ctr_end);
+        r::uninitialized_move(src_assign_end, other.end(), dst_assign_end, dst_ctr_end);
         size_ = other.size_;
       } else if (other.size_ < size_) {
         // destroy
@@ -258,12 +258,12 @@ struct static_vector {
   explicit static_vector(std::span<T const> other) : static_vector(other.begin(), other.end()) {}
   // TODO: generalise to not just vector
   explicit static_vector(std::vector<T> &&other) : size_(other.size()) {
-    std::ranges::uninitialized_move(other.begin(), other.end(), begin(), end());
+    r::uninitialized_move(other.begin(), other.end(), begin(), end());
   }
 
   template <typename It>
   explicit static_vector(It first, It last) : size_(std::distance(first, last)) {
-    std::ranges::uninitialized_copy(first, last, begin(), end());
+    r::uninitialized_copy(first, last, begin(), end());
   }
 
   bool is_full() const { return N == size_; }
@@ -401,9 +401,9 @@ struct static_vector {
     return it_first;
   }
 
-  friend bool operator==(static_vector const &lhs, static_vector const &rhs) { return std::ranges::equal(lhs, rhs); }
-  friend bool operator==(std::span<T const> lhs, static_vector const &rhs) { return std::ranges::equal(lhs, rhs); }
-  friend bool operator==(static_vector const &lhs, std::span<T const> rhs) { return std::ranges::equal(lhs, rhs); }
+  friend bool operator==(static_vector const &lhs, static_vector const &rhs) { return r::equal(lhs, rhs); }
+  friend bool operator==(std::span<T const> lhs, static_vector const &rhs) { return r::equal(lhs, rhs); }
+  friend bool operator==(static_vector const &lhs, std::span<T const> rhs) { return r::equal(lhs, rhs); }
 
  private:
   size_type size_{};  // max 4 billion

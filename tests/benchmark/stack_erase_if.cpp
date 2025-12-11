@@ -32,11 +32,11 @@ class StackEraseIfFixture : public benchmark::Fixture {
       original_elements_.clear();
       const auto num_elements = static_cast<int>(state.range(0));
       std::vector<int> indices(num_elements);
-      std::ranges::iota(indices, 0);
+      r::iota(indices, 0);
 
       // Shuffle indices to randomize order
       std::mt19937 gen(42);
-      std::ranges::shuffle(indices, gen);
+      r::shuffle(indices, gen);
 
       for (int idx : indices) {
         auto *node = new int(idx);
@@ -150,11 +150,11 @@ class StackComparisonFixture : public benchmark::Fixture {
       original_elements_.clear();
       const auto num_elements = static_cast<int>(state.range(0));
       std::vector<int> indices(num_elements);
-      std::ranges::iota(indices, 0);
+      r::iota(indices, 0);
 
       // Shuffle indices to randomize order
       std::mt19937 gen(42);
-      std::ranges::shuffle(indices, gen);
+      r::shuffle(indices, gen);
 
       for (int idx : indices) {
         auto *node = new int(idx);

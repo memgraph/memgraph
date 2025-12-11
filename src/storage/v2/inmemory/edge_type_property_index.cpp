@@ -21,7 +21,7 @@
 #include "storage/v2/property_value_utils.hpp"
 #include "utils/counter.hpp"
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 namespace memgraph::storage {
 
@@ -61,7 +61,7 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
     auto guard = std::shared_lock{from_vertex.lock};
     deleted = from_vertex.deleted;
     delta = from_vertex.delta;
-    edges = from_vertex.out_edges | rv::filter(matches_edge_type) | r::to<utils::small_vector<Vertex::EdgeTriple>>;
+    edges = from_vertex.out_edges | rv::filter(matches_edge_type) | r::to<utils::small_vector<Vertex::EdgeTriple>>();
   }
 
   // Create and drop index will always use snapshot isolation
@@ -495,7 +495,7 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable InMemoryEdgeTypePropertyIndex::Ac
 }
 
 EdgeTypePropertyIndex::AbortProcessor InMemoryEdgeTypePropertyIndex::ActiveIndices::GetAbortProcessor() const {
-  auto edge_type_property_filter = *index_container_ | std::views::keys | ranges::to_vector;
+  auto edge_type_property_filter = *index_container_ | rv::keys | r::to<std::vector>();
   return AbortProcessor{edge_type_property_filter};
 }
 
@@ -529,7 +529,8 @@ void InMemoryEdgeTypePropertyIndex::CleanupAllIndices() {
   all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
     auto keep_condition = [](AllIndicesEntry const &entry) { return entry.index_.use_count() != 1; };
     if (!r::all_of(*indices, keep_condition)) {
-      indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
+      indices =
+          std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to<std::vector>());
     }
   });
 }

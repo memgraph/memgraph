@@ -11,13 +11,11 @@
 
 #include "storage/v2/inmemory/edge_type_index.hpp"
 
-#include "storage/v2/constraints/constraints.hpp"
-#include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 namespace memgraph::storage {
@@ -52,9 +50,9 @@ inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, au
     auto guard = std::shared_lock{from_vertex.lock};
     deleted = from_vertex.deleted;
     delta = from_vertex.delta;
-    edges = from_vertex.out_edges | rv::filter(matches_edge_type) | r::to<utils::small_vector<Vertex::EdgeTriple>>;
+    edges = from_vertex.out_edges | rv::filter(matches_edge_type) | r::to<utils::small_vector<Vertex::EdgeTriple>>();
   }
-  // Create and drop index will always use snapshot isolation
+  // Create and drop index will always use snapshot isolationq
   if (delta) {
     ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
       // clang-format off
@@ -390,7 +388,7 @@ InMemoryEdgeTypeIndex::ChunkedIterable InMemoryEdgeTypeIndex::ActiveIndices::Chu
 }
 
 EdgeTypeIndex::AbortProcessor InMemoryEdgeTypeIndex::ActiveIndices::GetAbortProcessor() const {
-  auto edge_type_filter = index_container_->indices_ | std::views::keys | ranges::to_vector;
+  auto edge_type_filter = index_container_->indices_ | rv::keys | r::to<std::vector>();
   return AbortProcessor{edge_type_filter};
 }
 
@@ -412,7 +410,8 @@ void InMemoryEdgeTypeIndex::CleanupAllIndices() {
   all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
     auto keep_condition = [](AllIndicesEntry const &entry) { return entry.use_count() != 1; };
     if (!r::all_of(*indices, keep_condition)) {
-      indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
+      indices =
+          std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to<std::vector>());
     }
   });
 }

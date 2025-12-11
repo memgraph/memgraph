@@ -63,7 +63,7 @@
 
 using namespace std::chrono_literals;
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 namespace {
 constexpr auto kCheckIfSnapshotAborted = 3s;
@@ -2039,7 +2039,8 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label index statistics");
         const auto label_id = get_label_from_id(*label);
-        indices_constraints.indices.label_stats.emplace_back(label_id, LabelIndexStats{*count, *avg_degree});
+        indices_constraints.indices.label_stats.emplace_back(
+            label_id, LabelIndexStats{.count = *count, .avg_degree = *avg_degree});
         SPDLOG_TRACE("Recovered metadata of label index statistics for :{}",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
@@ -2091,12 +2092,15 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
         const auto label_id = get_label_from_id(*label);
         auto property_ids = std::vector{get_property_from_id(*property)};
         auto property_paths = property_ids |
-                              std::views::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
-                              r::to_vector;
+                              rv::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
+                              r::to<std::vector>();
         indices_constraints.indices.label_property_stats.emplace_back(
             label_id, std::make_pair(std::move(property_paths),
-                                     LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
-                                                             *avg_group_size, *avg_degree}));
+                                     LabelPropertyIndexStats{.count = *count,
+                                                             .distinct_values_count = *distinct_values_count,
+                                                             .statistic = *statistic,
+                                                             .avg_group_size = *avg_group_size,
+                                                             .avg_degree = *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -2433,12 +2437,15 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
         const auto label_id = get_label_from_id(*label);
         auto property_ids = std::vector{get_property_from_id(*property)};
         auto property_paths = property_ids |
-                              std::views::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
-                              r::to_vector;
+                              rv::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
+                              r::to<std::vector>();
         indices_constraints.indices.label_property_stats.emplace_back(
             label_id, std::make_pair(std::move(property_paths),
-                                     LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
-                                                             *avg_group_size, *avg_degree}));
+                                     LabelPropertyIndexStats{.count = *count,
+                                                             .distinct_values_count = *distinct_values_count,
+                                                             .statistic = *statistic,
+                                                             .avg_group_size = *avg_group_size,
+                                                             .avg_degree = *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -2859,12 +2866,15 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
         const auto label_id = get_label_from_id(*label);
         auto property_ids = std::vector{get_property_from_id(*property)};
         auto property_paths = property_ids |
-                              std::views::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
-                              r::to_vector;
+                              rv::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
+                              r::to<std::vector>();
         indices_constraints.indices.label_property_stats.emplace_back(
             label_id, std::make_pair(std::move(property_paths),
-                                     LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
-                                                             *avg_group_size, *avg_degree}));
+                                     LabelPropertyIndexStats{.count = *count,
+                                                             .distinct_values_count = *distinct_values_count,
+                                                             .statistic = *statistic,
+                                                             .avg_group_size = *avg_group_size,
+                                                             .avg_degree = *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -3302,12 +3312,15 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
         const auto label_id = get_label_from_id(*label);
         auto property_ids = std::vector{get_property_from_id(*property)};
         auto property_paths = property_ids |
-                              std::views::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
-                              r::to_vector;
+                              rv::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
+                              r::to<std::vector>();
         indices_constraints.indices.label_property_stats.emplace_back(
             label_id, std::make_pair(std::move(property_paths),
-                                     LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
-                                                             *avg_group_size, *avg_degree}));
+                                     LabelPropertyIndexStats{.count = *count,
+                                                             .distinct_values_count = *distinct_values_count,
+                                                             .statistic = *statistic,
+                                                             .avg_group_size = *avg_group_size,
+                                                             .avg_degree = *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -3796,12 +3809,15 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
         const auto label_id = get_label_from_id(*label);
         auto property_ids = std::vector{get_property_from_id(*property)};
         auto property_paths = property_ids |
-                              std::views::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
-                              r::to_vector;
+                              rv::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
+                              r::to<std::vector>();
         indices_constraints.indices.label_property_stats.emplace_back(
             label_id, std::make_pair(std::move(property_paths),
-                                     LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
-                                                             *avg_group_size, *avg_degree}));
+                                     LabelPropertyIndexStats{.count = *count,
+                                                             .distinct_values_count = *distinct_values_count,
+                                                             .statistic = *statistic,
+                                                             .avg_group_size = *avg_group_size,
+                                                             .avg_degree = *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -4312,8 +4328,8 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
           return props;
         });
         auto property_paths = properties |
-                              std::views::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
-                              r::to_vector;
+                              rv::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
+                              r::to<std::vector>();
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
                                     {get_label_from_id(*label), property_paths},
                                     "The label+property index already exists!");
@@ -4325,7 +4341,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
                                                            return name_id_mapper->IdToName(property_id.AsUint());
                                                          }) |
                                                          rv::join(". ") | r::to<std::string>;
-                                                }) | r::to_vector,
+                                                }) | r::to<std::vector>(),
                                                 ", ")));
       }
       spdlog::info("Metadata of label+property indices are recovered.");
@@ -4351,8 +4367,8 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
           properties.emplace_back(property_id);
         }
         auto property_paths = properties |
-                              std::views::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
-                              r::to_vector;
+                              rv::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
+                              r::to<std::vector>();
         const auto count = snapshot.ReadUint();
         if (!count) throw RecoveryFailure("Couldn't read count for label property index statistics!!");
         const auto distinct_values_count = snapshot.ReadUint();
@@ -8616,7 +8632,7 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
     return *transaction->last_durable_ts_;
   });
 
-  auto const it = std::ranges::find_if(
+  auto const it = r::find_if(
       wal_files, [old_durable_ts](auto const &wal_info) { return wal_info.from_timestamp > old_durable_ts; });
 
   // We need to leave at least one WAL file that contains deltas that were
@@ -8660,7 +8676,7 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
 
 void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const snapshot_retention_count,
                             utils::FileRetainer *file_retainer) {
-  std::ranges::sort(old_snapshot_files);
+  r::sort(old_snapshot_files);
 
   if (old_snapshot_files.size() < snapshot_retention_count) return;
 

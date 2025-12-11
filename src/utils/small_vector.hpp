@@ -198,15 +198,15 @@ struct small_vector {
     if (!usingSmallBuffer(capacity_)) {
       buffer_ = reinterpret_cast<pointer>(operator new (capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
     }
-    std::ranges::uninitialized_copy(other, *this);
+    r::uninitialized_copy(other, *this);
   }
 
   small_vector(small_vector &&other) noexcept : size_{other.size_}, capacity_{other.capacity_} {
     // NOTE 1: moved from vector, new capacity is kSmallCapacity
     // NOTE 2: either move the buffer or move into the small buffer
     if (usingSmallBuffer(other.capacity_)) {
-      std::ranges::uninitialized_move(other, *this);
-      std::ranges::destroy(other);
+      r::uninitialized_move(other, *this);
+      r::destroy(other);
     } else {
       buffer_ = std::exchange(other.buffer_, nullptr);
     }
@@ -222,7 +222,7 @@ struct small_vector {
     if (capacity_ < other.size_) {
       auto *new_data = reinterpret_cast<pointer>(operator new (other.size_ * sizeof(T), std::align_val_t{alignof(T)}));
       // NOTE: move values to the new buffer
-      std::ranges::uninitialized_move(begin(), end(), new_data, new_data + size_);
+      r::uninitialized_move(begin(), end(), new_data, new_data + size_);
       std::destroy(begin(), end());
       if (!usingSmallBuffer(capacity_)) {
         operator delete (buffer_, std::align_val_t{alignof(T)});
@@ -246,7 +246,7 @@ struct small_vector {
     if (size_ < other.size_) {
       // copy construct
       auto dst_ctr_end = begin() + other.size_;
-      std::ranges::uninitialized_copy(src_assign_end, other.cend(), dst_assign_end, dst_ctr_end);
+      r::uninitialized_copy(src_assign_end, other.cend(), dst_assign_end, dst_ctr_end);
       size_ = other.size_;
     } else if (other.size_ < size_) {
       // destroy
@@ -272,7 +272,7 @@ struct small_vector {
       if (size_ < other.size_) {
         // move construct
         auto dst_ctr_end = begin() + other.size_;
-        std::ranges::uninitialized_move(src_assign_end, other.end(), dst_assign_end, dst_ctr_end);
+        r::uninitialized_move(src_assign_end, other.end(), dst_assign_end, dst_ctr_end);
         size_ = other.size_;
       } else if (other.size_ < size_) {
         // destroy
@@ -307,7 +307,7 @@ struct small_vector {
     if (!usingSmallBuffer(capacity_)) {
       buffer_ = reinterpret_cast<pointer>(operator new (capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
     }
-    std::ranges::uninitialized_move(other.begin(), other.end(), begin(), end());
+    r::uninitialized_move(other.begin(), other.end(), begin(), end());
   }
 
   template <typename It>
@@ -316,7 +316,7 @@ struct small_vector {
     if (!usingSmallBuffer(capacity_)) {
       buffer_ = reinterpret_cast<pointer>(operator new (capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
     }
-    std::ranges::uninitialized_copy(first, last, begin(), end());
+    r::uninitialized_copy(first, last, begin(), end());
   }
 
   void push_back(const_reference value) {
@@ -512,7 +512,7 @@ struct small_vector {
     return it_first;
   }
 
-  friend bool operator==(small_vector const &lhs, small_vector const &rhs) { return std::ranges::equal(lhs, rhs); }
+  friend bool operator==(small_vector const &lhs, small_vector const &rhs) { return r::equal(lhs, rhs); }
 
   // kSmallCapacity can be 0; in that case we disable the small buffer
   constexpr static std::uint32_t kSmallCapacity = sizeof(value_type *) / sizeof(value_type);

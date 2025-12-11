@@ -21,6 +21,7 @@
 
 #include "utils/exceptions.hpp"
 
+namespace r = std::ranges;
 namespace memgraph::utils {
 
 /** Remove whitespace characters from the start of a string. */
@@ -29,7 +30,7 @@ inline std::string_view LTrim(const std::string_view s) {
   while (start < s.size() && isspace(s[start])) {
     ++start;
   }
-  return std::string_view(s.data() + start, s.size() - start);
+  return {s.data() + start, s.size() - start};
 }
 
 /** Remove characters found in `chars` from the start of a string. */
@@ -38,7 +39,7 @@ inline std::string_view LTrim(const std::string_view s, const std::string_view c
   while (start < s.size() && chars.find(s[start]) != std::string::npos) {
     ++start;
   }
-  return std::string_view(s.data() + start, s.size() - start);
+  return {s.data() + start, s.size() - start};
 }
 
 /** Remove whitespace characters from the end of a string. */
@@ -47,7 +48,7 @@ inline std::string_view RTrim(const std::string_view s) {
   while (count > static_cast<size_t>(0) && isspace(s[count - 1])) {
     --count;
   }
-  return std::string_view(s.data(), count);
+  return {s.data(), count};
 }
 
 /** Remove characters found in `chars` from the end of a string. */
@@ -56,7 +57,7 @@ inline std::string_view RTrim(const std::string_view s, const std::string_view c
   while (count > static_cast<size_t>(0) && chars.find(s[count - 1]) != std::string::npos) {
     --count;
   }
-  return std::string_view(s.data(), count);
+  return {s.data(), count};
 }
 
 /** Remove whitespace characters from the start and from the end of a string. */
@@ -69,7 +70,7 @@ inline std::string_view Trim(const std::string_view s) {
   while (count > start && isspace(s[count - 1])) {
     --count;
   }
-  return std::string_view(s.data() + start, count - start);
+  return {s.data() + start, count - start};
 }
 
 /** Remove characters found in `chars` from the start and the end of `s`. */
@@ -82,7 +83,7 @@ inline std::string_view Trim(const std::string_view s, const std::string_view ch
   while (count > start && chars.find(s[count - 1]) != std::string::npos) {
     --count;
   }
-  return std::string_view(s.data() + start, count - start);
+  return {s.data() + start, count - start};
 }
 
 /**
@@ -135,13 +136,13 @@ inline std::string ToUpperCase(const std::string_view s) {
  * Join the `strings` collection separated by a given separator into `out`.
  * @return pointer to `out`.
  */
-template <class TAllocator, std::ranges::forward_range Range>
+template <class TAllocator, r::forward_range Range>
 auto Join(std::basic_string<char, std::char_traits<char>, TAllocator> *out, Range const &strings,
           const std::string_view separator) -> std::basic_string<char, std::char_traits<char>, TAllocator> * {
   out->clear();
   if (strings.empty()) return out;
 
-  if constexpr (std::ranges::sized_range<Range>) {
+  if constexpr (r::sized_range<Range>) {
     // Initial pass to precompute total size
     int64_t total_size = separator.size() * (static_cast<int64_t>(strings.size()) - 1);
     for (const auto &x : strings) {
@@ -162,7 +163,7 @@ auto Join(std::basic_string<char, std::char_traits<char>, TAllocator> *out, Rang
 /**
  * Join the `strings` collection separated by a given separator.
  */
-inline std::string Join(std::ranges::forward_range auto const &strings, const std::string_view separator) {
+inline std::string Join(r::forward_range auto const &strings, const std::string_view separator) {
   std::string res;
   Join(&res, strings, separator);
   return res;

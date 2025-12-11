@@ -20,7 +20,7 @@
 #include "storage/v2/vertex.hpp"
 #include "utils/string.hpp"
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 namespace memgraph::storage {
 
@@ -131,9 +131,9 @@ std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &prope
   auto property_values = property_store.ExtractPropertyValuesMissingAsNull(property_paths);
 
   return rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
-           return std::make_pair(property_id_value_pair.first, property_id_value_pair.second);
+           return std::make_pair(std::get<0>(property_id_value_pair), std::get<1>(property_id_value_pair));
          }) |
-         r::to<std::map<PropertyId, PropertyValue>>();
+         r::to<std::map>();
 }
 
 void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, const Vertex *vertex,

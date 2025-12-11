@@ -17,7 +17,7 @@ namespace memgraph::storage {
 
 /**
  * @brief We need to protect the database using a DatabaseAccess, and we need to keep the replication/storage/dbms
- * untied. To achieve that we are using std::any, but beware to pass in the correct type using DatabaseAccess =
+ * untied. To achieve that we are using r::any, but beware to pass in the correct type using DatabaseAccess =
  * memgraph::utils::Gatekeeper<memgraph::dbms::Database>::Accessor;
  */
 struct DatabaseProtector;

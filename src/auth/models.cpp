@@ -18,10 +18,8 @@
 
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
-#include "dbms/constants.hpp"
 #include "license/license.hpp"
 #include "nlohmann/detail/exceptions.hpp"
-#include "query/constants.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/cast.hpp"
 #include "utils/string.hpp"
@@ -40,8 +38,6 @@ constexpr auto kUUID = "uuid";
 constexpr auto kPasswordHash = "password_hash";
 
 #ifdef MG_ENTERPRISE
-
-namespace r = std::ranges;
 
 constexpr auto kGlobalPermission = "global_permission";
 constexpr auto kFineGrainedPermissions = "fine_grained_permissions";

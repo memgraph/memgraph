@@ -12,9 +12,9 @@
 
 #include <array>
 #include <nlohmann/json.hpp>
-#include <range/v3/algorithm/find.hpp>
 #include <string_view>
 
+namespace r = std::ranges;
 namespace memgraph::replication_coordination_glue {
 
 namespace {
@@ -25,13 +25,13 @@ constexpr std::array<std::pair<ReplicationMode, std::string_view>, 3> kModeMappi
 }  // namespace
 
 void to_json(nlohmann::json &j, const ReplicationMode &mode) {
-  const auto *it = ranges::find(kModeMapping, mode, &std::pair<ReplicationMode, std::string_view>::first);
+  const auto *it = r::find(kModeMapping, mode, &std::pair<ReplicationMode, std::string_view>::first);
   j = std::string(it != kModeMapping.end() ? it->second : kModeMapping.front().second);
 }
 
 void from_json(const nlohmann::json &j, ReplicationMode &mode) {
   const auto value = j.get<std::string>();
-  const auto *it = ranges::find(kModeMapping, value, &std::pair<ReplicationMode, std::string_view>::second);
+  const auto *it = r::find(kModeMapping, value, &std::pair<ReplicationMode, std::string_view>::second);
   mode = it != kModeMapping.end() ? it->first : kModeMapping.front().first;
 }
 

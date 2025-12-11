@@ -20,7 +20,6 @@
 #include <spdlog/spdlog.h>
 
 #include <nlohmann/json.hpp>
-#include <range/v3/view.hpp>
 
 namespace memgraph::coordination {
 using nuraft::cluster_config;
@@ -66,12 +65,11 @@ void from_json(nlohmann::json const &json_cluster_config, std::shared_ptr<cluste
 
 void to_json(nlohmann::json &j, cluster_config const &cluster_config) {
   auto const servers_vec =
-      ranges::views::transform(
-          cluster_config.get_servers(),
-          [](auto const &server) {
-            return std::tuple{static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()};
-          }) |
-      ranges::to_vector;
+      rv::transform(cluster_config.get_servers(),
+                    [](auto const &server) {
+                      return std::tuple{static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()};
+                    }) |
+      r::to<std::vector>();
   j = nlohmann::json{{kServers, servers_vec},
                      {kPrevLogIdx, cluster_config.get_prev_log_idx()},
                      {kLogIdx, cluster_config.get_log_idx()},
@@ -146,11 +144,11 @@ auto CoordinatorStateManager::GetCoordinatorInstancesAux() const -> std::vector<
   coord_instances_aux.reserve(cluster_config_servers.size());
 
   try {
-    std::ranges::transform(cluster_config_servers, std::back_inserter(coord_instances_aux),
-                           [](auto const &server) -> CoordinatorInstanceAux {
-                             auto j = nlohmann::json::parse(server->get_aux());
-                             return j.template get<CoordinatorInstanceAux>();
-                           });
+    r::transform(cluster_config_servers, std::back_inserter(coord_instances_aux),
+                 [](auto const &server) -> CoordinatorInstanceAux {
+                   auto j = nlohmann::json::parse(server->get_aux());
+                   return j.template get<CoordinatorInstanceAux>();
+                 });
   } catch (std::exception const &e) {
     LOG_FATAL("Error occurred while parsing aux field {}", e.what());
   }

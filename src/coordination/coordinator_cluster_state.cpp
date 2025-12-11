@@ -13,11 +13,11 @@
 
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/constants.hpp"
-#include "utils/logging.hpp"
 
 #include <nlohmann/json.hpp>
 #include <shared_mutex>
 
+namespace r = std::ranges;
 namespace memgraph::coordination {
 
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other) {
@@ -77,14 +77,14 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
 
 auto CoordinatorClusterState::MainExists() const -> bool {
   auto lock = std::shared_lock{app_lock_};
-  return std::ranges::any_of(data_instances_,
-                             [](auto const &data_instance) { return data_instance.status == ReplicationRole::MAIN; });
+  return r::any_of(data_instances_,
+                   [](auto const &data_instance) { return data_instance.status == ReplicationRole::MAIN; });
 }
 
 // Ideally, we delete this.
 auto CoordinatorClusterState::HasMainState(std::string_view instance_name) const -> bool {
   auto lock = std::shared_lock{app_lock_};
-  auto const it = std::ranges::find_if(data_instances_, [instance_name](auto const &data_instance) {
+  auto const it = r::find_if(data_instances_, [instance_name](auto const &data_instance) {
     return data_instance.config.instance_name == instance_name;
   });
 
@@ -93,7 +93,7 @@ auto CoordinatorClusterState::HasMainState(std::string_view instance_name) const
 
 auto CoordinatorClusterState::IsCurrentMain(std::string_view instance_name) const -> bool {
   auto lock = std::shared_lock{app_lock_};
-  auto const it = std::ranges::find_if(data_instances_, [instance_name](auto const &data_instance) {
+  auto const it = r::find_if(data_instances_, [instance_name](auto const &data_instance) {
     return data_instance.config.instance_name == instance_name;
   });
   return it != data_instances_.end() && it->status == ReplicationRole::MAIN && it->instance_uuid == current_main_uuid_;
@@ -158,7 +158,7 @@ auto CoordinatorClusterState::GetDataInstancesContext() const -> std::vector<Dat
 auto CoordinatorClusterState::TryGetCurrentMainName() const -> std::optional<std::string> {
   auto lock = std::shared_lock{app_lock_};
 
-  const auto curr_main = std::ranges::find_if(data_instances_, [this](auto &&data_instance) {
+  const auto curr_main = r::find_if(data_instances_, [this](auto &&data_instance) {
     return data_instance.status == ReplicationRole::MAIN && data_instance.instance_uuid == current_main_uuid_;
   });
   return curr_main == data_instances_.end() ? std::nullopt : std::make_optional(curr_main->config.instance_name);

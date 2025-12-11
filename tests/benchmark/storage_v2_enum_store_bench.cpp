@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,6 @@
 #include <ranges>
 
 using namespace memgraph::storage;
-namespace rv = std::ranges::views;
 
 /// HELPERS
 
@@ -45,8 +44,8 @@ static void BM_ConvertToEnum(benchmark::State &state) {
   auto const &c_sut = sut;
   // Lookup potential worst case, the last type + last value
   auto all = c_sut.AllRegistered();
-  assert(ranges::size(all) != 0);
-  auto const &[e_type, e_values] = *std::ranges::begin(all | rv::reverse);
+  assert(r::size(all) != 0);
+  auto const &[e_type, e_values] = *r::begin(all | rv::reverse);
   auto lookup_type = e_type;
   auto lookup_value = e_values.back();
 

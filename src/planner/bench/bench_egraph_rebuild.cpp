@@ -12,8 +12,6 @@
 #include <random>
 #include <vector>
 
-#include "range/v3/all.hpp"
-
 #include "planner/core/egraph.hpp"
 #include "planner/core/processing_context.hpp"
 
@@ -47,7 +45,7 @@ static void BM_EGraph_CongruenceChain(benchmark::State &state) {
       }
     }
     // merge the chains
-    auto rng = ranges::views::zip(chain_head | ranges::views::drop(1), chain_head);
+    auto rng = rv::zip(chain_head | rv::drop(1), chain_head);
     for (auto [a, b] : rng) {
       egraph.merge(a, b);
     }

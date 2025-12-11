@@ -161,16 +161,15 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // if they are literals we can evaluate cardinality properly
 
     auto maybe_propertyvalue_ranges =
-        logical_op.expression_ranges_ | ranges::views::transform([&](ExpressionRange const &er) {
+        logical_op.expression_ranges_ | rv::transform([&](ExpressionRange const &er) {
           return er.ResolveAtPlantime(parameters, db_accessor_->GetStorageAccessor()->GetNameIdMapper());
         }) |
-        ranges::to_vector;
+        r::to<std::vector>();
 
     auto factor = std::invoke([&]() -> double {
-      if (ranges::none_of(maybe_propertyvalue_ranges, [](auto &&pvr) { return pvr == std::nullopt; })) {
+      if (r::none_of(maybe_propertyvalue_ranges, [](auto &&pvr) { return pvr == std::nullopt; })) {
         auto propertyvalue_ranges = maybe_propertyvalue_ranges |
-                                    ranges::views::transform([](auto &&optional) { return *optional; }) |
-                                    ranges::to_vector;
+                                    rv::transform([](auto &&optional) { return *optional; }) | r::to<std::vector>();
 
         return db_accessor_->VerticesCount(logical_op.label_, logical_op.properties_, propertyvalue_ranges);
       } else {

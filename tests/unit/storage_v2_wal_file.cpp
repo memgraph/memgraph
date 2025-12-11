@@ -208,18 +208,17 @@ class DeltaGenerator final {
                        std::size_t vector_capacity = 100) {
     auto label_id = memgraph::storage::LabelId::FromUint(mapper_.NameToId(label));
     std::vector<memgraph::storage::PropertyPath> property_paths;
-    for (const auto &[pos, properties] : ranges::views::enumerate(property_paths_as_str)) {
+    for (const auto &[pos, properties] : rv::enumerate(property_paths_as_str)) {
       property_paths.emplace_back();
       for (const auto &property : properties) {
         property_paths[pos].insert(memgraph::storage::PropertyId::FromUint(mapper_.NameToId(property)));
       }
     }
-    auto property_ids =
-        ranges::views::transform(properties,
-                                 [&](const std::string &property) {
-                                   return memgraph::storage::PropertyId::FromUint(mapper_.NameToId(property));
-                                 }) |
-        ranges::to<std::vector<memgraph::storage::PropertyId>>();
+    auto property_ids = rv::transform(properties,
+                                      [&](const std::string &property) {
+                                        return memgraph::storage::PropertyId::FromUint(mapper_.NameToId(property));
+                                      }) |
+                        ranges::to<std::vector<memgraph::storage::PropertyId>>();
     std::string first_property;
     memgraph::storage::PropertyId first_property_id;
     if (!property_paths.empty() && !property_paths[0].empty()) {

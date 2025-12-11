@@ -41,8 +41,10 @@ class SymbolTable;
 namespace plan {
 
 // Custom pipe operator to chain functions
+// Constrained to NOT match when T is a range (let std::ranges handle those)
 template <typename T, typename F>
-auto operator|(T &&value, F &&func) -> decltype(func(std::forward<T>(value))) {
+requires(!std::ranges::range<std::remove_cvref_t<T>>) && std::invocable<F, T &&> auto operator|(T &&value, F &&func)
+                                                             -> decltype(func(std::forward<T>(value))) {
   return func(std::forward<T>(value));
 }
 

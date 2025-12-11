@@ -1882,8 +1882,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto a_values = ranges::views::iota(0, 5) | ranges::views::transform([](int val) { return PropertyValue(val); }) |
-                  ranges::to_vector;
+  auto a_values = rv::iota(0, 5) | rv::transform([](int val) { return PropertyValue(val); }) | ranges::to_vector;
   auto b_values =
       std::vector{PropertyValue(2),      PropertyValue(3.0),     PropertyValue(4),         PropertyValue(6.0),
                   PropertyValue("alfa"), PropertyValue("bravo"), PropertyValue("charlie"), PropertyValue()};
@@ -1891,7 +1890,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
   // Create vertices with every cartesian product of a and b values
   {
     auto acc = this->storage->Access();
-    for (auto &&[a_val, b_val] : ranges::views::cartesian_product(a_values, b_values)) {
+    for (auto &&[a_val, b_val] : rv::cartesian_product(a_values, b_values)) {
       auto v = acc->CreateVertex();
       ASSERT_TRUE(v.AddLabel(this->label1).HasValue());
       ASSERT_TRUE(v.SetProperty(prop_a, a_val).HasValue());

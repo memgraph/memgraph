@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,7 @@ using namespace memgraph::storage;
 
 TEST(DeltaContainer, Empty) {
   auto container = delta_container{};
-  EXPECT_TRUE(std::ranges::empty(container));
+  EXPECT_TRUE(r::empty(container));
   EXPECT_EQ(container.size(), 0);
   EXPECT_EQ(std::distance(container.begin(), container.end()), 0);
 }
@@ -27,7 +27,7 @@ TEST(DeltaContainer, Empty) {
 TEST(DeltaContainer, Emplace) {
   auto container = delta_container{};
   container.emplace(Delta::DeleteObjectTag{}, (std::atomic<uint64_t> *)nullptr, 0);
-  EXPECT_FALSE(std::ranges::empty(container));
+  EXPECT_FALSE(r::empty(container));
   EXPECT_EQ(container.size(), 1);
   EXPECT_EQ(std::distance(container.begin(), container.end()), 1);
 }
@@ -37,11 +37,11 @@ TEST(DeltaContainer, Move) {
   container.emplace(Delta::DeleteObjectTag{}, (std::atomic<uint64_t> *)nullptr, 0);
   auto container2 = std::move(container);
 
-  EXPECT_TRUE(std::ranges::empty(container));
+  EXPECT_TRUE(r::empty(container));
   EXPECT_EQ(container.size(), 0);
   EXPECT_EQ(std::distance(container.begin(), container.end()), 0);
 
-  EXPECT_FALSE(std::ranges::empty(container2));
+  EXPECT_FALSE(r::empty(container2));
   EXPECT_EQ(container2.size(), 1);
   EXPECT_EQ(std::distance(container2.begin(), container2.end()), 1);
 }

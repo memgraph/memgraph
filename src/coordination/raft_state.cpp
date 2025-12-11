@@ -262,7 +262,7 @@ auto RaftState::GetMyBoltServer() const -> std::optional<std::string> { return G
 
 auto RaftState::GetBoltServer(int32_t coordinator_id) const -> std::optional<std::string> {
   auto const coord_instances_context = GetCoordinatorInstancesContext();
-  auto const target_coordinator = std::ranges::find_if(
+  auto const target_coordinator = r::find_if(
       coord_instances_context, [coordinator_id](auto const &coordinator) { return coordinator.id == coordinator_id; });
   if (target_coordinator == coord_instances_context.end()) {
     return {};
@@ -351,9 +351,9 @@ auto RaftState::GetLeaderCoordinatorData() const -> std::optional<LeaderCoordina
   auto const leader_id = raft_server_->get_leader();
 
   auto const coordinator_contexts = GetCoordinatorInstancesContext();
-  auto const leader_data = std::ranges::find_if(
-      coordinator_contexts,
-      [leader_id](CoordinatorInstanceContext const &coordinator) { return coordinator.id == leader_id; });
+  auto const leader_data = r::find_if(coordinator_contexts, [leader_id](CoordinatorInstanceContext const &coordinator) {
+    return coordinator.id == leader_id;
+  });
   if (leader_data == coordinator_contexts.end()) {
     spdlog::trace("Couldn't find data for the current leader.");
     return {};
@@ -402,7 +402,7 @@ auto RaftState::GetCoordinatorInstancesAux() const -> std::vector<CoordinatorIns
 
 auto RaftState::GetMyCoordinatorInstanceAux() const -> CoordinatorInstanceAux {
   auto const coord_instances_aux = GetCoordinatorInstancesAux();
-  auto const self_aux = std::ranges::find_if(
+  auto const self_aux = r::find_if(
       coord_instances_aux,
       [coordinator_id = this->coordinator_id_](auto const &coordinator) { return coordinator_id == coordinator.id; });
   MG_ASSERT(self_aux != coord_instances_aux.end(), "Cannot find raft_server::aux for coordinator with id {}.",

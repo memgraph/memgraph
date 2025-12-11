@@ -40,7 +40,7 @@ namespace memgraph::storage {
 
 namespace {
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 // `PropertyValue` is a very large object. It is implemented as a `union` of all
@@ -2464,7 +2464,7 @@ class ReaderPropPositionHistory {
       history_.erase(history_fork_it, history_.end());
     }
 
-    for (auto inner_property_id : std::ranges::subrange(parent_map_fork_it, parent_map.end())) {
+    for (auto inner_property_id : r::subrange(parent_map_fork_it, parent_map.end())) {
       auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, inner_property_id);
       if (info.status != ExpectedPropertyStatus::EQUAL) return info.status;
       history_.emplace_back(inner_property_id, info.property_end);
@@ -2570,7 +2570,7 @@ auto PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_pro
     };
 
     auto safe_reader = SafeReader{reader, get_result, apply_result, std::nullopt};
-    for (auto [pos, property] : ranges::views::enumerate(ordered_properties)) {
+    for (auto [pos, property] : rv::enumerate(ordered_properties)) {
       auto const &value = values[position_lookup[pos]];
       safe_reader(std::tuple{property, std::cref(value)}, std::tuple{std::cref(value), pos});
     }

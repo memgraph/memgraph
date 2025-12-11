@@ -16,12 +16,10 @@
 
 #include <nlohmann/json.hpp>
 #include "flags/experimental.hpp"
-#include "range/v3/all.hpp"
 #include "utils/flag_validation.hpp"
 
 #include <spdlog/spdlog.h>
-#include <range/v3/view/split.hpp>
-#include <range/v3/view/transform.hpp>
+#include <ranges>
 
 // Bolt server flags.
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
@@ -33,7 +31,9 @@ DEFINE_VALIDATED_string(experimental_config, "", "Experimental features to be us
                         { return memgraph::flags::ValidExperimentalConfig(value); });
 
 using namespace std::string_view_literals;
-namespace rv = ranges::views;
+
+namespace r = std::ranges;
+namespace rv = r::views;
 
 namespace {
 
@@ -42,7 +42,7 @@ auto const canonicalize_string = [](auto &&rng) {
   auto const to_lower = [](unsigned char c) { return std::tolower(c); };
 
   return rng | rv::drop_while(is_space) | rv::take_while(std::not_fn(is_space)) | rv::transform(to_lower) |
-         ranges::to<std::string>;
+         r::to<std::string>();
 };
 
 }  // namespace
@@ -100,8 +100,8 @@ auto ValidExperimentalFlag(std::string_view value) -> bool {
     return true;
   }
   auto const mapping_end = mapping.cend();
-  return !ranges::any_of(value | rv::split(',') | rv::transform(canonicalize_string),
-                         [&mapping_end](auto &&experiment) { return mapping.find(experiment) == mapping_end; });
+  return !r::any_of(value | rv::split(',') | rv::transform(canonicalize_string),
+                    [&mapping_end](auto &&experiment) { return mapping.find(experiment) == mapping_end; });
 }
 
 auto ValidExperimentalConfig(std::string_view json_config) -> bool {

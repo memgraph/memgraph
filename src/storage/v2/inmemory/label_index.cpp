@@ -15,7 +15,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 namespace {
@@ -424,8 +424,9 @@ void InMemoryLabelIndex::CleanupAllIndices() {
   // If all_indexes_ is the only thing holding onto an IndividualIndex, we remove it
   all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
     auto keep_condition = [](AllIndicesEntry const &entry) { return entry.index_.use_count() != 1; };
-    if (!ranges::all_of(*indices, keep_condition)) {
-      indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
+    if (!r::all_of(*indices, keep_condition)) {
+      indices =
+          std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to<std::vector>());
     }
   });
 }

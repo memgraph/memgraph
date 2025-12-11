@@ -29,10 +29,6 @@
 #include "utils/observer.hpp"
 
 #include <spdlog/spdlog.h>
-#include <optional>
-#include <range/v3/view/filter.hpp>
-#include <range/v3/view/join.hpp>
-#include <range/v3/view/transform.hpp>
 
 #include "storage/v2/durability/paths.hpp"
 
@@ -46,8 +42,9 @@ using memgraph::storage::UniqueConstraints;
 using memgraph::storage::View;
 using memgraph::storage::durability::WalDeltaData;
 using namespace std::chrono_literals;
+using namespace std::string_view_literals;
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 namespace memgraph::dbms {
@@ -92,10 +89,10 @@ void MoveDurabilityFiles(std::vector<storage::durability::SnapshotDurabilityInfo
                          std::filesystem::path const &backup_wal_dir, utils::FileRetainer *file_retainer) {
   auto const get_path = [](auto const &durability_info) { return durability_info.path; };
   // Move snapshots
-  auto const snapshots_to_move = snapshot_files | rv::transform(get_path) | r::to_vector;
+  auto const snapshots_to_move = snapshot_files | rv::transform(get_path) | r::to<std::vector<std::filesystem::path>>();
   MoveFiles(snapshots_to_move, backup_snapshot_dir, file_retainer);
   // Move WAL files
-  auto const wal_files_to_move = wal_files | rv::transform(get_path) | r::to_vector;
+  auto const wal_files_to_move = wal_files | rv::transform(get_path) | r::to<std::vector<std::filesystem::path>>();
   MoveFiles(wal_files_to_move, backup_wal_dir, file_retainer);
   // Clean DIR
   RemoveDirIfEmpty(backup_snapshot_dir);
@@ -611,7 +608,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     return snapshot_info.path != dst_snapshot_file;
   };
 
-  auto snapshots_to_move = curr_snapshot_files | rv::filter(not_recovery_snapshot) | r::to_vector;
+  auto snapshots_to_move = curr_snapshot_files | rv::filter(not_recovery_snapshot) |
+                           r::to<std::vector<storage::durability::SnapshotDurabilityInfo>>();
 
   auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
   if (!maybe_backup_dirs.has_value()) {
@@ -1393,7 +1391,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto label_id = storage->NameToLabel(data.label);
           const auto properties_str = std::invoke([&]() -> std::string {
             if (data.properties && !data.properties->empty()) {
-              return fmt::format(" ({})", rv::join(*data.properties, ", ") | r::to<std::string>);
+              return fmt::format(" ({})", *data.properties | rv::join_with(", "sv) | r::to<std::string>());
             }
             return {};
           });
@@ -1405,7 +1403,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             }
             return *data.properties |
                    rv::transform([&](const auto &prop_name) { return storage->NameToProperty(prop_name); }) |
-                   r::to_vector;
+                   r::to<std::vector<PropertyId>>();
           });
           auto ret = transaction->CreateTextIndex(storage::TextIndexSpec{data.index_name, label_id, prop_ids});
           if (ret.HasError()) {
@@ -1417,7 +1415,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           const auto edge_type = storage->NameToEdgeType(data.edge_type);
           const auto properties_str = std::invoke([&]() -> std::string {
             if (!data.properties.empty()) {
-              return fmt::format(" ({})", rv::join(data.properties, ", ") | r::to<std::string>);
+              return fmt::format(" ({})", data.properties | rv::join_with(", "sv) | r::to<std::string>());
             }
             return {};
           });
@@ -1425,7 +1423,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                         data.edge_type, properties_str);
           auto prop_ids = data.properties |
                           rv::transform([&](const auto &prop_name) { return storage->NameToProperty(prop_name); }) |
-                          r::to_vector;
+                          r::to<std::vector<PropertyId>>();
           const auto ret =
               transaction->CreateTextEdgeIndex(storage::TextEdgeIndexSpec{data.index_name, edge_type, prop_ids});
           if (ret.HasError()) {

@@ -504,7 +504,7 @@ add_unit_test(utils_stack
 
 add_unit_test(exponential_backoff
     SOURCES exponential_backoff.cpp
-    LINK_TARGETS mg-utils range-v3::range-v3
+    LINK_TARGETS mg-utils
 )
 
 add_unit_test(utils_compressor

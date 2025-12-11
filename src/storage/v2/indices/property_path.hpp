@@ -64,12 +64,11 @@ using PropertiesPaths = std::vector<PropertyPath>;
  * which must provide `PropertyToName(PropertyId)`
  */
 template <typename Context>
-  requires requires(Context *context, PropertyId prop) {
-    { context->PropertyToName(prop) } -> std::convertible_to<std::string>;
-  }
+requires requires(Context *context, PropertyId prop) {
+  { context->PropertyToName(prop) } -> std::convertible_to<std::string>;
+}
 std::string ToString(PropertyPath const &path, Context *context) {
-  return utils::Join(
-      path | std::ranges::views::transform([&](PropertyId prop) { return context->PropertyToName(prop); }), ".");
+  return utils::Join(path | r::views::transform([&](PropertyId prop) { return context->PropertyToName(prop); }), ".");
 }
 
 }  // namespace memgraph::storage

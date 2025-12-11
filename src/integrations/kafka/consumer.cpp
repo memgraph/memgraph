@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <chrono>
 #include <memory>
+#include <ranges>
 #include <unordered_set>
 
 #include <librdkafka/rdkafkacpp.h>
@@ -25,6 +26,9 @@
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/thread.hpp"
+
+namespace r = std::ranges;
+namespace rv = r::views;
 
 namespace memgraph::integrations::kafka {
 
@@ -209,10 +213,9 @@ Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
   }
   std::unique_ptr<RdKafka::Metadata> metadata(raw_metadata);
 
-  std::unordered_set<std::string> topic_names_from_metadata{};
-  std::transform(metadata->topics()->begin(), metadata->topics()->end(),
-                 std::inserter(topic_names_from_metadata, topic_names_from_metadata.begin()),
-                 [](const auto topic_metadata) { return topic_metadata->topic(); });
+  const auto topic_names_from_metadata = *metadata->topics() |
+                                         rv::transform([](auto *topic_metadata) { return topic_metadata->topic(); }) |
+                                         r::to<std::unordered_set<std::string>>();
 
   static constexpr size_t max_topic_name_length = 249;
   static constexpr auto is_valid_topic_name = [](const auto c) {
@@ -221,7 +224,7 @@ Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
 
   for (const auto &topic_name : info_.topics) {
     if (topic_name.size() > max_topic_name_length ||
-        std::any_of(topic_name.begin(), topic_name.end(), [&](const auto c) { return !is_valid_topic_name(c); })) {
+        r::any_of(topic_name.begin(), topic_name.end(), [&](const auto c) { return !is_valid_topic_name(c); })) {
       throw ConsumerFailedToInitializeException(info_.consumer_name,
                                                 fmt::format("'{}' is an invalid topic name", topic_name));
     }

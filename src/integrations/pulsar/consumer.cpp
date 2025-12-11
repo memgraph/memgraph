@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,6 @@
 
 #include "integrations/pulsar/consumer.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <thread>
 
@@ -20,13 +19,13 @@
 
 #include "integrations/constants.hpp"
 #include "integrations/pulsar/exceptions.hpp"
-#include "integrations/pulsar/fmt.hpp"
 #include "utils/concepts.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/result.hpp"
 #include "utils/thread.hpp"
 
+namespace r = std::ranges;
 namespace memgraph::integrations::pulsar {
 
 namespace {
@@ -72,7 +71,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consum
         break;
       default:
         spdlog::warn(fmt::format("Unexpected error while consuming message from consumer {}, error: {}",
-                                 info.consumer_name, result));
+                                 info.consumer_name, pulsar_client::strResult(result)));
         return {pulsar_client::strResult(result)};
     }
 
@@ -111,14 +110,15 @@ void TryToConsumeBatch(TConsumer &consumer, const ConsumerInfo &info, const Cons
 
   auto has_message_failed = [&consumer, &info, &last_message_id, &message_getter](const auto &message) {
     if (const auto result = consumer.acknowledge(message_getter(message)); result != pulsar_client::ResultOk) {
-      spdlog::warn("Acknowledging a message of consumer {} failed: {}", info.consumer_name, result);
+      spdlog::warn("Acknowledging a message of consumer {} failed: {}", info.consumer_name,
+                   pulsar_client::strResult(result));
       return true;
     }
     last_message_id = message_getter(message).getMessageId();
     return false;
   };
 
-  if (std::ranges::any_of(batch, has_message_failed)) {
+  if (r::any_of(batch, has_message_failed)) {
     throw ConsumerAcknowledgeMessagesFailedException(info.consumer_name);
   }
 }

@@ -12,9 +12,9 @@
 
 #include <array>
 #include <nlohmann/json.hpp>
-#include <range/v3/algorithm/find.hpp>
 #include <string_view>
 
+namespace r = std::ranges;
 namespace memgraph::replication_coordination_glue {
 
 namespace {
@@ -23,13 +23,13 @@ constexpr std::array<std::pair<ReplicationRole, std::string_view>, 2> kRoleMappi
 }  // namespace
 
 void to_json(nlohmann::json &j, const ReplicationRole &role) {
-  const auto *it = ranges::find(kRoleMapping, role, &std::pair<ReplicationRole, std::string_view>::first);
+  const auto *it = r::find(kRoleMapping, role, &std::pair<ReplicationRole, std::string_view>::first);
   j = std::string(it != kRoleMapping.end() ? it->second : kRoleMapping.front().second);
 }
 
 void from_json(const nlohmann::json &j, ReplicationRole &role) {
   const auto value = j.get<std::string>();
-  const auto *it = ranges::find(kRoleMapping, value, &std::pair<ReplicationRole, std::string_view>::second);
+  const auto *it = r::find(kRoleMapping, value, &std::pair<ReplicationRole, std::string_view>::second);
   role = it != kRoleMapping.end() ? it->first : kRoleMapping.front().first;
 }
 

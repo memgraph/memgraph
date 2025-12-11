@@ -178,9 +178,9 @@ class InteractiveDbAccessor {
     auto label = dba_->LabelToName(label_id);
     auto to_name = [&](memgraph::storage::PropertyId prop_id) { return dba_->PropertyToName(prop_id); };
     auto path_to_name = [&](const memgraph::storage::PropertyPath &path) {
-      return memgraph::utils::Join(path | ranges::views::transform(to_name), ".");
+      return memgraph::utils::Join(path | rv::transform(to_name), ".");
     };
-    auto property_names = memgraph::utils::Join(property_paths | ranges::views::transform(path_to_name), ", ");
+    auto property_names = memgraph::utils::Join(property_paths | rv::transform(path_to_name), ", ");
     auto key = std::make_pair(label, property_names);
     if (label_properties_vertex_count_.find(key) == label_properties_vertex_count_.end()) {
       label_properties_vertex_count_[key] =
@@ -230,9 +230,9 @@ class InteractiveDbAccessor {
     auto label = dba_->LabelToName(label_id);
     auto to_name = [&](memgraph::storage::PropertyId prop_id) { return dba_->PropertyToName(prop_id); };
     auto path_to_name = [&](const memgraph::storage::PropertyPath &path) {
-      return memgraph::utils::Join(path | ranges::views::transform(to_name), ".");
+      return memgraph::utils::Join(path | rv::transform(to_name), ".");
     };
-    auto property_names = memgraph::utils::Join(property_paths | ranges::views::transform(path_to_name), ", ");
+    auto property_names = memgraph::utils::Join(property_paths | rv::transform(path_to_name), ", ");
 
     auto to_range_str = [&](memgraph::storage::PropertyValueRange rng) -> std::string {
       switch (rng.type_) {
@@ -255,7 +255,7 @@ class InteractiveDbAccessor {
           return "INVALID";
       }
     };
-    auto ranges_str = memgraph::utils::Join(prop_val_ranges | ranges::views::transform(to_range_str), ", ");
+    auto ranges_str = memgraph::utils::Join(prop_val_ranges | rv::transform(to_range_str), ", ");
 
     return ReadVertexCount("label '" + label + "' and property '" + property_names + "' in range(s) " + ranges_str);
   }

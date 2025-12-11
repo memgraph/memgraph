@@ -81,8 +81,8 @@ TEST_F(CoordinatorStateManagerTest, SingleCoord) {
   auto loaded_config = state_manager_copy->load_config();
 
   ASSERT_EQ(old_config->get_servers().size(), loaded_config->get_servers().size());
-  auto zipped_view = ranges::views::zip(old_config->get_servers(), loaded_config->get_servers());
-  std::ranges::for_each(zipped_view, [](auto const &pair) {
+  auto zipped_view = rv::zip(old_config->get_servers(), loaded_config->get_servers());
+  r::for_each(zipped_view, [](auto const &pair) {
     auto &[temp_server, loaded_server] = pair;
     CompareServers(temp_server, loaded_server);
   });
@@ -125,9 +125,9 @@ TEST_F(CoordinatorStateManagerTest, MultipleCoords) {
   auto loaded_config = state_manager_copy->load_config();
 
   ASSERT_EQ(old_config->get_servers().size(), loaded_config->get_servers().size());
-  auto zipped_view = ranges::views::zip(old_config->get_servers(), loaded_config->get_servers());
+  auto zipped_view = rv::zip(old_config->get_servers(), loaded_config->get_servers());
 
-  std::ranges::for_each(zipped_view, [](auto const &pair) {
+  r::for_each(zipped_view, [](auto const &pair) {
     auto &[temp_server, loaded_server] = pair;
     CompareServers(temp_server, loaded_server);
   });

@@ -814,7 +814,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
 
   if (auto *edgetype_test = utils::Downcast<EdgeTypesTest>(expr)) {
     if (auto *identifier = utils::Downcast<Identifier>(edgetype_test->expression_)) {
-      if (auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(identifier)); it == all_filters_.end()) {
+      if (auto it = r::find_if(all_filters_, MatchesIdentifier(identifier)); it == all_filters_.end()) {
         // No existing EdgeTypesTest for this identifier
         auto filter = make_filter(FilterInfo::Type::EdgeType);
         filter.edgetypes = edgetype_test->valid_edgetypes_;

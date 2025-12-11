@@ -65,12 +65,12 @@ std::size_t CheckVertexProperties(std::unique_ptr<Accessor> acc, memgraph::stora
   size_t found_vertices = 0;
   for (auto it = iterable.begin(); it != iterable.end(); ++it) {
     auto vertex = *it;
-    auto results = props | ranges::views::transform([&](auto &&prop) {
+    auto results = props | rv::transform([&](auto &&prop) {
                      auto result = vertex.GetProperty(prop[0], memgraph::storage::View::OLD);
                      if (!result.HasValue()) {
                        return memgraph::storage::PropertyValue{};
                      }
-                     auto value = ReadNestedPropertyValue(*result, prop | ranges::views::drop(1));
+                     auto value = ReadNestedPropertyValue(*result, prop | rv::drop(1));
                      return value ? *value : memgraph::storage::PropertyValue{};
                    }) |
                    ranges::to_vector;

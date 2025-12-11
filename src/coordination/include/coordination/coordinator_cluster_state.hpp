@@ -22,7 +22,6 @@
 
 #include <libnuraft/nuraft.hxx>
 #include <nlohmann/json_fwd.hpp>
-#include <range/v3/view.hpp>
 
 #include <string>
 

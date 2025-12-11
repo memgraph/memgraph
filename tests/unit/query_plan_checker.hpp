@@ -392,7 +392,7 @@ class ExpectAggregate : public OpChecker<Aggregate> {
     auto is_constant = [](const Expression *expression) {
       return utils::Downcast<const PrimitiveLiteral>(expression) || utils::Downcast<const ParameterLookup>(expression);
     };
-    std::ranges::for_each(group_by_, [&expected_group_by, &is_constant](auto *expr) {
+    r::for_each(group_by_, [&expected_group_by, &is_constant](auto *expr) {
       if (!is_constant(expr)) {
         expected_group_by.insert(typeid(*expr).hash_code());
       }
@@ -743,8 +743,8 @@ class FakeDbAccessor {
 
   int64_t VerticesCount(memgraph::storage::LabelId label,
                         std::span<memgraph::storage::PropertyPath const> properties) const {
-    auto it = std::ranges::find_if(label_properties_index_, [&](auto const &each) {
-      return std::get<0>(each) == label && std::ranges::equal(std::get<1>(each), properties);
+    auto it = r::find_if(label_properties_index_, [&](auto const &each) {
+      return std::get<0>(each) == label && r::equal(std::get<1>(each), properties);
     });
 
     if (it != label_properties_index_.end()) {
@@ -785,8 +785,8 @@ class FakeDbAccessor {
 
   bool LabelPropertyIndexReady(memgraph::storage::LabelId label,
                                std::span<memgraph::storage::PropertyPath const> properties) const {
-    return std::ranges::find_if(label_properties_index_, [&](auto const &each) {
-             return std::get<0>(each) == label && std::ranges::equal(std::get<1>(each), properties);
+    return r::find_if(label_properties_index_, [&](auto const &each) {
+             return std::get<0>(each) == label && r::equal(std::get<1>(each), properties);
            }) != label_properties_index_.end();
   }
 
@@ -796,7 +796,7 @@ class FakeDbAccessor {
     auto res = std::vector<storage::LabelPropertiesIndicesInfo>{};
 
     for (auto const &[label, props, _] : label_properties_index_) {
-      auto label_it = std::ranges::find(labels, label);
+      auto label_it = r::find(labels, label);
       if (label_it == labels.end()) {
         continue;
       }
@@ -805,7 +805,7 @@ class FakeDbAccessor {
       properties_poses.reserve(properties.size());
       bool has_matching_property = false;
       for (auto prop : props) {
-        auto prop_it = std::ranges::find(properties, prop);
+        auto prop_it = r::find(properties, prop);
         if (prop_it == properties.end()) {
           properties_poses.emplace_back(-1);
         } else {
@@ -867,8 +867,8 @@ class FakeDbAccessor {
 
   void SetIndexCount(memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties,
                      int64_t count) {
-    auto it = std::ranges::find_if(label_properties_index_, [&](auto const &each) {
-      return std::get<0>(each) == label && std::ranges::equal(std::get<1>(each), properties);
+    auto it = r::find_if(label_properties_index_, [&](auto const &each) {
+      return std::get<0>(each) == label && r::equal(std::get<1>(each), properties);
     });
 
     if (it != label_properties_index_.end()) {

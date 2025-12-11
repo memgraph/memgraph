@@ -1077,8 +1077,8 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid gid, View vi
   auto res = FindEdges(view, edge_type, from_vertex, to_vertex);
   if (res.HasError()) return std::nullopt;  // TODO: use a Result type
 
-  auto const it = std::ranges::find_if(
-      res->edges, [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.ptr->gid == gid; });
+  auto const it =
+      r::find_if(res->edges, [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.ptr->gid == gid; });
 
   if (it == res->edges.end()) return std::nullopt;  // TODO: use a Result type
 

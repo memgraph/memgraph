@@ -46,7 +46,7 @@ namespace {
 // Helper function to compare bolt_map_t objects
 inline bool operator==(const memgraph::glue::bolt_map_t &lhs, const memgraph::glue::bolt_map_t &rhs) {
   if (lhs.size() != rhs.size()) return false;
-  return std::ranges::all_of(lhs, [&rhs](const auto &pair) {
+  return r::all_of(lhs, [&rhs](const auto &pair) {
     auto it = rhs.find(pair.first);
     if (it == rhs.end()) return false;
     if (pair.second.type() != it->second.type()) return false;
@@ -438,12 +438,11 @@ auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const
                       std::optional<std::string> const &db, bolt_map_t const &
                       /*extra*/) -> bolt_map_t {
   auto const routing_map =
-      ranges::views::transform(routing,
-                               [](auto const &pair) { return std::pair(pair.first, pair.second.ValueString()); }) |
-      ranges::to<std::map<std::string, std::string>>();
+      rv::transform(routing, [](auto const &pair) { return std::pair(pair.first, pair.second.ValueString()); }) |
+      r::to<std::map<std::string, std::string>>();
 
   if (db.has_value()) {
-    spdlog::trace("Handling routing request for the database: {}", *db);
+    spdlog::trace("Handling routing request for the database '{}'", *db);
   }
 
   auto routing_table_res = interpreter_.Route(routing_map, db);
@@ -451,8 +450,8 @@ auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const
   auto create_server = [](auto const &server_info) -> bolt_value_t {
     auto const &[addresses, role] = server_info;
     bolt_map_t server_map;
-    auto bolt_addresses = ranges::views::transform(addresses, [](auto const &addr) { return bolt_value_t{addr}; }) |
-                          ranges::to<std::vector<bolt_value_t>>();
+    auto bolt_addresses =
+        rv::transform(addresses, [](auto const &addr) { return bolt_value_t{addr}; }) | r::to<std::vector>();
 
     server_map["addresses"] = std::move(bolt_addresses);
     server_map["role"] = bolt_value_t{role};
@@ -468,8 +467,7 @@ auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const
     communication_res["db"] = bolt_value_t{};
   }
 
-  auto servers =
-      ranges::views::transform(routing_table_res.servers, create_server) | ranges::to<std::vector<bolt_value_t>>();
+  auto servers = rv::transform(routing_table_res.servers, create_server) | r::to<std::vector>();
   communication_res["servers"] = bolt_value_t{std::move(servers)};
 
   return {{"rt", bolt_value_t{std::move(communication_res)}}};

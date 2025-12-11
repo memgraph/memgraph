@@ -40,7 +40,7 @@
 #include "utils/logging.hpp"
 #include "utils/tag.hpp"
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 static constexpr std::string_view kInvalidWalErrorMessage =
@@ -1271,7 +1271,7 @@ std::optional<RecoveryInfo> LoadWal(
           }
           return *data.properties | rv::transform([&](const auto &prop_name) {
             return PropertyId::FromUint(name_id_mapper->NameToId(prop_name));
-          }) | r::to_vector;
+          }) | r::to<std::vector>();
         });
         indices_constraints->indices.text_indices.emplace_back(data.index_name, label, std::move(prop_ids));
       },
@@ -1280,7 +1280,7 @@ std::optional<RecoveryInfo> LoadWal(
         auto prop_ids = data.properties | rv::transform([&](const auto &prop_name) {
                           return PropertyId::FromUint(name_id_mapper->NameToId(prop_name));
                         }) |
-                        r::to_vector;
+                        r::to<std::vector>();
         indices_constraints->indices.text_edge_indices.emplace_back(data.index_name, edge_type, std::move(prop_ids));
       },
       [&](WalTextIndexDrop const &data) {
@@ -1765,7 +1765,7 @@ void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, 
 
 auto UpgradeForNestedIndices(CompositeStr v) -> std::vector<PathStr> {
   auto wrap_singular_path = [](auto &&path) -> PathStr { return std::vector{std::forward<decltype(path)>(path)}; };
-  return v | ranges::views::transform(wrap_singular_path) | ranges::to_vector;
+  return v | rv::transform(wrap_singular_path) | r::to<std::vector>();
 };
 
 auto CompositePropertyPaths::convert(NameIdMapper *mapper) const -> std::vector<PropertyPath> {
@@ -1773,8 +1773,8 @@ auto CompositePropertyPaths::convert(NameIdMapper *mapper) const -> std::vector<
     return PropertyId::FromUint(mapper->NameToId(prop_name));
   };
   auto to_path = [&](PathStr const &path) -> PropertyPath {
-    return PropertyPath{path | rv::transform(to_propertyid) | r::to_vector};
+    return PropertyPath{path | rv::transform(to_propertyid) | r::to<std::vector>()};
   };
-  return property_paths_ | rv::transform(to_path) | r::to_vector;
+  return property_paths_ | rv::transform(to_path) | r::to<std::vector>();
 }
 }  // namespace memgraph::storage::durability

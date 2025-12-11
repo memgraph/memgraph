@@ -31,7 +31,7 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
   auto const &db_acc = commit_args.database_protector();
   bool const should_run_2pc = ShouldRunTwoPC();
   bool success{true};
-  for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
+  for (auto &&[client, replica_stream] : rv::zip(*locked_clients, streams)) {
     client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
                                    replica_stream);
     // NOLINTNEXTLINE
@@ -72,7 +72,7 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
                                                  uint64_t const durability_commit_timestamp) -> bool {
   bool strict_sync_replicas_succ{true};
 
-  for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
+  for (auto &&[client, replica_stream] : rv::zip(*locked_clients, streams)) {
     if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
       auto const commit_res =
           client->SendFinalizeCommitRpc(decision, storage_uuid, durability_commit_timestamp, std::move(replica_stream));
