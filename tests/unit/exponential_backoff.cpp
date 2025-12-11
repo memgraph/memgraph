@@ -13,8 +13,10 @@
 
 #include <gtest/gtest.h>
 #include <chrono>
-#include <range/v3/all.hpp>
+#include <ranges>
 
+namespace r = std::ranges;
+namespace rv = r::views;
 class ExponentialBackoffTest : public ::testing::Test {
  protected:
   void SetUp() override {}

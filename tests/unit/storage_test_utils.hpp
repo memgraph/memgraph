@@ -73,7 +73,7 @@ std::size_t CheckVertexProperties(std::unique_ptr<Accessor> acc, memgraph::stora
                      auto value = ReadNestedPropertyValue(*result, prop | rv::drop(1));
                      return value ? *value : memgraph::storage::PropertyValue{};
                    }) |
-                   ranges::to_vector;
+                   r::to<std::vector>();
     props_validator(results);
     ++found_vertices;
   }

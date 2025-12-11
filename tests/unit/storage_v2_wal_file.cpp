@@ -218,7 +218,7 @@ class DeltaGenerator final {
                                       [&](const std::string &property) {
                                         return memgraph::storage::PropertyId::FromUint(mapper_.NameToId(property));
                                       }) |
-                        ranges::to<std::vector<memgraph::storage::PropertyId>>();
+                        r::to<std::vector<memgraph::storage::PropertyId>>();
     std::string first_property;
     memgraph::storage::PropertyId first_property_id;
     if (!property_paths.empty() && !property_paths[0].empty()) {

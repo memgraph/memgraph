@@ -3394,7 +3394,7 @@ TEST_P(CypherMainVisitorTest, TestRegisterSyncInstance) {
                          [&expr_to_str](auto const &expr_pair) {
                            return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
                          }) |
-           ranges::to<std::unordered_map<std::string, std::string>>;
+           r::to<std::unordered_map<std::string, std::string>>();
   };
 
   auto const config_map = evaluate_config_map(parsed_query->configs_);
@@ -3427,7 +3427,7 @@ TEST_P(CypherMainVisitorTest, TestRegisterAsyncInstance) {
                          [&expr_to_str](auto const &expr_pair) {
                            return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
                          }) |
-           ranges::to<std::map<std::string, std::string, std::less<>>>;
+           r::to<std::map<std::string, std::string, std::less<>>>();
   };
 
   auto const config_map = evaluate_config_map(parsed_query->configs_);
@@ -3460,7 +3460,7 @@ TEST_P(CypherMainVisitorTest, TestRegisterStrictSyncInstance) {
                          [&expr_to_str](auto const &expr_pair) {
                            return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
                          }) |
-           ranges::to<std::map<std::string, std::string, std::less<>>>;
+           r::to<std::map<std::string, std::string, std::less<>>>();
   };
 
   auto const config_map = evaluate_config_map(parsed_query->configs_);
@@ -3500,7 +3500,7 @@ TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
                          [&expr_to_str](auto const &expr_pair) {
                            return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
                          }) |
-           ranges::to<std::map<std::string, std::string, std::less<>>>;
+           r::to<std::map<std::string, std::string, std::less<>>>();
   };
 
   auto const config_map = evaluate_config_map(parsed_query->configs_);
@@ -4574,7 +4574,7 @@ TEST_P(CypherMainVisitorTest, TestLoadJsonlClause) {
                            [&expr_to_str](auto const &expr_pair) {
                              return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
                            }) |
-             ranges::to<std::unordered_map<std::string, std::string>>;
+             r::to<std::unordered_map<std::string, std::string>>();
     };
 
     auto const config_map = evaluate_config_map(load_jsonl_clause->configs_);
@@ -4637,7 +4637,7 @@ TEST_P(CypherMainVisitorTest, TestLoadParquetClause) {
                            [&expr_to_str](auto const &expr_pair) {
                              return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
                            }) |
-             ranges::to<std::unordered_map<std::string, std::string>>;
+             r::to<std::unordered_map<std::string, std::string>>();
     };
 
     auto const config_map = evaluate_config_map(load_parquet_clause->configs_);
@@ -4733,7 +4733,7 @@ TEST_P(CypherMainVisitorTest, TestLoadCsvClause) {
                            [&expr_to_str](auto const &expr_pair) {
                              return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
                            }) |
-             ranges::to<std::unordered_map<std::string, std::string>>;
+             r::to<std::unordered_map<std::string, std::string>>();
     };
 
     auto const config_map = evaluate_config_map(load_csv_clause->configs_);

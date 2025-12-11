@@ -442,7 +442,7 @@ auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const
       r::to<std::map<std::string, std::string>>();
 
   if (db.has_value()) {
-    spdlog::trace("Handling routing request for the database '{}'", *db);
+    spdlog::trace("Handling routing request for the database: {}", *db);
   }
 
   auto routing_table_res = interpreter_.Route(routing_map, db);

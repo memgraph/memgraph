@@ -22,6 +22,8 @@
 
 namespace memgraph::utils {
 
+namespace r = std::ranges;
+
 // datastructure for a small vector, design goals:
 // - 16B, so we are smaller than std::vector<T> (24B)
 // - small buffer representation to avoid allocation

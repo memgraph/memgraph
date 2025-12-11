@@ -488,7 +488,7 @@ class ExpectScanAllByLabelProperties : public OpChecker<ScanAllByLabelProperties
       return compare_bound_expression(lhs.lower_, rhs.lower_) && compare_bound_expression(lhs.upper_, rhs.upper_);
     };
 
-    EXPECT_TRUE(ranges::equal(scan.expression_ranges_, expression_ranges_, compare_expression_range));
+    EXPECT_TRUE(r::equal(scan.expression_ranges_, expression_ranges_, compare_expression_range));
   }
 
  private:

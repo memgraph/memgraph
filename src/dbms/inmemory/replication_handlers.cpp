@@ -89,10 +89,10 @@ void MoveDurabilityFiles(std::vector<storage::durability::SnapshotDurabilityInfo
                          std::filesystem::path const &backup_wal_dir, utils::FileRetainer *file_retainer) {
   auto const get_path = [](auto const &durability_info) { return durability_info.path; };
   // Move snapshots
-  auto const snapshots_to_move = snapshot_files | rv::transform(get_path) | r::to<std::vector<std::filesystem::path>>();
+  auto const snapshots_to_move = snapshot_files | rv::transform(get_path) | r::to<std::vector>();
   MoveFiles(snapshots_to_move, backup_snapshot_dir, file_retainer);
   // Move WAL files
-  auto const wal_files_to_move = wal_files | rv::transform(get_path) | r::to<std::vector<std::filesystem::path>>();
+  auto const wal_files_to_move = wal_files | rv::transform(get_path) | r::to<std::vector>();
   MoveFiles(wal_files_to_move, backup_wal_dir, file_retainer);
   // Clean DIR
   RemoveDirIfEmpty(backup_snapshot_dir);
@@ -608,9 +608,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     return snapshot_info.path != dst_snapshot_file;
   };
 
-  auto snapshots_to_move = curr_snapshot_files | rv::filter(not_recovery_snapshot) |
-                           r::to<std::vector<storage::durability::SnapshotDurabilityInfo>>();
-
+  const auto snapshots_to_move = curr_snapshot_files | rv::filter(not_recovery_snapshot) | r::to<std::vector>();
   auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
   if (!maybe_backup_dirs.has_value()) {
     spdlog::error("Couldn't create backup directories. Replica won't be recovered.");

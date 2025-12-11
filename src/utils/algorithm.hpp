@@ -19,6 +19,8 @@
 
 #include "utils/exceptions.hpp"
 
+namespace r = std::ranges;
+
 namespace memgraph::utils {
 
 /**

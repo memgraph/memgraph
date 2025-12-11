@@ -16,7 +16,9 @@
 #include <gtest/gtest.h>
 #include <libnuraft/nuraft.hxx>
 #include <nlohmann/json.hpp>
-#include <range/v3/view.hpp>
+
+namespace r = std::ranges;
+namespace rv = r::views;
 
 using memgraph::coordination::CoordinatorInstanceAux;
 using memgraph::coordination::CoordinatorStateManager;

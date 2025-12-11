@@ -21,8 +21,10 @@
 
 #include "libnuraft/nuraft.hxx"
 
-#include <range/v3/view.hpp>
 #include "coordination/coordinator_communication_config.hpp"
+
+namespace r = std::ranges;
+namespace rv = r::views;
 
 using memgraph::coordination::CoordinatorClusterState;
 using memgraph::coordination::CoordinatorInstanceAux;

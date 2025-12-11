@@ -1882,7 +1882,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto a_values = rv::iota(0, 5) | rv::transform([](int val) { return PropertyValue(val); }) | ranges::to_vector;
+  auto a_values = rv::iota(0, 5) | rv::transform([](int val) { return PropertyValue(val); }) | r::to<std::vector>();
   auto b_values =
       std::vector{PropertyValue(2),      PropertyValue(3.0),     PropertyValue(4),         PropertyValue(6.0),
                   PropertyValue("alfa"), PropertyValue("bravo"), PropertyValue("charlie"), PropertyValue()};
