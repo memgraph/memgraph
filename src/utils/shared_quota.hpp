@@ -19,12 +19,14 @@
 namespace memgraph::utils {
 
 class QuotaCoordinator {
-  std::atomic<int64_t> remaining_quota_;
-  std::atomic<int> active_holders_;
+  std::atomic<int64_t> remaining_quota_{0};
+  std::atomic<int> active_holders_{0};
   std::atomic<uint32_t> epoch_{0};  // Incremented whenever the state changes in a way waiters care about.
+  std::atomic<uint8_t> initialized_{false};
 
  public:
   explicit QuotaCoordinator(int64_t total_limit);
+  QuotaCoordinator() = default;
 
   class QuotaHandle {
     QuotaCoordinator *coord_;
@@ -45,6 +47,7 @@ class QuotaCoordinator {
     void ReturnUnused();
   };
 
+  void Initialize(int64_t limit);
   std::optional<QuotaHandle> Acquire(int64_t desired_batch_size);
 
  private:
@@ -54,12 +57,17 @@ class QuotaCoordinator {
 };
 
 class SharedQuota {
-  std::shared_ptr<QuotaCoordinator> coord_;
-  int64_t desired_batch_size_;
-  std::optional<QuotaCoordinator::QuotaHandle> handle_;
+  std::shared_ptr<QuotaCoordinator> coord_{nullptr};
+  int64_t desired_batch_size_{0};
+  std::optional<QuotaCoordinator::QuotaHandle> handle_{std::nullopt};
 
  public:
+  constexpr static struct Preload {
+  } preload;
+
   explicit SharedQuota(int64_t limit, int64_t n_batches = 1);
+  // Used to setup the objects, but not initialize the quota.
+  explicit SharedQuota(Preload /*unused*/);
   ~SharedQuota() = default;
 
   SharedQuota(const SharedQuota &other) noexcept;
@@ -74,7 +82,11 @@ class SharedQuota {
   // BUT the previous implementation returned bool, so to keep it compatible with the previous implementation
   // we will change it to return the amount incremented.
   int64_t Increment(int64_t amount = 1);
-  void Reset();
+  void Reacquire();
+  // Useful for multi-threaded exeucitons where each thread needs to free its left quota.
+  void Free();
+  // Initialize the quota coordinator when preloaded and used by multiple threads.
+  void Initialize(int64_t limit, int64_t n_batches = 1);
 };
 
 }  // namespace memgraph::utils
