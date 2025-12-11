@@ -2612,7 +2612,13 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 #endif
 {
   ctx_.profile_execution_time = std::chrono::duration<double>(0.0);
-  ctx_.hops_limit = query::HopsLimit{.limit = hops_limit};
+  if (hops_limit) {
+    int64_t batch = 0;
+    if (parallel_execution) {
+      batch = (int64_t)(parallel_execution.value() * 4);
+    }
+    ctx_.hops_limit = HopsLimit(*hops_limit, batch);
+  }
   ctx_.parallel_execution = parallel_execution;
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
@@ -3003,7 +3009,7 @@ PreparedQuery PrepareCypherQuery(
       plan, parsed_query.parameters, is_profile_query, dba, interpreter_context, execution_memory,
       std::move(user_or_role), std::move(stopping_context), dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
       interpreter.query_logger_, trigger_context_collector, memory_limit,
-      frame_change_collector->AnyCaches() ? frame_change_collector : nullptr, hops_limit, 
+      frame_change_collector->AnyCaches() ? frame_change_collector : nullptr, hops_limit,
       EvaluateParallelExecution(cypher_query, evaluator), interpreter_context->worker_pool
 #ifdef MG_ENTERPRISE
       ,

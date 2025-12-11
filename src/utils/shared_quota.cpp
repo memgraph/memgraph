@@ -43,7 +43,8 @@ void QuotaCoordinator::QuotaHandle::ReturnUnused() {
   if (coord_) coord_->ReturnQuota(amount_);
 }
 
-QuotaCoordinator::QuotaCoordinator(int64_t total_limit) : remaining_quota_(total_limit), active_holders_(0) {}
+QuotaCoordinator::QuotaCoordinator(int64_t total_limit)
+    : remaining_quota_(total_limit), active_holders_(0), initialized_(true) {}
 
 std::optional<QuotaCoordinator::QuotaHandle> QuotaCoordinator::Acquire(int64_t desired_batch_size) {
   while (true) {
@@ -100,10 +101,10 @@ void QuotaCoordinator::NotifyWaiters() {
 
 SharedQuota::SharedQuota(int64_t limit, int64_t n_batches)
     : coord_(std::make_shared<QuotaCoordinator>(limit)),
-      desired_batch_size_(limit / n_batches),
+      desired_batch_size_(std::max<int64_t>(1, limit / n_batches)),
       handle_(coord_->Acquire(desired_batch_size_)) {
   MG_ASSERT(limit > 0, "Limit has to be greater than 0");
-  MG_ASSERT(desired_batch_size_ > 0, "Batch size has to be greater than 0");
+  MG_ASSERT(n_batches > 0, "Number of batches has to be greater than 0");
   DMG_ASSERT(handle_ && handle_->Count() > 0, "Failed to acquire quota");
 }
 
@@ -143,10 +144,10 @@ int64_t SharedQuota::Increment(int64_t amount) {
   if (!coord_) {
     return 0;
   }
-  // TODO Better to not reset the handle here, but to return the handle and let the caller decide what to do with it.
-  // handle_ is not set after a copy
+
+  // handle_ is not set after a copy or Free
   if (!handle_) {
-    Reset();
+    Reacquire();
     // failed to acquire a quota
     if (!handle_) return 0;
   }
@@ -160,7 +161,7 @@ int64_t SharedQuota::Increment(int64_t amount) {
 
     if (amount > 0) {
       // try to acquire more quota
-      Reset();
+      Reacquire();
       // If we couldn't get a new handle, we are done
       if (!handle_) break;
     }
@@ -168,9 +169,25 @@ int64_t SharedQuota::Increment(int64_t amount) {
   return total_consumed;
 }
 
-void SharedQuota::Reset() {
+void SharedQuota::Reacquire() {
   // handler_ has to be reset before acquiring a new one
   handle_.reset();
   if (coord_) handle_ = coord_->Acquire(desired_batch_size_);
 }
+
+void SharedQuota::Free() { handle_.reset(); }
+
+void SharedQuota::Initialize(int64_t limit, int64_t n_batches) {
+  // Initialize only if not created via Preload
+  if (desired_batch_size_ != -1) return;
+  desired_batch_size_ = std::max<int64_t>(1, limit / n_batches);
+  if (coord_) coord_->Initialize(limit);
+}
+void QuotaCoordinator::Initialize(int64_t limit) {
+  const auto prev = initialized_.fetch_or(true);
+  if (prev) return;  // Already initialized
+  remaining_quota_ = limit;
+}
+SharedQuota::SharedQuota(Preload /*unused*/)
+    : coord_(std::make_shared<QuotaCoordinator>()), desired_batch_size_(-1), handle_(std::nullopt) {}
 }  // namespace memgraph::utils

@@ -6350,137 +6350,6 @@ std::string Aggregate::ToString() const {
                      utils::IterableToString(remember_, ", ", [](const auto &sym) { return sym.name(); }));
 }
 
-Skip::Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
-    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
-
-ACCEPT_WITH_INPUT(Skip)
-
-UniqueCursorPtr Skip::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::SkipOperator);
-
-  return MakeUniqueCursorPtr<SkipCursor>(mem, *this, mem);
-}
-
-std::vector<Symbol> Skip::OutputSymbols(const SymbolTable &symbol_table) const {
-  // Propagate this to potential Produce.
-  return input_->OutputSymbols(symbol_table);
-}
-
-std::vector<Symbol> Skip::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
-
-std::unique_ptr<LogicalOperator> Skip::Clone(AstStorage *storage) const {
-  auto object = std::make_unique<Skip>();
-  object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-  return object;
-}
-
-Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
-
-bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
-  OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("Skip");
-
-  AbortCheck(context);
-
-  while (input_cursor_->Pull(frame, context)) {
-    if (to_skip_ == -1) {
-      // First successful pull from the input, evaluate the skip expression.
-      // The skip expression doesn't contain identifiers so graph view
-      // parameter is not important.
-      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                    storage::View::OLD, nullptr, &context.number_of_hops, context.user_or_role);
-      TypedValue to_skip = self_.expression_->Accept(evaluator);
-      if (to_skip.type() != TypedValue::Type::Int)
-        throw QueryRuntimeException("Number of elements to skip must be an integer.");
-
-      to_skip_ = to_skip.ValueInt();
-      if (to_skip_ < 0) throw QueryRuntimeException("Number of elements to skip must be non-negative.");
-      shared_quota_.emplace(to_skip_);
-    }
-    // Skip until we skipped the quota
-    if (shared_quota_ && shared_quota_->Increment() > 0) continue;
-    shared_quota_.reset();  // consumed all quota, reset the shared quota
-    return true;
-  }
-  return false;
-}
-
-void Skip::SkipCursor::Shutdown() { input_cursor_->Shutdown(); }
-
-void Skip::SkipCursor::Reset() {
-  input_cursor_->Reset();
-  to_skip_ = -1;
-  shared_quota_.reset();
-}
-
-Limit::Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
-    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
-
-ACCEPT_WITH_INPUT(Limit)
-
-UniqueCursorPtr Limit::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::LimitOperator);
-
-  return MakeUniqueCursorPtr<LimitCursor>(mem, *this, mem);
-}
-
-std::vector<Symbol> Limit::OutputSymbols(const SymbolTable &symbol_table) const {
-  // Propagate this to potential Produce.
-  return input_->OutputSymbols(symbol_table);
-}
-
-std::vector<Symbol> Limit::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
-
-std::unique_ptr<LogicalOperator> Limit::Clone(AstStorage *storage) const {
-  auto object = std::make_unique<Limit>();
-  object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-  return object;
-}
-
-Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
-
-bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
-  OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("Limit");
-
-  AbortCheck(context);
-
-  // We need to evaluate the limit expression before the first input Pull
-  // because it might be 0 and thereby we shouldn't Pull from input at all.
-  // We can do this before Pulling from the input because the limit expression
-  // is not allowed to contain any identifiers.
-  if (limit_ == -1) {
-    // Limit expression doesn't contain identifiers so graph view is not
-    // important.
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                  storage::View::OLD, nullptr, &context.number_of_hops, context.user_or_role);
-    TypedValue limit = self_.expression_->Accept(evaluator);
-    if (limit.type() != TypedValue::Type::Int)
-      throw QueryRuntimeException("Limit on number of returned elements must be an integer.");
-
-    limit_ = limit.ValueInt();
-    if (limit_ < 0) throw QueryRuntimeException("Limit on number of returned elements must be non-negative.");
-    shared_quota_.emplace(limit_);
-  }
-
-  // check we have not exceeded the limit before pulling
-  if (shared_quota_->Increment() <= 0) return false;
-
-  return input_cursor_->Pull(frame, context);
-}
-
-void Limit::LimitCursor::Shutdown() { input_cursor_->Shutdown(); }
-
-void Limit::LimitCursor::Reset() {
-  input_cursor_->Reset();
-  limit_ = -1;
-  shared_quota_.reset();
-}
-
 OrderBy::OrderBy(const std::shared_ptr<LogicalOperator> &input, const std::vector<SortItem> &order_by,
                  const std::vector<Symbol> &output_symbols)
     : input_(input ? input : std::make_shared<Once>()), output_symbols_(output_symbols) {
@@ -9671,18 +9540,43 @@ UniqueCursorPtr ParallelMerge::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<ParallelMergeCursor>(mem, *this, mem);
 }
 
+namespace parallel {
+// Parallel execution plan creation helper
+struct CreationHelper {
+  std::shared_ptr<Cursor> cursor_{nullptr};
+  std::shared_ptr<utils::CollectionScheduler> collection_scheduler_{nullptr};
+  std::map<const LogicalOperator *, utils::SharedQuota> quotas_{};  // Skip/Limit cursors need to use the same quota
+
+  utils::SharedQuota GetSharedQuota(const LogicalOperator *op) {
+    auto [it, _] = quotas_.try_emplace(op, utils::SharedQuota(utils::SharedQuota::preload));
+    return it->second;
+  }
+};
+static thread_local CreationHelper plan_creation_helper_{nullptr};
+
+struct PlanCreationHelper {
+  PlanCreationHelper(std::shared_ptr<utils::CollectionScheduler> collection_scheduler) {
+    creation_helper_old_ =
+        std::exchange(plan_creation_helper_, CreationHelper{.collection_scheduler_ = collection_scheduler});
+  }
+  ~PlanCreationHelper() { plan_creation_helper_ = std::move(creation_helper_old_); }
+
+ private:
+  CreationHelper creation_helper_old_{nullptr};
+};
+}  // namespace parallel
+
 class ParallelMergeCursor : public Cursor {
  public:
   ParallelMergeCursor(const ParallelMerge &self, utils::MemoryResource *mem)
       : self_(self),
-        collection_scheduler_(std::invoke([&]() -> std::shared_ptr<utils::CollectionScheduler> {
-          return std::exchange(plan_creation_helper_.collection_scheduler_, nullptr);
-        })),
+        // Collection scheduler is executed by the first parallel operator only
+        collection_scheduler_(std::exchange(parallel::plan_creation_helper_.collection_scheduler_, nullptr)),
         input_cursor_(std::invoke([&]() {
-          if (!plan_creation_helper_.cursor_) {
-            plan_creation_helper_.cursor_ = self_.input_->MakeCursor(mem);
+          if (!parallel::plan_creation_helper_.cursor_) {
+            parallel::plan_creation_helper_.cursor_ = self_.input_->MakeCursor(mem);
           }
-          return plan_creation_helper_.cursor_;
+          return parallel::plan_creation_helper_.cursor_;
         })) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -9709,33 +9603,11 @@ class ParallelMergeCursor : public Cursor {
     if (input_cursor_) input_cursor_->Reset();
   }
 
-  static void ResetPlanCreationHelper() { plan_creation_helper_.reset(); }
-
-  struct PlanCreationHelper {
-    PlanCreationHelper(std::shared_ptr<utils::CollectionScheduler> collection_scheduler) {
-      ParallelMergeCursor::plan_creation_helper_.reset();
-      ParallelMergeCursor::plan_creation_helper_.collection_scheduler_ = collection_scheduler;
-    }
-    ~PlanCreationHelper() { ParallelMergeCursor::ResetPlanCreationHelper(); }
-  };
-
-  struct CreationHelper {
-    void reset() {
-      cursor_.reset();
-      collection_scheduler_.reset();
-    }
-    std::shared_ptr<Cursor> cursor_{nullptr};
-    std::shared_ptr<utils::CollectionScheduler> collection_scheduler_{nullptr};
-  };
-
  private:
   const ParallelMerge &self_;
-  static thread_local CreationHelper plan_creation_helper_;
   std::shared_ptr<utils::CollectionScheduler> collection_scheduler_{nullptr};
   std::shared_ptr<Cursor> input_cursor_;
 };
-
-thread_local ParallelMergeCursor::CreationHelper ParallelMergeCursor::plan_creation_helper_{nullptr};
 
 /**
  * Generic base class for parallel branch execution.
@@ -9748,7 +9620,7 @@ class ParallelBranchCursor : public Cursor {
                        utils::MemoryResource *mem)
       : collection_scheduler_(std::make_shared<utils::CollectionScheduler>(nullptr, nullptr)),
         branch_cursors_(std::invoke([&]() {
-          ParallelMergeCursor::PlanCreationHelper helper{collection_scheduler_};
+          parallel::PlanCreationHelper helper{collection_scheduler_};
           std::vector<UniqueCursorPtr> cursors;
           const auto effective_num_threads = std::min(num_threads, static_cast<size_t>(FLAGS_bolt_num_workers));
           cursors.reserve(effective_num_threads);
@@ -9803,7 +9675,8 @@ class ParallelBranchCursor : public Cursor {
 
     // Execute branches 1..N in parallel
     for (size_t i = 1; i < num_branches; i++) {
-      tasks.AddTask([&, i, context, main_thread = std::this_thread::get_id(), post_pull_func,
+      tasks.AddTask([&, i, context, frame_size = frame.elems().size(), main_thread = std::this_thread::get_id(),
+                     post_pull_func,
                      mem_tracking = memgraph::memory::CrossThreadMemoryTracking()](utils::Priority /*unused*/) mutable {
         OOMExceptionEnabler oom_exception;
         utils::Timer timer;
@@ -9827,8 +9700,8 @@ class ParallelBranchCursor : public Cursor {
           context.trigger_context_collector = &collector;
         }
 
-        // TODO Could crash if there is nothing to pull
-        Frame frame_local(0);  // No need to allocate the frame, it will be copied after the pull
+        // TODO Try to not allocate since Scan will copy it. Problem if we return before Scan; will crash
+        Frame frame_local(frame_size);
 
         try {
           pre_pull_func(cursor.get());
@@ -9841,6 +9714,8 @@ class ParallelBranchCursor : public Cursor {
             // Main thread is handled by the higher level
             context.profile_execution_time += timer.Elapsed();
           }
+          // NOTE: hops limit is shared between threads, so we need to free the leftover quota
+          context.hops_limit.Free();
           branch_contexts[metadata_i] = std::move(context);
           post_pull_func(cursor.get());
         } catch (const std::exception &e) {
@@ -9876,6 +9751,9 @@ class ParallelBranchCursor : public Cursor {
       }
     }
 
+    // NOTE: hops limit is shared between threads, so we need to free the leftover quota
+    // Successive increments to the hops limit will reset the quota
+    context.hops_limit.Free();
     collection_scheduler_->WaitOrSteal();
 
     // Check for exceptions
@@ -10323,5 +10201,164 @@ std::vector<Symbol> AggregateParallel::ModifiedSymbols(const SymbolTable &table)
 }
 
 ACCEPT_WITH_INPUT(AggregateParallel);
+
+Skip::Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
+    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
+
+ACCEPT_WITH_INPUT(Skip)
+
+UniqueCursorPtr Skip::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::SkipOperator);
+
+  return MakeUniqueCursorPtr<SkipCursor>(mem, *this, mem);
+}
+
+std::vector<Symbol> Skip::OutputSymbols(const SymbolTable &symbol_table) const {
+  // Propagate this to potential Produce.
+  return input_->OutputSymbols(symbol_table);
+}
+
+std::vector<Symbol> Skip::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
+
+std::unique_ptr<LogicalOperator> Skip::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<Skip>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  return object;
+}
+
+Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem)
+    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {
+  if (self_.parallel_execution) {
+    // Use a globally defined quota for parallel execution
+    shared_quota_ = parallel::plan_creation_helper_.GetSharedQuota(&self_);
+  }
+}
+
+bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
+  SCOPED_PROFILE_OP("Skip");
+
+  AbortCheck(context);
+
+  while (input_cursor_->Pull(frame, context)) {
+    if (to_skip_ == -1) {
+      // First successful pull from the input, evaluate the skip expression.
+      // The skip expression doesn't contain identifiers so graph view
+      // parameter is not important.
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    storage::View::OLD, nullptr, &context.number_of_hops, context.user_or_role);
+      TypedValue to_skip = self_.expression_->Accept(evaluator);
+      if (to_skip.type() != TypedValue::Type::Int)
+        throw QueryRuntimeException("Number of elements to skip must be an integer.");
+
+      to_skip_ = to_skip.ValueInt();
+      if (to_skip_ < 0) throw QueryRuntimeException("Number of elements to skip must be non-negative.");
+      // Single threaded and parallel execution quota setup
+      if (self_.parallel_execution) {
+        MG_ASSERT(shared_quota_, "Shared quota should be preset in parallel execution");
+        shared_quota_->Initialize(to_skip_, *self_.parallel_execution * 4);
+      } else {
+        shared_quota_.emplace(to_skip_);
+      }
+    }
+    // Skip until we skipped the quota
+    if (shared_quota_ && shared_quota_->Increment() > 0) continue;
+    shared_quota_.reset();  // consumed all quota, reset the shared quota
+    return true;
+  }
+  shared_quota_.reset();  // Important to release any remaining resource for other threads
+  return false;
+}
+
+void Skip::SkipCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void Skip::SkipCursor::Reset() {
+  input_cursor_->Reset();
+  to_skip_ = -1;
+  shared_quota_.reset();
+}
+
+Limit::Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
+    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
+
+ACCEPT_WITH_INPUT(Limit)
+
+UniqueCursorPtr Limit::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::LimitOperator);
+
+  return MakeUniqueCursorPtr<LimitCursor>(mem, *this, mem);
+}
+
+std::vector<Symbol> Limit::OutputSymbols(const SymbolTable &symbol_table) const {
+  // Propagate this to potential Produce.
+  return input_->OutputSymbols(symbol_table);
+}
+
+std::vector<Symbol> Limit::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
+
+std::unique_ptr<LogicalOperator> Limit::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<Limit>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  return object;
+}
+
+Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem)
+    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {
+  if (self_.parallel_execution) {
+    // Use a globally defined quota for parallel execution
+    shared_quota_ = parallel::plan_creation_helper_.GetSharedQuota(&self_);
+  }
+}
+
+bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
+  SCOPED_PROFILE_OP("Limit");
+
+  AbortCheck(context);
+
+  // We need to evaluate the limit expression before the first input Pull
+  // because it might be 0 and thereby we shouldn't Pull from input at all.
+  // We can do this before Pulling from the input because the limit expression
+  // is not allowed to contain any identifiers.
+  if (limit_ == -1) {
+    // Limit expression doesn't contain identifiers so graph view is not
+    // important.
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                  storage::View::OLD, nullptr, &context.number_of_hops, context.user_or_role);
+    TypedValue limit = self_.expression_->Accept(evaluator);
+    if (limit.type() != TypedValue::Type::Int)
+      throw QueryRuntimeException("Limit on number of returned elements must be an integer.");
+
+    limit_ = limit.ValueInt();
+    if (limit_ < 0) throw QueryRuntimeException("Limit on number of returned elements must be non-negative.");
+    // Initialize the quota for parallel execution or single threaded execution
+    if (self_.parallel_execution) {
+      MG_ASSERT(shared_quota_, "Shared quota should be preset in parallel execution");
+      shared_quota_->Initialize(limit_, *self_.parallel_execution * 4);
+    } else {
+      shared_quota_.emplace(limit_);
+    }
+  }
+
+  // check we have not exceeded the limit before pulling
+  if (shared_quota_->Increment() <= 0) {
+    shared_quota_.reset();  // Important to release any remaining resource for other threads
+    return false;
+  }
+
+  const auto res = input_cursor_->Pull(frame, context);
+  if (!res) shared_quota_.reset();  // Important to release any remaining resource for other threads
+  return res;
+}
+
+void Limit::LimitCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void Limit::LimitCursor::Reset() {
+  input_cursor_->Reset();
+  limit_ = -1;
+  shared_quota_.reset();
+}
 
 }  // namespace memgraph::query::plan
