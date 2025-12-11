@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <array>
 #include <optional>
 #include <span>
 #include <thread>
@@ -35,7 +36,7 @@ struct Transaction;
 template <class T>
 struct FixedCapacityArray {
   size_t size;
-  T values[kUniqueConstraintsMaxProperties];
+  std::array<T, kUniqueConstraintsMaxProperties> values;
 
   explicit FixedCapacityArray(size_t array_size) : size(array_size) {
     MG_ASSERT(size <= kUniqueConstraintsMaxProperties, "Invalid array size!");

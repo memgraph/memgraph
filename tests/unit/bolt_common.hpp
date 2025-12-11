@@ -14,6 +14,7 @@
 #include <functional>
 #include <iosfwd>
 #include <random>
+#include <span>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -59,6 +60,10 @@ class TestOutputStream {
     if (!write_success_) return false;
     output.insert(output.end(), data, data + len);
     return true;
+  }
+
+  bool Write(std::span<const uint8_t> data, bool have_more = false) {
+    return Write(data.data(), data.size(), have_more);
   }
 
   void SetWriteSuccess(bool success) { write_success_ = success; }

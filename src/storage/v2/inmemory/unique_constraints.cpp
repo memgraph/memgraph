@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include <array>
 #include <memory>
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/utils.hpp"
@@ -26,12 +27,14 @@ namespace {
 /// sorted `property_array` using binary search. In the case that `property`
 /// cannot be found, `std::nullopt` is returned.
 std::optional<size_t> FindPropertyPosition(const PropertyIdArray &property_array, PropertyId property) {
-  const auto *it = std::lower_bound(property_array.values, property_array.values + property_array.size, property);
-  if (it == property_array.values + property_array.size || *it != property) {
+  const auto *begin = property_array.values.data();
+  const auto *end = begin + property_array.size;
+  const auto *it = std::lower_bound(begin, end, property);
+  if (it == end || *it != property) {
     return std::nullopt;
   }
 
-  return it - property_array.values;
+  return it - begin;
 }
 
 /// Helper function for validating unique constraints on commit. Returns true if
@@ -50,7 +53,7 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
     ++i;
   }
 
-  bool current_value_equal_to_value[kUniqueConstraintsMaxProperties];
+  std::array<bool, kUniqueConstraintsMaxProperties> current_value_equal_to_value{};
 
   // Since the commit lock is active, any transaction that tries to write to
   // a vertex which is part of the given `transaction` will result in a
@@ -140,8 +143,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
   MG_ASSERT(properties.size() == values.size(), "Invalid database state!");
 
   PropertyIdArray property_array(properties.size());
-  bool current_value_equal_to_value[kUniqueConstraintsMaxProperties];
-  memset(current_value_equal_to_value, 0, sizeof(current_value_equal_to_value));
+  std::array<bool, kUniqueConstraintsMaxProperties> current_value_equal_to_value{};
 
   bool has_label;
   bool deleted;

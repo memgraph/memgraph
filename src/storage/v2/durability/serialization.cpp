@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <optional>
@@ -660,12 +661,12 @@ bool Decoder::SkipString() {
   auto maybe_size = ReadSize(this);
   if (!maybe_size) return false;
 
-  const uint64_t kBufferSize = 262144;
-  uint8_t buffer[kBufferSize];
+  static constexpr uint64_t kBufferSize = 262144;
+  std::array<uint8_t, kBufferSize> buffer;  // intentionally uninitialized for performance
   uint64_t size = *maybe_size;
   while (size > 0) {
     uint64_t to_read = size < kBufferSize ? size : kBufferSize;
-    if (!Read(reinterpret_cast<uint8_t *>(&buffer), to_read)) return false;
+    if (!Read(buffer.data(), to_read)) return false;
     size -= to_read;
   }
 
