@@ -35,24 +35,24 @@ using testing::Types;
 using testing::UnorderedElementsAre;
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-!#define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).has_value())
+#define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
 
-    namespace pvr {
-  // Create a PropertyValueRange for testing against property equality
-  PropertyValueRange Equal(PropertyValue val) {
-    auto lower = memgraph::utils::MakeBoundInclusive(std::move(val));
-    auto upper = lower;
-    return PropertyValueRange::Bounded(std::move(lower), std::move(upper));
-  }
+namespace pvr {
+// Create a PropertyValueRange for testing against property equality
+PropertyValueRange Equal(PropertyValue val) {
+  auto lower = memgraph::utils::MakeBoundInclusive(std::move(val));
+  auto upper = lower;
+  return PropertyValueRange::Bounded(std::move(lower), std::move(upper));
+}
 
-  // Create a PropertyValueRange for testing a property against a range
-  PropertyValueRange Range(std::optional<memgraph::utils::Bound<PropertyValue>> lower,
-                           std::optional<memgraph::utils::Bound<PropertyValue>> upper) {
-    return PropertyValueRange::Bounded(std::move(lower), std::move(upper));
-  }
+// Create a PropertyValueRange for testing a property against a range
+PropertyValueRange Range(std::optional<memgraph::utils::Bound<PropertyValue>> lower,
+                         std::optional<memgraph::utils::Bound<PropertyValue>> upper) {
+  return PropertyValueRange::Bounded(std::move(lower), std::move(upper));
+}
 
-  // Create a PropertyValueRange for testing property existence
-  PropertyValueRange IsNotNull() { return PropertyValueRange::IsNotNull(); }
+// Create a PropertyValueRange for testing property existence
+PropertyValueRange IsNotNull() { return PropertyValueRange::IsNotNull(); }
 
 }  // namespace pvr
 
@@ -187,7 +187,7 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -277,7 +277,7 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -289,7 +289,7 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
 
   {
     auto acc = this->DropIndexAccessor();
-    !EXPECT_FALSE(acc->DropIndex(this->label1).has_value());
+    EXPECT_FALSE(!acc->DropIndex(this->label1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -300,7 +300,7 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
 
   {
     auto acc = this->DropIndexAccessor();
-    !EXPECT_TRUE(acc->DropIndex(this->label1).has_value());
+    EXPECT_TRUE(!acc->DropIndex(this->label1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -320,7 +320,7 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -357,12 +357,12 @@ TYPED_TEST(IndexTest, LabelIndexBasic) {
   // 4. Delete even numbered vertices.
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label2).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label2).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -430,12 +430,12 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
   // checks that duplicates are properly filtered out.
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label2).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label2).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -478,12 +478,12 @@ TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
   // Check that transactions only see entries they are supposed to see.
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label2).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label2).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -519,12 +519,12 @@ TYPED_TEST(IndexTest, LabelIndexCountEstimate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
       auto acc = this->CreateIndexAccessor();
-      !EXPECT_FALSE(acc->CreateIndex(this->label1).has_value());
+      EXPECT_FALSE(!acc->CreateIndex(this->label1).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     {
       auto acc = this->CreateIndexAccessor();
-      !EXPECT_FALSE(acc->CreateIndex(this->label2).has_value());
+      EXPECT_FALSE(!acc->CreateIndex(this->label2).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
@@ -543,7 +543,7 @@ TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
       auto acc = this->CreateIndexAccessor();
-      !EXPECT_FALSE(acc->CreateIndex(this->label1).has_value());
+      EXPECT_FALSE(!acc->CreateIndex(this->label1).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     auto acc1 = this->storage->Access();
@@ -567,7 +567,7 @@ TYPED_TEST(IndexTest, LabelIndexRemoveIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
       auto acc = this->CreateIndexAccessor();
-      !EXPECT_FALSE(acc->CreateIndex(this->label1).has_value());
+      EXPECT_FALSE(!acc->CreateIndex(this->label1).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     auto acc1 = this->storage->Access();
@@ -591,7 +591,7 @@ TYPED_TEST(IndexTest, LabelIndexRemoveAndAddIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
       auto acc = this->CreateIndexAccessor();
-      !EXPECT_FALSE(acc->CreateIndex(this->label1).has_value());
+      EXPECT_FALSE(!acc->CreateIndex(this->label1).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     auto acc1 = this->storage->Access();
@@ -620,7 +620,7 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
 
     {
       auto acc = this->CreateIndexAccessor();
-      !EXPECT_FALSE(acc->CreateIndex(this->label1).has_value());
+      EXPECT_FALSE(!acc->CreateIndex(this->label1).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     auto acc1 = this->storage->Access();
@@ -634,15 +634,15 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
 
     auto acc2 = this->storage->Access();
     auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
-    ASSERT_TRUE(vertex2.SetProperty(this->prop_val, memgraph::storage::PropertyValue(10)).HasValue());
-    !ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(vertex2.SetProperty(this->prop_val, memgraph::storage::PropertyValue(10)).has_value());
+    ASSERT_FALSE(!acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
     auto acc3 = this->storage->Access();
     auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
-    ASSERT_TRUE(vertex3.SetProperty(this->prop_val, memgraph::storage::PropertyValue(15)).HasValue());
-    !ASSERT_FALSE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(vertex3.SetProperty(this->prop_val, memgraph::storage::PropertyValue(15)).has_value());
+    ASSERT_FALSE(!acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
   }
@@ -656,7 +656,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_id}}).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_id}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -676,7 +676,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_TRUE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_id}}).has_value());
+    EXPECT_TRUE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_id}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -689,7 +689,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label2, {PropertyPath{this->prop_id}}).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label2, {PropertyPath{this->prop_id}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -708,7 +708,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->DropIndexAccessor();
-    !EXPECT_FALSE(acc->DropIndex(this->label1, {PropertyPath{this->prop_id}}).has_value());
+    EXPECT_FALSE(!acc->DropIndex(this->label1, {PropertyPath{this->prop_id}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -725,13 +725,13 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->DropIndexAccessor();
-    !EXPECT_TRUE(acc->DropIndex(this->label1, {PropertyPath{this->prop_id}}).has_value());
+    EXPECT_TRUE(!acc->DropIndex(this->label1, {PropertyPath{this->prop_id}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
     auto acc = this->DropIndexAccessor();
-    !EXPECT_FALSE(acc->DropIndex(this->label2, {PropertyPath{this->prop_id}}).has_value());
+    EXPECT_FALSE(!acc->DropIndex(this->label2, {PropertyPath{this->prop_id}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -756,8 +756,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
   {
     auto acc = this->CreateIndexAccessor();
-    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_a}, PropertyPath{this->prop_b},
-                                                 PropertyPath{this->prop_c}}) !.has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1,
+                                   {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                      .has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -780,8 +781,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    EXPECT_TRUE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_a}, PropertyPath{this->prop_b},
-                                                PropertyPath{this->prop_c}}) !.has_value());
+    EXPECT_TRUE(!acc->CreateIndex(this->label1,
+                                  {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                     .has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -795,8 +797,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    EXPECT_FALSE(acc->CreateIndex(this->label2, {PropertyPath{this->prop_a}, PropertyPath{this->prop_b},
-                                                 PropertyPath{this->prop_c}}) !.has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label2,
+                                   {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                      .has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -818,8 +821,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
 
   {
     auto acc = this->DropIndexAccessor();
-    EXPECT_FALSE(acc->DropIndex(this->label1, {PropertyPath{this->prop_a}, PropertyPath{this->prop_b},
-                                               PropertyPath{this->prop_c}}) !.has_value());
+    EXPECT_FALSE(!acc->DropIndex(this->label1,
+                                 {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                      .has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -838,15 +842,17 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
 
   {
     auto acc = this->DropIndexAccessor();
-    EXPECT_TRUE(acc->DropIndex(this->label1, {PropertyPath{this->prop_a}, PropertyPath{this->prop_b},
-                                              PropertyPath{this->prop_c}}) !.has_value());
+    EXPECT_TRUE(!acc->DropIndex(this->label1,
+                                {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                     .has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
     auto acc = this->DropIndexAccessor();
-    EXPECT_FALSE(acc->DropIndex(this->label2, {PropertyPath{this->prop_a}, PropertyPath{this->prop_b},
-                                               PropertyPath{this->prop_c}}) !.has_value());
+    EXPECT_FALSE(!acc->DropIndex(this->label2,
+                                 {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                      .has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -870,12 +876,12 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
 TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label2, {PropertyPath{this->prop_val}}).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label2, {PropertyPath{this->prop_val}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -1019,13 +1025,14 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexBasic) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
-                                                 PropertyPath{this->prop_c}}) !.has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1,
+                                   {PropertyPath{this->prop_b}, PropertyPath{this->prop_a}, PropertyPath{this->prop_c}})
+                      .has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label2, {PropertyPath{this->prop_c}, PropertyPath{this->prop_b}}).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label2, {PropertyPath{this->prop_c}, PropertyPath{this->prop_b}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -1212,7 +1219,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexBasic) {
 TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -1276,7 +1283,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !ASSERT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+    ASSERT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -1303,7 +1310,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
 TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -1362,7 +1369,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -1452,7 +1459,7 @@ TYPED_TEST(IndexTest, ListOrderingNumericLists) {
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -1502,7 +1509,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -1536,7 +1543,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCountEstimate) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}}).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -1581,7 +1588,7 @@ TYPED_TEST(IndexTest, LabelPropertyNestedIndexCountEstimate) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_a, this->prop_b}}).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_a, this->prop_b}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -1616,7 +1623,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -1667,10 +1674,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
     auto acc = this->storage->Access();
     for (const auto &value : values) {
       auto v = acc->CreateVertex();
-      ASSERT_TRUE(v.AddLabel(this->label1).HasValue());
-      ASSERT_TRUE(v.SetProperty(this->prop_val, value).HasValue());
+      ASSERT_TRUE(v.AddLabel(this->label1).has_value());
+      ASSERT_TRUE(v.SetProperty(this->prop_val, value).has_value());
     }
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Verify that all nodes are in the index.
@@ -1871,7 +1878,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{prop_a}, PropertyPath{prop_b}}).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{prop_a}, PropertyPath{prop_b}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -1886,12 +1893,12 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
     auto acc = this->storage->Access();
     for (auto &&[a_val, b_val] : ranges::views::cartesian_product(a_values, b_values)) {
       auto v = acc->CreateVertex();
-      ASSERT_TRUE(v.AddLabel(this->label1).HasValue());
-      ASSERT_TRUE(v.SetProperty(prop_a, a_val).HasValue());
-      ASSERT_TRUE(v.SetProperty(prop_b, b_val).HasValue());
+      ASSERT_TRUE(v.AddLabel(this->label1).has_value());
+      ASSERT_TRUE(v.SetProperty(prop_a, a_val).has_value());
+      ASSERT_TRUE(v.SetProperty(prop_b, b_val).has_value());
     }
 
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto const inclusive_bound = [](PropertyValue val) { return memgraph::utils::MakeBoundInclusive(val); };
@@ -1963,7 +1970,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
       auto acc = this->CreateIndexAccessor();
-      !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+      EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     auto acc1 = this->storage->Access();
@@ -1998,7 +2005,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
       auto acc = this->CreateIndexAccessor();
-      !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+      EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     auto acc1 = this->storage->Access();
@@ -2032,7 +2039,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
       auto acc = this->CreateIndexAccessor();
-      !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+      EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     auto acc1 = this->storage->Access();
@@ -2065,7 +2072,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
 
     {
       auto acc = this->CreateIndexAccessor();
-      !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+      EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     auto acc1 = this->storage->Access();
@@ -2079,15 +2086,15 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
 
     auto acc2 = this->storage->Access();
     auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
-    ASSERT_TRUE(vertex2.SetProperty(this->prop_val, memgraph::storage::PropertyValue(10)).HasValue());
-    !ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(vertex2.SetProperty(this->prop_val, memgraph::storage::PropertyValue(10)).has_value());
+    ASSERT_FALSE(!acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
     auto acc3 = this->storage->Access();
     auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
-    ASSERT_TRUE(vertex3.SetProperty(this->prop_val, memgraph::storage::PropertyValue(15)).HasValue());
-    !ASSERT_FALSE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(vertex3.SetProperty(this->prop_val, memgraph::storage::PropertyValue(15)).has_value());
+    ASSERT_FALSE(!acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
   }
@@ -2116,7 +2123,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
     {
       auto read_only_acc = this->storage->ReadOnlyAccess();
       EXPECT_EQ(read_only_acc->ApproximateEdgeCount(this->edge_type_id1), 0);
-      !EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).has_value());
+      EXPECT_FALSE(!read_only_acc->CreateIndex(this->edge_type_id1).has_value());
       ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
@@ -2271,7 +2278,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
 
     {
       auto read_only_acc = this->storage->ReadOnlyAccess();
-      !EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).has_value());
+      EXPECT_FALSE(!read_only_acc->CreateIndex(this->edge_type_id1).has_value());
       ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
@@ -2286,7 +2293,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
 
     {
       auto drop_acc = this->DropIndexAccessor();
-      !EXPECT_FALSE(drop_acc->DropIndex(this->edge_type_id1).has_value());
+      EXPECT_FALSE(!drop_acc->DropIndex(this->edge_type_id1).has_value());
       ASSERT_NO_ERROR(drop_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     {
@@ -2309,7 +2316,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
 
     {
       auto read_only_acc = this->storage->ReadOnlyAccess();
-      !EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).has_value());
+      EXPECT_FALSE(!read_only_acc->CreateIndex(this->edge_type_id1).has_value());
       ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     {
@@ -2346,12 +2353,12 @@ TYPED_TEST(IndexTest, EdgeTypeIndexBasic) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
       auto read_only_acc = this->storage->ReadOnlyAccess();
-      !EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).has_value());
+      EXPECT_FALSE(!read_only_acc->CreateIndex(this->edge_type_id1).has_value());
       ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     {
       auto read_only_acc = this->storage->ReadOnlyAccess();
-      !EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id2).has_value());
+      EXPECT_FALSE(!read_only_acc->CreateIndex(this->edge_type_id2).has_value());
       ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
@@ -2420,12 +2427,12 @@ TYPED_TEST(IndexTest, EdgeTypeIndexTransactionalIsolation) {
     // Check that transactions only see entries they are supposed to see.
     {
       auto read_only_acc = this->storage->ReadOnlyAccess();
-      !EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).has_value());
+      EXPECT_FALSE(!read_only_acc->CreateIndex(this->edge_type_id1).has_value());
       ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     {
       auto read_only_acc = this->storage->ReadOnlyAccess();
-      !EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id2).has_value());
+      EXPECT_FALSE(!read_only_acc->CreateIndex(this->edge_type_id2).has_value());
       ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
@@ -2464,12 +2471,12 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCountEstimate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
       auto read_only_acc = this->storage->ReadOnlyAccess();
-      !EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).has_value());
+      EXPECT_FALSE(!read_only_acc->CreateIndex(this->edge_type_id1).has_value());
       ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     {
       auto read_only_acc = this->storage->ReadOnlyAccess();
-      !EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id2).has_value());
+      EXPECT_FALSE(!read_only_acc->CreateIndex(this->edge_type_id2).has_value());
       ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
@@ -2490,7 +2497,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexRepeatingEdgeTypesBetweenSameVertices) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
       auto read_only_acc = this->storage->ReadOnlyAccess();
-      !EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).has_value());
+      EXPECT_FALSE(!read_only_acc->CreateIndex(this->edge_type_id1).has_value());
       ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
@@ -2536,7 +2543,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -2698,7 +2705,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -2712,7 +2719,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
 
   {
     auto acc = this->DropIndexAccessor();
-    !EXPECT_FALSE(acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -2723,7 +2730,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
 
   {
     auto acc = this->DropIndexAccessor();
-    !EXPECT_TRUE(acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
+    EXPECT_TRUE(!acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -2746,7 +2753,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -2785,12 +2792,12 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexBasic) {
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -2868,12 +2875,12 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexTransactionalIsolation) {
   // Check that transactions only see entries they are supposed to see.
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -2918,12 +2925,12 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCountEstimate) {
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -2951,7 +2958,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRepeatingEdgeTypesBetweenSameVertices
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -3006,7 +3013,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -3168,7 +3175,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -3182,7 +3189,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
 
   {
     auto acc = this->DropIndexAccessor();
-    !EXPECT_FALSE(acc->DropGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->DropGlobalEdgeIndex(this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -3193,7 +3200,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
 
   {
     auto acc = this->DropIndexAccessor();
-    !EXPECT_TRUE(acc->DropGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    EXPECT_TRUE(!acc->DropGlobalEdgeIndex(this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -3216,7 +3223,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -3254,12 +3261,12 @@ TYPED_TEST(IndexTest, EdgePropertyIndexBasic) {
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id2).has_value());
+    EXPECT_FALSE(!acc->CreateGlobalEdgeIndex(this->edge_prop_id2).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -3324,12 +3331,12 @@ TYPED_TEST(IndexTest, EdgePropertyIndexTransactionalIsolation) {
   // Check that transactions only see entries they are supposed to see.
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id2).has_value());
+    EXPECT_FALSE(!acc->CreateGlobalEdgeIndex(this->edge_prop_id2).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -3369,12 +3376,12 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCountEstimate) {
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id2).has_value());
+    EXPECT_FALSE(!acc->CreateGlobalEdgeIndex(this->edge_prop_id2).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -3402,7 +3409,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexRepeatingEdgeTypesBetweenSameVertices) {
   }
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -3439,7 +3446,7 @@ TYPED_TEST(IndexTest, CanIterateNestedLabelPropertyIndex) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_a, this->prop_b, this->prop_c}}).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_a, this->prop_b, this->prop_c}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -3546,8 +3553,9 @@ TYPED_TEST(IndexTest, CompositeIndicesReadOutOfOrderProperties) {
     auto acc = this->CreateIndexAccessor();
     // Note the index properties are not based on monotonic `PropertyId`. They
     // will need to be permuted when writing and reading from the property store.
-    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
-                                                 PropertyPath{this->prop_c}}) !.has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1,
+                                   {PropertyPath{this->prop_b}, PropertyPath{this->prop_a}, PropertyPath{this->prop_c}})
+                      .has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -3643,9 +3651,10 @@ TYPED_TEST(IndexTest, NestedIndicesReadOutOfOrderProperties) {
     auto acc = this->CreateIndexAccessor();
     // Note the index properties are not based on monotonic `PropertyId`. They
     // will need to be permuted when writing and reading from the property store.
-    EXPECT_FALSE(acc->CreateIndex(this->label1,
-                                  {PropertyPath{this->prop_b, this->prop_d}, PropertyPath{this->prop_a, this->prop_d},
-                                   PropertyPath{this->prop_c, this->prop_d}}) !.has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1,
+                                   {PropertyPath{this->prop_b, this->prop_d}, PropertyPath{this->prop_a, this->prop_d},
+                                    PropertyPath{this->prop_c, this->prop_d}})
+                      .has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -3744,7 +3753,7 @@ TYPED_TEST(IndexTest, LabelPropertiesIndicesScansOnlyStringsForRegexes) {
   };
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -3786,7 +3795,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexRemoveObsoleteEntriesWithActiveTransactio
   // Create edge property index
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->CreateGlobalEdgeIndex(this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -3849,7 +3858,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexRemoveObsoleteEntriesWithActiveTransaction) {
   // Create edge type index
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->edge_type_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -3909,7 +3918,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRemoveObsoleteEntriesWithActiveTransa
   // Create edge type property index
   {
     auto acc = this->CreateIndexAccessor();
-    !EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
+    EXPECT_FALSE(!acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 

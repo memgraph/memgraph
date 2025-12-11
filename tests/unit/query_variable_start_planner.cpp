@@ -120,7 +120,7 @@ TYPED_TEST(TestVariableStartPlanner, MatchReturn) {
   // Make a graph (v1) -[:r]-> (v2)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).has_value());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) RETURN n
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))), RETURN("n")));
@@ -138,8 +138,8 @@ TYPED_TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).HasValue());
-  ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).has_value());
+  ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r")).has_value());
   dba.AdvanceCommand();
   {
     // Test `MATCH (n) -[r]-> (m) -[e]-> (l) RETURN n`
@@ -170,8 +170,8 @@ TYPED_TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).HasValue());
-  ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).has_value());
+  ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r")).has_value());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) OPTIONAL MATCH (m) -[e]-> (l) RETURN n, l
   auto *query =
@@ -198,7 +198,7 @@ TYPED_TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
   memgraph::query::VertexAccessor v2(dba.InsertVertex());
   auto r_type_name = "r";
   auto r_type = dba.NameToEdgeType(r_type_name);
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, r_type).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, r_type).has_value());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) OPTIONAL MATCH (m) -[e]-> (l)
   //      MERGE (u) -[q:r]-> (v) RETURN n, m, l, u, v
@@ -220,7 +220,7 @@ TYPED_TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
   // Graph (v1) -[:r]-> (v2)
   memgraph::query::VertexAccessor v1(dba.InsertVertex());
   memgraph::query::VertexAccessor v2(dba.InsertVertex());
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).has_value());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) WITH n MATCH (m) -[r]-> (l) RETURN n, m, l
   auto *query =
@@ -263,11 +263,11 @@ TYPED_TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).has_value());
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).has_value());
   auto v3 = dba.InsertVertex();
-  ASSERT_TRUE(v3.SetProperty(id, memgraph::storage::PropertyValue(3)).HasValue());
+  ASSERT_TRUE(v3.SetProperty(id, memgraph::storage::PropertyValue(3)).has_value());
   auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
   auto r2 = *dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2"));
   dba.AdvanceCommand();
@@ -291,7 +291,7 @@ TYPED_TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2) -[:r2]-> (v3)
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).has_value());
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
   auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
@@ -317,13 +317,13 @@ TYPED_TEST(TestVariableStartPlanner, MatchBfs) {
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).has_value());
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).has_value());
   auto v3 = dba.InsertVertex();
-  ASSERT_TRUE(v3.SetProperty(id, memgraph::storage::PropertyValue(3)).HasValue());
+  ASSERT_TRUE(v3.SetProperty(id, memgraph::storage::PropertyValue(3)).has_value());
   auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
-  ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2")).has_value());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r *bfs..10](r, n | n.id <> 3)]-> (m) RETURN r
   auto *bfs = this->storage.template Create<memgraph::query::EdgeAtom>(
@@ -346,11 +346,11 @@ TYPED_TEST(TestVariableStartPlanner, MatchKShortest) {
   // (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   //             ------------[:r3]------------>
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).has_value());
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).has_value());
   auto v3 = dba.InsertVertex();
-  ASSERT_TRUE(v3.SetProperty(id, memgraph::storage::PropertyValue(3)).HasValue());
+  ASSERT_TRUE(v3.SetProperty(id, memgraph::storage::PropertyValue(3)).has_value());
   auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
   auto r2 = *dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2"));
   auto r3 = *dba.InsertEdge(&v1, &v3, dba.NameToEdgeType("r3"));
@@ -415,7 +415,7 @@ TYPED_TEST(TestVariableStartPlanner, TestBasicSubqueryWithMatching) {
 
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1")).has_value());
 
   dba.AdvanceCommand();
 
@@ -436,12 +436,12 @@ TYPED_TEST(TestVariableStartPlanner, TestSubqueryWithUnion) {
   auto id = dba.NameToProperty("id");
 
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).has_value());
 
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).has_value());
 
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1")).has_value());
 
   dba.AdvanceCommand();
 
@@ -464,12 +464,12 @@ TYPED_TEST(TestVariableStartPlanner, TestSubqueryWithTripleUnion) {
   auto id = dba.NameToProperty("id");
 
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).has_value());
 
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).has_value());
 
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1")).has_value());
 
   dba.AdvanceCommand();
 

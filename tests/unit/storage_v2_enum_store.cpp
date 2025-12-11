@@ -51,9 +51,9 @@ TEST(EnumStore, BasicTests) {
     ASSERT_EQ(value->type_id(), EnumTypeId{0});
     ASSERT_EQ(value->value_id(), EnumValueId{2});
   }
-  !ASSERT_TRUE(sut.AddValue("Location", "London").has_value());
-  !ASSERT_TRUE(sut.UpdateValue("Location", "London", "London").has_value());
-  !ASSERT_TRUE(sut.UpdateValue("Location", "London", "York").has_value());
+  ASSERT_TRUE(!sut.AddValue("Location", "London").has_value());
+  ASSERT_TRUE(!sut.UpdateValue("Location", "London", "London").has_value());
+  ASSERT_TRUE(!sut.UpdateValue("Location", "London", "York").has_value());
   {
     auto value = sut.UpdateValue("Location", "London", "New York");
     ASSERT_TRUE(value.has_value());

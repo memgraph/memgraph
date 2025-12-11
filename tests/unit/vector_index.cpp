@@ -25,9 +25,9 @@
 using namespace memgraph::storage;
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-!#define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).has_value())
+#define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
 
-    static constexpr std::string_view test_index = "test_index";
+static constexpr std::string_view test_index = "test_index";
 static constexpr std::string_view test_label = "test_label";
 static constexpr std::string_view test_property = "test_property";
 static constexpr unum::usearch::metric_kind_t metric = unum::usearch::metric_kind_t::l2sq_k;
@@ -52,7 +52,7 @@ class VectorIndexTest : public testing::Test {
     const auto spec = VectorIndexSpec{test_index.data(),  label,    property,   metric, dimension,
                                       resize_coefficient, capacity, scalar_kind};
 
-    !EXPECT_FALSE(unique_acc->CreateVectorIndex(spec).has_value());
+    EXPECT_FALSE(!unique_acc->CreateVectorIndex(spec).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -415,7 +415,7 @@ TEST_F(VectorIndexTest, DropIndexTest) {
   // Drop the index
   {
     auto unique_acc = this->storage->UniqueAccess();
-    !EXPECT_FALSE(unique_acc->DropVectorIndex(test_index.data()).has_value());
+    EXPECT_FALSE(!unique_acc->DropVectorIndex(test_index.data()).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 

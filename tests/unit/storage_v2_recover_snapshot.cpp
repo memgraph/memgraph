@@ -95,7 +95,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Create a snapshot
@@ -107,7 +107,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Create another snapshot to have multiple snapshots
@@ -224,7 +224,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotFromLocalStorage) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Create a snapshot
@@ -324,7 +324,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Create a snapshot
@@ -336,7 +336,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Recover from the snapshot
@@ -412,7 +412,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Verify WAL was created

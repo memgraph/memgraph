@@ -179,7 +179,7 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
                         vertex_count + edge_count, dba);
 
     // we delete one of the vertices and edges in the same transaction
-    ASSERT_TRUE(dba.DetachRemoveVertex(&vertices[0]).HasValue());
+    ASSERT_TRUE(dba.DetachRemoveVertex(&vertices[0]).has_value());
     --vertex_count;
     --edge_count;
 
@@ -191,7 +191,7 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_OBJECTS,
                         vertex_count + edge_count, dba);
 
-    !ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -258,7 +258,7 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     }
 
     dba.AdvanceCommand();
-    !ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     trigger_context_collector = memgraph::query::TriggerContextCollector{kAllEventTypes};
@@ -297,13 +297,13 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
 
     auto vertices = dba.Vertices(memgraph::storage::View::OLD);
     for (auto vertex : vertices) {
-      ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
+      ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).has_value());
       break;
     }
     --vertex_count;
     --edge_count;
 
-    !ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {

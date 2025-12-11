@@ -64,7 +64,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsPathOnSuccess) {
   {
     auto acc = mem_storage->Access();
     (void)acc->CreateVertex();
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test CreateSnapshot returns path on success
@@ -109,7 +109,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
   {
     auto acc = mem_storage->Access();
     (void)acc->CreateVertex();
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto result1 = mem_storage->CreateSnapshot();
@@ -138,7 +138,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotPathFormat) {
   {
     auto acc = mem_storage->Access();
     (void)acc->CreateVertex();
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Create snapshot and verify path format
@@ -188,7 +188,7 @@ TEST_F(CreateSnapshotTest, SuccessCaseWithPathRetrieval) {
   {
     auto acc = mem_storage->Access();
     (void)acc->CreateVertex();
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test the new functionality - getting the path on success

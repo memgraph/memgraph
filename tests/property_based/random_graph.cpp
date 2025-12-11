@@ -44,7 +44,7 @@ RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
 
   for (auto label : vertex_labels) {
     auto vertex_accessor = dba->CreateVertex();
-    RC_ASSERT(vertex_accessor.AddLabel(dba->NameToLabel(label)).HasValue());
+    RC_ASSERT(vertex_accessor.AddLabel(dba->NameToLabel(label)).has_value());
     vertex_label_map.emplace(vertex_accessor, label);
     vertices.push_back(vertex_accessor);
   }
