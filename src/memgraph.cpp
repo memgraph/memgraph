@@ -58,6 +58,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/async_timer.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -827,6 +828,10 @@ int main(int argc, char **argv) {
   // Shutdown Python
   Py_Finalize();
   PyMem_RawFree(program_name);
+
+  // Shutdown async timer background thread before static destructors run
+  memgraph::utils::AsyncTimer::Shutdown();
+  memgraph::utils::AsyncTimer::AwaitShutdown();
 
   memgraph::utils::total_memory_tracker.LogPeakMemoryUsage();
   return 0;
