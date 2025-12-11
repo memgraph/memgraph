@@ -538,7 +538,7 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
   auto const not_main = [&new_main_name](auto &&instance) { return instance.config.instance_name != new_main_name; };
 
   for (auto &data_instance : data_instances | std::ranges::views::filter(not_main)) {
-    data_instance.status = ReplicationRole::REPLICA;
+    data_instance.status = replication_coordination_glue::ReplicationRole::REPLICA;
     data_instance.instance_uuid = new_main_uuid;
   }
 
@@ -547,7 +547,7 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
   });
 
   main_data_instance->instance_uuid = new_main_uuid;
-  main_data_instance->status = ReplicationRole::MAIN;
+  main_data_instance->status = replication_coordination_glue::ReplicationRole::MAIN;
 
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
@@ -624,7 +624,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
   });
 
   main_data_instance->instance_uuid = new_main_uuid;
-  main_data_instance->status = ReplicationRole::MAIN;
+  main_data_instance->status = replication_coordination_glue::ReplicationRole::MAIN;
 
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
@@ -663,7 +663,7 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
   auto data_instance = std::ranges::find_if(cluster_state, [instance_name](auto &&data_instance) {
     return data_instance.config.instance_name == instance_name;
   });
-  data_instance->status = ReplicationRole::REPLICA;
+  data_instance->status = replication_coordination_glue::ReplicationRole::REPLICA;
 
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(cluster_state)};
@@ -749,7 +749,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
   }
 
   auto data_instances = raft_state_->GetDataInstancesContext();
-  data_instances.emplace_back(config, ReplicationRole::REPLICA, curr_main_uuid);
+  data_instances.emplace_back(config, replication_coordination_glue::ReplicationRole::REPLICA, curr_main_uuid);
 
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances)};

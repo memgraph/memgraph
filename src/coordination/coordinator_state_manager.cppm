@@ -26,11 +26,17 @@ import memgraph.coordination.logger_wrapper;
 import memgraph.coordination.coordinator_log_store;
 import memgraph.coordination.coordinator_observer;
 
-export namespace memgraph::coordination {
+namespace memgraph::coordination {
+using nuraft::buffer;
 using nuraft::cluster_config;
+using nuraft::int32;
+using nuraft::log_store;
 using nuraft::srv_config;
 using nuraft::srv_state;
 using nuraft::state_mgr;
+}  // namespace memgraph::coordination
+
+export namespace memgraph::coordination {
 
 class CoordinatorStateManager final : public state_mgr {
  public:

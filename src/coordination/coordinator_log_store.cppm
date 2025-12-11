@@ -22,13 +22,17 @@ export module memgraph.coordination.coordinator_log_store;
 import memgraph.coordination.constants;
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.logger_wrapper;
-export namespace memgraph::coordination {
 
+namespace memgraph::coordination {
 using nuraft::buffer;
 using nuraft::int32;
 using nuraft::int64;
 using nuraft::log_entry;
 using nuraft::log_store;
+
+}  // namespace memgraph::coordination
+
+export namespace memgraph::coordination {
 
 /**
  * Current version v1 of CoordinatorLogStore is a simple in-memory log store + durability by default.

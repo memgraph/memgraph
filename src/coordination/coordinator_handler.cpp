@@ -9,19 +9,22 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
+module;
 
 #include <cstdint>
 #include <map>
 #include <optional>
 #include <string_view>
+#include <vector>
 
-#include "dbms/coordinator_handler.hpp"
+module memgraph.coordination.coordinator_handler;
+
+#ifdef MG_ENTERPRISE
 
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_ops_status;
 
-namespace memgraph::dbms {
+namespace memgraph::coordination {
 
 CoordinatorHandler::CoordinatorHandler(coordination::CoordinatorState &coordinator_state)
     : coordinator_state_(coordinator_state) {}
@@ -93,6 +96,6 @@ auto CoordinatorHandler::GetLeaderCoordinatorData() const -> std::optional<coord
   return coordinator_state_.GetLeaderCoordinatorData();
 }
 
-}  // namespace memgraph::dbms
+}  // namespace memgraph::coordination
 
 #endif

@@ -33,9 +33,11 @@ constexpr int log_retention_count = 35;
 
 }  // namespace
 
-export namespace memgraph::coordination {
-
+namespace memgraph::coordination {
 using nuraft::logger;
+}  // namespace memgraph::coordination
+
+export namespace memgraph::coordination {
 
 // TODO: (andi) Experiment with module private fragment
 /**

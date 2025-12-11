@@ -34,7 +34,6 @@
 #include "utils/thread_pool.hpp"
 #ifdef MG_ENTERPRISE
 #include "dbms/database_handler.hpp"
-import memgraph.coordination.coordinator_state;
 #endif
 #include "dbms/database_protector.hpp"
 #include "global.hpp"

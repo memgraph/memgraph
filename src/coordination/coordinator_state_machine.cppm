@@ -31,8 +31,7 @@ import memgraph.coordination.coordinator_instance_context;
 import memgraph.coordination.data_instance_context;
 import memgraph.coordination.logger_wrapper;
 
-export namespace memgraph::coordination {
-
+namespace memgraph::coordination {
 using nuraft::async_result;
 using nuraft::buffer;
 using nuraft::buffer_serializer;
@@ -42,6 +41,9 @@ using nuraft::logger;
 using nuraft::ptr;
 using nuraft::snapshot;
 using nuraft::state_machine;
+}  // namespace memgraph::coordination
+
+export namespace memgraph::coordination {
 
 struct SnapshotCtx {
   SnapshotCtx(ptr<snapshot> const &snapshot, CoordinatorClusterState const &cluster_state)

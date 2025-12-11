@@ -28,14 +28,16 @@ import memgraph.coordination.coordinator_instance_context;
 import memgraph.coordination.data_instance_context;
 import memgraph.coordination.coordinator_communication_config;
 
-export namespace memgraph::coordination {
-
+namespace memgraph::coordination {
 using nuraft::buffer;
 // NOLINTNEXTLINE
 using nuraft::buffer_serializer;
 using nuraft::ptr;
 // NOLINTNEXTLINE
 using replication_coordination_glue::ReplicationRole;
+}  // namespace memgraph::coordination
+
+export namespace memgraph::coordination {
 
 struct CoordinatorClusterStateDelta {
   std::optional<std::vector<DataInstanceContext>> data_instances_;

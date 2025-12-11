@@ -128,6 +128,7 @@ target_link_libraries(mg-query
     cppitertools::cppitertools
     range-v3::range-v3
     Python3::Python
+    mg-coordination
     mg-integrations-pulsar
     mg-integrations-kafka
     mg::storage

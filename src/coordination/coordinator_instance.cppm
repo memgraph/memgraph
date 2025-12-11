@@ -53,8 +53,6 @@ enum class FailoverStatus : uint8_t {
 
 enum class CoordinatorStatus : uint8_t { FOLLOWER, LEADER_NOT_READY, LEADER_READY };
 
-using InstanceNameDbHistories = std::pair<std::string, replication_coordination_glue::InstanceInfo>;
-
 class CoordinatorInstance {
  public:
   explicit CoordinatorInstance(CoordinatorInstanceInitConfig const &config);

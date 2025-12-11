@@ -39,7 +39,6 @@
 #include "auth/exceptions.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "dbms/constants.hpp"
-#include "dbms/coordinator_handler.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
@@ -127,6 +126,8 @@
 #endif
 
 import memgraph.coordination.constants;
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_handler;
 import memgraph.coordination.coordinator_ops_status;
 import memgraph.coordination.coordinator_state;
 
@@ -770,7 +771,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
  private:
-  dbms::CoordinatorHandler coordinator_handler_;
+  coordination::CoordinatorHandler coordinator_handler_;
 };
 #endif
 

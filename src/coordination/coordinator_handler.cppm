@@ -9,9 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#ifdef MG_ENTERPRISE
+module;
 
 #include <cstdint>
 #include <map>
@@ -19,15 +17,17 @@
 #include <string_view>
 #include <vector>
 
+export module memgraph.coordination.coordinator_handler;
+
+#ifdef MG_ENTERPRISE
+
 import memgraph.coordination.coordinator_communication_config;
 import memgraph.coordination.coordinator_ops_status;
 import memgraph.coordination.coordinator_state;
 import memgraph.coordination.instance_status;
 import memgraph.coordination.replication_lag_info;
 
-namespace memgraph::dbms {
-
-class DbmsHandler;
+export namespace memgraph::coordination {
 
 class CoordinatorHandler {
  public:
@@ -69,5 +69,5 @@ class CoordinatorHandler {
   coordination::CoordinatorState &coordinator_state_;
 };
 
-}  // namespace memgraph::dbms
+}  // namespace memgraph::coordination
 #endif

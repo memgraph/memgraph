@@ -28,8 +28,6 @@
 
 #ifdef MG_ENTERPRISE
 #include "utils/resource_monitoring.hpp"
-import memgraph.coordination.coordinator_instance;
-import memgraph.coordination.utils;
 #endif
 
 namespace memgraph::metrics {
@@ -286,7 +284,7 @@ class Interpreter final {
   struct RouteResult {
     int ttl{300};
     std::string db{};  // Currently not used since we don't have any specific replication groups etc.
-    coordination::RoutingTable servers{};
+    std::vector<std::pair<std::vector<std::string>, std::string>> servers{};
   };
 #endif
 
