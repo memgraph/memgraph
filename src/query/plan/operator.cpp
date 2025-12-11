@@ -10263,7 +10263,7 @@ bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
       }
     }
     // Skip until we skipped the quota
-    if (shared_quota_ && shared_quota_->Increment() > 0) continue;
+    if (shared_quota_ && shared_quota_->Decrement() > 0) continue;
     shared_quota_.reset();  // consumed all quota, reset the shared quota
     return true;
   }
@@ -10343,13 +10343,16 @@ bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 
   // check we have not exceeded the limit before pulling
-  if (shared_quota_->Increment() <= 0) {
+  if (shared_quota_->Decrement() <= 0) {
     shared_quota_.reset();  // Important to release any remaining resource for other threads
     return false;
   }
 
   const auto res = input_cursor_->Pull(frame, context);
-  if (!res) shared_quota_.reset();  // Important to release any remaining resource for other threads
+  if (!res) {
+    shared_quota_->Increment();  // We failed to pull, so we need to return the last quota
+    shared_quota_.reset();       // Important to release any remaining resource for other threads
+  }
   return res;
 }
 

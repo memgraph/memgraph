@@ -44,6 +44,7 @@ class QuotaCoordinator {
     int64_t Count() const { return amount_; }
     // Returns the amount that was actually consumed.
     int64_t Consume(int64_t amount);
+    void Increment(int64_t amount);
     void ReturnUnused();
   };
 
@@ -75,13 +76,11 @@ class SharedQuota {
   SharedQuota(SharedQuota &&other) noexcept;
   SharedQuota &operator=(SharedQuota &&other) noexcept;
 
-  // Returns true if the quota was successfully incremented.
-  // Generally, it returns true if the quota was incremented by the requested amount.
-  // However, if the quota is exhausted, it returns false (and the quota was not incremented or partially incremented).
-  // The caller should handle the case where the quota is exhausted.
-  // BUT the previous implementation returned bool, so to keep it compatible with the previous implementation
-  // we will change it to return the amount incremented.
-  int64_t Increment(int64_t amount = 1);
+  // Returns the amount that was actually decremented.
+  int64_t Decrement(int64_t amount = 1);
+  // Increment the local quota. This is useful in cases where we optimistically decremented and need to return it.
+  void Increment(int64_t amount = 1);
+  // Reacquire the handler with the desired batch size.
   void Reacquire();
   // Useful for multi-threaded exeucitons where each thread needs to free its left quota.
   void Free();

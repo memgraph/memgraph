@@ -49,7 +49,7 @@ struct HopsLimit {
         shared_quota_.emplace(limit.value(), batch > 0 ? batch : 1);
       }
 
-      auto consumed = shared_quota_->Increment(increment);
+      auto consumed = shared_quota_->Decrement(increment);
       if (consumed < increment) {
         is_limit_reached = true;
       }
