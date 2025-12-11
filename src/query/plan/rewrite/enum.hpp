@@ -26,7 +26,7 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
  private:
   void Visit(EnumValueAccess &enum_value_access) override {
     auto maybe_enum = dba_->GetEnumValue(enum_value_access.enum_name_, enum_value_access.enum_value_);
-    if (maybe_enum.HasError()) [[unlikely]] {
+    if (!maybe_enum.has_value()) [[unlikely]] {
       throw QueryRuntimeException("Enum value '{}' in enum '{}' not found.", enum_value_access.enum_value_,
                                   enum_value_access.enum_name_);
     }

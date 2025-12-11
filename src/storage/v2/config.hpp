@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <spdlog/spdlog.h>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>

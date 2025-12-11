@@ -415,7 +415,7 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
     auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints->unique_constraints_.get());
     auto ret = mem_unique_constraints->CreateConstraint(label, properties, vertices->access(), parallel_exec_info,
                                                         snapshot_info);
-    if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
+    if (!ret.has_value() || ret.value() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
 
     std::vector<std::string> property_names;

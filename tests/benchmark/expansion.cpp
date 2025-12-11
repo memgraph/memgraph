@@ -69,12 +69,12 @@ class ExpansionBenchFixture : public benchmark::Fixture {
         auto dest = dba->CreateVertex();
         MG_ASSERT(dba->CreateEdge(&start, &dest, edge_type).HasValue());
       }
-      MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     {
       auto unique_acc = db_acc->UniqueAccess();
-      MG_ASSERT(!unique_acc->CreateIndex(label).HasError());
+      MG_ASSERT(unique_acc->CreateIndex(label).has_value());
     }
 
     interpreter.emplace(&*interpreter_context, std::move(db_acc));

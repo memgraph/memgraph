@@ -420,7 +420,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
       add_edge(node1, node2, false);
     }
 
-    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    !ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto stream = this->Interpret(

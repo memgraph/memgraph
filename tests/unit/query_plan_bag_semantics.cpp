@@ -304,7 +304,7 @@ TYPED_TEST(QueryPlanTest, OrderByExceptions) {
     dba.AdvanceCommand();
     ASSERT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
     for (const auto &va : dba.Vertices(memgraph::storage::View::OLD))
-      ASSERT_NE(va.GetProperty(memgraph::storage::View::OLD, prop).GetValue().type(),
+      ASSERT_NE(va.GetProperty(memgraph::storage::View::OLD, prop).value().type(),
                 memgraph::storage::PropertyValue::Type::Null);
 
     // order by and expect an exception

@@ -64,15 +64,15 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsPathOnSuccess) {
   {
     auto acc = mem_storage->Access();
     (void)acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test CreateSnapshot returns path on success
   auto result = mem_storage->CreateSnapshot();
 
-  ASSERT_FALSE(result.HasError()) << "CreateSnapshot should succeed with some data";
+  ASSERT_FALSE(!result.has_value()) << "CreateSnapshot should succeed with some data";
 
-  auto snapshot_path = result.GetValue();
+  auto snapshot_path = result.value();
   ASSERT_TRUE(std::filesystem::exists(snapshot_path)) << "Snapshot file should exist at returned path";
   ASSERT_TRUE(std::filesystem::is_regular_file(snapshot_path)) << "Snapshot should be a regular file";
 
@@ -94,7 +94,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorForReplica) {
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
   auto result = mem_storage->CreateSnapshot();
-  ASSERT_FALSE(result.HasError());
+  ASSERT_FALSE(!result.has_value());
 }
 
 TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
@@ -109,21 +109,21 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
   {
     auto acc = mem_storage->Access();
     (void)acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto result1 = mem_storage->CreateSnapshot();
-  ASSERT_FALSE(result1.HasError()) << "First CreateSnapshot should succeed";
+  ASSERT_FALSE(!result1.has_value()) << "First CreateSnapshot should succeed";
 
   // Try to create another snapshot immediately - should fail with NothingNewToWrite
   auto result2 = mem_storage->CreateSnapshot();
-  ASSERT_TRUE(result2.HasError()) << "Second CreateSnapshot should fail";
-  ASSERT_EQ(result2.GetError(), memgraph::storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite)
+  ASSERT_TRUE(!result2.has_value()) << "Second CreateSnapshot should fail";
+  ASSERT_EQ(result2.error(), memgraph::storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite)
       << "Should return NothingNewToWrite error";
 
   // Force another snapshot immediately - should succeed
   auto result3 = mem_storage->CreateSnapshot(true);
-  ASSERT_FALSE(result3.HasError()) << "Third CreateSnapshot should succeed";
+  ASSERT_FALSE(!result3.has_value()) << "Third CreateSnapshot should succeed";
 }
 
 TEST_F(CreateSnapshotTest, CreateSnapshotPathFormat) {
@@ -138,14 +138,14 @@ TEST_F(CreateSnapshotTest, CreateSnapshotPathFormat) {
   {
     auto acc = mem_storage->Access();
     (void)acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Create snapshot and verify path format
   auto result = mem_storage->CreateSnapshot();
-  ASSERT_FALSE(result.HasError()) << "CreateSnapshot should succeed";
+  ASSERT_FALSE(!result.has_value()) << "CreateSnapshot should succeed";
 
-  auto snapshot_path = result.GetValue();
+  auto snapshot_path = result.value();
   auto filename = snapshot_path.filename().string();
 
   // Verify the filename follows the expected format: YYYYmmddHHMMSSffffff_timestamp_<timestamp>
@@ -173,7 +173,7 @@ TEST_F(CreateSnapshotTest, BackwardCompatibilityWithErrorHandling) {
 
   // Test that existing error handling code still works
   auto result = mem_storage->CreateSnapshot();
-  ASSERT_FALSE(result.HasError());
+  ASSERT_FALSE(!result.has_value());
 }
 
 TEST_F(CreateSnapshotTest, SuccessCaseWithPathRetrieval) {
@@ -188,17 +188,17 @@ TEST_F(CreateSnapshotTest, SuccessCaseWithPathRetrieval) {
   {
     auto acc = mem_storage->Access();
     (void)acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test the new functionality - getting the path on success
   auto result = mem_storage->CreateSnapshot();
 
-  if (result.HasError()) {
+  if (!result.has_value()) {
     FAIL() << "CreateSnapshot should succeed with data present";
   } else {
     // New functionality: get the path
-    auto snapshot_path = result.GetValue();
+    auto snapshot_path = result.value();
     ASSERT_TRUE(std::filesystem::exists(snapshot_path));
 
     // Verify the path is reasonable

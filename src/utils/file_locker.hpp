@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,6 @@
 #include <unordered_map>
 
 #include "utils/file.hpp"
-#include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -118,7 +117,7 @@ class FileRetainer {
       NonexistentPath = 0,
     };
 
-    using ret_type = utils::BasicResult<FileRetainer::FileLockerAccessor::Error, bool>;
+    using ret_type = std::expected<bool, FileRetainer::FileLockerAccessor::Error>;
 
     /**
      * Checks if a single path is in the current locker.

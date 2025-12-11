@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,10 +10,10 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <expected>
 #include <optional>
 #include <string>
 
-#include "utils/result.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::utils {
@@ -30,14 +30,14 @@ std::string GetAllowedEnumValuesString(const auto &mappings) {
 
 // Checks if the string value can be represented as an enum.
 // If not, the BasicResult will contain an error.
-memgraph::utils::BasicResult<ValidationError> IsValidEnumValueString(const auto &value, const auto &mappings) {
+std::expected<void, ValidationError> IsValidEnumValueString(const auto &value, const auto &mappings) {
   if (value.empty()) {
-    return ValidationError::EmptyValue;
+    return std::unexpected{ValidationError::EmptyValue};
   }
 
   if (std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.first == value; }) ==
       mappings.cend()) {
-    return ValidationError::InvalidValue;
+    return std::unexpected{ValidationError::InvalidValue};
   }
 
   return {};

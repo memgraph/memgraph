@@ -62,7 +62,7 @@ TEST_P(StorageModeTest, Mode) {
     }
   }
 
-  ASSERT_FALSE(creator->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  !ASSERT_FALSE(creator->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 INSTANTIATE_TEST_SUITE_P(ParameterizedStorageModeTests, StorageModeTest, ::testing::ValuesIn(storage_modes),

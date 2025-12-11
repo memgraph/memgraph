@@ -70,7 +70,7 @@ class PoolResource final {
 static void AddVertices(memgraph::storage::Storage *db, int vertex_count) {
   auto dba = db->Access();
   for (int i = 0; i < vertex_count; i++) dba->CreateVertex();
-  MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 static const char *kStartLabel = "start";
@@ -88,11 +88,11 @@ static void AddStarGraph(memgraph::storage::Storage *db, int spoke_count, int de
         prev_vertex = dest;
       }
     }
-    MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = db->UniqueAccess();
-    MG_ASSERT(!unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).HasError());
+    MG_ASSERT(unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).has_value());
   }
 }
 
@@ -113,11 +113,11 @@ static void AddTree(memgraph::storage::Storage *db, int vertex_count) {
       MG_ASSERT(dba->CreateEdge(&parent, &v, dba->NameToEdgeType("Type")).HasValue());
       vertices.push_back(v);
     }
-    MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = db->UniqueAccess();
-    MG_ASSERT(!unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).HasError());
+    MG_ASSERT(unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).has_value());
   }
 }
 

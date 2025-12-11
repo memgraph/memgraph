@@ -43,7 +43,7 @@ struct KafkaStream {
   void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> batch_limit,
              ConsumerFunction<Message> consumer_function) const;
 
-  utils::BasicResult<std::string> SetStreamOffset(int64_t offset);
+  std::expected<void, std::string> SetStreamOffset(int64_t offset);
 
  private:
   using Consumer = integrations::kafka::Consumer;

@@ -1256,12 +1256,12 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
     return py::FormatException(*exc_info, /* skip_first_line = */ true);
   };
 
-  auto call = [&](py::Object py_graph) -> utils::BasicResult<std::optional<py::ExceptionInfo>, mgp_value *> {
+  auto call = [&](py::Object py_graph) -> std::expected<mgp_value *, std::optional<py::ExceptionInfo>> {
     py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
-    if (!py_args) return {py::FetchError()};
+    if (!py_args) return std::unexpected{py::FetchError()};
     const auto is_transactional = storage::IsTransactional(graph->storage_mode);
     auto py_res = py_cb.Call(py_graph, py_args);
-    if (!py_res) return {py::FetchError()};
+    if (!py_res) return std::unexpected{py::FetchError()};
     mgp_value *ret_val = PyObjectToMgpValueWithPythonExceptions(py_res.Ptr(), memory);
     if (!is_transactional && ContainsDeleted(ret_val)) {
       mgp_value_destroy(ret_val);
@@ -1281,7 +1281,7 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
     }
 
     if (ret_val == nullptr) {
-      return {py::FetchError()};
+      return std::unexpected(py::FetchError());
     }
     return ret_val;
   };
@@ -1301,11 +1301,11 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
     utils::OnScopeExit clean_up(PyObjectCleanup(py_graph));
     if (py_graph) {
       auto maybe_result = call(py_graph);
-      if (!maybe_result.HasError()) {
-        static_cast<void>(mgp_func_result_set_value(result, maybe_result.GetValue(), memory));
+      if (maybe_result.has_value()) {
+        static_cast<void>(mgp_func_result_set_value(result, maybe_result.value(), memory));
         return;
       }
-      maybe_msg = error_to_msg(maybe_result.GetError());
+      maybe_msg = error_to_msg(maybe_result.error());
     } else {
       maybe_msg = error_to_msg(py::FetchError());
     }

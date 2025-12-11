@@ -51,7 +51,7 @@ storage::Result<std::optional<EdgeAccessor>> SubgraphDbAccessor::RemoveEdge(Edge
     throw std::logic_error{"Projected graph must contain edge!"};
   }
   auto result = db_accessor_.RemoveEdge(edge);
-  if (result.HasError() || !*result) {
+  if (!result.has_value() || !*result) {
     return result;
   }
   return this->graph_->RemoveEdge(*edge);
@@ -65,7 +65,7 @@ storage::Result<EdgeAccessor> SubgraphDbAccessor::InsertEdge(SubgraphVertexAcces
     throw std::logic_error{"Projected graph must contain both vertices to insert edge!"};
   }
   auto result = db_accessor_.InsertEdge(from_impl, to_impl, edge_type);
-  if (result.HasError()) {
+  if (!result.has_value()) {
     return result;
   }
   this->graph_->InsertEdge(*result);
@@ -86,7 +86,7 @@ storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(
     throw std::logic_error{"Projected graph must contain vertex!"};
   }
   auto result = db_accessor_.RemoveVertex(vertex_accessor);
-  if (result.HasError() || !*result) {
+  if (!result.has_value() || !*result) {
     return result;
   }
   return this->graph_->RemoveVertex(*vertex_accessor);
@@ -129,7 +129,7 @@ VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() const { return impl_;
 
 storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
   auto maybe_edges = impl_.impl_.OutEdges(view, {});
-  if (maybe_edges.HasError()) return maybe_edges.GetError();
+  if (!maybe_edges.has_value()) return std::unexpected{maybe_edges.error()};
   auto edges = std::move(maybe_edges->edges);
   const auto &graph_edges = graph_->edges();
 
@@ -151,7 +151,7 @@ storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(stora
 
 storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::InEdges(storage::View view) const {
   auto maybe_edges = impl_.impl_.InEdges(view, {});
-  if (maybe_edges.HasError()) return maybe_edges.GetError();
+  if (!maybe_edges.has_value()) return std::unexpected{maybe_edges.error()};
   auto edges = std::move(maybe_edges->edges);
   const auto &graph_edges = graph_->edges();
 

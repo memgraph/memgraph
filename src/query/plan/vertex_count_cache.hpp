@@ -38,7 +38,7 @@ class VertexCountCache {
   auto EdgeTypeToName(storage::EdgeTypeId id) { return db_->EdgeTypeToName(id); }
 
   auto GetEnumValue(std::string_view name, std::string_view value)
-      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+      -> std::expected<storage::Enum, storage::EnumStorageError> {
     return db_->GetEnumValue(name, value);
   }
 

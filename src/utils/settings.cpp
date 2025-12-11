@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,7 +34,7 @@ void Settings::RegisterSetting(std::string name, const std::string &default_valu
                                Validation validation) {
   std::lock_guard settings_guard{settings_lock_};
   MG_ASSERT(storage_);
-  MG_ASSERT(!validation(default_value).HasError(), "\"{}\"'s default value does not satisfy the validation condition.",
+  MG_ASSERT(validation(default_value).has_value(), "\"{}\"'s default value does not satisfy the validation condition.",
             name);
 
   if (const auto maybe_value = storage_->Get(name); maybe_value) {
@@ -70,8 +70,8 @@ bool Settings::SetValue(const std::string &setting_name, const std::string &new_
 
     const auto val = validations_.find(setting_name);
     MG_ASSERT(val != validations_.end(), "Settings storage is out of sync");
-    if (const auto msg = val->second(new_value); msg.HasError()) {
-      throw utils::BasicException("'{}' not valid for '{}': {}", new_value, setting_name, msg.GetError());
+    if (const auto msg = val->second(new_value); !msg.has_value()) {
+      throw utils::BasicException("'{}' not valid for '{}': {}", new_value, setting_name, msg.error());
     }
 
     MG_ASSERT(storage_->Put(setting_name, new_value), "Failed to modify the setting");

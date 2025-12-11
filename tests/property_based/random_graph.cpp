@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -53,7 +53,7 @@ RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
     auto &from = vertices[*rc::gen::inRange(0, vertices_num)];
     auto &to = vertices[*rc::gen::inRange(0, vertices_num)];
     auto maybe_edge_accessor = dba->CreateEdge(&from, &to, dba->NameToEdgeType(type));
-    RC_ASSERT(maybe_edge_accessor.HasValue());
+    RC_ASSERT(maybe_edge_accessor.has_value());
     edge_type_map.insert({*maybe_edge_accessor, type});
   }
 
@@ -64,13 +64,13 @@ RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
   for (auto vertex : dba->Vertices(memgraph::storage::View::OLD)) {
     auto label = vertex_label_map.at(vertex);
     auto maybe_labels = vertex.Labels(memgraph::storage::View::OLD);
-    RC_ASSERT(maybe_labels.HasValue());
+    RC_ASSERT(maybe_labels.has_value());
     const auto &labels = *maybe_labels;
     RC_ASSERT(labels.size() == 1);
     RC_ASSERT(dba->LabelToName(labels[0]) == label);
     vertices_num_check++;
     auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
-    RC_ASSERT(maybe_edges.HasValue());
+    RC_ASSERT(maybe_edges.has_value());
     for (auto &edge : maybe_edges->edges) {
       const auto &type = edge_type_map.at(edge);
       RC_ASSERT(dba->EdgeTypeToName(edge.EdgeType()) == type);

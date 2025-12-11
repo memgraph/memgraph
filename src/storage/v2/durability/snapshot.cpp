@@ -2668,7 +2668,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret.has_value()) {
         throw storage::durability::RecoveryFailure("The enum could not be created!");
       }
     }
@@ -3111,7 +3111,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret.has_value()) {
         throw storage::durability::RecoveryFailure("The enum could not be created!");
       }
     }
@@ -3604,7 +3604,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret.has_value()) {
         throw storage::durability::RecoveryFailure("The enum could not be created!");
       }
     }
@@ -4139,7 +4139,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret.has_value()) {
         throw RecoveryFailure("The enum could not be created!");
       }
     }
@@ -4723,7 +4723,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret.has_value()) {
         throw RecoveryFailure("The enum could not be created!");
       }
     }
@@ -5299,7 +5299,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret.has_value()) {
         throw RecoveryFailure("The enum could not be created!");
       }
     }
@@ -5877,7 +5877,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret.has_value()) {
         throw RecoveryFailure("The enum could not be created!");
       }
     }
@@ -6502,7 +6502,7 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret.has_value()) {
         throw RecoveryFailure("The enum could not be created!");
       }
     }
@@ -7137,7 +7137,7 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret.has_value()) {
         throw RecoveryFailure("The enum could not be created!");
       }
     }
@@ -7836,7 +7836,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret.has_value()) {
         throw RecoveryFailure("The enum could not be created!");
       }
     }
@@ -8828,13 +8828,13 @@ std::optional<std::filesystem::path> CreateSnapshot(
 
       // Get edge data.
       auto maybe_props = ea.Properties(View::OLD);
-      MG_ASSERT(maybe_props.HasValue(), "Invalid database state!");
+      MG_ASSERT(maybe_props.has_value(), "Invalid database state!");
 
       // Store the edge.
       {
         edges_snapshot.WriteMarker(Marker::SECTION_EDGE);
         edges_snapshot.WriteUint(edge.gid.AsUint());
-        const auto &props = maybe_props.GetValue();
+        const auto &props = maybe_props.value();
         edges_snapshot.WriteUint(props.size());
         for (const auto &item : props) {
           write_mapping_to(edges_snapshot, res.used_ids, item.first);
@@ -8900,32 +8900,32 @@ std::optional<std::filesystem::path> CreateSnapshot(
       // TODO (mferencevic): All of these functions could be written into a
       // single function so that we traverse the undo deltas only once.
       auto maybe_labels = va->Labels(View::OLD);
-      MG_ASSERT(maybe_labels.HasValue(), "Invalid database state!");
+      MG_ASSERT(maybe_labels.has_value(), "Invalid database state!");
       auto maybe_props = va->Properties(View::OLD);
-      MG_ASSERT(maybe_props.HasValue(), "Invalid database state!");
+      MG_ASSERT(maybe_props.has_value(), "Invalid database state!");
       auto maybe_in_edges = va->InEdges(View::OLD);
-      MG_ASSERT(maybe_in_edges.HasValue(), "Invalid database state!");
+      MG_ASSERT(maybe_in_edges.has_value(), "Invalid database state!");
       auto maybe_out_edges = va->OutEdges(View::OLD);
-      MG_ASSERT(maybe_out_edges.HasValue(), "Invalid database state!");
+      MG_ASSERT(maybe_out_edges.has_value(), "Invalid database state!");
 
       // Store the vertex.
       {
         vertex_snapshot.WriteMarker(Marker::SECTION_VERTEX);
         vertex_snapshot.WriteUint(vertex.gid.AsUint());
-        const auto &labels = maybe_labels.GetValue();
+        const auto &labels = maybe_labels.value();
         vertex_snapshot.WriteUint(labels.size());
         for (const auto &item : labels) {
           write_mapping_to(vertex_snapshot, res.used_ids, item);
         }
-        const auto &props = maybe_props.GetValue();
+        const auto &props = maybe_props.value();
         vertex_snapshot.WriteUint(props.size());
         for (const auto &item : props) {
           write_mapping_to(vertex_snapshot, res.used_ids, item.first);
           vertex_snapshot.WriteExternalPropertyValue(
               ToExternalPropertyValue(item.second, storage->name_id_mapper_.get()));
         }
-        const auto &in_edges = maybe_in_edges.GetValue().edges;
-        const auto &out_edges = maybe_out_edges.GetValue().edges;
+        const auto &in_edges = maybe_in_edges.value().edges;
+        const auto &out_edges = maybe_out_edges.value().edges;
 
         if (storage->config_.salient.items.properties_on_edges) {
           vertex_snapshot.WriteUint(in_edges.size());

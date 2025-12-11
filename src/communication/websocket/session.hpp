@@ -26,7 +26,6 @@
 
 #include "communication/context.hpp"
 #include "communication/websocket/auth.hpp"
-#include "utils/result.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -61,7 +60,7 @@ class Session : public std::enable_shared_from_this<Session> {
 
   bool IsAuthenticated() const;
 
-  utils::BasicResult<std::string> Authorize(const nlohmann::json &creds);
+  std::expected<void, std::string> Authorize(const nlohmann::json &creds);
 
   void DoShutdown();
 

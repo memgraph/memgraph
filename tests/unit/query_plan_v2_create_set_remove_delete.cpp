@@ -104,7 +104,7 @@ TYPED_TEST(QueryPlan, ScanAll) {
   {
     auto dba = this->db->Access();
     for (int i = 0; i < 42; ++i) dba->CreateVertex();
-    EXPECT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    !EXPECT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
@@ -124,8 +124,8 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
   auto label = this->db->NameToLabel("label");
   {
     auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    !ASSERT_FALSE(unique_acc->CreateIndex(label).has_value());
+    !ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto dba = this->db->Access();
@@ -136,7 +136,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
       auto v = dba->CreateVertex();
       ASSERT_TRUE(v.AddLabel(label).HasValue());
     }
-    EXPECT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    !EXPECT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   auto dba = this->db->Access();
   memgraph::query::AstStorage ast;

@@ -157,13 +157,13 @@ void Session::OnClose(boost::beast::error_code ec) {
   }
 }
 
-utils::BasicResult<std::string> Session::Authorize(const nlohmann::json &creds) {
+std::expected<void, std::string> Session::Authorize(const nlohmann::json &creds) {
   if (!auth_.Authenticate(creds.at("username").get<std::string>(), creds.at("password").get<std::string>())) {
-    return {"Authentication failed!"};
+    return std::unexpected{"Authentication failed!"};
   }
 #ifdef MG_ENTERPRISE
   if (!auth_.HasPermission(auth::Permission::WEBSOCKET)) {
-    return {"Authorization failed!"};
+    return std::unexpected{"Authorization failed!"};
   }
 #endif
   return {};
@@ -194,8 +194,8 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
       const auto creds = nlohmann::json::parse(boost::beast::buffers_to_string(buffer_.data()));
       buffer_.consume(buffer_.size());
 
-      if (const auto result = Authorize(creds); result.HasError()) {
-        std::invoke(auth_failed, result.GetError());
+      if (const auto result = Authorize(creds); !result.has_value()) {
+        std::invoke(auth_failed, result.error());
         return;
       }
       response["success"] = true;

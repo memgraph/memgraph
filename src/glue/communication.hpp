@@ -15,7 +15,6 @@
 #include "communication/bolt/v1/value.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/result.hpp"
 #include "storage/v2/view.hpp"
 
 namespace memgraph::storage {
