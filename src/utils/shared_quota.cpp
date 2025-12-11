@@ -39,6 +39,8 @@ int64_t QuotaCoordinator::QuotaHandle::Consume(int64_t amount) {
   return consumed;
 }
 
+void QuotaCoordinator::QuotaHandle::Increment(int64_t amount) { amount_ += amount; }
+
 void QuotaCoordinator::QuotaHandle::ReturnUnused() {
   if (coord_) coord_->ReturnQuota(amount_);
 }
@@ -139,7 +141,7 @@ SharedQuota &SharedQuota::operator=(SharedQuota &&other) noexcept {
   return *this;
 }
 
-int64_t SharedQuota::Increment(int64_t amount) {
+int64_t SharedQuota::Decrement(int64_t amount) {
   // coord_ is not set after a move
   if (!coord_) {
     return 0;
@@ -167,6 +169,15 @@ int64_t SharedQuota::Increment(int64_t amount) {
     }
   }
   return total_consumed;
+}
+
+void SharedQuota::Increment(int64_t amount) {
+  if (!handle_) {
+    Reacquire();
+    // Silently fail if we failed to acquire a quota
+    if (!handle_) return;
+  }
+  handle_->Increment(amount);
 }
 
 void SharedQuota::Reacquire() {
