@@ -47,8 +47,7 @@ void Graph::Expand(std::span<TypedValue const> const nodes, std::span<TypedValue
                       rv::transform([](auto const &each) { return each.ValueEdge(); });
 
   if (r::any_of(actual_edges, [&](auto const &edge) {
-        return r::find(actual_nodes, edge.From()) == actual_nodes.end() ||
-               r::find(actual_nodes, edge.To()) == actual_nodes.end();
+        return !r::contains(actual_nodes, edge.From()) || !r::contains(actual_nodes, edge.To());
       })) {
     throw memgraph::query::QueryRuntimeException(
         "Cannot project graph with any projected relationships whose start or end nodes are not also projected.");

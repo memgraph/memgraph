@@ -1709,7 +1709,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   for (auto **identifier : anonymous_identifiers) {
     while (true) {
       std::string id_name = kAnonPrefix + std::to_string(id++);
-      if (users_identifiers.find(id_name) == users_identifiers.end()) {
+      if (!users_identifiers.contains(id_name)) {
         *identifier = storage_->Create<Identifier>(id_name, false);
         break;
       }
@@ -4152,8 +4152,7 @@ auto CypherMainVisitor::ExtractOperators(std::vector<antlr4::tree::ParseTree *> 
   for (auto *child : all_children) {
     antlr4::tree::TerminalNode *operator_node = nullptr;
     if ((operator_node = dynamic_cast<antlr4::tree::TerminalNode *>(child))) {
-      if (std::find(allowed_operators.begin(), allowed_operators.end(), operator_node->getSymbol()->getType()) !=
-          allowed_operators.end()) {
+      if (std::ranges::contains(allowed_operators, operator_node->getSymbol()->getType())) {
         operators.push_back(operator_node->getSymbol()->getType());
       }
     }

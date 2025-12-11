@@ -225,7 +225,7 @@ bool InMemoryEdgeTypeIndex::ActiveIndices::IndexReady(memgraph::storage::EdgeTyp
 }
 
 bool InMemoryEdgeTypeIndex::ActiveIndices::IndexRegistered(EdgeTypeId edge_type) const {
-  return index_container_->indices_.find(edge_type) != index_container_->indices_.end();
+  return index_container_->indices_.contains(edge_type);
 }
 
 std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const {

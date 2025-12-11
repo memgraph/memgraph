@@ -16,7 +16,7 @@
 namespace memgraph::query::plan {
 
 ExpressionRemovalResult RemoveExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove) {
-  if (utils::Contains(exprs_to_remove, expr)) {
+  if (exprs_to_remove.contains(expr)) {
     return ExpressionRemovalResult{.trimmed_expression = nullptr, .did_remove = true};
   }
 
@@ -27,16 +27,16 @@ ExpressionRemovalResult RemoveExpressions(Expression *expr, const std::unordered
   if (!and_op) return ExpressionRemovalResult{.trimmed_expression = expr};
 
   // and operation is fully contained inside the expressions to remove
-  if (utils::Contains(exprs_to_remove, and_op)) {
+  if (exprs_to_remove.contains(and_op)) {
     return ExpressionRemovalResult{.trimmed_expression = nullptr, .did_remove = true};
   }
 
   bool did_remove = false;
-  if (utils::Contains(exprs_to_remove, and_op->expression1_)) {
+  if (exprs_to_remove.contains(and_op->expression1_)) {
     and_op->expression1_ = nullptr;
     did_remove = true;
   }
-  if (utils::Contains(exprs_to_remove, and_op->expression2_)) {
+  if (exprs_to_remove.contains(and_op->expression2_)) {
     and_op->expression2_ = nullptr;
     did_remove = true;
   }

@@ -11,6 +11,7 @@ Build script for Memgraph using Conan 2 and CMake.
 OPTIONS:
     --build-type TYPE       Build type: Release, RelWithDebInfo, or Debug (default: Release)
     --target TARGET         Specific CMake target to build (default: all targets)
+    --reserve-cores N       Reserve N cores for other tasks (default: 0, uses all cores)
     --skip-init             Skip running ./init to fetch non-Conan dependencies
     --skip-os-deps          Skip OS dependency checks
     --keep-build            Keep existing build directory for incremental builds
@@ -61,6 +62,7 @@ keep_build=false
 skip_os_deps=false
 VENV_DIR="${VENV_DIR:-env}"
 offline=false
+RESERVE_CORES=0
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -99,6 +101,10 @@ while [[ $# -gt 0 ]]; do
             skip_os_deps=true
             offline=true
             shift
+            ;;
+        --reserve-cores)
+            RESERVE_CORES="$2"
+            shift 2
             ;;
         --help|-h)
             show_help
@@ -252,8 +258,14 @@ if [[ "$config_only" = true ]]; then
 fi
 
 # Build command with optional target
+# Determine number of parallel jobs (reserve cores for system responsiveness)
+BUILD_JOBS=$(( $(nproc) - RESERVE_CORES ))
+if [[ $BUILD_JOBS -lt 1 ]]; then
+    BUILD_JOBS=1
+fi
+
 cmake \
   --build build \
   --preset $PRESET \
   ${TARGET:+--target $TARGET} \
-  -j $(nproc)
+  -j "$BUILD_JOBS"

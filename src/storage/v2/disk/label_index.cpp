@@ -97,7 +97,7 @@ bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_
   }
 
   for (const LabelId index_label : index_) {
-    if (!utils::Contains(vertex.labels, index_label)) {
+    if (!std::ranges::contains(vertex.labels, index_label)) {
       continue;
     }
     if (!disk_transaction
@@ -192,9 +192,9 @@ bool DiskLabelIndex::DropIndex(LabelId label) {
   return CommitWithTimestamp(disk_transaction.get(), 0);
 }
 
-bool DiskLabelIndex::ActiveIndices::IndexRegistered(LabelId label) const { return index_.find(label) != index_.end(); }
+bool DiskLabelIndex::ActiveIndices::IndexRegistered(LabelId label) const { return index_.contains(label); }
 
-bool DiskLabelIndex::ActiveIndices::IndexReady(LabelId label) const { return index_.find(label) != index_.end(); }
+bool DiskLabelIndex::ActiveIndices::IndexReady(LabelId label) const { return index_.contains(label); }
 
 std::vector<LabelId> DiskLabelIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const {
   return {index_.begin(), index_.end()};
