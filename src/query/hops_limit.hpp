@@ -21,8 +21,13 @@ namespace memgraph::query {
 
 struct HopsLimit {
   std::optional<int64_t> limit{std::nullopt};
+  int64_t batch{0};
   std::optional<utils::SharedQuota> shared_quota_{std::nullopt};
   bool is_limit_reached{false};
+
+  HopsLimit() = default;
+  HopsLimit(int64_t limit, int64_t batch)
+      : limit(limit), batch(batch), shared_quota_{std::in_place, limit, batch > 0 ? batch : 1} {}
 
   bool IsUsed() const { return limit.has_value(); }
 
@@ -32,13 +37,16 @@ struct HopsLimit {
 
   bool IsLimitReached() const { return is_limit_reached; }
 
+  // Used for multi-threaded execution where each thread needs to free its left quota.
+  void Free() { shared_quota_->Free(); }
+
   // Return the number of available hops (or consumed amount which behaves similarly for check > 0)
   int64_t IncrementHopsCount(int64_t increment = 1) {
     if (IsUsed()) {
       if (is_limit_reached) return 0;
 
       if (!shared_quota_) {
-        shared_quota_.emplace(limit.value(), 1);  // Single batch as requested
+        shared_quota_.emplace(limit.value(), batch > 0 ? batch : 1);
       }
 
       auto consumed = shared_quota_->Increment(increment);

@@ -268,7 +268,8 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     // Find the Scan operator that produces the required symbols
     LogicalOperator *target_scan = nullptr;
     LogicalOperator *scan_parent = &op;
-    if (!FindScanForSymbols(op.input().get(), required_symbols, target_scan, scan_parent)) {
+    std::vector<LogicalOperator *> update_ops;
+    if (!FindScanForSymbols(op.input().get(), required_symbols, target_scan, scan_parent, update_ops)) {
       // No suitable Scan found, skip rewriting
       return failure("No suitable Scan found");
     }
@@ -367,6 +368,17 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     // Note: Don't push Aggregate to prev_ops_ before calling SetOnParent, because
     // SetOnParent needs to access the parent (prev_ops_.back()), not Aggregate itself
     SetOnParent(parallel_agg);
+
+    // Success, update operators
+    for (auto *op : update_ops) {
+      if (auto *skip_op = dynamic_cast<Skip *>(op)) {
+        skip_op->parallel_execution.emplace(num_threads_);
+      } else if (auto *limit_op = dynamic_cast<Limit *>(op)) {
+        limit_op->parallel_execution.emplace(num_threads_);
+      } else {
+        return failure("Unsupported operator in parallel chain " + op->ToString());
+      }
+    }
 
     // Now push Aggregate to track it for any children it might have
     // TODO should this be the parallel version?
@@ -590,7 +602,8 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
   // This traces symbol dependencies backwards through operators
   // Returns true if a suitable Scan is found, false otherwise
   bool FindScanForSymbols(LogicalOperator *start, const std::set<Symbol::Position_t> &required_symbols,
-                          LogicalOperator *&target_scan, LogicalOperator *&scan_parent) {
+                          LogicalOperator *&target_scan, LogicalOperator *&scan_parent,
+                          std::vector<LogicalOperator *> &update_ops) {
     if (!start || !scan_parent) {
       return false;
     }
@@ -616,6 +629,10 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
             "Query has unsupported parallel DISTINCT operator. Try rewriting the query to move DISTINCT under the "
             "aggregation function.");
         return target_scan != nullptr;
+      }
+      // Operators that need to be updated if running in parallel
+      if (current_type == Skip::kType || current_type == Limit::kType) {
+        update_ops.push_back(current);
       }
 
       // Check if this is a Scan that produces any of the symbols we're looking for
@@ -744,28 +761,31 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
         // For multi-input operators, check only main/left branches
         LogicalOperator *found_scan = nullptr;
         LogicalOperator *found_parent = current;
+        std::vector<LogicalOperator *> update_ops;
         if (auto *union_op = dynamic_cast<Union *>(current)) {
-          if (FindScanForSymbols(union_op->left_op_.get(), symbols_to_find, found_scan, found_parent)) {
+          if (FindScanForSymbols(union_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *cartesian_op = dynamic_cast<Cartesian *>(current)) {
-          if (FindScanForSymbols(cartesian_op->left_op_.get(), symbols_to_find, found_scan, found_parent)) {
+          if (FindScanForSymbols(cartesian_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current)) {
-          if (FindScanForSymbols(indexed_join_op->main_branch_.get(), symbols_to_find, found_scan, found_parent)) {
+          if (FindScanForSymbols(indexed_join_op->main_branch_.get(), symbols_to_find, found_scan, found_parent,
+                                 update_ops)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(current)) {
-          if (FindScanForSymbols(hash_join_op->left_op_.get(), symbols_to_find, found_scan, found_parent)) {
+          if (FindScanForSymbols(hash_join_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(current)) {
-          if (FindScanForSymbols(rollup_apply_op->input_.get(), symbols_to_find, found_scan, found_parent)) {
+          if (FindScanForSymbols(rollup_apply_op->input_.get(), symbols_to_find, found_scan, found_parent,
+                                 update_ops)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
