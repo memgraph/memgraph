@@ -41,7 +41,7 @@ void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader 
 
 // Serialize code for SystemRecoveryRes
 void Save(const memgraph::replication::SystemRecoveryRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(utils::EnumToNum<uint8_t>(self.result), builder);
+  memgraph::slk::Save(std::to_underlying(self.result), builder);
 }
 
 void Load(memgraph::replication::SystemRecoveryRes *self, memgraph::slk::Reader *reader) {
