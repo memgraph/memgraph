@@ -50,7 +50,7 @@ void UpdateLabelFunc(int thread_id, memgraph::storage::Storage *storage,
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     MG_ASSERT(vertex.has_value(), "Vertex with GID {} doesn't exist", gid.AsUint());
     if (vertex->AddLabel(memgraph::storage::LabelId::FromUint(label_dist(gen))).HasValue()) {
-      MG_ASSERT(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     } else {
       acc->Abort();
     }
@@ -68,7 +68,7 @@ int main(int argc, char *argv[]) {
       for (int i = 0; i < FLAGS_num_vertices; ++i) {
         vertices.push_back(acc->CreateVertex().Gid());
       }
-      MG_ASSERT(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     memgraph::utils::Timer timer;

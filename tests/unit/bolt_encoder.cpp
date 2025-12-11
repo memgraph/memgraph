@@ -203,7 +203,7 @@ void TestVertexAndEdgeWithDifferentStorages(std::unique_ptr<memgraph::storage::S
 
   // create edge
   auto et = dba->NameToEdgeType("edgetype");
-  auto ea = dba->CreateEdge(&va1, &va2, et).GetValue();
+  auto ea = dba->CreateEdge(&va1, &va2, et).value();
   auto p3 = dba->NameToProperty("prop3");
   auto p4 = dba->NameToProperty("prop4");
   memgraph::storage::PropertyValue pv3(42), pv4(1234);

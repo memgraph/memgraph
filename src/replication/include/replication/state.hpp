@@ -17,7 +17,6 @@
 #include "replication_coordination_glue/role.hpp"
 #include "replication_server.hpp"
 #include "status.hpp"
-#include "utils/result.hpp"
 #include "utils/uuid.hpp"
 
 #include <atomic>
@@ -74,7 +73,7 @@ struct ReplicationState {
   };
 
   using ReplicationData_t = std::variant<RoleMainData, RoleReplicaData>;
-  using FetchReplicationResult_t = utils::BasicResult<FetchReplicationError, ReplicationData_t>;
+  using FetchReplicationResult_t = std::expected<ReplicationData_t, FetchReplicationError>;
   auto FetchReplicationData() -> FetchReplicationResult_t;
 
   auto GetRole() const -> replication_coordination_glue::ReplicationRole {
@@ -129,7 +128,7 @@ struct ReplicationState {
 
   auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
-  utils::BasicResult<RegisterReplicaStatus, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
+  std::expected<ReplicationClient *, RegisterReplicaStatus> RegisterReplica(const ReplicationClientConfig &config);
 
   bool SetReplicationRoleMain(const utils::UUID &main_uuid);
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config,

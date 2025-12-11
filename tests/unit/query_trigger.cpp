@@ -158,7 +158,7 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
 
     auto create_edge = [&](auto &from, auto &to) {
       auto maybe_edge = dba.InsertEdge(&from, &to, dba.NameToEdgeType("EDGE"));
-      ASSERT_FALSE(maybe_edge.HasError());
+      ASSERT_FALSE(!maybe_edge.has_value());
       trigger_context_collector.RegisterCreatedObject(*maybe_edge);
       ++edge_count;
     };
@@ -191,7 +191,7 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_OBJECTS,
                         vertex_count + edge_count, dba);
 
-    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    !ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -223,7 +223,7 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
         trigger_context_collector.RegisterRemovedVertexLabel(vertex, dba.NameToLabel("LABEL2"));
 
         auto out_edges = vertex.OutEdges(memgraph::storage::View::OLD);
-        ASSERT_TRUE(out_edges.HasValue());
+        ASSERT_TRUE(out_edges.has_value());
 
         for (auto edge : out_edges->edges) {
           trigger_context_collector.RegisterSetObjectProperty(edge, dba.NameToProperty("PROPERTY1"),
@@ -240,9 +240,9 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
       auto vertices = dba.Vertices(memgraph::storage::View::OLD);
       for (auto vertex : vertices) {
         const auto maybe_values = dba.DetachRemoveVertex(&vertex);
-        ASSERT_TRUE(maybe_values.HasValue());
-        ASSERT_TRUE(maybe_values.GetValue());
-        const auto &[deleted_vertex, deleted_edges] = *maybe_values.GetValue();
+        ASSERT_TRUE(maybe_values.has_value());
+        ASSERT_TRUE(maybe_values.value());
+        const auto &[deleted_vertex, deleted_edges] = *maybe_values.value();
 
         trigger_context_collector.RegisterDeletedObject(deleted_vertex);
         ++deleted_vertex_count;
@@ -258,7 +258,7 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     }
 
     dba.AdvanceCommand();
-    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    !ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     trigger_context_collector = memgraph::query::TriggerContextCollector{kAllEventTypes};
@@ -303,7 +303,7 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     --vertex_count;
     --edge_count;
 
-    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    !ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -360,7 +360,7 @@ TYPED_TEST(TriggerContextTest, ReturnCreateOnlyEvent) {
   auto v1 = create_vertex();
   auto v2 = create_vertex();
   auto maybe_edge = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("EDGE"));
-  ASSERT_FALSE(maybe_edge.HasError());
+  ASSERT_FALSE(!maybe_edge.has_value());
   trigger_context_collector.RegisterCreatedObject(*maybe_edge);
   trigger_context_collector.RegisterSetObjectProperty(*maybe_edge, dba.NameToProperty("PROPERTY1"),
                                                       memgraph::query::TypedValue("Value"),
@@ -720,18 +720,18 @@ void CheckFilters(const std::unordered_set<memgraph::query::TriggerEventType> &e
   auto to_vertex = dba.InsertVertex();
   auto maybe_edge_to_delete = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
   auto maybe_edge_to_modify = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
-  auto &edge_to_delete = maybe_edge_to_delete.GetValue();
-  auto &edge_to_modify = maybe_edge_to_modify.GetValue();
+  auto &edge_to_delete = maybe_edge_to_delete.value();
+  auto &edge_to_modify = maybe_edge_to_modify.value();
 
   dba.AdvanceCommand();
 
   const auto created_vertex = dba.InsertVertex();
   const auto maybe_created_edge = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
-  const auto created_edge = maybe_created_edge.GetValue();
+  const auto created_edge = maybe_created_edge.value();
   collector.RegisterCreatedObject(created_vertex);
   collector.RegisterCreatedObject(created_edge);
-  collector.RegisterDeletedObject(dba.RemoveEdge(&edge_to_delete).GetValue().value());
-  collector.RegisterDeletedObject(dba.RemoveVertex(&vertex_to_delete).GetValue().value());
+  collector.RegisterDeletedObject(dba.RemoveEdge(&edge_to_delete).value().value());
+  collector.RegisterDeletedObject(dba.RemoveVertex(&vertex_to_delete).value().value());
   collector.RegisterSetObjectProperty(vertex_to_modify, dba.NameToProperty("UPDATE"), memgraph::query::TypedValue{1},
                                       memgraph::query::TypedValue{2});
   collector.RegisterRemovedObjectProperty(vertex_to_modify, dba.NameToProperty("REMOVE"),

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,9 +23,9 @@ using testing::Types;
 using testing::UnorderedElementsAre;
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).HasError())
+!#define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).has_value())
 
-class ShowStorageInfoTest : public testing::Test {
+    class ShowStorageInfoTest : public testing::Test {
  public:
   const std::string testSuite = "storage_v2__show_storage_info";
 
@@ -48,7 +48,7 @@ TEST_F(ShowStorageInfoTest, CountOnAbort) {
   auto src_vertex = acc->CreateVertex();
   auto dest_vertex = acc->CreateVertex();
   auto et = acc->NameToEdgeType("et5");
-  auto edge = acc->CreateEdge(&src_vertex, &dest_vertex, et).GetValue();
+  auto edge = acc->CreateEdge(&src_vertex, &dest_vertex, et).value();
   ASSERT_EQ(edge.EdgeType(), et);
   ASSERT_EQ(edge.FromVertex(), src_vertex);
   ASSERT_EQ(edge.ToVertex(), dest_vertex);

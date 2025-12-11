@@ -65,7 +65,7 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
 
   try {
     // Create new
-    if (auto const new_db = dbms_handler.Update(req.config); new_db.HasValue()) {
+    if (auto const new_db = dbms_handler.Update(req.config); new_db.has_value()) {
       // Successfully create db
       res = CreateDatabaseRes(CreateDatabaseRes::Result::SUCCESS);
       spdlog::debug("CreateDatabaseHandler: SUCCESS");
@@ -116,8 +116,8 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   try {
     // NOTE: Single communication channel can exist at a time, no other database can be deleted/created at the moment.
     auto new_db = dbms_handler.Delete(req.uuid);
-    if (new_db.HasError()) {
-      if (new_db.GetError() == DeleteError::NON_EXISTENT) {
+    if (!new_db.has_value()) {
+      if (new_db.error() == DeleteError::NON_EXISTENT) {
         // Nothing to drop
         res = DropDatabaseRes(DropDatabaseRes::Result::NO_NEED);
       }
@@ -174,8 +174,8 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
     // NOTE: Single communication channel can exist at a time, no other database can be renamed/created/deleted at the
     // moment.
     auto rename_result = dbms_handler.Rename(req.old_name, req.new_name);
-    if (rename_result.HasError()) {
-      if (rename_result.GetError() == RenameError::NON_EXISTENT) {
+    if (!rename_result.has_value()) {
+      if (rename_result.error() == RenameError::NON_EXISTENT) {
         // Nothing to rename
         system_state_access.SetLastCommitedTS(req.new_group_timestamp);
         res = RenameDatabaseRes(RenameDatabaseRes::Result::NO_NEED);
@@ -206,7 +206,7 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
       // Only handle default DB
       if (config.name != kDefaultDB) continue;
       try {
-        if (dbms_handler.Update(config).HasError()) {
+        if (!dbms_handler.Update(config).has_value()) {
           return false;
         }
       } catch (const UnknownDatabaseException &) {
@@ -225,7 +225,7 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   for (const auto &config : database_configs) {
     // Missing db
     try {
-      if (dbms_handler.Update(config).HasError()) {
+      if (!dbms_handler.Update(config).has_value()) {
         spdlog::debug("SystemRecoveryHandler: Failed to update database \"{}\".", *config.name.str_view());
         return false;
       }
@@ -240,9 +240,9 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   // Delete all the leftover old dbs
   for (const auto &remove_db : old) {
     const auto del = dbms_handler.Delete(remove_db);
-    if (del.HasError()) {
+    if (!del.has_value()) {
       // Some errors are not terminal
-      if (del.GetError() == DeleteError::DEFAULT_DB || del.GetError() == DeleteError::NON_EXISTENT) {
+      if (del.error() == DeleteError::DEFAULT_DB || del.error() == DeleteError::NON_EXISTENT) {
         spdlog::debug("SystemRecoveryHandler: Dropped database \"{}\".", remove_db);
         continue;
       }

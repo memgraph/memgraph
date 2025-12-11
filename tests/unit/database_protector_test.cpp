@@ -71,7 +71,7 @@ bool IsIndexReady(memgraph::storage::InMemoryStorage *storage, memgraph::storage
     for (const auto &index_label : indices_info.label) {
       if (index_label == label) {
         auto commit_result = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-        return !commit_result.HasError();
+        return commit_result.has_value();
       }
     }
 
@@ -134,12 +134,12 @@ void CreateVerticesWithLabel(memgraph::storage::InMemoryStorage *storage, memgra
   for (int i = 0; i < vertex_count; ++i) {
     auto vertex = acc->CreateVertex();
     auto add_label = vertex.AddLabel(label);
-    if (add_label.HasError()) {
+    if (!add_label.has_value()) {
       throw std::runtime_error("Failed to add label to vertex");
     }
   }
   auto commit_result = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-  if (commit_result.HasError()) {
+  if (!commit_result.has_value()) {
     throw std::runtime_error("Failed to commit vertex creation transaction");
   }
 }
@@ -153,7 +153,7 @@ size_t CountVerticesWithLabel(memgraph::storage::InMemoryStorage *storage, memgr
     ++count;
   }
   auto commit_result = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-  if (commit_result.HasError()) {
+  if (!commit_result.has_value()) {
     return 0;  // Error in transaction
   }
   return count;
@@ -217,7 +217,7 @@ TEST_F(DatabaseProtectorTest, FactoryHandlesNullProtector) {
     auto vertex = acc->CreateVertex();
     ASSERT_TRUE(vertex.IsVisible(memgraph::storage::View::NEW)) << "Created vertex should be visible";
     auto commit_result = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-    EXPECT_FALSE(commit_result.HasError()) << "Basic operations should still work";
+    EXPECT_FALSE(!commit_result.has_value()) << "Basic operations should still work";
   }
 }
 

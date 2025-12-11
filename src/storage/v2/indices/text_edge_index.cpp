@@ -116,12 +116,12 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
 
   auto &index_data = index_.at(index_info.index_name);
   for (const auto &vertex : vertices) {
-    const auto edges_accessor = vertex.OutEdges(View::NEW, {index_info.edge_type}).GetValue();
+    const auto edges_accessor = vertex.OutEdges(View::NEW, {index_info.edge_type}).value();
     for (const auto &edge : edges_accessor.edges) {
       // If properties are specified, we serialize only those properties; otherwise, all properties of the edge.
       auto edge_properties = index_info.properties.empty()
-                                 ? edge.Properties(View::NEW).GetValue()
-                                 : edge.PropertiesByPropertyIds(index_info.properties, View::NEW).GetValue();
+                                 ? edge.Properties(View::NEW).value()
+                                 : edge.PropertiesByPropertyIds(index_info.properties, View::NEW).value();
       TextEdgeIndex::AddEdgeToTextIndex(edge.Gid().AsInt(), edge.FromVertex().Gid().AsInt(),
                                         edge.ToVertex().Gid().AsInt(),
                                         SerializeProperties(edge_properties, name_id_mapper),

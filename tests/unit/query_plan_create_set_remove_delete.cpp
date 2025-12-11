@@ -82,16 +82,16 @@ TYPED_TEST(QueryPlanTest, CreateNodeWithAttributes) {
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
     vertex_count++;
     auto maybe_labels = vertex.Labels(memgraph::storage::View::OLD);
-    ASSERT_TRUE(maybe_labels.HasValue());
+    ASSERT_TRUE(maybe_labels.has_value());
     const auto &labels = *maybe_labels;
     EXPECT_EQ(labels.size(), 1);
     EXPECT_EQ(*labels.begin(), label);
     auto maybe_properties = vertex.Properties(memgraph::storage::View::OLD);
-    ASSERT_TRUE(maybe_properties.HasValue());
+    ASSERT_TRUE(maybe_properties.has_value());
     const auto &properties = *maybe_properties;
     EXPECT_EQ(properties.size(), 1);
     auto maybe_prop = vertex.GetProperty(memgraph::storage::View::OLD, property.second);
-    ASSERT_TRUE(maybe_prop.HasValue());
+    ASSERT_TRUE(maybe_prop.has_value());
     auto prop_eq = TypedValue(*maybe_prop, dba.GetStorageAccessor()->GetNameIdMapper()) == TypedValue(42);
     ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
     EXPECT_TRUE(prop_eq.ValueBool());
@@ -286,7 +286,7 @@ TYPED_TEST(QueryPlanTest, CreateExpand) {
 
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
     auto maybe_labels = vertex.Labels(memgraph::storage::View::OLD);
-    MG_ASSERT(maybe_labels.HasValue());
+    MG_ASSERT(maybe_labels.has_value());
     const auto &labels = *maybe_labels;
     EXPECT_EQ(labels.size(), 1);
     memgraph::storage::LabelId label = labels[0];
@@ -303,7 +303,7 @@ TYPED_TEST(QueryPlanTest, CreateExpand) {
 
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
       auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
-      MG_ASSERT(maybe_edges.HasValue());
+      MG_ASSERT(maybe_edges.has_value());
       for (auto edge : maybe_edges->edges) {
         EXPECT_EQ(edge.EdgeType(), edge_type);
         EXPECT_EQ(edge.GetProperty(memgraph::storage::View::OLD, property.second)->ValueInt(), 3);
@@ -1130,7 +1130,7 @@ TYPED_TEST(QueryPlanTest, SetProperty) {
   EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 2);
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
     auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
-    ASSERT_TRUE(maybe_edges.HasValue());
+    ASSERT_TRUE(maybe_edges.has_value());
     for (auto edge : maybe_edges->edges) {
       ASSERT_EQ(edge.GetProperty(memgraph::storage::View::OLD, prop1)->type(),
                 memgraph::storage::PropertyValue::Type::Int);
@@ -1184,7 +1184,7 @@ TYPED_TEST(QueryPlanTest, SetProperties) {
     EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 1);
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
       auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
-      ASSERT_TRUE(maybe_edges.HasValue());
+      ASSERT_TRUE(maybe_edges.has_value());
       for (auto edge : maybe_edges->edges) {
         auto from = edge.From();
         EXPECT_EQ(from.Properties(memgraph::storage::View::OLD)->size(), update ? 2 : 1);
@@ -1336,7 +1336,7 @@ TYPED_TEST(QueryPlanTest, RemoveProperty) {
   auto edge_type = dba.NameToEdgeType("edge_type");
   {
     auto e = dba.InsertEdge(&v1, &v3, edge_type);
-    ASSERT_TRUE(e.HasValue());
+    ASSERT_TRUE(e.has_value());
     ASSERT_TRUE(e->SetProperty(prop1, memgraph::storage::PropertyValue(42)).HasValue());
   }
   ASSERT_TRUE(dba.InsertEdge(&v2, &v4, edge_type).HasValue());
@@ -1367,7 +1367,7 @@ TYPED_TEST(QueryPlanTest, RemoveProperty) {
   EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 2);
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
     auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
-    ASSERT_TRUE(maybe_edges.HasValue());
+    ASSERT_TRUE(maybe_edges.has_value());
     for (auto edge : maybe_edges->edges) {
       EXPECT_EQ(edge.GetProperty(memgraph::storage::View::OLD, prop1)->type(),
                 memgraph::storage::PropertyValue::Type::Null);
@@ -1707,7 +1707,7 @@ TYPED_TEST(QueryPlanTest, UpdateSetPropertiesFromMap) {
   // Add a single vertex. ( {property: 43})
   auto vertex_accessor = dba.InsertVertex();
   auto old_value = vertex_accessor.SetProperty(dba.NameToProperty("property"), memgraph::storage::PropertyValue{43});
-  EXPECT_EQ(old_value.HasError(), false);
+  EXPECT_EQ(!old_value.has_value(), false);
   EXPECT_EQ(*old_value, memgraph::storage::PropertyValue());
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
@@ -1732,7 +1732,7 @@ TYPED_TEST(QueryPlanTest, UpdateSetPropertiesFromMap) {
   std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> expected_properties;
   expected_properties.emplace(dba.NameToProperty("property"), memgraph::storage::PropertyValue("updated"));
   expected_properties.emplace(dba.NameToProperty("new_property"), memgraph::storage::PropertyValue("a"));
-  EXPECT_EQ(new_properties.HasError(), false);
+  EXPECT_EQ(!new_properties.has_value(), false);
   EXPECT_EQ(*new_properties, expected_properties);
 }
 
@@ -1744,7 +1744,7 @@ TYPED_TEST(QueryPlanTest, SetPropertiesFromMapWithCaching) {
   auto vertex_accessor = dba.InsertVertex();
   auto old_value = vertex_accessor.SetProperty(dba.NameToProperty("prop1"), memgraph::storage::PropertyValue{43});
   old_value = vertex_accessor.SetProperty(dba.NameToProperty("prop2"), memgraph::storage::PropertyValue{44});
-  EXPECT_EQ(old_value.HasError(), false);
+  EXPECT_EQ(!old_value.has_value(), false);
   EXPECT_EQ(*old_value, memgraph::storage::PropertyValue());
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
@@ -1771,7 +1771,7 @@ TYPED_TEST(QueryPlanTest, SetPropertiesFromMapWithCaching) {
   expected_properties.emplace(dba.NameToProperty("prop2"), memgraph::storage::PropertyValue(44));
   expected_properties.emplace(dba.NameToProperty("new_prop1"), memgraph::storage::PropertyValue(43));
   expected_properties.emplace(dba.NameToProperty("new_prop2"), memgraph::storage::PropertyValue(44));
-  EXPECT_EQ(new_properties.HasError(), false);
+  EXPECT_EQ(!new_properties.has_value(), false);
   EXPECT_EQ(*new_properties, expected_properties);
 }
 
@@ -2124,18 +2124,18 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   auto test_hypothesis = [&](int expected_property_value) {
     auto vertex = *this->dba.Vertices(memgraph::storage::View::NEW).begin();
     auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
-    ASSERT_TRUE(maybe_properties.HasValue());
+    ASSERT_TRUE(maybe_properties.has_value());
     const auto &properties = *maybe_properties;
     EXPECT_EQ(properties.size(), 1);
     auto maybe_prop = vertex.GetProperty(memgraph::storage::View::NEW, this->entity_prop);
-    ASSERT_TRUE(maybe_prop.HasValue());
+    ASSERT_TRUE(maybe_prop.has_value());
     ASSERT_EQ(maybe_prop->ValueInt(), expected_property_value);
   };
 
   auto test_remove_hypothesis = [&](int properties_size) {
     auto vertex = *this->dba.Vertices(memgraph::storage::View::NEW).begin();
     auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
-    ASSERT_TRUE(maybe_properties.HasValue());
+    ASSERT_TRUE(maybe_properties.has_value());
     const auto &properties = *maybe_properties;
     EXPECT_EQ(properties.size(), properties_size);
   };
@@ -2351,7 +2351,7 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
   auto edge_type_name = "edge_type";
   auto edge_type_id = this->dba.NameToEdgeType(edge_type_name);
   auto edge = this->dba.InsertEdge(&v1, &v2, edge_type_id);
-  ASSERT_TRUE(edge.HasValue());
+  ASSERT_TRUE(edge.has_value());
   ASSERT_TRUE(edge->SetProperty(this->entity_prop, this->entity_prop_value).HasValue());
   this->dba.AdvanceCommand();
 
@@ -2364,11 +2364,11 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
         for (auto edge : maybe_edges->edges) {
           EXPECT_EQ(edge.EdgeType(), edge_type_id);
           auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
-          ASSERT_TRUE(maybe_properties.HasValue());
+          ASSERT_TRUE(maybe_properties.has_value());
           const auto &properties = *maybe_properties;
           EXPECT_EQ(properties.size(), 1);
           auto maybe_prop = edge.GetProperty(memgraph::storage::View::NEW, this->entity_prop);
-          ASSERT_TRUE(maybe_prop.HasValue());
+          ASSERT_TRUE(maybe_prop.has_value());
           ASSERT_EQ(maybe_prop->ValueInt(), expected_property_value);
         }
       }
@@ -2382,7 +2382,7 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
         for (auto edge : maybe_edges->edges) {
           EXPECT_EQ(edge.EdgeType(), edge_type_id);
           auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
-          ASSERT_TRUE(maybe_properties.HasValue());
+          ASSERT_TRUE(maybe_properties.has_value());
           const auto &properties = *maybe_properties;
           EXPECT_EQ(properties.size(), properties_size);
         }
@@ -2397,15 +2397,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
         memgraph::auth::FineGrainedPermission::NOTHING);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(1);
   }
@@ -2417,15 +2417,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().Grant({edge_type_name},
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(1);
   }
@@ -2438,15 +2438,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
         static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
                                                            memgraph::auth::FineGrainedPermission::READ));
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(2);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(2);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(0);
   }
@@ -2460,15 +2460,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
         static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
                                                            memgraph::auth::FineGrainedPermission::READ));
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(2);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(2);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(0);
   }
@@ -2484,15 +2484,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
         memgraph::auth::FineGrainedPermission::NOTHING);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(2);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(2);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(0);
   }
@@ -2504,15 +2504,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().Grant({edge_type_name},
                                                                      memgraph::auth::FineGrainedPermission::READ);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     ASSERT_THROW(this->ExecuteSetPropertyOnEdge(user, 2), QueryRuntimeException);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     ASSERT_THROW(this->ExecuteSetPropertiesOnEdge(user, 2), QueryRuntimeException);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     ASSERT_THROW(this->ExecuteRemovePropertyOnEdge(user), QueryRuntimeException);
     test_remove_hypothesis(1);
   }
@@ -2523,15 +2523,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     ASSERT_THROW(this->ExecuteSetPropertyOnEdge(user, 2), QueryRuntimeException);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     ASSERT_THROW(this->ExecuteSetPropertiesOnEdge(user, 2), QueryRuntimeException);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     ASSERT_THROW(this->ExecuteRemovePropertyOnEdge(user), QueryRuntimeException);
     test_remove_hypothesis(1);
   }
@@ -2546,15 +2546,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
         static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
                                                            memgraph::auth::FineGrainedPermission::READ));
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(1);
   }
@@ -2567,15 +2567,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
         memgraph::auth::FineGrainedPermission::NOTHING);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(2);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(2);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(0);
   }
@@ -2588,15 +2588,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllPermissions);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(1);
   }

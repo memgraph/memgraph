@@ -67,7 +67,7 @@ class DatabaseHandler : public Handler<Database> {
           return db_acc->get()->config().durability.storage_directory == config.durability.storage_directory;
         })) {
       spdlog::info("Tried to generate new storage using a claimed directory.");
-      return NewError::EXISTS;
+      return std::unexpected{NewError::EXISTS};
     }
 
     // Create database protector factory that can look up this specific database by name

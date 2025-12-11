@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -306,7 +306,7 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
         continue;
       }
       auto maybe_out_edges = maybe_from_vertex->OutEdges(storage::View::OLD);
-      MG_ASSERT(maybe_out_edges.HasValue());
+      MG_ASSERT(maybe_out_edges.has_value());
       const auto edge_gid = created_edge.object.Gid();
       for (const auto &edge : maybe_out_edges->edges) {
         if (edge.Gid() == edge_gid) {
@@ -327,7 +327,7 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
     for (const auto &value : *values) {
       if (auto maybe_vertex = accessor->FindVertex(value.object.From().Gid(), storage::View::OLD); maybe_vertex) {
         auto maybe_out_edges = maybe_vertex->OutEdges(storage::View::OLD);
-        MG_ASSERT(maybe_out_edges.HasValue());
+        MG_ASSERT(maybe_out_edges.has_value());
         for (const auto &edge : maybe_out_edges->edges) {
           if (edge.Gid() == value.object.Gid()) {
             *it = std::move(value);

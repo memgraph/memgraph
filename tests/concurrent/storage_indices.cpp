@@ -36,7 +36,7 @@ TEST(Storage, LabelIndex) {
   auto label = store->NameToLabel("label");
   {
     auto unique_acc = store->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
+    !ASSERT_FALSE(unique_acc->CreateIndex(label).has_value());
   }
 
   std::vector<std::thread> verifiers;
@@ -52,9 +52,9 @@ TEST(Storage, LabelIndex) {
           auto vertex = acc->CreateVertex();
           gids.emplace(vertex.Gid(), false);
           auto ret = vertex.AddLabel(label);
-          ASSERT_TRUE(ret.HasValue());
+          ASSERT_TRUE(ret.has_value());
           ASSERT_TRUE(*ret);
-          ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+          !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
         }
         {
           auto acc = store->Access();
@@ -89,16 +89,16 @@ TEST(Storage, LabelIndex) {
           auto vertex = acc->CreateVertex();
           gids[i] = vertex.Gid();
           auto ret = vertex.AddLabel(label);
-          ASSERT_TRUE(ret.HasValue());
+          ASSERT_TRUE(ret.has_value());
           ASSERT_TRUE(*ret);
-          ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+          !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
         }
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
           auto acc = store->Access();
           auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
           ASSERT_TRUE(vertex);
           ASSERT_TRUE(acc->DeleteVertex(&*vertex).HasValue());
-          ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+          !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
         }
       }
     });
@@ -121,7 +121,7 @@ TEST(Storage, LabelPropertyIndex) {
   auto prop = store->NameToProperty("prop");
   {
     auto unique_acc = store->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(label, {prop}).HasError());
+    !ASSERT_FALSE(unique_acc->CreateIndex(label, {prop}).has_value());
   }
 
   std::vector<std::thread> verifiers;
@@ -138,15 +138,15 @@ TEST(Storage, LabelPropertyIndex) {
           gids.emplace(vertex.Gid(), false);
           {
             auto ret = vertex.AddLabel(label);
-            ASSERT_TRUE(ret.HasValue());
+            ASSERT_TRUE(ret.has_value());
             ASSERT_TRUE(*ret);
           }
           {
             auto old_value = vertex.SetProperty(prop, memgraph::storage::PropertyValue(vertex.Gid().AsInt()));
-            ASSERT_TRUE(old_value.HasValue());
+            ASSERT_TRUE(old_value.has_value());
             ASSERT_TRUE(old_value->IsNull());
           }
-          ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+          !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
         }
         {
           auto acc = store->Access();
@@ -183,22 +183,22 @@ TEST(Storage, LabelPropertyIndex) {
           gids[i] = vertex.Gid();
           {
             auto ret = vertex.AddLabel(label);
-            ASSERT_TRUE(ret.HasValue());
+            ASSERT_TRUE(ret.has_value());
             ASSERT_TRUE(*ret);
           }
           {
             auto old_value = vertex.SetProperty(prop, memgraph::storage::PropertyValue(vertex.Gid().AsInt()));
-            ASSERT_TRUE(old_value.HasValue());
+            ASSERT_TRUE(old_value.has_value());
             ASSERT_TRUE(old_value->IsNull());
           }
-          ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+          !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
         }
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
           auto acc = store->Access();
           auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
           ASSERT_TRUE(vertex);
           ASSERT_TRUE(acc->DeleteVertex(&*vertex).HasValue());
-          ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+          !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
         }
       }
     });

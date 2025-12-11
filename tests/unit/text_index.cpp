@@ -25,9 +25,9 @@
 using namespace memgraph::storage;
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).HasError())
+!#define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).has_value())
 
-static constexpr std::string_view test_index = "test_index";
+    static constexpr std::string_view test_index = "test_index";
 static constexpr std::string_view test_label = "test_label";
 static constexpr std::size_t default_limit = 10;
 
@@ -47,15 +47,15 @@ class TextIndexTest : public testing::Test {
     auto unique_acc = this->storage->UniqueAccess();
     const auto label = unique_acc->NameToLabel(test_label.data());
 
-    EXPECT_FALSE(unique_acc->CreateTextIndex(TextIndexSpec{test_index.data(), label, {}}).HasError());
+    !EXPECT_FALSE(unique_acc->CreateTextIndex(TextIndexSpec{test_index.data(), label, {}}).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   static VertexAccessor CreateVertex(Storage::Accessor *accessor, std::string_view title, std::string_view content) {
     VertexAccessor vertex = accessor->CreateVertex();
-    MG_ASSERT(!vertex.AddLabel(accessor->NameToLabel(test_label)).HasError());
-    MG_ASSERT(!vertex.SetProperty(accessor->NameToProperty("title"), PropertyValue(title)).HasError());
-    MG_ASSERT(!vertex.SetProperty(accessor->NameToProperty("content"), PropertyValue(content)).HasError());
+    MG_ASSERT(vertex.AddLabel(accessor->NameToLabel(test_label)).has_value());
+    MG_ASSERT(vertex.SetProperty(accessor->NameToProperty("title"), PropertyValue(title)).has_value());
+    MG_ASSERT(vertex.SetProperty(accessor->NameToProperty("content"), PropertyValue(content)).has_value());
 
     return vertex;
   }
@@ -70,7 +70,7 @@ class TextIndexTest : public testing::Test {
     auto unique_acc = this->storage->UniqueAccess();
     for (int i = 0; i < max_retries; ++i) {
       auto status = unique_acc->DropTextIndex(test_index.data());
-      if (!status.HasError()) {
+      if (status.has_value()) {
         return;  // Successfully cleared the index
       }
       std::this_thread::sleep_for(retry_delay);
@@ -122,7 +122,7 @@ TEST_F(TextIndexTest, DeletePropertyTest) {
   {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
-    MG_ASSERT(!vertex.SetProperty(acc->NameToProperty("title"), null_value).HasError());
+    MG_ASSERT(vertex.SetProperty(acc->NameToProperty("title"), null_value).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 

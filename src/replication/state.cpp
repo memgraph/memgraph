@@ -18,7 +18,6 @@
 #include "replication/state.hpp"
 #include "replication/status.hpp"
 #include "utils/file.hpp"
-#include "utils/result.hpp"
 #include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -44,8 +43,8 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
 
   auto fetched_replication_data = FetchReplicationData();
-  if (fetched_replication_data.HasError()) {
-    switch (fetched_replication_data.GetError()) {
+  if (!fetched_replication_data.has_value()) {
+    switch (fetched_replication_data.error()) {
       using enum ReplicationState::FetchReplicationError;
       case NOTHING_FETCHED: {
         spdlog::debug("Cannot find data needed for restore replication role in persisted metadata.");
@@ -58,7 +57,7 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
       }
     }
   }
-  auto replication_data = std::move(fetched_replication_data).GetValue();
+  auto replication_data = std::move(fetched_replication_data).value();
 #ifdef MG_ENTERPRISE
   if (flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator() &&
       std::holds_alternative<RoleReplicaData>(replication_data)) {
@@ -123,21 +122,21 @@ bool ReplicationState::TryPersistUnregisterReplica(std::string_view name) {
 }
 
 auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
-  if (!HasDurability()) return FetchReplicationError::NOTHING_FETCHED;
+  if (!HasDurability()) return std::unexpected{FetchReplicationError::NOTHING_FETCHED};
   const auto replication_data = durability_->Get(durability::kReplicationRoleName);
   if (!replication_data.has_value()) {
-    return FetchReplicationError::NOTHING_FETCHED;
+    return std::unexpected{FetchReplicationError::NOTHING_FETCHED};
   }
 
   auto json = nlohmann::json::parse(*replication_data, nullptr, false);
   if (json.is_discarded()) {
-    return FetchReplicationError::PARSE_ERROR;
+    return std::unexpected{FetchReplicationError::PARSE_ERROR};
   }
   try {
     durability::ReplicationRoleEntry data = json.get<durability::ReplicationRoleEntry>();
 
     if (!HandleVersionMigration(data)) {
-      return FetchReplicationError::PARSE_ERROR;
+      return std::unexpected{FetchReplicationError::PARSE_ERROR};
     }
 
     // To get here this must be the case
@@ -152,21 +151,21 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
               for (; b != e; ++b) {
                 auto const &[replica_name, replica_data] = *b;
                 auto json_data = nlohmann::json::parse(replica_data, nullptr, false);
-                if (json_data.is_discarded()) return FetchReplicationError::PARSE_ERROR;
+                if (json_data.is_discarded()) return std::unexpected{FetchReplicationError::PARSE_ERROR};
                 try {
                   durability::ReplicationReplicaEntry const local_data =
                       json_data.get<durability::ReplicationReplicaEntry>();
 
                   auto key_name = std::string_view{replica_name}.substr(strlen(durability::kReplicationReplicaPrefix));
                   if (key_name != local_data.config.name) {
-                    return FetchReplicationError::PARSE_ERROR;
+                    return std::unexpected{FetchReplicationError::PARSE_ERROR};
                   }
                   // Instance clients
                   res.registered_replicas_.emplace_back(local_data.config);
                   // Bump for each replica uuid
                   res.registered_replicas_.back().try_set_uuid = !r.main_uuid.has_value();
                 } catch (...) {
-                  return FetchReplicationError::PARSE_ERROR;
+                  return std::unexpected{FetchReplicationError::PARSE_ERROR};
                 }
               }
               return {std::move(res)};
@@ -179,7 +178,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
         },
         std::move(data.role));
   } catch (...) {
-    return FetchReplicationError::PARSE_ERROR;
+    return std::unexpected{FetchReplicationError::PARSE_ERROR};
   }
 }
 
@@ -307,7 +306,7 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
   return true;
 }
 
-utils::BasicResult<RegisterReplicaStatus, ReplicationClient *> ReplicationState::RegisterReplica(
+std::expected<ReplicationClient *, RegisterReplicaStatus> ReplicationState::RegisterReplica(
     const ReplicationClientConfig &config) {
   auto const replica_handler = [](RoleReplicaData const &) { return RegisterReplicaStatus::NOT_MAIN; };
 
@@ -348,7 +347,7 @@ utils::BasicResult<RegisterReplicaStatus, ReplicationClient *> ReplicationState:
   if (res == RegisterReplicaStatus::SUCCESS) {
     return client;
   }
-  return res;
+  return std::unexpected(res);
 }
 
 std::optional<nlohmann::json> ReplicationState::GetTelemetryJson() const {

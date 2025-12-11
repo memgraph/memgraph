@@ -42,8 +42,8 @@ const std::string &memgraph::flags::GetAllowedLogLevels() {
 }
 
 bool memgraph::flags::ValidLogLevel(std::string_view value) {
-  if (const auto result = memgraph::utils::IsValidEnumValueString(value, log_level_mappings); result.HasError()) {
-    const auto error = result.GetError();
+  if (const auto result = memgraph::utils::IsValidEnumValueString(value, log_level_mappings); !result.has_value()) {
+    const auto error = result.error();
     switch (error) {
       case memgraph::utils::ValidationError::EmptyValue: {
         std::cout << "Log level cannot be empty." << '\n';

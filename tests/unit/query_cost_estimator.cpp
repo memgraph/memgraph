@@ -59,24 +59,24 @@ class QueryCostEstimator : public ::testing::Test {
   void SetUp() override {
     {
       auto unique_acc = db->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      !ASSERT_FALSE(unique_acc->CreateIndex(label).has_value());
+      !ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto unique_acc = db->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label, {prop_a}).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      !ASSERT_FALSE(unique_acc->CreateIndex(label, {prop_a}).has_value());
+      !ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto unique_acc = db->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label, {prop_c, prop_a, prop_b}).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      !ASSERT_FALSE(unique_acc->CreateIndex(label, {prop_c, prop_a, prop_b}).has_value());
+      !ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto unique_acc = db->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label, {ms::PropertyPath{prop_d, prop_a}, ms::PropertyPath{prop_d, prop_b}})
-                       .HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_FALSE(unique_acc->CreateIndex(label, {ms::PropertyPath{prop_d, prop_a},
+                                                   ms::PropertyPath{prop_d, prop_b}}) !.has_value());
+      !ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     storage_dba.emplace(db->Access());
     dba.emplace(storage_dba->get());

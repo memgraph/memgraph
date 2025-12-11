@@ -31,7 +31,7 @@ const std::string scheduler_helper_string =
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_VALIDATED_HIDDEN_string(scheduler, kPriorityQueueWithSidecar, scheduler_helper_string.c_str(), {
-  return !memgraph::utils::IsValidEnumValueString(value, scheduler_type_mappings).HasError();
+  return memgraph::utils::IsValidEnumValueString(value, scheduler_type_mappings).has_value();
 });
 
 SchedulerType GetSchedulerType() {

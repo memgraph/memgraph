@@ -45,7 +45,6 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/isolation_level.hpp"
 #include "utils/logging.hpp"
-#include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/uuid.hpp"
 
@@ -117,9 +116,9 @@ class DbmsHandler {
   using LockT = utils::RWLock;
 #ifdef MG_ENTERPRISE
 
-  using NewResultT = utils::BasicResult<NewError, DatabaseAccess>;
-  using DeleteResult = utils::BasicResult<DeleteError>;
-  using RenameResult = utils::BasicResult<RenameError>;
+  using NewResultT = std::expected<DatabaseAccess, NewError>;
+  using DeleteResult = std::expected<void, DeleteError>;
+  using RenameResult = std::expected<void, RenameError>;
 
   /**
    * @brief Initialize the handler.
@@ -175,7 +174,7 @@ class DbmsHandler {
   NewResultT Update(const storage::SalientConfig &config) {
     auto wr = std::lock_guard{lock_};
     auto new_db = New_(config);
-    if (new_db.HasValue() || new_db.GetError() != NewError::EXISTS) {
+    if (new_db.has_value() || new_db.error() != NewError::EXISTS) {
       // NOTE: If db already exists we retry below
       return new_db;
     }
@@ -200,7 +199,7 @@ class DbmsHandler {
       if (db->storage()->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ !=
           storage::kTimestampInitialId) {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
-        return NewError::GENERIC;  // Update error
+        return std::unexpected{NewError::GENERIC};  // Update error
       }
       spdlog::debug("Updated default db's UUID");
       // Default db cannot be deleted and remade, have to just update the UUID
@@ -543,7 +542,7 @@ class DbmsHandler {
       Get(kDefaultDB);
     } catch (const UnknownDatabaseException &) {
       // No default DB restored, create it
-      MG_ASSERT(New_(kDefaultDB, {/* random UUID */}, nullptr, ".").HasValue(),
+      MG_ASSERT(New_(kDefaultDB, {/* random UUID */}, nullptr, ".").has_value(),
                 "Failed while creating the default database");
     }
 
