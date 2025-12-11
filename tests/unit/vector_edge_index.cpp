@@ -25,9 +25,9 @@
 using namespace memgraph::storage;
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-!#define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).has_value())
+#define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
 
-    static constexpr std::string_view test_index = "test_edge_index";
+static constexpr std::string_view test_index = "test_edge_index";
 static constexpr std::string_view test_edge_type = "test_edge_type";
 static constexpr std::string_view test_property = "test_property";
 static constexpr unum::usearch::metric_kind_t metric = unum::usearch::metric_kind_t::l2sq_k;
@@ -47,7 +47,7 @@ class VectorEdgeIndexTest : public testing::Test {
     const auto property = unique_acc->NameToProperty(test_property.data());
     const auto spec = VectorEdgeIndexSpec{test_index.data(), edge_type,          property, metric,
                                           dimension,         resize_coefficient, capacity, scalar_kind};
-    !EXPECT_FALSE(unique_acc->CreateVectorEdgeIndex(spec).has_value());
+    EXPECT_FALSE(!unique_acc->CreateVectorEdgeIndex(spec).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -231,7 +231,7 @@ TEST_F(VectorEdgeIndexTest, MultipleAbortsAndUpdatesTest) {
     auto acc = this->storage->Access();
     // delete the edge
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
-    EXPECT_EQ(acc->DeleteEdge(&edge).HasValue(), true);
+    EXPECT_EQ(acc->DeleteEdge(&edge).has_value(), true);
     acc->Abort();
     // check that the index is still not empty
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
@@ -297,7 +297,7 @@ TEST_F(VectorEdgeIndexTest, DropIndexTest) {
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    !EXPECT_FALSE(unique_acc->DropVectorIndex(test_index).has_value());
+    EXPECT_FALSE(!unique_acc->DropVectorIndex(test_index).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {

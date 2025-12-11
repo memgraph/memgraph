@@ -229,19 +229,19 @@ TEST_F(MultiTenantTest, DbmsNewTryDelete) {
 
   // 2
   auto &dbms = DBMS();
-  !ASSERT_FALSE(dbms.New("db1").has_value());
-  !ASSERT_FALSE(dbms.New("db2").has_value());
-  !ASSERT_FALSE(dbms.New("db3").has_value());
-  !ASSERT_FALSE(dbms.New("db4").has_value());
+  ASSERT_FALSE(!dbms.New("db1").has_value());
+  ASSERT_FALSE(!dbms.New("db2").has_value());
+  ASSERT_FALSE(!dbms.New("db3").has_value());
+  ASSERT_FALSE(!dbms.New("db4").has_value());
 
   // 3
   UseDatabase(interpreter2, "db2", "Using db2");
   UseDatabase(interpreter1, "db4", "Using db4");
 
-  !ASSERT_FALSE(dbms.TryDelete("db1").has_value());
-  !ASSERT_TRUE(dbms.TryDelete("db2").has_value());
-  !ASSERT_FALSE(dbms.TryDelete("db3").has_value());
-  !ASSERT_TRUE(dbms.TryDelete("db4").has_value());
+  ASSERT_FALSE(!dbms.TryDelete("db1").has_value());
+  ASSERT_TRUE(!dbms.TryDelete("db2").has_value());
+  ASSERT_FALSE(!dbms.TryDelete("db3").has_value());
+  ASSERT_TRUE(!dbms.TryDelete("db4").has_value());
 }
 
 TEST_F(MultiTenantTest, DbmsUpdate) {
@@ -321,10 +321,10 @@ TEST_F(MultiTenantTest, DbmsNewDelete) {
 
   // 2
   auto &dbms = DBMS();
-  !ASSERT_FALSE(dbms.New("db1").has_value());
-  !ASSERT_FALSE(dbms.New("db2").has_value());
-  !ASSERT_FALSE(dbms.New("db3").has_value());
-  !ASSERT_FALSE(dbms.New("db4").has_value());
+  ASSERT_FALSE(!dbms.New("db1").has_value());
+  ASSERT_FALSE(!dbms.New("db2").has_value());
+  ASSERT_FALSE(!dbms.New("db3").has_value());
+  ASSERT_FALSE(!dbms.New("db4").has_value());
 
   // 3
   UseDatabase(interpreter2, "db2", "Using db2");
@@ -337,10 +337,10 @@ TEST_F(MultiTenantTest, DbmsNewDelete) {
   RunQuery(interpreter2, "CREATE (:Node{on:\"db2\"})");
   RunQuery(interpreter2, "CREATE (:Node{on:\"db2\"})");
 
-  !ASSERT_FALSE(dbms.Delete("db1").has_value());
-  !ASSERT_FALSE(dbms.Delete("db2").has_value());
-  !ASSERT_FALSE(dbms.Delete("db3").has_value());
-  !ASSERT_FALSE(dbms.Delete("db4").has_value());
+  ASSERT_FALSE(!dbms.Delete("db1").has_value());
+  ASSERT_FALSE(!dbms.Delete("db2").has_value());
+  ASSERT_FALSE(!dbms.Delete("db3").has_value());
+  ASSERT_FALSE(!dbms.Delete("db4").has_value());
 
   // 4
   ASSERT_EQ(dbms.All().size(), 1);
@@ -377,10 +377,10 @@ TEST_F(MultiTenantTest, DbmsNewDeleteWTx) {
 
   // 2
   auto &dbms = DBMS();
-  !ASSERT_FALSE(dbms.New("db1").has_value());
-  !ASSERT_FALSE(dbms.New("db2").has_value());
-  !ASSERT_FALSE(dbms.New("db3").has_value());
-  !ASSERT_FALSE(dbms.New("db4").has_value());
+  ASSERT_FALSE(!dbms.New("db1").has_value());
+  ASSERT_FALSE(!dbms.New("db2").has_value());
+  ASSERT_FALSE(!dbms.New("db3").has_value());
+  ASSERT_FALSE(!dbms.New("db4").has_value());
 
   // 3
   UseDatabase(interpreter2, "db2", "Using db2");
@@ -396,10 +396,10 @@ TEST_F(MultiTenantTest, DbmsNewDeleteWTx) {
   RunQuery(interpreter1, "BEGIN");
   RunQuery(interpreter2, "BEGIN");
 
-  !ASSERT_FALSE(dbms.Delete("db1").has_value());
-  !ASSERT_FALSE(dbms.Delete("db2").has_value());
-  !ASSERT_FALSE(dbms.Delete("db3").has_value());
-  !ASSERT_FALSE(dbms.Delete("db4").has_value());
+  ASSERT_FALSE(!dbms.Delete("db1").has_value());
+  ASSERT_FALSE(!dbms.Delete("db2").has_value());
+  ASSERT_FALSE(!dbms.Delete("db3").has_value());
+  ASSERT_FALSE(!dbms.Delete("db4").has_value());
 
   // 4
   ASSERT_EQ(dbms.All().size(), 1);
@@ -508,8 +508,8 @@ TEST_F(MultiTenantTest, ForceDropDatabaseWithActiveTransactions) {
 
   // 2
   auto &dbms = DBMS();
-  !ASSERT_FALSE(dbms.New("db1").has_value());
-  !ASSERT_FALSE(dbms.New("db2").has_value());
+  ASSERT_FALSE(!dbms.New("db1").has_value());
+  ASSERT_FALSE(!dbms.New("db2").has_value());
 
   UseDatabase(interpreter1, "db1", "Using db1");
   UseDatabase(interpreter2, "db2", "Using db2");

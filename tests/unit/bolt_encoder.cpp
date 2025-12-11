@@ -193,13 +193,13 @@ void TestVertexAndEdgeWithDifferentStorages(std::unique_ptr<memgraph::storage::S
   auto va2 = dba->CreateVertex();
   auto l1 = dba->NameToLabel("label1");
   auto l2 = dba->NameToLabel("label2");
-  ASSERT_TRUE(va1.AddLabel(l1).HasValue());
-  ASSERT_TRUE(va1.AddLabel(l2).HasValue());
+  ASSERT_TRUE(va1.AddLabel(l1).has_value());
+  ASSERT_TRUE(va1.AddLabel(l2).has_value());
   auto p1 = dba->NameToProperty("prop1");
   auto p2 = dba->NameToProperty("prop2");
   memgraph::storage::PropertyValue pv1(12), pv2(200);
-  ASSERT_TRUE(va1.SetProperty(p1, pv1).HasValue());
-  ASSERT_TRUE(va1.SetProperty(p2, pv2).HasValue());
+  ASSERT_TRUE(va1.SetProperty(p1, pv1).has_value());
+  ASSERT_TRUE(va1.SetProperty(p2, pv2).has_value());
 
   // create edge
   auto et = dba->NameToEdgeType("edgetype");
@@ -207,8 +207,8 @@ void TestVertexAndEdgeWithDifferentStorages(std::unique_ptr<memgraph::storage::S
   auto p3 = dba->NameToProperty("prop3");
   auto p4 = dba->NameToProperty("prop4");
   memgraph::storage::PropertyValue pv3(42), pv4(1234);
-  ASSERT_TRUE(ea.SetProperty(p3, pv3).HasValue());
-  ASSERT_TRUE(ea.SetProperty(p4, pv4).HasValue());
+  ASSERT_TRUE(ea.SetProperty(p3, pv3).has_value());
+  ASSERT_TRUE(ea.SetProperty(p4, pv4).has_value());
 
   // check everything
   std::vector<Value> vals;

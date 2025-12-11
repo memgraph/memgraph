@@ -25,9 +25,9 @@
 using namespace memgraph::storage;
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-!#define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).has_value())
+#define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
 
-    static constexpr std::string_view test_index = "test_index";
+static constexpr std::string_view test_index = "test_index";
 static constexpr std::string_view test_label = "test_label";
 static constexpr std::size_t default_limit = 10;
 
@@ -47,7 +47,7 @@ class TextIndexTest : public testing::Test {
     auto unique_acc = this->storage->UniqueAccess();
     const auto label = unique_acc->NameToLabel(test_label.data());
 
-    !EXPECT_FALSE(unique_acc->CreateTextIndex(TextIndexSpec{test_index.data(), label, {}}).has_value());
+    EXPECT_FALSE(!unique_acc->CreateTextIndex(TextIndexSpec{test_index.data(), label, {}}).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 

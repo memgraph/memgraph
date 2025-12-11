@@ -23,9 +23,9 @@ using testing::Types;
 using testing::UnorderedElementsAre;
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-!#define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).has_value())
+#define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
 
-    class ShowStorageInfoTest : public testing::Test {
+class ShowStorageInfoTest : public testing::Test {
  public:
   const std::string testSuite = "storage_v2__show_storage_info";
 

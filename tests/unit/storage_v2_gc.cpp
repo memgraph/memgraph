@@ -46,7 +46,7 @@ TEST(StorageV2Gc, Sanity) {
       auto vertex = acc->FindVertex(vertices[i], memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex.has_value());
       if (i % 5 == 0) {
-        !EXPECT_FALSE(acc->DeleteVertex(&vertex.value()).has_value());
+        EXPECT_FALSE(!acc->DeleteVertex(&vertex.value()).has_value());
       }
     }
 
@@ -60,7 +60,7 @@ TEST(StorageV2Gc, Sanity) {
       EXPECT_EQ(vertex_new.has_value(), i % 5 != 0);
     }
 
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Verify existing vertices and add labels to some of them.
@@ -71,9 +71,9 @@ TEST(StorageV2Gc, Sanity) {
       EXPECT_EQ(vertex.has_value(), i % 5 != 0);
 
       if (vertex.has_value()) {
-        !EXPECT_FALSE(vertex->AddLabel(memgraph::storage::LabelId::FromUint(3 * i)).has_value());
-        !EXPECT_FALSE(vertex->AddLabel(memgraph::storage::LabelId::FromUint(3 * i + 1)).has_value());
-        !EXPECT_FALSE(vertex->AddLabel(memgraph::storage::LabelId::FromUint(3 * i + 2)).has_value());
+        EXPECT_FALSE(!vertex->AddLabel(memgraph::storage::LabelId::FromUint(3 * i)).has_value());
+        EXPECT_FALSE(!vertex->AddLabel(memgraph::storage::LabelId::FromUint(3 * i + 1)).has_value());
+        EXPECT_FALSE(!vertex->AddLabel(memgraph::storage::LabelId::FromUint(3 * i + 2)).has_value());
       }
     }
 
@@ -98,7 +98,7 @@ TEST(StorageV2Gc, Sanity) {
       }
     }
 
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Add and remove some edges.
@@ -111,8 +111,9 @@ TEST(StorageV2Gc, Sanity) {
       EXPECT_EQ(to_vertex.has_value(), (i + 1) % 5 != 0);
 
       if (from_vertex.has_value() && to_vertex.has_value()) {
-        EXPECT_FALSE(acc->CreateEdge(&from_vertex.value(), &to_vertex.value(),
-                                     memgraph::storage::EdgeTypeId::FromUint(i)) !.has_value());
+        EXPECT_FALSE(
+            !acc->CreateEdge(&from_vertex.value(), &to_vertex.value(), memgraph::storage::EdgeTypeId::FromUint(i))
+                 .has_value());
       }
     }
 
@@ -122,7 +123,7 @@ TEST(StorageV2Gc, Sanity) {
       EXPECT_EQ(vertex.has_value(), i % 5 != 0);
       if (vertex.has_value()) {
         if (i % 3 == 0) {
-          !EXPECT_FALSE(acc->DetachDeleteVertex(&vertex.value()).has_value());
+          EXPECT_FALSE(!acc->DetachDeleteVertex(&vertex.value()).has_value());
         }
       }
     }
@@ -155,7 +156,7 @@ TEST(StorageV2Gc, Sanity) {
       }
     }
 
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -173,8 +174,8 @@ TEST(StorageV2Gc, Indices) {
           .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}}));
   {
     auto unique_acc = storage->UniqueAccess();
-    !ASSERT_FALSE(unique_acc->CreateIndex(storage->NameToLabel("label")).has_value());
-    !ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!unique_acc->CreateIndex(storage->NameToLabel("label")).has_value());
+    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -183,7 +184,7 @@ TEST(StorageV2Gc, Indices) {
       auto vertex = acc0->CreateVertex();
       ASSERT_TRUE(*vertex.AddLabel(acc0->NameToLabel("label")));
     }
-    !ASSERT_FALSE(acc0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc1 = storage->Access();
@@ -192,7 +193,7 @@ TEST(StorageV2Gc, Indices) {
     for (auto vertex : acc2->Vertices(memgraph::storage::View::OLD)) {
       ASSERT_TRUE(*vertex.RemoveLabel(acc2->NameToLabel("label")));
     }
-    !ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     // Wait for GC.
     std::this_thread::sleep_for(std::chrono::milliseconds(300));

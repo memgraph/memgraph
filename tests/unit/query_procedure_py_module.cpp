@@ -123,13 +123,13 @@ TYPED_TEST(PyModule, PyVertex) {
     auto v1 = dba->CreateVertex();
     auto v2 = dba->CreateVertex();
 
-    ASSERT_TRUE(v1.SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
-    ASSERT_TRUE(v1.SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
+    ASSERT_TRUE(v1.SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).has_value());
+    ASSERT_TRUE(v1.SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).has_value());
 
     auto e = dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type"));
     ASSERT_TRUE(e.has_value());
 
-    !ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   // Get the first vertex as an mgp_value.
   auto storage_dba = this->db->Access();
@@ -162,7 +162,7 @@ TYPED_TEST(PyModule, PyVertex) {
   // Clean up.
   mgp_value_destroy(new_vertex_value);
   mgp_value_destroy(vertex_value);
-  !ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_FALSE(!dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 TYPED_TEST(PyModule, PyEdge) {
@@ -176,9 +176,9 @@ TYPED_TEST(PyModule, PyEdge) {
     ASSERT_TRUE(e.has_value());
 
     ASSERT_TRUE(
-        e.value().SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
-    ASSERT_TRUE(e.value().SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
-    !ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+        e.value().SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).has_value());
+    ASSERT_TRUE(e.value().SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).has_value());
+    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   // Get the edge as an mgp_value.
   auto storage_dba = this->db->Access();
@@ -216,7 +216,7 @@ TYPED_TEST(PyModule, PyEdge) {
   // Clean up.
   mgp_value_destroy(new_edge_value);
   mgp_value_destroy(edge_value);
-  !ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_FALSE(!dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 TYPED_TEST(PyModule, PyPath) {
@@ -224,8 +224,8 @@ TYPED_TEST(PyModule, PyPath) {
     auto dba = this->db->Access();
     auto v1 = dba->CreateVertex();
     auto v2 = dba->CreateVertex();
-    ASSERT_TRUE(dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type")).HasValue());
-    !ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type")).has_value());
+    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
@@ -263,7 +263,7 @@ TYPED_TEST(PyModule, PyPath) {
             1);
   mgp_value_destroy(new_path_value);
   mgp_value_destroy(path_value);
-  !ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_FALSE(!dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 TYPED_TEST(PyModule, PyObjectToMgpValue) {

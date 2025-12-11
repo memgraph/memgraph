@@ -295,15 +295,15 @@ TYPED_TEST(TTLFixture, Periodic) {
     auto v4 = acc->CreateVertex();                   // No TTL label, with ttl property
     auto v5 = acc->CreateVertex();                   // TTL label and ttl property (older)
     auto v6 = acc->CreateVertex();                   // TTL label and ttl property (newer)
-    !ASSERT_FALSE(v2.AddLabel(lbl).has_value());
-    !ASSERT_FALSE(v2.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
-    !ASSERT_FALSE(v3.AddLabel(ttl_lbl).has_value());
-    !ASSERT_FALSE(v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(42)).has_value());
-    !ASSERT_FALSE(v5.AddLabel(ttl_lbl).has_value());
-    !ASSERT_FALSE(v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
-    !ASSERT_FALSE(v6.AddLabel(ttl_lbl).has_value());
-    !ASSERT_FALSE(v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).has_value());
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!v2.AddLabel(lbl).has_value());
+    ASSERT_FALSE(!v2.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
+    ASSERT_FALSE(!v3.AddLabel(ttl_lbl).has_value());
+    ASSERT_FALSE(!v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(42)).has_value());
+    ASSERT_FALSE(!v5.AddLabel(ttl_lbl).has_value());
+    ASSERT_FALSE(!v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
+    ASSERT_FALSE(!v6.AddLabel(ttl_lbl).has_value());
+    ASSERT_FALSE(!v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->db_->Access();
@@ -347,15 +347,15 @@ TYPED_TEST(TTLFixture, StartTime) {
     auto v4 = acc->CreateVertex();                   // No TTL label, with ttl property
     auto v5 = acc->CreateVertex();                   // TTL label and ttl property (older)
     auto v6 = acc->CreateVertex();                   // TTL label and ttl property (newer)
-    !ASSERT_FALSE(v2.AddLabel(lbl).has_value());
-    !ASSERT_FALSE(v2.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
-    !ASSERT_FALSE(v3.AddLabel(ttl_lbl).has_value());
-    !ASSERT_FALSE(v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(42)).has_value());
-    !ASSERT_FALSE(v5.AddLabel(ttl_lbl).has_value());
-    !ASSERT_FALSE(v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
-    !ASSERT_FALSE(v6.AddLabel(ttl_lbl).has_value());
-    !ASSERT_FALSE(v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).has_value());
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!v2.AddLabel(lbl).has_value());
+    ASSERT_FALSE(!v2.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
+    ASSERT_FALSE(!v3.AddLabel(ttl_lbl).has_value());
+    ASSERT_FALSE(!v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(42)).has_value());
+    ASSERT_FALSE(!v5.AddLabel(ttl_lbl).has_value());
+    ASSERT_FALSE(!v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
+    ASSERT_FALSE(!v6.AddLabel(ttl_lbl).has_value());
+    ASSERT_FALSE(!v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->db_->Access();
@@ -405,14 +405,14 @@ TYPED_TEST(TTLFixture, Edge) {
     auto v4 = acc->CreateVertex();                   // No TTL label, with ttl property
     auto v5 = acc->CreateVertex();                   // TTL label and ttl property (older)
     auto v6 = acc->CreateVertex();                   // TTL label and ttl property (newer)
-    !ASSERT_FALSE(v2.AddLabel(lbl).has_value());
-    !ASSERT_FALSE(v2.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
-    !ASSERT_FALSE(v3.AddLabel(ttl_lbl).has_value());
-    !ASSERT_FALSE(v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(42)).has_value());
-    !ASSERT_FALSE(v5.AddLabel(ttl_lbl).has_value());
-    !ASSERT_FALSE(v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
-    !ASSERT_FALSE(v6.AddLabel(ttl_lbl).has_value());
-    !ASSERT_FALSE(v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).has_value());
+    ASSERT_FALSE(!v2.AddLabel(lbl).has_value());
+    ASSERT_FALSE(!v2.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
+    ASSERT_FALSE(!v3.AddLabel(ttl_lbl).has_value());
+    ASSERT_FALSE(!v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(42)).has_value());
+    ASSERT_FALSE(!v5.AddLabel(ttl_lbl).has_value());
+    ASSERT_FALSE(!v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
+    ASSERT_FALSE(!v6.AddLabel(ttl_lbl).has_value());
+    ASSERT_FALSE(!v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).has_value());
 
     auto e1 = acc->CreateEdge(&v1, &v2, et1);  // stable vertices no ttl prop
     ASSERT_TRUE(e1.has_value());
@@ -426,12 +426,12 @@ TYPED_TEST(TTLFixture, Edge) {
     ASSERT_TRUE(e5.has_value());
 
     if (this->HasPropOnEdge()) {  // edge prop enabled
-      !ASSERT_FALSE(e2->SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
-      !ASSERT_FALSE(e4->SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
-      !ASSERT_FALSE(e5->SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).has_value());
+      ASSERT_FALSE(!e2->SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
+      ASSERT_FALSE(!e4->SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
+      ASSERT_FALSE(!e5->SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).has_value());
     }
 
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->db_->Access();
@@ -599,14 +599,14 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
     auto v2 = acc->CreateVertex();  // TTL label and older timestamp (should be deleted)
     auto v3 = acc->CreateVertex();  // TTL label and newer timestamp (should stay)
 
-    !ASSERT_FALSE(v1.AddLabel(ttl_lbl).has_value());
-    !ASSERT_FALSE(v1.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
-    !ASSERT_FALSE(v2.AddLabel(ttl_lbl).has_value());
-    !ASSERT_FALSE(v2.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
-    !ASSERT_FALSE(v3.AddLabel(ttl_lbl).has_value());
-    !ASSERT_FALSE(v3.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).has_value());
+    ASSERT_FALSE(!v1.AddLabel(ttl_lbl).has_value());
+    ASSERT_FALSE(!v1.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
+    ASSERT_FALSE(!v2.AddLabel(ttl_lbl).has_value());
+    ASSERT_FALSE(!v2.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
+    ASSERT_FALSE(!v3.AddLabel(ttl_lbl).has_value());
+    ASSERT_FALSE(!v3.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).has_value());
 
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Verify initial count (should be 3 vertices)
@@ -641,9 +641,9 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
   {
     auto acc = db_acc->Access();
     auto v4 = acc->CreateVertex();  // TTL label and older timestamp
-    !ASSERT_FALSE(v4.AddLabel(ttl_lbl).has_value());
-    !ASSERT_FALSE(v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
-    !ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(!v4.AddLabel(ttl_lbl).has_value());
+    ASSERT_FALSE(!v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
+    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Verify we now have 2 vertices

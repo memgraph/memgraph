@@ -107,8 +107,8 @@ static auto CreateIndexedVertices(int index_count, int vertex_count, memgraph::s
   for (int vi = 0; vi < vertex_count; ++vi) {
     for (int index = 0; index < index_count; ++index) {
       auto vertex = dba->CreateVertex();
-      MG_ASSERT(vertex.AddLabel(label).HasValue());
-      MG_ASSERT(vertex.SetProperty(prop, memgraph::storage::PropertyValue(index)).HasValue());
+      MG_ASSERT(vertex.AddLabel(label).has_value());
+      MG_ASSERT(vertex.SetProperty(prop, memgraph::storage::PropertyValue(index)).has_value());
     }
   }
   MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
