@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -69,24 +69,10 @@ auto EnumToString(const auto &value, const auto &mappings) -> std::optional<std:
 
 template <typename T, typename Enum>
 requires std::integral<T>
-inline T EnumToNum(Enum res) {
-  static_assert(std::numeric_limits<T>::max() >= static_cast<size_t>(Enum::N));
-  return static_cast<T>(res);
-}
-
-template <typename T, typename Enum>
-requires std::integral<T>
 inline bool NumToEnum(T input, Enum &res) {
-  if (input >= EnumToNum<T>(Enum::N)) return false;
+  if (input >= std::to_underlying(Enum::N)) return false;
   res = static_cast<Enum>(input);
   return true;
-}
-
-template <size_t Num, typename T, typename Enum>
-requires std::integral<T>
-inline T EnumToNum(Enum res) {
-  static_assert(std::numeric_limits<T>::max() >= Num);
-  return static_cast<T>(res);
 }
 
 template <size_t Num, typename T, typename Enum>
