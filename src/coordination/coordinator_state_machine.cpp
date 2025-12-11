@@ -33,6 +33,7 @@ import memgraph.coordination.data_instance_context;
 import memgraph.coordination.log_level;
 import memgraph.coordination.logger_wrapper;
 
+using nuraft::buffer_serializer;
 using nuraft::cluster_config;
 using nuraft::ptr;
 using nuraft::snapshot;

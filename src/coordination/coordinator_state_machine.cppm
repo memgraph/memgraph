@@ -34,10 +34,8 @@ import memgraph.coordination.logger_wrapper;
 namespace memgraph::coordination {
 using nuraft::async_result;
 using nuraft::buffer;
-using nuraft::buffer_serializer;
 using nuraft::cluster_config;
 using nuraft::int32;
-using nuraft::logger;
 using nuraft::ptr;
 using nuraft::snapshot;
 using nuraft::state_machine;
