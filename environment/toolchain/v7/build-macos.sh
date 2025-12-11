@@ -59,12 +59,33 @@ fi
 # Create bin directory and symlink system tools
 mkdir -p $PREFIX/bin
 log_tool_name "Setting up system tool symlinks"
-# Symlink system clang tools
-for tool in clang clang++ llvm-ar llvm-ranlib llvm-nm llvm-objcopy llvm-objdump llvm-strip lld; do
-    if command -v $tool &> /dev/null; then
-        ln -sf "$(which $tool)" "$PREFIX/bin/$tool" || true
-    fi
-done
+# Prefer LLVM clang over Apple clang if available
+LLVM_PREFIX="/opt/homebrew/opt/llvm"
+if [[ -x "$LLVM_PREFIX/bin/clang" && -x "$LLVM_PREFIX/bin/clang++" ]]; then
+    echo "Using LLVM clang from $LLVM_PREFIX"
+    # Symlink LLVM clang tools
+    for tool in clang clang++; do
+        if [[ -x "$LLVM_PREFIX/bin/$tool" ]]; then
+            ln -sf "$LLVM_PREFIX/bin/$tool" "$PREFIX/bin/$tool" || true
+        fi
+    done
+    # Symlink other LLVM tools if available (including clang-scan-deps for C++ modules)
+    for tool in llvm-ar llvm-ranlib llvm-nm llvm-objcopy llvm-objdump llvm-strip lld clang-scan-deps; do
+        if [[ -x "$LLVM_PREFIX/bin/$tool" ]]; then
+            ln -sf "$LLVM_PREFIX/bin/$tool" "$PREFIX/bin/$tool" || true
+        elif command -v $tool &> /dev/null; then
+            ln -sf "$(which $tool)" "$PREFIX/bin/$tool" || true
+        fi
+    done
+else
+    echo "Using system clang (Apple clang)"
+    # Symlink system clang tools
+    for tool in clang clang++ llvm-ar llvm-ranlib llvm-nm llvm-objcopy llvm-objdump llvm-strip lld; do
+        if command -v $tool &> /dev/null; then
+            ln -sf "$(which $tool)" "$PREFIX/bin/$tool" || true
+        fi
+    done
+fi
 # Symlink cmake, ninja if available
 for tool in cmake ninja; do
     if command -v $tool &> /dev/null; then
@@ -418,6 +439,29 @@ if [[ ! -f "$PREFIX/lib/libpulsarwithdeps.a" ]]; then
     cp lib/libpulsarwithdeps.a $PREFIX/lib/ || cp lib/libpulsarwithdeps.a $PREFIX/lib64/ 2>/dev/null || true
     cmake --build . -j$CPUS --target install
     popd && popd
+fi
+
+#### librdkafka ####
+KAFKA_TAG="v2.8.0"
+log_tool_name "kafka $KAFKA_TAG"
+if [[ ! -f "$PREFIX/lib/librdkafka++.a" ]]; then
+    if [[ -d kafka ]]; then
+        rm -rf kafka
+    fi
+    git clone https://github.com/confluentinc/librdkafka.git kafka
+    pushd kafka
+    git checkout $KAFKA_TAG
+    cmake -B build $COMMON_CMAKE_FLAGS \
+      -DRDKAFKA_BUILD_STATIC=ON \
+      -DRDKAFKA_BUILD_EXAMPLES=OFF \
+      -DRDKAFKA_BUILD_TESTS=OFF \
+      -DWITH_ZSTD=OFF \
+      -DENABLE_LZ4_EXT=OFF \
+      -DCMAKE_INSTALL_LIBDIR=lib \
+      -DWITH_SSL=ON \
+      -DWITH_SASL=ON
+    cmake --build build -j$CPUS --target install
+    popd
 fi
 
 log_tool_name "libbcrypt $LIBBCRYPT_TAG"

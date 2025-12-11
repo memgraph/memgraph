@@ -275,8 +275,48 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# On macOS with clang, ensure CMake can find clang-scan-deps BEFORE enabling module scanning
+# This must be set before CMAKE_CXX_SCAN_FOR_MODULES
+if(APPLE OR CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    # Check for both Clang and AppleClang (AppleClang is a variant of Clang)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+        # Try to find clang-scan-deps in common LLVM locations
+        get_filename_component(COMPILER_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        
+        # Check common LLVM locations (including PATH)
+        set(LLVM_PATHS
+            "${COMPILER_DIR}"  # Same directory as compiler
+            /opt/homebrew/opt/llvm/bin
+            /usr/local/opt/llvm/bin
+        )
+        
+        # First try NO_DEFAULT_PATH, then fall back to searching PATH
+        find_program(CLANG_SCAN_DEPS
+            NAMES clang-scan-deps
+            PATHS ${LLVM_PATHS}
+            NO_DEFAULT_PATH
+        )
+        
+        if(NOT CLANG_SCAN_DEPS)
+            # Fall back to searching in PATH
+            find_program(CLANG_SCAN_DEPS NAMES clang-scan-deps)
+        endif()
+        
+        if(CLANG_SCAN_DEPS)
+            set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${CLANG_SCAN_DEPS}" CACHE FILEPATH "Path to clang-scan-deps" FORCE)
+            message(STATUS "Found clang-scan-deps: ${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
+        else()
+            message(WARNING "clang-scan-deps not found. C++ module scanning may not work.")
+            message(WARNING "Compiler: ${CMAKE_CXX_COMPILER}")
+            message(WARNING "Compiler dir: ${COMPILER_DIR}")
+            message(WARNING "Searched in: ${LLVM_PATHS}")
+        endif()
+    endif()
+endif()
+
 # Enable C++23 module scanning for all targets
 # This allows any target to import C++23 modules from dependencies
+# Note: clang-scan-deps must be found before this is set (see above)
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 add_compile_definitions(BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
@@ -362,8 +402,17 @@ add_compile_definitions(
 
 if (NOT MG_ARCH)
     set(MG_ARCH_DESCR "Host architecture to build Memgraph on. Supported values are x86_64, ARM64.")
-    if (${CMAKE_HOST_SYSTEM_PROCESSOR} MATCHES "aarch64")
+    # Detect architecture: check CMAKE_HOST_SYSTEM_PROCESSOR and also uname -m for macOS
+    if (${CMAKE_HOST_SYSTEM_PROCESSOR} MATCHES "aarch64|arm64|ARM64")
         set(MG_ARCH "ARM64" CACHE STRING ${MG_ARCH_DESCR})
+    elseif(APPLE)
+        # On macOS, check uname -m since CMAKE_HOST_SYSTEM_PROCESSOR might not be reliable
+        execute_process(COMMAND uname -m OUTPUT_VARIABLE UNAME_M OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if(UNAME_M MATCHES "arm64|aarch64")
+            set(MG_ARCH "ARM64" CACHE STRING ${MG_ARCH_DESCR})
+        else()
+            set(MG_ARCH "x86_64" CACHE STRING ${MG_ARCH_DESCR})
+        endif()
     else()
         set(MG_ARCH "x86_64" CACHE STRING ${MG_ARCH_DESCR})
     endif()

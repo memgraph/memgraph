@@ -55,14 +55,19 @@ else
 fi
 
 if [[ "$check_system_packages" == "true" ]]; then
-  if [ "${ARCHITECTURE}" = "arm64" ] || [ "${ARCHITECTURE}" = "aarch64" ]; then
-    OS_SCRIPT=$DIR/environment/os/$DISTRO-arm.sh
+  # Skip package checks on macOS (uses Homebrew, not system package manager)
+  if [[ "$DISTRO" == "macOS"* ]]; then
+    echo "Skipping package checks on macOS (use Homebrew to install dependencies)"
   else
-    OS_SCRIPT=$DIR/environment/os/$DISTRO.sh
+    if [ "${ARCHITECTURE}" = "arm64" ] || [ "${ARCHITECTURE}" = "aarch64" ]; then
+      OS_SCRIPT=$DIR/environment/os/$DISTRO-arm.sh
+    else
+      OS_SCRIPT=$DIR/environment/os/$DISTRO.sh
+    fi
+    echo "ALL BUILD PACKAGES: $($OS_SCRIPT list MEMGRAPH_BUILD_DEPS)"
+    $OS_SCRIPT check MEMGRAPH_BUILD_DEPS
+    echo "All packages are in-place..."
   fi
-  echo "ALL BUILD PACKAGES: $($OS_SCRIPT list MEMGRAPH_BUILD_DEPS)"
-  $OS_SCRIPT check MEMGRAPH_BUILD_DEPS
-  echo "All packages are in-place..."
 else
   echo "Skipping package checks, good luck!"
 fi

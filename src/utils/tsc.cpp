@@ -11,13 +11,16 @@
 
 #include <functional>
 
+#ifdef HAVE_LIBRDTSC
 extern "C" {
 #include <librdtsc/rdtsc.h>
 }
+#endif
 
 #include "utils/tsc.hpp"
 
 namespace memgraph::utils {
+#ifdef HAVE_LIBRDTSC
 uint64_t ReadTSC() { return rdtsc(); }
 
 bool IsAvailableTSC() {
@@ -27,6 +30,21 @@ bool IsAvailableTSC() {
 }
 
 std::optional<double> GetTSCFrequency() { return IsAvailableTSC() ? std::optional{rdtsc_get_tsc_hz()} : std::nullopt; }
+#else
+// librdtsc not available - provide stub implementations
+uint64_t ReadTSC() { 
+  // Fallback to system clock if librdtsc is not available
+  return 0; 
+}
+
+bool IsAvailableTSC() {
+  return false;
+}
+
+std::optional<double> GetTSCFrequency() { 
+  return std::nullopt; 
+}
+#endif
 
 TSCTimer::TSCTimer(std::optional<double> frequency) : frequency_(frequency) {
   if (!frequency_) return;

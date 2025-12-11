@@ -224,12 +224,21 @@ else
 fi
 
 # install conan dependencies
-# On macOS, toolchain is optional (can use system compiler)
+# On macOS, toolchain is optional (can use system compiler or LLVM clang)
 # On Linux, toolchain is required (default to /opt/toolchain-v7 if not set)
 if [[ -z "$MG_TOOLCHAIN_ROOT" ]]; then
     if [[ "$(uname)" == "Darwin" ]]; then
-        echo "No MG_TOOLCHAIN_ROOT set, using system compiler on macOS"
-        # Don't set MG_TOOLCHAIN_ROOT - let Conan use system compiler
+        # On macOS, prefer LLVM clang over Apple clang if available
+        LLVM_CLANG="/opt/homebrew/opt/llvm/bin/clang"
+        LLVM_CLANGPP="/opt/homebrew/opt/llvm/bin/clang++"
+        if [[ -x "$LLVM_CLANG" && -x "$LLVM_CLANGPP" ]]; then
+            echo "No MG_TOOLCHAIN_ROOT set, using LLVM clang on macOS"
+            export CC="$LLVM_CLANG"
+            export CXX="$LLVM_CLANGPP"
+        else
+            echo "No MG_TOOLCHAIN_ROOT set, using system compiler on macOS"
+        fi
+        # Don't set MG_TOOLCHAIN_ROOT - let Conan use system/LLVM compiler
     else
         # Linux - set default toolchain path
         export MG_TOOLCHAIN_ROOT="/opt/toolchain-v7"

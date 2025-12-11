@@ -2,6 +2,12 @@
 {% set target_arch = {"aarch64": "armv8", "arm64": "armv8"}.get(platform.machine(), platform.machine()) %}
 {% set current_dir = os.getcwd() %}
 {% set is_macos = platform.system() == "Darwin" %}
+# Detect LLVM clang on macOS (Homebrew installation)
+{% set llvm_clang = "/opt/homebrew/opt/llvm/bin/clang" %}
+{% set llvm_clangpp = "/opt/homebrew/opt/llvm/bin/clang++" %}
+{% set has_llvm = is_macos and os.path.exists(llvm_clang) and os.path.exists(llvm_clangpp) %}
+# LLVM clang version (default to 21 for Homebrew LLVM, fallback to 20 for Apple clang)
+{% set llvm_version = 21 if has_llvm else 20 %}
 
 # Sanitizer configuration - will be set via environment variables
 {% set sanitizers_env = os.getenv("MG_SANITIZERS", "") %}
@@ -22,7 +28,7 @@ os=Macos
 compiler.libcxx=libstdc++11
 os=Linux
 {% endif %}
-compiler.version=20
+compiler.version={{ llvm_version if has_llvm else 20 }}
 {% if enable_asan %}
 compiler.asan=True
 {% endif %}
@@ -39,6 +45,9 @@ tools.cmake.cmaketoolchain:generator=Ninja
 {% if toolchain_path != "/ERROR_MG_TOOLCHAIN_ROOT_NOT_SET" and os.path.exists(toolchain_path) %}
 tools.cmake.cmaketoolchain:user_toolchain=["{{ os.path.join(toolchain_path, "toolchain.cmake") }}"]
 tools.build:compiler_executables={"c": "{{ os.path.join(toolchain_path, "bin/clang") }}", "cpp" : "{{ os.path.join(toolchain_path, "bin/clang++") }}"}
+{% elif has_llvm %}
+# Use LLVM clang on macOS when available (prefer over Apple clang)
+tools.build:compiler_executables={"c": "{{ llvm_clang }}", "cpp": "{{ llvm_clangpp }}"}
 {% endif %}
 {% if enable_asan or enable_ubsan or enable_tsan %}
 tools.build:cflags+=["-fsanitize={{ sanitizers|join(',') }}", "-fno-omit-frame-pointer"{% if enable_ubsan %}, "-fno-sanitize=vptr,function", "-fsanitize-ignorelist={{ os.path.join(current_dir, 'tools', 'ubsan.ignore') }}"{% endif %}]

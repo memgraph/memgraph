@@ -45,6 +45,22 @@ if(APPLE OR CMAKE_SYSTEM_NAME MATCHES "Darwin")
         set(CMAKE_C_COMPILER "${MG_TOOLCHAIN_ROOT}/bin/clang" CACHE STRING "" FORCE)
         set(CMAKE_CXX_COMPILER "${MG_TOOLCHAIN_ROOT}/bin/clang++" CACHE STRING "" FORCE)
     endif()
+    # macOS: Try to find clang-scan-deps in toolchain or system LLVM
+    if(EXISTS "${MG_TOOLCHAIN_ROOT}/bin/clang-scan-deps")
+        set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${MG_TOOLCHAIN_ROOT}/bin/clang-scan-deps" CACHE STRING "" FORCE)
+    else()
+        # Try to find in Homebrew LLVM installation
+        find_program(CLANG_SCAN_DEPS
+            NAMES clang-scan-deps
+            PATHS
+                /opt/homebrew/opt/llvm/bin
+                /usr/local/opt/llvm/bin
+            NO_DEFAULT_PATH
+        )
+        if(CLANG_SCAN_DEPS)
+            set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${CLANG_SCAN_DEPS}" CACHE STRING "" FORCE)
+        endif()
+    endif()
 else()
     # Linux: Use toolchain tools
     set(CMAKE_C_COMPILER   "${MG_TOOLCHAIN_ROOT}/bin/clang"   CACHE STRING "" FORCE)
