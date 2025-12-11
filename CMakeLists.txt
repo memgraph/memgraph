@@ -23,18 +23,48 @@ if(NOT UNIX)
     message(FATAL_ERROR "Unsupported operating system.")
 endif()
 
+# Detect macOS
+if(APPLE OR CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    set(MG_IS_MACOS ON)
+    message(STATUS "Detected macOS/Darwin")
+else()
+    set(MG_IS_MACOS OFF)
+endif()
+
 # This is used to so that 3rd party libs can find the
 # correct libraries from our toolchain
-if (NOT MG_TOOLCHAIN_ROOT OR NOT IS_DIRECTORY "${MG_TOOLCHAIN_ROOT}")
-    message(FATAL_ERROR "MG_TOOLCHAIN_ROOT must be set to a valid toolchain directory. Current value: '${MG_TOOLCHAIN_ROOT}'")
-endif ()
-message(STATUS "MG_TOOLCHAIN_ROOT: ${MG_TOOLCHAIN_ROOT}")
+# On macOS, toolchain is optional (can use system compiler)
+if(MG_IS_MACOS)
+    if(MG_TOOLCHAIN_ROOT AND IS_DIRECTORY "${MG_TOOLCHAIN_ROOT}")
+        message(STATUS "Using toolchain: ${MG_TOOLCHAIN_ROOT}")
+        set(MG_USE_TOOLCHAIN ON)
+    else()
+        message(STATUS "No toolchain specified, using system compiler on macOS")
+        set(MG_USE_TOOLCHAIN OFF)
+    endif()
+else()
+    # On Linux, toolchain is required
+    if (NOT MG_TOOLCHAIN_ROOT OR NOT IS_DIRECTORY "${MG_TOOLCHAIN_ROOT}")
+        message(FATAL_ERROR "MG_TOOLCHAIN_ROOT must be set to a valid toolchain directory. Current value: '${MG_TOOLCHAIN_ROOT}'")
+    endif()
+    set(MG_USE_TOOLCHAIN ON)
+endif()
 
+if(MG_USE_TOOLCHAIN)
+    message(STATUS "MG_TOOLCHAIN_ROOT: ${MG_TOOLCHAIN_ROOT}")
+endif()
 
 # this reduces issues in build folders from inside containers
 # which are different locations than the host
 set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
-set(CMAKE_BUILD_RPATH "${MG_TOOLCHAIN_ROOT}/lib64")
+if(MG_USE_TOOLCHAIN)
+    # macOS uses 'lib', Linux uses 'lib64'
+    if(MG_IS_MACOS)
+        set(CMAKE_BUILD_RPATH "${MG_TOOLCHAIN_ROOT}/lib")
+    else()
+        set(CMAKE_BUILD_RPATH "${MG_TOOLCHAIN_ROOT}/lib64")
+    endif()
+endif()
 set(CMAKE_FIND_ROOT_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
 message(STATUS "CMAKE_FIND_ROOT_PATH: ${CMAKE_FIND_ROOT_PATH}")
 # Install licenses.
@@ -156,39 +186,42 @@ endif()
 
 # -----------------------------------------------------------------------------
 
-# Custom libstdc++ configuration - REQUIRED
-set(CUSTOM_LIBSTDCXX_DIR "${MG_TOOLCHAIN_ROOT}/lib64" CACHE PATH "Directory containing custom libstdc++.so.6")
-set(CUSTOM_LIBSTDCXX "${CUSTOM_LIBSTDCXX_DIR}/libstdc++.so.6")
+# Custom libstdc++ configuration - REQUIRED (Linux only)
+# macOS uses libc++ by default, so this is not needed
+if(NOT MG_IS_MACOS)
+    set(CUSTOM_LIBSTDCXX_DIR "${MG_TOOLCHAIN_ROOT}/lib64" CACHE PATH "Directory containing custom libstdc++.so.6")
+    set(CUSTOM_LIBSTDCXX "${CUSTOM_LIBSTDCXX_DIR}/libstdc++.so.6")
 
-if(NOT EXISTS "${CUSTOM_LIBSTDCXX}")
-    message(FATAL_ERROR "Custom libstdc++.so.6 not found at: ${CUSTOM_LIBSTDCXX}. Please ensure the toolchain is properly built.")
+    if(NOT EXISTS "${CUSTOM_LIBSTDCXX}")
+        message(FATAL_ERROR "Custom libstdc++.so.6 not found at: ${CUSTOM_LIBSTDCXX}. Please ensure the toolchain is properly built.")
+    endif()
+
+    message(STATUS "Found custom libstdc++.so.6 at: ${CUSTOM_LIBSTDCXX}")
+
+    # Verify the library has the correct SONAME
+    execute_process(
+        COMMAND readelf -d "${CUSTOM_LIBSTDCXX}"
+        OUTPUT_VARIABLE ELF_INFO
+        RESULT_VARIABLE READ_RESULT
+    )
+
+    if(NOT READ_RESULT EQUAL 0 OR NOT ELF_INFO MATCHES "SONAME.*libstdc\\+\\+\\.so\\.6")
+        message(FATAL_ERROR "Invalid libstdc++.so.6: bad or missing SONAME. Please ensure the toolchain is properly built.")
+    endif()
+
+    message(STATUS "Custom libstdc++.so.6 validation successful")
+
+    # Create imported target for custom libstdc++
+    add_library(libstdc++_custom SHARED IMPORTED GLOBAL)
+    set_target_properties(libstdc++_custom PROPERTIES
+        IMPORTED_LOCATION "${CUSTOM_LIBSTDCXX}"
+        INTERFACE_LINK_LIBRARIES ""
+    )
+
+    # Set global property to use custom libstdc++
+    set_property(GLOBAL PROPERTY MG_USE_CUSTOM_LIBSTDCXX TRUE)
+    set_property(GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH "${CUSTOM_LIBSTDCXX}")
 endif()
-
-message(STATUS "Found custom libstdc++.so.6 at: ${CUSTOM_LIBSTDCXX}")
-
-# Verify the library has the correct SONAME
-execute_process(
-    COMMAND readelf -d "${CUSTOM_LIBSTDCXX}"
-    OUTPUT_VARIABLE ELF_INFO
-    RESULT_VARIABLE READ_RESULT
-)
-
-if(NOT READ_RESULT EQUAL 0 OR NOT ELF_INFO MATCHES "SONAME.*libstdc\\+\\+\\.so\\.6")
-    message(FATAL_ERROR "Invalid libstdc++.so.6: bad or missing SONAME. Please ensure the toolchain is properly built.")
-endif()
-
-message(STATUS "Custom libstdc++.so.6 validation successful")
-
-# Create imported target for custom libstdc++
-add_library(libstdc++_custom SHARED IMPORTED GLOBAL)
-set_target_properties(libstdc++_custom PROPERTIES
-    IMPORTED_LOCATION "${CUSTOM_LIBSTDCXX}"
-    INTERFACE_LINK_LIBRARIES ""
-)
-
-# Set global property to use custom libstdc++
-set_property(GLOBAL PROPERTY MG_USE_CUSTOM_LIBSTDCXX TRUE)
-set_property(GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH "${CUSTOM_LIBSTDCXX}")
 # -----------------------------------------------------------------------------
 
 # setup CMake module path, defines path for include() and find_package()
@@ -271,9 +304,12 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
     "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
 
 # Use lld linker to speedup build and use less memory.
-add_link_options(-fuse-ld=lld)
-add_link_options(LINKER:--build-id)
-link_directories("${MG_TOOLCHAIN_ROOT}/lib")
+# Only use lld if we have a toolchain (it's in the toolchain)
+if(MG_USE_TOOLCHAIN)
+    add_link_options(-fuse-ld=lld)
+    add_link_options(LINKER:--build-id)
+    link_directories("${MG_TOOLCHAIN_ROOT}/lib")
+endif()
 
 # After linker is set, check we can use link-time optimization
 cmake_policy(SET CMP0138 NEW)
@@ -482,6 +518,8 @@ add_custom_target(generated_code DEPENDS
   mgcxx-proj
 )
 
-install(FILES ${MG_TOOLCHAIN_ROOT}/bin/mgconsole
-  PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-  TYPE BIN)
+if(MG_USE_TOOLCHAIN)
+    install(FILES ${MG_TOOLCHAIN_ROOT}/bin/mgconsole
+      PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+      TYPE BIN)
+endif()

@@ -1,6 +1,7 @@
 {% set toolchain_path = os.getenv("MG_TOOLCHAIN_ROOT", "/ERROR_MG_TOOLCHAIN_ROOT_NOT_SET") %}
 {% set target_arch = {"aarch64": "armv8", "arm64": "armv8"}.get(platform.machine(), platform.machine()) %}
 {% set current_dir = os.getcwd() %}
+{% set is_macos = platform.system() == "Darwin" %}
 
 # Sanitizer configuration - will be set via environment variables
 {% set sanitizers_env = os.getenv("MG_SANITIZERS", "") %}
@@ -14,7 +15,13 @@ arch = {{ target_arch }}
 build_type = {{ os.getenv("BUILD_TYPE") }}
 compiler=clang
 compiler.cppstd=gnu23
+{% if is_macos %}
+compiler.libcxx=libc++
+os=Macos
+{% else %}
 compiler.libcxx=libstdc++11
+os=Linux
+{% endif %}
 compiler.version=20
 {% if enable_asan %}
 compiler.asan=True
@@ -25,13 +32,14 @@ compiler.ubsan=True
 {% if enable_tsan %}
 compiler.tsan=True
 {% endif %}
-os=Linux
 
 [conf]
 m4/*:tools.build:cflags=["-std=gnu17"]
 tools.cmake.cmaketoolchain:generator=Ninja
+{% if toolchain_path != "/ERROR_MG_TOOLCHAIN_ROOT_NOT_SET" and os.path.exists(toolchain_path) %}
 tools.cmake.cmaketoolchain:user_toolchain=["{{ os.path.join(toolchain_path, "toolchain.cmake") }}"]
 tools.build:compiler_executables={"c": "{{ os.path.join(toolchain_path, "bin/clang") }}", "cpp" : "{{ os.path.join(toolchain_path, "bin/clang++") }}"}
+{% endif %}
 {% if enable_asan or enable_ubsan or enable_tsan %}
 tools.build:cflags+=["-fsanitize={{ sanitizers|join(',') }}", "-fno-omit-frame-pointer"{% if enable_ubsan %}, "-fno-sanitize=vptr,function", "-fsanitize-ignorelist={{ os.path.join(current_dir, 'tools', 'ubsan.ignore') }}"{% endif %}]
 tools.build:cxxflags+=["-fsanitize={{ sanitizers|join(',') }}", "-fno-omit-frame-pointer"{% if enable_ubsan %}, "-fno-sanitize=vptr,function", "-fsanitize-ignorelist={{ os.path.join(current_dir, 'tools', 'ubsan.ignore') }}"{% endif %}]
@@ -43,7 +51,15 @@ tools.build:sharedlinkflags+=["-fsanitize={{ sanitizers|join(',') }}"{% if enabl
 boost/*:without_stacktrace=True
 boost/*:without_locale=True
 {% if target_arch == "armv8" %}
+{% if is_macos %}
+boost/*:extra_b2_flags=cxxflags=--target=arm64-apple-darwin cflags=--target=arm64-apple-darwin linkflags=--target=arm64-apple-darwin
+{% else %}
 boost/*:extra_b2_flags=cxxflags=--target=aarch64-unknown-linux-gnu cflags=--target=aarch64-unknown-linux-gnu linkflags=--target=aarch64-unknown-linux-gnu
+{% endif %}
 {% elif enable_asan or enable_ubsan or enable_tsan %}
+{% if is_macos %}
+boost/*:extra_b2_flags=cxxflags=--target=x86_64-apple-darwin cflags=--target=x86_64-apple-darwin linkflags=--target=x86_64-apple-darwin
+{% else %}
 boost/*:extra_b2_flags=cxxflags=--target=x86_64-linux-gnu cflags=--target=x86_64-linux-gnu linkflags=--target=x86_64-linux-gnu
+{% endif %}
 {% endif %}

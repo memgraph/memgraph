@@ -224,7 +224,23 @@ else
 fi
 
 # install conan dependencies
-MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install "${CONAN_INSTALL_ARGS[@]}"
+# On macOS, toolchain is optional (can use system compiler)
+# On Linux, toolchain is required (default to /opt/toolchain-v7 if not set)
+if [[ -z "$MG_TOOLCHAIN_ROOT" ]]; then
+    if [[ "$(uname)" == "Darwin" ]]; then
+        echo "No MG_TOOLCHAIN_ROOT set, using system compiler on macOS"
+        # Don't set MG_TOOLCHAIN_ROOT - let Conan use system compiler
+    else
+        # Linux - set default toolchain path
+        export MG_TOOLCHAIN_ROOT="/opt/toolchain-v7"
+    fi
+fi
+
+if [[ -n "$MG_TOOLCHAIN_ROOT" ]]; then
+    MG_TOOLCHAIN_ROOT="$MG_TOOLCHAIN_ROOT" conan install "${CONAN_INSTALL_ARGS[@]}"
+else
+    conan install "${CONAN_INSTALL_ARGS[@]}"
+fi
 
 export CLASSPATH=
 export LD_LIBRARY_PATH=

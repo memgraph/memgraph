@@ -1,4 +1,9 @@
-set(CMAKE_SYSTEM_NAME Linux)
+# Detect platform
+if(APPLE OR CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    set(CMAKE_SYSTEM_NAME Darwin)
+else()
+    set(CMAKE_SYSTEM_NAME Linux)
+endif()
 
 # NOTE: if we want to be able to cross-compile, this will need to change
 execute_process(
