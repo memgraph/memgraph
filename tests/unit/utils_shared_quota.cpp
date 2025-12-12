@@ -236,7 +236,7 @@ TEST(SharedQuotaTest, BasicUsage) {
   SharedQuota quota(limit, n);
   int64_t consumed = 0;
 
-  while (quota.Increment(1) > 0) {
+  while (quota.Decrement(1) > 0) {
     consumed++;
   }
 
@@ -250,20 +250,20 @@ TEST(SharedQuotaTest, CopyConstructor) {
 
   SharedQuota original(limit, n);
   SharedQuota copy(original);
-  copy.Reset();  // This is just for the test
+  copy.Reacquire();  // This is just for the test
 
   std::atomic<int64_t> original_consumed{0};
   std::atomic<int64_t> copy_consumed{0};
 
   // Consume from both in separate threads to avoid deadlock
   std::jthread thread_original([&]() {
-    while (original.Increment(1) > 0) {
+    while (original.Decrement(1) > 0) {
       original_consumed++;
     }
   });
 
   std::jthread thread_copy([&]() {
-    while (copy.Increment(1) > 0) {
+    while (copy.Decrement(1) > 0) {
       copy_consumed++;
     }
   });
@@ -286,7 +286,7 @@ TEST(SharedQuotaTest, CopyAssignment) {
 
   // Consume some from original first
   std::atomic<int64_t> original_consumed{0};
-  for (int i = 0; i < 30 && original.Increment(1) > 0; ++i) {
+  for (int i = 0; i < 30 && original.Decrement(1) > 0; ++i) {
     original_consumed++;
   }
 
@@ -297,13 +297,13 @@ TEST(SharedQuotaTest, CopyAssignment) {
 
   // Consume remaining from both in separate threads to avoid deadlock
   std::jthread thread_original([&]() {
-    while (original.Increment(1) > 0) {
+    while (original.Decrement(1) > 0) {
       original_consumed++;
     }
   });
 
   std::jthread thread_other([&]() {
-    while (other.Increment(1) > 0) {
+    while (other.Decrement(1) > 0) {
       other_consumed++;
     }
   });
@@ -324,7 +324,7 @@ TEST(SharedQuotaTest, MoveConstructor) {
 
   // Consume some first
   int64_t consumed = 0;
-  for (int i = 0; i < 30 && original.Increment(1) > 0; ++i) {
+  for (int i = 0; i < 30 && original.Decrement(1) > 0; ++i) {
     consumed++;
   }
 
@@ -332,10 +332,10 @@ TEST(SharedQuotaTest, MoveConstructor) {
   SharedQuota moved(std::move(original));
 
   // Original should no longer work (handle is nullopt)
-  ASSERT_EQ(original.Increment(1), 0) << "Moved-from SharedQuota should not work";
+  ASSERT_EQ(original.Decrement(1), 0) << "Moved-from SharedQuota should not work";
 
   // Moved should continue consuming
-  while (moved.Increment(1) > 0) {
+  while (moved.Decrement(1) > 0) {
     consumed++;
   }
 
@@ -352,7 +352,7 @@ TEST(SharedQuotaTest, MoveAssignment) {
 
   // Consume some from original
   int64_t consumed = 0;
-  for (int i = 0; i < 40 && original.Increment(1) > 0; ++i) {
+  for (int i = 0; i < 40 && original.Decrement(1) > 0; ++i) {
     consumed++;
   }
 
@@ -360,10 +360,10 @@ TEST(SharedQuotaTest, MoveAssignment) {
   other = std::move(original);
 
   // Original should no longer work
-  ASSERT_EQ(original.Increment(1), 0) << "Moved-from SharedQuota should not work";
+  ASSERT_EQ(original.Decrement(1), 0) << "Moved-from SharedQuota should not work";
 
   // Other should continue where original left off
-  while (other.Increment(1) > 0) {
+  while (other.Decrement(1) > 0) {
     consumed++;
   }
 
@@ -379,7 +379,7 @@ TEST(SharedQuotaTest, SelfCopyAssignment) {
 
   // Consume some
   int64_t consumed = 0;
-  for (int i = 0; i < 20 && quota.Increment(1) > 0; ++i) {
+  for (int i = 0; i < 20 && quota.Decrement(1) > 0; ++i) {
     consumed++;
   }
 
@@ -390,7 +390,7 @@ TEST(SharedQuotaTest, SelfCopyAssignment) {
 #pragma GCC diagnostic pop
 
   // Should still work
-  while (quota.Increment(1) > 0) {
+  while (quota.Decrement(1) > 0) {
     consumed++;
   }
 
@@ -406,7 +406,7 @@ TEST(SharedQuotaTest, SelfMoveAssignment) {
 
   // Consume some
   int64_t consumed = 0;
-  for (int i = 0; i < 20 && quota.Increment(1) > 0; ++i) {
+  for (int i = 0; i < 20 && quota.Decrement(1) > 0; ++i) {
     consumed++;
   }
 
@@ -417,7 +417,7 @@ TEST(SharedQuotaTest, SelfMoveAssignment) {
 #pragma GCC diagnostic pop
 
   // Should still work
-  while (quota.Increment(1) > 0) {
+  while (quota.Decrement(1) > 0) {
     consumed++;
   }
 
@@ -433,15 +433,15 @@ TEST(SharedQuotaTest, ResetMethod) {
 
   // Consume exactly one batch worth
   int64_t consumed = 0;
-  for (int i = 0; i < 25 && quota.Increment(1) > 0; ++i) {
+  for (int i = 0; i < 25 && quota.Decrement(1) > 0; ++i) {
     consumed++;
   }
 
   // Reset to get a new handle
-  quota.Reset();
+  quota.Reacquire();
 
   // Continue consuming
-  while (quota.Increment(1) > 0) {
+  while (quota.Decrement(1) > 0) {
     consumed++;
   }
 
@@ -458,7 +458,7 @@ TEST(SharedQuotaTest, MultiThreadWithCopies) {
   std::atomic<int64_t> global_consumed{0};
 
   auto worker = [&global_consumed](SharedQuota quota) {
-    while (quota.Increment(1) > 0) {
+    while (quota.Decrement(1) > 0) {
       global_consumed.fetch_add(1, std::memory_order_relaxed);
     }
   };
@@ -470,7 +470,7 @@ TEST(SharedQuotaTest, MultiThreadWithCopies) {
   }
 
   // Original also participates
-  while (original.Increment(1) > 0) {
+  while (original.Decrement(1) > 0) {
     global_consumed.fetch_add(1, std::memory_order_relaxed);
   }
 
@@ -479,8 +479,8 @@ TEST(SharedQuotaTest, MultiThreadWithCopies) {
   ASSERT_EQ(global_consumed.load(), limit) << "All copies should share the same quota pool in multi-threaded usage";
 }
 
-// 10. Variable Increment Amount
-TEST(SharedQuotaTest, VariableIncrement) {
+// 10. Variable Decrement Amount
+TEST(SharedQuotaTest, VariableDecrement) {
   const int64_t limit = 100;
   const int64_t n = 20;
 
@@ -489,7 +489,7 @@ TEST(SharedQuotaTest, VariableIncrement) {
 
   // Consume with increments of 5
   while (true) {
-    int64_t res = quota.Increment(5);
+    int64_t res = quota.Decrement(5);
     if (res == 0) break;
     consumed += res;
   }
@@ -499,23 +499,23 @@ TEST(SharedQuotaTest, VariableIncrement) {
   // Test with arbitrary increments
   SharedQuota quota2(limit, n);
   consumed = 0;
-  int64_t res = quota2.Increment(33);  // 33
+  int64_t res = quota2.Decrement(33);  // 33
   consumed += res;
   ASSERT_EQ(res, 33);
 
-  res = quota2.Increment(33);  // 66
+  res = quota2.Decrement(33);  // 66
   consumed += res;
   ASSERT_EQ(res, 33);
 
-  res = quota2.Increment(33);  // 99
+  res = quota2.Decrement(33);  // 99
   consumed += res;
   ASSERT_EQ(res, 33);
 
-  res = quota2.Increment(33);  // 100 - only 1 left
+  res = quota2.Decrement(33);  // 100 - only 1 left
   consumed += res;
   ASSERT_EQ(res, 1);
 
-  res = quota2.Increment(33);  // full
+  res = quota2.Decrement(33);  // full
   ASSERT_EQ(res, 0);
 
   ASSERT_EQ(consumed, limit);
