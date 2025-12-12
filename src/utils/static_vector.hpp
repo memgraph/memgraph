@@ -14,12 +14,14 @@
 #include "utils/memory_layout.hpp"
 
 #include <algorithm>
-#include <compare>
 #include <cstddef>
 #include <memory>
 #include <span>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
+namespace r = std::ranges;
 namespace memgraph::utils {
 
 // datastructure for a fixed capacity vector, design goals:
