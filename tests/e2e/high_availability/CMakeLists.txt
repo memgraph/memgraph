@@ -12,6 +12,7 @@ copy_e2e_python_files(high_availability manual_setting_replicas.py)
 copy_e2e_python_files(high_availability ttl.py)
 copy_e2e_python_files(high_availability common.py)
 copy_e2e_python_files(high_availability auth.py)
+copy_e2e_python_files(high_availability large_cluster.py)
 copy_e2e_python_files(high_availability workloads.yaml)
 
 copy_e2e_python_files_from_parent_folder(high_availability ".." memgraph.py)
