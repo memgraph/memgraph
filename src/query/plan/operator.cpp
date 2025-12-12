@@ -7579,13 +7579,11 @@ auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config
     spdlog::error("Config map must contain only string keys and values!");
     return std::nullopt;
   }
-  std::map<std::string, std::string, std::less<>> result;
-  for (const auto &entry : config_map) {
-    auto key_expr = entry.first->Accept(evaluator);
-    auto value_expr = entry.second->Accept(evaluator);
-    result.emplace(key_expr.ValueString(), value_expr.ValueString());
-  }
-  return result;
+  return config_map | rv::transform([&evaluator](const auto &entry) {
+           return std::pair{std::string{entry.first->Accept(evaluator).ValueString()},
+                            std::string{entry.second->Accept(evaluator).ValueString()}};
+         }) |
+         r::to<std::map<std::string, std::string, std::less<>>>();
 }
 
 // copy-pasted from interpreter.cpp
