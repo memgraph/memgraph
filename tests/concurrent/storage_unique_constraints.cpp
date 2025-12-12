@@ -21,9 +21,9 @@ using memgraph::replication_coordination_glue::ReplicationRole;
 
 constexpr int kNumThreads = 8;
 
-!#define ASSERT_OK(x) ASSERT_FALSE((x).has_value())
+#define ASSERT_OK(x) ASSERT_TRUE((x).has_value())
 
-    using memgraph::storage::LabelId;
+using memgraph::storage::LabelId;
 using memgraph::storage::PropertyId;
 using memgraph::storage::PropertyValue;
 
@@ -109,7 +109,7 @@ TEST_F(StorageUniqueConstraints, ParallelAbortCommit) {
       }
 
       if (bernoulli(gen)) {
-        !auto res = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value();
+        auto res = !acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value();
         spdlog::trace("Res: {}", res);
       } else {
         acc->Abort();
