@@ -9,15 +9,18 @@ target_sources(mg-auth PRIVATE
     profiles/user_profiles.cpp
 )
 
-find_package(Seccomp REQUIRED)
+find_package(Seccomp)
 find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 
 target_link_libraries(mg-auth nlohmann_json::nlohmann_json libbcrypt gflags fmt::fmt)
 target_link_libraries(mg-auth mg-utils mg-kvstore mg-license mg::system mg-replication)
 
-target_link_libraries(mg-auth ${Seccomp_LIBRARIES})
-target_include_directories(mg-auth SYSTEM PRIVATE ${Seccomp_INCLUDE_DIRS})
+if(Seccomp_FOUND)
+    target_link_libraries(mg-auth ${Seccomp_LIBRARIES})
+    target_include_directories(mg-auth SYSTEM PRIVATE ${Seccomp_INCLUDE_DIRS})
+    target_compile_definitions(mg-auth PRIVATE HAVE_SECCOMP)
+endif()
 
 target_link_libraries(mg-auth openssl::openssl)
 

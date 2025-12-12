@@ -325,8 +325,15 @@ macro(build_librdtsc)
     CMAKE_ARGS ${MG_LIBRDTSC_CMAKE_ARGS}
     BUILD_COMMAND $(MAKE) rdtsc)
 endmacro()
-mg_build_if_needed(build_librdtsc "librdtsc")
-mg_create_linkable_if_no_cmake(librdtsc STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdtsc.a" "${MG_TOOLCHAIN_ROOT}/include")
+# librdtsc is optional - skip if not available in toolchain
+if(EXISTS "${MG_TOOLCHAIN_ROOT}/lib/librdtsc.a")
+    mg_build_if_needed(build_librdtsc "librdtsc")
+    mg_create_linkable_if_no_cmake(librdtsc STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdtsc.a" "${MG_TOOLCHAIN_ROOT}/include")
+    set(HAVE_LIBRDTSC ON)
+else()
+    message(STATUS "librdtsc not available in toolchain, skipping (optional)")
+    set(HAVE_LIBRDTSC OFF)
+endif()
 
 set(ABSL_PROPAGATE_CXX_STD ON)
 

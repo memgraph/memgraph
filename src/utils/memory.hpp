@@ -23,13 +23,12 @@
 #include <memory>
 #include <tuple>
 
-// Although <memory_resource> is in C++17, gcc libstdc++ still needs to
-// implement it fully. It should be available in the next major release
-// version, i.e. gcc 9.x.
-#if _GLIBCXX_RELEASE < 9
-#include <experimental/memory_resource>
-#else
+// Although <memory_resource> is in C++17, some standard library implementations
+// may still use the experimental namespace. Use __has_include to detect availability.
+#if __has_include(<memory_resource>)
 #include <memory_resource>
+#else
+#include <experimental/memory_resource>
 #endif
 
 #include "utils/logging.hpp"
@@ -83,10 +82,10 @@ using Allocator = std::pmr::polymorphic_allocator<T>;
 auto NullMemoryResource() noexcept -> MemoryResource *;
 
 inline MemoryResource *NewDeleteResource() noexcept {
-#if _GLIBCXX_RELEASE < 9
-  return std::experimental::pmr::new_delete_resource();
-#else
+#if __has_include(<memory_resource>)
   return std::pmr::new_delete_resource();
+#else
+  return std::experimental::pmr::new_delete_resource();
 #endif
 }
 

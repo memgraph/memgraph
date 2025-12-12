@@ -48,30 +48,36 @@
 # THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #=============================================================================
 
-find_package(PkgConfig QUIET)
-pkg_check_modules(PKG_Libseccomp QUIET libseccomp)
+# Seccomp is Linux-specific and not available on macOS
+if(APPLE OR CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    set(Seccomp_FOUND FALSE)
+    message(STATUS "Seccomp is not available on macOS, skipping")
+else()
+    find_package(PkgConfig QUIET)
+    pkg_check_modules(PKG_Libseccomp QUIET libseccomp)
 
-find_path(Seccomp_INCLUDE_DIRS
-    NAMES
-        seccomp.h
-    HINTS
-        ${PKG_Libseccomp_INCLUDE_DIRS}
-)
-find_library(Seccomp_LIBRARIES
-    NAMES
-        seccomp
-    HINTS
-        ${PKG_Libseccomp_LIBRARY_DIRS}
-)
+    find_path(Seccomp_INCLUDE_DIRS
+        NAMES
+            seccomp.h
+        HINTS
+            ${PKG_Libseccomp_INCLUDE_DIRS}
+    )
+    find_library(Seccomp_LIBRARIES
+        NAMES
+            seccomp
+        HINTS
+            ${PKG_Libseccomp_LIBRARY_DIRS}
+    )
 
-include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(Seccomp
-    FOUND_VAR
-        Seccomp_FOUND
-    REQUIRED_VARS
-        Seccomp_LIBRARIES
-        Seccomp_INCLUDE_DIRS
-)
+    include(FindPackageHandleStandardArgs)
+    find_package_handle_standard_args(Seccomp
+        FOUND_VAR
+            Seccomp_FOUND
+        REQUIRED_VARS
+            Seccomp_LIBRARIES
+            Seccomp_INCLUDE_DIRS
+    )
+endif()
 
 if (Seccomp_FOUND AND NOT TARGET Seccomp::Seccomp)
     add_library(Seccomp::Seccomp UNKNOWN IMPORTED)

@@ -99,9 +99,9 @@ class Memgraph(ConanFile):
 
     def validate(self):
         """Validate configuration before generation"""
-        # Memgraph only supports Linux
-        if self.settings.os != "Linux":
-            raise ConanInvalidConfiguration("Memgraph only supports Linux")
+        # Memgraph supports Linux and macOS
+        if self.settings.os not in ["Linux", "Macos"]:
+            raise ConanInvalidConfiguration(f"Memgraph only supports Linux and macOS, not {self.settings.os}")
 
         user_toolchain = self.conf.get("tools.cmake.cmaketoolchain:user_toolchain")
         if user_toolchain:

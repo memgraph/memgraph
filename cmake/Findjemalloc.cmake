@@ -19,6 +19,55 @@
 
 
 
+# Search for jemalloc library and include directory
+# Check MG_TOOLCHAIN_ROOT if available, otherwise use CMAKE_PREFIX_PATH
+message(STATUS "Findjemalloc: MG_TOOLCHAIN_ROOT=${MG_TOOLCHAIN_ROOT}")
+message(STATUS "Findjemalloc: CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}")
+
+if(DEFINED MG_TOOLCHAIN_ROOT AND MG_TOOLCHAIN_ROOT)
+  set(JEMALLOC_SEARCH_PATHS
+    ${MG_TOOLCHAIN_ROOT}/lib
+    ${MG_TOOLCHAIN_ROOT}/lib64
+  )
+  set(JEMALLOC_INCLUDE_PATHS
+    ${MG_TOOLCHAIN_ROOT}/include
+  )
+else()
+  # Use CMAKE_PREFIX_PATH which should include toolchain path
+  # Also check /opt/toolchain-v7 as default macOS toolchain location
+  set(JEMALLOC_SEARCH_PATHS
+    /opt/toolchain-v7/lib
+    /opt/toolchain-v7/lib64
+  )
+  set(JEMALLOC_INCLUDE_PATHS
+    /opt/toolchain-v7/include
+  )
+  foreach(path ${CMAKE_PREFIX_PATH})
+    list(APPEND JEMALLOC_SEARCH_PATHS ${path}/lib ${path}/lib64)
+    list(APPEND JEMALLOC_INCLUDE_PATHS ${path}/include)
+  endforeach()
+endif()
+
+message(STATUS "Findjemalloc: Searching in ${JEMALLOC_SEARCH_PATHS}")
+message(STATUS "Findjemalloc: Include paths: ${JEMALLOC_INCLUDE_PATHS}")
+
+find_library(JEMALLOC_LIBRARY
+  NAMES jemalloc libjemalloc
+  PATHS ${JEMALLOC_SEARCH_PATHS}
+  NO_DEFAULT_PATH
+  NO_CMAKE_FIND_ROOT_PATH
+)
+
+find_path(JEMALLOC_INCLUDE_DIR
+  NAMES jemalloc/jemalloc.h
+  PATHS ${JEMALLOC_INCLUDE_PATHS}
+  NO_DEFAULT_PATH
+  NO_CMAKE_FIND_ROOT_PATH
+)
+
+message(STATUS "Findjemalloc: After search - JEMALLOC_LIBRARY=${JEMALLOC_LIBRARY}")
+message(STATUS "Findjemalloc: After search - JEMALLOC_INCLUDE_DIR=${JEMALLOC_INCLUDE_DIR}")
+
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(jemalloc
   FOUND_VAR JEMALLOC_FOUND
