@@ -239,6 +239,14 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(OrderByParallel &op) override {
+    // Start of parallel execution
+    // Set parallel execution mode for cost calculation
+    num_threads_ = op.num_threads_;
+    // NOTE No cost for OrderBy (regardless of parallel vs single threaded)
+    return true;
+  }
+
   bool PostVisit(ScanChunk &op) override {
     // ScanChunk has the output symbol, sp we need to save the stats here
     if (last_index_stats_) {

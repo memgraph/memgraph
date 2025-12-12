@@ -16,6 +16,11 @@ bool ParallelChecker::PreVisit(AggregateParallel &) {
   return false;
 }
 
+bool ParallelChecker::PreVisit(OrderByParallel &) {
+  is_parallelized_ = true;
+  return false;
+}
+
 bool ParallelChecker::Visit(Once &) { return false; }  // NOLINT(hicpp-named-parameter)
 
 void ParallelChecker::CheckParallelized(const LogicalOperator &root) {
