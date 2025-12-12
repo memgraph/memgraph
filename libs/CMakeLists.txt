@@ -253,10 +253,37 @@ mg_build_if_needed(build_mgconsole "mgconsole")
 set(SPDLOG_FMT_EXTERNAL ON)
 
 macro(build_kafka)
-    import_external_library(librdkafka STATIC
-      ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka.a
-      ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include
-      CMAKE_ARGS -DRDKAFKA_BUILD_STATIC=ON
+    # Collect sanitizer flags from current build configuration
+    set(SANITIZER_CXX_FLAGS "")
+    set(SANITIZER_C_FLAGS "")
+    set(SANITIZER_LINK_FLAGS "")
+
+    if(ASAN)
+        set(SANITIZER_CXX_FLAGS "${SANITIZER_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
+        set(SANITIZER_C_FLAGS "${SANITIZER_C_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
+        set(SANITIZER_LINK_FLAGS "${SANITIZER_LINK_FLAGS} -fsanitize=address")
+    endif()
+
+    if(TSAN)
+        set(SANITIZER_CXX_FLAGS "${SANITIZER_CXX_FLAGS} -fsanitize=thread")
+        set(SANITIZER_C_FLAGS "${SANITIZER_C_FLAGS} -fsanitize=thread")
+        set(SANITIZER_LINK_FLAGS "${SANITIZER_LINK_FLAGS} -fsanitize=thread")
+    endif()
+
+    if(UBSAN)
+        set(SANITIZER_CXX_FLAGS "${SANITIZER_CXX_FLAGS} -fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize=vptr,function")
+        set(SANITIZER_C_FLAGS "${SANITIZER_C_FLAGS} -fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize=vptr,function")
+        set(SANITIZER_LINK_FLAGS "${SANITIZER_LINK_FLAGS} -fsanitize=undefined -fno-sanitize=vptr,function")
+        # Pass ubsan ignorelist if it exists
+        if(EXISTS ${CMAKE_SOURCE_DIR}/tools/ubsan.ignore)
+            set(SANITIZER_CXX_FLAGS "${SANITIZER_CXX_FLAGS} -fsanitize-ignorelist=${CMAKE_SOURCE_DIR}/tools/ubsan.ignore")
+            set(SANITIZER_C_FLAGS "${SANITIZER_C_FLAGS} -fsanitize-ignorelist=${CMAKE_SOURCE_DIR}/tools/ubsan.ignore")
+        endif()
+    endif()
+
+    # Build CMAKE_ARGS list with sanitizer flags
+    set(KAFKA_CMAKE_ARGS
+      -DRDKAFKA_BUILD_STATIC=ON
       -DRDKAFKA_BUILD_EXAMPLES=OFF
       -DRDKAFKA_BUILD_TESTS=OFF
       -DWITH_ZSTD=OFF
@@ -264,6 +291,50 @@ macro(build_kafka)
       -DCMAKE_INSTALL_LIBDIR=lib
       -DWITH_SSL=ON
       -DWITH_SASL=ON
+    )
+
+    # Add sanitizer flags if any are set
+    # Note: We append to existing CMAKE_CXX_FLAGS/CMAKE_C_FLAGS to preserve any global flags
+    if(SANITIZER_CXX_FLAGS)
+        string(STRIP "${CMAKE_CXX_FLAGS}" EXISTING_CXX_FLAGS)
+        string(STRIP "${CMAKE_C_FLAGS}" EXISTING_C_FLAGS)
+        if(EXISTING_CXX_FLAGS)
+            list(APPEND KAFKA_CMAKE_ARGS "-DCMAKE_CXX_FLAGS=${EXISTING_CXX_FLAGS} ${SANITIZER_CXX_FLAGS}")
+        else()
+            list(APPEND KAFKA_CMAKE_ARGS "-DCMAKE_CXX_FLAGS=${SANITIZER_CXX_FLAGS}")
+        endif()
+        if(EXISTING_C_FLAGS)
+            list(APPEND KAFKA_CMAKE_ARGS "-DCMAKE_C_FLAGS=${EXISTING_C_FLAGS} ${SANITIZER_C_FLAGS}")
+        else()
+            list(APPEND KAFKA_CMAKE_ARGS "-DCMAKE_C_FLAGS=${SANITIZER_C_FLAGS}")
+        endif()
+    endif()
+
+    if(SANITIZER_LINK_FLAGS)
+        string(STRIP "${CMAKE_EXE_LINKER_FLAGS}" EXISTING_EXE_LINK_FLAGS)
+        string(STRIP "${CMAKE_SHARED_LINKER_FLAGS}" EXISTING_SHARED_LINK_FLAGS)
+        string(STRIP "${CMAKE_MODULE_LINKER_FLAGS}" EXISTING_MODULE_LINK_FLAGS)
+        if(EXISTING_EXE_LINK_FLAGS)
+            list(APPEND KAFKA_CMAKE_ARGS "-DCMAKE_EXE_LINKER_FLAGS=${EXISTING_EXE_LINK_FLAGS} ${SANITIZER_LINK_FLAGS}")
+        else()
+            list(APPEND KAFKA_CMAKE_ARGS "-DCMAKE_EXE_LINKER_FLAGS=${SANITIZER_LINK_FLAGS}")
+        endif()
+        if(EXISTING_SHARED_LINK_FLAGS)
+            list(APPEND KAFKA_CMAKE_ARGS "-DCMAKE_SHARED_LINKER_FLAGS=${EXISTING_SHARED_LINK_FLAGS} ${SANITIZER_LINK_FLAGS}")
+        else()
+            list(APPEND KAFKA_CMAKE_ARGS "-DCMAKE_SHARED_LINKER_FLAGS=${SANITIZER_LINK_FLAGS}")
+        endif()
+        if(EXISTING_MODULE_LINK_FLAGS)
+            list(APPEND KAFKA_CMAKE_ARGS "-DCMAKE_MODULE_LINKER_FLAGS=${EXISTING_MODULE_LINK_FLAGS} ${SANITIZER_LINK_FLAGS}")
+        else()
+            list(APPEND KAFKA_CMAKE_ARGS "-DCMAKE_MODULE_LINKER_FLAGS=${SANITIZER_LINK_FLAGS}")
+        endif()
+    endif()
+
+    import_external_library(librdkafka STATIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka.a
+      ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include
+      CMAKE_ARGS ${KAFKA_CMAKE_ARGS}
       BUILD_BYPRODUCTS
         ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka.a
         ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka++.a)
