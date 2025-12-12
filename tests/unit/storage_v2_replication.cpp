@@ -542,7 +542,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
                       ->DropExistenceConstraint(main.db.storage()->NameToLabel(label),
                                                 main.db.storage()->NameToProperty(property))
                       .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     auto unique_acc = main.db.UniqueAccess();

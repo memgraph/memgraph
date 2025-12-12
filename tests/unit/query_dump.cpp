@@ -866,9 +866,9 @@ TYPED_TEST(DumpTest, EdgeIndicesKeys) {
   {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(
-        unique_acc
-            ->CreateIndex(this->db->storage()->NameToEdgeType("EdgeType"), this->db->storage()->NameToProperty("prop"))
-            .has_value());
+        !unique_acc
+             ->CreateIndex(this->db->storage()->NameToEdgeType("EdgeType"), this->db->storage()->NameToProperty("prop"))
+             .has_value());
     ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 

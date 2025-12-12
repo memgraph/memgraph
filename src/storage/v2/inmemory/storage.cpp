@@ -886,7 +886,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         return {};
       });
   DMG_ASSERT(res, "The commit was not applied!");
-  return res.value();
+  return *std::move(res);
 }
 
 void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp) {
@@ -942,7 +942,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
 std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor::PeriodicCommit(
     CommitArgs commit_args) {
   auto result = PrepareForCommitPhase(std::move(commit_args));
-  // TODO(ivan): handle errors
+
   const auto fatal_error =
       !result.has_value() &&
       std::visit(
@@ -952,7 +952,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
             return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::SyncReplicationError>;
           },
           result.error());
-  if (fatal_error) {
+  if (fatal_error) {  // TODO: this is suspicious, why return like this
     return result;
   }
 
