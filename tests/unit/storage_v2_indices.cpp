@@ -556,7 +556,7 @@ TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
     auto acc2 = this->storage->Access();
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = acc2->DeleteVertex(&*vertex_to_delete);
-    ASSERT_FALSE(!res.has_value());
+    ASSERT_TRUE(res.has_value());
     ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
@@ -580,7 +580,7 @@ TYPED_TEST(IndexTest, LabelIndexRemoveIndexedLabel) {
     EXPECT_THAT(this->GetIds(acc2->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = vertex_to_delete->RemoveLabel(this->label1);
-    ASSERT_FALSE(!res.has_value());
+    ASSERT_TRUE(res.has_value());
     ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
@@ -604,9 +604,9 @@ TYPED_TEST(IndexTest, LabelIndexRemoveAndAddIndexedLabel) {
     EXPECT_THAT(this->GetIds(acc2->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res_remove = vertex_to_delete->RemoveLabel(this->label1);
-    ASSERT_FALSE(!res_remove.has_value());
+    ASSERT_TRUE(res_remove.has_value());
     auto res_add = vertex_to_delete->AddLabel(this->label1);
-    ASSERT_FALSE(!res_add.has_value());
+    ASSERT_TRUE(res_add.has_value());
     ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
@@ -635,14 +635,14 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
     auto acc2 = this->storage->Access();
     auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex2.SetProperty(this->prop_val, memgraph::storage::PropertyValue(10)).has_value());
-    ASSERT_FALSE(!acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
     auto acc3 = this->storage->Access();
     auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex3.SetProperty(this->prop_val, memgraph::storage::PropertyValue(15)).has_value());
-    ASSERT_FALSE(!acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
   }
@@ -1283,7 +1283,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
 
   {
     auto acc = this->CreateIndexAccessor();
-    ASSERT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
+    ASSERT_TRUE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -1677,7 +1677,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
       ASSERT_TRUE(v.AddLabel(this->label1).has_value());
       ASSERT_TRUE(v.SetProperty(this->prop_val, value).has_value());
     }
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Verify that all nodes are in the index.
@@ -1898,7 +1898,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
       ASSERT_TRUE(v.SetProperty(prop_b, b_val).has_value());
     }
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto const inclusive_bound = [](PropertyValue val) { return memgraph::utils::MakeBoundInclusive(val); };
@@ -1989,7 +1989,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
     auto acc2 = this->storage->Access();
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = acc2->DeleteVertex(&*vertex_to_delete);
-    ASSERT_FALSE(!res.has_value());
+    ASSERT_TRUE(res.has_value());
     ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     auto acc3 = this->storage->Access();
@@ -2024,7 +2024,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
     auto acc2 = this->storage->Access();
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = vertex_to_delete->RemoveLabel(this->label1);
-    ASSERT_FALSE(!res.has_value());
+    ASSERT_TRUE(res.has_value());
     ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     auto acc3 = this->storage->Access();
@@ -2058,9 +2058,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
     auto acc2 = this->storage->Access();
     auto target_vertex = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto remove_res = target_vertex->RemoveLabel(this->label1);
-    ASSERT_FALSE(!remove_res.has_value());
+    ASSERT_TRUE(remove_res.has_value());
     auto add_res = target_vertex->AddLabel(this->label1);
-    ASSERT_FALSE(!add_res.has_value());
+    ASSERT_TRUE(add_res.has_value());
     ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
@@ -2087,14 +2087,14 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
     auto acc2 = this->storage->Access();
     auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex2.SetProperty(this->prop_val, memgraph::storage::PropertyValue(10)).has_value());
-    ASSERT_FALSE(!acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
     auto acc3 = this->storage->Access();
     auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex3.SetProperty(this->prop_val, memgraph::storage::PropertyValue(15)).has_value());
-    ASSERT_FALSE(!acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
   }

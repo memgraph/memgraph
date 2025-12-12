@@ -64,13 +64,13 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsPathOnSuccess) {
   {
     auto acc = mem_storage->Access();
     (void)acc->CreateVertex();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test CreateSnapshot returns path on success
   auto result = mem_storage->CreateSnapshot();
 
-  ASSERT_FALSE(!result.has_value()) << "CreateSnapshot should succeed with some data";
+  ASSERT_TRUE(result.has_value()) << "CreateSnapshot should succeed with some data";
 
   auto snapshot_path = result.value();
   ASSERT_TRUE(std::filesystem::exists(snapshot_path)) << "Snapshot file should exist at returned path";
@@ -94,7 +94,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorForReplica) {
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
   auto result = mem_storage->CreateSnapshot();
-  ASSERT_FALSE(!result.has_value());
+  ASSERT_TRUE(result.has_value());
 }
 
 TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
@@ -109,11 +109,11 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
   {
     auto acc = mem_storage->Access();
     (void)acc->CreateVertex();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto result1 = mem_storage->CreateSnapshot();
-  ASSERT_FALSE(!result1.has_value()) << "First CreateSnapshot should succeed";
+  ASSERT_TRUE(result1.has_value()) << "First CreateSnapshot should succeed";
 
   // Try to create another snapshot immediately - should fail with NothingNewToWrite
   auto result2 = mem_storage->CreateSnapshot();
@@ -123,7 +123,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
 
   // Force another snapshot immediately - should succeed
   auto result3 = mem_storage->CreateSnapshot(true);
-  ASSERT_FALSE(!result3.has_value()) << "Third CreateSnapshot should succeed";
+  ASSERT_TRUE(result3.has_value()) << "Third CreateSnapshot should succeed";
 }
 
 TEST_F(CreateSnapshotTest, CreateSnapshotPathFormat) {
@@ -138,12 +138,12 @@ TEST_F(CreateSnapshotTest, CreateSnapshotPathFormat) {
   {
     auto acc = mem_storage->Access();
     (void)acc->CreateVertex();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Create snapshot and verify path format
   auto result = mem_storage->CreateSnapshot();
-  ASSERT_FALSE(!result.has_value()) << "CreateSnapshot should succeed";
+  ASSERT_TRUE(result.has_value()) << "CreateSnapshot should succeed";
 
   auto snapshot_path = result.value();
   auto filename = snapshot_path.filename().string();
@@ -173,7 +173,7 @@ TEST_F(CreateSnapshotTest, BackwardCompatibilityWithErrorHandling) {
 
   // Test that existing error handling code still works
   auto result = mem_storage->CreateSnapshot();
-  ASSERT_FALSE(!result.has_value());
+  ASSERT_TRUE(result.has_value());
 }
 
 TEST_F(CreateSnapshotTest, SuccessCaseWithPathRetrieval) {
@@ -188,7 +188,7 @@ TEST_F(CreateSnapshotTest, SuccessCaseWithPathRetrieval) {
   {
     auto acc = mem_storage->Access();
     (void)acc->CreateVertex();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test the new functionality - getting the path on success

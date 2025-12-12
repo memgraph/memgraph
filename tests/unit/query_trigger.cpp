@@ -158,7 +158,7 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
 
     auto create_edge = [&](auto &from, auto &to) {
       auto maybe_edge = dba.InsertEdge(&from, &to, dba.NameToEdgeType("EDGE"));
-      ASSERT_FALSE(!maybe_edge.has_value());
+      ASSERT_TRUE(maybe_edge.has_value());
       trigger_context_collector.RegisterCreatedObject(*maybe_edge);
       ++edge_count;
     };
@@ -191,7 +191,7 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_OBJECTS,
                         vertex_count + edge_count, dba);
 
-    ASSERT_FALSE(!dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -258,7 +258,7 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     }
 
     dba.AdvanceCommand();
-    ASSERT_FALSE(!dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     trigger_context_collector = memgraph::query::TriggerContextCollector{kAllEventTypes};
@@ -303,7 +303,7 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     --vertex_count;
     --edge_count;
 
-    ASSERT_FALSE(!dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -360,7 +360,7 @@ TYPED_TEST(TriggerContextTest, ReturnCreateOnlyEvent) {
   auto v1 = create_vertex();
   auto v2 = create_vertex();
   auto maybe_edge = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("EDGE"));
-  ASSERT_FALSE(!maybe_edge.has_value());
+  ASSERT_TRUE(maybe_edge.has_value());
   trigger_context_collector.RegisterCreatedObject(*maybe_edge);
   trigger_context_collector.RegisterSetObjectProperty(*maybe_edge, dba.NameToProperty("PROPERTY1"),
                                                       memgraph::query::TypedValue("Value"),

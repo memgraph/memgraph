@@ -472,7 +472,7 @@ TYPED_TEST(DumpTest, SingleVertex) {
   {
     auto dba = this->db->Access();
     CreateVertex(dba.get(), {}, {}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -493,7 +493,7 @@ TYPED_TEST(DumpTest, VertexWithSingleLabel) {
   {
     auto dba = this->db->Access();
     CreateVertex(dba.get(), {"Label1"}, {}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -514,7 +514,7 @@ TYPED_TEST(DumpTest, VertexWithMultipleLabels) {
   {
     auto dba = this->db->Access();
     CreateVertex(dba.get(), {"Label1", "Label 2"}, {}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -537,7 +537,7 @@ TYPED_TEST(DumpTest, VertexWithSingleProperty) {
     auto dba = this->db->Access();
     auto prop_id = dba->NameToProperty("prop");
     CreateVertex(dba.get(), {}, {{prop_id, memgraph::storage::PropertyValue(42)}}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -560,7 +560,7 @@ TYPED_TEST(DumpTest, MultipleVertices) {
     CreateVertex(dba.get(), {}, {}, false);
     CreateVertex(dba.get(), {}, {}, false);
     CreateVertex(dba.get(), {}, {}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -607,7 +607,7 @@ void test_PropertyValue(auto *test) {
     auto prop1_id = dba->NameToProperty("p1");
     auto prop2_id = dba->NameToProperty("p2");
     CreateVertex(dba.get(), {}, {{prop1_id, list_value}, {prop2_id, str_value}}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -649,7 +649,7 @@ TYPED_TEST(DumpTest, SingleEdge) {
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
     CreateEdge(dba.get(), &u, &v, "EdgeType", {}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -678,7 +678,7 @@ TYPED_TEST(DumpTest, MultipleEdges) {
     CreateEdge(dba.get(), &u, &v, "EdgeType", {}, false);
     CreateEdge(dba.get(), &v, &u, "EdgeType 2", {}, false);
     CreateEdge(dba.get(), &v, &w, "EdgeType `!\"", {}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -709,7 +709,7 @@ TYPED_TEST(DumpTest, EdgeWithProperties) {
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
     CreateEdge(dba.get(), &u, &v, "EdgeType", {{prop_id, memgraph::storage::PropertyValue(13)}}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -734,7 +734,7 @@ TYPED_TEST(DumpTest, IndicesKeys) {
     auto dba = this->db->Access();
     auto prop_id = dba->NameToProperty("p");
     CreateVertex(dba.get(), {"Label1", "Label 2"}, {{prop_id, memgraph::storage::PropertyValue(1)}}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -743,7 +743,7 @@ TYPED_TEST(DumpTest, IndicesKeys) {
         !unique_acc
              ->CreateIndex(this->db->storage()->NameToLabel("Label1"), {this->db->storage()->NameToProperty("prop")})
              .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
@@ -751,7 +751,7 @@ TYPED_TEST(DumpTest, IndicesKeys) {
         !unique_acc
              ->CreateIndex(this->db->storage()->NameToLabel("Label 2"), {this->db->storage()->NameToProperty("prop `")})
              .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -777,18 +777,18 @@ TYPED_TEST(DumpTest, CompositeIndicesKeys) {
     auto dba = this->db->Access();
     auto prop_id = dba->NameToProperty("p");
     CreateVertex(dba.get(), {"Label1", "Label 2"}, {{prop_id, memgraph::storage::PropertyValue(1)}}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
     auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(!unique_acc
-                      ->CreateIndex(
-                          this->db->storage()->NameToLabel("Label1"),
+    ASSERT_TRUE(
+        unique_acc
+            ->CreateIndex(this->db->storage()->NameToLabel("Label1"),
                           {this->db->storage()->NameToProperty("prop_a"), this->db->storage()->NameToProperty("prop_b"),
                            this->db->storage()->NameToProperty("prop_c")})
-                      .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+            .has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -814,19 +814,19 @@ TYPED_TEST(DumpTest, CompositeNestedIndicesKeys) {
     auto dba = this->db->Access();
     auto prop_id = dba->NameToProperty("p");
     CreateVertex(dba.get(), {"Label1", "Label 2"}, {{prop_id, memgraph::storage::PropertyValue(1)}}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
     auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(!unique_acc
-                      ->CreateIndex(this->db->storage()->NameToLabel("Label1"),
-                                    {ms::PropertyPath{this->db->storage()->NameToProperty("prop_a"),
-                                                      this->db->storage()->NameToProperty("prop_b")},
-                                     ms::PropertyPath{this->db->storage()->NameToProperty("prop_a"),
-                                                      this->db->storage()->NameToProperty("prop_c")}})
-                      .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc
+                    ->CreateIndex(this->db->storage()->NameToLabel("Label1"),
+                                  {ms::PropertyPath{this->db->storage()->NameToProperty("prop_a"),
+                                                    this->db->storage()->NameToProperty("prop_b")},
+                                   ms::PropertyPath{this->db->storage()->NameToProperty("prop_a"),
+                                                    this->db->storage()->NameToProperty("prop_c")}})
+                    .has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -854,13 +854,13 @@ TYPED_TEST(DumpTest, EdgeIndicesKeys) {
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
     CreateEdge(dba.get(), &u, &v, "EdgeType", {}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
     auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(!unique_acc->CreateIndex(this->db->storage()->NameToEdgeType("EdgeType")).has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->CreateIndex(this->db->storage()->NameToEdgeType("EdgeType")).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -869,13 +869,13 @@ TYPED_TEST(DumpTest, EdgeIndicesKeys) {
         !unique_acc
              ->CreateIndex(this->db->storage()->NameToEdgeType("EdgeType"), this->db->storage()->NameToProperty("prop"))
              .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
     auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(!unique_acc->CreateGlobalEdgeIndex(this->db->storage()->NameToProperty("prop")).has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->CreateGlobalEdgeIndex(this->db->storage()->NameToProperty("prop")).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -905,7 +905,7 @@ TYPED_TEST(DumpTest, PointIndices) {
     auto prop_id = dba->NameToProperty("p");
     auto point = memgraph::storage::Point2d{memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1., 1.};
     CreateVertex(dba.get(), {"Label1", "Label 2"}, {{prop_id, memgraph::storage::PropertyValue(point)}}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -914,15 +914,15 @@ TYPED_TEST(DumpTest, PointIndices) {
         !unique_acc
              ->CreatePointIndex(this->db->storage()->NameToLabel("Label1"), this->db->storage()->NameToProperty("prop"))
              .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(!unique_acc
-                      ->CreatePointIndex(this->db->storage()->NameToLabel("Label 2"),
-                                         this->db->storage()->NameToProperty("prop `"))
-                      .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc
+                    ->CreatePointIndex(this->db->storage()->NameToLabel("Label 2"),
+                                       this->db->storage()->NameToProperty("prop `"))
+                    .has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -959,7 +959,7 @@ TYPED_TEST(DumpTest, VectorIndices) {
     memgraph::storage::PropertyValue property_value(std::vector<memgraph::storage::PropertyValue>{
         memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
     CreateVertex(dba.get(), {"Label1", "Label 2"}, {{vector_property_id, property_value}}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -972,8 +972,8 @@ TYPED_TEST(DumpTest, VectorIndices) {
                                                          capacity,
                                                          scalar_kind};
     auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(!unique_acc->CreateVectorIndex(spec).has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->CreateVectorIndex(spec).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -986,8 +986,8 @@ TYPED_TEST(DumpTest, VectorIndices) {
                                                          capacity,
                                                          scalar_kind};
     auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(!unique_acc->CreateVectorIndex(spec).has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->CreateVectorIndex(spec).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1027,7 +1027,7 @@ TYPED_TEST(DumpTest, VectorEdgeIndices) {
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
     CreateEdge(dba.get(), &u, &v, "EdgeType", {{vector_property_id, property_value}}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1040,8 +1040,8 @@ TYPED_TEST(DumpTest, VectorEdgeIndices) {
                                                              capacity,
                                                              scalar_kind};
     auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(!unique_acc->CreateVectorEdgeIndex(spec).has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->CreateVectorEdgeIndex(spec).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1068,14 +1068,14 @@ TYPED_TEST(DumpTest, ExistenceConstraints) {
     auto dba = this->db->Access();
     auto prop_id = dba->NameToProperty("prop");
     CreateVertex(dba.get(), {"L`abel 1"}, {{prop_id, memgraph::storage::PropertyValue(1)}}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
     auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("L`abel 1"),
                                                      this->db->storage()->NameToProperty("prop"));
-    ASSERT_FALSE(!res.has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(res.has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1103,7 +1103,7 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
     CreateVertex(dba.get(), {"Label"},
                  {{prop_id, memgraph::storage::PropertyValue(2)}, {prop2_id, memgraph::storage::PropertyValue(2)}},
                  false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
@@ -1112,7 +1112,7 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
         {this->db->storage()->NameToProperty("prop"), this->db->storage()->NameToProperty("prop2")});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1150,7 +1150,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
         dba.get(), {"Label1", "Label2"},
         {{prop1_id, memgraph::storage::PropertyValue(prop1)}, {prop2_id, memgraph::storage::PropertyValue("$'\t'")}});
 
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   memgraph::storage::Config config{};
@@ -1260,14 +1260,14 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                               memgraph::storage::TemporalType::Duration,
                               memgraph::utils::Duration({-3, -4, -5, -6, -10, -11}).microseconds))}});
     CreateEdge(dba.get(), &w, &z, "ZonedDateTime", {{time_id, memgraph::storage::PropertyValue(zdt)}});
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
     auto ret = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("Person"),
                                                      this->db->storage()->NameToProperty("name"));
-    ASSERT_FALSE(!ret.has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(ret.has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
@@ -1275,7 +1275,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                                                   {this->db->storage()->NameToProperty("name")});
     ASSERT_TRUE(ret.has_value());
     ASSERT_EQ(ret.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1284,32 +1284,32 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
         !unique_acc
              ->CreateIndex(this->db->storage()->NameToLabel("Person"), {this->db->storage()->NameToProperty("id")})
              .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(!unique_acc
-                      ->CreateIndex(this->db->storage()->NameToLabel("Person"),
-                                    {this->db->storage()->NameToProperty("unexisting_property")})
-                      .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc
+                    ->CreateIndex(this->db->storage()->NameToLabel("Person"),
+                                  {this->db->storage()->NameToProperty("unexisting_property")})
+                    .has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(!unique_acc
-                      ->CreateTextIndex(memgraph::storage::TextIndexSpec{
-                          "text_index_without_properties", this->db->storage()->NameToLabel("Person"), {}})
-                      .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc
+                    ->CreateTextIndex(memgraph::storage::TextIndexSpec{
+                        "text_index_without_properties", this->db->storage()->NameToLabel("Person"), {}})
+                    .has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(!unique_acc
-                      ->CreateTextIndex(memgraph::storage::TextIndexSpec{"text_index_with_properties",
-                                                                         this->db->storage()->NameToLabel("Person"),
-                                                                         {this->db->storage()->NameToProperty("name")}})
-                      .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc
+                    ->CreateTextIndex(memgraph::storage::TextIndexSpec{"text_index_with_properties",
+                                                                       this->db->storage()->NameToLabel("Person"),
+                                                                       {this->db->storage()->NameToProperty("name")}})
+                    .has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   // At the moment, text index on edges isn't supported for on-disk storage
   if constexpr (std::is_same_v<StorageTypes, memgraph::storage::InMemoryStorage>) {
@@ -1320,7 +1320,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                ->CreateTextEdgeIndex(memgraph::storage::TextEdgeIndexSpec{
                    "text_edge_index_without_properties", this->db->storage()->NameToEdgeType("RELATES_TO"), {}})
                .has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto unique_acc = this->db->UniqueAccess();
@@ -1331,7 +1331,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                    this->db->storage()->NameToEdgeType("RELATES_TO"),
                    {this->db->storage()->NameToProperty("title"), this->db->storage()->NameToProperty("content")}})
                .has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -1396,7 +1396,7 @@ TYPED_TEST(DumpTest, ExecuteDumpDatabase) {
   {
     auto dba = this->db->Access();
     CreateVertex(dba.get(), {}, {}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1462,7 +1462,7 @@ TYPED_TEST(DumpTest, ExecuteDumpDatabaseInMulticommandTransaction) {
   {
     auto dba = this->db->Access();
     CreateVertex(dba.get(), {}, {}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Verify that nothing is dumped.
@@ -1513,15 +1513,15 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
           !unique_acc
                ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), {this->db->storage()->NameToProperty("name")})
                .has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto unique_acc = this->db->UniqueAccess();
-      ASSERT_FALSE(!unique_acc
-                        ->CreateIndex(this->db->storage()->NameToLabel("PERSON"),
-                                      {this->db->storage()->NameToProperty("surname")})
-                        .has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc
+                      ->CreateIndex(this->db->storage()->NameToLabel("PERSON"),
+                                    {this->db->storage()->NameToProperty("surname")})
+                      .has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Create existence constraints
@@ -1529,15 +1529,15 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
       auto unique_acc = this->db->UniqueAccess();
       auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
                                                        this->db->storage()->NameToProperty("name"));
-      ASSERT_FALSE(!res.has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(res.has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto unique_acc = this->db->UniqueAccess();
       auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
                                                        this->db->storage()->NameToProperty("surname"));
-      ASSERT_FALSE(!res.has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(res.has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Create unique constraints
@@ -1547,7 +1547,7 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
                                                     {this->db->storage()->NameToProperty("name")});
       ASSERT_TRUE(res.has_value());
       ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto unique_acc = this->db->UniqueAccess();
@@ -1555,7 +1555,7 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
                                                     {this->db->storage()->NameToProperty("surname")});
       ASSERT_TRUE(res.has_value());
       ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     auto dba = this->db->Access();
@@ -1585,7 +1585,7 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
     CreateEdge(dba.get(), &p1, &p3, "REL", {}, false);
     CreateEdge(dba.get(), &p4, &p5, "REL", {}, false);
     CreateEdge(dba.get(), &p2, &p5, "REL", {}, false);
-    ASSERT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ResultStreamFaker stream(this->db->storage());
@@ -1751,8 +1751,8 @@ TYPED_TEST(DumpTest, DumpTypeConstraints) {
     auto unique_acc = this->db->UniqueAccess();
     auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
                                                      this->db->storage()->NameToProperty("name"));
-    ASSERT_FALSE(!res.has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(res.has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
@@ -1760,23 +1760,23 @@ TYPED_TEST(DumpTest, DumpTypeConstraints) {
                                                   {this->db->storage()->NameToProperty("name")});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
     auto res = unique_acc->CreateTypeConstraint(this->db->storage()->NameToLabel("PERSON"),
                                                 this->db->storage()->NameToProperty("name"),
                                                 memgraph::storage::TypeConstraintKind::INTEGER);
-    ASSERT_FALSE(!res.has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(res.has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
     auto res = unique_acc->CreateTypeConstraint(this->db->storage()->NameToLabel("PERSON"),
                                                 this->db->storage()->NameToProperty("surname"),
                                                 memgraph::storage::TypeConstraintKind::STRING);
-    ASSERT_FALSE(!res.has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(res.has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ResultStreamFaker stream(this->db->storage());
