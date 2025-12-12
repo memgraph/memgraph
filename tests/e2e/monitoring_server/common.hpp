@@ -40,6 +40,7 @@ namespace websocket = beast::websocket;
 namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 namespace ssl = boost::asio::ssl;
+namespace r = std::ranges;
 
 inline constexpr std::array kSupportedLogLevels{"debug", "trace", "info", "warning", "error", "critical"};
 

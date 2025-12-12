@@ -13,6 +13,8 @@
 
 #include <nlohmann/json.hpp>
 
+namespace r = std::ranges;
+
 std::string GetAuthenticationJSON(const Credentials &creds) {
   nlohmann::json json_creds;
   json_creds["username"] = creds.username;

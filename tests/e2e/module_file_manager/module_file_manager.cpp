@@ -19,6 +19,8 @@
 #include "utils/logging.hpp"
 #include "utils/timer.hpp"
 
+namespace r = std::ranges;
+
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
 DEFINE_uint64(timeout, 120, "Timeout seconds");
 DEFINE_bool(multi_db, false, "Run test in multi db environment");
