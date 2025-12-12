@@ -206,14 +206,14 @@ TEST(DBMS_Handler, Delete) {
     db1_acc.reset();
     ASSERT_FALSE(db1_acc);
     auto del = dbms.TryDelete("db1");
-    ASSERT_FALSE(!del.has_value()) << (int)del.error();
+    ASSERT_TRUE(del.has_value()) << (int)del.error();
     auto del2 = dbms.TryDelete("db1");
     ASSERT_TRUE(!del2.has_value() && del2.error() == memgraph::dbms::DeleteError::NON_EXISTENT);
   }
   {
     const auto dirs = GetDirs(db_dir);
     auto del = dbms.TryDelete("db3");
-    ASSERT_FALSE(!del.has_value());
+    ASSERT_TRUE(del.has_value());
     const auto dirs_wo_db3 = GetDirs(db_dir);
     ASSERT_EQ(dirs_wo_db3.size(), dirs.size() - 1);
   }

@@ -93,7 +93,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
     EXPECT_FALSE(!res.has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->storage->Access();
@@ -104,7 +104,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
     EXPECT_TRUE(!res.has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->storage->Access();
@@ -115,7 +115,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateExistenceConstraint(this->label2, this->prop1);
     EXPECT_FALSE(!res.has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->storage->Access();
@@ -126,12 +126,12 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     EXPECT_FALSE(!unique_acc->DropExistenceConstraint(this->label1, this->prop1).has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     EXPECT_TRUE(!unique_acc->DropExistenceConstraint(this->label1, this->prop1).has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->storage->Access();
@@ -141,12 +141,12 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     EXPECT_FALSE(!unique_acc->DropExistenceConstraint(this->label2, this->prop1).has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     EXPECT_TRUE(!unique_acc->DropExistenceConstraint(this->label2, this->prop2).has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->storage->Access();
@@ -157,7 +157,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateExistenceConstraint(this->label2, this->prop1);
     EXPECT_FALSE(!res.has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->storage->Access();
@@ -177,12 +177,12 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateFailure1) {
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.error()),
         (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, this->label1, std::set<PropertyId>{this->prop1}}));
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs())
-                      .has_value());  // TODO: Check if we are committing here?
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs())
+                    .has_value());  // TODO: Check if we are committing here?
   }
   {
     auto acc = this->storage->Access();
@@ -210,12 +210,12 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateFailure2) {
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.error()),
         (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, this->label1, std::set<PropertyId>{this->prop1}}));
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs())
-                      .has_value());  // TODO: Check if we are committing here?
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs())
+                    .has_value());  // TODO: Check if we are committing here?
   }
   {
     auto acc = this->storage->Access();
@@ -247,7 +247,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
 
     auto res = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.error()),
         (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, this->label1, std::set<PropertyId>{this->prop1}}));
@@ -268,7 +268,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
     }
 
     auto res = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.error()),
         (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, this->label1, std::set<PropertyId>{this->prop1}}));
@@ -287,7 +287,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
   }
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    ASSERT_FALSE(!unique_acc->DropExistenceConstraint(this->label1, this->prop1).has_value());
+    ASSERT_TRUE(unique_acc->DropExistenceConstraint(this->label1, this->prop1).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -409,12 +409,12 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateFailure1) {
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.error()),
         (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set<PropertyId>{this->prop1}}));
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs())
-                      .has_value());  // TODO: Check if we are committing here?
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs())
+                    .has_value());  // TODO: Check if we are committing here?
   }
 
   {
@@ -449,12 +449,12 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateFailure2) {
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.error()),
         (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set<PropertyId>{this->prop1}}));
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs())
-                      .has_value());  // TODO: Check if we are committing here?
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs())
+                    .has_value());  // TODO: Check if we are committing here?
   }
 
   {
@@ -648,7 +648,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit1) {
     ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex2.SetProperty(this->prop1, PropertyValue(1)));
     auto res = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.error()),
         (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set<PropertyId>{this->prop1}}));
@@ -694,7 +694,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit2) {
 
     ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     auto res = acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.error()),
         (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set<PropertyId>{this->prop1}}));
@@ -743,12 +743,12 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit3) {
     ASSERT_NO_ERROR(vertex4->SetProperty(this->prop1, PropertyValue(1)));
 
     auto res = acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.error()),
         (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set<PropertyId>{this->prop1}}));
     res = acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.error()),
         (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set<PropertyId>{this->prop1}}));
@@ -824,7 +824,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsLabelAlteration) {
     ASSERT_NO_ERROR(vertex2->AddLabel(this->label1));
 
     auto res = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     EXPECT_EQ(std::get<ConstraintViolation>(res.error()),
               (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set{this->prop1}}));
   }
@@ -859,7 +859,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsLabelAlteration) {
     ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     auto res = acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     EXPECT_EQ(std::get<ConstraintViolation>(res.error()),
               (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set{this->prop1}}));
   }
@@ -983,7 +983,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsMultipleProperties) {
     auto vertex2 = acc->FindVertex(gid2, View::OLD);
     ASSERT_NO_ERROR(vertex2->SetProperty(this->prop2, PropertyValue(2)));
     auto res = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     EXPECT_EQ(std::get<ConstraintViolation>(res.error()),
               (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1,
                                    std::set<PropertyId>{this->prop1, this->prop2}}));
@@ -1103,7 +1103,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertRemoveAbortInsert) {
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue(2)));
 
     auto res = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.error()),
         (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set{this->prop1, this->prop2}}));
@@ -1146,7 +1146,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsDeleteVertexSetProperty) {
     ASSERT_NO_ERROR(vertex1->SetProperty(this->prop1, PropertyValue(2)));
 
     auto res = acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     EXPECT_EQ(std::get<ConstraintViolation>(res.error()),
               (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set{this->prop1}}));
 
@@ -1257,14 +1257,14 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsClearOldData) {
     auto acc2 = this->storage->Access();
     auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex2.SetProperty(this->prop1, memgraph::storage::PropertyValue(2)).has_value());
-    ASSERT_FALSE(!acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
     auto acc3 = this->storage->Access();
     auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex3.SetProperty(this->prop1, memgraph::storage::PropertyValue(10)).has_value());
-    ASSERT_FALSE(!acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
   }
@@ -1385,7 +1385,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsDuplicate) {
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
   }
 }
 
@@ -1427,7 +1427,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsAddConstraintLastWithViolation) {
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
   }
 }
 
@@ -1535,7 +1535,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsDrop) {
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->DropTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
   }
 
   {

@@ -149,8 +149,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create enum.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(!unique_acc->CreateEnum("enum1"s, std::vector{"v1"s, "v2"s}).has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->CreateEnum("enum1"s, std::vector{"v1"s, "v2"s}).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Create enum property value after enum is registered
@@ -158,28 +158,28 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // alter enum.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(!unique_acc->EnumAlterAdd("enum1", "v3").has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->EnumAlterAdd("enum1", "v3").has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label index.
       auto acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(!acc->CreateIndex(label_unindexed).has_value());
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->CreateIndex(label_unindexed).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label index statistics.
       auto acc = store->Access();
       acc->SetIndexStats(label_unindexed, memgraph::storage::LabelIndexStats{1, 2});
       ASSERT_TRUE(acc->GetIndexStats(label_unindexed));
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label+property index.
 
       auto acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(!acc->CreateIndex(label_indexed, {property_id}).has_value());
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->CreateIndex(label_indexed, {property_id}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label+property index statistics.
@@ -187,13 +187,13 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       acc->SetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_id}},
                          memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_id}}));
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label+properties index.
       auto acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(!acc->CreateIndex(label_indexed, {property_b, property_a, property_c}).has_value());
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->CreateIndex(label_indexed, {property_b, property_a, property_c}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label+properties index statistics.
@@ -206,14 +206,14 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_b},
                                                                memgraph::storage::PropertyPath{property_a},
                                                                memgraph::storage::PropertyPath{property_c}}));
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create nested index.
       auto acc = store->ReadOnlyAccess();
       ASSERT_FALSE(
           !acc->CreateIndex(label_indexed, {{nested1_property, nested2_property, nested3_property}}).has_value());
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create nested index statistics.
@@ -224,43 +224,43 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{
                                                         nested1_property, nested2_property, nested3_property}}));
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create point index.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(!unique_acc->CreatePointIndex(label_indexed, property_point).has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->CreatePointIndex(label_indexed, property_point).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     {
       // Create vector index.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(!unique_acc->CreateVectorIndex(vector_index_spec).has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->CreateVectorIndex(vector_index_spec).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     {
       // Create text index.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(!unique_acc
-                        ->CreateTextIndex(
-                            memgraph::storage::TextIndexSpec{"text_index", label_indexed, std::vector{property_text}})
-                        .has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc
+                      ->CreateTextIndex(
+                          memgraph::storage::TextIndexSpec{"text_index", label_indexed, std::vector{property_text}})
+                      .has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     {
       // Create existence constraint.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(!unique_acc->CreateExistenceConstraint(label_unindexed, property_id).has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->CreateExistenceConstraint(label_unindexed, property_id).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create unique constraint.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(!unique_acc->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create type constraint.
@@ -268,7 +268,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_FALSE(
           !unique_acc->CreateTypeConstraint(label_indexed, property_point, memgraph::storage::TypeConstraintKind::POINT)
                .has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Create vertices.
@@ -339,7 +339,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         ASSERT_TRUE(vertex.SetProperty(property_text, text_property_value).has_value());
       }
 
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value()) << i;
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value()) << i;
     }
 
     // Create edges.
@@ -372,10 +372,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         }
       } else {
         auto ret = edge.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
-        ASSERT_TRUE(!ret.has_value());
+        ASSERT_FALSE(ret.has_value());
         ASSERT_EQ(ret.error(), memgraph::storage::Error::PROPERTIES_DISABLED);
       }
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -389,21 +389,21 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create label index.
       auto acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(!acc->CreateIndex(label_unused).has_value());
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->CreateIndex(label_unused).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label index statistics.
       auto acc = store->Access();
       acc->SetIndexStats(label_unused, memgraph::storage::LabelIndexStats{123, 9.87});
       ASSERT_TRUE(acc->GetIndexStats(label_unused));
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label+property index.
       auto acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(!acc->CreateIndex(label_indexed, {property_count}).has_value());
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->CreateIndex(label_indexed, {property_count}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label+property index statistics.
@@ -411,21 +411,21 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       acc->SetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_count}},
                          memgraph::storage::LabelPropertyIndexStats{456798, 312345, 12312312.2, 123123.2, 67876.9});
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_count}}));
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     {
       // Create existence constraint.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(!unique_acc->CreateExistenceConstraint(label_unused, property_count).has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->CreateExistenceConstraint(label_unused, property_count).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     {
       // Create unique constraint.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(!unique_acc->CreateUniqueConstraint(label_unused, {property_count}).has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->CreateUniqueConstraint(label_unused, {property_count}).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Storage accessor.
@@ -479,8 +479,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create edge-type index.
       auto read_only_acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(!read_only_acc->CreateIndex(edge_type).has_value());
-      ASSERT_FALSE(!read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(read_only_acc->CreateIndex(edge_type).has_value());
+      ASSERT_TRUE(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -489,8 +489,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create edge-type index.
       auto acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(!acc->CreateIndex(edge_type, prop).has_value());
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->CreateIndex(edge_type, prop).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -513,8 +513,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create edge-type vector index.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(!unique_acc->CreateVectorEdgeIndex(vector_edge_index_spec).has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->CreateVectorEdgeIndex(vector_edge_index_spec).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -522,11 +522,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
                            memgraph::storage::PropertyId prop) {
     const auto text_edge_index_name = "text_edge_index"s;
     auto unique_acc = store->UniqueAccess();
-    ASSERT_FALSE(!unique_acc
-                      ->CreateTextEdgeIndex(
-                          memgraph::storage::TextEdgeIndexSpec{text_edge_index_name, edge_type, std::vector{prop}})
-                      .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc
+                    ->CreateTextEdgeIndex(
+                        memgraph::storage::TextEdgeIndexSpec{text_edge_index_name, edge_type, std::vector{prop}})
+                    .has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   void VerifyDataset(memgraph::storage::Storage *store, DatasetType type, bool properties_on_edges,
@@ -1439,7 +1439,7 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -1482,7 +1482,7 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -1560,7 +1560,7 @@ TEST_P(DurabilityTest, SnapshotFallback) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -1580,7 +1580,7 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -1673,7 +1673,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }  // Snapshot made on exit
 
   ASSERT_GE(GetSnapshotsList().size(), 1);
@@ -1741,7 +1741,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -1827,7 +1827,7 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -1846,7 +1846,7 @@ TEST_P(DurabilityTest, SnapshotBackup) {
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -1917,7 +1917,7 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -2004,7 +2004,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
           }
         }
       }
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -2029,7 +2029,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -2074,7 +2074,7 @@ TEST_P(DurabilityTest, WalBasic) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -2099,7 +2099,7 @@ TEST_P(DurabilityTest, WalBackup) {
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2204,7 +2204,7 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -2249,7 +2249,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
     auto v3 = acc->CreateVertex();
     gid_v3 = v3.Gid();
     ASSERT_TRUE(v3.SetProperty(db.storage()->NameToProperty("v3"), memgraph::storage::PropertyValue(42)).has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2353,7 +2353,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -2383,13 +2383,13 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     }();  // iile
     for (const auto &index : indices.label) {
       auto acc = db.Access(memgraph::storage::StorageAccessType::READ);
-      ASSERT_FALSE(!acc->DropIndex(index).has_value());
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->DropIndex(index).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     for (const auto &[label, properties] : indices.label_properties) {
       auto acc = db.Access(memgraph::storage::StorageAccessType::READ);
-      ASSERT_FALSE(!acc->DropIndex(label, std::vector(properties)).has_value());
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->DropIndex(label, std::vector(properties)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     auto constraints = [&] {
       auto acc = db.Access();
@@ -2399,20 +2399,20 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     }();  // iile
     for (const auto &constraint : constraints.existence) {
       auto unique_acc = db.UniqueAccess();
-      ASSERT_FALSE(!unique_acc->DropExistenceConstraint(constraint.first, constraint.second).has_value());
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->DropExistenceConstraint(constraint.first, constraint.second).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     for (const auto &constraint : constraints.unique) {
       auto unique_acc = db.UniqueAccess();
       ASSERT_EQ(unique_acc->DropUniqueConstraint(constraint.first, constraint.second),
                 memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
-      ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     auto acc = db.Access();
     for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
       ASSERT_TRUE(acc->DetachDeleteVertex(&vertex).has_value());
     }
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2450,7 +2450,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -2506,9 +2506,9 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     }
 
     // Commit transaction 3, then 1, then 2.
-    ASSERT_FALSE(!acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-    ASSERT_FALSE(!acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-    ASSERT_FALSE(!acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2594,7 +2594,7 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -2626,7 +2626,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
       if (!*has_indexed && !*has_unindexed) continue;
       ASSERT_TRUE(acc->DetachDeleteVertex(&vertex).has_value());
     }
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2651,7 +2651,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -2731,7 +2731,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
       for (uint64_t i = 0; i < kExtraItems; ++i) {
         acc->CreateVertex();
       }
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -2764,7 +2764,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -2789,7 +2789,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2821,7 +2821,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
       auto acc = db.Access();
       auto vertex = acc->CreateVertex();
       gids.push_back(vertex.Gid());
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     for (uint64_t i = 0; i < kNumVertices; ++i) {
       auto acc = db.Access();
@@ -2830,7 +2830,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
       ASSERT_TRUE(
           vertex->SetProperty(db.storage()->NameToProperty("nandare"), memgraph::storage::PropertyValue("haihaihai!"))
               .has_value());
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -2892,7 +2892,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2924,7 +2924,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
       auto acc = db.Access();
       auto vertex = acc->CreateVertex();
       gids.push_back(vertex.Gid());
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     for (uint64_t i = 0; i < kNumVertices; ++i) {
       auto acc = db.Access();
@@ -2933,7 +2933,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
       ASSERT_TRUE(
           vertex->SetProperty(db.storage()->NameToProperty("nandare"), memgraph::storage::PropertyValue("haihaihai!"))
               .has_value());
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -3027,7 +3027,7 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3081,7 +3081,7 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
     ASSERT_TRUE(acc->DeleteEdge(&edge2).has_value());
     ASSERT_TRUE(acc->DeleteVertex(&vertex2).has_value());
     ASSERT_TRUE(acc->DeleteVertex(&vertex3).has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -3113,7 +3113,7 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3162,7 +3162,7 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3237,7 +3237,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3325,7 +3325,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
       ASSERT_TRUE(vertex.SetProperty(db.storage()->NameToProperty("meaning"), memgraph::storage::PropertyValue(42))
                       .has_value());
     }
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -3367,7 +3367,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3392,7 +3392,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -3426,7 +3426,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
     while (timer.Elapsed().count() < 13.0) {
       auto acc = db.Access();
       acc->CreateVertex();
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       ++items_created;
     }
   }
@@ -3501,7 +3501,7 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
   }
 
@@ -3557,7 +3557,7 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3669,7 +3669,7 @@ TEST_P(DurabilityTest, ParallelSnapshotWalRecovery) {
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
     // Manually create database in the middle
-    ASSERT_FALSE(!static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).has_value());
+    ASSERT_TRUE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).has_value());
     CreateExtendedDataset(db.storage());
     VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
   }
@@ -3815,7 +3815,7 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3864,7 +3864,7 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithEdgeTypeIndices) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3910,7 +3910,7 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithoutEdgeTypeIndices) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3960,7 +3960,7 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
     auto new_edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(new_edge.has_value());
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = db.Access();
@@ -3971,7 +3971,7 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
     edge = acc->FindEdge(memgraph::storage::Gid::FromUint(kNumBaseEdges + 1), memgraph::storage::View::OLD);
     ASSERT_FALSE(edge.has_value());
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3996,7 +3996,7 @@ TEST_F(DurabilityTest, TtlDurability) {
       };
       acc->ConfigureTtl(ttl_config);
       acc->StartTtl();
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Verify TTL is configured correctly
@@ -4047,7 +4047,7 @@ TEST_F(DurabilityTest, TtlDurability) {
       };
       acc->ConfigureTtl(ttl_config);
       acc->StartTtl();
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Verify TTL is configured correctly
@@ -4071,7 +4071,7 @@ TEST_F(DurabilityTest, TtlDurability) {
     {
       auto acc = db.UniqueAccess();
       acc->DisableTtl();
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Verify TTL is disabled
@@ -4100,7 +4100,7 @@ TEST_F(DurabilityTest, TtlDurability) {
 
       // Start with TTL disabled
       acc->DisableTtl();
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto acc = db.UniqueAccess();
@@ -4113,21 +4113,21 @@ TEST_F(DurabilityTest, TtlDurability) {
       };
       acc->ConfigureTtl(ttl_config1);
       acc->StartTtl();
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto acc = db.UniqueAccess();
 
       // Stop TTL
       acc->StopTtl();
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto acc = db.UniqueAccess();
 
       // Re-enable TTL
       acc->StartTtl();
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto acc = db.UniqueAccess();
@@ -4140,7 +4140,7 @@ TEST_F(DurabilityTest, TtlDurability) {
       };
       acc->ConfigureTtl(ttl_config3);
       acc->StartTtl();
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -4194,7 +4194,7 @@ TEST_F(DurabilityTest, TtlDurability) {
       };
       acc->ConfigureTtl(ttl_config);
       acc->StartTtl();
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       ASSERT_TRUE(db.storage()->ttl_.Running());
       ASSERT_FALSE(db.storage()->ttl_.Paused());
       ASSERT_TRUE(db.storage()->ttl_.Enabled());
@@ -4203,7 +4203,7 @@ TEST_F(DurabilityTest, TtlDurability) {
       auto acc = db.UniqueAccess();
       // Stop TTL
       acc->StopTtl();
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       ASSERT_TRUE(db.storage()->ttl_.Running());
       ASSERT_TRUE(db.storage()->ttl_.Paused());
       ASSERT_TRUE(db.storage()->ttl_.Enabled());
@@ -4253,7 +4253,7 @@ TEST_F(DurabilityTest, TtlDurability) {
       ASSERT_TRUE(db.storage()->ttl_.Enabled());
     }
 
-    ASSERT_FALSE(!static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).has_value());
+    ASSERT_TRUE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).has_value());
   }
 
   {
@@ -4282,7 +4282,7 @@ TEST_F(DurabilityTest, TtlDurability) {
     {
       auto acc = db.UniqueAccess();
       acc->StartTtl();
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       ASSERT_TRUE(db.storage()->ttl_.Running());
       ASSERT_FALSE(db.storage()->ttl_.Paused());
       ASSERT_TRUE(db.storage()->ttl_.Enabled());
@@ -4312,7 +4312,7 @@ TEST_F(DurabilityTest, TtlDurability) {
       ASSERT_TRUE(db.storage()->ttl_.Enabled());
     }
 
-    ASSERT_FALSE(!static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).has_value());
+    ASSERT_TRUE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).has_value());
   }
   // Only snapshot
   {
@@ -4360,13 +4360,13 @@ TEST_P(DurabilityTest, CreateSnapshotReturnsPath) {
   {
     auto acc = mem_storage->Access();
     (void)acc->CreateVertex();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test CreateSnapshot returns path on success
   auto result = mem_storage->CreateSnapshot();
 
-  ASSERT_FALSE(!result.has_value()) << "CreateSnapshot should succeed with some data";
+  ASSERT_TRUE(result.has_value()) << "CreateSnapshot should succeed with some data";
 
   auto snapshot_path = result.value();
   ASSERT_TRUE(std::filesystem::exists(snapshot_path)) << "Snapshot file should exist at returned path";
@@ -4398,5 +4398,5 @@ TEST_P(DurabilityTest, CreateSnapshotReturnsErrorForReplica) {
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
   auto result = mem_storage->CreateSnapshot();
 
-  ASSERT_FALSE(!result.has_value());
+  ASSERT_TRUE(result.has_value());
 }

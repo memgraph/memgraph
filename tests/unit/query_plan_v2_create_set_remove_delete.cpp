@@ -124,8 +124,8 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
   auto label = this->db->NameToLabel("label");
   {
     auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(!unique_acc->CreateIndex(label).has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->CreateIndex(label).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto dba = this->db->Access();

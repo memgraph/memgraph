@@ -19,7 +19,7 @@ TEST(EnumStore, BasicTests) {
   auto sut = EnumStore{};
 
   auto result = sut.RegisterEnum("Location", {"Zagreb"s, "York"s});
-  ASSERT_FALSE(!result.has_value());
+  ASSERT_TRUE(result.has_value());
 
   auto enum_id = sut.ToEnumType("Location");
   ASSERT_TRUE(enum_id.has_value());

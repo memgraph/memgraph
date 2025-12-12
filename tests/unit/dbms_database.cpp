@@ -173,7 +173,7 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
       memgraph::query::VertexAccessor v2{dba.InsertVertex()};
       ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l11")).has_value());
       ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l12")).has_value());
-      ASSERT_FALSE(!dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto storage_dba = db3.value()->Access();
@@ -184,7 +184,7 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
       ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l31")).has_value());
       ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l32")).has_value());
       ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l33")).has_value());
-      ASSERT_FALSE(!dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 

@@ -130,7 +130,7 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
     auto res = unique_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -214,7 +214,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
     auto res = unique_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // In the first part of the test, each transaction tries to add the same label

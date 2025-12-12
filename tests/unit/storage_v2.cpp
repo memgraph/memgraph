@@ -64,7 +64,7 @@ TYPED_TEST(StorageV2Test, Commit) {
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
     ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 1U);
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->store->Access();
@@ -80,7 +80,7 @@ TYPED_TEST(StorageV2Test, Commit) {
     ASSERT_TRUE(vertex);
 
     auto res = acc->DeleteVertex(&*vertex);
-    ASSERT_FALSE(!res.has_value());
+    ASSERT_TRUE(res.has_value());
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 1U);
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 0U);
 
@@ -88,7 +88,7 @@ TYPED_TEST(StorageV2Test, Commit) {
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 0U);
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->store->Access();
@@ -149,7 +149,7 @@ TYPED_TEST(StorageV2Test, AdvanceCommandCommit) {
     ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
     ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::NEW).has_value());
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->store->Access();
@@ -218,7 +218,7 @@ TYPED_TEST(StorageV2Test, SnapshotIsolation) {
   EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::NEW), 1U);
   EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 0U);
 
-  ASSERT_FALSE(!acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
   ASSERT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::OLD).has_value());
   EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 0U);
@@ -255,7 +255,7 @@ TYPED_TEST(StorageV2Test, AccessorMove) {
     ASSERT_TRUE(moved->FindVertex(gid, memgraph::storage::View::NEW).has_value());
     EXPECT_EQ(CountVertices(*moved, memgraph::storage::View::NEW), 1U);
 
-    ASSERT_FALSE(!moved->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(moved->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->store->Access();
@@ -281,7 +281,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteCommit) {
     EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 0U);
     ASSERT_TRUE(acc2->FindVertex(gid, memgraph::storage::View::NEW).has_value());
     EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
-    ASSERT_FALSE(!acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto acc3 = this->store->Access();  // read transaction
@@ -315,7 +315,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteCommit) {
     EXPECT_EQ(CountVertices(*acc4, memgraph::storage::View::OLD), 0U);
     EXPECT_EQ(CountVertices(*acc4, memgraph::storage::View::NEW), 0U);
 
-    ASSERT_FALSE(!acc4->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc4->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto acc5 = this->store->Access();  // read transaction
@@ -354,7 +354,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteAbort) {
     EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 0U);
     ASSERT_TRUE(acc2->FindVertex(gid, memgraph::storage::View::NEW).has_value());
     EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
-    ASSERT_FALSE(!acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto acc3 = this->store->Access();  // read transaction
@@ -428,7 +428,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteAbort) {
     EXPECT_EQ(CountVertices(*acc6, memgraph::storage::View::OLD), 0U);
     EXPECT_EQ(CountVertices(*acc6, memgraph::storage::View::NEW), 0U);
 
-    ASSERT_FALSE(!acc6->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc6->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto acc7 = this->store->Access();  // read transaction
@@ -458,10 +458,10 @@ TYPED_TEST(StorageV2Test, VertexDeleteAbort) {
   EXPECT_EQ(CountVertices(*acc7, memgraph::storage::View::NEW), 0U);
 
   // Commit all accessors
-  ASSERT_FALSE(!acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  ASSERT_FALSE(!acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  ASSERT_FALSE(!acc5->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  ASSERT_FALSE(!acc7->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(acc5->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(acc7->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -473,7 +473,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteSerializationError) {
     auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto acc1 = this->store->Access();
@@ -516,7 +516,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteSerializationError) {
     auto res = acc2->DeleteVertex(&*vertex);
     if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
       // Serialization error for disk will be on commit
-      ASSERT_TRUE(!res.has_value());
+      ASSERT_FALSE(res.has_value());
       ASSERT_EQ(res.error(), memgraph::storage::Error::SERIALIZATION_ERROR);
     }
 
@@ -539,12 +539,12 @@ TYPED_TEST(StorageV2Test, VertexDeleteSerializationError) {
   }
 
   // Finalize both accessors
-  ASSERT_FALSE(!acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
     acc2->Abort();
   } else {
     auto res = acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     ASSERT_EQ(std::get<memgraph::storage::SerializationError>(res.error()), memgraph::storage::SerializationError());
   }
 
@@ -555,7 +555,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteSerializationError) {
     ASSERT_FALSE(vertex);
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 0U);
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -602,7 +602,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteSpecialCases) {
     acc->AdvanceCommand();
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 0U);
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Check whether the vertices exist
@@ -629,7 +629,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteLabel) {
     gid = vertex.Gid();
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
     ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Add label, delete the vertex and check the label API (same command)
@@ -671,14 +671,14 @@ TYPED_TEST(StorageV2Test, VertexDeleteLabel) {
     // Try to add the label
     {
       auto ret = vertex->AddLabel(label);
-      ASSERT_TRUE(!ret.has_value());
+      ASSERT_FALSE(ret.has_value());
       ASSERT_EQ(ret.error(), memgraph::storage::Error::DELETED_OBJECT);
     }
 
     // Try to remove the label
     {
       auto ret = vertex->RemoveLabel(label);
-      ASSERT_TRUE(!ret.has_value());
+      ASSERT_FALSE(ret.has_value());
       ASSERT_EQ(ret.error(), memgraph::storage::Error::DELETED_OBJECT);
     }
 
@@ -754,14 +754,14 @@ TYPED_TEST(StorageV2Test, VertexDeleteLabel) {
     // Try to add the label
     {
       auto ret = vertex->AddLabel(label);
-      ASSERT_TRUE(!ret.has_value());
+      ASSERT_FALSE(ret.has_value());
       ASSERT_EQ(ret.error(), memgraph::storage::Error::DELETED_OBJECT);
     }
 
     // Try to remove the label
     {
       auto ret = vertex->RemoveLabel(label);
-      ASSERT_TRUE(!ret.has_value());
+      ASSERT_FALSE(ret.has_value());
       ASSERT_EQ(ret.error(), memgraph::storage::Error::DELETED_OBJECT);
     }
 
@@ -780,7 +780,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteProperty) {
     gid = vertex.Gid();
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
     ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Set property, delete the vertex and check the property API (same command)
@@ -823,7 +823,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteProperty) {
     // Try to set the property
     {
       auto ret = vertex->SetProperty(property, memgraph::storage::PropertyValue("haihai"));
-      ASSERT_TRUE(!ret.has_value());
+      ASSERT_FALSE(ret.has_value());
       ASSERT_EQ(ret.error(), memgraph::storage::Error::DELETED_OBJECT);
     }
 
@@ -903,7 +903,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteProperty) {
     // Try to set the property
     {
       auto ret = vertex->SetProperty(property, memgraph::storage::PropertyValue("haihai"));
-      ASSERT_TRUE(!ret.has_value());
+      ASSERT_FALSE(ret.has_value());
       ASSERT_EQ(ret.error(), memgraph::storage::Error::DELETED_OBJECT);
     }
 
@@ -944,7 +944,7 @@ TYPED_TEST(StorageV2Test, VertexLabelCommit) {
       ASSERT_FALSE(res.value());
     }
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     spdlog::debug("Commit done");
   }
   {
@@ -1005,7 +1005,7 @@ TYPED_TEST(StorageV2Test, VertexLabelCommit) {
       ASSERT_FALSE(res.value());
     }
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     spdlog::debug("Commit done");
   }
   {
@@ -1039,7 +1039,7 @@ TYPED_TEST(StorageV2Test, VertexLabelAbort) {
     auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Add label 5, but abort the transaction.
@@ -1126,7 +1126,7 @@ TYPED_TEST(StorageV2Test, VertexLabelAbort) {
       ASSERT_FALSE(res.value());
     }
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Check that label 5 exists.
@@ -1252,7 +1252,7 @@ TYPED_TEST(StorageV2Test, VertexLabelAbort) {
       ASSERT_FALSE(res.value());
     }
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Check that label 5 doesn't exist.
@@ -1284,7 +1284,7 @@ TYPED_TEST(StorageV2Test, VertexLabelSerializationError) {
     auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto acc1 = this->store->Access();
@@ -1348,7 +1348,7 @@ TYPED_TEST(StorageV2Test, VertexLabelSerializationError) {
       auto res = vertex->AddLabel(label2);
       if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
         // InMemoryStorage works with pessimistic transactions.
-        ASSERT_TRUE(!res.has_value());
+        ASSERT_FALSE(res.has_value());
         ASSERT_EQ(res.error(), memgraph::storage::Error::SERIALIZATION_ERROR);
       } else {
         // Disk storage works with optimistic transactions.
@@ -1359,13 +1359,13 @@ TYPED_TEST(StorageV2Test, VertexLabelSerializationError) {
   }
 
   // Finalize both accessors.
-  ASSERT_FALSE(!acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
     acc2->Abort();
   } else {
     // Disk storage works with optimistic transactions. So on write conflict, transaction fails on commit.
     auto res = acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     ASSERT_EQ(std::get<memgraph::storage::SerializationError>(res.error()), memgraph::storage::SerializationError());
   }
 
@@ -1437,7 +1437,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyCommit) {
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->store->Access();
@@ -1496,7 +1496,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyCommit) {
       ASSERT_TRUE(old_value->IsNull());
     }
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->store->Access();
@@ -1528,7 +1528,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyAbort) {
     auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Set property 5 to "nandare", but abort the transaction.
@@ -1629,7 +1629,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyAbort) {
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Check that property 5 is "nandare".
@@ -1771,7 +1771,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyAbort) {
     ASSERT_TRUE(vertex->GetProperty(property, memgraph::storage::View::NEW)->IsNull());
     ASSERT_EQ(vertex->Properties(memgraph::storage::View::NEW)->size(), 0);
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Check that property 5 is null.
@@ -1803,7 +1803,7 @@ TYPED_TEST(StorageV2Test, VertexPropertySerializationError) {
     auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto acc1 = this->store->Access();
@@ -1861,7 +1861,7 @@ TYPED_TEST(StorageV2Test, VertexPropertySerializationError) {
       auto res = vertex->SetProperty(property2, memgraph::storage::PropertyValue("nandare"));
       if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
         // InMemoryStorage works with pessimistic transactions.
-        ASSERT_TRUE(!res.has_value());
+        ASSERT_FALSE(res.has_value());
         ASSERT_EQ(res.error(), memgraph::storage::Error::SERIALIZATION_ERROR);
       } else {
         // Disk storage works with optimistic transactions.
@@ -1872,13 +1872,13 @@ TYPED_TEST(StorageV2Test, VertexPropertySerializationError) {
   }
 
   // Finalize both accessors.
-  ASSERT_FALSE(!acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
     acc2->Abort();
   } else {
     // Disk storage works with optimistic transactions. So on write conflict, transaction fails on commit.
     auto res = acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-    ASSERT_TRUE(!res.has_value());
+    ASSERT_FALSE(res.has_value());
     ASSERT_EQ(std::get<memgraph::storage::SerializationError>(res.error()), memgraph::storage::SerializationError());
   }
 
@@ -2147,7 +2147,7 @@ TYPED_TEST(StorageV2Test, VertexLabelPropertyMixed) {
   ASSERT_EQ(vertex.Properties(memgraph::storage::View::OLD)->size(), 0);
   ASSERT_EQ(vertex.Properties(memgraph::storage::View::NEW)->size(), 0);
 
-  ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 TYPED_TEST(StorageV2Test, VertexPropertyClear) {
@@ -2163,7 +2163,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyClear) {
     ASSERT_TRUE(old_value.has_value());
     ASSERT_TRUE(old_value->IsNull());
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->store->Access();
@@ -2206,7 +2206,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyClear) {
     ASSERT_TRUE(old_value.has_value());
     ASSERT_TRUE(old_value->IsNull());
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->store->Access();
@@ -2239,7 +2239,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyClear) {
     ASSERT_TRUE(vertex->GetProperty(property2, memgraph::storage::View::NEW)->IsNull());
     ASSERT_EQ(vertex->Properties(memgraph::storage::View::NEW).value().size(), 0);
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->store->Access();
@@ -2308,7 +2308,7 @@ TYPED_TEST(StorageV2Test, VertexNonexistentLabelPropertyEdgeAPI) {
   ASSERT_EQ(*vertex.InDegree(memgraph::storage::View::NEW), 1);
   ASSERT_EQ(*vertex.OutDegree(memgraph::storage::View::NEW), 1);
 
-  ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 TYPED_TEST(StorageV2Test, VertexVisibilitySingleTransaction) {
@@ -2394,8 +2394,8 @@ TYPED_TEST(StorageV2Test, VertexVisibilityMultipleTransactions) {
     EXPECT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::OLD));
     EXPECT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::NEW));
 
-    ASSERT_FALSE(!acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-    ASSERT_FALSE(!acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -2469,9 +2469,9 @@ TYPED_TEST(StorageV2Test, VertexVisibilityMultipleTransactions) {
     EXPECT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::OLD));
     EXPECT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::NEW));
 
-    ASSERT_FALSE(!acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-    ASSERT_FALSE(!acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-    ASSERT_FALSE(!acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -2583,9 +2583,9 @@ TYPED_TEST(StorageV2Test, VertexVisibilityMultipleTransactions) {
     EXPECT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::OLD));
     EXPECT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::NEW));
 
-    ASSERT_FALSE(!acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-    ASSERT_FALSE(!acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-    ASSERT_FALSE(!acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -2614,15 +2614,15 @@ TYPED_TEST(StorageV2Test, DeletedVertexAccessor) {
     auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
-    ASSERT_FALSE(!vertex.SetProperty(property, property_value).has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(vertex.SetProperty(property, property_value).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto acc = this->store->Access();
   auto vertex = acc->FindVertex(*gid, memgraph::storage::View::OLD);
   ASSERT_TRUE(vertex);
   auto maybe_deleted_vertex = acc->DeleteVertex(&*vertex);
-  ASSERT_FALSE(!maybe_deleted_vertex.has_value());
+  ASSERT_TRUE(maybe_deleted_vertex.has_value());
 
   auto deleted_vertex = maybe_deleted_vertex.value();
   ASSERT_TRUE(deleted_vertex);
@@ -2631,16 +2631,16 @@ TYPED_TEST(StorageV2Test, DeletedVertexAccessor) {
 
   // you can call read only methods
   const auto maybe_property = deleted_vertex->GetProperty(property, memgraph::storage::View::OLD);
-  ASSERT_FALSE(!maybe_property.has_value());
+  ASSERT_TRUE(maybe_property.has_value());
   ASSERT_EQ(property_value, *maybe_property);
-  ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
   {
     // you can call read only methods and get valid results even after the
     // transaction which deleted the vertex committed, but only if the transaction
     // accessor is still alive
     const auto maybe_property = deleted_vertex->GetProperty(property, memgraph::storage::View::OLD);
-    ASSERT_FALSE(!maybe_property.has_value());
+    ASSERT_TRUE(maybe_property.has_value());
     ASSERT_EQ(property_value, *maybe_property);
   }
 }

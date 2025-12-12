@@ -190,7 +190,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
       .mode = ReplicationMode::SYNC,
       .repl_server_endpoint = Endpoint(local_host, ports[0]),
   });
-  ASSERT_FALSE(!reg.has_value()) << (int)reg.error();
+  ASSERT_TRUE(reg.has_value()) << (int)reg.error();
 
   // vertex create
   // vertex add label
@@ -206,7 +206,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(v.AddLabel(main.db.storage()->NameToLabel(vertex_label)).has_value());
     ASSERT_TRUE(v.SetProperty(main.db.storage()->NameToProperty(vertex_property), PropertyValue(vertex_property_value))
                     .has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
 
   {
@@ -223,7 +223,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_THAT(*properties, UnorderedElementsAre(std::make_pair(replica.db.storage()->NameToProperty(vertex_property),
                                                                  PropertyValue(vertex_property_value))));
 
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // vertex remove label
@@ -232,7 +232,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_TRUE(v->RemoveLabel(main.db.storage()->NameToLabel(vertex_label)).has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
 
   {
@@ -242,7 +242,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     const auto labels = v->Labels(View::OLD);
     ASSERT_TRUE(labels.has_value());
     ASSERT_EQ(labels->size(), 0);
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // vertex delete
@@ -251,7 +251,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_TRUE(acc->DeleteVertex(&*v).has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
 
   {
@@ -259,7 +259,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_FALSE(v);
     vertex_gid.reset();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // edge create
@@ -278,7 +278,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(edge.SetProperty(main.db.storage()->NameToProperty(edge_property), PropertyValue(edge_property_value))
                     .has_value());
     edge_gid.emplace(edge.Gid());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
 
   const auto find_edge = [&](const auto &edges, const Gid edge_gid) -> std::optional<EdgeAccessor> {
@@ -303,7 +303,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_EQ(properties->size(), 1);
     ASSERT_THAT(*properties, UnorderedElementsAre(std::make_pair(replica.db.storage()->NameToProperty(edge_property),
                                                                  PropertyValue(edge_property_value))));
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // delete edge
@@ -315,7 +315,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     auto edge = find_edge(out_edges->edges, *edge_gid);
     ASSERT_TRUE(edge);
     ASSERT_TRUE(acc->DeleteEdge(&*edge).has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
 
   {
@@ -325,7 +325,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     const auto out_edges = v->OutEdges(View::OLD);
     ASSERT_TRUE(out_edges.has_value());
     ASSERT_FALSE(find_edge(out_edges->edges, *edge_gid));
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // label index create
@@ -343,20 +343,20 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
 
   {
     auto unique_acc = main.db.UniqueAccess();
-    ASSERT_FALSE(!unique_acc->CreateIndex(main.db.storage()->NameToLabel(label)).has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->CreateIndex(main.db.storage()->NameToLabel(label)).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->SetIndexStats(main.db.storage()->NameToLabel(label), l_stats);
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     auto unique_acc = main.CreateIndexAccessor();
     ASSERT_FALSE(
         !unique_acc->CreateIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property)})
              .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     auto unique_acc = main.CreateIndexAccessor();
@@ -365,14 +365,14 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
              ->CreateIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property),
                                                                    main.db.storage()->NameToProperty(property_extra)})
              .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->SetIndexStats(main.db.storage()->NameToLabel(label),
                               std::array{memgraph::storage::PropertyPath{main.db.storage()->NameToProperty(property)}},
                               lp_stats);
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
@@ -381,7 +381,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
         std::array{memgraph::storage::PropertyPath{main.db.storage()->NameToProperty(property)},
                    memgraph::storage::PropertyPath{main.db.storage()->NameToProperty(property_extra)}},
         lp_stats);
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     // Create nested index
@@ -389,8 +389,8 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     memgraph::storage::PropertyPath property_path{main.db.storage()->NameToProperty(nested_property1),
                                                   main.db.storage()->NameToProperty(nested_property2),
                                                   main.db.storage()->NameToProperty(nested_property3)};
-    ASSERT_FALSE(!unique_acc->CreateIndex(main.db.storage()->NameToLabel(label), {property_path}).has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->CreateIndex(main.db.storage()->NameToLabel(label), {property_path}).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     // Create nested index stats
@@ -399,24 +399,24 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
                                                   main.db.storage()->NameToProperty(nested_property2),
                                                   main.db.storage()->NameToProperty(nested_property3)};
     unique_acc->SetIndexStats(main.db.storage()->NameToLabel(label), std::array{property_path}, lp_stats);
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
-    ASSERT_FALSE(!unique_acc
-                      ->CreateExistenceConstraint(main.db.storage()->NameToLabel(label),
-                                                  main.db.storage()->NameToProperty(property))
-                      .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc
+                    ->CreateExistenceConstraint(main.db.storage()->NameToLabel(label),
+                                                main.db.storage()->NameToProperty(property))
+                    .has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
-    ASSERT_FALSE(!unique_acc
-                      ->CreateUniqueConstraint(main.db.storage()->NameToLabel(label),
-                                               {main.db.storage()->NameToProperty(property),
-                                                main.db.storage()->NameToProperty(property_extra)})
-                      .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc
+                    ->CreateUniqueConstraint(main.db.storage()->NameToLabel(label),
+                                             {main.db.storage()->NameToProperty(property),
+                                              main.db.storage()->NameToProperty(property_extra)})
+                    .has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
 
   {
@@ -493,24 +493,24 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   {
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->DeleteLabelIndexStats(main.db.storage()->NameToLabel(label));
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
-    ASSERT_FALSE(!unique_acc->DropIndex(main.db.storage()->NameToLabel(label)).has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->DropIndex(main.db.storage()->NameToLabel(label)).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->DeleteLabelPropertyIndexStats(main.db.storage()->NameToLabel(label));
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     auto unique_acc = main.DropIndexAccessor();
     ASSERT_FALSE(
         !unique_acc->DropIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property)})
              .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     // Drop nested index
@@ -518,14 +518,14 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     memgraph::storage::PropertyPath property_path{main.db.storage()->NameToProperty(nested_property1),
                                                   main.db.storage()->NameToProperty(nested_property2),
                                                   main.db.storage()->NameToProperty(nested_property3)};
-    ASSERT_FALSE(!unique_acc->DropIndex(main.db.storage()->NameToLabel(label), {property_path}).has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->DropIndex(main.db.storage()->NameToLabel(label), {property_path}).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     // Drop nested index stats
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->DeleteLabelPropertyIndexStats(main.db.storage()->NameToLabel(label));
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     auto unique_acc = main.DropIndexAccessor();
@@ -534,14 +534,14 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
              ->DropIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property),
                                                                  main.db.storage()->NameToProperty(property_extra)})
              .has_value());
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
-    ASSERT_FALSE(!unique_acc
-                      ->DropExistenceConstraint(main.db.storage()->NameToLabel(label),
-                                                main.db.storage()->NameToProperty(property))
-                      .has_value());
+    ASSERT_TRUE(unique_acc
+                    ->DropExistenceConstraint(main.db.storage()->NameToLabel(label),
+                                              main.db.storage()->NameToProperty(property))
+                    .has_value());
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
@@ -550,7 +550,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
                   main.db.storage()->NameToLabel(label),
                   {main.db.storage()->NameToProperty(property), main.db.storage()->NameToProperty(property_extra)}),
               memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
-    ASSERT_FALSE(!unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
 
   {
@@ -583,20 +583,20 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
       .repl_server = Endpoint(local_host, ports[1]),
   });
 
-  ASSERT_FALSE(!main.repl_handler
-                    .TryRegisterReplica(ReplicationClientConfig{
-                        .name = replicas[0],
-                        .mode = ReplicationMode::SYNC,
-                        .repl_server_endpoint = Endpoint(local_host, ports[0]),
-                    })
-                    .has_value());
-  ASSERT_FALSE(!main.repl_handler
-                    .TryRegisterReplica(ReplicationClientConfig{
-                        .name = replicas[1],
-                        .mode = ReplicationMode::SYNC,
-                        .repl_server_endpoint = Endpoint(local_host, ports[1]),
-                    })
-                    .has_value());
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[1],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[1]),
+                  })
+                  .has_value());
 
   const auto *vertex_label = "label";
   const auto *vertex_property = "property";
@@ -609,7 +609,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
     ASSERT_TRUE(v.SetProperty(main.db.storage()->NameToProperty(vertex_property), PropertyValue(vertex_property_value))
                     .has_value());
     vertex_gid.emplace(v.Gid());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
 
   const auto check_replica = [&](memgraph::dbms::Database &replica_database) {
@@ -619,7 +619,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
     const auto labels = v->Labels(View::OLD);
     ASSERT_TRUE(labels.has_value());
     ASSERT_THAT(*labels, UnorderedElementsAre(replica_database.storage()->NameToLabel(vertex_label)));
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   };
 
   check_replica(replica1.db);
@@ -631,7 +631,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
     auto acc = main.db.Access();
     auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
 
   // REPLICA1 should contain the new vertex
@@ -639,7 +639,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
     auto acc = replica1.db.Access();
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // REPLICA2 should not contain the new vertex
@@ -647,7 +647,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
     auto acc = replica2.db.Access();
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_FALSE(v);
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -670,7 +670,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       // Create the vertex before registering a replica
       auto v = acc->CreateVertex();
       vertex_gids.emplace_back(v.Gid());
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
     }
   }
 
@@ -687,13 +687,13 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       auto acc = main.db.Access();
       auto v = acc->CreateVertex();
       vertex_gids.emplace_back(v.Gid());
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
     }
     {
       auto acc = main.db.Access();
       auto v = acc->CreateVertex();
       vertex_gids.emplace_back(v.Gid());
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
     }
   }
 
@@ -718,7 +718,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       ASSERT_TRUE(
           v->SetProperty(main.db.storage()->NameToProperty(property_name), PropertyValue(property_value)).has_value());
     }
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
 
   static constexpr const auto *vertex_label = "vertex_label";
@@ -729,13 +729,13 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     replica_store_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
         .repl_server = Endpoint(local_host, ports[0]),
     });
-    ASSERT_FALSE(!main.repl_handler
-                      .TryRegisterReplica(ReplicationClientConfig{
-                          .name = replicas[0],
-                          .mode = ReplicationMode::SYNC,
-                          .repl_server_endpoint = Endpoint(local_host, ports[0]),
-                      })
-                      .has_value());
+    ASSERT_TRUE(main.repl_handler
+                    .TryRegisterReplica(ReplicationClientConfig{
+                        .name = replicas[0],
+                        .mode = ReplicationMode::SYNC,
+                        .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                    })
+                    .has_value());
 
     while (main.db.storage()->GetReplicaState(replicas[0]) != ReplicaState::READY) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -748,7 +748,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
         ASSERT_TRUE(v);
         ASSERT_TRUE(v->AddLabel(main.db.storage()->NameToLabel(vertex_label)).has_value());
       }
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
     }
     {
       auto acc = replica.db.Access();
@@ -764,7 +764,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
                     UnorderedElementsAre(std::make_pair(replica.db.storage()->NameToProperty(property_name),
                                                         PropertyValue(property_value))));
       }
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
   {
@@ -788,7 +788,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
                     UnorderedElementsAre(std::make_pair(replica.db.storage()->NameToProperty(property_name),
                                                         PropertyValue(property_value))));
       }
-      ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 }
@@ -804,13 +804,13 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
       .repl_server = Endpoint(local_host, ports[1]),
   });
 
-  ASSERT_FALSE(!main.repl_handler
-                    .TryRegisterReplica(ReplicationClientConfig{
-                        .name = "REPLICA_ASYNC",
-                        .mode = ReplicationMode::ASYNC,
-                        .repl_server_endpoint = Endpoint(local_host, ports[1]),
-                    })
-                    .has_value());
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = "REPLICA_ASYNC",
+                      .mode = ReplicationMode::ASYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[1]),
+                  })
+                  .has_value());
 
   static constexpr size_t vertices_create_num = 10;
   std::vector<Gid> created_vertices;
@@ -818,7 +818,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     auto acc = main.db.Access();
     auto v = acc->CreateVertex();
     created_vertices.push_back(v.Gid());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
 
     if (i == 0) {
       ASSERT_EQ(main.db.storage()->GetReplicaState("REPLICA_ASYNC"), ReplicaState::REPLICATING);
@@ -854,40 +854,40 @@ TEST_F(ReplicationTest, EpochTest) {
       .repl_server = Endpoint(local_host, 10001),
   });
 
-  ASSERT_FALSE(!main.repl_handler
-                    .TryRegisterReplica(ReplicationClientConfig{
-                        .name = replicas[0],
-                        .mode = ReplicationMode::SYNC,
-                        .repl_server_endpoint = Endpoint(local_host, ports[0]),
-                    })
-                    .has_value());
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
 
-  ASSERT_FALSE(!main.repl_handler
-                    .TryRegisterReplica(ReplicationClientConfig{
-                        .name = replicas[1],
-                        .mode = ReplicationMode::SYNC,
-                        .repl_server_endpoint = Endpoint(local_host, 10001),
-                    })
-                    .has_value());
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[1],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, 10001),
+                  })
+                  .has_value());
 
   std::optional<Gid> vertex_gid;
   {
     auto acc = main.db.Access();
     const auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     auto acc = replica1.db.Access();
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     auto acc = replica2.db.Access();
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   main.repl_handler.UnregisterReplica(replicas[0]);
@@ -895,31 +895,31 @@ TEST_F(ReplicationTest, EpochTest) {
 
   ASSERT_TRUE(replica1.repl_handler.SetReplicationRoleMain());
 
-  ASSERT_FALSE(!replica1.repl_handler
-                    .TryRegisterReplica(ReplicationClientConfig{
-                        .name = replicas[1],
-                        .mode = ReplicationMode::SYNC,
-                        .repl_server_endpoint = Endpoint(local_host, 10001),
-                    })
-                    .has_value());
+  ASSERT_TRUE(replica1.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[1],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, 10001),
+                  })
+                  .has_value());
 
   {
     auto acc = main.db.Access();
     acc->CreateVertex();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
     auto acc = replica1.db.Access();
     auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(replica1.db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(replica1.db_acc)).has_value());
   }
   // Replica1 should forward it's vertex to Replica2
   {
     auto acc = replica2.db.Access();
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   replica1.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
@@ -937,7 +937,7 @@ TEST_F(ReplicationTest, EpochTest) {
     auto acc = main.db.Access();
     const auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   // Replica1 is not compatible with the main so it shouldn't contain
   // it's newest vertex
@@ -945,7 +945,7 @@ TEST_F(ReplicationTest, EpochTest) {
     auto acc = replica1.db.Access();
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_FALSE(v);
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -964,21 +964,21 @@ TEST_F(ReplicationTest, ReplicationInformation) {
       .repl_server = Endpoint(local_host, replica2_port),
   });
 
-  ASSERT_FALSE(!main.repl_handler
-                    .TryRegisterReplica(ReplicationClientConfig{
-                        .name = replicas[0],
-                        .mode = ReplicationMode::SYNC,
-                        .repl_server_endpoint = Endpoint(local_host, replica1_port),
-                    })
-                    .has_value());
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, replica1_port),
+                  })
+                  .has_value());
 
-  ASSERT_FALSE(!main.repl_handler
-                    .TryRegisterReplica(ReplicationClientConfig{
-                        .name = replicas[1],
-                        .mode = ReplicationMode::ASYNC,
-                        .repl_server_endpoint = Endpoint(local_host, replica2_port),
-                    })
-                    .has_value());
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[1],
+                      .mode = ReplicationMode::ASYNC,
+                      .repl_server_endpoint = Endpoint(local_host, replica2_port),
+                  })
+                  .has_value());
 
   ASSERT_TRUE(main.repl_state->IsMain());
   ASSERT_TRUE(replica1.repl_state->IsReplica());
@@ -1014,13 +1014,13 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
   replica2.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
       .repl_server = Endpoint(local_host, replica2_port),
   });
-  ASSERT_FALSE(!main.repl_handler
-                    .TryRegisterReplica(ReplicationClientConfig{
-                        .name = replicas[0],
-                        .mode = ReplicationMode::SYNC,
-                        .repl_server_endpoint = Endpoint(local_host, replica1_port),
-                    })
-                    .has_value());
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, replica1_port),
+                  })
+                  .has_value());
 
   ASSERT_TRUE(main.repl_handler
                   .TryRegisterReplica(ReplicationClientConfig{
@@ -1045,13 +1045,13 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
       .repl_server = Endpoint(local_host, common_port),
   });
 
-  ASSERT_FALSE(!main.repl_handler
-                    .TryRegisterReplica(ReplicationClientConfig{
-                        .name = replicas[0],
-                        .mode = ReplicationMode::SYNC,
-                        .repl_server_endpoint = Endpoint(local_host, common_port),
-                    })
-                    .has_value());
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, common_port),
+                  })
+                  .has_value());
 
   ASSERT_TRUE(main.repl_handler
                   .TryRegisterReplica(ReplicationClientConfig{
@@ -1095,13 +1095,13 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
       .mode = ReplicationMode::SYNC,
       .repl_server_endpoint = Endpoint(local_host, ports[0]),
   });
-  ASSERT_FALSE(!res.has_value()) << (int)res.error();
+  ASSERT_TRUE(res.has_value()) << (int)res.error();
   res = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
       .name = replicas[1],
       .mode = ReplicationMode::SYNC,
       .repl_server_endpoint = Endpoint(local_host, ports[1]),
   });
-  ASSERT_FALSE(!res.has_value()) << (int)res.error();
+  ASSERT_TRUE(res.has_value()) << (int)res.error();
 
   {
     auto const maybe_replicas_info = main->repl_handler.ShowReplicas();
@@ -1152,13 +1152,13 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
       .mode = ReplicationMode::SYNC,
       .repl_server_endpoint = Endpoint(local_host, ports[0]),
   });
-  ASSERT_FALSE(!res.has_value());
+  ASSERT_TRUE(res.has_value());
   res = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
       .name = replicas[1],
       .mode = ReplicationMode::SYNC,
       .repl_server_endpoint = Endpoint(local_host, ports[1]),
   });
-  ASSERT_FALSE(!res.has_value());
+  ASSERT_TRUE(res.has_value());
 
   {
     auto const maybe_replicas_info = main->repl_handler.ShowReplicas();
@@ -1229,13 +1229,13 @@ TEST_F(ReplicationTest, RecoverySteps) {
     auto acc = in_mem->Access();
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.SetProperty(p, large_property).has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   };
 
   auto create_vertex_and_commit = [&]() {
     auto acc = in_mem->Access();
     acc->CreateVertex();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   };
 
   // Nothing
@@ -1288,7 +1288,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   // Snapshot (with dirty WALs)
   {
     large_write_to_finalize_wal();
-    ASSERT_FALSE(!in_mem->CreateSnapshot().has_value());
+    ASSERT_TRUE(in_mem->CreateSnapshot().has_value());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 1);
     // TODO Currently we prefer WALs over Snapshots when creating the recovery plan
@@ -1302,11 +1302,11 @@ TEST_F(ReplicationTest, RecoverySteps) {
     // Once we are over the allowed number of snapshots, we clean both snapshots and wals
     // Have to make a change to the db so the snapshot doesn't get aborted (to bypass SnapshotDigest)
     create_vertex_and_commit();
-    ASSERT_FALSE(!in_mem->CreateSnapshot().has_value());
+    ASSERT_TRUE(in_mem->CreateSnapshot().has_value());
     create_vertex_and_commit();
-    ASSERT_FALSE(!in_mem->CreateSnapshot().has_value());
+    ASSERT_TRUE(in_mem->CreateSnapshot().has_value());
     create_vertex_and_commit();
-    ASSERT_FALSE(!in_mem->CreateSnapshot().has_value());
+    ASSERT_TRUE(in_mem->CreateSnapshot().has_value());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 1);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
@@ -1316,7 +1316,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   {
     auto acc = in_mem->Access();
     acc->CreateVertex();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 2);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
@@ -1336,7 +1336,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   {
     auto acc = in_mem->Access();
     acc->CreateVertex();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 3);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
@@ -1390,7 +1390,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
     // Add current wal
     auto acc = in_mem->Access();
     acc->CreateVertex();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 2);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
@@ -1408,7 +1408,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
     // Add both
     auto acc = in_mem->Access();
     acc->CreateVertex();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 3);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
@@ -1437,7 +1437,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
       }
     }
     large_write_to_finalize_wal();
-    ASSERT_FALSE(!in_mem->CreateSnapshot().has_value());
+    ASSERT_TRUE(in_mem->CreateSnapshot().has_value());
     large_write_to_finalize_wal();
     large_write_to_finalize_wal();
     large_write_to_finalize_wal();
@@ -1453,7 +1453,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   {
     auto acc = in_mem->Access();
     acc->CreateVertex();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 3);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
@@ -1496,7 +1496,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
       .mode = ReplicationMode::SYNC,
       .repl_server_endpoint = Endpoint(local_host, ports[0]),
   });
-  ASSERT_FALSE(!reg.has_value()) << (int)reg.error();
+  ASSERT_TRUE(reg.has_value()) << (int)reg.error();
 
   auto get_schema = [](auto &instance) {
     return instance.db.storage()->schema_info_.ToJson(*instance.db.storage()->name_id_mapper_,
@@ -1514,7 +1514,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
   {
     auto acc = main->db.Access();
     acc->CreateVertex();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
     EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
   }
 
@@ -1524,7 +1524,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
     ASSERT_TRUE(v.AddLabel(l1).has_value());
     ASSERT_TRUE(v.AddLabel(l2).has_value());
     ASSERT_TRUE(v.AddLabel(l3).has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
     EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
   }
 
@@ -1533,7 +1533,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.SetProperty(p1, PropertyValue{123}).has_value());
     ASSERT_TRUE(v.SetProperty(p1, PropertyValue{123.45}).has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
     EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
   }
 
@@ -1542,7 +1542,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.SetProperty(p1, PropertyValue{true}).has_value());
     ASSERT_TRUE(v.AddLabel(l3).has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
     EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
   }
 
@@ -1551,7 +1551,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     ASSERT_TRUE(acc->CreateEdge(&v1, &v2, e).has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
     EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
   }
 
@@ -1563,7 +1563,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
     auto v2 = acc->CreateVertex();
     ASSERT_TRUE(v2.AddLabel(l2).has_value());
     ASSERT_TRUE(acc->CreateEdge(&v1, &v2, e).has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
     EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
   }
 
@@ -1574,7 +1574,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
     auto edge = acc->CreateEdge(&v1, &v2, e);
     ASSERT_TRUE(edge->SetProperty(p2, PropertyValue{""}).has_value());
     ASSERT_TRUE(edge->SetProperty(p1, PropertyValue{123}).has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
     EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
   }
 
@@ -1587,7 +1587,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
     ASSERT_TRUE(edge->SetProperty(p1, PropertyValue{123}).has_value());
     ASSERT_TRUE(v2.AddLabel(l2).has_value());
     ASSERT_TRUE(v1.AddLabel(l2).has_value());
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
     EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
   }
 
@@ -1599,7 +1599,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
     const auto v1_gid = v1.Gid();
     const auto v2_gid = v2.Gid();
     const auto edge_gid = edge->Gid();
-    ASSERT_FALSE(!acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
 
     auto acc2 = main->db.Access();
     auto prev_v1 = acc2->FindVertex(v1_gid, View::NEW);
@@ -1609,7 +1609,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
     ASSERT_TRUE(prev_edge->SetProperty(p1, PropertyValue{123}).has_value());
     ASSERT_TRUE(prev_v2->AddLabel(l2).has_value());
     ASSERT_TRUE(prev_v1->AddLabel(l2).has_value());
-    ASSERT_FALSE(!acc2->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
     EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
   }
 
@@ -1678,20 +1678,20 @@ TEST_F(ReplicationTest, GetTelemetryJson) {
       .repl_server = Endpoint(local_host, ports[1]),
   });
 
-  ASSERT_FALSE(!main.repl_handler
-                    .TryRegisterReplica(ReplicationClientConfig{
-                        .name = replicas[0],
-                        .mode = ReplicationMode::ASYNC,
-                        .repl_server_endpoint = Endpoint(local_host, ports[0]),
-                    })
-                    .has_value());
-  ASSERT_FALSE(!main.repl_handler
-                    .TryRegisterReplica(ReplicationClientConfig{
-                        .name = replicas[1],
-                        .mode = ReplicationMode::SYNC,
-                        .repl_server_endpoint = Endpoint(local_host, ports[1]),
-                    })
-                    .has_value());
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::ASYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[1],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[1]),
+                  })
+                  .has_value());
 
   ASSERT_FALSE(replica1.repl_state.ReadLock()->GetTelemetryJson().has_value());
   ASSERT_FALSE(replica2.repl_state.ReadLock()->GetTelemetryJson().has_value());
