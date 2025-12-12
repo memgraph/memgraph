@@ -193,13 +193,12 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
   auto const to_bounded_property_value = [&](auto &value) -> std::optional<utils::Bound<storage::PropertyValue>> {
     if (value == std::nullopt) {
       return std::nullopt;
-    } else {
-      auto const typed_value = value->value()->Accept(evaluator);
-      if (!typed_value.IsPropertyValue()) {
-        throw QueryRuntimeException("'{}' cannot be used as a property value.", typed_value.type());
-      }
-      return utils::Bound{typed_value.ToPropertyValue(evaluator.GetNameIdMapper()), value->type()};
     }
+    auto const typed_value = value->value()->Accept(evaluator);
+    if (!typed_value.IsPropertyValue()) {
+      throw QueryRuntimeException("'{}' cannot be used as a property value.", typed_value.type());
+    }
+    return utils::Bound{typed_value.ToPropertyValue(evaluator.GetNameIdMapper()), value->type()};
   };
 
   switch (type_) {
@@ -1424,7 +1423,13 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
                                   nullptr, &context.number_of_hops);
 
     auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
-    auto prop_value_ranges = expression_ranges_ | rv::transform(to_property_value_range) | r::to<std::vector>();
+    // TODO: ASAN reports an issue on this line, but it's not clear why.
+    // auto prop_value_ranges = expression_ranges_ | rv::transform(to_property_value_range) | r::to<std::vector>();
+    std::vector<storage::PropertyValueRange> prop_value_ranges;
+    prop_value_ranges.reserve(expression_ranges_.size());
+    for (auto &&expression_range : expression_ranges_) {
+      prop_value_ranges.emplace_back(to_property_value_range(expression_range));
+    }
 
     auto const bound_is_null = [](auto &&range) {
       return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
