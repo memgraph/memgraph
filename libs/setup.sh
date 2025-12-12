@@ -148,7 +148,7 @@ declare -A primary_urls=(
   ["libbcrypt"]="http://$local_cache_host/git/libbcrypt.git"
   ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
   ["neo4j"]="http://$local_cache_host/neo4j-community-5.6.0-unix.tar.gz"
-  ["librdkafka"]="https://github.com/mattkjames7/librdkafka.git"
+  ["librdkafka"]="https://github.com/confluentinc/librdkafka.git"
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
   ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
@@ -168,7 +168,7 @@ declare -A secondary_urls=(
   ["libbcrypt"]="https://github.com/rg3/libbcrypt"
   ["mgconsole"]="https://github.com/memgraph/mgconsole.git"
   ["neo4j"]="https://dist.neo4j.org/neo4j-community-5.6.0-unix.tar.gz"
-  ["librdkafka"]="https://github.com/mattkjames7/librdkafka.git"
+  ["librdkafka"]="https://github.com/confluentinc/librdkafka.git"
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
   ["pulsar"]="https://github.com/apache/pulsar.git"
   ["librdtsc"]="https://github.com/gabrieleara/librdtsc.git"
@@ -210,7 +210,7 @@ mgconsole_tag="v1.4.0" # (2023-05-21)
 skip_if_under_toolchain "mgconsole" repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag" true
 
 # librdkafka
-librdkafka_tag="master" # (2024-12-05)
+librdkafka_tag="v2.12.1" # (2024-12-05)
 repo_clone_try_double "${primary_urls[librdkafka]}" "${secondary_urls[librdkafka]}" "librdkafka" "$librdkafka_tag" true
 
 if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
