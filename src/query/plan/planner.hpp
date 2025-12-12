@@ -19,6 +19,9 @@
 
 #include <utility>
 
+#include "flags/bolt.hpp"
+#include "query/context.hpp"
+#include "query/interpret/eval.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
@@ -27,11 +30,13 @@
 #include "query/plan/rewrite/enum.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/rewrite/join.hpp"
+#include "query/plan/rewrite/parallel_aggregate.hpp"
 #include "query/plan/rewrite/periodic_delete.hpp"
 #include "query/plan/rewrite/plan_validator.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "utils/memory.hpp"
 
 namespace memgraph::query {
 
@@ -70,7 +75,29 @@ class PostProcessor final {
            [&](auto p) { return RewriteWithIndexLookup(std::move(p), symbol_table, ast, db, index_hints_); } |
            [&](auto p) { return RewriteWithJoinRewriter(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db); } |
-           [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); };
+           [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); } | [&](auto p) {
+             // TODO Move this logic to the RewriteParallelAggregate function
+             if (context->query->pre_query_directives_.parallel_execution_) {
+               auto get_num_threads = [&]() -> size_t {
+                 if (auto *num_threads = context->query->pre_query_directives_.num_threads_) {
+                   // Create a minimal evaluation context to evaluate the expression
+                   // This handles both PrimitiveLiteral (when query is not cached) and
+                   // ParameterLookup (when query is cached and stripped)
+                   EvaluationContext eval_ctx{.parameters = parameters_};
+                   PrimitiveLiteralExpressionEvaluator evaluator{eval_ctx};
+
+                   TypedValue value = num_threads->Accept(evaluator);
+                   if (!value.IsInt() || value.ValueInt() < 0) {
+                     throw QueryException("Number of threads must be a non-negative integer");
+                   }
+                   return static_cast<size_t>(value.ValueInt());
+                 }
+                 return FLAGS_bolt_num_workers;
+               };
+               return RewriteParallelAggregate(std::move(p), symbol_table, ast, db, get_num_threads());
+             }
+             return std::move(p);
+           };
   }
 
   bool IsValidPlan(const std::unique_ptr<LogicalOperator> &plan, const SymbolTable &table) {

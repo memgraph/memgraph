@@ -8,7 +8,20 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-#include "flags/query.hpp"
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-// DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion.");  Moved to run_time_configurable
+#include "query/plan/parallel_checker.hpp"
+namespace memgraph::query::plan {
+bool ParallelChecker::PreVisit(AggregateParallel &) {
+  is_parallelized_ = true;
+  return false;
+}
+
+bool ParallelChecker::Visit(Once &) { return false; }  // NOLINT(hicpp-named-parameter)
+
+void ParallelChecker::CheckParallelized(const LogicalOperator &root) {
+  is_parallelized_ = false;
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  const_cast<LogicalOperator *>(&root)->Accept(*this);
+}
+
+}  // namespace memgraph::query::plan

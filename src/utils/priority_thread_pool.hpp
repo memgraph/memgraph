@@ -15,6 +15,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <queue>
 #include <thread>
@@ -67,13 +68,16 @@ class HotMask {
   const uint16_t n_groups_;
 };
 
-using TaskSignature = std::function<void(utils::Priority)>;
+using TaskSignature = std::move_only_function<void(utils::Priority)>;
 
 // Collection of tasks that can be executed by the thread pool
 // The idea is to batch tasks and have the ability to wait on them
 // Also execute non scheduler tasks in the local thread
 class TaskCollection {
  public:
+  explicit TaskCollection(size_t num_tasks) { tasks_.reserve(num_tasks); }
+  TaskCollection() = default;
+
   void AddTask(TaskSignature task) { tasks_.emplace_back(std::move(task)); }
 
   class Task {
@@ -186,6 +190,29 @@ class PriorityThreadPool {
 
   std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
   std::atomic<uint16_t> last_wid_;  // Used to pick next worker
+};
+
+class CollectionScheduler {
+ public:
+  CollectionScheduler(PriorityThreadPool *pool, std::shared_ptr<TaskCollection> collection)
+      : pool_{pool}, collection_{std::move(collection)} {}
+
+  void SetPool(PriorityThreadPool *pool) { pool_ = pool; }
+  void SetCollection(std::shared_ptr<TaskCollection> collection) { collection_ = std::move(collection); }
+
+  void Trigger() {
+    if (pool_ && collection_) pool_->ScheduledCollection(*collection_);
+    pool_ = nullptr;
+  }
+
+  void WaitOrSteal() {
+    if (collection_) collection_->WaitOrSteal();
+    collection_.reset();
+  }
+
+ private:
+  PriorityThreadPool *pool_;
+  std::shared_ptr<TaskCollection> collection_;
 };
 
 }  // namespace memgraph::utils
