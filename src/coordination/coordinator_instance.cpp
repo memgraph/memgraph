@@ -952,7 +952,7 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
     -> SetCoordinatorSettingStatus {
   if (constexpr std::array settings{kEnabledReadsOnMain, kSyncFailoverOnly, kMaxFailoverLagOnReplica,
                                     kMaxReplicaReadLag};
-      std::ranges::find(settings, setting_name) == settings.end()) {
+      !std::ranges::contains(settings, setting_name)) {
     return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
   }
 
@@ -1192,7 +1192,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
       spdlog::error("Couldn't find newest instance for db with uuid {}", db_uuid);
     } else {
       spdlog::info("The latest durable timestamp is {} for db with uuid {}. The following instances have it {}",
-        curr_num_committed_txns, db_uuid, utils::JoinVector(newest_db_instances, ", "));
+                   curr_num_committed_txns, db_uuid, utils::JoinVector(newest_db_instances, ", "));
       update_instances_counter(newest_db_instances);
     }
   }

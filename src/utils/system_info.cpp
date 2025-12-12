@@ -78,9 +78,7 @@ std::unordered_set<std::string> ExtractCPUFlags(const std::vector<std::string> &
   return flags;
 }
 
-bool HasCPUFlag(const std::unordered_set<std::string> &flags, const std::string &flag) {
-  return flags.find(flag) != flags.end();
-}
+bool HasCPUFlag(const std::unordered_set<std::string> &flags, const std::string &flag) { return flags.contains(flag); }
 
 uint8_t DetectX86LevelFromFlags(const std::unordered_set<std::string> &flags) {
   // see for definitions used by `ld.so`

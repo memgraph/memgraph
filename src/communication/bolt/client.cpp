@@ -153,7 +153,7 @@ QueryData Client::Execute(const std::string &query, const map_t &parameters, con
 
   QueryData ret{{}, std::move(records), std::move(metadata.ValueMap())};
 
-  if (header.find("fields") == header.end()) {
+  if (!header.contains("fields")) {
     throw ServerMalformedDataException();
   }
   if (header["fields"].type() != Value::Type::List) {

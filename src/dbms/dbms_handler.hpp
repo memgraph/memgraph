@@ -551,7 +551,7 @@ class DbmsHandler {
     for (auto const &item : std::filesystem::directory_iterator{*dir}) {
       const auto dir_name = std::filesystem::relative(item.path(), item.path().parent_path());
       auto const dir_name_str = dir_name.string();
-      if (std::find(skip.begin(), skip.end(), dir_name_str) != skip.end() || dir_name_str.starts_with(".")) {
+      if (std::ranges::contains(skip, dir_name_str) || dir_name_str.starts_with(".")) {
         spdlog::trace("{} won't be used for symlinking.", dir_name_str);
         continue;
       }

@@ -24,7 +24,6 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_dense.hpp"
-#include "utils/algorithm.hpp"
 #include "utils/counter.hpp"
 #include "utils/synchronized.hpp"
 
@@ -99,7 +98,7 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
 
     // Update the index with the vertices
     for (auto &vertex : vertices) {
-      if (!utils::Contains(vertex.labels, spec.label_id)) {
+      if (!std::ranges::contains(vertex.labels, spec.label_id)) {
         continue;
       }
       if (UpdateVectorIndex(&vertex, label_prop) && snapshot_info) {
@@ -207,7 +206,7 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
   if (pimpl->index_.empty()) return;
 
   auto has_property = [&](const auto &label_prop) { return label_prop.property() == property; };
-  auto has_label = [&](const auto &label_prop) { return utils::Contains(vertex->labels, label_prop.label()); };
+  auto has_label = [&](const auto &label_prop) { return std::ranges::contains(vertex->labels, label_prop.label()); };
 
   auto view = pimpl->index_ | rv::keys | rv::filter(has_property) | rv::filter(has_label);
   for (const auto &label_prop : view) {

@@ -281,7 +281,7 @@ auto EGraph<Symbol, Analysis>::has_class(EClassId id) const -> bool {
     return false;
   }
 
-  return classes_.find(id) != classes_.end();
+  return classes_.contains(id);
 }
 
 template <typename Symbol, typename Analysis>

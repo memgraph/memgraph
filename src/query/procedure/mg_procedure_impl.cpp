@@ -4512,7 +4512,7 @@ mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_pro
   if (!IsValidIdentifierName(name)) {
     throw std::invalid_argument{fmt::format("Invalid procedure name: {}", name)};
   }
-  if (module->procedures.find(name) != module->procedures.end()) {
+  if (module->procedures.contains(name)) {
     throw std::logic_error{fmt::format("Procedure already exists with name '{}'", name)};
   };
 
@@ -4527,7 +4527,7 @@ mgp_proc *mgp_module_add_batch_procedure(mgp_module *module, const char *name, m
   if (!IsValidIdentifierName(name)) {
     throw std::invalid_argument{fmt::format("Invalid procedure name: {}", name)};
   }
-  if (module->procedures.find(name) != module->procedures.end()) {
+  if (module->procedures.contains(name)) {
     throw std::logic_error{fmt::format("Procedure already exists with name '{}'", name)};
   };
   auto *memory = module->procedures.get_allocator().resource();
@@ -4667,7 +4667,7 @@ mgp_error AddResultToProp(T *prop, const char *name, mgp_type *type, bool is_dep
     if (!IsValidIdentifierName(name)) {
       throw std::invalid_argument{fmt::format("Invalid result name for procedure '{}': {}", prop->name, name)};
     }
-    if (prop->results.find(name) != prop->results.end()) {
+    if (prop->results.contains(name)) {
       throw std::logic_error{fmt::format("Result already exists with name '{}' for procedure '{}'", name, prop->name)};
     };
     auto *memory = prop->results.get_allocator().resource();
@@ -4971,7 +4971,7 @@ mgp_error mgp_module_add_transformation(mgp_module *module, const char *name, mg
     if (!IsValidIdentifierName(name)) {
       throw std::invalid_argument{fmt::format("Invalid transformation name: {}", name)};
     }
-    if (module->transformations.find(name) != module->transformations.end()) {
+    if (module->transformations.contains(name)) {
       throw std::logic_error{fmt::format("Transformation already exists with name '{}'", name)};
     };
     auto *memory = module->transformations.get_allocator().resource();
@@ -4985,7 +4985,7 @@ mgp_error mgp_module_add_function(mgp_module *module, const char *name, mgp_func
         if (!IsValidIdentifierName(name)) {
           throw std::invalid_argument{fmt::format("Invalid function name: {}", name)};
         }
-        if (module->functions.find(name) != module->functions.end()) {
+        if (module->functions.contains(name)) {
           throw std::logic_error{fmt::format("Function with similar name already exists '{}'", name)};
         };
         auto *memory = module->functions.get_allocator().resource();

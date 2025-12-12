@@ -27,7 +27,6 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
-#include "utils/algorithm.hpp"
 
 namespace memgraph::query::plan {
 
@@ -65,7 +64,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
       op.all_filters_ = std::move(leftover_filters);
     }
 
-    if (!op.expression_ || utils::Contains(filter_exprs_for_removal_, op.expression_)) {
+    if (!op.expression_ || filter_exprs_for_removal_.contains(op.expression_)) {
       SetOnParent(op.input());
     }
 
@@ -667,7 +666,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
-        if (!utils::Contains(bound_symbols, used_symbol)) {
+        if (!bound_symbols.contains(used_symbol)) {
           return false;
         }
       }
@@ -717,7 +716,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);
 
-      if (utils::Contains(right_symbols, lhs_symbol) && utils::Contains(left_symbols, rhs_symbol)) {
+      if (std::ranges::contains(right_symbols, lhs_symbol) && std::ranges::contains(left_symbols, rhs_symbol)) {
         // We need to duplicate this because expressions are shared between plans
         join_condition = join_condition->Clone(ast_storage_);
         std::swap(join_condition->expression1_, join_condition->expression2_);
