@@ -165,6 +165,7 @@ class PeriodicSubquery;
 class SetNestedProperty;
 class RemoveNestedProperty;
 class AggregateParallel;
+class OrderByParallel;
 class ParallelMerge;
 class ScanParallel;
 class ScanParallelByLabel;
@@ -190,11 +191,11 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate,
     Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
     Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit,
-    PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl, AggregateParallel, ScanParallel,
-    ScanParallelByPointDistance, ScanParallelByLabel, ScanParallelByLabelProperties, ScanParallelByEdgeType,
-    ScanParallelByEdgeTypeProperty, ScanParallelByWithinbbox, ScanParallelByEdge, ScanParallelByEdgeTypePropertyValue,
-    ScanParallelByEdgeTypePropertyRange, ScanParallelByEdgeProperty, ScanParallelByEdgePropertyValue,
-    ScanParallelByEdgePropertyRange, ScanChunk, ScanChunkByEdge, ParallelMerge>;
+    PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl, AggregateParallel,
+    OrderByParallel, ScanParallel, ScanParallelByPointDistance, ScanParallelByLabel, ScanParallelByLabelProperties,
+    ScanParallelByEdgeType, ScanParallelByEdgeTypeProperty, ScanParallelByWithinbbox, ScanParallelByEdge,
+    ScanParallelByEdgeTypePropertyValue, ScanParallelByEdgeTypePropertyRange, ScanParallelByEdgeProperty,
+    ScanParallelByEdgePropertyValue, ScanParallelByEdgePropertyRange, ScanChunk, ScanChunkByEdge, ParallelMerge>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1837,6 +1838,39 @@ class AggregateParallel : public memgraph::query::plan::LogicalOperator {
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<AggregateParallel>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->num_threads_ = num_threads_;
+    return object;
+  }
+};
+
+class OrderByParallel : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  OrderByParallel() = default;
+  OrderByParallel(const std::shared_ptr<LogicalOperator> &orderby_input, size_t num_threads);
+
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *mem) const override;
+
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &table) const override;
+
+  std::vector<Symbol> OutputSymbols(const SymbolTable &symbol_table) const override;
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  size_t num_threads_;
+
+  std::string ToString() const override { return "OrderByParallel"; }
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<OrderByParallel>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->num_threads_ = num_threads_;
     return object;
