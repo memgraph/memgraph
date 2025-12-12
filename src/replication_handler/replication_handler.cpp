@@ -434,7 +434,6 @@ bool ReplicationHandler::IsReplica() const { return repl_state_.ReadLock()->IsRe
 
 auto ReplicationHandler::ShowReplicas() const -> std::expected<query::ReplicasInfos, query::ShowReplicaError> {
   // TODO try lock
-  // TODO(ivan): WHAT IS THIS
   using res_t = std::expected<query::ReplicasInfos, query::ShowReplicaError>;
   auto main = [this](RoleMainData const &main) -> res_t {
     auto entries = std::vector<query::ReplicasInfo>{};

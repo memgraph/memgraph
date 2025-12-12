@@ -1455,9 +1455,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           spdlog::trace("   Delta {}. Drop existence constraint on :{} ({})", current_delta_idx, data.label,
                         data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (transaction
-                  ->DropExistenceConstraint(storage->NameToLabel(data.label), storage->NameToProperty(data.property))
-                  .has_value()) {
+          if (!transaction
+                   ->DropExistenceConstraint(storage->NameToLabel(data.label), storage->NameToProperty(data.property))
+                   .has_value()) {
             throw utils::BasicException("Failed to drop existence constraint on :{} ({}).", data.label, data.property);
           }
         },
