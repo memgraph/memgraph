@@ -14,6 +14,7 @@
 #include <tuple>
 
 #include "flags/general.hpp"
+#include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
@@ -403,6 +404,11 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
     for (auto *edge : edges) {
       storage_->indices_.text_edge_index_.RemoveEdge(edge->edge_.ptr, edge->edge_type_, transaction_);
     }
+  }
+
+  // Cleanup vector indices
+  for (auto *node : nodes_to_delete) {
+    storage_->indices_.vector_index_.RemoveNode(node);
   }
 
   auto deleted_vertices = maybe_deleted_vertices.GetValue();

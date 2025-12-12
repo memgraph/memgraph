@@ -14,6 +14,7 @@
 #include <tuple>
 #include <vector>
 
+#include "storage/v2/delta.hpp"
 #include "storage/v2/delta_action.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/result.hpp"
