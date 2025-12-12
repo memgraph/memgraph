@@ -76,7 +76,7 @@ struct ConsumerTest : public ::testing::Test {
       for (const auto &message : messages) {
         EXPECT_EQ(message.TopicName(), kTopicName);
       }
-      if (last_received_message != nullptr) {
+      if (last_received_message != nullptr && messages.back().Payload().size() == sizeof(int)) {
         *last_received_message = SpanToInt(messages.back().Payload());
       } else {
         consumer_function(messages);
