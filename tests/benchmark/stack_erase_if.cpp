@@ -21,6 +21,8 @@ using TDeleted = std::pair<uint64_t, int *>;
 using TLocalStack = memgraph::utils::Stack<TDeleted, 8190, false>;
 using TThreadSafeStack = memgraph::utils::Stack<TDeleted, 8190, true>;
 
+namespace r = std::ranges;
+
 namespace {
 inline void DeleteNode(const int *node) { delete node; }
 }  // namespace
