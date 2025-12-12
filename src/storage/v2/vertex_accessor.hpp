@@ -13,12 +13,12 @@
 
 #include <optional>
 
+#include "storage/v2/result.hpp"
 #include "storage/v2/vertex.hpp"
 
 #include "query/hops_limit.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/edge_direction.hpp"
-#include "storage/v2/result.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/small_vector.hpp"
 

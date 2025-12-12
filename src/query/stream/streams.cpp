@@ -200,8 +200,8 @@ void Streams::RegisterKafkaProcedures() {
       std::visit(utils::Overloaded{[&](StreamData<KafkaStream> &kafka_stream) {
                                      auto stream_source_ptr = kafka_stream.stream_source->Lock();
                                      const auto error = stream_source_ptr->SetStreamOffset(offset);
-                                     if (error.HasError()) {
-                                       MG_ASSERT(mgp_result_set_error_msg(result, error.GetError().c_str()) ==
+                                     if (!error.has_value()) {
+                                       MG_ASSERT(mgp_result_set_error_msg(result, error.error().c_str()) ==
                                                      mgp_error::MGP_ERROR_NO_ERROR,
                                                  "Unable to set procedure error message of procedure: {}", proc_name);
                                      }

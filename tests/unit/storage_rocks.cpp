@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -68,8 +68,8 @@ TEST_F(RocksDBStorageTest, SerializeVertexGIDLabels) {
   auto vertex = acc->CreateVertex();
   auto ser_player_label = acc->NameToLabel("Player");
   auto ser_user_label = acc->NameToLabel("User");
-  ASSERT_FALSE(vertex.AddLabel(ser_player_label).HasError());
-  ASSERT_FALSE(vertex.AddLabel(ser_user_label).HasError());
+  ASSERT_TRUE(vertex.AddLabel(ser_player_label).has_value());
+  ASSERT_TRUE(vertex.AddLabel(ser_user_label).has_value());
   auto gid = vertex.Gid();
   ASSERT_EQ(memgraph::utils::SerializeVertex(*vertex.vertex_),
             ser_player_label.ToString() + "," + ser_user_label.ToString() + "|" + gid.ToString());

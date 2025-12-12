@@ -168,8 +168,8 @@ void Reader::impl::TryInitializeHeader() {
   }
 
   auto header = ParseHeader();
-  if (header.HasError()) {
-    throw CsvReadException("CSV reading : {}", header.GetError().message);
+  if (!header.has_value()) {
+    throw CsvReadException("CSV reading : {}", header.error().message);
   }
 
   if (header->empty()) {
@@ -226,8 +226,8 @@ Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
       }
       // Null bytes aren't allowed in CSVs.
       if (c == '\0') {
-        return ParseError(ParseError::ErrorCode::NULL_BYTE,
-                          fmt::format("CSV: Line {:d} contains NULL byte", line_count_ - 1));
+        return std::unexpected{ParseError(ParseError::ErrorCode::NULL_BYTE,
+                                          fmt::format("CSV: Line {:d} contains NULL byte", line_count_ - 1))};
       }
 
       switch (state) {
@@ -281,9 +281,10 @@ Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
             state = CsvParserState::NEXT_FIELD;
             line_string_view.remove_prefix(read_config_.delimiter->size());
           } else {
-            return ParseError(ParseError::ErrorCode::UNEXPECTED_TOKEN,
-                              fmt::format("CSV Reader: Expected '{}' after '{}', but got '{}' at line {:d}",
-                                          *read_config_.delimiter, *read_config_.quote, c, line_count_ - 1));
+            return std::unexpected{
+                ParseError(ParseError::ErrorCode::UNEXPECTED_TOKEN,
+                           fmt::format("CSV Reader: Expected '{}' after '{}', but got '{}' at line {:d}",
+                                       *read_config_.delimiter, *read_config_.quote, c, line_count_ - 1))};
           }
           break;
         }
@@ -303,9 +304,9 @@ Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
       row.emplace_back("");
       break;
     case CsvParserState::QUOTING: {
-      return ParseError(ParseError::ErrorCode::NO_CLOSING_QUOTE,
-                        "There is no more data left to load while inside a quoted string. "
-                        "Did you forget to close the quote?");
+      return std::unexpected{ParseError(ParseError::ErrorCode::NO_CLOSING_QUOTE,
+                                        "There is no more data left to load while inside a quoted string. "
+                                        "Did you forget to close the quote?")};
       break;
     }
   }
@@ -321,13 +322,13 @@ Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
   // Also, if we don't have a header, the 'number_of_columns_' will be 0, so no
   // need to check the number of columns.
   if (number_of_columns_ != 0 && row.size() != number_of_columns_) [[unlikely]] {
-    return ParseError(ParseError::ErrorCode::BAD_NUM_OF_COLUMNS,
-                      // ToDo(the-joksim):
-                      //    - 'line_count_ - 1' is the last line of a row (as a
-                      //      row may span several lines) ==> should have a row
-                      //      counter
-                      fmt::format("Expected {:d} columns in row {:d}, but got {:d}", number_of_columns_,
-                                  line_count_ - 1, row.size()));
+    return std::unexpected{ParseError(ParseError::ErrorCode::BAD_NUM_OF_COLUMNS,
+                                      // ToDo(the-joksim):
+                                      //    - 'line_count_ - 1' is the last line of a row (as a
+                                      //      row may span several lines) ==> should have a row
+                                      //      counter
+                                      fmt::format("Expected {:d} columns in row {:d}, but got {:d}", number_of_columns_,
+                                                  line_count_ - 1, row.size()))};
   }
   // To avoid unessisary dynamic growth of the row, remember the number of
   // columns for future calls
@@ -341,18 +342,18 @@ Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
 std::optional<Reader::Row> Reader::impl::GetNextRow(utils::MemoryResource *mem) {
   auto row = ParseRow(mem);
 
-  if (row.HasError()) [[unlikely]] {
+  if (!row.has_value()) [[unlikely]] {
     if (!read_config_.ignore_bad) {
-      throw CsvReadException("CSV Reader: Bad row at line {:d}: {}", line_count_ - 1, row.GetError().message);
+      throw CsvReadException("CSV Reader: Bad row at line {:d}: {}", line_count_ - 1, row.error().message);
     }
     // try to parse as many times as necessary to reach a valid row
     do {
-      spdlog::debug("CSV Reader: Bad row at line {:d}: {}", line_count_ - 1, row.GetError().message);
+      spdlog::debug("CSV Reader: Bad row at line {:d}: {}", line_count_ - 1, row.error().message);
       if (!csv_stream_.good()) {
         return std::nullopt;
       }
       row = ParseRow(mem);
-    } while (row.HasError());
+    } while (!row.has_value());
   }
 
   if (row->empty()) [[unlikely]] {

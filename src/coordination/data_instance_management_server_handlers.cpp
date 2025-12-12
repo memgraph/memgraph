@@ -163,9 +163,9 @@ auto DataInstanceManagementServerHandlers::DoRegisterReplica(replication::Replic
                                                 .repl_server_endpoint = config.replication_server};
   };
 
-  if (auto instance_client = replication_handler.RegisterReplica(converter(config)); instance_client.HasError()) {
+  if (auto instance_client = replication_handler.RegisterReplica(converter(config)); !instance_client.has_value()) {
     using query::RegisterReplicaError;
-    switch (instance_client.GetError()) {
+    switch (instance_client.error()) {
       case RegisterReplicaError::NO_ACCESS: {
         spdlog::error("Error when registering instance {} as replica. Couldn't get unique access to ReplicationState.");
         return false;

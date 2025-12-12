@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,13 +29,13 @@ inline std::string ToString(const memgraph::query::VertexAccessor &vertex, const
   std::ostringstream os;
   os << "V(";
   auto maybe_labels = vertex.Labels(memgraph::storage::View::NEW);
-  MG_ASSERT(maybe_labels.HasValue());
+  MG_ASSERT(maybe_labels.has_value());
   memgraph::utils::PrintIterable(os, *maybe_labels, ":",
                                  [&](auto &stream, auto label) { stream << acc.LabelToName(label); });
   if (maybe_labels->size() > 0) os << " ";
   os << "{";
   auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
-  MG_ASSERT(maybe_properties.HasValue());
+  MG_ASSERT(maybe_properties.has_value());
   memgraph::utils::PrintIterable(os, *maybe_properties, ", ", [&](auto &stream, const auto &pair) {
     stream << acc.PropertyToName(pair.first) << ": " << pair.second;
   });
@@ -49,7 +49,7 @@ inline std::string ToString(const memgraph::query::EdgeAccessor &edge, const TAc
   os << "E[" << acc.EdgeTypeToName(edge.EdgeType());
   os << " {";
   auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
-  MG_ASSERT(maybe_properties.HasValue());
+  MG_ASSERT(maybe_properties.has_value());
   memgraph::utils::PrintIterable(os, *maybe_properties, ", ", [&](auto &stream, const auto &pair) {
     stream << acc.PropertyToName(pair.first) << ": " << pair.second;
   });

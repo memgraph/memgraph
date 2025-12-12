@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "general.hpp"
+#include <spdlog/spdlog.h>
 
 #include "storage/v2/config.hpp"
 #include "utils/file.hpp"

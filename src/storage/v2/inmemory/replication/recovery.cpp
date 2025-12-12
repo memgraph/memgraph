@@ -99,7 +99,7 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
 
   auto const add_snapshot = [&]() -> bool {
     // Handle snapshot step
-    if (const auto lock_success = locker_acc.AddPath(latest_snapshot->path); lock_success.HasError()) {
+    if (const auto lock_success = locker_acc.AddPath(latest_snapshot->path); !lock_success.has_value()) {
       spdlog::error("Tried to lock a non-existent snapshot path while obtaining recovery steps.");
       return false;
     }
@@ -230,7 +230,7 @@ auto GetRecoveryWalFiles(utils::FileRetainer::FileLockerAccessor *locker_acc,
   rw.reserve(num_wal_files - first_useful_wal);
   for (; std::cmp_less(first_useful_wal, num_wal_files); ++first_useful_wal) {
     auto const &wal = wal_files[first_useful_wal];
-    if (const auto lock_success = locker_acc->AddPath(wal.path); lock_success.HasError()) {
+    if (const auto lock_success = locker_acc->AddPath(wal.path); !lock_success.has_value()) {
       spdlog::error("Tried to lock a nonexistent WAL path.");
       return std::nullopt;
     }

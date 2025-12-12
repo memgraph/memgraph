@@ -423,8 +423,8 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   auto get_properties = [&](const auto &record_accessor) {
     TypedValue::TMap properties(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
-    if (maybe_props.HasError()) {
-      switch (maybe_props.GetError()) {
+    if (!maybe_props.has_value()) {
+      switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get properties from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
@@ -489,9 +489,9 @@ TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionCon
   uint64_t property_size = 0;
   const auto &graph_entity = args[0];
   if (graph_entity.IsVertex()) {
-    property_size = graph_entity.ValueVertex().GetPropertySize(*maybe_property_id, ctx.view).GetValue();
+    property_size = graph_entity.ValueVertex().GetPropertySize(*maybe_property_id, ctx.view).value();
   } else if (graph_entity.IsEdge()) {
-    property_size = graph_entity.ValueEdge().GetPropertySize(*maybe_property_id, ctx.view).GetValue();
+    property_size = graph_entity.ValueEdge().GetPropertySize(*maybe_property_id, ctx.view).value();
   }
 
   return TypedValue(static_cast<int64_t>(property_size), ctx.memory);
@@ -506,8 +506,8 @@ TypedValue StartNode(const TypedValue *args, int64_t nargs, const FunctionContex
 namespace {
 
 size_t UnwrapDegreeResult(storage::Result<size_t> maybe_degree) {
-  if (maybe_degree.HasError()) {
-    switch (maybe_degree.GetError()) {
+  if (!maybe_degree.has_value()) {
+    switch (maybe_degree.error()) {
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get degree of a deleted node.");
       case storage::Error::NONEXISTENT_OBJECT:
@@ -686,8 +686,8 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   auto get_keys = [&](const auto &record_accessor) {
     TypedValue::TVector keys(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
-    if (maybe_props.HasError()) {
-      switch (maybe_props.GetError()) {
+    if (!maybe_props.has_value()) {
+      switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get keys from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
@@ -728,8 +728,8 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   auto get_values = [&](const auto &record_accessor) {
     TypedValue::TVector values(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
-    if (maybe_props.HasError()) {
-      switch (maybe_props.GetError()) {
+    if (!maybe_props.has_value()) {
+      switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get keys from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
@@ -773,8 +773,8 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   TypedValue::TVector labels(ctx.memory);
   auto maybe_labels = args[0].ValueVertex().Labels(ctx.view);
-  if (maybe_labels.HasError()) {
-    switch (maybe_labels.GetError()) {
+  if (!maybe_labels.has_value()) {
+    switch (maybe_labels.error()) {
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get labels from a deleted node.");
       case storage::Error::NONEXISTENT_OBJECT:
@@ -1090,7 +1090,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
 
     case Enum: {
       auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-      if (opt_str.HasError()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+      if (!opt_str.has_value()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
       return TypedValue(*opt_str, ctx.memory);
     }
 
@@ -1155,7 +1155,7 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
 
     case Enum: {
       auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-      if (opt_str.HasError()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+      if (!opt_str.has_value()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
       return TypedValue(*opt_str, ctx.memory);
     }
 
@@ -1578,12 +1578,12 @@ TypedValue ToEnum(const TypedValue *args, int64_t nargs, const FunctionContext &
   auto const &s1 = args[0].ValueString();
   if (nargs == 1) {
     auto enum_val = ctx.db_accessor->GetEnumValue(s1);
-    if (enum_val.HasError()) throw QueryRuntimeException("Invalid enum '{}'", s1);
+    if (!enum_val.has_value()) throw QueryRuntimeException("Invalid enum '{}'", s1);
     return TypedValue(*enum_val, ctx.memory);
   }
   auto const &s2 = args[1].ValueString();
   auto enum_val = ctx.db_accessor->GetEnumValue(s1, s2);
-  if (enum_val.HasError()) throw QueryRuntimeException("Invalid enum '{}::{}'", s1, s2);
+  if (!enum_val.has_value()) throw QueryRuntimeException("Invalid enum '{}::{}'", s1, s2);
   return TypedValue(*enum_val, ctx.memory);
 }
 

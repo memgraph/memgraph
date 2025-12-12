@@ -71,7 +71,7 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<memgraph::stor
       }
     }
 
-    ASSERT_FALSE(creator->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(creator->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     {
       SCOPED_TRACE(fmt::format(
           "Visibility after the creator transaction is committed "
@@ -88,14 +88,14 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<memgraph::stor
     }
 
     ASSERT_FALSE(
-        default_isolation_level_reader->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+        !default_isolation_level_reader->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     ASSERT_FALSE(
-        override_isolation_level_reader->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+        !override_isolation_level_reader->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     SCOPED_TRACE("Visibility after a new transaction is started");
     auto verifier = storage->Access();
     ASSERT_EQ(VerticesCount(verifier.get()), iteration_count);
-    ASSERT_FALSE(verifier->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(verifier->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 };
 
