@@ -6373,10 +6373,13 @@ std::vector<Symbol> OrderBy::OutputSymbols(const SymbolTable &symbol_table) cons
 
 std::vector<Symbol> OrderBy::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
 
+class OrderByParallelCursor;
+
 class OrderByCursor : public Cursor {
  public:
+  friend class OrderByParallelCursor;
   OrderByCursor(const OrderBy &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), cache_(mem) {}
+      : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), cache_(mem), order_by_cache_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -6388,12 +6391,12 @@ class OrderByCursor : public Cursor {
       auto *pull_mem = context.evaluation_context.memory;
       auto *query_mem = cache_.get_allocator().resource();
 
-      utils::pmr::vector<utils::pmr::vector<TypedValue>> order_by(pull_mem);  // Not cached, pull memory
-      utils::pmr::vector<utils::pmr::vector<TypedValue>> output(query_mem);   // Cached, query memory
+      utils::pmr::vector<utils::pmr::vector<TypedValue>> order_by(query_mem);  // Cached for parallel merge
+      utils::pmr::vector<utils::pmr::vector<TypedValue>> output(query_mem);    // Cached, query memory
 
       while (input_cursor_->Pull(frame, context)) {
         // collect the order_by elements
-        utils::pmr::vector<TypedValue> order_by_elem(pull_mem);
+        utils::pmr::vector<TypedValue> order_by_elem(query_mem);
         order_by_elem.reserve(self_.order_by_.size());
         for (auto const &expression_ptr : self_.order_by_) {
           order_by_elem.emplace_back(expression_ptr->Accept(evaluator));
@@ -6416,12 +6419,13 @@ class OrderByCursor : public Cursor {
           rv::zip(order_by, output), self_.compare_.lex_cmp(),
           [](auto const &value) -> auto const & { return std::get<0>(value); });
 
-      // no longer need the order_by terms
-      order_by.clear();
+      // Keep order_by for parallel merge
+      order_by_cache_ = std::move(order_by);
       cache_ = std::move(output);
 
       did_pull_all_ = true;
       cache_it_ = cache_.begin();
+      order_by_cache_it_ = order_by_cache_.begin();
     }
 
     if (cache_it_ == cache_.end()) return false;
@@ -6438,6 +6442,7 @@ class OrderByCursor : public Cursor {
       frame_writer.Write(*output_sym_it++, std::move(output));
     }
     cache_it_++;
+    order_by_cache_it_++;
     return true;
   }
   void Shutdown() override { input_cursor_->Shutdown(); }
@@ -6447,6 +6452,8 @@ class OrderByCursor : public Cursor {
     did_pull_all_ = false;
     cache_.clear();
     cache_it_ = cache_.begin();
+    order_by_cache_.clear();
+    order_by_cache_it_ = order_by_cache_.begin();
   }
 
  private:
@@ -6458,6 +6465,9 @@ class OrderByCursor : public Cursor {
   utils::pmr::vector<utils::pmr::vector<TypedValue>> cache_;
   // iterator over the cache_, maintains state between Pulls
   decltype(cache_.begin()) cache_it_ = cache_.begin();
+  // Cache of order_by values for parallel merge (kept after sorting)
+  utils::pmr::vector<utils::pmr::vector<TypedValue>> order_by_cache_;
+  decltype(order_by_cache_.begin()) order_by_cache_it_ = order_by_cache_.begin();
 };
 
 UniqueCursorPtr OrderBy::MakeCursor(utils::MemoryResource *mem) const {
@@ -10202,6 +10212,116 @@ std::vector<Symbol> AggregateParallel::ModifiedSymbols(const SymbolTable &table)
 
 ACCEPT_WITH_INPUT(AggregateParallel);
 
+class OrderByParallelCursor : public ParallelBranchCursor {
+ public:
+  OrderByParallelCursor(const OrderByParallel &self, utils::MemoryResource *mem)
+      : ParallelBranchCursor(self.input_, self.num_threads_, mem), self_(self) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    if (branch_cursors_.empty()) {
+      return false;
+    }
+
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    const auto &output_symbols = static_cast<OrderByCursor *>(branch_cursors_[0].get())->self_.output_symbols_;
+    const auto &compare = static_cast<OrderByCursor *>(branch_cursors_[0].get())->self_.compare_;
+
+    // Compare using order_by values for correct sort order
+    auto heap_cmp = [&compare](const auto &a, const auto &b) {
+      return !compare.lex_cmp()(*std::get<1>(a), *std::get<1>(b));
+    };
+
+    // First pull, process all input and store results sorted in each branch
+    if (!initialized_) {
+      initialized_ = true;
+
+      auto pre_pull_func = [](Cursor * /*cursor*/) {};
+      auto post_pull_func = [](Cursor * /*cursor*/) {};
+
+      // Execute branches in parallel - each branch will pull all its data and sort it
+      if (!ExecuteBranchesInParallel(frame, context, self_, std::move(profile), pre_pull_func, post_pull_func)) {
+        return false;
+      }
+
+      // Initialize heap with iterators from each branch's sorted cache
+      // Each element is (cache_it, order_by_it, cache_end, order_by_end, branch_index)
+      for (size_t i = 0; i < branch_cursors_.size(); ++i) {
+        auto *orderby_cursor = static_cast<OrderByCursor *>(branch_cursors_[i].get());
+        if (orderby_cursor->cache_.begin() != orderby_cursor->cache_.end()) {
+          branch_iters_.emplace_back(orderby_cursor->cache_.begin(), orderby_cursor->order_by_cache_.begin(),
+                                     orderby_cursor->cache_.end(), orderby_cursor->order_by_cache_.end(), i);
+        }
+      }
+
+      // Build a min-heap based on the compare function
+      std::make_heap(branch_iters_.begin(), branch_iters_.end(), heap_cmp);
+    }
+
+    if (branch_iters_.empty()) return false;
+
+    AbortCheck(context);
+
+    // Pop the smallest element from the heap (based on order_by values
+    std::pop_heap(branch_iters_.begin(), branch_iters_.end(), heap_cmp);
+    auto &[cache_it, order_by_it, cache_end, order_by_end, branch_idx] = branch_iters_.back();
+
+    // Place the output values on the frame (from cache_, not order_by_cache_)
+    DMG_ASSERT(output_symbols.size() == cache_it->size(),
+               "Number of values does not match the number of output symbols in OrderByParallel");
+    auto output_sym_it = output_symbols.begin();
+    for (TypedValue &output : *cache_it) {
+      frame_writer.Write(*output_sym_it++, std::move(output));
+    }
+
+    // Advance both iterators and reheapify if there are more elements
+    ++cache_it;
+    ++order_by_it;
+    if (cache_it != cache_end) {
+      std::push_heap(branch_iters_.begin(), branch_iters_.end(), heap_cmp);
+    } else {
+      branch_iters_.pop_back();
+    }
+
+    return true;
+  }
+
+ private:
+  bool initialized_ = false;
+  // Heap of (cache_it, order_by_it, cache_end, order_by_end, branch_index)
+  using CacheType = utils::pmr::vector<utils::pmr::vector<TypedValue>>;
+  std::vector<std::tuple<CacheType::iterator, CacheType::iterator, CacheType::iterator, CacheType::iterator, size_t>>
+      branch_iters_;
+  const OrderByParallel &self_;
+};
+
+OrderByParallel::OrderByParallel(const std::shared_ptr<LogicalOperator> &orderby_input, size_t num_threads)
+    : input_(orderby_input), num_threads_(num_threads) {
+  DMG_ASSERT(dynamic_cast<OrderBy *>(orderby_input.get()) != nullptr, "Input must be an OrderBy");
+  DMG_ASSERT(num_threads > 0, "Number of threads must be greater than 0");
+}
+
+UniqueCursorPtr OrderByParallel::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::OrderByOperator);
+
+  return MakeUniqueCursorPtr<OrderByParallelCursor>(mem, *this, mem);
+}
+
+std::vector<Symbol> OrderByParallel::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = std::vector<Symbol>();
+  auto right = input_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), right.begin(), right.end());
+  return symbols;
+}
+
+std::vector<Symbol> OrderByParallel::OutputSymbols(const SymbolTable &symbol_table) const {
+  return input_->OutputSymbols(symbol_table);
+}
+
+ACCEPT_WITH_INPUT(OrderByParallel);
+
 Skip::Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
     : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
 
@@ -10224,6 +10344,7 @@ std::unique_ptr<LogicalOperator> Skip::Clone(AstStorage *storage) const {
   auto object = std::make_unique<Skip>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  object->parallel_execution = parallel_execution;
   return object;
 }
 
@@ -10301,6 +10422,7 @@ std::unique_ptr<LogicalOperator> Limit::Clone(AstStorage *storage) const {
   auto object = std::make_unique<Limit>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  object->parallel_execution = parallel_execution;
   return object;
 }
 

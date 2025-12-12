@@ -14,6 +14,9 @@
 #include <memory>
 #include <set>
 #include <vector>
+#include "context.hpp"
+#include "flags/bolt.hpp"
+#include "interpret/eval.hpp"
 #include "query/dependant_symbol_visitor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/read_write_type_checker.hpp"
@@ -26,8 +29,9 @@ namespace impl {
 template <class TDbAccessor>
 class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  ParallelAggregateRewriter(SymbolTable *symbolTable, AstStorage *astStorage, TDbAccessor *db, size_t num_threads)
-      : symbol_table(symbolTable), ast_storage(astStorage), db(db), num_threads_(num_threads) {}
+  ParallelAggregateRewriter(SymbolTable *symbolTable, AstStorage *astStorage, TDbAccessor *db, size_t num_threads,
+                            std::shared_ptr<LogicalOperator> root)
+      : root_(root), symbol_table(symbolTable), ast_storage(astStorage), db(db), num_threads_(num_threads) {}
 
   ~ParallelAggregateRewriter() override = default;
 
@@ -53,7 +57,6 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
   DEFAULT_VISITS(Accumulate)
   DEFAULT_VISITS(Produce)
   DEFAULT_VISITS(Limit)
-  DEFAULT_VISITS(OrderBy)
   DEFAULT_VISITS(Skip)
   DEFAULT_VISITS(Filter)
   DEFAULT_VISITS(Distinct)
@@ -209,13 +212,6 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
 
   // Single threaded Aggregate (potentially parallelizable)
   bool PreVisit(Aggregate &op) override {
-    auto failure = [&](std::string_view error_message = "") {
-      spdlog::trace("Parallel aggregate rewrite failed: {}", error_message);
-      // Failed to rewrite, continue searching for other opportunities to parallelize
-      prev_ops_.push_back(&op);
-      return true;
-    };
-
     // Special case for DISTINCT operator - we don't support parallelizing DISTINCT operators
     // We will try to move the DISTINCT under the aggregation function
     // Rewrite MATCH(n) WITH DISTINCT n RETURN count(*) to MATCH(n) RETURN count(DISTINCT n)
@@ -265,6 +261,75 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
       }
     }
 
+    // Use the generic parallel rewrite logic
+    auto create_parallel = [this](std::shared_ptr<LogicalOperator> op) {
+      return std::make_shared<AggregateParallel>(op, num_threads_);
+    };
+    return TryParallelizeOperator(op, required_symbols, "aggregate", create_parallel);
+  }
+
+  bool PostVisit(Aggregate &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  // OrderBy (potentially parallelizable)
+  bool PreVisit(OrderBy &op) override {
+    // Collect symbols needed by this OrderBy (from order_by expressions and output_symbols)
+    std::set<Symbol::Position_t> required_symbols;
+    DependantSymbolVisitor symbol_visitor(required_symbols);
+
+    // Collect symbols from order_by expressions
+    for (auto *order_by_expr : op.order_by_) {
+      if (order_by_expr != nullptr) {
+        order_by_expr->Accept(symbol_visitor);
+      }
+    }
+
+    // Collect symbols from output_symbols
+    for (const auto &output_sym : op.output_symbols_) {
+      required_symbols.insert(output_sym.position());
+    }
+
+    // Use the generic parallel rewrite logic
+    auto create_parallel = [this](std::shared_ptr<LogicalOperator> op) {
+      return std::make_shared<OrderByParallel>(op, num_threads_);
+    };
+    return TryParallelizeOperator(op, required_symbols, "orderby", create_parallel);
+  }
+
+  bool PostVisit(OrderBy &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  std::shared_ptr<LogicalOperator> root_;
+
+ private:
+  SymbolTable *symbol_table;
+  AstStorage *ast_storage;
+  TDbAccessor *db;
+  std::vector<LogicalOperator *> prev_ops_;
+  size_t num_threads_;
+
+  /**
+   * Generic function to parallelize an operator.
+   * @param op The operator to parallelize
+   * @param required_symbols The symbols required by the operator
+   * @param op_name The name of the operator (for logging)
+   * @param create_parallel_op Factory function to create the parallel operator
+   * @return true to continue visiting, false to stop
+   */
+  template <typename TOperator, typename TParallelFactory>
+  bool TryParallelizeOperator(TOperator &op, const std::set<Symbol::Position_t> &required_symbols,
+                              std::string_view op_name, TParallelFactory &&create_parallel_op) {
+    auto failure = [&](std::string_view error_message = "") {
+      spdlog::trace("Parallel {} rewrite failed: {}", op_name, error_message);
+      // Failed to rewrite, continue searching for other opportunities to parallelize
+      prev_ops_.push_back(&op);
+      return true;
+    };
+
     // Find the Scan operator that produces the required symbols
     LogicalOperator *target_scan = nullptr;
     LogicalOperator *scan_parent = &op;
@@ -277,12 +342,12 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
       return failure("No target scan or scan parent found");
     }
 
-    // Verify the path from Aggregate to Scan is read-only
+    // Verify the path from operator to Scan is read-only
     if (!IsPathReadOnly(&op, target_scan)) {
-      return failure("Path from Aggregate to Scan is not read-only");
+      return failure("Path from operator to Scan is not read-only");
     }
 
-    // Aggregate -> Scan -> etc is rewritten to AggregateParallel -> ScanChunk -> ParallelMerge -> ScanParallel -> etc
+    // Operator -> Scan -> etc is rewritten to OperatorParallel -> ScanChunk -> ParallelMerge -> ScanParallel -> etc
     auto scan_input = target_scan->input();
     auto state_symbol = symbol_table->CreateAnonymousSymbol();
     auto scan_parallel = CreateScanParallel(target_scan, scan_input, state_symbol);
@@ -357,62 +422,80 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
       }
     }
 
-    // Create AggregateParallel with default num_threads
-    if (!prev_ops_.back()->HasSingleInput()) {
-      return failure("Expected single input operator");
-    }
-    auto parallel_agg = std::make_shared<AggregateParallel>(prev_ops_.back()->input() /*op */, num_threads_);
-
-    // Switch the parent operator (if any) to use AggregateParallel instead of Aggregate
-    // This makes: Parent -> AggregateParallel instead of Parent -> Aggregate
-    // Note: Don't push Aggregate to prev_ops_ before calling SetOnParent, because
-    // SetOnParent needs to access the parent (prev_ops_.back()), not Aggregate itself
-    SetOnParent(parallel_agg);
+    // Create and insert the parallel operator
+    InsertParallelOperator(&op, std::forward<decltype(create_parallel_op)>(create_parallel_op));
 
     // Success, update operators
-    for (auto *op : update_ops) {
-      if (auto *skip_op = dynamic_cast<Skip *>(op)) {
+    for (auto *update_op : update_ops) {
+      if (auto *skip_op = dynamic_cast<Skip *>(update_op)) {
         skip_op->parallel_execution.emplace(num_threads_);
-      } else if (auto *limit_op = dynamic_cast<Limit *>(op)) {
+      } else if (auto *limit_op = dynamic_cast<Limit *>(update_op)) {
         limit_op->parallel_execution.emplace(num_threads_);
       } else {
-        return failure("Unsupported operator in parallel chain " + op->ToString());
+        return failure("Unsupported operator in parallel chain " + update_op->ToString());
       }
     }
 
-    // Now push Aggregate to track it for any children it might have
-    // TODO should this be the parallel version?
+    // Now push operator to track it for any children it might have
     prev_ops_.push_back(&op);
-    return true;  // Continue visiting to handle nested aggregations
+    return true;  // Continue visiting to handle nested operations
   }
 
-  bool PostVisit(Aggregate &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  std::shared_ptr<LogicalOperator> new_root_;
-
- private:
-  SymbolTable *symbol_table;
-  AstStorage *ast_storage;
-  TDbAccessor *db;
-  std::vector<LogicalOperator *> prev_ops_;
-  size_t num_threads_;
-
-  void SetOnParent(const std::shared_ptr<LogicalOperator> &input) {
-    MG_ASSERT(input);
+  void InsertParallelOperator(LogicalOperator *original_op, auto &&create_parallel_op) {
     if (prev_ops_.empty()) {
-      // Aggregate is the root, so AggregateParallel becomes the new root
-      MG_ASSERT(!new_root_);
-      new_root_ = input;
+      // No prev ops, means this is the first operator in the chain
+      // Set root to the new operator and pass in the input
+      if (!root_) {
+        throw std::runtime_error("Single input operator expected");
+      }
+      root_ = create_parallel_op(root_);
       return;
     }
-    // Set the parent's input to AggregateParallel
-    if (!prev_ops_.back()->HasSingleInput()) {
-      throw std::runtime_error("Expected single input operator");
+    // Not the first operator, means we need to find the parent, pass in its current input and set the input to the
+    // parallel operator
+    auto *current = prev_ops_.back();
+    if (current->HasSingleInput()) {
+      current->set_input(create_parallel_op(current->input()));
+    } else {
+      if (!original_op) {
+        throw std::runtime_error("Single input operator expected");
+      }
+      if (auto *cartesian_op = dynamic_cast<Cartesian *>(current)) {
+        if (cartesian_op->left_op_.get() == original_op) {
+          cartesian_op->left_op_ = create_parallel_op(cartesian_op->left_op_);
+        } else if (cartesian_op->right_op_.get() == original_op) {
+          cartesian_op->right_op_ = create_parallel_op(cartesian_op->right_op_);
+        } else {
+          throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString());
+        }
+      } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(current)) {
+        if (hash_join_op->left_op_.get() == original_op) {
+          hash_join_op->left_op_ = create_parallel_op(hash_join_op->left_op_);
+        } else if (hash_join_op->right_op_.get() == original_op) {
+          hash_join_op->right_op_ = create_parallel_op(hash_join_op->right_op_);
+        } else {
+          throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString());
+        }
+      } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current)) {
+        if (indexed_join_op->main_branch_.get() == original_op) {
+          indexed_join_op->main_branch_ = create_parallel_op(indexed_join_op->main_branch_);
+        } else if (indexed_join_op->sub_branch_.get() == original_op) {
+          indexed_join_op->sub_branch_ = create_parallel_op(indexed_join_op->sub_branch_);
+        } else {
+          throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString());
+        }
+      } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(current)) {
+        if (rollup_apply_op->input_.get() == original_op) {
+          rollup_apply_op->input_ = create_parallel_op(rollup_apply_op->input_);
+        } else if (rollup_apply_op->list_collection_branch_.get() == original_op) {
+          rollup_apply_op->list_collection_branch_ = create_parallel_op(rollup_apply_op->list_collection_branch_);
+        } else {
+          throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString());
+        }
+      } else {
+        throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString());
+      }
     }
-    prev_ops_.back()->set_input(input);
   }
 
   // Helper function to create the appropriate ScanParallel variant based on the scan type
@@ -620,7 +703,8 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
       // The nested Aggregate will be processed when we visit it
       // This prevents trying to parallelize outer Aggregates that depend on inner ones
       const auto current_type = current->GetTypeInfo();
-      if (current_type == Aggregate::kType || current_type == AggregateParallel::kType) {
+      if (current_type == Aggregate::kType || current_type == AggregateParallel::kType ||
+          current_type == OrderBy::kType || current_type == OrderByParallel::kType) {
         return target_scan != nullptr;
       }
       // Unsupported operators
@@ -808,15 +892,33 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
 }  // namespace impl
 
 template <class TDbAccessor>
-std::unique_ptr<LogicalOperator> RewriteParallelAggregate(std::unique_ptr<LogicalOperator> root_op,
-                                                          SymbolTable *symbol_table, AstStorage *ast_storage,
-                                                          TDbAccessor *db, size_t num_threads) {
-  auto rewriter = impl::ParallelAggregateRewriter<TDbAccessor>{symbol_table, ast_storage, db, num_threads};
-  root_op->Accept(rewriter);
-  // If Aggregate was the root and we created a new root, clone it to get a unique_ptr
-  if (rewriter.new_root_) {
+std::unique_ptr<LogicalOperator> RewriteParallelAggregate(
+    std::unique_ptr<LogicalOperator> root_op, SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db,
+    const memgraph::query::PreQueryDirectives &pre_query_directives, const Parameters &parameters) {
+  if (pre_query_directives.parallel_execution_) {
+    auto get_num_threads = [&]() -> size_t {
+      if (auto *num_threads = pre_query_directives.num_threads_) {
+        // Create a minimal evaluation context to evaluate the expression
+        // This handles both PrimitiveLiteral (when query is not cached) and
+        // ParameterLookup (when query is cached and stripped)
+        EvaluationContext eval_ctx{.parameters = parameters};
+        PrimitiveLiteralExpressionEvaluator evaluator{eval_ctx};
+
+        TypedValue value = num_threads->Accept(evaluator);
+        if (!value.IsInt() || value.ValueInt() < 0) {
+          throw QueryException("Number of threads must be a non-negative integer");
+        }
+        return static_cast<size_t>(value.ValueInt());
+      }
+      return FLAGS_bolt_num_workers;
+    };
+    // We need to switch from unique to shared pointer to allow the rewriter to modify the tree
+    std::shared_ptr<LogicalOperator> root_op_shared = std::move(root_op);
+    auto rewriter =
+        impl::ParallelAggregateRewriter<TDbAccessor>{symbol_table, ast_storage, db, get_num_threads(), root_op_shared};
+    root_op_shared->Accept(rewriter);
     // Clone the root operator tree to convert from shared_ptr to unique_ptr
-    return rewriter.new_root_->Clone(ast_storage);
+    return rewriter.root_->Clone(ast_storage);
   }
   return root_op;
 }
