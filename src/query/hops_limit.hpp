@@ -38,7 +38,9 @@ struct HopsLimit {
   bool IsLimitReached() const { return is_limit_reached; }
 
   // Used for multi-threaded execution where each thread needs to free its left quota.
-  void Free() { shared_quota_->Free(); }
+  void Free() {
+    if (shared_quota_) shared_quota_->Free();
+  }
 
   // Return the number of available hops (or consumed amount which behaves similarly for check > 0)
   int64_t IncrementHopsCount(int64_t increment = 1) {

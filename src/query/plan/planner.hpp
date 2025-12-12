@@ -76,27 +76,8 @@ class PostProcessor final {
            [&](auto p) { return RewriteWithJoinRewriter(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); } | [&](auto p) {
-             // TODO Move this logic to the RewriteParallelAggregate function
-             if (context->query->pre_query_directives_.parallel_execution_) {
-               auto get_num_threads = [&]() -> size_t {
-                 if (auto *num_threads = context->query->pre_query_directives_.num_threads_) {
-                   // Create a minimal evaluation context to evaluate the expression
-                   // This handles both PrimitiveLiteral (when query is not cached) and
-                   // ParameterLookup (when query is cached and stripped)
-                   EvaluationContext eval_ctx{.parameters = parameters_};
-                   PrimitiveLiteralExpressionEvaluator evaluator{eval_ctx};
-
-                   TypedValue value = num_threads->Accept(evaluator);
-                   if (!value.IsInt() || value.ValueInt() < 0) {
-                     throw QueryException("Number of threads must be a non-negative integer");
-                   }
-                   return static_cast<size_t>(value.ValueInt());
-                 }
-                 return FLAGS_bolt_num_workers;
-               };
-               return RewriteParallelAggregate(std::move(p), symbol_table, ast, db, get_num_threads());
-             }
-             return std::move(p);
+             return RewriteParallelAggregate(std::move(p), symbol_table, ast, db, context->query->pre_query_directives_,
+                                             parameters_);
            };
   }
 

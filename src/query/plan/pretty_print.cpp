@@ -302,15 +302,16 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanParallelByEdgePropertyValue & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgePropertyRange & /*unused*/) override;
   bool PreVisit(ParallelMerge & /*unused*/) override;
-  bool PreVisit(AggregateParallel & /*unused*/) override;
 
   bool PreVisit(EmptyResult & /*unused*/) override;
   bool PreVisit(Produce & /*unused*/) override;
   bool PreVisit(Accumulate & /*unused*/) override;
   bool PreVisit(Aggregate & /*unused*/) override;
+  bool PreVisit(AggregateParallel & /*unused*/) override;
   bool PreVisit(Skip & /*unused*/) override;
   bool PreVisit(Limit & /*unused*/) override;
   bool PreVisit(OrderBy & /*unused*/) override;
+  bool PreVisit(OrderByParallel & /*unused*/) override;
   bool PreVisit(Distinct & /*unused*/) override;
   bool PreVisit(Union & /*unused*/) override;
 
@@ -428,6 +429,13 @@ PRE_VISIT_IGNORE(ScanParallelByEdgePropertyRange);
 bool PlanPrinter::PreVisit(AggregateParallel &) {
   // Hinding in the plan, since it is an implementation detail
   // Next operator is always going to be Aggregate, so no information is lost
+  is_parallel_ = true;  // Start of parallel execution
+  return true;
+}
+
+bool PlanPrinter::PreVisit(OrderByParallel &) {
+  // Hinding in the plan, since it is an implementation detail
+  // Next operator is always going to be OrderBy, so no information is lost
   is_parallel_ = true;  // Start of parallel execution
   return true;
 }
@@ -1032,7 +1040,7 @@ bool PlanToJsonVisitor::PreVisit(AggregateParallel &op) {
   self["num_threads"] = op.num_threads_;
 
   op.input_->Accept(*this);
-  self["agg_inputs"] = PopOutput();
+  self["input"] = PopOutput();
 
   output_ = std::move(self);
   return false;
@@ -1357,6 +1365,18 @@ bool PlanToJsonVisitor::PreVisit(OrderBy &op) {
     self["order_by"].push_back(json);
   }
   self["output_symbols"] = ToJson(op.output_symbols_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(OrderByParallel &op) {
+  json self;
+  self["name"] = "OrderByParallel";
+  self["num_threads"] = op.num_threads_;
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();

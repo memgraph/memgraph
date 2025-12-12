@@ -36,6 +36,7 @@ struct ParallelChecker : public virtual HierarchicalLogicalOperatorVisitor {
 
   // Parallel operators - return false to stop traversal once we find one
   bool PreVisit(AggregateParallel &) override;
+  bool PreVisit(OrderByParallel &) override;
 
   bool Visit(Once &) override;
 };
