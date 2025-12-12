@@ -527,14 +527,14 @@ inline bool ValidateBounds(const std::span<PropertyValueRange const> &ranges,
 
 inline std::optional<std::vector<PropertyValue>> GenerateBounds(
     const std::vector<std::optional<utils::Bound<PropertyValue>>> &bounds, const PropertyValue &default_value) {
-  if (ranges::any_of(bounds, [](auto &&ub) { return ub.has_value(); })) {
-    return bounds | ranges::views::transform([&default_value](auto &&bound) -> storage::PropertyValue {
+  if (r::any_of(bounds, [](auto &&ub) { return ub.has_value(); })) {
+    return bounds | rv::transform([&default_value](auto &&bound) -> storage::PropertyValue {
              if (bound.has_value()) {
                return bound.value().value();
              }
              return default_value;
            }) |
-           ranges::to_vector;
+           r::to<std::vector>();
   }
   return std::nullopt;
 }

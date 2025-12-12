@@ -30,6 +30,7 @@ import memgraph.utils.fnv;
 
 #include <fmt/core.h>
 
+namespace r = std::ranges;
 namespace memgraph::utils {
 namespace {
 
@@ -155,7 +156,7 @@ std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string
       7    // YYYY-MM
   };
 
-  if (!std::any_of(
+  if (!r::any_of(
           valid_sizes.begin(), valid_sizes.end(),
           [date_string_size = date_string.size()](const auto valid_size) { return valid_size == date_string_size; })) {
     throw temporal::InvalidArgumentException("Invalid string for date. {}", kSupportedDateFormatsHelpMessage);

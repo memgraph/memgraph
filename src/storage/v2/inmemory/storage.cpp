@@ -61,7 +61,7 @@
 #include "utils/temporal.hpp"
 #include "utils/variant_helpers.hpp"
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 namespace memgraph::metrics {
@@ -554,8 +554,8 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
   auto const it = std::invoke([this, gid, &res]() {
     auto const byGid = [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.gid == gid; };
     auto const byEdgePtr = [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.ptr->gid == gid; };
-    if (config_.properties_on_edges) return std::ranges::find_if(res->edges, byEdgePtr);
-    return std::ranges::find_if(res->edges, byGid);
+    if (config_.properties_on_edges) return r::find_if(res->edges, byEdgePtr);
+    return r::find_if(res->edges, byGid);
   });
 
   if (it == res->edges.end()) return std::nullopt;  // TODO: use a Result type
@@ -3223,9 +3223,7 @@ std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
     }
     res.emplace_back(snapshot_path, durable_timestamp, write_time_ldt, size);
   }
-
-  std::ranges::sort(res, [](const auto &lhs, const auto &rhs) { return lhs.creation_time > rhs.creation_time; });
-
+  r::sort(res, [](const auto &lhs, const auto &rhs) { return lhs.creation_time > rhs.creation_time; });
   return res;
 }
 

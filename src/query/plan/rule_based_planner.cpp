@@ -614,8 +614,8 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
 namespace impl {
 
 bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
-  return std::ranges::all_of(filter.used_symbols,
-                             [&bound_symbols](const auto &symbol) { return bound_symbols.contains(symbol); });
+  return r::all_of(filter.used_symbols,
+                   [&bound_symbols](const auto &symbol) { return bound_symbols.contains(symbol); });
 }
 
 Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filters &filters, AstStorage &storage) {
@@ -728,10 +728,9 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
       new_bound_symbols.insert(symbol);
     }
     // Preserve outer scope variables that were bound before this WITH
-    std::ranges::copy_if(bound_symbols, std::inserter(new_bound_symbols, new_bound_symbols.end()),
-                         [](const Symbol &symbol) {
-                           return symbol.type_ == Symbol::Type::VERTEX || symbol.type_ == Symbol::Type::EDGE;
-                         });
+    r::copy_if(bound_symbols, std::inserter(new_bound_symbols, new_bound_symbols.end()), [](const Symbol &symbol) {
+      return symbol.type_ == Symbol::Type::VERTEX || symbol.type_ == Symbol::Type::EDGE;
+    });
 
     bound_symbols = std::move(new_bound_symbols);
   } else {

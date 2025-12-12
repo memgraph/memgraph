@@ -467,8 +467,8 @@ class DbAccessor final {
 
     std::vector<EdgeAccessor> deleted_edges;
     deleted_edges.reserve(edges.size());
-    std::ranges::transform(edges, std::back_inserter(deleted_edges),
-                           [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
+    r::transform(edges, std::back_inserter(deleted_edges),
+                 [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
 
     return std::make_optional<ReturnType>(vertex, std::move(deleted_edges));
   }
@@ -523,10 +523,10 @@ class DbAccessor final {
     deleted_vertices.reserve(val_vertices.size());
     deleted_edges.reserve(val_edges.size());
 
-    std::ranges::transform(val_vertices, std::back_inserter(deleted_vertices),
-                           [](const auto &deleted_vertex) { return VertexAccessor{deleted_vertex}; });
-    std::ranges::transform(val_edges, std::back_inserter(deleted_edges),
-                           [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
+    r::transform(val_vertices, std::back_inserter(deleted_vertices),
+                 [](const auto &deleted_vertex) { return VertexAccessor{deleted_vertex}; });
+    r::transform(val_edges, std::back_inserter(deleted_edges),
+                 [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
 
     return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
   }

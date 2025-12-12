@@ -40,10 +40,8 @@
 
 namespace memgraph::query::frontend {
 
-namespace r = ranges;
-// Need to use std::ranges::views transform because rv::transform does not
-// support rvalues as viewable ranges on the lhs of a pipe.
-namespace srv = std::ranges::views;
+namespace r = std::ranges;
+namespace rv = r::views;
 
 const std::string CypherMainVisitor::kAnonPrefix = "anon";
 
@@ -334,10 +332,10 @@ auto get_index_properties(auto &&ctx, CypherMainVisitor &cypher_main_visitor) ->
   };
 
   auto const as_prop_ix_path = [&](auto &&nested_property_key_names) -> PropertyIxPath {
-    return {nested_property_key_names->propertyKeyName() | srv::transform(as_prop_ix) | r::to_vector};
+    return {nested_property_key_names->propertyKeyName() | rv::transform(as_prop_ix) | r::to<std::vector>()};
   };
 
-  return ctx | srv::transform(as_prop_ix_path) | r::to_vector;
+  return ctx | rv::transform(as_prop_ix_path) | r::to<std::vector>();
 }
 
 antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQueryDirectivesContext *ctx) {
@@ -425,13 +423,13 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
   // disallowed because the index already exists on the outer `a.b` property.)
   // By sorting, any potential prefix conflicts will be adjacent.
   std::vector<PropertyIxPath> sorted_properties = index_query->properties_;
-  std::ranges::sort(sorted_properties);
+  r::sort(sorted_properties);
   auto cmp = [](PropertyIxPath const &lhs, PropertyIxPath const &rhs) {
     auto min_length = std::min(lhs.path.size(), rhs.path.size());
-    return std::ranges::equal(lhs.path.cbegin(), lhs.path.cbegin() + min_length, rhs.path.cbegin(),
-                              rhs.path.cbegin() + min_length);
+    return r::equal(lhs.path.cbegin(), lhs.path.cbegin() + min_length, rhs.path.cbegin(),
+                    rhs.path.cbegin() + min_length);
   };
-  if (std::ranges::adjacent_find(sorted_properties, cmp) != sorted_properties.end()) {
+  if (r::adjacent_find(sorted_properties, cmp) != sorted_properties.end()) {
     throw SemanticException("Properties cannot be repeated in a composite index.");
   }
 

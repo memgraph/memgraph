@@ -70,7 +70,7 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
       start_idx_.store(durable_start_idx_value, std::memory_order_release);
 
       // Compaction might have happened so we might be missing some logs.
-      for (auto const id : std::ranges::iota_view{durable_start_idx_value, last_log_entry + 1}) {
+      for (auto const id : r::iota_view{durable_start_idx_value, last_log_entry + 1}) {
         auto const entry = durability_->Get(fmt::format("{}{}", kLogEntryPrefix, id));
 
         if (!entry.has_value()) {

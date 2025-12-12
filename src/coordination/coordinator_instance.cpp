@@ -50,9 +50,6 @@
 #include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
-#include <range/v3/range/conversion.hpp>
-#include <range/v3/view/filter.hpp>
-#include <range/v3/view/transform.hpp>
 
 namespace memgraph::metrics {
 // Counters
@@ -114,7 +111,7 @@ CoordinatorInstance::~CoordinatorInstance() {
   thread_pool_.ShutDown();
   // We don't need to take lock as reconcile cluster state can't be running, coordinator can't become follower,
   // user queries can't be running as memgraph awaits server shutdown
-  std::ranges::for_each(repl_instances_, [](auto &repl_instance) { repl_instance.StopStateCheck(); });
+  r::for_each(repl_instances_, [](auto &repl_instance) { repl_instance.StopStateCheck(); });
 }
 
 auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
@@ -139,7 +136,7 @@ auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
       // We need to stop checks before taking a lock because deadlock can happen if instances wait
       // to take a lock in state check, and this thread already has a lock and waits for instance to
       // be done with state check
-      std::ranges::for_each(repl_instances_, [](auto &&repl_instance) {
+      r::for_each(repl_instances_, [](auto &&repl_instance) {
         spdlog::trace("Stopping state check for instance {} in thread {}.", repl_instance.InstanceName(),
                       std::this_thread::get_id());
         repl_instance.StopStateCheck();
@@ -155,7 +152,7 @@ auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
 auto CoordinatorInstance::FindReplicationInstance(std::string_view replication_instance_name)
     -> std::optional<std::reference_wrapper<ReplicationInstanceConnector>> {
   auto const repl_instance =
-      std::ranges::find_if(repl_instances_, [replication_instance_name](ReplicationInstanceConnector const &instance) {
+      r::find_if(repl_instances_, [replication_instance_name](ReplicationInstanceConnector const &instance) {
         return instance.InstanceName() == replication_instance_name;
       });
 
@@ -185,7 +182,7 @@ void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstance
     if (coordinator.id == raft_state_->GetMyCoordinatorId()) {
       continue;
     }
-    auto const coord_connector = std::ranges::find_if(
+    auto const coord_connector = r::find_if(
         *connectors, [coordinator_id = coordinator.id](auto &&connector) { return connector.first == coordinator_id; });
     if (coord_connector != connectors->end()) {
       continue;
@@ -253,8 +250,8 @@ auto CoordinatorInstance::ShowInstancesStatusAsFollower() const -> std::vector<I
             .health = "unknown"};
   };
 
-  std::ranges::transform(raft_state_->GetDataInstancesContext(), std::back_inserter(instances_status),
-                         process_repl_instance_as_follower);
+  r::transform(raft_state_->GetDataInstancesContext(), std::back_inserter(instances_status),
+               process_repl_instance_as_follower);
   spdlog::trace("Returning set of instances as follower.");
   return instances_status;
 }
@@ -289,7 +286,7 @@ auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::ve
     return std::nullopt;
   }
 
-  std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
+  r::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
 
   spdlog::trace("Returning set of instances as leader.");
   return instances_status;
@@ -332,7 +329,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   {
     auto connectors = coordinator_connectors_.Lock();
 
-    auto connector = std::ranges::find_if(
+    auto connector = r::find_if(
         *connectors, [&leader_id](auto const &local_connector) { return local_connector.first == leader_id; });
     if (connector != connectors->end()) {
       leader = &connector->second;
@@ -412,7 +409,7 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   // Ordering is important here, we must stop frequent check before
   // taking lock to avoid deadlock between us stopping thread and thread wanting to take lock but can't because
   // we have it
-  std::ranges::for_each(repl_instances_, [](auto &&repl_instance) {
+  r::for_each(repl_instances_, [](auto &&repl_instance) {
     spdlog::trace("Stopping state checks for instance {}.", repl_instance.InstanceName());
     repl_instance.StopStateCheck();
     spdlog::trace("Stopped state check for instance {}.", repl_instance.InstanceName());
@@ -435,18 +432,18 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   }
 
   auto current_mains =
-      raft_state_data_instances | ranges::views::filter([raft_state_ptr = raft_state_.get()](auto const &instance) {
+      raft_state_data_instances | rv::filter([raft_state_ptr = raft_state_.get()](auto const &instance) {
         return raft_state_ptr->IsCurrentMain(instance.config.instance_name);
       });
 
-  auto const num_mains = std::ranges::distance(current_mains);
+  auto const num_mains = r::distance(current_mains);
 
   if (num_mains > 1) {
     LOG_FATAL(
         "Found more than one current main. System cannot operate under this assumption, please contact the support.");
   }
 
-  std::ranges::for_each(raft_state_data_instances, [this](auto const &data_instance) {
+  r::for_each(raft_state_data_instances, [this](auto const &data_instance) {
     auto &instance = repl_instances_.emplace_back(data_instance.config, this, instance_down_timeout_sec_,
                                                   instance_health_check_frequency_sec_);
     instance.StartStateCheck();
@@ -455,7 +452,7 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   if (num_mains == 1) {
     // If we have alive MAIN instance we expect that the cluster was in the correct state already. We can start
     // frequent checks.
-    auto main_instance = std::ranges::begin(current_mains);
+    auto main_instance = r::begin(current_mains);
     spdlog::trace("Found main instance {}.", main_instance->config.instance_name);
     for (auto &instance : repl_instances_) {
       instance.StartStateCheck();
@@ -518,12 +515,12 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
   auto const new_main_uuid = utils::UUID{};
   auto const not_main = [&new_main_name](auto &&instance) { return instance.config.instance_name != new_main_name; };
 
-  for (auto &data_instance : data_instances | ranges::views::filter(not_main)) {
+  for (auto &data_instance : data_instances | rv::filter(not_main)) {
     data_instance.status = ReplicationRole::REPLICA;
     data_instance.instance_uuid = new_main_uuid;
   }
 
-  const auto main_data_instance = std::ranges::find_if(data_instances, [&new_main_name](auto &&data_instance) {
+  const auto main_data_instance = r::find_if(data_instances, [&new_main_name](auto &&data_instance) {
     return data_instance.config.instance_name == new_main_name;
   });
 
@@ -562,7 +559,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
   }
 
   auto const is_new_main = [new_main_name](auto const &instance) { return instance.InstanceName() == new_main_name; };
-  auto new_main = std::ranges::find_if(repl_instances_, is_new_main);
+  auto new_main = r::find_if(repl_instances_, is_new_main);
 
   if (new_main == repl_instances_.end()) {
     spdlog::error("Instance {} not registered. Please register it using REGISTER INSTANCE query.", new_main_name);
@@ -578,9 +575,9 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
     }
   }
 
-  auto repl_clients_info = repl_instances_ | ranges::views::filter(std::not_fn(is_new_main)) |
-                           ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
-                           ranges::to<ReplicationClientsInfo>();
+  auto repl_clients_info = repl_instances_ | rv::filter(std::not_fn(is_new_main)) |
+                           rv::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
+                           r::to<ReplicationClientsInfo>();
 
   if (!new_main->SendRpc<PromoteToMainRpc>(new_main_uuid, std::move(repl_clients_info))) {
     return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
@@ -596,11 +593,11 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
     return instance.config.instance_name != new_main_name;
   };
   // replicas already have status replica
-  for (auto &data_instance : data_instances | ranges::views::filter(not_main_raft)) {
+  for (auto &data_instance : data_instances | rv::filter(not_main_raft)) {
     data_instance.instance_uuid = new_main_uuid;
   }
 
-  auto main_data_instance = std::ranges::find_if(data_instances, [new_main_name](auto &&data_instance) {
+  auto main_data_instance = r::find_if(data_instances, [new_main_name](auto &&data_instance) {
     return data_instance.config.instance_name == new_main_name;
   });
 
@@ -630,7 +627,7 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
 
   auto const name_matches = [instance_name](auto &&instance) { return instance.InstanceName() == instance_name; };
 
-  auto instance = std::ranges::find_if(repl_instances_, name_matches);
+  auto instance = r::find_if(repl_instances_, name_matches);
   if (instance == repl_instances_.end()) {
     return DemoteInstanceCoordinatorStatus::NO_INSTANCE_WITH_NAME;
   }
@@ -641,7 +638,7 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
 
   auto cluster_state = raft_state_->GetDataInstancesContext();
 
-  auto data_instance = std::ranges::find_if(cluster_state, [instance_name](auto &&data_instance) {
+  auto data_instance = r::find_if(cluster_state, [instance_name](auto &&data_instance) {
     return data_instance.config.instance_name == instance_name;
   });
   data_instance->status = ReplicationRole::REPLICA;
@@ -665,26 +662,26 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
     return RegisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
-  if (std::ranges::any_of(repl_instances_, [new_instance_name = config.instance_name](auto &&instance) {
+  if (r::any_of(repl_instances_, [new_instance_name = config.instance_name](auto &&instance) {
         return instance.InstanceName() == new_instance_name;
       })) {
     return RegisterInstanceCoordinatorStatus::NAME_EXISTS;
   }
 
-  if (std::ranges::any_of(repl_instances_, [&config](auto &&instance) {
+  if (r::any_of(repl_instances_, [&config](auto &&instance) {
         return instance.ManagementSocketAddress() == config.ManagementSocketAddress();
       })) {
     return RegisterInstanceCoordinatorStatus::MGMT_ENDPOINT_EXISTS;
   }
 
-  if (std::ranges::any_of(repl_instances_, [&config](auto &&instance) {
+  if (r::any_of(repl_instances_, [&config](auto &&instance) {
         return instance.ReplicationSocketAddress() == config.ReplicationSocketAddress();
       })) {
     return RegisterInstanceCoordinatorStatus::REPL_ENDPOINT_EXISTS;
   }
 
   if (config.replication_client_info.replication_mode == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
-    if (std::ranges::any_of(repl_instances_, [](auto &&instance) {
+    if (r::any_of(repl_instances_, [](auto &&instance) {
           return instance.GetReplicationClientInfo().replication_mode ==
                  replication_coordination_glue::ReplicationMode::SYNC;
         })) {
@@ -692,7 +689,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
     }
 
   } else if (config.replication_client_info.replication_mode == replication_coordination_glue::ReplicationMode::SYNC) {
-    if (std::ranges::any_of(repl_instances_, [](auto &&instance) {
+    if (r::any_of(repl_instances_, [](auto &&instance) {
           return instance.GetReplicationClientInfo().replication_mode ==
                  replication_coordination_glue::ReplicationMode::STRICT_SYNC;
         })) {
@@ -768,7 +765,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::IS_MAIN;
   }
 
-  auto curr_main = std::ranges::find_if(repl_instances_, is_current_main);
+  auto curr_main = r::find_if(repl_instances_, is_current_main);
   // If there is no main in the cluster, the replica cannot be unregistered. We would commit the state without replica
   // in Raft but the in-memory state would still contain it.
   if (curr_main == repl_instances_.end()) {
@@ -778,7 +775,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   auto old_data_instances = raft_state_->GetDataInstancesContext();
   // Intentional copy
   auto new_data_instances = old_data_instances;
-  auto const [first, last] = std::ranges::remove_if(new_data_instances, [instance_name](auto const &data_instance) {
+  auto const [first, last] = r::remove_if(new_data_instances, [instance_name](auto const &data_instance) {
     return data_instance.config.instance_name == instance_name;
   });
   new_data_instances.erase(first, last);
@@ -818,8 +815,8 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
   spdlog::trace("Started removing coordinator instance {}.", coordinator_id);
   auto const coordinator_instances_aux = raft_state_->GetCoordinatorInstancesAux();
 
-  auto const existing_coord = std::ranges::find_if(
-      coordinator_instances_aux, [coordinator_id](auto const &coord) { return coord.id == coordinator_id; });
+  auto const existing_coord =
+      r::find_if(coordinator_instances_aux, [coordinator_id](auto const &coord) { return coord.id == coordinator_id; });
 
   if (existing_coord == coordinator_instances_aux.end()) {
     return RemoveCoordinatorInstanceStatus::NO_SUCH_ID;
@@ -863,9 +860,9 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
 
   auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
   {
-    auto const existing_coord = std::ranges::find_if(
-        coordinator_instances_context,
-        [&bolt_server_to_add](auto const &coord) { return coord.bolt_server == bolt_server_to_add; });
+    auto const existing_coord = r::find_if(coordinator_instances_context, [&bolt_server_to_add](auto const &coord) {
+      return coord.bolt_server == bolt_server_to_add;
+    });
 
     if (existing_coord != coordinator_instances_context.end()) {
       spdlog::warn(
@@ -882,7 +879,7 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
     auto const coordinator_instances_aux = raft_state_->GetCoordinatorInstancesAux();
 
     {
-      auto const existing_coord = std::ranges::find_if(
+      auto const existing_coord = r::find_if(
           coordinator_instances_aux,
           [coordinator_id = config.coordinator_id](auto const &coord) { return coord.id == coordinator_id; });
 
@@ -892,7 +889,7 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
     }
 
     {
-      auto const existing_coord = std::ranges::find_if(
+      auto const existing_coord = r::find_if(
           coordinator_instances_aux, [mgmt_server = config.management_server.SocketAddress()](auto const &coord) {
             return coord.management_server == mgmt_server;
           });
@@ -903,7 +900,7 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
     }
 
     {
-      auto const existing_coord = std::ranges::find_if(
+      auto const existing_coord = r::find_if(
           coordinator_instances_aux, [coord_server = config.coordinator_server.SocketAddress()](auto const &coord) {
             return coord.coordinator_server == coord_server;
           });
@@ -952,7 +949,7 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
     -> SetCoordinatorSettingStatus {
   if (constexpr std::array settings{kEnabledReadsOnMain, kSyncFailoverOnly, kMaxFailoverLagOnReplica,
                                     kMaxReplicaReadLag};
-      std::ranges::find(settings, setting_name) == settings.end()) {
+      r::find(settings, setting_name) == settings.end()) {
     return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
   }
 
@@ -1022,9 +1019,9 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
       return;
     }
     auto const is_not_main = [instance_name](auto &&instance) { return instance.InstanceName() != instance_name; };
-    auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_main) |
-                             ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
-                             ranges::to<ReplicationClientsInfo>();
+    auto repl_clients_info = repl_instances_ | rv::filter(is_not_main) |
+                             rv::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
+                             r::to<ReplicationClientsInfo>();
 
     if (!instance.SendRpc<PromoteToMainRpc>(curr_main_uuid, std::move(repl_clients_info))) {
       spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
@@ -1114,7 +1111,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
   utils::MetricsTimer const timer{metrics::ChooseMostUpToDateInstance_us};
 
   // Find the instance with the largest system committed timestamp
-  auto const largest_sys_ts_instance = std::ranges::max_element(instances_info, [](auto const &lhs, auto const &rhs) {
+  auto const largest_sys_ts_instance = r::max_element(instances_info, [](auto const &lhs, auto const &rhs) {
     return lhs.second.last_committed_system_timestamp < rhs.second.last_committed_system_timestamp;
   });
 
@@ -1192,7 +1189,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
       spdlog::error("Couldn't find newest instance for db with uuid {}", db_uuid);
     } else {
       spdlog::info("The latest durable timestamp is {} for db with uuid {}. The following instances have it {}",
-        curr_num_committed_txns, db_uuid, utils::JoinVector(newest_db_instances, ", "));
+                   curr_num_committed_txns, db_uuid, utils::JoinVector(newest_db_instances, ", "));
       update_instances_counter(newest_db_instances);
     }
   }
@@ -1239,7 +1236,7 @@ auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::s
   {
     auto connectors = coordinator_connectors_.Lock();
 
-    auto connector = std::ranges::find_if(
+    auto connector = r::find_if(
         *connectors, [&leader_id](auto const &local_connector) { return local_connector.first == leader_id; });
     if (connector != connectors->end()) {
       leader = &connector->second;
@@ -1290,7 +1287,7 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
         return false;
       }
       // Since there is only a small number of instances in the cluster, this search is cheap
-      auto const raft_instance = std::ranges::find_if(data_instances, [instance_name](auto const &local_instance) {
+      auto const raft_instance = r::find_if(data_instances, [instance_name](auto const &local_instance) {
         return local_instance.config.instance_name == instance_name;
       });
       MG_ASSERT(raft_instance != data_instances.cend(),
@@ -1374,8 +1371,8 @@ auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, st
                        ReplicaDBLagData{.num_committed_txns_ = orig_data.second, .num_txns_behind_main_ = 0}};
     };
 
-    auto main_data = maybe_repl_lag_res->dbs_main_committed_txns_ | ranges::views::transform(get_repl_db_lag_data) |
-                     ranges::to<std::map<std::string, ReplicaDBLagData>>();
+    auto main_data = maybe_repl_lag_res->dbs_main_committed_txns_ | rv::transform(get_repl_db_lag_data) |
+                     r::to<std::map<std::string, ReplicaDBLagData>>();
 
     replicas_res.emplace(instance_name, std::move(main_data));
     return replicas_res;

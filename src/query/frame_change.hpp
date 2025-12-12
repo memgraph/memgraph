@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <regex>
 #include <tuple>
 #include <utility>
 #include "query/frontend/ast/query/named_expression.hpp"

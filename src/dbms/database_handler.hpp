@@ -61,7 +61,7 @@ class DatabaseHandler : public Handler<Database> {
   HandlerT::NewResult New(storage::Config config,
                           utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state) {
     // Control that no one is using the same data directory
-    if (std::any_of(begin(), end(), [&](auto &elem) {
+    if (r::any_of(begin(), end(), [&](auto &elem) {
           auto db_acc = elem.second.access();
           MG_ASSERT(db_acc.has_value(), "Gatekeeper in invalid state");
           return db_acc->get()->config().durability.storage_directory == config.durability.storage_directory;

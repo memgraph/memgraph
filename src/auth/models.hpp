@@ -26,6 +26,7 @@
 #include "utils/resource_monitoring.hpp"
 #include "utils/uuid.hpp"
 
+namespace r = std::ranges;
 namespace memgraph::auth {
 // These permissions must have values that are applicable for usage in a
 // bitmask.
@@ -554,7 +555,7 @@ class Roles {
 
   // Remove a role by name
   void RemoveRole(const std::string &rolename) {
-    auto it = std::ranges::find(roles_, rolename, &Role::rolename);
+    auto it = r::find(roles_, rolename, &Role::rolename);
     if (it != roles_.end()) {
       roles_.erase(it);
     }
@@ -563,7 +564,7 @@ class Roles {
   // Get all roles
   const std::unordered_set<Role> &GetRoles() const { return roles_; }
   std::optional<Role> GetRole(const std::string &rolename) const {
-    auto it = std::ranges::find(roles_, rolename, &Role::rolename);
+    auto it = r::find(roles_, rolename, &Role::rolename);
     if (it == roles_.end()) {
       return std::nullopt;
     }
@@ -627,23 +628,21 @@ class Roles {
   }
 
   bool DeniesDB(std::string_view db_name) const {
-    return std::ranges::any_of(roles_, [db_name](const auto &role) { return role.DeniesDB(db_name); });
+    return r::any_of(roles_, [db_name](const auto &role) { return role.DeniesDB(db_name); });
   }
 
   bool GrantsDB(std::string_view db_name) const {
-    return std::ranges::any_of(roles_, [db_name](const auto &role) { return role.GrantsDB(db_name); });
+    return r::any_of(roles_, [db_name](const auto &role) { return role.GrantsDB(db_name); });
   }
 
   bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
 
   bool UserImpIsGranted(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
-    return std::ranges::any_of(roles_,
-                               [&user, &db_name](const auto &role) { return role.UserImpIsGranted(user, db_name); });
+    return r::any_of(roles_, [&user, &db_name](const auto &role) { return role.UserImpIsGranted(user, db_name); });
   }
 
   bool UserImpIsDenied(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
-    return std::ranges::any_of(roles_,
-                               [&user, &db_name](const auto &role) { return role.UserImpIsDenied(user, db_name); });
+    return r::any_of(roles_, [&user, &db_name](const auto &role) { return role.UserImpIsDenied(user, db_name); });
   }
 
   bool CanImpersonate(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {

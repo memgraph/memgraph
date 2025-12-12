@@ -142,10 +142,10 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
         std::string(main_repl_state.epoch_.id()), main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
 
     auto const &main_history = main_repl_state.history;
-    const auto epoch_info_iter = std::ranges::find_if(
+    const auto epoch_info_iter = r::find_if(
         main_history, [&](const auto &main_epoch_info) { return main_epoch_info.first == heartbeat_res.epoch_id_; });
 
-    if (epoch_info_iter == std::ranges::end(main_history)) {
+    if (epoch_info_iter == r::end(main_history)) {
       branching_point = true;
       spdlog::trace("Couldn't find epoch {} in main for db {}, setting branching point to 0.",
                     std::string(heartbeat_res.epoch_id_), main_db_name);
@@ -597,7 +597,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   }
   auto const &steps = *maybe_steps;
 
-  for (auto const &[step_index, recovery_step] : ranges::views::enumerate(steps)) {
+  for (auto const &[step_index, recovery_step] : rv::enumerate(steps)) {
     try {
       spdlog::trace("Replica: {}, db: {}. Recovering in step: {}. Current local replica commit: {}.", client_.name_,
                     main_db_name, step_index, replica_last_commit_ts);

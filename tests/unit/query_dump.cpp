@@ -45,7 +45,7 @@
 #include "utils/temporal.hpp"
 
 namespace ms = memgraph::storage;
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 const char *kPropertyId = "property_id";
@@ -284,12 +284,12 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     for (const auto &[label, properties] : info.label_properties) {
       using namespace std::string_literals;
       auto properties_as_strings =
-          properties | rv::transform([&](auto &&path) { return ToString(path, dba.get()); }) | r::to_vector;
+          properties | rv::transform([&](auto &&path) { return ToString(path, dba.get()); }) | r::to<std::vector>();
       label_properties_indices.insert({dba->LabelToName(label), std::move(properties_as_strings)});
     }
     for (const auto &[name, label, properties] : info.text_indices) {
       auto prop_names =
-          properties | rv::transform([&](auto prop_id) { return dba->PropertyToName(prop_id); }) | r::to_vector;
+          properties | rv::transform([&](auto prop_id) { return dba->PropertyToName(prop_id); }) | r::to<std::vector>();
       text_indices.insert({name, dba->LabelToName(label), std::move(prop_names)});
     }
     for (const auto &item : info.point_label_property) {
@@ -297,7 +297,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     }
     for (const auto &[name, edge_type, properties] : info.text_edge_indices) {
       auto prop_names =
-          properties | rv::transform([&](auto prop_id) { return dba->PropertyToName(prop_id); }) | r::to_vector;
+          properties | rv::transform([&](auto prop_id) { return dba->PropertyToName(prop_id); }) | r::to<std::vector>();
       text_edge_indices.emplace(name, dba->EdgeTypeToName(edge_type), std::move(prop_names));
     }
   }

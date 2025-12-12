@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include <fmt/ranges.h>
 #include <gflags/gflags.h>
 
 #include "frontend/ast/ast.hpp"
@@ -37,7 +38,12 @@
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 
+import memgraph.utils.fnv;
+
 DECLARE_int64(query_vertex_count_to_expand_existing);
+
+namespace r = std::ranges;
+namespace rv = r::views;
 
 namespace memgraph::query::plan {
 
@@ -45,9 +51,8 @@ namespace {
 template <class TDbAccessor>
 auto property_path_converter(TDbAccessor *db) {
   return [=](PropertyIxPath const &property_path) -> storage::PropertyPath {
-    return property_path.path |
-           ranges::views::transform([&](auto const &prop_ix) { return db->NameToProperty(prop_ix.name); }) |
-           ranges::to_vector;
+    return property_path.path | rv::transform([&](auto const &prop_ix) { return db->NameToProperty(prop_ix.name); }) |
+           r::to<std::vector>();
   };
 }
 }  // namespace
@@ -68,14 +73,15 @@ struct IndexHints {
         }
         label_index_hints_.emplace_back(index_hint);
       } else if (index_type == IndexHint::IndexType::LABEL_PROPERTIES) {
-        auto properties =
-            index_hint.property_ixs_ | ranges::views::transform(property_path_converter(db)) | ranges::to_vector;
+        auto properties = index_hint.property_ixs_ | rv::transform(property_path_converter(db)) | r::to<std::vector>();
 
         // Fetching the corresponding index to the hint
         if (!db->LabelPropertyIndexReady(db->NameToLabel(label_name), properties)) {
-          auto property_names = index_hint.property_ixs_ |
-                                ranges::views::transform([&](auto &&path) { return fmt::format("{}", path); }) |
-                                ranges::views::join(", ") | ranges::to<std::string>;
+          // auto property_names = index_hint.property_ixs_ |
+          //                       rv::transform([&](auto &&path) { return fmt::format("{}", path); }) |
+          //                       rv::join_with(std::string_view{", "}) | r::to<std::string>();
+          auto property_names = fmt::format(
+              "{}", index_hint.property_ixs_ | rv::transform([&](auto &&path) { return fmt::format("{}", path); }));
           spdlog::debug("Index for label doesn't exist: {} with properties {}", label_name, property_names);
           continue;
         }
@@ -109,10 +115,10 @@ struct IndexHints {
       auto label_id = db->NameToLabel(label_hint.name);
       if (label_id != label) continue;
 
-      auto property_ids = properties_prefix | ranges::views::transform(property_path_converter(db)) | ranges::to_vector;
+      auto property_ids = properties_prefix | rv::transform(property_path_converter(db)) | r::to<std::vector>();
       // Check if paths are the same
       for (const auto &path : property_paths) {
-        if (std::ranges::find(property_ids, path) != property_ids.end()) {
+        if (r::find(property_ids, path) != property_ids.end()) {
           return true;
         }
       }
@@ -200,7 +206,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
         auto does_modify = [&]() {
           const auto &symbols = input->ModifiedSymbols(*symbol_table_);
-          return std::any_of(symbols.begin(), symbols.end(), [&modified_symbols](const auto &sym_in) {
+          return r::any_of(symbols.begin(), symbols.end(), [&modified_symbols](const auto &sym_in) {
             return modified_symbols.find(sym_in) != modified_symbols.end();
           });
         };
@@ -1005,7 +1011,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   struct LabelPropertiesIndexInfo {
     storage::LabelId label_{};
-    std::vector<storage::PropertyPath> properties_{};
+    std::vector<storage::PropertyPath> properties_;
   };
 
   struct LabelPropertiesIndexCandidate {
@@ -1029,9 +1035,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     auto candidate_label_properties_indices = CandidateLabelPropertiesIndices{};
 
-    namespace r = ranges;
-    namespace rv = r::views;
-
     auto as_storage_label = [&](auto const &label) { return GetLabel(label); };
     auto valid_filter = [&](auto const &filter) {
       // Skip filter expressions which use the symbol whose property we are
@@ -1054,51 +1057,51 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return {std::move(storage_property_ids)};
     };
 
-    auto labelIXs = filters_.FilteredLabels(symbol) | r::to_vector;
+    auto labelIXs = filters_.FilteredLabels(symbol) | r::to<std::vector>();
     auto or_labels = filters_.FilteredOrLabels(symbol);
     for (auto const &label_vec : or_labels) {
       labelIXs.insert(labelIXs.end(), std::make_move_iterator(label_vec.begin()),
                       std::make_move_iterator(label_vec.end()));
     }
     auto property_filters1 = filters_.PropertyFilters(symbol);
-    auto property_filters = property_filters1 | rv::filter(valid_filter) | r::to_vector;
-    auto labels = labelIXs | rv::transform(as_storage_label) | r::to_vector;
-    ranges::stable_sort(property_filters, {}, as_property_path);
-    auto properties = property_filters | rv::transform(as_property_path) | r::to_vector;
+    auto property_filters = property_filters1 | rv::filter(valid_filter) | r::to<std::vector>();
+    auto labels = labelIXs | rv::transform(as_storage_label) | r::to<std::vector>();
+    r::stable_sort(property_filters, {}, as_property_path);
+    auto properties = property_filters | rv::transform(as_property_path) | r::to<std::vector>();
 
     // TODO: extract as a common util if this is ever needed elsewhere.
     auto filters_grouped_by_property = std::map<storage::PropertyPath, std::vector<FilterInfo>>{};
-    auto grouped = ranges::views::zip(properties, property_filters) |
-                   ranges::views::chunk_by([&](auto &&a, auto &&b) { return a.first == b.first; });
+    auto grouped = rv::zip(properties, property_filters) |
+                   rv::chunk_by([&](auto &&a, auto &&b) { return std::get<0>(a) == std::get<0>(b); });
     for (auto &&group : grouped) {
-      auto prop = group.front().first;
+      auto prop = std::get<0>(group.front());
       auto &group_for_prop = filters_grouped_by_property[prop];
       for (auto const &[_, filter] : group) {
         group_for_prop.emplace_back(filter);
       }
     }
 
-    properties = filters_grouped_by_property | rv::keys | r::to_vector;
+    properties = filters_grouped_by_property | rv::keys | r::to<std::vector>();
 
     for (auto const &[label_pos, properties_poses, index_label, index_properties] :
          db_->RelevantLabelPropertiesIndicesInfo(labels, properties)) {
       // properties_poses: [5,3,-1,4]
       constexpr long MISSING = -1;
-      auto first_missing = std::ranges::find(properties_poses, MISSING);
-      auto prop_positions_prefix = std::ranges::subrange{properties_poses.begin(), first_missing};
+      auto first_missing = r::find(properties_poses, MISSING);
+      auto prop_positions_prefix = r::subrange{properties_poses.begin(), first_missing};
       // properties_prefix: [5,3]
       if (prop_positions_prefix.empty()) continue;
 
       auto to_filters = [&](auto &&property_position) {
         return filters_grouped_by_property[properties[property_position]];
       };
-      auto filters = prop_positions_prefix | rv::transform(to_filters) | r::to_vector;
+      auto filters = prop_positions_prefix | rv::transform(to_filters) | r::to<std::vector>();
 
       auto const &label = labelIXs[label_pos];
       utils::cartesian_product(filters, [&](std::vector<FilterInfo> const &filters) {
         // filters [n.E < 42, 10 < n.C]
 
-        auto prop_ixs = filters | rv::transform(as_propertyIX) | r::to_vector;
+        auto prop_ixs = filters | rv::transform(as_propertyIX) | r::to<std::vector>();
         // prop_ixs [E, C]
 
         candidate_label_properties_indices.insert(
@@ -1158,10 +1161,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     std::optional<LabelPropertyIndex> found;
-
-    namespace r = ranges;
-    namespace rv = r::views;
-
     auto is_better_type = [](std::span<FilterInfo const> candidate_filters, LabelPropertyIndex const &found) {
       auto to_score = [](auto const &filters) {
         auto filter_type_score = [](FilterInfo const &fi) -> double {
@@ -1175,9 +1174,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             case RANGE: {
               if (fi.property_filter->lower_bound_ && fi.property_filter->upper_bound_) {
                 return 7.0;
-              } else {
-                return 6.0;
               }
+              return 6.0;
             }
             case REGEX_MATCH:
               return 5.0;  // REGEX compare is more expensive
@@ -1478,12 +1476,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
       }
 
-      auto value_expressions = found_index->filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
-      auto expr_ranges = value_expressions | ranges::views::transform(to_expression_range) | ranges::to_vector;
+      auto value_expressions = found_index->filters | rv::transform(make_unwinds) | r::to<std::vector>();
+      auto expr_r = value_expressions | rv::transform(to_expression_range) | r::to<std::vector>();
 
       return std::make_unique<ScanAllByLabelProperties>(input, node_symbol, GetLabel(found_index->label),
-                                                        std::move(found_index->properties), std::move(expr_ranges),
-                                                        view);
+                                                        std::move(found_index->properties), std::move(expr_r), view);
     }
     if (!labels.empty()) {
       auto maybe_label = FindBestLabelIndex(labels);
@@ -1540,12 +1537,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                 removed_expressions.push_back(filter_info.expression);
               }
             }
-            auto value_expressions =
-                label_property_index.filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
-            auto expr_ranges = value_expressions | ranges::views::transform(to_expression_range) | ranges::to_vector;
+            auto value_expressions = label_property_index.filters | rv::transform(make_unwinds) | r::to<std::vector>();
+            auto expr_r = value_expressions | rv::transform(to_expression_range) | r::to<std::vector>();
             auto label_property_index_scan = std::make_unique<ScanAllByLabelProperties>(
                 input, node_symbol, GetLabel(label_property_index.label), std::move(label_property_index.properties),
-                std::move(expr_ranges), view);
+                std::move(expr_r), view);
             if (prev) {
               auto union_op = std::make_unique<Union>(
                   std::move(prev), std::move(label_property_index_scan), std::vector<Symbol>{node_symbol},

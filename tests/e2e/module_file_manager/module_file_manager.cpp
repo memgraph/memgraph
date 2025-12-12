@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,8 @@
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/timer.hpp"
+
+namespace r = std::ranges;
 
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
 DEFINE_uint64(timeout, 120, "Timeout seconds");
@@ -52,8 +54,8 @@ std::vector<std::filesystem::path> GetModuleFiles(auto &client) {
 bool ModuleFileExists(auto &client, const auto &path) {
   const auto module_files = GetModuleFiles(client);
 
-  return std::any_of(module_files.begin(), module_files.end(),
-                     [&](const auto &module_file) { return module_file == path; });
+  return r::any_of(module_files.begin(), module_files.end(),
+                   [&](const auto &module_file) { return module_file == path; });
 }
 
 void AssertModuleFileExists(auto &client, const auto &path) {

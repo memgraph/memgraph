@@ -42,7 +42,7 @@
 #include "utils/small_vector.hpp"
 #include "utils/variant_helpers.hpp"
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 namespace memgraph::storage {

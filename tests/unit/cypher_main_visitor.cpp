@@ -59,8 +59,8 @@ using testing::NotNull;
 using testing::Pair;
 using testing::UnorderedElementsAre;
 
-namespace r = ranges;
-namespace rv = ranges::views;
+namespace r = std::ranges;
+namespace rv = r::views;
 
 // Base class for all test types
 class Base {
@@ -1955,7 +1955,7 @@ TEST_P(CypherMainVisitorTest, CreateIndexWithMultipleProperties) {
   EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
   PropertyIxPath expected_properties{ast_generator.Prop("name"), ast_generator.Prop("birthDate"),
                                      ast_generator.Prop("email")};
-  EXPECT_EQ(index_query->properties_ | rv::transform([](auto &&vec) { return vec.path[0]; }) | r::to_vector,
+  EXPECT_EQ(index_query->properties_ | rv::transform([](auto &&vec) { return vec.path[0]; }) | r::to<std::vector>(),
             expected_properties);
 }
 
@@ -2030,7 +2030,7 @@ TEST_P(CypherMainVisitorTest, DropIndexWithMultipleProperties) {
   EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
   PropertyIxPath expected_properties{ast_generator.Prop("name"), ast_generator.Prop("birthDate"),
                                      ast_generator.Prop("email")};
-  EXPECT_EQ(index_query->properties_ | rv::transform([](auto &&vec) { return vec.path[0]; }) | r::to_vector,
+  EXPECT_EQ(index_query->properties_ | rv::transform([](auto &&vec) { return vec.path[0]; }) | r::to<std::vector>(),
             expected_properties);
 }
 
@@ -3390,11 +3390,11 @@ TEST_P(CypherMainVisitorTest, TestRegisterSyncInstance) {
       return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
     };
 
-    return ranges::views::transform(config_map,
-                                    [&expr_to_str](auto const &expr_pair) {
-                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
-                                    }) |
-           ranges::to<std::unordered_map<std::string, std::string>>;
+    return rv::transform(config_map,
+                         [&expr_to_str](auto const &expr_pair) {
+                           return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                         }) |
+           r::to<std::unordered_map<std::string, std::string>>();
   };
 
   auto const config_map = evaluate_config_map(parsed_query->configs_);
@@ -3423,11 +3423,11 @@ TEST_P(CypherMainVisitorTest, TestRegisterAsyncInstance) {
       return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
     };
 
-    return ranges::views::transform(config_map,
-                                    [&expr_to_str](auto const &expr_pair) {
-                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
-                                    }) |
-           ranges::to<std::map<std::string, std::string, std::less<>>>;
+    return rv::transform(config_map,
+                         [&expr_to_str](auto const &expr_pair) {
+                           return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                         }) |
+           r::to<std::map<std::string, std::string, std::less<>>>();
   };
 
   auto const config_map = evaluate_config_map(parsed_query->configs_);
@@ -3456,11 +3456,11 @@ TEST_P(CypherMainVisitorTest, TestRegisterStrictSyncInstance) {
       return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
     };
 
-    return ranges::views::transform(config_map,
-                                    [&expr_to_str](auto const &expr_pair) {
-                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
-                                    }) |
-           ranges::to<std::map<std::string, std::string, std::less<>>>;
+    return rv::transform(config_map,
+                         [&expr_to_str](auto const &expr_pair) {
+                           return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                         }) |
+           r::to<std::map<std::string, std::string, std::less<>>>();
   };
 
   auto const config_map = evaluate_config_map(parsed_query->configs_);
@@ -3496,11 +3496,11 @@ TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
       return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
     };
 
-    return ranges::views::transform(config_map,
-                                    [&expr_to_str](auto const &expr_pair) {
-                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
-                                    }) |
-           ranges::to<std::map<std::string, std::string, std::less<>>>;
+    return rv::transform(config_map,
+                         [&expr_to_str](auto const &expr_pair) {
+                           return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                         }) |
+           r::to<std::map<std::string, std::string, std::less<>>>();
   };
 
   auto const config_map = evaluate_config_map(parsed_query->configs_);
@@ -4570,11 +4570,11 @@ TEST_P(CypherMainVisitorTest, TestLoadJsonlClause) {
         return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
       };
 
-      return ranges::views::transform(config_map,
-                                      [&expr_to_str](auto const &expr_pair) {
-                                        return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
-                                      }) |
-             ranges::to<std::unordered_map<std::string, std::string>>;
+      return rv::transform(config_map,
+                           [&expr_to_str](auto const &expr_pair) {
+                             return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                           }) |
+             r::to<std::unordered_map<std::string, std::string>>();
     };
 
     auto const config_map = evaluate_config_map(load_jsonl_clause->configs_);
@@ -4633,11 +4633,11 @@ TEST_P(CypherMainVisitorTest, TestLoadParquetClause) {
         return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
       };
 
-      return ranges::views::transform(config_map,
-                                      [&expr_to_str](auto const &expr_pair) {
-                                        return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
-                                      }) |
-             ranges::to<std::unordered_map<std::string, std::string>>;
+      return rv::transform(config_map,
+                           [&expr_to_str](auto const &expr_pair) {
+                             return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                           }) |
+             r::to<std::unordered_map<std::string, std::string>>();
     };
 
     auto const config_map = evaluate_config_map(load_parquet_clause->configs_);
@@ -4729,11 +4729,11 @@ TEST_P(CypherMainVisitorTest, TestLoadCsvClause) {
         return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
       };
 
-      return ranges::views::transform(config_map,
-                                      [&expr_to_str](auto const &expr_pair) {
-                                        return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
-                                      }) |
-             ranges::to<std::unordered_map<std::string, std::string>>;
+      return rv::transform(config_map,
+                           [&expr_to_str](auto const &expr_pair) {
+                             return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                           }) |
+             r::to<std::unordered_map<std::string, std::string>>();
     };
 
     auto const config_map = evaluate_config_map(load_csv_clause->configs_);

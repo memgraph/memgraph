@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include <cstdint>
-#include <range/v3/algorithm/find.hpp>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
@@ -19,12 +18,11 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_constants.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/property_value_utils.hpp"
 #include "utils/bound.hpp"
 #include "utils/counter.hpp"
 #include "utils/logging.hpp"
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 namespace memgraph::storage {
@@ -52,9 +50,8 @@ auto PropertyValuesUpdate_ActionMethod(PropertiesPermutationHelper const &helper
 [[maybe_unused]] // Currently only used in DMG_ASSERT, maybe_unused to get rid of warning
 auto JoinPropertiesAsString(std::span<PropertyPath const> properties) -> std::string {
   auto const make_nested = [](std::span<PropertyId const> path) {
-    return utils::Join(path | ranges::views::transform(&PropertyId::AsUint) |
-                           ranges::views::transform([](uint64_t id) { return std::to_string(id); }),
-                       ".");
+    return utils::Join(
+        path | rv::transform(&PropertyId::AsUint) | rv::transform([](uint64_t id) { return std::to_string(id); }), ".");
   };
 
   return utils::Join(properties | rv::transform([&](auto &&path) { return make_nested(path); }), ", ");
@@ -145,7 +142,7 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
     }
   }
 
-  return exists && !deleted && has_label && std::ranges::all_of(current_values_equal_to_value, std::identity{});
+  return exists && !deleted && has_label && r::all_of(current_values_equal_to_value, std::identity{});
 }
 
 /// Helper function for label-properties index garbage collection. Returns true if
@@ -169,7 +166,7 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
     current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
   }
 
-  if (exists && !deleted && has_label && std::ranges::all_of(current_values_equal_to_value, std::identity{})) {
+  if (exists && !deleted && has_label && r::all_of(current_values_equal_to_value, std::identity{})) {
     return true;
   }
 
@@ -186,7 +183,7 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
                              PropertyValueMatch_ActionMethod(current_values_equal_to_value, helper, values)
                          });
     // clang-format on
-    return exists && !deleted && has_label && std::ranges::all_of(current_values_equal_to_value, std::identity{});
+    return exists && !deleted && has_label && r::all_of(current_values_equal_to_value, std::identity{});
   });
 }
 
@@ -205,8 +202,8 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
 
     // Check the prefix has at least one non-null value
     if (!lower_bound.empty()) {
-      auto const prefix_values_only = index_iterator->values.values_ | ranges::views::take(lower_bound.size());
-      auto const all_null = ranges::all_of(prefix_values_only, [](PropertyValue const &pv) { return pv.IsNull(); });
+      auto const prefix_values_only = index_iterator->values.values_ | rv::take(lower_bound.size());
+      auto const all_null = r::all_of(prefix_values_only, [](PropertyValue const &pv) { return pv.IsNull(); });
       if (all_null) continue;
     }
 
@@ -321,12 +318,12 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
 }  // namespace
 
 bool InMemoryLabelPropertyIndex::Entry::operator<(std::vector<PropertyValue> const &rhs) const {
-  return std::ranges::lexicographical_compare(
-      std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())}, rhs);
+  return r::lexicographical_compare(std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())},
+                                    rhs);
 }
 
 bool InMemoryLabelPropertyIndex::Entry::operator==(std::vector<PropertyValue> const &rhs) const {
-  return std::ranges::equal(std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())}, rhs);
+  return r::equal(std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())}, rhs);
 }
 
 bool InMemoryLabelPropertyIndex::Entry::operator<=(std::vector<PropertyValue> const &rhs) const {
@@ -618,9 +615,10 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPa
       for (std::size_t i = 0; i < use_count.size(); ++i) {
         auto const prefix = make_props_subspan(i);
 
-        use_count[i] = ranges::count_if(properties_map, [&](auto &&each) {
+        use_count[i] = r::count_if(properties_map, [&](auto &&each) {
           auto &&[index_properties, _] = each;
-          return ranges::starts_with(index_properties, prefix);
+          return index_properties.size() >= prefix.size() &&
+                 r::equal(prefix, index_properties | rv::take(prefix.size()));
         });
       }
 
@@ -637,7 +635,7 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPa
 
       auto &properties_map = it1->second;
 
-      for (auto &&[prefix_len, use_count] : ranges::views::enumerate(index_prefix_usage)) {
+      for (auto &&[prefix_len, use_count] : rv::enumerate(index_prefix_usage)) {
         if (use_count != 1) {
           // Unless this is the only index using the stat, we shouldn't delete
           // it.
@@ -696,7 +694,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesIn
     -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to<std::vector>();
-  auto properties_vec = properties | ranges::to_vector;
+  auto properties_vec = properties | r::to<std::vector>();
 
   // For each index with a matching label, this computes the position of the
   // index's composite property keys within the given properties, where
@@ -724,7 +722,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesIn
   r::sort(rv::zip(properties_vec, ppos_indices), std::less{},
           [](auto const &val) -> PropertyPath const & { return std::get<0>(val); });
 
-  for (auto [l_pos, label] : ranges::views::enumerate(labels)) {
+  for (auto [l_pos, label] : rv::enumerate(labels)) {
     auto it = index_container_->indices_.find(label);
     if (it == index_container_->indices_.end()) continue;
 
@@ -884,7 +882,7 @@ uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
              JoinPropertiesAsString(properties));
 
   auto acc = it2->second->skiplist.access();
-  if (!ranges::all_of(values, [](auto &&prop) { return prop.IsNull(); })) {
+  if (!r::all_of(values, [](auto &&prop) { return prop.IsNull(); })) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
     std::vector v(values.begin(), values.end());
     return acc.estimate_count(v, utils::SkipListLayerForCountEstimation(acc.size()));
@@ -917,9 +915,9 @@ uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
       return bounds.IsValueInRange(value);
     };
     auto value_within_bounds = [&](auto &&p) { return std::apply(within_bounds, p); };
-    return std::ranges::all_of(std::ranges::views::zip(entry.values.values_, bounds), value_within_bounds);
+    return r::all_of(r::views::zip(entry.values.values_, bounds), value_within_bounds);
   };
-  return std::ranges::count_if(acc.sampling_range(), in_bounds_for_all_prefix);
+  return r::count_if(acc.sampling_range(), in_bounds_for_all_prefix);
 }
 
 std::vector<std::pair<LabelId, std::vector<PropertyPath>>> InMemoryLabelPropertyIndex::ClearIndexStats() {
@@ -1079,7 +1077,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::GetAbortProcessor() const -> Lab
           [](auto props) {
             auto root_props = props | rv::transform([](auto &&el) { return el[0]; }) | r::to<std::vector>();
             r::sort(root_props);
-            return rv::unique(root_props) | r::to<std::vector>();
+            return r::unique(root_props) | r::to<std::vector>();
           },
           props);
 

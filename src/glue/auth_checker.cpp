@@ -33,7 +33,7 @@
 
 // Not ideal defining aliases inside an ifdef, but clang-tidy complains about
 // these being unused when MG_ENTERPRISE is not defined if outside.
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 namespace {
@@ -47,7 +47,7 @@ bool IsAuthorizedLabels(memgraph::auth::FineGrainedAccessPermissions const &perm
 
   auto const label_names = labels |
                            rv::transform([dba](memgraph::storage::LabelId label) { return dba->LabelToName(label); }) |
-                           r::to_vector;
+                           r::to<std::vector>();
 
   return permissions.Has(std::span<const std::string>(label_names),
                          memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege)) ==

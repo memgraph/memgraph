@@ -44,7 +44,7 @@
 
 #include "fmt/format.h"
 
-namespace r = ranges;
+namespace r = std::ranges;
 struct PropertyPathFormatter {
   std::span<memgraph::storage::PropertyPath const> data;
   memgraph::storage::NameIdMapper *name_mapper;
@@ -151,7 +151,7 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
   }
   MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
 
-  std::ranges::sort(snapshot_files);
+  r::sort(snapshot_files);
   return snapshot_files;
 }
 
@@ -195,7 +195,7 @@ std::vector<WalDurabilityInfo> GetWalFiles(const std::filesystem::path &wal_dire
   }
 
   MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
-  std::ranges::sort(wal_files);
+  r::sort(wal_files);
   return wal_files;
 }
 
@@ -574,7 +574,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     }
 
     // sort by path
-    std::ranges::sort(wal_files);
+    r::sort(wal_files);
 
     // UUID used for durability is the UUID of the last WAL file.
     // Same for the epoch id.

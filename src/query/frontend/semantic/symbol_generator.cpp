@@ -988,7 +988,7 @@ void SymbolGenerator::VisitWithIdentifiers(std::vector<Expression *> exprs,
 }
 
 bool SymbolGenerator::HasSymbol(const std::string &name) const {
-  return std::ranges::any_of(scopes_, [&name](const auto &scope) { return scope.symbols.contains(name); });
+  return r::any_of(scopes_, [&name](const auto &scope) { return scope.symbols.contains(name); });
 }
 
 bool SymbolGenerator::ConsumePredefinedIdentifier(const std::string &name) {

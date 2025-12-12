@@ -18,7 +18,7 @@
 #include "storage/v2/id_types.hpp"
 #include "utils/synchronized.hpp"
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 namespace memgraph::storage {
@@ -86,9 +86,9 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
     pimpl->index_name_to_edge_type_prop_.emplace(spec.index_name, edge_type_prop);
     pimpl->edge_index_.emplace(
         edge_type_prop,
-        EdgeTypeIndexItem{
-            std::make_shared<utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>>(std::move(mg_edge_index)),
-            spec});
+        EdgeTypeIndexItem{.mg_index = std::make_shared<utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>>(
+                              std::move(mg_edge_index)),
+                          .spec = spec});
 
     for (auto &from_vertex : vertices) {
       if (from_vertex.deleted) {
@@ -194,9 +194,10 @@ bool VectorEdgeIndex::UpdateVectorIndex(EdgeIndexEntry entry, const EdgeTypeProp
 void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
                                           PropertyId property, const PropertyValue &value) {
   auto has_property = [&](const auto &edge_type_prop) { return edge_type_prop.property() == property; };
-  if (std::ranges::any_of(pimpl->edge_index_ | rv::keys | rv::filter(has_property),
-                          [&](const auto &edge_type_prop) { return edge_type_prop.edge_type() == edge_type; })) {
-    UpdateVectorIndex({from_vertex, to_vertex, edge}, EdgeTypePropKey{edge_type, property}, &value);
+  if (r::any_of(pimpl->edge_index_ | rv::keys | rv::filter(has_property),
+                [&](const auto &edge_type_prop) { return edge_type_prop.edge_type() == edge_type; })) {
+    UpdateVectorIndex({.from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge},
+                      EdgeTypePropKey{edge_type, property}, &value);
   }
 }
 

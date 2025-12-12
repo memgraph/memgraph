@@ -21,7 +21,7 @@
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/string.hpp"
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 namespace {

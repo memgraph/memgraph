@@ -25,7 +25,9 @@
 import memgraph.utils.fnv;
 
 #include <boost/container/flat_map.hpp>
-#include "range/v3/all.hpp"
+
+namespace r = std::ranges;
+namespace rv = r::views;
 
 namespace memgraph::storage {
 
@@ -958,7 +960,7 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
       auto const &m1 = first.ValueMap();
       auto const &m2 = second.ValueMap();
       if (m1.size() != m2.size()) return m1.size() <=> m2.size();
-      for (auto &&[v1, v2] : ranges::views::zip(m1, m2)) {
+      for (auto &&[v1, v2] : rv::zip(m1, m2)) {
         auto key_cmp_res = v1.first <=> v2.first;
         if (key_cmp_res != std::weak_ordering::equivalent) return key_cmp_res;
         auto val_cmp_res = v1.second <=> v2.second;

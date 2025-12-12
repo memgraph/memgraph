@@ -55,9 +55,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     IndexStatus status{};
   };
   struct Compare {
-    template <std::ranges::forward_range T, std::ranges::forward_range U>
+    template <r::forward_range T, r::forward_range U>
     bool operator()(T const &lhs, U const &rhs) const {
-      return std::ranges::lexicographical_compare(lhs, rhs);
+      return r::lexicographical_compare(lhs, rhs);
     }
 
     using is_transparent = void;

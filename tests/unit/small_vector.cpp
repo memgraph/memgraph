@@ -16,7 +16,9 @@
 #include <ranges>
 
 using namespace memgraph::utils;
-namespace rv = std::ranges::views;
+
+namespace r = std::ranges;
+namespace rv = r::views;
 
 ///// TEST HELPERS
 

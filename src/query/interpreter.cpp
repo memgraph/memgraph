@@ -24,8 +24,6 @@
 #include <limits>
 #include <memory>
 #include <optional>
-#include <range/v3/view/join.hpp>
-#include <range/v3/view/transform.hpp>
 #include <string_view>
 #include <thread>
 #include <tuple>
@@ -129,8 +127,8 @@
 #include "flags/experimental.hpp"
 #endif
 
-namespace r = ranges;
-namespace rv = ranges::views;
+namespace r = std::ranges;
+namespace rv = r::views;
 
 namespace memgraph::metrics {
 extern Event ReadQuery;
@@ -354,7 +352,7 @@ constexpr auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_m
 std::string PropertyPathToName(auto &&context, storage::PropertyPath const &property_path) {
   return property_path |
          rv::transform([&](storage::PropertyId property_id) { return context->PropertyToName(property_id); }) |
-         rv::join('.') | r::to<std::string>();
+         rv::join_with('.') | r::to<std::string>();
 };
 
 class ReplQueryHandler {
@@ -1656,7 +1654,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
 auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
                     ExpressionVisitor<TypedValue> &evaluator)
     -> std::optional<std::map<std::string, std::string, std::less<>>> {
-  if (std::ranges::any_of(config_map, [&evaluator](const auto &entry) {
+  if (r::any_of(config_map, [&evaluator](const auto &entry) {
         auto key_expr = entry.first->Accept(evaluator);
         auto value_expr = entry.second->Accept(evaluator);
         return !key_expr.IsString() || !value_expr.IsString();
@@ -1665,12 +1663,13 @@ auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config
     return std::nullopt;
   }
 
-  return rv::all(config_map) | rv::transform([&evaluator](const auto &entry) {
-           auto key_expr = entry.first->Accept(evaluator);
-           auto value_expr = entry.second->Accept(evaluator);
-           return std::pair{key_expr.ValueString(), value_expr.ValueString()};
-         }) |
-         ranges::to<std::map<std::string, std::string, std::less<>>>;
+  std::map<std::string, std::string, std::less<>> result;
+  for (const auto &entry : config_map) {
+    auto key_expr = entry.first->Accept(evaluator);
+    auto value_expr = entry.second->Accept(evaluator);
+    result.emplace(key_expr.ValueString(), value_expr.ValueString());
+  }
+  return result;
 }
 
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
@@ -2016,12 +2015,15 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
         "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
   }
 
-  auto transformed_map = rv::all(config_map) | rv::transform([&evaluator](const auto &pair) {
-                           auto key_expr = pair.first->Accept(evaluator);
-                           auto value_expr = pair.second->Accept(evaluator);
-                           return std::pair{key_expr.ValueString(), value_expr};
-                         }) |
-                         ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
+  auto transformed_view = rv::all(config_map) | rv::transform([&evaluator](const auto &pair) {
+                            auto key_expr = pair.first->Accept(evaluator);
+                            auto value_expr = pair.second->Accept(evaluator);
+                            return std::pair{key_expr.ValueString(), value_expr};
+                          });
+  std::map<std::string, query::TypedValue, std::less<>> transformed_map;
+  for (const auto &pair : transformed_view) {
+    transformed_map.emplace(pair.first, pair.second);
+  }
 
   auto metric_kind_it = transformed_map.find(kMetric);
   auto metric_kind = storage::MetricFromName(
@@ -2623,9 +2625,8 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
   // We are finished with pulling all the data, therefore we can send any
   // metadata about the results i.e. notifications and statistics
-  const bool is_any_counter_set =
-      std::any_of(ctx_.execution_stats.counters.begin(), ctx_.execution_stats.counters.end(),
-                  [](const auto &counter) { return counter > 0; });
+  const bool is_any_counter_set = r::any_of(ctx_.execution_stats.counters.begin(), ctx_.execution_stats.counters.end(),
+                                            [](const auto &counter) { return counter > 0; });
   if (is_any_counter_set) {
     std::map<std::string, TypedValue> stats;
     for (size_t i = 0; i < ctx_.execution_stats.counters.size(); ++i) {
@@ -2808,8 +2809,8 @@ PreparedQuery PrepareCypherQuery(
   }
 
   auto clauses = cypher_query->single_query_->clauses_;
-  if (std::any_of(clauses.begin(), clauses.end(),
-                  [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
+  if (r::any_of(clauses.begin(), clauses.end(),
+                [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
     notifications->emplace_back(
         SeverityLevel::INFO, NotificationCode::LOAD_CSV_TIP,
         "It's important to note that the parser parses the values as strings. It's up to the user to "
@@ -3174,7 +3175,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
 
       auto prop_ranges = std::vector<storage::PropertyValueRange>();
       prop_ranges.reserve(properties.size());
-      ranges::fill(prop_ranges, storage::PropertyValueRange::IsNotNull());
+      r::fill(prop_ranges, storage::PropertyValueRange::IsNotNull());
 
       for (auto const &vertex : execution_db_accessor->Vertices(view, label, properties, prop_ranges)) {
         // TODO(colinbarry) currently using a linear pass to get the property
@@ -3198,7 +3199,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
           // Once we've hit a prefix where all the properties in the prefixes
           // are null, we can stop checking as we know for sure that each
           // smaller slice of prop values will also all be null.
-          if (std::ranges::all_of(property_values, [](auto const &prop) { return prop.IsNull(); })) {
+          if (r::all_of(property_values, [](auto const &prop) { return prop.IsNull(); })) {
             break;
           }
 
@@ -3215,8 +3216,8 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     // could have computed as part of a longer composite key. For example,
     // in computing the stats for :L1(a, b, c), we can quickly compute them for
     // :L1(a, b) and :L1(a).
-    std::ranges::sort(index_info, std::greater{},
-                      [](auto const &label_and_properties) { return label_and_properties.second.size(); });
+    r::sort(index_info, std::greater{},
+            [](auto const &label_and_properties) { return label_and_properties.second.size(); });
 
     for (auto const &index : index_info) {
       count_vertex_prop_info(index);
@@ -3287,11 +3288,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     return PropertyPathToName(execution_db_accessor, property_path);
   };
 
-  std::for_each(label_property_stats.begin(), label_property_stats.end(), [&](const auto &stat_entry) {
+  r::for_each(label_property_stats, [&](const auto &stat_entry) {
     std::vector<TypedValue> result;
     result.reserve(kComputeStatisticsNumResults);
     result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first.first));
-    result.emplace_back(stat_entry.first.second | rv::transform(prop_path_to_name) | ranges::to_vector);
+    result.emplace_back(stat_entry.first.second | rv::transform(prop_path_to_name) | r::to<std::vector>());
     result.emplace_back(static_cast<int64_t>(stat_entry.second.count));
     result.emplace_back(static_cast<int64_t>(stat_entry.second.distinct_values_count));
     result.emplace_back(stat_entry.second.avg_group_size);
@@ -3374,23 +3375,20 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
 
-  std::transform(
-      label_results.begin(), label_results.end(), std::back_inserter(results),
-      [execution_db_accessor](const auto &label_index) {
-        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
-      });
+  r::transform(label_results, std::back_inserter(results), [execution_db_accessor](const auto &label_index) {
+    return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
+  });
 
   auto const prop_path_to_name = [&](storage::PropertyPath const &property_path) {
     return TypedValue{PropertyPathToName(execution_db_accessor, property_path)};
   };
 
-  std::transform(label_prop_results.begin(), label_prop_results.end(), std::back_inserter(results),
-                 [&](const auto &label_property_index) {
-                   return std::vector<TypedValue>{
-                       TypedValue(execution_db_accessor->LabelToName(label_property_index.first)),
-                       TypedValue(label_property_index.second | rv::transform(prop_path_to_name) | ranges::to_vector),
-                   };
-                 });
+  r::transform(label_prop_results, std::back_inserter(results), [&](const auto &label_property_index) {
+    return std::vector<TypedValue>{
+        TypedValue(execution_db_accessor->LabelToName(label_property_index.first)),
+        TypedValue(label_property_index.second | rv::transform(prop_path_to_name) | r::to<std::vector>()),
+    };
+  });
 
   return results;
 }
@@ -3499,7 +3497,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   for (const auto &property_path : index_query->properties_) {
     auto path = property_path.path |
                 rv::transform([&](auto &&property) { return storage->NameToProperty(property.name); }) |
-                ranges::to_vector;
+                r::to<std::vector>();
     properties.push_back(std::move(path));
     properties_string.push_back(property_path.AsPathString());
   }
@@ -3956,7 +3954,7 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   auto &index_name = text_index_query->index_name_;
   auto property_ids = text_index_query->properties_ |
                       rv::transform([&](const auto &property) { return storage->NameToProperty(property.name); }) |
-                      r::to_vector;
+                      r::to<std::vector>();
 
   Notification index_notification(SeverityLevel::INFO);
   switch (text_index_query->action_) {
@@ -4024,7 +4022,7 @@ PreparedQuery PrepareCreateTextEdgeIndexQuery(ParsedQuery parsed_query, bool in_
   const auto &index_name = text_edge_index_query->index_name_;
   auto property_ids = text_edge_index_query->properties_ |
                       rv::transform([&](const auto &property) { return storage->NameToProperty(property.name); }) |
-                      r::to_vector;
+                      r::to<std::vector>();
   Notification index_notification(SeverityLevel::INFO);
   index_notification.code = NotificationCode::CREATE_INDEX;
   index_notification.title = fmt::format("Created text index on label {}.", text_edge_index_query->edge_type_.name);
@@ -4826,7 +4824,7 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
 
 bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
   bool exists_active_transaction = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
-    return std::any_of(interpreters_.begin(), interpreters_.end(), [](const auto &interpreter) {
+    return r::any_of(interpreters_.begin(), interpreters_.end(), [](const auto &interpreter) {
       return interpreter->transaction_status_.load() != TransactionStatus::IDLE;
     });
   });
@@ -5336,7 +5334,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           auto const prop_path_to_name = [&](storage::PropertyPath const &property_path) {
             return TypedValue{PropertyPathToName(storage, property_path)};
           };
-          auto props = properties | rv::transform(prop_path_to_name) | ranges::to_vector;
+          auto props = properties | rv::transform(prop_path_to_name) | r::to<std::vector>();
           results.push_back({TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(label)),
                              TypedValue(std::move(props)),
                              TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(label, properties)))});
@@ -5359,7 +5357,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           auto prop_names =
               properties |
               rv::transform([storage](auto prop_id) { return TypedValue(storage->PropertyToName(prop_id)); }) |
-              r::to_vector;
+              r::to<std::vector>();
           results.push_back(
               {TypedValue(fmt::format("{} (name: {})", text_label_index_mark, index_name)),
                TypedValue(storage->LabelToName(label)), TypedValue(std::move(prop_names)),
@@ -5369,7 +5367,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           auto prop_names =
               properties |
               rv::transform([storage](auto prop_id) { return TypedValue(storage->PropertyToName(prop_id)); }) |
-              r::to_vector;
+              r::to<std::vector>();
           results.push_back(
               {TypedValue(fmt::format("{} (name: {})", text_edge_type_index_mark, index_name)),
                TypedValue(storage->EdgeTypeToName(label)), TypedValue(std::move(prop_names)),
@@ -5398,7 +5396,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                    storage_acc->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value_or(0)))});
         }
 
-        std::ranges::sort(results, [&label_index_mark](const auto &record_1, const auto &record_2) {
+        r::sort(results, [&label_index_mark](const auto &record_1, const auto &record_2) {
           const auto type_1 = record_1[0].ValueString();
           const auto type_2 = record_2[0].ValueString();
 
@@ -5418,8 +5416,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
             return record_1[2].UnsafeValueString() < record_2[2].UnsafeValueString();
           } else if (record_1[2].type() == TypedValue::Type::List && record_2[2].type() == TypedValue::Type::List) {
             auto as_string = [](TypedValue const &v) -> auto const & { return v.ValueString(); };
-            return std::ranges::lexicographical_compare(record_1[2].UnsafeValueList(), record_2[2].UnsafeValueList(),
-                                                        std::ranges::less{}, as_string, as_string);
+            return r::lexicographical_compare(record_1[2].UnsafeValueList(), record_2[2].UnsafeValueList(), r::less{},
+                                              as_string, as_string);
           } else {
             return record_1[2].type() < record_2[2].type();
           }
@@ -5525,7 +5523,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           results.push_back({TypedValue(metric.name), TypedValue(metric.type), TypedValue(metric.event_type),
                              TypedValue(static_cast<int64_t>(metric.value))});
         }
-        std::ranges::sort(results, [](auto const &record_1, auto const &record_2) {
+        r::sort(results, [](auto const &record_1, auto const &record_2) {
           auto const key_1 = std::tie(record_1[1].ValueString(), record_1[2].ValueString(), record_1[0].ValueString());
           auto const key_2 = std::tie(record_2[1].ValueString(), record_2[2].ValueString(), record_2[0].ValueString());
           return key_1 < key_2;
@@ -6356,24 +6354,23 @@ PreparedQuery PrepareCreateEnumQuery(ParsedQuery parsed_query, CurrentDB &curren
 }
 
 PreparedQuery PrepareShowEnumsQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
-  return PreparedQuery{{"Enum Name", "Enum Values"},
-                       std::move(parsed_query.required_privileges),
-                       [dba = *current_db.execution_db_accessor_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+  return PreparedQuery{
+      .header = {"Enum Name", "Enum Values"},
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [dba = *current_db.execution_db_accessor_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-                         if (!pull_plan) {
-                           auto enums = dba.ShowEnums();
-                           auto to_row = [](auto &&p) {
-                             return std::vector{TypedValue{p.first}, TypedValue{p.second}};
-                           };
-                           pull_plan = std::make_shared<PullPlanVector>(enums | rv::transform(to_row) | r::to_vector);
-                         }
+        if (!pull_plan) {
+          auto enums = dba.ShowEnums();
+          auto to_row = [&](auto &&p) { return std::vector{TypedValue{std::get<0>(p)}, TypedValue{std::get<1>(p)}}; };
+          pull_plan = std::make_shared<PullPlanVector>(enums | rv::transform(to_row) | r::to<std::vector>());
+        }
 
-                         if (pull_plan->Pull(stream, n)) {
-                           return QueryHandlerResult::COMMIT;
-                         }
-                         return std::nullopt;
-                       },
-                       RWType::NONE};
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
 }
 
 PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
@@ -6382,11 +6379,12 @@ PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &curr
   auto *alter_enum_add_query = utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query);
   MG_ASSERT(alter_enum_add_query);
 
-  return {{},
-          std::move(parsed_query.required_privileges),
-          [dba = *current_db.execution_db_accessor_, enum_name = std::move(alter_enum_add_query->enum_name_),
-           enum_value = std::move(alter_enum_add_query->enum_value_)](
-              AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
+  return {.header = {},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler =
+              [dba = *current_db.execution_db_accessor_, enum_name = std::move(alter_enum_add_query->enum_name_),
+               enum_value = std::move(alter_enum_add_query->enum_value_)](
+                  AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
             auto res = dba.EnumAlterAdd(enum_name, enum_value);
             if (res.HasError()) {
               switch (res.GetError()) {
@@ -6401,7 +6399,7 @@ PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &curr
             }
             return QueryHandlerResult::COMMIT;
           },
-          RWType::W};
+          .rw_type = RWType::W};
 }
 
 PreparedQuery PrepareEnumAlterUpdateQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
@@ -6410,12 +6408,13 @@ PreparedQuery PrepareEnumAlterUpdateQuery(ParsedQuery parsed_query, CurrentDB &c
   auto *alter_enum_update_query = utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query);
   MG_ASSERT(alter_enum_update_query);
 
-  return {{},
-          std::move(parsed_query.required_privileges),
-          [dba = *current_db.execution_db_accessor_, enum_name = std::move(alter_enum_update_query->enum_name_),
-           enum_value_old = std::move(alter_enum_update_query->old_enum_value_),
-           enum_value_new = std::move(alter_enum_update_query->new_enum_value_)](
-              AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
+  return {.header = {},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler =
+              [dba = *current_db.execution_db_accessor_, enum_name = std::move(alter_enum_update_query->enum_name_),
+               enum_value_old = std::move(alter_enum_update_query->old_enum_value_),
+               enum_value_new = std::move(alter_enum_update_query->new_enum_value_)](
+                  AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
             auto res = dba.EnumAlterUpdate(enum_name, enum_value_old, enum_value_new);
             if (res.HasError()) {
               switch (res.GetError()) {
@@ -6432,7 +6431,7 @@ PreparedQuery PrepareEnumAlterUpdateQuery(ParsedQuery parsed_query, CurrentDB &c
             }
             return QueryHandlerResult::COMMIT;
           },
-          RWType::W};
+          .rw_type = RWType::W};
 }
 
 PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &current_db, Interpreter *interpreter) {
@@ -6463,23 +6462,24 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
     return std::pair{results, QueryHandlerResult::NOTHING};
   };
 
-  return PreparedQuery{{"session uuid"},
-                       std::move(parsed_query.required_privileges),
-                       [handler = std::move(handler), action = QueryHandlerResult::NOTHING,
+  return PreparedQuery{
+      .header = {"session uuid"},
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [handler = std::move(handler), action = QueryHandlerResult::NOTHING,
                         pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-                         if (!pull_plan) {
-                           auto [results, action_on_complete] = handler();
-                           action = action_on_complete;
-                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
-                         }
+        if (!pull_plan) {
+          auto [results, action_on_complete] = handler();
+          action = action_on_complete;
+          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+        }
 
-                         if (pull_plan->Pull(stream, n)) {
-                           return action;
-                         }
-                         return std::nullopt;
-                       },
-                       RWType::NONE};
+        if (pull_plan->Pull(stream, n)) {
+          return action;
+        }
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
 }
 
 PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, CurrentDB &current_db
@@ -6564,7 +6564,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
           return PropertyPathToName(storage, property_path);
         };
 
-        auto props = property_paths | rv::transform(path_to_name) | r::to_vector;
+        auto props = property_paths | rv::transform(path_to_name) | r::to<std::vector>();
         node_indexes.push_back(nlohmann::json::object({
             {"labels", {storage->LabelToName(label_id)}},
             {"properties", props},
@@ -6583,7 +6583,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         auto prop_names = properties | rv::transform([storage](const storage::PropertyId &property) {
                             return storage->PropertyToName(property);
                           }) |
-                          r::to_vector;
+                          r::to<std::vector>();
         node_indexes.push_back(
             nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
                                     {"properties", prop_names},
@@ -6680,7 +6680,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         auto prop_names =
             properties |
             rv::transform([storage](storage::PropertyId property_id) { return storage->PropertyToName(property_id); }) |
-            r::to_vector;
+            r::to<std::vector>();
         node_indexes.push_back(
             nlohmann::json::object({{"edge_type", {storage->EdgeTypeToName(edge_type)}},
                                     {"properties", std::move(prop_names)},
@@ -7317,7 +7317,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   if (cypher_query) {
     auto clauses = cypher_query->single_query_->clauses_;
     has_load_parquet =
-        std::ranges::any_of(clauses, [](const auto *clause) { return clause->GetTypeInfo() == LoadParquet::kType; });
+        r::any_of(clauses, [](const auto *clause) { return clause->GetTypeInfo() == LoadParquet::kType; });
   }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
