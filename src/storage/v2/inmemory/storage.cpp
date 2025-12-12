@@ -218,6 +218,16 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
           "Recovering last durable timestamp {}. Timestamp recovered to {}. Num committed txns recovered to {}.",
           info->last_durable_timestamp, timestamp_, info->num_committed_txns);
     }
+
+    if (config_.track_label_counts) {
+      auto label_counts_acc = label_counts_.Lock();
+      for (auto const &vertex : vertices_.access()) {
+        if (vertex.deleted) continue;
+        for (auto const label : vertex.labels) {
+          ++(*label_counts_acc)[label];
+        }
+      }
+    }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
              config_.durability.snapshot_on_exit) {
     bool files_moved = false;
@@ -317,6 +327,14 @@ InMemoryStorage::~InMemoryStorage() {
     create_snapshot_handler();
   }
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
+}
+
+void InMemoryStorage::UpdateLabelCount(LabelId const label, int64_t const change) {
+  if (config_.track_label_counts) {
+    auto label_counts_acc = label_counts_.Lock();
+    auto &count = (*label_counts_acc)[label];
+    count += change;
+  }
 }
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage,
@@ -420,6 +438,17 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
   }
 
   auto &[deleted_vertices, deleted_edges] = *value;
+
+  if (storage_->config_.track_label_counts) {
+    for (auto const &vertex : deleted_vertices) {
+      auto labels = vertex.Labels(View::NEW);
+      if (labels.HasValue()) {
+        for (auto const label : *labels) {
+          storage_->UpdateLabelCount(label, -1);
+        }
+      }
+    }
+  }
 
   // Need to inform the next CollectGarbage call that there are some
   // non-transactional deletions that need to be collected
@@ -1216,6 +1245,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 std::swap(*it, *vertex->labels.rbegin());
                 vertex->labels.pop_back();
 
+                storage_->UpdateLabelCount(current->label.value, -1);
+
                 index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
 
                 // we have to remove the vertex from the vector index if this label is indexed and vertex has
@@ -1236,6 +1267,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
                 MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
                 vertex->labels.push_back(current->label.value);
+
+                storage_->UpdateLabelCount(current->label.value, 1);
+
                 // we have to add the vertex to the vector index if this label is indexed and vertex has needed
                 // property
                 const auto &vector_properties = index_abort_processor.vector_.l2p.find(current->label.value);
@@ -1328,10 +1362,16 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               case Delta::Action::DELETE_OBJECT: {
                 vertex->deleted = true;
                 my_deleted_vertices.push_back(vertex->gid);
+                for (auto const label : vertex->labels) {
+                  storage_->UpdateLabelCount(label, -1);
+                }
                 break;
               }
               case Delta::Action::RECREATE_OBJECT: {
                 vertex->deleted = false;
+                for (auto const label : vertex->labels) {
+                  storage_->UpdateLabelCount(label, 1);
+                }
                 break;
               }
             }
