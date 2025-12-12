@@ -34,7 +34,7 @@ inline constexpr std::optional<std::chrono::milliseconds> kDontCareTimeout = std
 int SpanToInt(std::span<const char> span) {
   int result{0};
   if (span.size() != sizeof(int)) {
-    std::runtime_error("Invalid span size");
+    throw std::runtime_error("Invalid span size");
   }
   std::memcpy(&result, span.data(), sizeof(int));
   return result;
