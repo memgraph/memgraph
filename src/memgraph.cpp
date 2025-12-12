@@ -23,7 +23,6 @@
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
-#include "coordination/data_instance_management_server_handlers.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "flags/all.hpp"
@@ -73,6 +72,8 @@
 
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
+
+import memgraph.coordination.data_instance_management_server_handlers;
 
 namespace memgraph::metrics {
 extern const Event PeakMemoryRes;

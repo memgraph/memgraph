@@ -13,9 +13,9 @@
 
 #include "coordination/coordinator_rpc.hpp"
 
-#include "coordination/coordinator_slk.hpp"
 #include "slk/serialization.hpp"
 
+import memgraph.coordination.coordinator_slk;
 namespace memgraph {
 
 namespace coordination {

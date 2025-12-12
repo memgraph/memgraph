@@ -9,18 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
-#include "coordination/data_instance_management_server_handlers.hpp"
+module;
 
 #include "coordination/coordinator_rpc.hpp"
-#include "coordination/include/coordination/data_instance_management_server.hpp"
 #include "replication/state.hpp"
-
+#include "replication_handler/replication_handler.hpp"
+#include "rpc/file_replication_handler.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
+module memgraph.coordination.data_instance_management_server_handlers;
 
-namespace memgraph::rpc {
-class FileReplicationHandler;
-}  // namespace memgraph::rpc
+#ifdef MG_ENTERPRISE
+
+import memgraph.coordination.data_instance_management_server;
 
 namespace memgraph::dbms {
 

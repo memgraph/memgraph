@@ -9,13 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
+module;
 
-#include "coordination/coordinator_state.hpp"
-
-#include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_instance.hpp"
-#include "coordination/coordinator_ops_status.hpp"
+#include "io/network/endpoint.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
@@ -24,6 +20,17 @@
 #include <optional>
 #include <string_view>
 #include <variant>
+
+module memgraph.coordination.coordinator_state;
+
+#ifdef MG_ENTERPRISE
+
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_instance;
+import memgraph.coordination.coordinator_ops_status;
+import memgraph.coordination.data_instance_management_server;
+import memgraph.coordination.replication_lag_info;
+import memgraph.coordination.utils;
 
 namespace memgraph::coordination {
 

@@ -28,6 +28,7 @@ DEFINE_string(storage_directory, "", "Path to the storage directory where to sav
 DEFINE_string(root_directory, "", "Path to the database durability root dir.");
 
 #ifdef MG_ENTERPRISE
+import memgraph.coordination.coordinator_communication_config;
 using memgraph::coordination::CoordinatorInstanceInitConfig;
 using memgraph::coordination::CoordinatorState;
 #endif
