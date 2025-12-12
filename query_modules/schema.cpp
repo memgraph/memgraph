@@ -16,6 +16,7 @@
 #include <set>
 #include <unordered_set>
 
+namespace r = std::ranges;
 namespace Schema {
 
 constexpr std::string_view kStatusKept = "Kept";
