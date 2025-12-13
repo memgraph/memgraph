@@ -17,6 +17,7 @@
  */
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <filesystem>
 #include <optional>
@@ -146,7 +147,7 @@ class InputFile {
   size_t file_size_{0};
   size_t file_position_{0};
 
-  uint8_t buffer_[kFileBufferSize];
+  std::array<uint8_t, kFileBufferSize> buffer_;  // intentionally uninitialized for performance
   std::optional<size_t> buffer_start_;
   size_t buffer_size_{0};
   size_t buffer_position_{0};
@@ -279,7 +280,7 @@ class OutputFile {
   alignas(64) int fd_{-1};
   std::atomic<size_t> buffer_position_{0};
   size_t written_since_last_sync_{0};
-  uint8_t buffer_[kFileBufferSize];
+  std::array<uint8_t, kFileBufferSize> buffer_;  // intentionally uninitialized for performance
 
   // Path should be cold data
   std::filesystem::path path_;
@@ -369,7 +370,7 @@ class NonConcurrentOutputFile {
   int fd_{-1};
   size_t buffer_position_{0};
   size_t written_since_last_sync_{0};
-  uint8_t buffer_[kFileBufferSize];
+  std::array<uint8_t, kFileBufferSize> buffer_;  // intentionally uninitialized for performance
 
   // Path should be cold data
   std::filesystem::path path_;

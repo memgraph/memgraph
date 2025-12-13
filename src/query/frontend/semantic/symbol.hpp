@@ -11,7 +11,9 @@
 
 #pragma once
 
+#include <array>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "utils/typeinfo.hpp"
@@ -30,8 +32,9 @@ class Symbol {
   // displayed to the end user, so we may want to have a pretty name of each
   // value.
   static std::string TypeToString(Type type) {
-    const char *enum_string[] = {"Any", "Vertex", "Edge", "Path", "Number", "EdgeList"};
-    return enum_string[static_cast<int>(type)];
+    static constexpr std::array<std::string_view, 6> enum_string = {"Any",  "Vertex", "Edge",
+                                                                    "Path", "Number", "EdgeList"};
+    return std::string{enum_string[static_cast<int>(type)]};
   }
 
   Symbol() = default;

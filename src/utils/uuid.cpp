@@ -11,6 +11,8 @@
 
 #include "utils/uuid.hpp"
 
+#include <array>
+
 #include "slk/serialization.hpp"
 
 #include <nlohmann/json.hpp>
@@ -27,10 +29,11 @@ void from_json(const nlohmann::json &j, UUID &uuid) {
 
 std::string GenerateUUID() {
   uuid_t uuid;
-  char decoded[37];  // magic size from: man 2 uuid_unparse
+  constexpr size_t kUuidStringLength = 36;          // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  std::array<char, kUuidStringLength + 1> decoded;  // +1 for null terminator written by uuid_unparse
   uuid_generate(uuid);
-  uuid_unparse(uuid, decoded);
-  return {decoded};
+  uuid_unparse(uuid, decoded.data());
+  return {decoded.data(), kUuidStringLength};
 }
 
 }  // namespace memgraph::utils

@@ -16,6 +16,8 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <span>
+#include <string_view>
 #include <utility>
 
 #include <openssl/bio.h>
@@ -61,7 +63,11 @@ class OutputStream final {
 
   bool Write(const uint8_t *data, size_t len, bool have_more = false) { return write_function_(data, len, have_more); }
 
-  bool Write(const std::string &str, bool have_more = false) {
+  bool Write(std::span<const uint8_t> data, bool have_more = false) {
+    return Write(data.data(), data.size(), have_more);
+  }
+
+  bool Write(std::string_view str, bool have_more = false) {
     return Write(reinterpret_cast<const uint8_t *>(str.data()), str.size(), have_more);
   }
 

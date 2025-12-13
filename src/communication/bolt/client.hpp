@@ -113,7 +113,7 @@ class Client final {
   ///                              executing the query (eg. mistyped query,
   ///                              etc.)
   /// @throws ClientFatalException when we couldn't communicate with the server
-  QueryData Execute(const std::string &query, const map_t &parameters, const map_t &extra = {});
+  QueryData Execute(std::string_view query, const map_t &parameters, const map_t &extra = {});
 
   /// Close the active client connection.
   void Close();

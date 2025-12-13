@@ -8,6 +8,7 @@
 
 #include "auth/module.hpp"
 
+#include <array>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -54,7 +55,7 @@ const int kCharppMaxElements = 4096;
 
 class CharPP final {
  public:
-  CharPP() { memset(data_, 0, sizeof(char *) * kCharppMaxElements); }
+  CharPP() { data_.fill(nullptr); }
 
   ~CharPP() {
     for (size_t i = 0; i < size_; ++i) {
@@ -79,10 +80,10 @@ class CharPP final {
 
   void Add(const std::string &value) { Add(value.c_str()); }
 
-  char **Get() { return data_; }
+  char **Get() { return data_.data(); }
 
  private:
-  char *data_[kCharppMaxElements];
+  std::array<char *, kCharppMaxElements> data_;
   size_t size_{0};
 };
 
@@ -326,13 +327,13 @@ bool Module::Startup() {
   Shutdown();
 
   // Setup communication pipes.
-  if (pipe2(pipe_to_module_, O_CLOEXEC) != 0) {
+  if (pipe2(pipe_to_module_.data(), O_CLOEXEC) != 0) {
     spdlog::error(
         "Couldn't create communication pipe from the database to "
         "the auth module!");
     return false;
   }
-  if (pipe2(pipe_from_module_, O_CLOEXEC) != 0) {
+  if (pipe2(pipe_from_module_.data(), O_CLOEXEC) != 0) {
     spdlog::error(
         "Couldn't create communication pipe from the auth module to "
         "the database!");

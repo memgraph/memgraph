@@ -12,6 +12,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
@@ -49,20 +50,23 @@
 namespace memgraph::dbms {
 
 struct Statistics {
-  uint64_t num_vertex;           //!< Sum of vertexes in every database
-  uint64_t num_edges;            //!< Sum of edges in every database
-  uint64_t triggers;             //!< Sum of triggers in every database
-  uint64_t streams;              //!< Sum of streams in every database
-  uint64_t users;                //!< Number of defined users
-  uint64_t num_databases;        //!< Number of isolated databases
-  uint64_t indices;              //!< Sum of indices in every database
-  uint64_t constraints;          //!< Sum of constraints in every database
-  uint64_t storage_modes[3];     //!< Number of databases in each storage mode [IN_MEM_TX, IN_MEM_ANA, ON_DISK_TX]
-  uint64_t isolation_levels[3];  //!< Number of databases in each isolation level [SNAPSHOT, READ_COMM, READ_UNC]
-  uint64_t snapshot_enabled;     //!< Number of databases with snapshots enabled
-  uint64_t wal_enabled;          //!< Number of databases with WAL enabled
-  uint64_t property_store_compression_enabled;   //!< Number of databases with property store compression enabled
-  uint64_t property_store_compression_level[3];  //!< Number of databases with each compression level [LOW, MID, HIGH]
+  uint64_t num_vertex;     //!< Sum of vertexes in every database
+  uint64_t num_edges;      //!< Sum of edges in every database
+  uint64_t triggers;       //!< Sum of triggers in every database
+  uint64_t streams;        //!< Sum of streams in every database
+  uint64_t users;          //!< Number of defined users
+  uint64_t num_databases;  //!< Number of isolated databases
+  uint64_t indices;        //!< Sum of indices in every database
+  uint64_t constraints;    //!< Sum of constraints in every database
+  std::array<uint64_t, 3>
+      storage_modes{};  //!< Number of databases in each storage mode [IN_MEM_TX, IN_MEM_ANA, ON_DISK_TX]
+  std::array<uint64_t, 3>
+      isolation_levels{};     //!< Number of databases in each isolation level [SNAPSHOT, READ_COMM, READ_UNC]
+  uint64_t snapshot_enabled;  //!< Number of databases with snapshots enabled
+  uint64_t wal_enabled;       //!< Number of databases with WAL enabled
+  uint64_t property_store_compression_enabled;  //!< Number of databases with property store compression enabled
+  std::array<uint64_t, 3>
+      property_store_compression_level{};  //!< Number of databases with each compression level [LOW, MID, HIGH]
 };
 
 static inline nlohmann::json ToJson(const Statistics &stats) {

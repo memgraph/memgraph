@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -221,9 +221,9 @@ class Decoder {
    *          false otherwise
    */
   bool ReadMessageHeader(Signature *signature, Marker *marker) {
-    uint8_t values[2];
+    std::array<uint8_t, 2> values;
 
-    if (!buffer_.Read(values, 2)) {
+    if (!buffer_.Read(values)) {
       return false;
     }
 
@@ -335,8 +335,8 @@ class Decoder {
   }
 
   bool ReadString(const Marker &marker, Value *data) {
-    const int kMaxStackBuffer = 8192;
-    uint8_t buffer[kMaxStackBuffer];
+    static constexpr int kMaxStackBuffer = 8192;
+    std::array<uint8_t, kMaxStackBuffer> buffer;  // intentionally uninitialized for performance
     auto size = ReadTypeSize(marker, MarkerString);
     if (size == -1) {
       return false;
@@ -350,11 +350,11 @@ class Decoder {
     // Value(std::string('\0', size))` and just call
     // `buffer_.Read(data->ValueString().data())`.
     if (size < kMaxStackBuffer) {
-      if (!buffer_.Read(buffer, size)) {
+      if (!buffer_.Read(buffer.data(), size)) {
         SPDLOG_WARN("[ReadString] Missing data!");
         return false;
       }
-      *data = Value(std::string(reinterpret_cast<char *>(buffer), size));
+      *data = Value(std::string(reinterpret_cast<char *>(buffer.data()), size));
     } else {
       std::unique_ptr<uint8_t[]> ret(new uint8_t[size]);
       if (!buffer_.Read(ret.get(), size)) {

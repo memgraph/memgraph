@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <string_view>
 #include <type_traits>
 
 #include "communication/bolt/v1/codes.hpp"
@@ -104,9 +105,9 @@ class BaseEncoder {
     }
   }
 
-  void WriteString(const std::string &value) {
+  void WriteString(std::string_view value) {
     WriteTypeSize(value.size(), MarkerString);
-    WriteRAW(value.c_str(), value.size());
+    WriteRAW(value.data(), value.size());
   }
 
   void WriteList(const std::vector<Value> &value) {

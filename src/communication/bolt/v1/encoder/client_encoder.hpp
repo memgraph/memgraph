@@ -14,6 +14,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "communication/bolt/v1/codes.hpp"
@@ -82,7 +83,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessageRun(const std::string &statement, const map_t &parameters, const map_t &extra, bool have_more = true) {
+  bool MessageRun(std::string_view statement, const map_t &parameters, const map_t &extra, bool have_more = true) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
     WriteRAW(utils::UnderlyingCast(Signature::Run));
     WriteString(statement);
