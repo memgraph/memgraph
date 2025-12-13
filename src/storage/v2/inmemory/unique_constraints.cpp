@@ -58,7 +58,7 @@ using PropertyIdArray = FixedCapacityArray<PropertyId>;
 /// sorted `property_array` using binary search. In the case that `property`
 /// cannot be found, `std::nullopt` is returned.
 std::optional<size_t> FindPropertyPosition(const PropertyIdArray &property_array, PropertyId property) {
-  const auto it = std::ranges::lower_bound(property_array, property);
+  auto const *const it = std::ranges::lower_bound(property_array, property);
   if (it == property_array.end() || *it != property) {
     return std::nullopt;
   }
@@ -186,10 +186,10 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
       }
     } else {
       // otherwise do a short-circuiting check (we already know !deleted && has_label)
-      for (const auto &[i, property] : std::views::enumerate(properties)) {
-        if (!vertex.properties.IsPropertyEqual(property, values[i])) return false;
-      }
-      return true;
+      return std::ranges::all_of(std::views::zip(properties, values), [&](const auto &prop_val) {
+        const auto &[property, value] = prop_val;
+        return vertex.properties.IsPropertyEqual(property, value);
+      });
     }
   }
 
