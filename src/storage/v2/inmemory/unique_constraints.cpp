@@ -53,7 +53,7 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
     ++i;
   }
 
-  std::array<bool, kUniqueConstraintsMaxProperties> current_value_equal_to_value{};
+  std::array<bool, kUniqueConstraintsMaxProperties> current_value_equal_to_value;
 
   // Since the commit lock is active, any transaction that tries to write to
   // a vertex which is part of the given `transaction` will result in a
@@ -143,7 +143,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
   MG_ASSERT(properties.size() == values.size(), "Invalid database state!");
 
   PropertyIdArray property_array(properties.size());
-  std::array<bool, kUniqueConstraintsMaxProperties> current_value_equal_to_value{};
+  std::array<bool, kUniqueConstraintsMaxProperties> current_value_equal_to_value;
 
   bool has_label;
   bool deleted;

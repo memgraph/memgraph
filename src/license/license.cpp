@@ -303,8 +303,11 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
     const auto time = static_cast<std::time_t>(valid_until);
     std::tm *tm = std::gmtime(&time);
     std::array<char, 30> buffer;
-    (void)std::strftime(buffer.data(), buffer.size(), "%Y-%m-%d", tm);
-    info.valid_until = std::string(buffer.data());
+    if (tm != nullptr && std::strftime(buffer.data(), buffer.size(), "%Y-%m-%d", tm) > 0) {
+      info.valid_until = std::string(buffer.data());
+    } else {
+      info.valid_until = "error";
+    }
 
     auto now = std::chrono::system_clock::now();
     const int64_t currentEpoch = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();

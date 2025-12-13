@@ -29,10 +29,11 @@ void from_json(const nlohmann::json &j, UUID &uuid) {
 
 std::string GenerateUUID() {
   uuid_t uuid;
-  std::array<char, 37> decoded;  // magic size from: man 2 uuid_unparse
+  constexpr size_t kUuidStringLength = 36;          // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  std::array<char, kUuidStringLength + 1> decoded;  // +1 for null terminator written by uuid_unparse
   uuid_generate(uuid);
   uuid_unparse(uuid, decoded.data());
-  return {decoded.data()};
+  return {decoded.data(), kUuidStringLength};
 }
 
 }  // namespace memgraph::utils
