@@ -35,7 +35,7 @@ struct QueryCacheEntry;
 enum class TransactionStatus;
 
 struct Trigger {
-  enum class SecurityDefiner : uint8_t {
+  enum class PrivilegeContext : uint8_t {
     INVOKER = 0,  // trigger is executed with the permissions of the user who invoked the trigger
     DEFINER = 1   // trigger is executed with the permissions of the user who defined the trigger
   };
@@ -43,7 +43,7 @@ struct Trigger {
   explicit Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                    TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                    const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
-                   std::string_view db_name, SecurityDefiner security_definer = SecurityDefiner::INVOKER);
+                   std::string_view db_name, PrivilegeContext privilege_context = PrivilegeContext::INVOKER);
 
   void Execute(DbAccessor *dba, memgraph::dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
                double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
@@ -82,7 +82,7 @@ struct Trigger {
   mutable utils::RWSpinLock plan_lock_;
   mutable std::shared_ptr<TriggerPlan> trigger_plan_;
   std::shared_ptr<QueryUserOrRole> creator_;
-  SecurityDefiner security_definer_{SecurityDefiner::INVOKER};
+  PrivilegeContext privilege_context_{PrivilegeContext::INVOKER};
 };
 
 enum class TriggerPhase : uint8_t { BEFORE_COMMIT, AFTER_COMMIT };
@@ -98,7 +98,7 @@ struct TriggerStore {
                   TriggerEventType event_type, TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache,
                   DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
                   std::shared_ptr<QueryUserOrRole> creator, std::string_view db_name,
-                  Trigger::SecurityDefiner security_definer);
+                  Trigger::PrivilegeContext privilege_context);
 
   void DropTrigger(const std::string &name);
   void DropAll();

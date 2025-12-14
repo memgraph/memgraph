@@ -155,16 +155,14 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
 Trigger::Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                  const TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
                  DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
-                 std::shared_ptr<QueryUserOrRole> creator, std::string_view db_name, SecurityDefiner security_definer)
+                 std::shared_ptr<QueryUserOrRole> creator, std::string_view db_name, PrivilegeContext privilege_context)
     : name_{std::move(name)},
       parsed_statements_{ParseQuery(query, user_parameters, query_cache, query_config)},
       event_type_{event_type},
       creator_{std::move(creator)},
-      security_definer_{security_definer} {
+      privilege_context_{privilege_context} {
   // We check immediately if the query is valid by trying to create a plan.
-  // TODO (ivan): is this needed the security definer is invoker? are permissions for being able to create a trigger
-  // checked elsewhere?
-  if (security_definer_ == SecurityDefiner::DEFINER) {
+  if (privilege_context_ == PrivilegeContext::DEFINER) {
     GetPlan(db_accessor, db_name, creator_);
   }
 }
@@ -200,7 +198,7 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
     }
   };
 
-  if (security_definer_ == SecurityDefiner::DEFINER) {
+  if (privilege_context_ == PrivilegeContext::DEFINER) {
     check_authorization(creator_,
                         fmt::format("The owner of trigger '{}' is not authorized to execute the query!", name_));
   } else {
@@ -343,10 +341,18 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
     return;
   }
 
+  Trigger::PrivilegeContext privilege_context = std::invoke([&]() {
+    if (json_trigger_data.contains("privilege_context")) {
+      return static_cast<Trigger::PrivilegeContext>(json_trigger_data["privilege_context"].get<uint8_t>());
+    }
+    // Backward compatibility: old triggers without privilege_context field were always DEFINER mode
+    return Trigger::PrivilegeContext::DEFINER;
+  });
+
   std::optional<Trigger> trigger;
   try {
     trigger.emplace(std::string{trigger_name}, statement, user_parameters, event_type, query_cache, db_accessor,
-                    query_config, std::move(user), std::string{db_name});
+                    query_config, std::move(user), std::string{db_name}, privilege_context);
   } catch (const utils::BasicException &e) {
     spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
     return;
@@ -375,7 +381,7 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
                               TriggerEventType event_type, TriggerPhase phase,
                               utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                               const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
-                              std::string_view db_name, Trigger::SecurityDefiner security_definer) {
+                              std::string_view db_name, Trigger::PrivilegeContext privilege_context) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
     throw utils::BasicException("Trigger with the same name already exists.");
@@ -384,7 +390,7 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
   std::optional<Trigger> trigger;
   try {
     trigger.emplace(std::move(name), query, user_parameters, event_type, query_cache, db_accessor, query_config,
-                    std::move(creator), db_name, security_definer);
+                    std::move(creator), db_name, privilege_context);
   } catch (const utils::BasicException &e) {
     const auto identifiers = GetPredefinedIdentifiers(event_type);
     std::stringstream identifier_names_stream;
@@ -405,11 +411,11 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
       serialization::SerializeExternalPropertyValueMap(user_parameters, db_accessor->GetStorageAccessor());
   data["event_type"] = event_type;
   data["phase"] = phase;
-  data["security_definer"] = static_cast<uint8_t>(security_definer);
+  data["privilege_context"] = static_cast<uint8_t>(privilege_context);
   data["version"] = kVersion;
 
   const auto &owner_from_trigger = trigger->Creator();
-  if (security_definer == Trigger::SecurityDefiner::DEFINER && owner_from_trigger && *owner_from_trigger) {
+  if (privilege_context == Trigger::PrivilegeContext::DEFINER && owner_from_trigger && *owner_from_trigger) {
     const auto &maybe_username = owner_from_trigger->username();
     if (maybe_username) {
       data["owner"] = *maybe_username;
