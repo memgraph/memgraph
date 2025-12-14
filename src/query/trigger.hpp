@@ -36,7 +36,7 @@ struct QueryCacheEntry;
 enum class TransactionStatus;
 
 struct Trigger {
-  enum class SecurityDefiner : uint8_t {
+  enum class PrivilegeContext : uint8_t {
     INVOKER = 0,  // trigger is executed with the permissions of the user who invoked the trigger
     DEFINER = 1   // trigger is executed with the permissions of the user who defined the trigger
   };
