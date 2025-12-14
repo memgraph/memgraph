@@ -193,6 +193,12 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
 
+  auto check_authorization = [&](std::shared_ptr<QueryUserOrRole> user, std::string error_msg) {
+    if (!user->IsAuthorized(parsed_statements_.required_privileges, db_name, &query::up_to_date_policy)) {
+      throw utils::BasicException(std::move(error_msg));
+    }
+  };
+
   // GenQueryUser always returns a non-null shared_ptr and
   // both creator_ and triggering_user come from GenQueryUser
   if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
@@ -255,8 +261,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
     frame_writer.Write(plan.symbol_table().at(identifier), context.GetTypedValue(tag, dba));
   }
 
-  while (cursor->Pull(frame, ctx))
-    ;
+  while (cursor->Pull(frame, ctx));
 
   cursor->Shutdown();
   memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersExecuted);
