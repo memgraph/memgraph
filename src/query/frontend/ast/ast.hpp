@@ -3371,7 +3371,8 @@ class TriggerQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class SecurityDefiner : uint8_t { INVOKER, DEFINER };
+  // TODO (ivan): same enum values as Trigger::SecurityDefiner but bad design
+  enum class SecurityDefiner : uint8_t { INVOKER = 0, DEFINER = 1 };
 
   enum class Action : uint8_t { CREATE_TRIGGER, DROP_TRIGGER, SHOW_TRIGGERS };
 

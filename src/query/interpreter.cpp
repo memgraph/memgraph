@@ -4562,11 +4562,14 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
           .fn = [trigger_name = std::move(trigger_query->trigger_name_),
                  trigger_statement = std::move(trigger_query->statement_), event_type = trigger_query->event_type_,
                  before_commit = trigger_query->before_commit_, trigger_store, interpreter_context, dba,
-                 user_parameters, owner = std::move(owner), db_name]() mutable -> std::vector<std::vector<TypedValue>> {
+                 user_parameters, owner = std::move(owner), db_name,
+                 trigger_security_definer =
+                     trigger_query->security_definer_]() mutable -> std::vector<std::vector<TypedValue>> {
             trigger_store->AddTrigger(
                 std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
                 before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT,
-                &interpreter_context->ast_cache, dba, interpreter_context->config.query, std::move(owner), db_name);
+                &interpreter_context->ast_cache, dba, interpreter_context->config.query, std::move(owner), db_name,
+                static_cast<Trigger::SecurityDefiner>(trigger_security_definer));
             memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersCreated);
             return {};
           }};

@@ -42,7 +42,7 @@ struct Trigger {
 
   explicit Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                    TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                   const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner,
+                   const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
                    std::string_view db_name, SecurityDefiner security_definer = SecurityDefiner::INVOKER);
 
   void Execute(DbAccessor *dba, memgraph::dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
@@ -59,7 +59,7 @@ struct Trigger {
 
   const auto &Name() const noexcept { return name_; }
   const auto &OriginalStatement() const noexcept { return parsed_statements_.query_string; }
-  const auto &Owner() const noexcept { return owner_; }
+  const auto &Creator() const noexcept { return creator_; }
   auto EventType() const noexcept { return event_type_; }
 
  private:
@@ -81,7 +81,7 @@ struct Trigger {
 
   mutable utils::RWSpinLock plan_lock_;
   mutable std::shared_ptr<TriggerPlan> trigger_plan_;
-  std::shared_ptr<QueryUserOrRole> owner_;
+  std::shared_ptr<QueryUserOrRole> creator_;
   SecurityDefiner security_definer_{SecurityDefiner::INVOKER};
 };
 
@@ -97,7 +97,8 @@ struct TriggerStore {
   void AddTrigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                   TriggerEventType event_type, TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache,
                   DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
-                  std::shared_ptr<QueryUserOrRole> owner, std::string_view db_name);
+                  std::shared_ptr<QueryUserOrRole> creator, std::string_view db_name,
+                  Trigger::SecurityDefiner security_definer);
 
   void DropTrigger(const std::string &name);
   void DropAll();
