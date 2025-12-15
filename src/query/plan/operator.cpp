@@ -426,6 +426,100 @@ storage::EdgeTypeId EvaluateEdgeType(const StorageEdgeType &edge_type, Expressio
   return dba->NameToEdgeType(edge_type_name.ValueString());
 }
 
+/// Thread-safe shared state for parallel Distinct execution.
+/// Multiple DistinctCursor instances can share this state to ensure
+/// global deduplication across parallel execution threads.
+/// Uses sharded locking to reduce contention - each shard has its own mutex.
+class SharedDistinctState {
+ public:
+  using SeenRowsSet =
+      utils::pmr::unordered_set<utils::pmr::vector<TypedValue>,
+                                utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
+                                TypedValueVectorEqual>;
+
+  static constexpr size_t kNumShards = 128;  // Power of 2 for fast modulo via bitwise AND
+
+  explicit SharedDistinctState(utils::MemoryResource *mem) : mem_(mem) {
+    // Initialize all shards with the same memory resource
+    for (size_t i = 0; i < kNumShards; ++i) {
+      shards_[i] = SeenRowsSet(mem);
+    }
+  }
+
+  ~SharedDistinctState() { Clear(); }
+
+  /// Batch insert: takes a vector of rows and returns a vector of bools indicating which are unique.
+  /// Groups rows by shard and locks once per shard for efficiency.
+  std::vector<bool> TryInsertBatch(std::vector<utils::pmr::vector<TypedValue>> &rows) {
+    std::vector<bool> results;
+    results.reserve(rows.size());
+    for (size_t i = 0; i < rows.size(); ++i) {
+      size_t hash = utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>{}(rows[i]);
+      size_t shard_idx = hash & (kNumShards - 1);
+      std::lock_guard<std::mutex> lock(shard_mutexes_[shard_idx].mutex);
+      auto [it, inserted] = shards_[shard_idx].emplace(std::move(rows[i]));
+      results.push_back(inserted);
+    }
+    return results;
+  }
+
+  void Clear() {
+    for (size_t i = 0; i < kNumShards; ++i) {
+      std::lock_guard<std::mutex> lock(shard_mutexes_[i].mutex);
+      shards_[i].clear();
+    }
+  }
+
+  utils::MemoryResource *GetMemoryResource() const { return mem_; }
+
+ private:
+  utils::MemoryResource *mem_;
+
+  // Padded mutex to avoid false sharing between adjacent shards
+  struct alignas(64) PaddedMutex {
+    std::mutex mutex;
+  };
+
+  std::array<PaddedMutex, kNumShards> shard_mutexes_;
+  std::array<SeenRowsSet, kNumShards> shards_;
+};
+
+// Parallel execution plan creation helper
+struct CreationHelper {
+  std::shared_ptr<Cursor> cursor_{nullptr};
+  std::shared_ptr<utils::CollectionScheduler> collection_scheduler_{nullptr};
+  std::map<const LogicalOperator *, utils::SharedQuota> quotas_{};  // Skip/Limit cursors need to use the same quota
+  std::map<const LogicalOperator *, std::shared_ptr<SharedDistinctState>>
+      shared_distinct_states_{};  // Distinct cursors share deduplication state
+
+  utils::SharedQuota GetSharedQuota(const LogicalOperator *op) {
+    auto [it, _] = quotas_.try_emplace(op, utils::SharedQuota(utils::SharedQuota::preload));
+    return it->second;
+  }
+
+  /// Get or create shared distinct state for a given Distinct operator.
+  /// Returns nullptr if not in parallel context (collection_scheduler_ is null).
+  std::shared_ptr<SharedDistinctState> GetSharedDistinctState(const LogicalOperator *op, utils::MemoryResource *mem) {
+    auto [it, inserted] = shared_distinct_states_.try_emplace(op, nullptr);
+    if (inserted) {
+      it->second = std::make_shared<SharedDistinctState>(mem);
+    }
+    return it->second;
+  }
+};
+static thread_local CreationHelper plan_creation_helper_{nullptr};
+
+struct PlanCreationHelper {
+  PlanCreationHelper(std::shared_ptr<utils::CollectionScheduler> collection_scheduler) {
+    creation_helper_old_ =
+        std::exchange(plan_creation_helper_, CreationHelper{.collection_scheduler_ = collection_scheduler});
+  }
+  ~PlanCreationHelper() { plan_creation_helper_ = std::move(creation_helper_old_); }
+
+ private:
+  CreationHelper creation_helper_old_{nullptr};
+};
+
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -6388,7 +6482,7 @@ class OrderByCursor : public Cursor {
     if (!did_pull_all_) [[unlikely]] {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD, nullptr, &context.number_of_hops, context.user_or_role);
-      auto *pull_mem = context.evaluation_context.memory;
+      //auto *pull_mem = context.evaluation_context.memory;
       auto *query_mem = cache_.get_allocator().resource();
 
       utils::pmr::vector<utils::pmr::vector<TypedValue>> order_by(query_mem);  // Cached for parallel merge
@@ -6771,7 +6865,6 @@ class DistinctCursor : public Cursor {
 
     while (true) {
       if (!input_cursor_->Pull(frame, context)) {
-        // Nothing left to pull, we can dispose of seen_rows now
         seen_rows_.clear();
         return false;
       }
@@ -6799,13 +6892,139 @@ class DistinctCursor : public Cursor {
  private:
   const Distinct &self_;
   const UniqueCursorPtr input_cursor_;
-  // a set of already seen rows
   utils::pmr::unordered_set<utils::pmr::vector<TypedValue>,
-                            // use FNV collection hashing specialized for a
-                            // vector of TypedValue
                             utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
                             TypedValueVectorEqual>
       seen_rows_;
+};
+
+class DistinctParallelCursor : public Cursor {
+ public:
+  static constexpr size_t kLocalCacheBatchSize = 10;
+
+  /// Constructor for parallel distinct (uses shared state with local caching)
+  DistinctParallelCursor(const Distinct &self, utils::MemoryResource *mem,
+                         std::shared_ptr<SharedDistinctState> shared_state)
+      : self_(self),
+        input_cursor_(self.input_->MakeCursor(mem)),
+        shared_state_(std::move(shared_state)),
+        local_seen_(mem),
+        it_(local_cache_.begin()) {
+    DMG_ASSERT(shared_state_, "DistinctParallelCursor must be created with a shared state");
+    local_cache_.reserve(kLocalCacheBatchSize);
+    it_ = local_cache_.begin();
+    local_seen_.reserve(kLocalCacheBatchSize);
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP("Distinct");
+
+    AbortCheck(context);
+
+    // Return from local cache if available
+    if (it_ != local_cache_.end()) {
+      frame = std::move(*it_);
+      ++it_;
+      return true;
+    }
+    // Refill local cache by pulling a batch from input
+    while (true) {
+      const auto res = RefillCacheAndPull(frame, context);
+      if (res) return true;
+      if (pulled_all_) return false;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    if (shared_state_) {
+      shared_state_->Clear();
+    }
+    local_cache_.clear();
+    local_seen_.clear();
+  }
+
+ private:
+  bool RefillCacheAndPull(Frame &frame, ExecutionContext &context) {
+    if (pulled_all_) return false;
+    utils::MemoryResource *row_mem = shared_state_->GetMemoryResource();
+
+    // Pull batch of rows from input, deduplicating locally first
+    // local_seen_ tracks distinct keys, local_cache_ stores full frames
+    std::vector<utils::pmr::vector<TypedValue>> rows_batch;
+    std::vector<Frame> frames_batch;
+    rows_batch.reserve(kLocalCacheBatchSize);
+    frames_batch.reserve(kLocalCacheBatchSize);
+
+    while (rows_batch.size() < kLocalCacheBatchSize) {
+      if (!input_cursor_->Pull(frame, context)) {
+        pulled_all_ = true;
+        break;  // Input exhausted
+      }
+
+      // Build the distinct key row
+      utils::pmr::vector<TypedValue> row(row_mem);
+      row.reserve(self_.value_symbols_.size());
+      for (const auto &symbol : self_.value_symbols_) {
+        row.emplace_back(frame.at(symbol));
+      }
+
+      // Local deduplication within batch using local_seen_ set
+      if (local_seen_.insert(row).second) {
+        rows_batch.emplace_back(std::move(row));
+        frames_batch.emplace_back(frame);
+      }
+    }
+
+    // Clear local seen set for next batch
+    local_seen_.clear();
+
+    if (rows_batch.empty()) {
+      // Input exhausted and no cached items
+      return false;
+    }
+
+    // Batch check against global shared state
+    auto uniqueness = shared_state_->TryInsertBatch(rows_batch);
+    local_cache_.clear();
+
+    // Add globally unique frames to local cache
+    for (size_t i = 0; i < uniqueness.size(); ++i) {
+      if (uniqueness[i]) {
+        local_cache_.emplace_back(std::move(frames_batch[i]));
+      }
+    }
+
+    if (local_cache_.empty()) {
+      // All pulled items were duplicates globally, try again
+      return false;
+    }
+
+    // Return first unique item
+    it_ = local_cache_.begin();
+    frame = std::move(*it_);
+    ++it_;
+    return true;
+  }
+
+  using RowSet =
+      utils::pmr::unordered_set<utils::pmr::vector<TypedValue>,
+                                utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
+                                TypedValueVectorEqual>;
+
+  const Distinct &self_;
+  const UniqueCursorPtr input_cursor_;
+  // Shared state for parallel execution (nullptr for single-threaded mode)
+  std::shared_ptr<SharedDistinctState> shared_state_;
+  // Local set for deduplication within batches (parallel mode)
+  RowSet local_seen_;
+  // Local cache of unique frames for parallel mode (avoids per-row global locking)
+  std::vector<Frame> local_cache_;
+  std::vector<Frame>::iterator it_;
+  bool pulled_all_{false};
 };
 
 Distinct::Distinct(const std::shared_ptr<LogicalOperator> &input, const std::vector<Symbol> &value_symbols)
@@ -6813,10 +7032,20 @@ Distinct::Distinct(const std::shared_ptr<LogicalOperator> &input, const std::vec
 
 ACCEPT_WITH_INPUT(Distinct)
 
+// Distinct::MakeCursor implementation - needs to be after parallel namespace to access plan_creation_helper_
 UniqueCursorPtr Distinct::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::DistinctOperator);
-
-  return MakeUniqueCursorPtr<DistinctCursor>(mem, *this, mem);
+  if (!parallel_execution_) {
+    // Single-threaded mode
+    return MakeUniqueCursorPtr<DistinctCursor>(mem, *this, mem);
+  }
+  // Check if we're in a parallel execution context
+  auto shared_state = plan_creation_helper_.GetSharedDistinctState(this, mem);
+  if (shared_state) {
+    // Parallel mode: use shared state for global deduplication
+    return MakeUniqueCursorPtr<DistinctParallelCursor>(mem, *this, mem, std::move(shared_state));
+  }
+  throw std::runtime_error("Failed to create distinct cursor");
 }
 
 std::vector<Symbol> Distinct::OutputSymbols(const SymbolTable &symbol_table) const {
@@ -6830,6 +7059,7 @@ std::unique_ptr<LogicalOperator> Distinct::Clone(AstStorage *storage) const {
   auto object = std::make_unique<Distinct>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->value_symbols_ = value_symbols_;
+  object->parallel_execution_ = parallel_execution_;
   return object;
 }
 
@@ -9550,43 +9780,17 @@ UniqueCursorPtr ParallelMerge::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<ParallelMergeCursor>(mem, *this, mem);
 }
 
-namespace parallel {
-// Parallel execution plan creation helper
-struct CreationHelper {
-  std::shared_ptr<Cursor> cursor_{nullptr};
-  std::shared_ptr<utils::CollectionScheduler> collection_scheduler_{nullptr};
-  std::map<const LogicalOperator *, utils::SharedQuota> quotas_{};  // Skip/Limit cursors need to use the same quota
-
-  utils::SharedQuota GetSharedQuota(const LogicalOperator *op) {
-    auto [it, _] = quotas_.try_emplace(op, utils::SharedQuota(utils::SharedQuota::preload));
-    return it->second;
-  }
-};
-static thread_local CreationHelper plan_creation_helper_{nullptr};
-
-struct PlanCreationHelper {
-  PlanCreationHelper(std::shared_ptr<utils::CollectionScheduler> collection_scheduler) {
-    creation_helper_old_ =
-        std::exchange(plan_creation_helper_, CreationHelper{.collection_scheduler_ = collection_scheduler});
-  }
-  ~PlanCreationHelper() { plan_creation_helper_ = std::move(creation_helper_old_); }
-
- private:
-  CreationHelper creation_helper_old_{nullptr};
-};
-}  // namespace parallel
-
 class ParallelMergeCursor : public Cursor {
  public:
   ParallelMergeCursor(const ParallelMerge &self, utils::MemoryResource *mem)
       : self_(self),
         // Collection scheduler is executed by the first parallel operator only
-        collection_scheduler_(std::exchange(parallel::plan_creation_helper_.collection_scheduler_, nullptr)),
+        collection_scheduler_(std::exchange(plan_creation_helper_.collection_scheduler_, nullptr)),
         input_cursor_(std::invoke([&]() {
-          if (!parallel::plan_creation_helper_.cursor_) {
-            parallel::plan_creation_helper_.cursor_ = self_.input_->MakeCursor(mem);
+          if (!plan_creation_helper_.cursor_) {
+            plan_creation_helper_.cursor_ = self_.input_->MakeCursor(mem);
           }
-          return parallel::plan_creation_helper_.cursor_;
+          return plan_creation_helper_.cursor_;
         })) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -9630,7 +9834,7 @@ class ParallelBranchCursor : public Cursor {
                        utils::MemoryResource *mem)
       : collection_scheduler_(std::make_shared<utils::CollectionScheduler>(nullptr, nullptr)),
         branch_cursors_(std::invoke([&]() {
-          parallel::PlanCreationHelper helper{collection_scheduler_};
+          PlanCreationHelper helper{collection_scheduler_};
           std::vector<UniqueCursorPtr> cursors;
           const auto effective_num_threads = std::min(num_threads, static_cast<size_t>(FLAGS_bolt_num_workers));
           cursors.reserve(effective_num_threads);
@@ -10344,15 +10548,15 @@ std::unique_ptr<LogicalOperator> Skip::Clone(AstStorage *storage) const {
   auto object = std::make_unique<Skip>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-  object->parallel_execution = parallel_execution;
+  object->parallel_execution_ = parallel_execution_;
   return object;
 }
 
 Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {
-  if (self_.parallel_execution) {
+  if (self_.parallel_execution_) {
     // Use a globally defined quota for parallel execution
-    shared_quota_ = parallel::plan_creation_helper_.GetSharedQuota(&self_);
+    shared_quota_ = plan_creation_helper_.GetSharedQuota(&self_);
   }
 }
 
@@ -10376,9 +10580,9 @@ bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
       to_skip_ = to_skip.ValueInt();
       if (to_skip_ < 0) throw QueryRuntimeException("Number of elements to skip must be non-negative.");
       // Single threaded and parallel execution quota setup
-      if (self_.parallel_execution) {
+      if (self_.parallel_execution_) {
         MG_ASSERT(shared_quota_, "Shared quota should be preset in parallel execution");
-        shared_quota_->Initialize(to_skip_, *self_.parallel_execution * 4);
+        shared_quota_->Initialize(to_skip_, *self_.parallel_execution_ * 4);
       } else {
         shared_quota_.emplace(to_skip_);
       }
@@ -10422,15 +10626,15 @@ std::unique_ptr<LogicalOperator> Limit::Clone(AstStorage *storage) const {
   auto object = std::make_unique<Limit>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-  object->parallel_execution = parallel_execution;
+  object->parallel_execution_ = parallel_execution_;
   return object;
 }
 
 Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {
-  if (self_.parallel_execution) {
+  if (self_.parallel_execution_) {
     // Use a globally defined quota for parallel execution
-    shared_quota_ = parallel::plan_creation_helper_.GetSharedQuota(&self_);
+    shared_quota_ = plan_creation_helper_.GetSharedQuota(&self_);
   }
 }
 
@@ -10456,9 +10660,9 @@ bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
     limit_ = limit.ValueInt();
     if (limit_ < 0) throw QueryRuntimeException("Limit on number of returned elements must be non-negative.");
     // Initialize the quota for parallel execution or single threaded execution
-    if (self_.parallel_execution) {
+    if (self_.parallel_execution_) {
       MG_ASSERT(shared_quota_, "Shared quota should be preset in parallel execution");
-      shared_quota_->Initialize(limit_, *self_.parallel_execution * 4);
+      shared_quota_->Initialize(limit_, *self_.parallel_execution_ * 4);
     } else {
       shared_quota_.emplace(limit_);
     }
