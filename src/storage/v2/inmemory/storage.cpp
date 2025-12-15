@@ -776,7 +776,7 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
 void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs() {
   Abort();
   // We have aborted, need to release/cleanup commit_timestamp_ here
-  DMG_ASSERT(commit_timestamp_.has_value());
+  DMG_ASSERT(commit_timestamp_);
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
   commit_timestamp_.reset();

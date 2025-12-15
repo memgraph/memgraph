@@ -5826,7 +5826,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
         }
         case Constraint::Type::TYPE: {
           auto const maybe_constraint_type = constraint_query->constraint_.type_constraint;
-          MG_ASSERT(maybe_constraint_type.has_value());
+          MG_ASSERT(maybe_constraint_type);
           auto const constraint_type = *maybe_constraint_type;
 
           constraint_notification.title = fmt::format("Created IS TYPED {} constraint on label {} on property {}.",
@@ -5935,7 +5935,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
         }
         case Constraint::Type::TYPE: {
           auto const maybe_constraint_type = constraint_query->constraint_.type_constraint;
-          MG_ASSERT(maybe_constraint_type.has_value());
+          MG_ASSERT(maybe_constraint_type);
           auto const constraint_type = *maybe_constraint_type;
 
           constraint_notification.title =

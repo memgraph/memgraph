@@ -45,7 +45,7 @@ class ResultStreamFaker {
     bvalues.reserve(values.size());
     for (const auto &value : values) {
       auto maybe_value = memgraph::glue::ToBoltValue(value, store_, memgraph::storage::View::NEW);
-      MG_ASSERT(maybe_value.has_value());
+      MG_ASSERT(maybe_value);
       bvalues.push_back(std::move(*maybe_value));
     }
     results_.push_back(std::move(bvalues));
@@ -57,7 +57,7 @@ class ResultStreamFaker {
     std::map<std::string, memgraph::communication::bolt::Value> bsummary;
     for (const auto &item : summary) {
       auto maybe_value = memgraph::glue::ToBoltValue(item.second, store_, memgraph::storage::View::NEW);
-      MG_ASSERT(maybe_value.has_value());
+      MG_ASSERT(maybe_value);
       bsummary.insert({item.first, std::move(*maybe_value)});
     }
     summary_ = std::move(bsummary);

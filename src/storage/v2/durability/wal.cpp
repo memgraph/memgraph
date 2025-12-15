@@ -1596,27 +1596,27 @@ std::pair<const uint8_t *, size_t> WalFile::CurrentFileBuffer() const { return w
 
 void EncodeEnumAlterAdd(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val) {
   auto etype_str = enum_store.ToTypeString(enum_val.type_id());
-  DMG_ASSERT(etype_str.has_value());
+  DMG_ASSERT(etype_str);
   encoder.WriteString(*etype_str);
   auto value_str = enum_store.ToValueString(enum_val.type_id(), enum_val.value_id());
-  DMG_ASSERT(value_str.has_value());
+  DMG_ASSERT(value_str);
   encoder.WriteString(*value_str);
 }
 
 void EncodeEnumAlterUpdate(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val,
                            std::string enum_value_old) {
   auto etype_str = enum_store.ToTypeString(enum_val.type_id());
-  DMG_ASSERT(etype_str.has_value());
+  DMG_ASSERT(etype_str);
   encoder.WriteString(*etype_str);
   encoder.WriteString(enum_value_old);
   auto value_str = enum_store.ToValueString(enum_val.type_id(), enum_val.value_id());
-  DMG_ASSERT(value_str.has_value());
+  DMG_ASSERT(value_str);
   encoder.WriteString(*value_str);
 }
 
 void EncodeEnumCreate(BaseEncoder &encoder, EnumStore const &enum_store, EnumTypeId etype) {
   auto etype_str = enum_store.ToTypeString(etype);
-  DMG_ASSERT(etype_str.has_value());
+  DMG_ASSERT(etype_str);
   encoder.WriteString(*etype_str);
   auto const *values = enum_store.ToValuesStrings(etype);
   DMG_ASSERT(values);

@@ -7389,7 +7389,7 @@ class CallProcedureCursor : public Cursor {
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       const auto transaction_id = context.db_accessor->GetTransactionId();
-      MG_ASSERT(transaction_id.has_value());
+      MG_ASSERT(transaction_id);
       CallCustomProcedure(self_->procedure_name_, *proc_, self_->arguments_, graph, &evaluator, memory, memory_limit,
                           &result_, self_->procedure_id_, transaction_id.value(), call_initializer);
 

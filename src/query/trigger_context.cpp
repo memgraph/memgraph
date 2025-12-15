@@ -306,7 +306,7 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
         continue;
       }
       auto maybe_out_edges = maybe_from_vertex->OutEdges(storage::View::OLD);
-      MG_ASSERT(maybe_out_edges.has_value());
+      MG_ASSERT(maybe_out_edges);
       const auto edge_gid = created_edge.object.Gid();
       for (const auto &edge : maybe_out_edges->edges) {
         if (edge.Gid() == edge_gid) {
@@ -327,7 +327,7 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
     for (const auto &value : *values) {
       if (auto maybe_vertex = accessor->FindVertex(value.object.From().Gid(), storage::View::OLD); maybe_vertex) {
         auto maybe_out_edges = maybe_vertex->OutEdges(storage::View::OLD);
-        MG_ASSERT(maybe_out_edges.has_value());
+        MG_ASSERT(maybe_out_edges);
         for (const auto &edge : maybe_out_edges->edges) {
           if (edge.Gid() == value.object.Gid()) {
             *it = std::move(value);
