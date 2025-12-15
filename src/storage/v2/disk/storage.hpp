@@ -291,20 +291,24 @@ class DiskStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
-    std::expected<void, StorageIndexDefinitionError> CreateIndex(
-        LabelId label, CheckCancelFunction cancel_check = neverCancel) override;
+    // Bring base class convenience overloads into scope (they provide default neverCancel)
+    using Storage::Accessor::CreateGlobalEdgeIndex;
+    using Storage::Accessor::CreateIndex;
 
-    std::expected<void, StorageIndexDefinitionError> CreateIndex(
-        LabelId label, PropertiesPaths, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
+                                                                 CheckCancelFunction cancel_check) override;
 
-    std::expected<void, StorageIndexDefinitionError> CreateIndex(
-        EdgeTypeId edge_type, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths,
+                                                                 CheckCancelFunction cancel_check) override;
 
-    std::expected<void, StorageIndexDefinitionError> CreateIndex(
-        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type,
+                                                                 CheckCancelFunction cancel_check) override;
 
-    std::expected<void, StorageIndexDefinitionError> CreateGlobalEdgeIndex(
-        PropertyId property, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type, PropertyId property,
+                                                                 CheckCancelFunction cancel_check) override;
+
+    std::expected<void, StorageIndexDefinitionError> CreateGlobalEdgeIndex(PropertyId property,
+                                                                           CheckCancelFunction cancel_check) override;
 
     std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) override;
 

@@ -407,14 +407,18 @@ class InMemoryStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
+    // Bring base class convenience overloads into scope (they provide default neverCancel)
+    using Storage::Accessor::CreateGlobalEdgeIndex;
+    using Storage::Accessor::CreateIndex;
+
     /// Create an index.
     /// Returns void if the index has been created.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `IndexDefinitionError`: the index already exists.
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// @throw std::bad_alloc
-    std::expected<void, StorageIndexDefinitionError> CreateIndex(
-        LabelId label, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
+                                                                 CheckCancelFunction cancel_check) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -422,8 +426,8 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
-    std::expected<void, StorageIndexDefinitionError> CreateIndex(
-        LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths properties,
+                                                                 CheckCancelFunction cancel_check) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -431,8 +435,8 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
-    std::expected<void, StorageIndexDefinitionError> CreateIndex(
-        EdgeTypeId edge_type, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type,
+                                                                 CheckCancelFunction cancel_check) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -440,8 +444,8 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
-    std::expected<void, StorageIndexDefinitionError> CreateIndex(
-        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type, PropertyId property,
+                                                                 CheckCancelFunction cancel_check) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -449,8 +453,8 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
-    std::expected<void, StorageIndexDefinitionError> CreateGlobalEdgeIndex(
-        PropertyId property, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateGlobalEdgeIndex(PropertyId property,
+                                                                           CheckCancelFunction cancel_check) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.

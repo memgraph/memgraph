@@ -489,20 +489,41 @@ class Storage {
 
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
-    virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(
-        LabelId label, CheckCancelFunction cancel_check = neverCancel) = 0;
+    virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
+                                                                         CheckCancelFunction cancel_check) = 0;
 
-    virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(
-        LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel) = 0;
+    virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths properties,
+                                                                         CheckCancelFunction cancel_check) = 0;
 
-    virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(
-        EdgeTypeId edge_type, CheckCancelFunction cancel_check = neverCancel) = 0;
+    virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type,
+                                                                         CheckCancelFunction cancel_check) = 0;
 
-    virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(
-        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel) = 0;
+    virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type, PropertyId property,
+                                                                         CheckCancelFunction cancel_check) = 0;
 
     virtual std::expected<void, StorageIndexDefinitionError> CreateGlobalEdgeIndex(
-        PropertyId property, CheckCancelFunction cancel_check = neverCancel) = 0;
+        PropertyId property, CheckCancelFunction cancel_check) = 0;
+
+    // Convenience overloads with default cancel check
+    auto CreateIndex(LabelId label) -> std::expected<void, StorageIndexDefinitionError> {
+      return CreateIndex(label, neverCancel);
+    }
+
+    auto CreateIndex(LabelId label, PropertiesPaths properties) -> std::expected<void, StorageIndexDefinitionError> {
+      return CreateIndex(label, std::move(properties), neverCancel);
+    }
+
+    auto CreateIndex(EdgeTypeId edge_type) -> std::expected<void, StorageIndexDefinitionError> {
+      return CreateIndex(edge_type, neverCancel);
+    }
+
+    auto CreateIndex(EdgeTypeId edge_type, PropertyId property) -> std::expected<void, StorageIndexDefinitionError> {
+      return CreateIndex(edge_type, property, neverCancel);
+    }
+
+    auto CreateGlobalEdgeIndex(PropertyId property) -> std::expected<void, StorageIndexDefinitionError> {
+      return CreateGlobalEdgeIndex(property, neverCancel);
+    }
 
     virtual std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) = 0;
 
