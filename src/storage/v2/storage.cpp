@@ -248,13 +248,13 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
   if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
     auto out_edges_res = vertex->OutEdges(View::OLD);
     auto in_edges_res = vertex->InEdges(View::OLD);
-    if (!out_edges_res.has_value() && out_edges_res.error() != Error::NONEXISTENT_OBJECT) {
+    if (!out_edges_res && out_edges_res.error() != Error::NONEXISTENT_OBJECT) {
       return std::unexpected{out_edges_res.error()};
     }
     if (out_edges_res.has_value() && !out_edges_res->edges.empty()) {
       return std::unexpected{Error::VERTEX_HAS_EDGES};
     }
-    if (!in_edges_res.has_value() && in_edges_res.error() != Error::NONEXISTENT_OBJECT) {
+    if (!in_edges_res && in_edges_res.error() != Error::NONEXISTENT_OBJECT) {
       return std::unexpected{in_edges_res.error()};
     }
     if (in_edges_res.has_value() && !in_edges_res->edges.empty()) {
@@ -290,10 +290,10 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
   if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
     auto out_edges_res = vertex->OutEdges(View::OLD);
     auto in_edges_res = vertex->InEdges(View::OLD);
-    if (!out_edges_res.has_value() && out_edges_res.error() != Error::NONEXISTENT_OBJECT) {
+    if (!out_edges_res && out_edges_res.error() != Error::NONEXISTENT_OBJECT) {
       return std::unexpected{out_edges_res.error()};
     }
-    if (!in_edges_res.has_value() && in_edges_res.error() != Error::NONEXISTENT_OBJECT) {
+    if (!in_edges_res && in_edges_res.error() != Error::NONEXISTENT_OBJECT) {
       return std::unexpected{in_edges_res.error()};
     }
   }
@@ -348,10 +348,10 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
       /// TODO: (andi) Extract into a separate function.
       auto out_edges_res = vertex->OutEdges(View::OLD);
       auto in_edges_res = vertex->InEdges(View::OLD);
-      if (!out_edges_res.has_value() && out_edges_res.error() != Error::NONEXISTENT_OBJECT) {
+      if (!out_edges_res && out_edges_res.error() != Error::NONEXISTENT_OBJECT) {
         return std::unexpected{out_edges_res.error()};
       }
-      if (!in_edges_res.has_value() && in_edges_res.error() != Error::NONEXISTENT_OBJECT) {
+      if (!in_edges_res && in_edges_res.error() != Error::NONEXISTENT_OBJECT) {
         return std::unexpected{in_edges_res.error()};
       }
     }
