@@ -47,8 +47,14 @@ class DatabaseHandler : public Handler<Database> {
 
   ~DatabaseHandler() override {
     for (auto &db : *this) {
-      if (auto db_acc = db.second.access()) {
-        (*db_acc)->StopAllBackgroundTasks();
+      try {
+        if (auto db_acc = db.second.access()) {
+          (*db_acc)->StopAllBackgroundTasks();
+        }
+      } catch (std::exception const &e) {
+        spdlog::error("Exception in DatabaseHandler destructor: {}", e.what());
+      } catch (...) {
+        spdlog::error("Unknown exception in DatabaseHandler destructor");
       }
     }
   }
