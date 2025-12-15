@@ -7598,7 +7598,7 @@ TypedValue CsvRowToTypedList(csv::Reader::Row &row, std::optional<utils::pmr::st
   auto typed_columns = utils::pmr::vector<TypedValue>(mem);
   typed_columns.reserve(row.size());
   for (auto &column : row) {
-    if (!nullif.has_value() || column != nullif.value()) {
+    if (!nullif || column != nullif.value()) {
       typed_columns.emplace_back(std::move(column));
     } else {
       typed_columns.emplace_back();
@@ -7613,7 +7613,7 @@ TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header,
   auto *mem = row.get_allocator().resource();
   TypedValue::TMap m{mem};
   for (auto i = 0; i < row.size(); ++i) {
-    if (!nullif.has_value() || row[i] != nullif.value()) {
+    if (!nullif || row[i] != nullif.value()) {
       m.emplace(std::move(header[i]), std::move(row[i]));
     } else {
       m.emplace(std::piecewise_construct, std::forward_as_tuple(std::move(header[i])), std::forward_as_tuple());

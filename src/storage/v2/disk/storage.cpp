@@ -1564,8 +1564,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
         auto dst_vertex = FindVertex(dst_vertex_gid, transaction, view);
         /// TODO: (andi) I think dst_vertex->deleted should be unnecessary
         /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
-        if (!dst_vertex.has_value() || (view == View::NEW && dst_vertex->vertex_->deleted))
-          return std::optional<EdgeAccessor>{};
+        if (!dst_vertex || (view == View::NEW && dst_vertex->vertex_->deleted)) return std::optional<EdgeAccessor>{};
 
         return CreateEdgeFromDisk(src_vertex, &*dst_vertex, transaction, edge_type_id, edge_gid, properties_str,
                                   edge_gid_str, kDeserializeTimestamp);
@@ -1631,8 +1630,7 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
         auto src_vertex = FindVertex(src_vertex_gid, transaction, view);
         /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
         /// TODO: (andi) Second check I think isn't necessary
-        if (!src_vertex.has_value() || (view == View::NEW && src_vertex->vertex_->deleted))
-          return std::optional<EdgeAccessor>{};
+        if (!src_vertex || (view == View::NEW && src_vertex->vertex_->deleted)) return std::optional<EdgeAccessor>{};
 
         return CreateEdgeFromDisk(&*src_vertex, dst_vertex, transaction, edge_type_id, edge_gid, properties_str,
                                   edge_gid_str, kDeserializeTimestamp);

@@ -299,7 +299,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
 
-  if (!current_main_uuid.has_value() || req.main_uuid != *current_main_uuid) [[unlikely]] {
+  if (!current_main_uuid || req.main_uuid != *current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::HeartbeatReq::kType.name);
     const storage::replication::HeartbeatRes res{false, 0, "", 0};
     rpc::SendFinalResponse(res, request_version, res_builder);
@@ -336,7 +336,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   storage::replication::PrepareCommitReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (!current_main_uuid || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::PrepareCommitReq::kType.name);
     const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, request_version, res_builder);
@@ -407,7 +407,7 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   storage::replication::FinalizeCommitReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (!current_main_uuid || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::FinalizeCommitReq::kType.name);
     storage::replication::FinalizeCommitRes const res(false);
     rpc::SendFinalResponse(res, request_version, res_builder);
@@ -499,7 +499,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (!current_main_uuid || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
     rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
     return;
@@ -649,7 +649,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (!current_main_uuid || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
     rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder);
     return;
@@ -761,7 +761,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
     return;
   }
 
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (!current_main_uuid || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
     rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
     return;
@@ -1047,7 +1047,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             throw utils::BasicException("Vertex with gid {} couldn't be found while trying to delete vertex.", gid);
           }
           auto ret = transaction->DeleteVertex(&*vertex);
-          if (!ret.has_value() || !ret.value()) {
+          if (!ret || !ret.value()) {
             throw utils::BasicException("Deleting vertex with gid {} failed.", gid);
           }
         },
@@ -1060,7 +1060,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             throw utils::BasicException("Couldn't find vertex {} when adding label.", gid);
           }
           auto ret = vertex->AddLabel(transaction->NameToLabel(data.label));
-          if (!ret.has_value() || !ret.value()) {
+          if (!ret || !ret.value()) {
             throw utils::BasicException("Failed to add label to vertex {}.", gid);
           }
         },
@@ -1071,7 +1071,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto vertex = transaction->FindVertex(data.gid, View::NEW);
           if (!vertex) throw utils::BasicException("Failed to find vertex {} when removing label.", gid);
           auto ret = vertex->RemoveLabel(transaction->NameToLabel(data.label));
-          if (!ret.has_value() || !ret.value()) {
+          if (!ret || !ret.value()) {
             throw utils::BasicException("Failed to remove label from vertex {}.", gid);
           }
         },
@@ -1470,7 +1470,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto ret = transaction->CreateUniqueConstraint(storage->NameToLabel(data.label), properties);
-          if (!ret.has_value() || ret.value() != UniqueConstraints::CreationStatus::SUCCESS) {
+          if (!ret || ret.value() != UniqueConstraints::CreationStatus::SUCCESS) {
             throw utils::BasicException("Failed to create unique constraint on :{} ({}).", data.label, ss.str());
           }
         },

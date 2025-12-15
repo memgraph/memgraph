@@ -33,7 +33,7 @@ RpcMessageDeliverer::RpcMessageDeliverer(Server *server, io::network::Endpoint c
     : server_(server), input_stream_(input_stream), output_stream_(output_stream) {}
 
 auto RpcMessageDeliverer::GetRemainingFileSize() const -> std::optional<uint64_t> {
-  if (!file_replication_handler_.has_value() || !file_replication_handler_->HasOpenedFile()) {
+  if (!file_replication_handler_ || !file_replication_handler_->HasOpenedFile()) {
     return std::nullopt;
   }
   // If we are here it means that the file is open, hence this check is valid

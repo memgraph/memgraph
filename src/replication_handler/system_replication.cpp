@@ -40,7 +40,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   // validate
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (!current_main_uuid || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, SystemRecoveryReq::kType.name);
     return;
   }
@@ -76,7 +76,7 @@ void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &syst
   memgraph::slk::Load(&req, req_reader);
 
   // validate MAIN
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (!current_main_uuid || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, SystemRecoveryReq::kType.name);
     return;
   }

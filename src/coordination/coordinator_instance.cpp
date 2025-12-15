@@ -1200,7 +1200,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
   std::optional<std::pair<std::string, uint64_t>> newest_instance;
   for (auto const &[instance_name, cnt_newest_dbs] : total_instances_counter) {
     // If better on more DBs, update currently the best
-    if (!newest_instance.has_value() || newest_instance->second < cnt_newest_dbs) {
+    if (!newest_instance || newest_instance->second < cnt_newest_dbs) {
       newest_instance.emplace(instance_name, cnt_newest_dbs);
     } else if (newest_instance->second == cnt_newest_dbs) {
       // Instances are the best over the same number of instances, let the sum of timestamps decide

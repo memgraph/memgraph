@@ -3297,7 +3297,7 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   {
     auto locker_accessor = global_locker_.Access();
     const auto ret = locker_accessor.RemovePath(config_.durability.storage_directory);
-    if (!ret.has_value() || !ret.value()) {
+    if (!ret || !ret.value()) {
       // Exit without cleaning the queue
       return ret;
     }

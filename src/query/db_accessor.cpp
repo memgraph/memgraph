@@ -51,7 +51,7 @@ storage::Result<std::optional<EdgeAccessor>> SubgraphDbAccessor::RemoveEdge(Edge
     throw std::logic_error{"Projected graph must contain edge!"};
   }
   auto result = db_accessor_.RemoveEdge(edge);
-  if (!result.has_value() || !*result) {
+  if (!result || !*result) {
     return result;
   }
   return this->graph_->RemoveEdge(*edge);
@@ -86,7 +86,7 @@ storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(
     throw std::logic_error{"Projected graph must contain vertex!"};
   }
   auto result = db_accessor_.RemoveVertex(vertex_accessor);
-  if (!result.has_value() || !*result) {
+  if (!result || !*result) {
     return result;
   }
   return this->graph_->RemoveVertex(*vertex_accessor);

@@ -174,7 +174,7 @@ class DbmsHandler {
   NewResultT Update(const storage::SalientConfig &config) {
     auto wr = std::lock_guard{lock_};
     auto new_db = New_(config);
-    if (new_db.has_value() || new_db.error() != NewError::EXISTS) {
+    if (new_db || new_db.error() != NewError::EXISTS) {
       // NOTE: If db already exists we retry below
       return new_db;
     }
