@@ -334,8 +334,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res = unique_acc->CreateUniqueConstraint(this->label2, {this->prop1});
-    EXPECT_TRUE(res.has_value() && res.value() == UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_EQ(res, UniqueConstraints::CreationStatus::SUCCESS);
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {

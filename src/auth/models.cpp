@@ -219,8 +219,7 @@ FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
 
   // If either global permissions is set to NOTHING, the merged result
   // is NOTHING.
-  if ((first_global.has_value() && first_global.value() == 0) ||
-      (second_global.has_value() && second_global.value() == 0)) {
+  if (first_global == 0 || second_global == 0) {
     global_permission = 0;
     // If both global permissions are set, they are merged using |
   } else if (first_global.has_value() && second_global.has_value()) {

@@ -513,7 +513,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         const auto &vertex = expression_result.ValueVertex();
         for (const auto &label : labels_test.labels_) {
           auto has_label = vertex.HasLabel(view_, GetLabel(label));
-          if (!has_label.has_value() && has_label.error() == storage::Error::NONEXISTENT_OBJECT) {
+          if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
             // This is a very nasty and temporary hack in order to make MERGE
             // work. The old storage had the following logic when returning an
             // `OLD` view: `return old ? old : new`. That means that if the
@@ -543,7 +543,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           bool has_at_least_one_label = false;
           for (const auto &label : or_labels_pattern) {
             auto has_label = vertex.HasLabel(view_, GetLabel(label));
-            if (!has_label.has_value() && has_label.error() == storage::Error::NONEXISTENT_OBJECT) {
+            if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
               // This is a very nasty and temporary hack in order to make MERGE
               // work. The old storage had the following logic when returning an
               // `OLD` view: `return old ? old : new`. That means that if the
@@ -996,7 +996,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
-    if (!maybe_prop.has_value() && maybe_prop.error() == storage::Error::NONEXISTENT_OBJECT) {
+    if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
       // `return old ? old : new`. That means that if the `OLD` view didn't
@@ -1023,7 +1023,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
     auto maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
-    if (!maybe_prop.has_value() && maybe_prop.error() == storage::Error::NONEXISTENT_OBJECT) {
+    if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
       // `return old ? old : new`. That means that if the `OLD` view didn't
@@ -1051,7 +1051,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   template <class TRecordAccessor>
   std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
     auto maybe_props = record_accessor.Properties(view_);
-    if (!maybe_props.has_value() && maybe_props.error() == storage::Error::NONEXISTENT_OBJECT) {
+    if (maybe_props == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
       // `return old ? old : new`. That means that if the `OLD` view didn't
