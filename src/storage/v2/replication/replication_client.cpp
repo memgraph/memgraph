@@ -92,7 +92,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
               std::string{main_repl_state.epoch_.id()});
 
           std::optional<replication::HeartbeatRes> res;
-          if (hb_stream.has_value()) {
+          if (hb_stream) {
             res.emplace(hb_stream->SendAndWait());
           }
           return res;

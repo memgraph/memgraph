@@ -290,7 +290,7 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
   // False positive report for the std::make_unique
   // Random UUID when first setting replica role if main_uuid not provided already
   auto const main_uuid = std::invoke([&maybe_main_uuid]() -> utils::UUID {
-    if (maybe_main_uuid.has_value()) {
+    if (maybe_main_uuid) {
       return *maybe_main_uuid;
     }
     return utils::UUID{};

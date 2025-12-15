@@ -627,7 +627,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         // Update recovery info data only if WAL file was used and its deltas loaded
 
         bool wal_contains_changes{false};
-        if (info.has_value()) {
+        if (info) {
           recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info->next_vertex_id);
           recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
           recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);

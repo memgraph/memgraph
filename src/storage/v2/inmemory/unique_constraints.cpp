@@ -302,7 +302,7 @@ std::variant<InMemoryUniqueConstraints::MultipleThreadsConstraintValidation,
              InMemoryUniqueConstraints::SingleThreadConstraintValidation>
 InMemoryUniqueConstraints::GetCreationFunction(
     const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info) {
-  if (par_exec_info.has_value()) {
+  if (par_exec_info) {
     return InMemoryUniqueConstraints::MultipleThreadsConstraintValidation{par_exec_info.value()};
   }
   return InMemoryUniqueConstraints::SingleThreadConstraintValidation{};

@@ -437,7 +437,7 @@ auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const
                                [](auto const &pair) { return std::pair(pair.first, pair.second.ValueString()); }) |
       ranges::to<std::map<std::string, std::string>>();
 
-  if (db.has_value()) {
+  if (db) {
     spdlog::trace("Handling routing request for the database: {}", *db);
   }
 
@@ -457,7 +457,7 @@ auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const
   bolt_map_t communication_res;
   communication_res["ttl"] = bolt_value_t{routing_table_res.ttl};
   // Needed for routing from coordinators to data instances
-  if (db.has_value()) {
+  if (db) {
     communication_res["db"] = bolt_value_t{*db};
   } else {
     communication_res["db"] = bolt_value_t{};

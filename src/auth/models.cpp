@@ -99,7 +99,7 @@ const FineGrainedAccessPermissions empty_permissions{};
 
 #ifdef MG_ENTERPRISE
 void to_json(nlohmann::json &data, const std::optional<UserImpersonation> &usr_imp) {
-  if (usr_imp.has_value()) {
+  if (usr_imp) {
     data = *usr_imp;
   } else {
     data = nlohmann::json();  // null
@@ -226,9 +226,9 @@ FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
     global_permission = first_global.value() | second_global.value();
     // If only one global permission is set and the other is not, the merged
     // result is the value of the set global permission.
-  } else if (first_global.has_value()) {
+  } else if (first_global) {
     global_permission = first_global;
-  } else if (second_global.has_value()) {
+  } else if (second_global) {
     global_permission = second_global;
   }
 
@@ -467,7 +467,7 @@ void FineGrainedAccessPermissions::Revoke(std::unordered_set<std::string> const 
 }
 
 void FineGrainedAccessPermissions::RevokeGlobal(const FineGrainedPermission fine_grained_permission) {
-  if (global_permission_.has_value()) {
+  if (global_permission_) {
     if (fine_grained_permission == FineGrainedPermission::NOTHING) {
       if (global_permission_.value() == 0) {
         global_permission_ = std::nullopt;
@@ -489,7 +489,7 @@ void FineGrainedAccessPermissions::RevokeAll() {
 }
 
 void FineGrainedAccessPermissions::RevokeAll(const FineGrainedPermission fine_grained_permission) {
-  if (global_permission_.has_value()) {
+  if (global_permission_) {
     global_permission_ = global_permission_.value() & ~static_cast<uint64_t>(fine_grained_permission);
     if (global_permission_.value() == 0) {
       global_permission_ = std::nullopt;
@@ -512,7 +512,7 @@ nlohmann::json FineGrainedAccessPermissions::Serialize() const {
     return {};
   }
   nlohmann::json data = nlohmann::json::object();
-  if (global_permission_.has_value()) {
+  if (global_permission_) {
     data[kGlobalPermission] = global_permission_.value();
   } else {
     data[kGlobalPermission] = -1;
@@ -1082,7 +1082,7 @@ nlohmann::json User::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data[kUsername] = username_;
   data[kUUID] = uuid_;
-  if (password_hash_.has_value()) {
+  if (password_hash_) {
     data[kPasswordHash] = *password_hash_;
   } else {
     data[kPasswordHash] = nullptr;

@@ -159,7 +159,7 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStat
   nlohmann::json delta_state_json;
 
   auto const add_if_set = [&delta_state_json](std::string_view const key, auto const &opt_value) {
-    if (opt_value.has_value()) {
+    if (opt_value) {
       delta_state_json.emplace(key, *opt_value);
     }
   };

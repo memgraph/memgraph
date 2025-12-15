@@ -33,7 +33,7 @@ void do_per_thread_validation(ErrorType &maybe_error, Func &&func,
     for (auto i{0U}; i < batch_size; ++i, ++vertex_curr) {
       const auto violation = func(*vertex_curr, std::forward<Args>(args)...);
       if (!violation) [[likely]] {
-        if (snapshot_info.has_value()) {
+        if (snapshot_info) {
           snapshot_info->Update(UpdateType::VERTICES);
         }
         continue;

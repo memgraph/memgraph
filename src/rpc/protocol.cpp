@@ -126,7 +126,7 @@ void RpcMessageDeliverer::Execute() {
   }};
 
   // Writing last segment
-  if (file_replication_handler_.has_value()) {
+  if (file_replication_handler_) {
     file_replication_handler_->WriteToFile(input_stream_->data(), input_stream_->size());
     MG_ASSERT(!file_replication_handler_->HasOpenedFile(), "File should be closed after completing the stream");
   }

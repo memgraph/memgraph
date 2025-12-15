@@ -1301,7 +1301,7 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
     utils::OnScopeExit clean_up(PyObjectCleanup(py_graph));
     if (py_graph) {
       auto maybe_result = call(py_graph);
-      if (maybe_result.has_value()) {
+      if (maybe_result) {
         static_cast<void>(mgp_func_result_set_value(result, maybe_result.value(), memory));
         return;
       }

@@ -138,7 +138,7 @@ std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view a
   };
 
   auto ip_v4_family = parse_ip_family(process_ipv4_family, AF_INET);
-  if (ip_v4_family.has_value()) {
+  if (ip_v4_family) {
     return std::move(*ip_v4_family);
   }
   return parse_ip_family(process_ipv6_family, AF_INET6);

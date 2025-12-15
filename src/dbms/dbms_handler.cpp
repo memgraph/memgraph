@@ -333,7 +333,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::
 
   // Force delete
   const auto res = Delete_(db_name);
-  if (res.has_value()) {
+  if (res) {
     // Success; save delta
     if (transaction) {
       transaction->AddAction<DropDatabase>(conf->salient.uuid);
@@ -437,8 +437,8 @@ struct CreateDatabase : memgraph::system::ISystemAction {
 DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config, system::Transaction *txn) {
   auto new_db = db_handler_.New(storage_config, repl_state_);
 
-  if (new_db.has_value()) {  // Success
-                             // Save delta
+  if (new_db) {  // Success
+                 // Save delta
     UpdateDurability(storage_config);
     if (txn) {
       txn->AddAction<CreateDatabase>(storage_config.salient, new_db.value());

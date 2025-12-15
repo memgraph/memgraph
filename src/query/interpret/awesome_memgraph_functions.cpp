@@ -1670,12 +1670,12 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
   }
 
   std::optional<storage::CoordinateReferenceSystem> mg_crs;
-  if (crs.has_value()) {
+  if (crs) {
     mg_crs = storage::StringToCrs(*crs);
     if (!mg_crs) {
       throw QueryRuntimeException("Invalid CRS.");
     }
-  } else if (srid.has_value()) {
+  } else if (srid) {
     mg_crs = storage::SridToCrs(static_cast<storage::Srid>(*srid));
     if (!mg_crs) {
       throw QueryRuntimeException("Invalid SRID.");

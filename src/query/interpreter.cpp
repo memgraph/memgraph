@@ -2182,7 +2182,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       const auto batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator);
       const auto timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator);
 
-      if (batch_limit.has_value()) {
+      if (batch_limit) {
         if (batch_limit.value() < 0) {
           throw utils::BasicException("Parameter BATCH_LIMIT cannot hold negative value");
         }
@@ -6050,7 +6050,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
               dbms::DbmsHandler::DeleteResult success;
               if (force) {
                 success = db_handler->Delete(db_name, &*interpreter->system_transaction_);
-                if (success.has_value()) {
+                if (success) {
                   // Try to terminate all interpreters using the database
                   // Best effort approach, if it fails, user will continue using the db until they commit/abort
                   // Get access to the interpreter context to notify all active interpreters
@@ -6069,7 +6069,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
               } else {
                 success = db_handler->TryDelete(db_name, &*interpreter->system_transaction_);
               }
-              if (success.has_value()) {
+              if (success) {
                 // Remove from auth
                 if (auth) auth->DeleteDatabase(db_name, &*interpreter->system_transaction_);
               } else {
@@ -6123,7 +6123,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 
             try {
               auto result = db_handler->Rename(old_name, *new_name, &*interpreter->system_transaction_);
-              if (result.has_value()) {
+              if (result) {
                 res = "Successfully renamed database " + old_name + " to " + *new_name;
               } else {
                 switch (result.error()) {
@@ -8200,7 +8200,7 @@ void Interpreter::ResetUser() {
 bool Interpreter::IsQueryLoggingActive() const { return query_logger_.has_value(); }
 
 void Interpreter::LogQueryMessage(std::string message) {
-  if (query_logger_.has_value()) {
+  if (query_logger_) {
     (*query_logger_).trace(message);
   }
 }

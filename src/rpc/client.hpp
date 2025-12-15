@@ -365,7 +365,7 @@ class Client {
 
     auto guard = std::invoke([&]() -> std::unique_lock<utils::ResourceLock> {
       // Upgrade stream with existing lock
-      if (guard_arg.has_value()) {
+      if (guard_arg) {
         return std::move(*guard_arg);
       }
       // New stream, new lock, maybe use try_lock_timeout

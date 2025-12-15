@@ -529,7 +529,7 @@ inline std::optional<std::vector<PropertyValue>> GenerateBounds(
     const std::vector<std::optional<utils::Bound<PropertyValue>>> &bounds, const PropertyValue &default_value) {
   if (ranges::any_of(bounds, [](auto &&ub) { return ub.has_value(); })) {
     return bounds | ranges::views::transform([&default_value](auto &&bound) -> storage::PropertyValue {
-             if (bound.has_value()) {
+             if (bound) {
                return bound.value().value();
              }
              return default_value;

@@ -638,7 +638,7 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, const storage::EdgeTy
                         VertexAccessor *from, VertexAccessor *to, Frame *frame, ExecutionContext &context,
                         ExpressionEvaluator *evaluator) {
   auto maybe_edge = dba->InsertEdge(from, to, edge_type_id);
-  if (maybe_edge.has_value()) {
+  if (maybe_edge) {
     auto &edge = *maybe_edge;
     std::map<storage::PropertyId, storage::PropertyValue> properties;
     if (const auto *edge_info_properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
@@ -3712,7 +3712,7 @@ class KShortestPathsCursor : public Cursor {
     // Reconstruct the path from midpoint to source
     while (in_edge.contains(current)) {
       const auto &edge_opt = in_edge.at(current);
-      if (edge_opt.has_value()) {
+      if (edge_opt) {
         const auto &edge = edge_opt.value();
         result.push_back(edge);
         current = (edge.From() == current) ? edge.To() : edge.From();
@@ -3728,7 +3728,7 @@ class KShortestPathsCursor : public Cursor {
     current = midpoint;
     while (out_edge.contains(current)) {
       const auto &edge_opt = out_edge.at(current);
-      if (edge_opt.has_value()) {
+      if (edge_opt) {
         const auto &edge = edge_opt.value();
         result.push_back(edge);
         current = (edge.From() == current) ? edge.To() : edge.From();

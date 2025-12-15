@@ -1746,11 +1746,11 @@ void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
                         bool should_run_edge_ttl) {
   encoder.WriteUint(static_cast<uint64_t>(operation_type));
   encoder.WriteBool(period.has_value());
-  if (period.has_value()) {
+  if (period) {
     encoder.WriteUint(static_cast<uint64_t>(period->count()));
   }
   encoder.WriteBool(start_time.has_value());
-  if (start_time.has_value()) {
+  if (start_time) {
     encoder.WriteUint(static_cast<uint64_t>(
         std::chrono::duration_cast<std::chrono::microseconds>(start_time->time_since_epoch()).count()));
   }

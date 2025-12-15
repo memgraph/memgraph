@@ -128,7 +128,7 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
       continue;
     }
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
-    if (transaction_id.has_value()) {
+    if (transaction_id) {
       results.push_back(transaction_id.value());
     }
   }

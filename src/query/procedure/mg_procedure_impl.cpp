@@ -3709,7 +3709,7 @@ void WrapVectorSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **res
   }
 
   mgp_value *error_value = nullptr;
-  if (error_msg.has_value()) {
+  if (error_msg) {
     if (const auto err = mgp_value_make_string(error_msg.value().data(), memory, &error_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
@@ -3939,7 +3939,7 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
   }
 
   mgp_value *error_value = nullptr;
-  if (error_msg.has_value()) {
+  if (error_msg) {
     if (const auto err = mgp_value_make_string(error_msg.value().data(), memory, &error_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
@@ -3987,7 +3987,7 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
   }
 
   mgp_value *error_value = nullptr;
-  if (error_msg.has_value()) {
+  if (error_msg) {
     if (const auto err = mgp_value_make_string(error_msg.value().data(), memory, &error_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving text search results failed during creation of a string mgp_value");
@@ -4074,7 +4074,7 @@ void WrapTextIndexAggregation(mgp_memory *memory, mgp_map **result, const std::s
     throw std::logic_error("Retrieving text search results failed during creation of a string mgp_value");
   }
 
-  if (error_msg.has_value()) {
+  if (error_msg) {
     if (const auto err = mgp_map_insert(*result, kErrorMsgKey, aggregation_result_or_error_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving text index aggregation error failed during insertion into mgp_map");
@@ -4097,7 +4097,7 @@ void WrapTextEdgeSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **r
   }
 
   mgp_value *error_value = nullptr;
-  if (error_msg.has_value()) {
+  if (error_msg) {
     if (const auto err = mgp_value_make_string(error_msg.value().data(), memory, &error_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving edge text search results failed during creation of a string mgp_value");

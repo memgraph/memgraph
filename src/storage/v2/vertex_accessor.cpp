@@ -969,7 +969,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
   std::vector<EdgeAccessor> disk_edges{};
   if (transaction_->IsDiskStorage()) {
     auto res = InEdges(view);
-    if (res.has_value()) {
+    if (res) {
       return res->edges.size();
     }
     return std::unexpected{res.error()};
@@ -1025,7 +1025,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
 Result<size_t> VertexAccessor::OutDegree(View view) const {
   if (transaction_->IsDiskStorage()) {
     auto res = OutEdges(view);
-    if (res.has_value()) {
+    if (res) {
       return res->edges.size();
     }
     return std::unexpected{res.error()};

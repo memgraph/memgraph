@@ -392,7 +392,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
                                                 /*two_phase_commit*/ req.two_phase_commit, /*loading_wal*/ false);
 
   storage::replication::PrepareCommitRes res{false};
-  if (deltas_res.has_value()) {
+  if (deltas_res) {
     two_pc_cache_.commit_accessor_ = std::move(deltas_res->commit_acc);
     two_pc_cache_.durability_commit_timestamp_ = req.durability_commit_timestamp;
     res.success = true;
@@ -915,7 +915,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
     auto const deltas_res =
         ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, /*two_phase_commit*/ false,
                                     /*loading_wal*/ true, local_batch_counter);
-    if (deltas_res.has_value()) {
+    if (deltas_res) {
       local_delta_idx += deltas_res->current_delta_idx;
       local_batch_counter = deltas_res->current_batch_counter;
       num_txns_committed += deltas_res->num_txns_committed;

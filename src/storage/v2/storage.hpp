@@ -566,7 +566,7 @@ class Storage {
     auto CreateEnum(std::string_view name, std::span<std::string const> values)
         -> std::expected<EnumTypeId, EnumStorageError> {
       auto res = storage_->enum_store_.RegisterEnum(name, values);
-      if (res.has_value()) {
+      if (res) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_create, res.value());
       }
       return res;
@@ -575,7 +575,7 @@ class Storage {
     auto EnumAlterAdd(std::string_view name, std::string_view value)
         -> std::expected<storage::Enum, storage::EnumStorageError> {
       auto res = storage_->enum_store_.AddValue(name, value);
-      if (res.has_value()) {
+      if (res) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_add, res.value());
       }
       return res;
@@ -584,7 +584,7 @@ class Storage {
     auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
         -> std::expected<storage::Enum, storage::EnumStorageError> {
       auto res = storage_->enum_store_.UpdateValue(name, old_value, new_value);
-      if (res.has_value()) {
+      if (res) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_update, res.value(), std::string{old_value});
       }
       return res;
