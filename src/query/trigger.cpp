@@ -405,7 +405,7 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
   std::optional<Trigger> trigger;
   try {
     trigger.emplace(std::string{trigger_name}, statement, user_parameters, event_type, query_cache, db_accessor,
-                    query_config, std::move(user), std::string{db_name}, privilege_context);
+                    query_config, std::move(user), std::string{db_name}, *privilege_context);
   } catch (const utils::BasicException &e) {
     spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
     return;
