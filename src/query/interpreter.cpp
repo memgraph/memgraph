@@ -825,7 +825,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                                                           AuthQuery::Action::SHOW_DATABASE_PRIVILEGES,
                                                           AuthQuery::Action::SET_MAIN_DATABASE};
 
-  if (!license_check_result.has_value() && enterprise_only_methods.contains(auth_query->action_)) {
+  if (!license_check_result && enterprise_only_methods.contains(auth_query->action_)) {
     throw utils::BasicException(
         license::LicenseCheckErrorToString(license_check_result.error(), "advanced authentication features"));
   }

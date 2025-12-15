@@ -973,14 +973,13 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   auto result = PrepareForCommitPhase(std::move(commit_args));
 
   const auto fatal_error =
-      !result.has_value() &&
-      std::visit(
-          [](const auto &e) {
-            // All errors are handled at a higher level.
-            // Replication errros are not fatal and should procede with finialize transaction
-            return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::SyncReplicationError>;
-          },
-          result.error());
+      !result && std::visit(
+                     [](const auto &e) {
+                       // All errors are handled at a higher level.
+                       // Replication errros are not fatal and should procede with finialize transaction
+                       return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::SyncReplicationError>;
+                     },
+                     result.error());
   if (fatal_error) {  // TODO: this is suspicious, why return like this
     return result;
   }
