@@ -20,14 +20,16 @@ function exit_cleanup() {
 trap exit_cleanup EXIT ERR
 
 if [ "$create_env" = true ]; then
-    python3 -m venv env
+  echo "Creating python environment"
+  python3 -m venv env
 fi
 
+echo "Activating python environment"
 source env/bin/activate
 
 # check if conan is installed
 if ! command -v conan &> /dev/null; then
-    pip install conan==2.42.0
+    pip install conan==2.24.0
 fi
 
 # check if a conan profile exists
