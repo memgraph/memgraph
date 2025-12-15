@@ -398,10 +398,13 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   // Cleanup text indices
   for (auto *node : nodes_to_delete) {
     storage_->indices_.text_index_.RemoveNode(node, transaction_);
+    storage_->indices_.vector_index_.RemoveNode(node);
   }
   if (FLAGS_storage_properties_on_edges) {
     for (auto *edge : edges) {
       storage_->indices_.text_edge_index_.RemoveEdge(edge->edge_.ptr, edge->edge_type_, transaction_);
+      storage_->indices_.vector_edge_index_.RemoveEdge(edge->edge_.ptr, edge->edge_type_, edge->from_vertex_,
+                                                       edge->to_vertex_);
     }
   }
 

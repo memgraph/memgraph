@@ -87,6 +87,14 @@ class VectorIndex {
   bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
+  /// @brief Recovers a vector index based on the provided specification.
+  /// @param spec The specification for the index to be recovered.
+  /// @param vertices vertices from which to recover the index.
+  /// @param snapshot_info Optional snapshot observer for progress tracking.
+  /// @return true if the index was recovered successfully, false otherwise.
+  bool RecoverIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
   /// @return true if the index was dropped successfully, false otherwise.
@@ -110,6 +118,10 @@ class VectorIndex {
   /// @param value The new value of the property.
   /// @param vertex The vertex on which the property was modified.
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex);
+
+  /// @brief Removes a vertex from the index.
+  /// @param vertex The vertex to be removed.
+  void RemoveNode(Vertex *vertex);
 
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.
@@ -144,10 +156,6 @@ class VectorIndex {
   void RestoreEntries(const LabelPropKey &label_prop,
                       std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices);
 
-  /// @brief Removes obsolete entries from the index.
-  /// @param token A stop token to allow for cancellation of the operation.
-  void RemoveObsoleteEntries(std::stop_token token) const;
-
   /// @brief Returns the index statistics.
   /// @return The index statistics.
   IndexStats Analysis() const;
@@ -158,12 +166,36 @@ class VectorIndex {
   bool IndexExists(std::string_view index_name) const;
 
  private:
+  /// @brief Sets up a new vector index structure without populating it.
+  /// @param spec The specification for the index to be created.
+  /// @throws query::VectorSearchException if index already exists or creation fails.
+  void SetupIndex(const VectorIndexSpec &spec);
+
+  /// @brief Cleans up index structures after a failed index creation.
+  /// @param spec The specification of the failed index.
+  void CleanupFailedIndex(const VectorIndexSpec &spec);
+
   /// @brief Adds a vertex to an existing index.
   /// @param vertex The vertex to be added.
   /// @param label_prop The label and property key for the index.
-  /// @param value The value of the property.
-  /// @throw query::VectorSearchException
+  /// @param value The value of the property (optional, if null will be fetched from vertex).
+  /// @return true if the vertex was added, false if property is null.
+  /// @throws query::VectorSearchException on validation errors.
   bool UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr);
+
+  /// @brief Populates the index with vertices on a single thread.
+  /// @param vertices Accessor to the vertices to scan.
+  /// @param spec The index specification.
+  /// @param snapshot_info Optional snapshot observer for progress tracking.
+  void PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, const VectorIndexSpec &spec,
+                                   std::optional<SnapshotObserverInfo> const &snapshot_info);
+
+  /// @brief Populates the index with vertices using multiple threads.
+  /// @param vertices Accessor to the vertices to scan.
+  /// @param spec The index specification.
+  /// @param snapshot_info Optional snapshot observer for progress tracking.
+  void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, const VectorIndexSpec &spec,
+                                      std::optional<SnapshotObserverInfo> const &snapshot_info);
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

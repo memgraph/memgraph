@@ -355,7 +355,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
     auto vertices_acc = vertices->access();
     for (const auto &spec : indices_metadata.vector_indices) {
-      if (!indices->vector_index_.CreateIndex(spec, vertices_acc, snapshot_info)) {
+      if (!indices->vector_index_.RecoverIndex(spec, vertices_acc, snapshot_info)) {
         throw RecoveryFailure("The vector index must be created here!");
       }
       spdlog::info("Vector index on :{}({}) is recreated from metadata",
@@ -368,7 +368,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Recreating {} vector edge indices from metadata.", indices_metadata.vector_edge_indices.size());
     auto vertices_acc = vertices->access();
     for (const auto &spec : indices_metadata.vector_edge_indices) {
-      if (!indices->vector_edge_index_.CreateIndex(spec, vertices_acc, snapshot_info)) {
+      if (!indices->vector_edge_index_.RecoverIndex(spec, vertices_acc, snapshot_info)) {
         throw RecoveryFailure("The vector edge index must be created here!");
       }
       spdlog::info("Vector edge index on :{}({}) is recreated from metadata",

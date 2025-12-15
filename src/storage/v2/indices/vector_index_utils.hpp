@@ -13,8 +13,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include "query/exceptions.hpp"
+#include "storage/v2/property_value.hpp"
 #include "usearch/index_plugins.hpp"
 
 namespace memgraph::storage {
@@ -30,7 +32,7 @@ enum class VectorIndexType : uint8_t {
 /// @param type The VectorIndexType to convert.
 /// @return A string representation of the VectorIndexType.
 /// @throws query::VectorSearchException if the type is unsupported.
-inline constexpr const char *VectorIndexTypeToString(VectorIndexType type) {
+constexpr const char *VectorIndexTypeToString(VectorIndexType type) {
   switch (type) {
     case VectorIndexType::ON_NODES:
       return "label+property_vector";
@@ -253,6 +255,34 @@ inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double
       throw query::VectorSearchException(
           fmt::format("Unsupported metric kind for similarity calculation: {}", NameFromMetric(metric)));
   }
+}
+
+/// @brief Converts a property value to a float vector for vector index operations.
+/// @param property The property value to convert (must be a list of numeric values).
+/// @param expected_dimension The expected dimension of the vector.
+/// @return A vector of floats representing the property value.
+/// @throws query::VectorSearchException if the property is not a valid vector.
+[[nodiscard]] inline std::vector<float> PropertyToFloatVector(const PropertyValue &property,
+                                                              std::uint16_t expected_dimension) {
+  if (!property.IsAnyList()) {
+    throw query::VectorSearchException("Vector index property must be a list.");
+  }
+
+  const auto vector_size = GetListSize(property);
+  if (expected_dimension != vector_size) {
+    throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
+  }
+
+  std::vector<float> vector;
+  vector.reserve(vector_size);
+  for (size_t i = 0; i < vector_size; ++i) {
+    const auto numeric_value = GetNumericValueAt(property, i);
+    if (!numeric_value) {
+      throw query::VectorSearchException("Vector index property must be a list of numeric values.");
+    }
+    vector.push_back(std::visit([](const auto &val) -> float { return static_cast<float>(val); }, *numeric_value));
+  }
+  return vector;
 }
 
 }  // namespace memgraph::storage
