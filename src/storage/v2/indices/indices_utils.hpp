@@ -472,12 +472,12 @@ inline auto MakeBoundsFromRange(PropertyValueRange const &range) -> LowerAndUppe
     }
 
     auto const are_comparable_ranges = [](auto const &lower_bound, auto const &upper_bound) {
-      if (AreComparableTypes(lower_bound.value().type(), upper_bound.value().type())) {
+      if (AreComparableTypes(lower_bound->type(), upper_bound->type())) {
         return true;
       } else if (upper_bound.IsInclusive()) {
         return false;
       } else {
-        auto const upper_bound_for_lower_bound_type = storage::UpperBoundForType(lower_bound.value().type());
+        auto const upper_bound_for_lower_bound_type = storage::UpperBoundForType(lower_bound->type());
         return upper_bound_for_lower_bound_type && upper_bound.value() == upper_bound_for_lower_bound_type->value();
       };
     };
@@ -530,7 +530,7 @@ inline std::optional<std::vector<PropertyValue>> GenerateBounds(
   if (ranges::any_of(bounds, [](auto &&ub) { return ub.has_value(); })) {
     return bounds | ranges::views::transform([&default_value](auto &&bound) -> storage::PropertyValue {
              if (bound) {
-               return bound.value().value();
+               return bound->value();
              }
              return default_value;
            }) |

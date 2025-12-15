@@ -237,7 +237,7 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
   classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(new_enode_id));
 
   // Update parent lists for children - ESSENTIAL for congruence closure
-  for (EClassId child_id : enode_ref.value().children()) {
+  for (EClassId child_id : enode_ref->children()) {
     assert(union_find_.Find(child_id) == child_id);
     auto child_it = classes_.find(child_id);
     assert(child_it != classes_.end());

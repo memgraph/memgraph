@@ -792,8 +792,8 @@ class ScanAllCursor : public Cursor {
       auto next_vertices = get_vertices_(frame, context);
       if (!next_vertices) continue;
       vertices_ = std::move(next_vertices);
-      vertices_it_.emplace(vertices_.value().begin());
-      vertices_end_it_.emplace(vertices_.value().end());
+      vertices_it_.emplace(vertices_->begin());
+      vertices_end_it_.emplace(vertices_->end());
     }
 #ifdef MG_ENTERPRISE
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker && !FindNextVertex(context)) {
@@ -836,8 +836,8 @@ class ScanAllCursor : public Cursor {
   storage::View view_;
   TVerticesFun get_vertices_;
   std::optional<typename std::result_of<TVerticesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
-  std::optional<decltype(vertices_.value().begin())> vertices_it_;
-  std::optional<decltype(vertices_.value().end())> vertices_end_it_;
+  std::optional<decltype(vertices_->begin())> vertices_it_;
+  std::optional<decltype(vertices_->end())> vertices_end_it_;
   const char *op_name_;
 };
 template <typename TEdgesFun>
@@ -863,8 +863,8 @@ class ScanAllByEdgeCursor : public Cursor {
       if (!next_edges) continue;
 
       edges_.emplace(std::move(next_edges.value()));
-      edges_it_.emplace(edges_.value().begin());
-      edges_end_it_.emplace(edges_.value().end());
+      edges_it_.emplace(edges_->begin());
+      edges_end_it_.emplace(edges_->end());
     }
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
@@ -919,8 +919,8 @@ class ScanAllByEdgeCursor : public Cursor {
   TEdgesFun get_edges_;
 
   std::optional<typename std::result_of<TEdgesFun(Frame &, ExecutionContext &)>::type::value_type> edges_;
-  std::optional<decltype(edges_.value().begin())> edges_it_;
-  std::optional<decltype(edges_.value().end())> edges_end_it_;
+  std::optional<decltype(edges_->begin())> edges_it_;
+  std::optional<decltype(edges_->end())> edges_end_it_;
   const char *op_name_;
   bool do_reverse_output_{false};
 };

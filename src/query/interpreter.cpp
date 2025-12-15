@@ -459,7 +459,7 @@ class ReplQueryHandler {
       }
     }
 
-    return info.value().entries_;
+    return info->entries_;
   }
 
  private:

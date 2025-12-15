@@ -684,7 +684,7 @@ bool SymbolGenerator::PostVisit(SetProperty &set_property) {
     throw SemanticException("Symbol not found when setting property, please contact Memgraph support!");
   }
 
-  if (auto type = maybe_symbol.value().type(); type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE) {
+  if (auto type = maybe_symbol->type(); type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE) {
     return true;
   }
 
@@ -714,7 +714,7 @@ bool SymbolGenerator::PostVisit(RemoveProperty &remove_property) {
     throw SemanticException("Symbol not found when removing property, please contact Memgraph support!");
   }
 
-  if (auto type = maybe_symbol.value().type(); type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE) {
+  if (auto type = maybe_symbol->type(); type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE) {
     return true;
   }
 

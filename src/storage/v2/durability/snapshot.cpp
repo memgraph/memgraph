@@ -8924,8 +8924,8 @@ std::optional<std::filesystem::path> CreateSnapshot(
           vertex_snapshot.WriteExternalPropertyValue(
               ToExternalPropertyValue(item.second, storage->name_id_mapper_.get()));
         }
-        const auto &in_edges = maybe_in_edges.value().edges;
-        const auto &out_edges = maybe_out_edges.value().edges;
+        const auto &in_edges = maybe_in_edges->edges;
+        const auto &out_edges = maybe_out_edges->edges;
 
         if (storage->config_.salient.items.properties_on_edges) {
           vertex_snapshot.WriteUint(in_edges.size());

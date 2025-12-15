@@ -339,7 +339,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     auto stats = GetStatsFor(expand.input_symbol_);
 
     if (stats) {
-      card_param = stats.value().degree;
+      card_param = stats->degree;
     }
 
     cardinality_ *= card_param;
@@ -426,8 +426,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     for (const auto &symbol : op.ModifiedSymbols(table_)) {
       auto stats = GetStatsFor(symbol);
       if (stats) {
-        scope.symbol_stats[symbol.name()] =
-            SymbolStatistics{.count = stats.value().count, .degree = stats.value().degree};
+        scope.symbol_stats[symbol.name()] = SymbolStatistics{.count = stats->count, .degree = stats->degree};
       }
     }
 

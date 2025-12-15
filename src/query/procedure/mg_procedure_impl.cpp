@@ -3601,18 +3601,17 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
         if (ctx->trigger_context_collector) {
           ctx->trigger_context_collector->RegisterCreatedObject(*edge);
         }
-        return std::visit(memgraph::utils::Overloaded{
-                              [memory, edge, from](memgraph::query::DbAccessor *) {
-                                return NewRawMgpObject<mgp_edge>(memory->impl, edge.value(), from->graph);
-                              },
-                              [memory, edge, from](memgraph::query::SubgraphDbAccessor *db_impl) {
-                                const auto &v_from =
-                                    memgraph::query::SubgraphVertexAccessor(edge.value().From(), db_impl->getGraph());
-                                const auto &v_to =
-                                    memgraph::query::SubgraphVertexAccessor(edge.value().To(), db_impl->getGraph());
-                                return NewRawMgpObject<mgp_edge>(memory->impl, edge.value(), v_from, v_to, from->graph);
-                              }},
-                          graph->impl);
+        return std::visit(
+            memgraph::utils::Overloaded{
+                [memory, edge, from](memgraph::query::DbAccessor *) {
+                  return NewRawMgpObject<mgp_edge>(memory->impl, edge.value(), from->graph);
+                },
+                [memory, edge, from](memgraph::query::SubgraphDbAccessor *db_impl) {
+                  const auto &v_from = memgraph::query::SubgraphVertexAccessor(edge->From(), db_impl->getGraph());
+                  const auto &v_to = memgraph::query::SubgraphVertexAccessor(edge->To(), db_impl->getGraph());
+                  return NewRawMgpObject<mgp_edge>(memory->impl, edge.value(), v_from, v_to, from->graph);
+                }},
+            graph->impl);
       },
       result);
 }
@@ -3710,7 +3709,7 @@ void WrapVectorSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **res
 
   mgp_value *error_value = nullptr;
   if (error_msg) {
-    if (const auto err = mgp_value_make_string(error_msg.value().data(), memory, &error_value);
+    if (const auto err = mgp_value_make_string(error_msg->data(), memory, &error_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }
@@ -3940,7 +3939,7 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
 
   mgp_value *error_value = nullptr;
   if (error_msg) {
-    if (const auto err = mgp_value_make_string(error_msg.value().data(), memory, &error_value);
+    if (const auto err = mgp_value_make_string(error_msg->data(), memory, &error_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }
@@ -3988,7 +3987,7 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
 
   mgp_value *error_value = nullptr;
   if (error_msg) {
-    if (const auto err = mgp_value_make_string(error_msg.value().data(), memory, &error_value);
+    if (const auto err = mgp_value_make_string(error_msg->data(), memory, &error_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving text search results failed during creation of a string mgp_value");
     }
@@ -4098,7 +4097,7 @@ void WrapTextEdgeSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **r
 
   mgp_value *error_value = nullptr;
   if (error_msg) {
-    if (const auto err = mgp_value_make_string(error_msg.value().data(), memory, &error_value);
+    if (const auto err = mgp_value_make_string(error_msg->data(), memory, &error_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving edge text search results failed during creation of a string mgp_value");
     }
