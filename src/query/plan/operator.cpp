@@ -6967,7 +6967,7 @@ class CartesianCursor : public Cursor {
     }
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-    auto restore_frame = [&frame_writer, &context](const auto &symbols, const auto &restore_from) {
+    auto restore_frame = [&frame_writer](const auto &symbols, const auto &restore_from) {
       for (const auto &symbol : symbols) {
         frame_writer.Write(symbol, restore_from[symbol.position()]);
       }
@@ -8262,7 +8262,7 @@ class HashJoinCursor : public Cursor {
     }
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-    auto restore_frame = [&frame_writer, &context](const auto &symbols, const auto &restore_from) {
+    auto restore_frame = [&frame_writer](const auto &symbols, const auto &restore_from) {
       for (const auto &symbol : symbols) {
         frame_writer.Write(symbol, restore_from[symbol.position()]);
       }
