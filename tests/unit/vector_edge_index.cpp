@@ -257,12 +257,6 @@ TEST_F(VectorEdgeIndexTest, RemoveObsoleteEntriesTest) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
-  }
-  {
-    auto acc = this->storage->Access();
-    auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-    mem_storage->indices_.vector_edge_index_.RemoveObsoleteEntries(std::stop_token());
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
   }
 }
