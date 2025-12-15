@@ -139,10 +139,10 @@ InputFile::InputFile(InputFile &&other) noexcept
       path_(std::move(other.path_)),
       file_size_(other.file_size_),
       file_position_(other.file_position_),
+      buffer_(other.buffer_),
       buffer_start_(other.buffer_start_),
       buffer_size_(other.buffer_size_),
       buffer_position_(other.buffer_position_) {
-  memcpy(buffer_, other.buffer_, kFileBufferSize);
   other.fd_ = -1;
   other.file_size_ = 0;
   other.file_position_ = 0;
@@ -158,10 +158,10 @@ InputFile &InputFile::operator=(InputFile &&other) noexcept {
   path_ = std::move(other.path_);
   file_size_ = other.file_size_;
   file_position_ = other.file_position_;
+  buffer_ = other.buffer_;
   buffer_start_ = other.buffer_start_;
   buffer_size_ = other.buffer_size_;
   buffer_position_ = other.buffer_position_;
-  memcpy(buffer_, other.buffer_, kFileBufferSize);
 
   other.fd_ = -1;
   other.file_size_ = 0;
@@ -216,7 +216,7 @@ bool InputFile::Read(uint8_t *data, size_t size) {
       buffer_left = buffer_size_ - buffer_position_;
     }
     auto to_copy = std::min(size, buffer_left);
-    memcpy(write_ptr, buffer_ + buffer_position_, to_copy);
+    memcpy(write_ptr, buffer_.data() + buffer_position_, to_copy);
     size -= to_copy;
     write_ptr += to_copy;
     buffer_position_ += to_copy;
@@ -316,7 +316,7 @@ bool InputFile::LoadBuffer() {
 
   size_t offset = 0;
   while (size > 0) {
-    auto got = read(fd_, buffer_ + offset, size);
+    auto got = read(fd_, buffer_.data() + offset, size);
     if (got == -1 && errno == EINTR) {
       continue;
     }
@@ -340,9 +340,11 @@ OutputFile::~OutputFile() {
 }
 
 OutputFile::OutputFile(OutputFile &&other) noexcept
-    : fd_(other.fd_), written_since_last_sync_(other.written_since_last_sync_), path_(std::move(other.path_)) {
-  memcpy(buffer_, other.buffer_, kFileBufferSize);
-  buffer_position_.store(other.buffer_position_.load(std::memory_order_acquire), std::memory_order_release);
+    : fd_(other.fd_),
+      buffer_position_(other.buffer_position_.load(std::memory_order_acquire)),
+      written_since_last_sync_(other.written_since_last_sync_),
+      buffer_(other.buffer_),
+      path_(std::move(other.path_)) {
   other.fd_ = -1;
   other.written_since_last_sync_ = 0;
   other.buffer_position_.store(0, std::memory_order_release);
@@ -355,7 +357,7 @@ OutputFile &OutputFile::operator=(OutputFile &&other) noexcept {
   written_since_last_sync_ = other.written_since_last_sync_;
   path_ = std::move(other.path_);
   buffer_position_ = other.buffer_position_.load();
-  memcpy(buffer_, other.buffer_, kFileBufferSize);
+  buffer_ = other.buffer_;
 
   other.fd_ = -1;
   other.written_since_last_sync_ = 0;
@@ -400,14 +402,14 @@ void OutputFile::Write(const uint8_t *data, size_t size) {
   MG_ASSERT(IsOpen(), "Trying to write to an unopened file!");
   auto const buffer_start = buffer_position_.load(std::memory_order_acquire);
 
-  auto write_ptr = buffer_ + buffer_start;
+  auto *write_ptr = buffer_.data() + buffer_start;
   auto buffer_remaining = kFileBufferSize - buffer_start;
   while (size > 0) {
     if (buffer_remaining == 0) {
       MG_ASSERT(IsOpen(), "Flushing an unopened file.");
       FlushBufferInternal(kFileBufferSize);
       buffer_remaining = kFileBufferSize;
-      write_ptr = buffer_;
+      write_ptr = buffer_.data();
     }
 
     auto const amount_to_write = std::min(size, buffer_remaining);
@@ -418,7 +420,7 @@ void OutputFile::Write(const uint8_t *data, size_t size) {
     buffer_remaining -= amount_to_write;
     written_since_last_sync_ += amount_to_write;
   }
-  buffer_position_.store(write_ptr - buffer_, std::memory_order_release);
+  buffer_position_.store(write_ptr - buffer_.data(), std::memory_order_release);
 }
 
 void OutputFile::Write(const char *data, size_t size) { Write(reinterpret_cast<const uint8_t *>(data), size); }
@@ -555,7 +557,7 @@ void OutputFile::FlushBuffer() {
 
 void OutputFile::FlushBufferInternal(size_t to_write) {
   // Doesn't update buffer_position_ to avoid using atomics
-  auto *buffer = buffer_;
+  auto *buffer = buffer_.data();
   while (to_write > 0) {
     auto written = write(fd_, buffer, to_write);
     if (written == -1 && errno == EINTR) {
@@ -591,7 +593,7 @@ void OutputFile::EnableFlushing() {
 }
 
 std::pair<const uint8_t *, size_t> OutputFile::CurrentBuffer() const {
-  return {buffer_, buffer_position_.load(std::memory_order_acquire)};
+  return {buffer_.data(), buffer_position_.load(std::memory_order_acquire)};
 }
 
 size_t OutputFile::GetSize() {
@@ -649,14 +651,14 @@ const std::filesystem::path &NonConcurrentOutputFile::path() const { return path
 void NonConcurrentOutputFile::Write(const uint8_t *data, size_t size) {
   auto const buffer_start = buffer_position_;
 
-  auto write_ptr = buffer_ + buffer_start;
+  auto *write_ptr = buffer_.data() + buffer_start;
   auto buffer_remaining = kFileBufferSize - buffer_start;
   while (size > 0) {
     if (buffer_remaining == 0) {
       MG_ASSERT(IsOpen(), "Flushing an unopened file.");
       FlushBufferInternal(kFileBufferSize);
       buffer_remaining = kFileBufferSize;
-      write_ptr = buffer_;
+      write_ptr = buffer_.data();
     }
 
     auto const amount_to_write = std::min(size, buffer_remaining);
@@ -667,7 +669,7 @@ void NonConcurrentOutputFile::Write(const uint8_t *data, size_t size) {
     buffer_remaining -= amount_to_write;
     written_since_last_sync_ += amount_to_write;
   }
-  buffer_position_ = write_ptr - buffer_;
+  buffer_position_ = write_ptr - buffer_.data();
 }
 
 void NonConcurrentOutputFile::Write(const char *data, size_t size) {
@@ -809,7 +811,7 @@ void NonConcurrentOutputFile::FlushBuffer() {
 }
 
 void NonConcurrentOutputFile::FlushBufferInternal(size_t to_write) {
-  auto *buffer = buffer_;
+  auto *buffer = buffer_.data();
   while (to_write > 0) {
     auto written = write(fd_, buffer, to_write);
     if (written == -1 && errno == EINTR) {
@@ -838,7 +840,7 @@ void NonConcurrentOutputFile::FlushBufferInternal() {
 }
 
 std::pair<const uint8_t *, size_t> NonConcurrentOutputFile::CurrentBuffer() const {
-  return {buffer_, buffer_position_};
+  return {buffer_.data(), buffer_position_};
 }
 
 size_t NonConcurrentOutputFile::GetSize() {
