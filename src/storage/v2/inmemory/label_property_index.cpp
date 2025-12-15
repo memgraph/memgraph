@@ -73,7 +73,7 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
     delta = vertex.delta;
     deleted = vertex.deleted;
     if (!delta && deleted) return false;
-    has_label = utils::Contains(vertex.labels, label);
+    has_label = std::ranges::contains(vertex.labels, label);
     if (!delta && !has_label) return false;
     current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
   }
@@ -161,7 +161,7 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
     delta = vertex.delta;
     deleted = vertex.deleted;
     if (delta == nullptr && deleted) return false;
-    has_label = utils::Contains(vertex.labels, label);
+    has_label = std::ranges::contains(vertex.labels, label);
     if (delta == nullptr && !has_label) return false;
     current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
   }
@@ -338,7 +338,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
     snapshot_info->Update(UpdateType::VERTICES);
   }
 
-  if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+  if (vertex.deleted || !std::ranges::contains(vertex.labels, label)) {
     return;
   }
 
@@ -370,7 +370,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
     auto guard = std::shared_lock{vertex.lock};
     deleted = vertex.deleted;
     delta = vertex.delta;
-    has_label = utils::Contains(vertex.labels, label);
+    has_label = std::ranges::contains(vertex.labels, label);
     properties = props.Extract(vertex.properties);
   }
   // Create and drop index will always use snapshot isolation
@@ -544,7 +544,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId p
     return;
   }
 
-  auto const has_label = [&](auto &&each) { return r::find(vertex->labels, each.first) != vertex->labels.cend(); };
+  auto const has_label = [&](auto &&each) { return r::contains(vertex->labels, each.first); };
   auto const has_property = [&](auto &&each) {
     auto &ids = *std::get<PropertiesPaths const *>(each.second);
     return r::find_if(ids, [&](auto &&path) { return path[0] == property; }) != ids.cend();

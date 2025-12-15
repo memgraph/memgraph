@@ -137,7 +137,7 @@ class Handler {
    * @param name Name to check
    * @return true if a T is already associated with the name
    */
-  bool Has(std::string_view name) const { return items_.find(name) != items_.end(); }
+  bool Has(std::string_view name) const { return items_.contains(name); }
 
   /**
    * @brief Rename the context associated with the name.

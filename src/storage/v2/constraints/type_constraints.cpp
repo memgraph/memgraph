@@ -11,14 +11,12 @@
 
 #include "storage/v2/constraints/type_constraints.hpp"
 
+#include <optional>
+#include <set>
 #include <storage/v2/snapshot_observer_info.hpp>
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
-#include "utils/algorithm.hpp"
-
-#include <optional>
-#include <set>
 
 namespace memgraph::storage {
 
@@ -144,7 +142,7 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
 
   for (auto const &vertex : vertices) {
     if (vertex.deleted) continue;
-    if (!utils::Contains(vertex.labels, label)) continue;
+    if (!std::ranges::contains(vertex.labels, label)) continue;
 
     auto violation = vertex.properties.PropertiesMatchTypes(validator);
     if (!violation) continue;

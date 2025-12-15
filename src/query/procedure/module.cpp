@@ -1153,7 +1153,7 @@ std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
 #ifdef MG_ENTERPRISE
   const auto name = path.stem().string();
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast() &&
-      std::find(kEnterpriseModuleList.begin(), kEnterpriseModuleList.end(), name) != kEnterpriseModuleList.end()) {
+      std::ranges::contains(kEnterpriseModuleList, name)) {
     spdlog::warn(fmt::format("Failed to load query module {} because it requires a valid enterprise license.", path));
     return nullptr;
   }
@@ -1206,7 +1206,7 @@ bool ModuleRegistry::RegisterModule(const std::string_view name, std::unique_ptr
     spdlog::error(utils::MessageWithLink("Unable to overwrite a builtin module {}.", name, "https://memgr.ph/modules"));
     return false;
   }
-  if (modules_.find(name) != modules_.end()) {
+  if (modules_.contains(name)) {
     spdlog::error(
         utils::MessageWithLink("Unable to overwrite an already loaded module {}.", name, "https://memgr.ph/modules"));
     return false;

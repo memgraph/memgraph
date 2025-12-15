@@ -949,7 +949,7 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
     -> SetCoordinatorSettingStatus {
   if (constexpr std::array settings{kEnabledReadsOnMain, kSyncFailoverOnly, kMaxFailoverLagOnReplica,
                                     kMaxReplicaReadLag};
-      r::find(settings, setting_name) == settings.end()) {
+      !r::contains(settings, setting_name)) {
     return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
   }
 

@@ -65,7 +65,7 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
   const Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{vertex.lock};
-    has_label = utils::Contains(vertex.labels, label);
+    has_label = std::ranges::contains(vertex.labels, label);
     deleted = vertex.deleted;
     delta = vertex.delta;
   }

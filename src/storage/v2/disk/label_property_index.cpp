@@ -22,7 +22,7 @@ namespace memgraph::storage {
 namespace {
 
 bool IsVertexIndexedByLabelProperty(const Vertex &vertex, LabelId label, PropertyId property) {
-  return utils::Contains(vertex.labels, label) && vertex.properties.HasProperty(property);
+  return std::ranges::contains(vertex.labels, label) && vertex.properties.HasProperty(property);
 }
 
 [[nodiscard]] bool ClearTransactionEntriesWithRemovedIndexingLabel(
@@ -170,11 +170,11 @@ bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> 
 }
 
 bool DiskLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label, std::span<PropertyPath const> properties) const {
-  return utils::Contains(index_, LabelProperty{label, properties[0][0]});
+  return index_.contains(LabelProperty{label, properties[0][0]});
 }
 
 bool DiskLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label, std::span<PropertyPath const> properties) const {
-  return utils::Contains(index_, LabelProperty{label, properties[0][0]});
+  return index_.contains(LabelProperty{label, properties[0][0]});
 }
 
 auto DiskLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const

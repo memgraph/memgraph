@@ -48,14 +48,13 @@ class VertexCountCache {
   }
 
   int64_t VerticesCount(storage::LabelId label) {
-    if (label_vertex_count_.find(label) == label_vertex_count_.end())
-      label_vertex_count_[label] = db_->VerticesCount(label);
+    if (!label_vertex_count_.contains(label)) label_vertex_count_[label] = db_->VerticesCount(label);
     return label_vertex_count_.at(label);
   }
 
   int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties) {
     auto key = std::make_pair(label, std::vector(properties.begin(), properties.end()));
-    if (label_properties_vertex_count_.find(key) == label_properties_vertex_count_.end())
+    if (!label_properties_vertex_count_.contains(key))
       label_properties_vertex_count_[key] = db_->VerticesCount(label, properties);
     return label_properties_vertex_count_.at(key);
   }
@@ -86,14 +85,13 @@ class VertexCountCache {
   }
 
   int64_t EdgesCount(storage::EdgeTypeId edge_type) {
-    if (edge_type_edge_count_.find(edge_type) == edge_type_edge_count_.end())
-      edge_type_edge_count_[edge_type] = db_->EdgesCount(edge_type);
+    if (!edge_type_edge_count_.contains(edge_type)) edge_type_edge_count_[edge_type] = db_->EdgesCount(edge_type);
     return edge_type_edge_count_.at(edge_type);
   }
 
   int64_t EdgesCount(storage::EdgeTypeId edge_type, storage::PropertyId property) {
     auto key = std::make_pair(edge_type, property);
-    if (edge_type_property_edge_count_.find(key) == edge_type_property_edge_count_.end())
+    if (!edge_type_property_edge_count_.contains(key))
       edge_type_property_edge_count_[key] = db_->EdgesCount(edge_type, property);
     return edge_type_property_edge_count_.at(key);
   }
@@ -101,8 +99,7 @@ class VertexCountCache {
   int64_t EdgesCount(storage::EdgeTypeId edge_type, storage::PropertyId property, const storage::PropertyValue &value) {
     auto edge_type_prop = std::make_pair(edge_type, property);
     auto &value_edge_count = property_value_edge_count_[edge_type_prop];
-    if (value_edge_count.find(value) == value_edge_count.end())
-      value_edge_count[value] = db_->EdgesCount(edge_type, property, value);
+    if (!value_edge_count.contains(value)) value_edge_count[value] = db_->EdgesCount(edge_type, property, value);
     return value_edge_count.at(value);
   }
 
@@ -112,21 +109,19 @@ class VertexCountCache {
     auto edge_type_prop = std::make_pair(edge_type, property);
     auto &bounds_edge_count = property_bounds_edge_count_[edge_type_prop];
     BoundsKey bounds = std::make_pair(lower, upper);
-    if (bounds_edge_count.find(bounds) == bounds_edge_count.end())
+    if (!bounds_edge_count.contains(bounds))
       bounds_edge_count[bounds] = db_->EdgesCount(edge_type, property, lower, upper);
     return bounds_edge_count.at(bounds);
   }
 
   int64_t EdgesCount(storage::PropertyId property) {
-    if (edge_property_edge_count_.find(property) == edge_property_edge_count_.end())
-      edge_property_edge_count_[property] = db_->EdgesCount(property);
+    if (!edge_property_edge_count_.contains(property)) edge_property_edge_count_[property] = db_->EdgesCount(property);
     return edge_property_edge_count_.at(property);
   }
 
   int64_t EdgesCount(storage::PropertyId property, const storage::PropertyValue &value) {
     auto &value_edge_count = edge_property_value_edge_count_[property];
-    if (value_edge_count.find(value) == value_edge_count.end())
-      value_edge_count[value] = db_->EdgesCount(property, value);
+    if (!value_edge_count.contains(value)) value_edge_count[value] = db_->EdgesCount(property, value);
     return value_edge_count.at(value);
   }
 
@@ -134,8 +129,7 @@ class VertexCountCache {
                      const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
     auto &bounds_edge_count = global_property_bounds_edge_count_[property];
     BoundsKey bounds = std::make_pair(lower, upper);
-    if (bounds_edge_count.find(bounds) == bounds_edge_count.end())
-      bounds_edge_count[bounds] = db_->EdgesCount(property, lower, upper);
+    if (!bounds_edge_count.contains(bounds)) bounds_edge_count[bounds] = db_->EdgesCount(property, lower, upper);
     return bounds_edge_count.at(bounds);
   }
 

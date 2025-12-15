@@ -65,7 +65,7 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
     auto guard = std::shared_lock{vertex.lock};
     delta = vertex.delta;
     deleted = vertex.deleted;
-    has_label = utils::Contains(vertex.labels, label);
+    has_label = std::ranges::contains(vertex.labels, label);
 
     size_t i = 0;
     for (const auto &property : properties) {
@@ -148,7 +148,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
   Delta *delta;
   {
     auto guard = std::shared_lock{vertex.lock};
-    has_label = utils::Contains(vertex.labels, label);
+    has_label = std::ranges::contains(vertex.labels, label);
     deleted = vertex.deleted;
     delta = vertex.delta;
 
@@ -334,7 +334,7 @@ bool InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
 std::optional<ConstraintViolation> InMemoryUniqueConstraints::DoValidate(
     const Vertex &vertex, utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
     const std::set<PropertyId> &properties) {
-  if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+  if (vertex.deleted || !std::ranges::contains(vertex.labels, label)) {
     return std::nullopt;
   }
   auto values = vertex.properties.ExtractPropertyValues(properties);
@@ -441,7 +441,7 @@ InMemoryUniqueConstraints::DeletionStatus InMemoryUniqueConstraints::DropConstra
 }
 
 bool InMemoryUniqueConstraints::ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const {
-  return constraints_.find({label, properties}) != constraints_.end();
+  return constraints_.contains({label, properties});
 }
 
 std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Vertex &vertex, const Transaction &tx,

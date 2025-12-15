@@ -2420,9 +2420,8 @@ bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &prope
             [](const auto &kv_entry) { return kv_entry.second; });
 
   return std::all_of(
-      property_values.begin(), property_values.end(), [&all_property_values](const PropertyValue &value) {
-        return std::find(all_property_values.begin(), all_property_values.end(), value) != all_property_values.end();
-      });
+      property_values.begin(), property_values.end(),
+      [&all_property_values](const PropertyValue &value) { return std::ranges::contains(all_property_values, value); });
 }
 
 std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
@@ -2886,7 +2885,7 @@ std::vector<PropertyId> PropertyStore::PropertiesOfTypes(std::span<Type const> t
       auto property_id = reader.ReadUint(metadata->id_size);
       if (!property_id) break;
 
-      if (utils::Contains(types, metadata->type)) {
+      if (std::ranges::contains(types, metadata->type)) {
         props.emplace_back(PropertyId::FromUint(*property_id));
       }
 
@@ -2914,7 +2913,7 @@ std::optional<PropertyValue> PropertyStore::GetPropertyOfTypes(PropertyId proper
       // found property
       if (*property_id == property.AsUint()) {
         // check its the type we are looking for
-        if (!utils::Contains(types, metadata->type)) {
+        if (!std::ranges::contains(types, metadata->type)) {
           return std::nullopt;
         }
         if (!DecodePropertyValue(&reader, metadata->type, metadata->payload_size, value)) {

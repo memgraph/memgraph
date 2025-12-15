@@ -14,7 +14,6 @@
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
-#include "utils/algorithm.hpp"
 #include "utils/math.hpp"
 
 namespace memgraph::query::plan {
@@ -578,7 +577,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return std::nullopt;
   }
 
-  bool HasStatsFor(const Symbol &symbol) const { return utils::Contains(scopes_.back().symbol_stats, symbol.name()); }
+  bool HasStatsFor(const Symbol &symbol) const { return scopes_.back().symbol_stats.contains(symbol.name()); }
 
   std::optional<SymbolStatistics> GetStatsFor(const Symbol &symbol) {
     if (!HasStatsFor(symbol)) {

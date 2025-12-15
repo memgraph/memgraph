@@ -213,7 +213,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
   MG_ASSERT(type != Type::RANGE);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
-  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+  is_symbol_in_value_ = collector.symbols_.contains(symbol);
 }
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
@@ -231,7 +231,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
   if (upper_bound) {
     upper_bound->value()->Accept(collector);
   }
-  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+  is_symbol_in_value_ = collector.symbols_.contains(symbol);
 }
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIxPath properties,
@@ -240,7 +240,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
   MG_ASSERT(type != Type::RANGE);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
-  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+  is_symbol_in_value_ = collector.symbols_.contains(symbol);
 }
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIxPath properties,
@@ -258,7 +258,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
   if (upper_bound) {
     upper_bound->value()->Accept(collector);
   }
-  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+  is_symbol_in_value_ = collector.symbols_.contains(symbol);
 }
 
 PropertyFilter::PropertyFilter(Symbol symbol, PropertyIx property, Type type)
@@ -278,7 +278,7 @@ IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol, Expres
   MG_ASSERT(value);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
-  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+  is_symbol_in_value_ = collector.symbols_.contains(symbol);
 }
 
 void Filters::EraseFilter(const FilterInfo &filter) {
@@ -297,7 +297,7 @@ void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::
       ++filter_it;
       continue;
     }
-    if (!utils::Contains(filter_it->used_symbols, symbol)) {
+    if (!filter_it->used_symbols.contains(symbol)) {
       ++filter_it;
       continue;
     }
@@ -307,7 +307,7 @@ void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::
       continue;
     }
     filter_it->labels.erase(label_it);
-    DMG_ASSERT(!utils::Contains(filter_it->labels, label), "Didn't expect duplicated labels");
+    DMG_ASSERT(!std::ranges::contains(filter_it->labels, label), "Didn't expect duplicated labels");
     if (filter_it->labels.empty() && filter_it->or_labels.empty()) {
       // If there are no labels to filter, then erase the whole FilterInfo.
       if (removed_filters) {
@@ -328,7 +328,7 @@ void Filters::EraseOrLabelFilter(const Symbol &symbol, const std::vector<LabelIx
       ++filter_it;
       continue;
     }
-    if (!utils::Contains(filter_it->used_symbols, symbol)) {
+    if (!filter_it->used_symbols.contains(symbol)) {
       ++filter_it;
       continue;
     }
@@ -338,7 +338,7 @@ void Filters::EraseOrLabelFilter(const Symbol &symbol, const std::vector<LabelIx
       continue;
     }
     filter_it->or_labels.erase(label_vec_it);
-    DMG_ASSERT(!utils::Contains(filter_it->or_labels, labels), "Didn't expect duplicated labels");
+    DMG_ASSERT(!std::ranges::contains(filter_it->or_labels, labels), "Didn't expect duplicated labels");
     if (filter_it->or_labels.empty() && filter_it->labels.empty()) {
       // If there are no labels to filter, then erase the whole FilterInfo.
       if (removed_filters) {

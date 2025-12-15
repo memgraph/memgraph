@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -122,8 +122,7 @@ struct VertexInfoCache final {
     friend bool operator==(EdgeKey const &, EdgeKey const &) = default;
 
     friend bool operator==(EdgeKey const &lhs, std::tuple<Vertex const *, EdgeTypeId> const &rhs) {
-      return lhs.src_vertex_ == std::get<0>(rhs) &&
-             std::find(lhs.edge_types_.begin(), lhs.edge_types_.end(), std::get<1>(rhs)) != lhs.edge_types_.end();
+      return lhs.src_vertex_ == std::get<0>(rhs) && std::ranges::contains(lhs.edge_types_, std::get<1>(rhs));
     }
 
     template <typename H>

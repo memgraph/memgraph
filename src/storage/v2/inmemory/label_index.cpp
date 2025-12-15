@@ -104,7 +104,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, auto &&
     snapshot_info->Update(UpdateType::VERTICES);
   }
 
-  if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+  if (vertex.deleted || !std::ranges::contains(vertex.labels, label)) {
     return;
   }
 
@@ -128,7 +128,7 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_acce
     auto guard = std::shared_lock{vertex.lock};
     deleted = vertex.deleted;
     delta = vertex.delta;
-    has_label = utils::Contains(vertex.labels, label);
+    has_label = std::ranges::contains(vertex.labels, label);
   }
   // Create and drop index will always use snapshot isolation
   if (delta) {
@@ -233,7 +233,7 @@ bool InMemoryLabelIndex::DropIndex(LabelId label) {
 }
 
 bool InMemoryLabelIndex::ActiveIndices::IndexRegistered(LabelId label) const {
-  return index_container_->find(label) != index_container_->end();
+  return index_container_->contains(label);
 }
 
 bool InMemoryLabelIndex::ActiveIndices::IndexReady(LabelId label) const {

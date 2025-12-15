@@ -1197,7 +1197,7 @@ query::UserProfileQuery::limits_t AuthQueryHandler::GetProfile(std::string_view 
   // Fill missing/unlimited limits
   for (size_t e_id = 0; e_id < auth::UserProfiles::kLimits.size(); ++e_id) {
     const auto limit = static_cast<auth::UserProfiles::Limits>(e_id);
-    if (profile->limits.find(limit) == profile->limits.end()) {
+    if (!profile->limits.contains(limit)) {
       profile->limits.emplace(limit, auth::UserProfiles::unlimitted_t{});
     }
   }

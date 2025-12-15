@@ -277,7 +277,7 @@ bool InMemoryEdgePropertyIndex::DropIndex(PropertyId property) {
 
 bool InMemoryEdgePropertyIndex::ActiveIndices::IndexExists(PropertyId property) const {
   auto const &indices = index_container_->indices_;
-  return indices.find(property) != indices.end();
+  return indices.contains(property);
 }
 
 bool InMemoryEdgePropertyIndex::ActiveIndices::IndexReady(PropertyId property) const {

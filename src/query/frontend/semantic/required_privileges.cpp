@@ -264,7 +264,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
  private:
   void AddPrivilege(AuthQuery::Privilege privilege) {
-    if (!utils::Contains(privileges_, privilege)) {
+    if (!std::ranges::contains(privileges_, privilege)) {
       privileges_.push_back(privilege);
     }
   }

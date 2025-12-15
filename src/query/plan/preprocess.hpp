@@ -703,7 +703,7 @@ inline auto Filters::erase(Filters::const_iterator first, Filters::const_iterato
 inline auto Filters::FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx> {
   std::unordered_set<LabelIx> labels;
   for (const auto &filter : all_filters_) {
-    if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
+    if (filter.type == FilterInfo::Type::Label && filter.used_symbols.contains(symbol)) {
       MG_ASSERT(filter.used_symbols.size() == 1U, "Expected a single used symbol for label filter");
       labels.insert(filter.labels.begin(), filter.labels.end());
     }
@@ -714,7 +714,7 @@ inline auto Filters::FilteredLabels(const Symbol &symbol) const -> std::unordere
 inline auto Filters::FilteredOrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>> {
   std::vector<std::vector<LabelIx>> or_labels;
   for (const auto &filter : all_filters_) {
-    if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
+    if (filter.type == FilterInfo::Type::Label && filter.used_symbols.contains(symbol)) {
       or_labels.insert(or_labels.end(), filter.or_labels.begin(), filter.or_labels.end());
     }
   }

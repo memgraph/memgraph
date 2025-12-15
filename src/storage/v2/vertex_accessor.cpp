@@ -153,7 +153,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     }
   }
 
-  if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
+  if (std::ranges::contains(vertex_->labels, label)) return false;
 
   utils::AtomicMemoryBlock([transaction = transaction_, vertex = vertex_, &label]() {
     CreateAndLinkDelta(transaction, vertex, Delta::RemoveLabelTag(), label);
@@ -259,7 +259,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    has_label = std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end();
+    has_label = std::ranges::contains(vertex_->labels, label);
     delta = vertex_->delta;
   }
 
@@ -1111,7 +1111,7 @@ int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
     }
     expanded_count++;
     if (destination && vertex != destination->vertex_) continue;
-    if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end()) continue;
+    if (!edge_types.empty() && !std::ranges::contains(edge_types, edge_type)) continue;
     result_edges.emplace_back(edge_type, vertex, edge);
   }
   return expanded_count;

@@ -3088,7 +3088,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     }
 
     for (auto it = index_info.cbegin(); it != index_info.cend();) {
-      if (std::find(labels.begin(), labels.end(), execution_db_accessor->LabelToName(*it)) == labels.end()) {
+      if (!std::ranges::contains(labels, execution_db_accessor->LabelToName(*it))) {
         it = index_info.erase(it);
       } else {
         ++it;
@@ -3102,7 +3102,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     }
 
     for (auto it = index_info.cbegin(); it != index_info.cend();) {
-      if (std::find(labels.begin(), labels.end(), execution_db_accessor->LabelToName(it->first)) == labels.end()) {
+      if (!std::ranges::contains(labels, execution_db_accessor->LabelToName(it->first))) {
         it = index_info.erase(it);
       } else {
         ++it;
@@ -3311,7 +3311,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
     }
 
     for (auto it = index_info.cbegin(); it != index_info.cend();) {
-      if (std::find(labels.begin(), labels.end(), execution_db_accessor->LabelToName(*it)) == labels.end()) {
+      if (!std::ranges::contains(labels, execution_db_accessor->LabelToName(*it))) {
         it = index_info.erase(it);
       } else {
         ++it;
@@ -3325,7 +3325,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
     }
 
     for (auto it = index_info.cbegin(); it != index_info.cend();) {
-      if (std::find(labels.begin(), labels.end(), execution_db_accessor->LabelToName(it->first)) == labels.end()) {
+      if (!std::ranges::contains(labels, execution_db_accessor->LabelToName(it->first))) {
         it = index_info.erase(it);
       } else {
         ++it;
