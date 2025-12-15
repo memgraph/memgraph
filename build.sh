@@ -177,7 +177,7 @@ else
     python3 -m venv "$VENV_DIR"
     source "$VENV_DIR/bin/activate"
     trap 'deactivate 2>/dev/null' EXIT ERR
-    pip install conan
+    pip install conan==2.24.0
 fi
 
 # check if a conan profile exists
@@ -232,9 +232,6 @@ fi
 # install conan dependencies
 MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install "${CONAN_INSTALL_ARGS[@]}"
 
-export CLASSPATH=
-export LD_LIBRARY_PATH=
-export DYLD_LIBRARY_PATH=
 source build/generators/conanbuild.sh
 
 # Determine preset name based on build type (Conan generates this automatically)

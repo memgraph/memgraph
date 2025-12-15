@@ -554,7 +554,7 @@ build_memgraph () {
   echo "Setting up Conan environment..."
   docker exec -u mg "$build_container" bash -c "$CMD_START && python3 -m venv env"
   CMD_START="$CMD_START && source ./env/bin/activate"
-  docker exec -u mg "$build_container" bash -c "$CMD_START && pip install conan"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && pip install conan==2.24.0"
 
   # Check if a conan profile exists and create one if needed
   docker exec -u mg "$build_container" bash -c "$CMD_START && conan profile detect --force"
@@ -930,7 +930,6 @@ copy_memgraph() {
   # If using cmake install, handle it differently
   if [[ "$use_cmake_install" == "true" ]]; then
     # Initialize variables that conanbuild.sh appends to (required for set -u shells)
-    local INIT_CONAN_ENV="export CLASSPATH= LD_LIBRARY_PATH= DYLD_LIBRARY_PATH="
     local ACTIVATE_CONAN_BUILDENV="source $MGBUILD_BUILD_DIR/generators/conanbuild.sh"
 
     # Create a temporary staging directory in the container
@@ -945,7 +944,7 @@ copy_memgraph() {
     #   - /lib/systemd/system (release/CMakeLists.txt)
     #   - /etc/memgraph/auth_module/ldap.example.yaml (src/auth/CMakeLists.txt)
     echo "Installing Memgraph using cmake --install with DESTDIR=$staging_dir..."
-    docker exec -u mg "$build_container" bash -c "$INIT_CONAN_ENV && $ACTIVATE_CONAN_BUILDENV && DESTDIR=$staging_dir cmake --install $MGBUILD_BUILD_DIR"
+    docker exec -u mg "$build_container" bash -c "$ACTIVATE_CONAN_BUILDENV && DESTDIR=$staging_dir cmake --install $MGBUILD_BUILD_DIR"
 
     # Copy the staged installation from container to host
     # DESTDIR prepends to the install prefix (/usr/local), so files are at $staging_dir/usr/local/lib/memgraph/
