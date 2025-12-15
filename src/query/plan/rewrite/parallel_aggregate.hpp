@@ -216,6 +216,12 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     // We will try to move the DISTINCT under the aggregation function
     // Rewrite MATCH(n) WITH DISTINCT n RETURN count(*) to MATCH(n) RETURN count(DISTINCT n)
     auto rewrite_distinct = [&](Aggregate &op) {
+      auto expressions_same_symbol = [](Expression *e1, const NamedExpression *e2) -> bool {
+        auto *id1 = dynamic_cast<Identifier *>(e1);
+        return id1 && id1->symbol_pos_ == e2->symbol_pos_;
+      };
+      if (op.aggregations_.size() != 1) return;  // Support only single aggregation
+      auto &agg = op.aggregations_.front();
       // Find pair of Distinct and Produce operators
       if (auto *distinct_op = dynamic_cast<Distinct *>(op.input().get())) {
         auto *maybe_produce = dynamic_cast<Produce *>(distinct_op->input().get());
@@ -224,16 +230,11 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
         if (prev_ops_.size() != 1) return;
         auto *parent = dynamic_cast<Produce *>(prev_ops_.front());
         if (!parent || parent->named_expressions_.size() != 1) return;
-        // COUNT(*) is the only case where input expression is optional
-        auto agg = op.aggregations_.begin();
-        if (op.aggregations_.size() != 1 || agg->op != Aggregation::Op::COUNT) return;
-        auto *named_expr = *maybe_produce->named_expressions_.begin();
-        if (agg->arg1 != nullptr && agg->arg1 != named_expr->expression_) return;
-        // TODO Make sure op is the top operator
+        auto *named_expr = maybe_produce->named_expressions_.front();
+        if (agg.arg1 != nullptr && !expressions_same_symbol(agg.arg1, named_expr)) return;
         // Rewrite the query to MATCH(n) RETURN count(DISTINCT n)
-        agg->distinct = true;
-        agg->arg1 = named_expr->expression_;
-        agg->arg2 = nullptr;
+        agg.distinct = true;
+        agg.arg1 = named_expr->expression_;
         // Remove the Produce and Distinct operators
         op.set_input(maybe_produce->input());
       }
