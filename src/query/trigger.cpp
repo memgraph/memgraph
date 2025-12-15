@@ -12,6 +12,7 @@
 #include "query/trigger.hpp"
 
 #include <algorithm>
+#include <cstdint>
 
 #include "dbms/database.hpp"
 #include "query/config.hpp"
@@ -261,7 +262,8 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
 
 namespace {
 // When the format of the persisted trigger is changed, increase this version
-inline constexpr uint64_t kVersion{2};
+inline constexpr uint64_t kVersion{3};
+inline constexpr uint64_t kPreviousVersion{2};
 }  // namespace
 
 TriggerStore::TriggerStore(std::filesystem::path directory) : storage_{std::move(directory)} {}
@@ -283,8 +285,10 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
     spdlog::warn(invalid_state_message);
     return;
   }
-  if (json_trigger_data["version"] != kVersion) {
-    spdlog::warn(get_failed_message("Invalid version of the trigger data."));
+  const auto version = json_trigger_data["version"].get<uint64_t>();
+  if (version != kVersion && version != kPreviousVersion) {
+    spdlog::warn(get_failed_message(fmt::format("Invalid version of the trigger data. Expected {} or {}, got {}.",
+                                                kVersion, kPreviousVersion, version)));
     return;
   }
 
@@ -341,18 +345,27 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
     return;
   }
 
-  Trigger::PrivilegeContext privilege_context = std::invoke([&]() {
-    if (json_trigger_data.contains("privilege_context")) {
-      return static_cast<Trigger::PrivilegeContext>(json_trigger_data["privilege_context"].get<uint8_t>());
+  auto privilege_context = std::invoke([&]() -> std::optional<Trigger::PrivilegeContext> {
+    if (version == kPreviousVersion) {
+      return Trigger::PrivilegeContext::DEFINER;
     }
-    // Backward compatibility: old triggers without privilege_context field were always DEFINER mode
-    return Trigger::PrivilegeContext::DEFINER;
+
+    const auto privilege_context_json = json_trigger_data["privilege_context"];
+    if (!privilege_context_json.is_number_unsigned()) {
+      return std::nullopt;
+    }
+    return static_cast<Trigger::PrivilegeContext>(privilege_context_json.get<uint8_t>());
   });
+
+  if (!privilege_context) {
+    spdlog::warn(invalid_state_message);
+    return;
+  }
 
   std::optional<Trigger> trigger;
   try {
     trigger.emplace(std::string{trigger_name}, statement, user_parameters, event_type, query_cache, db_accessor,
-                    query_config, std::move(user), std::string{db_name}, privilege_context);
+                    query_config, std::move(user), std::string{db_name}, *privilege_context);
   } catch (const utils::BasicException &e) {
     spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
     return;
