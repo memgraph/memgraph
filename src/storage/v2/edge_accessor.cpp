@@ -275,7 +275,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
     // TODO If the current implementation is too slow there is an UpdateProperties option
   });
 
-  return id_old_new_change.has_value() ? std::move(id_old_new_change.value()) : ReturnType{};
+  return std::move(id_old_new_change).value_or(ReturnType{});
 }
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
@@ -319,7 +319,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
     edge_.ptr->properties.ClearProperties();
   });
 
-  return properties.has_value() ? std::move(properties.value()) : ReturnType{};
+  return std::move(properties).value_or(ReturnType{});
 }
 
 Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {

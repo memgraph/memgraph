@@ -525,7 +525,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     }
   });
 
-  return id_old_new_change.has_value() ? std::move(id_old_new_change.value()) : ReturnType{};
+  return std::move(id_old_new_change).value_or(ReturnType{});
 }
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
@@ -568,7 +568,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
         vertex->properties.ClearProperties();
       });
 
-  return properties.has_value() ? std::move(properties.value()) : ReturnType{};
+  return std::move(properties).value_or(ReturnType{});
 }
 
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {

@@ -73,9 +73,8 @@ struct EnumStore {
 
   auto UpdateValue(std::string_view e_type, std::string_view old_value, std::string_view new_value)
       -> std::expected<Enum, EnumStorageError> {
-    auto etype = ToEnumType(e_type);
-    if (!etype) return std::unexpected(etype.error());
-    return UpdateValue(*etype, old_value, new_value);
+    auto do_update = [&](EnumTypeId etype) { return UpdateValue(etype, old_value, new_value); };
+    return ToEnumType(e_type).and_then(do_update);
   }
 
   auto UpdateValue(EnumTypeId e_type, std::string_view old_value, std::string_view new_value)
@@ -100,9 +99,8 @@ struct EnumStore {
   }
 
   auto AddValue(std::string_view e_type, std::string_view new_value) -> std::expected<Enum, EnumStorageError> {
-    auto etype = ToEnumType(e_type);
-    if (!etype) return std::unexpected(etype.error());
-    return AddValue(*etype, new_value);
+    auto do_add = [&](EnumTypeId etype) { return AddValue(etype, new_value); };
+    return ToEnumType(e_type).and_then(do_add);
   }
 
   auto AddValue(EnumTypeId e_type, std::string_view new_value) -> std::expected<Enum, EnumStorageError> {
@@ -143,9 +141,8 @@ struct EnumStore {
 
   auto ToEnumValue(std::string_view type_str, std::string_view value_str) const
       -> std::expected<EnumValueId, EnumStorageError> {
-    auto e_type = ToEnumType(type_str);
-    if (!e_type) return std::unexpected(e_type.error());
-    return ToEnumValue(*e_type, value_str);
+    auto lookup_value = [&](EnumTypeId etype) { return ToEnumValue(etype, value_str); };
+    return ToEnumType(type_str).and_then(lookup_value);
   }
 
   auto ToEnumValue(EnumTypeId e_type, std::string_view value_str) const

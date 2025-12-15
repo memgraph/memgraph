@@ -273,10 +273,7 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::Authenticate(co
 #else
       interpreter_.SetUser(session_user_or_role_);
 #endif
-      interpreter_.SetSessionInfo(
-          UUID(),
-          interpreter_.user_or_role_->username().has_value() ? interpreter_.user_or_role_->username().value() : "",
-          GetLoginTimestamp());
+      interpreter_.SetSessionInfo(UUID(), interpreter_.user_or_role_->username().value_or(""), GetLoginTimestamp());
     } else {
       // No access control -> give empty user
       session_user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
@@ -318,9 +315,7 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate
 #else
   interpreter_.SetUser(session_user_or_role_);
 #endif
-  interpreter_.SetSessionInfo(
-      UUID(), session_user_or_role_->username().has_value() ? session_user_or_role_->username().value() : "",
-      GetLoginTimestamp());
+  interpreter_.SetSessionInfo(UUID(), session_user_or_role_->username().value_or(""), GetLoginTimestamp());
   TryDefaultDB();
   return {};
 }
