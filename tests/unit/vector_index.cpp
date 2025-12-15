@@ -49,8 +49,14 @@ class VectorIndexTest : public testing::Test {
     const auto property = unique_acc->NameToProperty(test_property.data());
 
     // Create a specification for the index
-    const auto spec = VectorIndexSpec{test_index.data(),  label,    property,   metric, dimension,
-                                      resize_coefficient, capacity, scalar_kind};
+    const auto spec = VectorIndexSpec{.index_name = test_index.data(),
+                                      .label_id = label,
+                                      .property = property,
+                                      .metric_kind = metric,
+                                      .dimension = dimension,
+                                      .resize_coefficient = resize_coefficient,
+                                      .capacity = capacity,
+                                      .scalar_kind = scalar_kind};
 
     EXPECT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
@@ -345,7 +351,7 @@ TEST_F(VectorIndexTest, MultipleAbortsAndUpdatesTest) {
   }
 }
 
-TEST_F(VectorIndexTest, RemoveObsoleteEntriesTest) {
+TEST_F(VectorIndexTest, RemoveNode) {
   this->CreateIndex(2, 10);
   Gid vertex_gid;
   {
@@ -366,17 +372,9 @@ TEST_F(VectorIndexTest, RemoveObsoleteEntriesTest) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  // Expect the index to have 1 entry since gc has not been run
-  {
-    auto acc = this->storage->Access();
-    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
-  }
-
   // Expect the index to have 0 entries, as the vertex was deleted
   {
     auto acc = this->storage->Access();
-    auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-    mem_storage->indices_.vector_index_.RemoveObsoleteEntries(std::stop_token());
     EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
   }
 }

@@ -11,10 +11,6 @@
 
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
-#include <vector>
-
 #include "query/exceptions.hpp"
 #include "storage/v2/property_value.hpp"
 #include "usearch/index_plugins.hpp"
