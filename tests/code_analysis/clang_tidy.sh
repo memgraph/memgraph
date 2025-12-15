@@ -73,9 +73,23 @@ if [[ ! -f "build/generators/conanbuild.sh" ]]; then
 fi
 source build/generators/conanbuild.sh
 
+# Add toolchain to PATH for clang-tidy
+MG_TOOLCHAIN_ROOT="${MG_TOOLCHAIN_ROOT:-/opt/toolchain-v7}"
+if [[ -d "$MG_TOOLCHAIN_ROOT/bin" ]]; then
+  export PATH="$MG_TOOLCHAIN_ROOT/bin:$PATH"
+else
+  echo "Warning: Toolchain bin directory not found at $MG_TOOLCHAIN_ROOT/bin"
+fi
+
 if ! command -v ninja &> /dev/null; then
   echo "Error: ninja build tool not found in PATH"
   echo "Please ensure ninja is installed and the Conan environment is activated"
+  exit 1
+fi
+
+if ! command -v clang-tidy &> /dev/null; then
+  echo "Error: clang-tidy not found in PATH"
+  echo "Please ensure the toolchain is installed at $MG_TOOLCHAIN_ROOT"
   exit 1
 fi
 ninja -C build -t inputs | grep -E '\.cppm\.o$|\.o\.modmap$' | xargs -r ninja -C build

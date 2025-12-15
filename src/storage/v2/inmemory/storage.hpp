@@ -545,12 +545,12 @@ class InMemoryStorage final : public Storage {
     /// Create type constraint,
     /// Returns error result if already exists, or if constraint is already violated
     std::expected<void, StorageExistenceConstraintDefinitionError> CreateTypeConstraint(
-        LabelId label, PropertyId property, TypeConstraintKind type) override;
+        LabelId label, PropertyId property, TypeConstraintKind kind) override;
 
     /// Drop type constraint,
     /// Returns error result if constraint does not exist.
     std::expected<void, StorageExistenceConstraintDroppingError> DropTypeConstraint(LabelId label, PropertyId property,
-                                                                                    TypeConstraintKind type) override;
+                                                                                    TypeConstraintKind kind) override;
 
     void DropGraph() override;
 
