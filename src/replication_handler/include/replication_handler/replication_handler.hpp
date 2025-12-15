@@ -217,7 +217,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
     auto const main_uuid = std::get<RoleMainData>(locked_repl_state->ReplicationData()).uuid_;
     if constexpr (SendSwapUUID) {
-      if (!replication_coordination_glue::SendSwapMainUUIDRpc(maybe_client.value()->rpc_client_, main_uuid)) {
+      if (!replication_coordination_glue::SendSwapMainUUIDRpc((*maybe_client)->rpc_client_, main_uuid)) {
         return std::unexpected{RegisterReplicaError::ERROR_ACCEPTING_MAIN};
       }
     }

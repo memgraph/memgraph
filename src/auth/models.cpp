@@ -1217,7 +1217,7 @@ bool UserImpersonation::IsDenied(const User &user) const {
   //      no -> remove user from the list and return false
   auto user_denied = find_denied(username);
   if (user_denied) {
-    if (user_denied.value()->uuid == user.uuid()) return true;
+    if ((*user_denied)->uuid == user.uuid()) return true;
     erase_denied(*user_denied);  // Stale user; remove
   }
   return false;
@@ -1234,7 +1234,7 @@ bool UserImpersonation::IsGranted(const User &user) const {
   if (grants_all()) return true;
   auto user_granted = find_granted(username);
   if (user_granted) {
-    if (user_granted.value()->uuid == user.uuid()) return true;
+    if ((*user_granted)->uuid == user.uuid()) return true;
     erase_granted(*user_granted);  // Stale user; remove
   }
   return false;
@@ -1257,7 +1257,7 @@ void UserImpersonation::grant_one(const User &user) {
   if (grants_all()) return;
   auto granted_user = find_granted(user.username());
   if (granted_user) {
-    if (granted_user.value()->uuid == user.uuid()) return;
+    if ((*granted_user)->uuid == user.uuid()) return;
     erase_granted(*granted_user);  // Stale user; remove
   }
   emplace_granted(user.username(), user.uuid());
@@ -1285,7 +1285,7 @@ void UserImpersonation::deny_one(const User &user) {
   //        yes -> return
   auto denied_user = find_denied(user.username());
   if (denied_user) {
-    if (denied_user.value()->uuid == user.uuid()) return;
+    if ((*denied_user)->uuid == user.uuid()) return;
     erase_denied(*denied_user);  // Stale user; remove
   }
   denied_.emplace(user.username(), user.uuid());

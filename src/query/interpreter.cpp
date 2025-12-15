@@ -1006,12 +1006,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 #endif
       ] {
 #ifdef MG_ENTERPRISE
-        if (db_acc && db_acc.value()->name() != dbms::kDefaultDB &&
+        if (db_acc && (*db_acc)->name() != dbms::kDefaultDB &&
             !license::global_license_checker.IsEnterpriseValidFast()) {
           throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
         }
         const auto &rolenames =
-            interpreter.user_or_role_->GetRolenames(db_acc ? std::make_optional(db_acc.value()->name()) : std::nullopt);
+            interpreter.user_or_role_->GetRolenames(db_acc ? std::make_optional((*db_acc)->name()) : std::nullopt);
 #else
         const auto &rolenames = interpreter.user_or_role_->GetRolenames(std::nullopt);
 #endif
@@ -1182,7 +1182,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
             if (!db_acc) {
               throw QueryRuntimeException("No current database for SHOW PRIVILEGES ON CURRENT");
             }
-            target_db = db_acc.value()->name();
+            target_db = (*db_acc)->name();
             break;
           case AuthQuery::DatabaseSpecification::DATABASE:
             target_db = database_name;
@@ -1230,7 +1230,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
             if (!db_acc) {
               throw QueryRuntimeException("No current database!");
             }
-            target_db = db_acc.value()->name();
+            target_db = (*db_acc)->name();
             break;
           case AuthQuery::DatabaseSpecification::DATABASE:
             target_db = database_name;
@@ -7358,10 +7358,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     });
 
     if (!in_explicit_transaction_) {
-      auto const is_in_memory_transactional = current_db_.db_acc_
-                                                  ? (current_db_.db_acc_.value()->storage()->GetStorageMode() ==
-                                                     storage::StorageMode::IN_MEMORY_TRANSACTIONAL)
-                                                  : false;
+      auto const is_in_memory_transactional =
+          current_db_.db_acc_
+              ? ((*current_db_.db_acc_)->storage()->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL)
+              : false;
       auto transaction_requirements = QueryTransactionRequirements{
           parse_info.is_schema_assert_query, parsed_query.is_cypher_read, is_in_memory_transactional};
       parsed_query.query->Accept(transaction_requirements);
@@ -8013,7 +8013,7 @@ void Interpreter::Commit() {
   bool commit_confirmed_by_all_strict_sync_replicas{true};
 
   auto locked_repl_state = std::optional{interpreter_context_->repl_state.ReadLock()};
-  bool const is_main = locked_repl_state.value()->IsMain();
+  bool const is_main = (*locked_repl_state)->IsMain();
   auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
   // if I was main with write txn which became replica, abort.
   if (!is_main && !curr_txn->deltas.empty()) {

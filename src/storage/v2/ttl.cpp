@@ -270,8 +270,8 @@ void TTL::Configure(bool should_run_edge_ttl) {
             }
             auto result = batch_accessor->DetachDelete(vertices_to_delete_pointers, {}, true);
             if (result.has_value() && result.value().has_value()) {
-              n_deleted += result.value()->first.size();
-              n_edges_deleted += result.value()->second.size();
+              n_deleted += (*result)->first.size();
+              n_edges_deleted += (*result)->second.size();
             }
           }
 
@@ -299,7 +299,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
             }
             auto result = batch_accessor->DetachDelete({}, edges_to_delete_pointers, false);
             if (result.has_value() && result.value().has_value()) {
-              n_edges_deleted += result.value()->second.size();
+              n_edges_deleted += (*result)->second.size();
             }
           }
 
