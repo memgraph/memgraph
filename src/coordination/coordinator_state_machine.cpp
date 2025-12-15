@@ -111,7 +111,7 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
     }
     if (stored_version == LogStoreVersion::kV2) {
       const auto maybe_last_commited_idx = durability_->Get(kLastCommitedIdx);
-      if (!maybe_last_commited_idx.has_value()) {
+      if (!maybe_last_commited_idx) {
         logger_.Log(
             nuraft_log_level::ERROR,
             fmt::format(

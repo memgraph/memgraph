@@ -680,7 +680,7 @@ bool SymbolGenerator::PostVisit(SetProperty &set_property) {
 
   auto maybe_symbol = FindSymbolInScope(visitor.base_identifier->name_, scope, Symbol::Type::ANY);
 
-  if (!maybe_symbol.has_value()) {
+  if (!maybe_symbol) {
     throw SemanticException("Symbol not found when setting property, please contact Memgraph support!");
   }
 
@@ -710,7 +710,7 @@ bool SymbolGenerator::PostVisit(RemoveProperty &remove_property) {
 
   auto maybe_symbol = FindSymbolInScope(visitor.base_identifier->name_, scope, Symbol::Type::ANY);
 
-  if (!maybe_symbol.has_value()) {
+  if (!maybe_symbol) {
     throw SemanticException("Symbol not found when removing property, please contact Memgraph support!");
   }
 

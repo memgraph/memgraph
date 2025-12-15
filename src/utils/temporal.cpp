@@ -267,7 +267,7 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
   std::optional<bool> using_colon;
   const auto process_optional_colon = [&] {
     const bool has_colon = local_time_string.front() == ':';
-    if (!using_colon.has_value()) {
+    if (!using_colon) {
       using_colon.emplace(has_colon);
     }
 

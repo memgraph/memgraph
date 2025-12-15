@@ -45,7 +45,7 @@ auto Endpoint::SocketAddress() const -> std::string { return fmt::format("{}{}{}
 
 auto Endpoint::GetResolvedSocketAddress() const -> std::string {
   auto const result = TryResolveAddress(address_, port_);
-  if (!result.has_value()) {
+  if (!result) {
     throw NetworkError("Couldn't resolve {}:{}.", address_, port_);
   }
 
@@ -57,7 +57,7 @@ auto Endpoint::GetResolvedSocketAddress() const -> std::string {
 
 auto Endpoint::GetResolvedIPAddress() const -> std::string {
   auto const result = TryResolveAddress(address_, port_);
-  if (!result.has_value()) {
+  if (!result) {
     throw NetworkError("Couldn't resolve {}:{}.", address_, port_);
   }
 
@@ -68,7 +68,7 @@ auto Endpoint::GetResolvedIPAddress() const -> std::string {
 
 [[nodiscard]] auto Endpoint::GetIpFamily() const -> IpFamily {
   auto const result = TryResolveAddress(address_, port_);
-  if (!result.has_value()) {
+  if (!result) {
     throw NetworkError("Couldn't resolve {}:{}.", address_, port_);
   }
 

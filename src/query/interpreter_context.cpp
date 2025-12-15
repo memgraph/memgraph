@@ -68,7 +68,7 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
       }
     });
     std::optional<uint64_t> intr_trans = interpreter->GetTransactionId();
-    if (!intr_trans.has_value()) continue;
+    if (!intr_trans) continue;
 
     auto transaction_id = intr_trans.value();
 

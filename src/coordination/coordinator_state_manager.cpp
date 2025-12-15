@@ -119,7 +119,7 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
 
 void CoordinatorStateManager::TryUpdateClusterConfigFromDisk() {
   auto const maybe_cluster_config = durability_.Get(kClusterConfigKey);
-  if (!maybe_cluster_config.has_value()) {
+  if (!maybe_cluster_config) {
     spdlog::trace("Didn't find anything stored on disk for cluster config.");
     return;
   }
@@ -197,7 +197,7 @@ auto CoordinatorStateManager::read_state() -> std::shared_ptr<srv_state> {
   spdlog::trace("Reading server state in coordinator state manager.");
 
   auto const maybe_server_state = durability_.Get(kServerStateKey);
-  if (!maybe_server_state.has_value()) {
+  if (!maybe_server_state) {
     logger_.Log(nuraft_log_level::INFO, "Didn't find anything stored on disk for server state.");
     return saved_state_;
   }

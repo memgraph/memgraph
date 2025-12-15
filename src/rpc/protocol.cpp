@@ -82,7 +82,7 @@ void RpcMessageDeliverer::Execute() {
     }
 
     if (ret.status == slk::StreamStatus::NEW_FILE) {
-      if (!file_replication_handler_.has_value()) {
+      if (!file_replication_handler_) {
         // Will be used at the end to construct slk::Reader. Contains message header and request. It is necessary to do
         // this only when initializing FileReplicationHandler
         header_request_ =
@@ -100,7 +100,7 @@ void RpcMessageDeliverer::Execute() {
       // In OpenFile, we process file name, file size and file data contained in this segment
       auto const res = file_replication_handler_->OpenFile(input_stream_->data() + consumed_bytes,
                                                            input_stream_->size() - consumed_bytes);
-      if (!res.has_value()) {
+      if (!res) {
         throw SessionException("Error happened while opening file in RpcMessageDeliverer!");
       }
 
@@ -146,7 +146,7 @@ void RpcMessageDeliverer::Execute() {
     }
   });
 
-  if (!maybe_message_header.has_value()) {
+  if (!maybe_message_header) {
     throw SlkRpcFailedException();
   }
 

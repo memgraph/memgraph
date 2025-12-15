@@ -105,7 +105,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
         return hb_stream.SendAndWait();
       });
 
-  if (!maybe_heartbeat_res.has_value()) {
+  if (!maybe_heartbeat_res) {
     spdlog::trace("Couldn't get RPC lock while trying to UpdateReplicaState");
     return;
   }
@@ -340,7 +340,7 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
               durability_commit_timestamp));
         }
 
-        if (!maybe_stream_handler.has_value()) {
+        if (!maybe_stream_handler) {
           spdlog::trace("Couldn't obtain RPC lock for committing to ASYNC replica.");
           *locked_state = MAYBE_BEHIND;
           return std::nullopt;
@@ -366,7 +366,7 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
     bool const decision, utils::UUID const &storage_uuid, uint64_t const durability_commit_timestamp,
     std::optional<ReplicaStream> replica_stream) noexcept {
   // Just skip instance which was down before voting
-  if (!replica_stream.has_value()) {
+  if (!replica_stream) {
     return true;
   }
 
@@ -587,7 +587,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   bool recovery_failed{false};
   auto file_locker = main_mem_storage->file_retainer_.AddLocker();
   auto const maybe_steps = GetRecoverySteps(replica_last_commit_ts, &file_locker, main_mem_storage);
-  if (!maybe_steps.has_value()) {
+  if (!maybe_steps) {
     spdlog::error(
         "Couldn't get recovery steps while trying to recover replica {} for db {}, setting the replica state to "
         "MAYBE_BEHIND",
@@ -613,7 +613,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                     snapshot, rpcClient, main_mem_storage->config_.durability.root_data_directory, repl_mode, main_uuid,
                     main_mem_storage->uuid());
                 // Error happened on our side when trying to load snapshot file
-                if (!maybe_response.has_value()) {
+                if (!maybe_response) {
                   recovery_failed = true;
                   return;
                 }
@@ -653,7 +653,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                 auto const maybe_response = TransferDurabilityFiles<replication::WalFilesRpc>(
                     wals, rpcClient, main_mem_storage->config_.durability.root_data_directory, repl_mode, wals.size(),
                     main_uuid, main_mem_storage->uuid(), do_reset);
-                if (!maybe_response.has_value()) {
+                if (!maybe_response) {
                   recovery_failed = true;
                   return;
                 }
@@ -694,7 +694,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                       main_mem_storage->config_.durability.root_data_directory, repl_mode, main_uuid,
                       main_mem_storage->uuid(), do_reset);
                   // Error happened on our side when trying to load current WAL file
-                  if (!maybe_response.has_value()) {
+                  if (!maybe_response) {
                     recovery_failed = true;
                     return;
                   }
