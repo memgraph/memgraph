@@ -30,7 +30,7 @@
 #include "query/plan/rewrite/enum.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/rewrite/join.hpp"
-#include "query/plan/rewrite/parallel_aggregate.hpp"
+#include "query/plan/rewrite/parallel_rewrite.hpp"
 #include "query/plan/rewrite/periodic_delete.hpp"
 #include "query/plan/rewrite/plan_validator.hpp"
 #include "query/plan/rule_based_planner.hpp"
@@ -76,7 +76,7 @@ class PostProcessor final {
            [&](auto p) { return RewriteWithJoinRewriter(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); } | [&](auto p) {
-             return RewriteParallelAggregate(std::move(p), symbol_table, ast, db, context->query->pre_query_directives_,
+             return RewriteParallelExecution(std::move(p), symbol_table, ast, db, context->query->pre_query_directives_,
                                              parameters_);
            };
   }

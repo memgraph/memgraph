@@ -128,7 +128,7 @@ target_sources(mg-query
     plan/point_distance_condition.hpp
     plan/read_write_type_checker.hpp
     plan/rewrite/enum.hpp
-    plan/rewrite/parallel_aggregate.hpp
+    plan/rewrite/parallel_rewrite.hpp
     plan/parallel_checker.hpp
     plan/used_index_checker.hpp
     procedure/cypher_types.hpp
