@@ -1653,7 +1653,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB);
+                              memgraph::dbms::kDefaultDB, memgraph::query::Trigger::PrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1663,7 +1663,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB);
+                              memgraph::dbms::kDefaultDB, memgraph::query::Trigger::PrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1673,7 +1673,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB);
+                              memgraph::dbms::kDefaultDB, memgraph::query::Trigger::PrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1683,7 +1683,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB);
+                              memgraph::dbms::kDefaultDB, memgraph::query::Trigger::PrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1693,7 +1693,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB);
+                              memgraph::dbms::kDefaultDB, memgraph::query::Trigger::PrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1703,7 +1703,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB);
+                              memgraph::dbms::kDefaultDB, memgraph::query::Trigger::PrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1713,7 +1713,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB);
+                              memgraph::dbms::kDefaultDB, memgraph::query::Trigger::PrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1723,7 +1723,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB);
+                              memgraph::dbms::kDefaultDB, memgraph::query::Trigger::PrivilegeContext::INVOKER);
   }
   {
     ResultStreamFaker stream(this->db->storage());
