@@ -472,12 +472,12 @@ inline auto MakeBoundsFromRange(PropertyValueRange const &range) -> LowerAndUppe
     }
 
     auto const are_comparable_ranges = [](auto const &lower_bound, auto const &upper_bound) {
-      if (AreComparableTypes(lower_bound->type(), upper_bound->type())) {
+      if (AreComparableTypes(lower_bound.value().type(), upper_bound.value().type())) {
         return true;
       } else if (upper_bound.IsInclusive()) {
         return false;
       } else {
-        auto const upper_bound_for_lower_bound_type = storage::UpperBoundForType(lower_bound->type());
+        auto const upper_bound_for_lower_bound_type = storage::UpperBoundForType(lower_bound.value().type());
         return upper_bound_for_lower_bound_type && upper_bound.value() == upper_bound_for_lower_bound_type->value();
       };
     };
