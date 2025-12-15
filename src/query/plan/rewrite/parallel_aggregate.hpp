@@ -428,9 +428,11 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
     // Success, update operators
     for (auto *update_op : update_ops) {
       if (auto *skip_op = dynamic_cast<Skip *>(update_op)) {
-        skip_op->parallel_execution.emplace(num_threads_);
+        skip_op->parallel_execution_.emplace(num_threads_);
       } else if (auto *limit_op = dynamic_cast<Limit *>(update_op)) {
-        limit_op->parallel_execution.emplace(num_threads_);
+        limit_op->parallel_execution_.emplace(num_threads_);
+      } else if (auto *distinct_op = dynamic_cast<Distinct *>(update_op)) {
+        distinct_op->parallel_execution_.emplace(num_threads_);
       } else {
         return failure("Unsupported operator in parallel chain " + update_op->ToString());
       }
@@ -707,15 +709,10 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
           current_type == OrderBy::kType || current_type == OrderByParallel::kType) {
         return target_scan != nullptr;
       }
-      // Unsupported operators
-      if (current_type == Distinct::kType) {
-        spdlog::info(
-            "Query has unsupported parallel DISTINCT operator. Try rewriting the query to move DISTINCT under the "
-            "aggregation function.");
-        return target_scan != nullptr;
-      }
+      // Note: Distinct is now supported in parallel chains via SharedDistinctState
+      // Each DistinctCursor in the parallel context shares a thread-safe seen_rows set
       // Operators that need to be updated if running in parallel
-      if (current_type == Skip::kType || current_type == Limit::kType) {
+      if (current_type == Skip::kType || current_type == Limit::kType || current_type == Distinct::kType) {
         update_ops.push_back(current);
       }
 

@@ -2227,7 +2227,7 @@ class Skip : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Expression *expression_;
-  std::optional<size_t> parallel_execution{std::nullopt};
+  std::optional<size_t> parallel_execution_{std::nullopt};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -2318,7 +2318,7 @@ class Limit : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Expression *expression_;
-  std::optional<size_t> parallel_execution{std::nullopt};
+  std::optional<size_t> parallel_execution_{std::nullopt};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -2539,6 +2539,7 @@ class Distinct : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::vector<Symbol> value_symbols_;
+  std::optional<size_t> parallel_execution_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
