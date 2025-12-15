@@ -45,7 +45,7 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
   storage::replication::CreateDatabaseReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  if (!current_main_uuid || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CreateDatabaseReq::kType.name);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -95,7 +95,7 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   memgraph::storage::replication::DropDatabaseReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  if (!current_main_uuid || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::DropDatabaseReq::kType.name);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -152,7 +152,7 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   memgraph::storage::replication::RenameDatabaseReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  if (!current_main_uuid || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::RenameDatabaseReq::kType.name);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;

@@ -299,7 +299,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
 
-  if (!current_main_uuid || req.main_uuid != *current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::HeartbeatReq::kType.name);
     const storage::replication::HeartbeatRes res{false, 0, "", 0};
     rpc::SendFinalResponse(res, request_version, res_builder);
@@ -336,7 +336,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   storage::replication::PrepareCommitReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  if (!current_main_uuid || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::PrepareCommitReq::kType.name);
     const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, request_version, res_builder);
@@ -407,7 +407,7 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   storage::replication::FinalizeCommitReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  if (!current_main_uuid || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::FinalizeCommitReq::kType.name);
     storage::replication::FinalizeCommitRes const res(false);
     rpc::SendFinalResponse(res, request_version, res_builder);
@@ -499,7 +499,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }
-  if (!current_main_uuid || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
     rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
     return;
@@ -649,7 +649,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
-  if (!current_main_uuid || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
     rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder);
     return;
@@ -761,7 +761,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
     return;
   }
 
-  if (!current_main_uuid || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
     rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
     return;

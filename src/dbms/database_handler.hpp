@@ -47,7 +47,9 @@ class DatabaseHandler : public Handler<Database> {
 
   ~DatabaseHandler() override {
     for (auto &db : *this) {
-      (*db.second.access())->StopAllBackgroundTasks();
+      if (auto db_acc = db.second.access()) {
+        (*db_acc)->StopAllBackgroundTasks();
+      }
     }
   }
 
