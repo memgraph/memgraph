@@ -171,9 +171,8 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
               return {std::move(res)};
             },
             [&](durability::ReplicaRole &&r) -> FetchReplicationResult_t {
-              // False positive report for the std::make_unique
-              // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
-              return {RoleReplicaData{r.config, std::make_unique<ReplicationServer>(r.config), r.main_uuid}};
+              auto server = std::make_unique<ReplicationServer>(r.config);
+              return {RoleReplicaData{.config = r.config, .server = std::move(server), .uuid_ = r.main_uuid}};
             },
         },
         std::move(data.role));
