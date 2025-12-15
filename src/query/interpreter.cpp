@@ -4584,6 +4584,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
 
 Callback DropTrigger(TriggerQuery *trigger_query, TriggerStore *trigger_store) {
   return {.header = {},
+          // NOLINTNEXTLINE(bugprone-exception-escape)
           .fn = [trigger_name = std::move(trigger_query->trigger_name_),
                  trigger_store]() -> std::vector<std::vector<TypedValue>> {
             trigger_store->DropTrigger(trigger_name);
