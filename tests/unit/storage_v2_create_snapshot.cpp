@@ -117,7 +117,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
 
   // Try to create another snapshot immediately - should fail with NothingNewToWrite
   auto result2 = mem_storage->CreateSnapshot();
-  ASSERT_TRUE(!result2.has_value()) << "Second CreateSnapshot should fail";
+  ASSERT_FALSE(result2.has_value()) << "Second CreateSnapshot should fail";
   ASSERT_EQ(result2.error(), memgraph::storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite)
       << "Should return NothingNewToWrite error";
 
@@ -194,7 +194,7 @@ TEST_F(CreateSnapshotTest, SuccessCaseWithPathRetrieval) {
   // Test the new functionality - getting the path on success
   auto result = mem_storage->CreateSnapshot();
 
-  if (!result.has_value()) {
+  if (!result) {
     FAIL() << "CreateSnapshot should succeed with data present";
   } else {
     // New functionality: get the path

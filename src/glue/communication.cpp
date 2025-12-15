@@ -47,7 +47,7 @@ auto BoltMapToMgType(bolt_map_t const &value, storage::Storage const *storage)
     case MgType::Enum: {
       if (!storage) return std::nullopt;
       auto enum_val = storage->enum_store_.ToEnum(mg_value);
-      if (!enum_val.has_value()) return std::nullopt;
+      if (!enum_val) return std::nullopt;
       return storage::ExternalPropertyValue(*enum_val);
     }
   }
@@ -149,7 +149,7 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       bolt_map_t map;
       for (const auto &kv : value.ValueMap()) {
         auto maybe_value = ToBoltValue(kv.second, db, view);
-        if (!maybe_value.has_value()) return std::unexpected{maybe_value.error()};
+        if (!maybe_value) return std::unexpected{maybe_value.error()};
         map.emplace(kv.first, std::move(*maybe_value));
       }
       return storage::Result<Value>{std::in_place, std::move(map)};
@@ -162,7 +162,7 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       values.reserve(value.ValueList().size());
       for (const auto &v : value.ValueList()) {
         auto maybe_value = ToBoltValue(v, db, view);
-        if (!maybe_value.has_value()) return std::unexpected{maybe_value.error()};
+        if (!maybe_value) return std::unexpected{maybe_value.error()};
         values.emplace_back(std::move(*maybe_value));
       }
       return storage::Result<Value>{std::in_place, std::move(values)};
@@ -170,31 +170,31 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     case query::TypedValue::Type::Vertex: {
       check_db();
       auto maybe_vertex = ToBoltVertex(value.ValueVertex(), *db, view);
-      if (!maybe_vertex.has_value()) return std::unexpected{maybe_vertex.error()};
+      if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
       return storage::Result<Value>{std::in_place, std::move(*maybe_vertex)};
     }
     case query::TypedValue::Type::Edge: {
       check_db();
       auto maybe_edge = ToBoltEdge(value.ValueEdge(), *db, view);
-      if (!maybe_edge.has_value()) return std::unexpected{maybe_edge.error()};
+      if (!maybe_edge) return std::unexpected{maybe_edge.error()};
       return storage::Result<Value>{std::in_place, std::move(*maybe_edge)};
     }
     case query::TypedValue::Type::Path: {
       check_db();
       auto maybe_path = ToBoltPath(value.ValuePath(), *db, view);
-      if (!maybe_path.has_value()) return std::unexpected{maybe_path.error()};
+      if (!maybe_path) return std::unexpected{maybe_path.error()};
       return storage::Result<Value>{std::in_place, std::move(*maybe_path)};
     }
     case query::TypedValue::Type::Graph: {
       check_db();
       auto maybe_graph = ToBoltGraph(value.ValueGraph(), *db, view);
-      if (!maybe_graph.has_value()) return std::unexpected{maybe_graph.error()};
+      if (!maybe_graph) return std::unexpected{maybe_graph.error()};
       return storage::Result<Value>{std::in_place, std::move(*maybe_graph)};
     }
     case query::TypedValue::Type::Enum: {
       check_db();
       auto maybe_enum_value_str = db->enum_store_.ToString(value.ValueEnum());
-      if (!maybe_enum_value_str.has_value()) [[unlikely]] {
+      if (!maybe_enum_value_str) [[unlikely]] {
         throw communication::bolt::ValueException("Enum not registered in the database");
       }
       auto map = bolt_map_t{};
@@ -220,14 +220,14 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
                                                           const storage::Storage &db, storage::View view) {
   auto id = communication::bolt::Id::FromUint(vertex.Gid().AsUint());
   auto maybe_labels = vertex.Labels(view);
-  if (!maybe_labels.has_value()) return std::unexpected{maybe_labels.error()};
+  if (!maybe_labels) return std::unexpected{maybe_labels.error()};
   std::vector<std::string> labels;
   labels.reserve(maybe_labels->size());
   for (const auto &label : *maybe_labels) {
     labels.push_back(db.LabelToName(label));
   }
   auto maybe_properties = vertex.Properties(view);
-  if (!maybe_properties.has_value()) return std::unexpected{maybe_properties.error()};
+  if (!maybe_properties) return std::unexpected{maybe_properties.error()};
   bolt_map_t properties;
   for (const auto &prop : *maybe_properties) {
     properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
@@ -244,7 +244,7 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
   auto to = communication::bolt::Id::FromUint(edge.ToVertex().Gid().AsUint());
   auto type = db.EdgeTypeToName(edge.EdgeType());
   auto maybe_properties = edge.Properties(view);
-  if (!maybe_properties.has_value()) return std::unexpected{maybe_properties.error()};
+  if (!maybe_properties) return std::unexpected{maybe_properties.error()};
   bolt_map_t properties;
   for (const auto &prop : *maybe_properties) {
     properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
@@ -263,14 +263,14 @@ storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, c
   vertices.reserve(path.vertices().size());
   for (const auto &v : path.vertices()) {
     auto maybe_vertex = ToBoltVertex(v, db, view);
-    if (!maybe_vertex.has_value()) return std::unexpected{maybe_vertex.error()};
+    if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
     vertices.emplace_back(std::move(*maybe_vertex));
   }
   std::vector<communication::bolt::Edge> edges;
   edges.reserve(path.edges().size());
   for (const auto &e : path.edges()) {
     auto maybe_edge = ToBoltEdge(e, db, view);
-    if (!maybe_edge.has_value()) return std::unexpected{maybe_edge.error()};
+    if (!maybe_edge) return std::unexpected{maybe_edge.error()};
     edges.emplace_back(std::move(*maybe_edge));
   }
   return communication::bolt::Path(vertices, edges);
@@ -282,7 +282,7 @@ storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage
   vertices.reserve(graph.vertices().size());
   for (const auto &v : graph.vertices()) {
     auto maybe_vertex = ToBoltVertex(v, db, view);
-    if (!maybe_vertex.has_value()) return std::unexpected{maybe_vertex.error()};
+    if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
     vertices.emplace_back(std::move(*maybe_vertex));
   }
   map.emplace("nodes", Value(vertices));
@@ -291,7 +291,7 @@ storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage
   edges.reserve(graph.edges().size());
   for (const auto &e : graph.edges()) {
     auto maybe_edge = ToBoltEdge(e, db, view);
-    if (!maybe_edge.has_value()) return std::unexpected{maybe_edge.error()};
+    if (!maybe_edge) return std::unexpected{maybe_edge.error()};
     edges.emplace_back(std::move(*maybe_edge));
   }
   map.emplace("edges", Value(edges));
@@ -445,7 +445,7 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
     }
     case storage::PropertyValue::Type::Enum: {
       auto maybe_enum_value_str = storage.enum_store_.ToString(value.ValueEnum());
-      if (!maybe_enum_value_str.has_value()) [[unlikely]] {
+      if (!maybe_enum_value_str) [[unlikely]] {
         throw communication::bolt::ValueException("Enum not registered in the database");
       }
       // Bolt does not know about enums, encode as map type instead

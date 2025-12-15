@@ -523,7 +523,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             // reimplemented.
             has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
           }
-          if (!has_label.has_value()) {
+          if (!has_label) {
             switch (has_label.error()) {
               case storage::Error::DELETED_OBJECT:
                 throw QueryRuntimeException("Trying to access labels on a deleted node.");
@@ -553,7 +553,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
               // reimplemented.
               has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
             }
-            if (!has_label.has_value()) {
+            if (!has_label) {
               switch (has_label.error()) {
                 case storage::Error::DELETED_OBJECT:
                   throw QueryRuntimeException("Trying to access labels on a deleted node.");
@@ -986,7 +986,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(EnumValueAccess &enum_value_access) override {
     auto maybe_enum = dba_->GetEnumValue(enum_value_access.enum_name_, enum_value_access.enum_value_);
-    if (!maybe_enum.has_value()) [[unlikely]] {
+    if (!maybe_enum) [[unlikely]] {
       throw QueryRuntimeException("Enum value '{}' in enum '{}' not found.", enum_value_access.enum_value_,
                                   enum_value_access.enum_name_);
     }
@@ -1005,7 +1005,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
       maybe_prop = record_accessor.GetProperty(storage::View::NEW, ctx_->properties[prop.ix]);
     }
-    if (!maybe_prop.has_value()) {
+    if (!maybe_prop) {
       switch (maybe_prop.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get a property from a deleted object.");
@@ -1032,7 +1032,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
       maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
     }
-    if (!maybe_prop.has_value()) {
+    if (!maybe_prop) {
       switch (maybe_prop.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get a property from a deleted object.");
@@ -1060,7 +1060,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
       maybe_props = record_accessor.Properties(storage::View::NEW);
     }
-    if (!maybe_props.has_value()) {
+    if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get properties from a deleted object.");

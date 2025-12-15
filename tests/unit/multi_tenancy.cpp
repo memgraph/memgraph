@@ -239,9 +239,9 @@ TEST_F(MultiTenantTest, DbmsNewTryDelete) {
   UseDatabase(interpreter1, "db4", "Using db4");
 
   ASSERT_TRUE(dbms.TryDelete("db1").has_value());
-  ASSERT_TRUE(!dbms.TryDelete("db2").has_value());
+  ASSERT_FALSE(dbms.TryDelete("db2").has_value());
   ASSERT_TRUE(dbms.TryDelete("db3").has_value());
-  ASSERT_TRUE(!dbms.TryDelete("db4").has_value());
+  ASSERT_FALSE(dbms.TryDelete("db4").has_value());
 }
 
 TEST_F(MultiTenantTest, DbmsUpdate) {
@@ -268,7 +268,7 @@ TEST_F(MultiTenantTest, DbmsUpdate) {
   // Fail to update dirty default db
   const memgraph::storage::SalientConfig &failing_config{.name = "memgraph", .uuid = {}};
   auto failed_update = dbms.Update(failing_config);
-  ASSERT_TRUE(!failed_update.has_value());
+  ASSERT_FALSE(failed_update.has_value());
 
   // Succeed when updating with the same config
   auto same_update = dbms.Update(config);

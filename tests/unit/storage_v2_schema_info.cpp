@@ -2380,7 +2380,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
         auto v = acc->FindVertex(from_gid, View::NEW);
         ASSERT_TRUE(v);
         const auto labels = v->Labels(View::NEW);
-        if (!labels.has_value()) continue;
+        if (!labels) continue;
         if (labels->empty()) {
           can_commit &= v->AddLabel(l1).has_value();
         } else {
@@ -2390,7 +2390,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
       if (i % 3 == 0) {
         auto v = acc->FindVertex(to_gid, View::NEW);
         const auto labels = v->Labels(View::NEW);
-        if (!labels.has_value()) continue;
+        if (!labels) continue;
         if (labels->empty()) {
           can_commit &= v->AddLabel(l2).has_value();
         } else {
@@ -2411,7 +2411,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
         auto edge = acc->FindEdge(edge_gid, View::NEW);
         if (!edge) continue;  // Other thread could delete the edge
         const auto props = edge->Properties(View::NEW);
-        if (!props.has_value()) continue;
+        if (!props) continue;
         bool can_commit = true;
         if (props->empty()) {
           can_commit = edge->SetProperty(p1, PropertyValue{""}).has_value();
@@ -2435,7 +2435,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
           auto edge = acc->FindEdge(edge_gid, View::NEW);
           if (!edge) continue;  // Edge could be deleted
           const auto props = edge->Properties(View::NEW);
-          if (!props.has_value()) continue;
+          if (!props) continue;
           bool can_commit = edge->SetProperty(p1, PropertyValue{123}).has_value();
           if (i % 3) {
             can_commit &= edge->SetProperty(p1, PropertyValue{true}).has_value();
@@ -2456,7 +2456,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
             auto v2 = acc->FindVertex(to_gid, View::NEW);
             ASSERT_TRUE(v2);
             auto edge = acc->CreateEdge(&*v1, &*v2, e1);
-            if (!edge.has_value()) continue;
+            if (!edge) continue;
             edge_gid = edge->Gid();
           }
           if (can_commit) ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());

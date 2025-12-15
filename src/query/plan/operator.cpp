@@ -475,7 +475,7 @@ VertexAccessor const &CreateLocalVertex(const NodeCreationInfo &node_info, Frame
   context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
   for (const auto &label : labels) {
     auto maybe_error = std::invoke([&] { return new_node.AddLabel(label); });
-    if (!maybe_error.has_value()) {
+    if (!maybe_error) {
       switch (maybe_error.error()) {
         case storage::Error::SERIALIZATION_ERROR:
           throw TransactionSerializationException();
@@ -1555,7 +1555,7 @@ bool CheckExistingNode(const VertexAccessor &new_node, const Symbol &existing_no
 
 template <class TEdgesResult>
 auto UnwrapEdgesResult(storage::Result<TEdgesResult> &&result) {
-  if (!result.has_value()) {
+  if (!result) {
     switch (result.error()) {
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get relationships of a deleted node.");
@@ -4556,7 +4556,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (!has_more || (buffer_size_.has_value() && pulled_ >= *buffer_size_)) {
     auto &dba = *context.db_accessor;
     auto res = dba.DetachDelete(std::move(buffer_.nodes), std::move(buffer_.edges), self_.detach_);
-    if (!res.has_value()) {
+    if (!res) {
       switch (res.error()) {
         case storage::Error::SERIALIZATION_ERROR:
           throw TransactionSerializationException();
@@ -4932,7 +4932,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       context->trigger_context_collector->ShouldRegisterObjectPropertyChange<TRecordAccessor>();
   if (op == SetProperties::Op::REPLACE) {
     auto maybe_value = record->ClearProperties();
-    if (!maybe_value.has_value()) {
+    if (!maybe_value) {
       switch (maybe_value.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
@@ -4953,7 +4953,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
 
   auto get_props = [](const auto &record) {
     auto maybe_props = record.Properties(storage::View::NEW);
-    if (!maybe_props.has_value()) {
+    if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get properties from a deleted object.");
@@ -5187,7 +5187,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
 
     for (auto label : labels) {
       auto maybe_value = vertex.AddLabel(label);
-      if (!maybe_value.has_value()) {
+      if (!maybe_value) {
         switch (maybe_value.error()) {
           case storage::Error::SERIALIZATION_ERROR:
             throw TransactionSerializationException();
@@ -5255,7 +5255,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
 
   auto remove_prop = [property = self_.property_, &context](auto *record) {
     auto maybe_old_value = record->RemoveProperty(property);
-    if (!maybe_old_value.has_value()) {
+    if (!maybe_old_value) {
       switch (maybe_old_value.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to remove a property on a deleted graph element.");
@@ -5522,7 +5522,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
 
     for (auto label : labels) {
       auto maybe_value = vertex.RemoveLabel(label);
-      if (!maybe_value.has_value()) {
+      if (!maybe_value) {
         switch (maybe_value.error()) {
           case storage::Error::SERIALIZATION_ERROR:
             throw TransactionSerializationException();
@@ -8497,7 +8497,7 @@ class PeriodicCommitCursor : public Cursor {
 
     AbortCheck(context);
 
-    if (!commit_frequency_.has_value()) [[unlikely]] {
+    if (!commit_frequency_) [[unlikely]] {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD, nullptr, &context.number_of_hops);
       commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
@@ -8516,7 +8516,7 @@ class PeriodicCommitCursor : public Cursor {
       commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
     }
 
-    if (!commit_result.has_value()) {
+    if (!commit_result) {
       HandlePeriodicCommitError(commit_result.error());
     }
 
@@ -8594,7 +8594,7 @@ class PeriodicSubqueryCursor : public Cursor {
 
     AbortCheck(context);
 
-    if (!commit_frequency_.has_value()) [[unlikely]] {
+    if (!commit_frequency_) [[unlikely]] {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD, nullptr, &context.number_of_hops);
       commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
@@ -8608,7 +8608,7 @@ class PeriodicSubqueryCursor : public Cursor {
           if (pulled_ > 0) {
             // do periodic commit for the rest of pulled items
             const auto commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
-            if (!commit_result.has_value()) {
+            if (!commit_result) {
               HandlePeriodicCommitError(commit_result.error());
             }
           }
@@ -8625,7 +8625,7 @@ class PeriodicSubqueryCursor : public Cursor {
       if (pulled_ >= commit_frequency_) {
         // do periodic commit since we pulled that many times
         const auto commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
-        if (!commit_result.has_value()) {
+        if (!commit_result) {
           HandlePeriodicCommitError(commit_result.error());
         }
         pulled_ = 0;

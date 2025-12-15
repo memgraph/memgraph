@@ -168,7 +168,7 @@ void Reader::impl::TryInitializeHeader() {
   }
 
   auto header = ParseHeader();
-  if (!header.has_value()) {
+  if (!header) {
     throw CsvReadException("CSV reading : {}", header.error().message);
   }
 
@@ -342,7 +342,7 @@ Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
 std::optional<Reader::Row> Reader::impl::GetNextRow(utils::MemoryResource *mem) {
   auto row = ParseRow(mem);
 
-  if (!row.has_value()) [[unlikely]] {
+  if (!row) [[unlikely]] {
     if (!read_config_.ignore_bad) {
       throw CsvReadException("CSV Reader: Bad row at line {:d}: {}", line_count_ - 1, row.error().message);
     }

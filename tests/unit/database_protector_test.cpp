@@ -134,12 +134,12 @@ void CreateVerticesWithLabel(memgraph::storage::InMemoryStorage *storage, memgra
   for (int i = 0; i < vertex_count; ++i) {
     auto vertex = acc->CreateVertex();
     auto add_label = vertex.AddLabel(label);
-    if (!add_label.has_value()) {
+    if (!add_label) {
       throw std::runtime_error("Failed to add label to vertex");
     }
   }
   auto commit_result = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-  if (!commit_result.has_value()) {
+  if (!commit_result) {
     throw std::runtime_error("Failed to commit vertex creation transaction");
   }
 }
@@ -153,7 +153,7 @@ size_t CountVerticesWithLabel(memgraph::storage::InMemoryStorage *storage, memgr
     ++count;
   }
   auto commit_result = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-  if (!commit_result.has_value()) {
+  if (!commit_result) {
     return 0;  // Error in transaction
   }
   return count;

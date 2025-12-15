@@ -1548,7 +1548,7 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsDrop) {
   {
     auto unique_acc = this->db_acc_->get()->UniqueAccess();
     auto res1 = unique_acc->DropTypeConstraint(this->label1, this->prop1, TypeConstraintKind::FLOAT);
-    ASSERT_TRUE(!res1.has_value());
+    ASSERT_FALSE(res1.has_value());
     auto res2 = unique_acc->DropTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
     ASSERT_NO_ERROR(res2);
   }

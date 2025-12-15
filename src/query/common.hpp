@@ -195,7 +195,7 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
                                        storage::NameIdMapper *name_id_mapper) {
   try {
     auto maybe_old_value = record->SetProperty(key, value.ToPropertyValue(name_id_mapper));
-    if (!maybe_old_value.has_value()) {
+    if (!maybe_old_value) {
       ProcessError(maybe_old_value.error());
     }
     return std::move(*maybe_old_value);
@@ -217,7 +217,7 @@ template <AccessorWithInitProperties T>
 bool MultiPropsInitChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   try {
     auto maybe_values = record->InitProperties(properties);
-    if (!maybe_values.has_value()) {
+    if (!maybe_values) {
       ProcessError(maybe_values.error());
     }
     return std::move(*maybe_values);
@@ -243,7 +243,7 @@ auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::P
     -> std::remove_reference_t<decltype(record->UpdateProperties(properties).value())> {
   try {
     auto maybe_values = record->UpdateProperties(properties);
-    if (!maybe_values.has_value()) {
+    if (!maybe_values) {
       ProcessError(maybe_values.error());
     }
     return std::move(*maybe_values);

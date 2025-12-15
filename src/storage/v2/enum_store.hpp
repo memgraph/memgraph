@@ -74,7 +74,7 @@ struct EnumStore {
   auto UpdateValue(std::string_view e_type, std::string_view old_value, std::string_view new_value)
       -> std::expected<Enum, EnumStorageError> {
     auto etype = ToEnumType(e_type);
-    if (!etype.has_value()) return std::unexpected(etype.error());
+    if (!etype) return std::unexpected(etype.error());
     return UpdateValue(*etype, old_value, new_value);
   }
 
@@ -83,7 +83,7 @@ struct EnumStore {
     namespace rv = ranges::views;
 
     auto e_value = ToEnumValue(e_type, old_value);
-    if (!e_value.has_value()) return std::unexpected(e_value.error());
+    if (!e_value) return std::unexpected(e_value.error());
 
     if (old_value == new_value) return std::unexpected{EnumStorageError::InvalidValue};
 
@@ -101,7 +101,7 @@ struct EnumStore {
 
   auto AddValue(std::string_view e_type, std::string_view new_value) -> std::expected<Enum, EnumStorageError> {
     auto etype = ToEnumType(e_type);
-    if (!etype.has_value()) return std::unexpected(etype.error());
+    if (!etype) return std::unexpected(etype.error());
     return AddValue(*etype, new_value);
   }
 
@@ -144,7 +144,7 @@ struct EnumStore {
   auto ToEnumValue(std::string_view type_str, std::string_view value_str) const
       -> std::expected<EnumValueId, EnumStorageError> {
     auto e_type = ToEnumType(type_str);
-    if (!e_type.has_value()) return std::unexpected(e_type.error());
+    if (!e_type) return std::unexpected(e_type.error());
     return ToEnumValue(*e_type, value_str);
   }
 
@@ -167,9 +167,9 @@ struct EnumStore {
 
   auto ToEnum(std::string_view type_str, std::string_view value_str) const -> std::expected<Enum, EnumStorageError> {
     auto e_type = ToEnumType(type_str);
-    if (!e_type.has_value()) return std::unexpected(e_type.error());
+    if (!e_type) return std::unexpected(e_type.error());
     auto e_value = ToEnumValue(*e_type, value_str);
-    if (!e_value.has_value()) return std::unexpected(e_value.error());
+    if (!e_value) return std::unexpected(e_value.error());
     return Enum{*e_type, *e_value};
   }
 
@@ -192,9 +192,9 @@ struct EnumStore {
 
   auto ToString(Enum val) const -> std::expected<std::string, EnumStorageError> {
     auto type_str = ToTypeString(val.type_id());
-    if (!type_str.has_value()) return std::unexpected(type_str.error());
+    if (!type_str) return std::unexpected(type_str.error());
     auto value_str = ToValueString(val.type_id(), val.value_id());
-    if (!value_str.has_value()) return std::unexpected(value_str.error());
+    if (!value_str) return std::unexpected(value_str.error());
 
     return std::format("{}::{}", *type_str, *value_str);
   }

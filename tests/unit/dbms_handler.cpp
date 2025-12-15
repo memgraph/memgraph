@@ -136,7 +136,7 @@ TEST(DBMS_Handler, New) {
   {
     // Fail if name exists
     auto db2 = dbms.New("db1");
-    ASSERT_TRUE(!db2.has_value() && db2.error() == memgraph::dbms::NewError::EXISTS);
+    ASSERT_EQ(db2, std::unexpected{memgraph::dbms::NewError::EXISTS});
   }
   {
     const auto dirs = GetDirs(db_dir);
@@ -189,17 +189,16 @@ TEST(DBMS_Handler, Delete) {
 
   {
     auto del = dbms.TryDelete(memgraph::dbms::kDefaultDB);
-    ASSERT_TRUE(!del.has_value() && del.error() == memgraph::dbms::DeleteError::DEFAULT_DB);
+    ASSERT_EQ(del, std::unexpected{memgraph::dbms::DeleteError::DEFAULT_DB});
   }
   {
     auto del = dbms.TryDelete("non-existent");
-    ASSERT_TRUE(!del.has_value() && del.error() == memgraph::dbms::DeleteError::NON_EXISTENT);
+    ASSERT_EQ(del, std::unexpected{memgraph::dbms::DeleteError::NON_EXISTENT});
   }
   {
     // db1_acc is using db1
     auto del = dbms.TryDelete("db1");
-    ASSERT_TRUE(!del.has_value());
-    ASSERT_TRUE(del.error() == memgraph::dbms::DeleteError::USING);
+    ASSERT_EQ(del, std::unexpected{memgraph::dbms::DeleteError::USING});
   }
   {
     // Reset db1_acc (releases access) so delete will succeed
@@ -208,7 +207,7 @@ TEST(DBMS_Handler, Delete) {
     auto del = dbms.TryDelete("db1");
     ASSERT_TRUE(del.has_value()) << (int)del.error();
     auto del2 = dbms.TryDelete("db1");
-    ASSERT_TRUE(!del2.has_value() && del2.error() == memgraph::dbms::DeleteError::NON_EXISTENT);
+    ASSERT_EQ(del2, std::unexpected{memgraph::dbms::DeleteError::NON_EXISTENT});
   }
   {
     const auto dirs = GetDirs(db_dir);

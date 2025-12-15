@@ -198,7 +198,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     using ClientRegisterReplicaStatus = RegisterReplicaStatus;
 
     auto maybe_client = locked_repl_state->RegisterReplica(config);
-    if (!maybe_client.has_value()) {
+    if (!maybe_client) {
       switch (maybe_client.error()) {
         case ClientRegisterReplicaStatus::NOT_MAIN:
           return std::unexpected{RegisterReplicaError::NOT_MAIN};

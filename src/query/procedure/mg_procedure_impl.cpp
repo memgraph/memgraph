@@ -2042,7 +2042,7 @@ mgp_error mgp_vertex_get_in_degree(struct mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
         auto maybe_in_degree = std::visit([v](const auto &impl) { return impl.InDegree(v->graph->view); }, v->impl);
-        if (!maybe_in_degree.has_value()) {
+        if (!maybe_in_degree) {
           switch (maybe_in_degree.error()) {
             case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the degree of a deleted vertex!"};
@@ -2063,7 +2063,7 @@ mgp_error mgp_vertex_get_out_degree(struct mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
         auto maybe_out_degree = std::visit([v](const auto &impl) { return impl.OutDegree(v->graph->view); }, v->impl);
-        if (!maybe_out_degree.has_value()) {
+        if (!maybe_out_degree) {
           switch (maybe_out_degree.error()) {
             case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the degree of a deleted vertex!"};
@@ -2256,7 +2256,7 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
         },
         v->impl);
 
-    if (!result.has_value()) {
+    if (!result) {
       switch (result.error()) {
         case memgraph::storage::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot set the properties of a deleted vertex!"};
@@ -2317,7 +2317,7 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
 
     const auto result = v->getImpl().UpdateProperties(props);
 
-    if (!result.has_value()) {
+    if (!result) {
       switch (result.error()) {
         case memgraph::storage::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot set the properties of a deleted vertex!"};
@@ -2374,7 +2374,7 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
 
     const auto result = std::visit([label_id](auto &impl) { return impl.AddLabel(label_id); }, v->impl);
 
-    if (!result.has_value()) {
+    if (!result) {
       switch (result.error()) {
         case memgraph::storage::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot add a label to a deleted vertex!"};
@@ -2416,7 +2416,7 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
     }
     const auto result = std::visit([label_id](auto &impl) { return impl.RemoveLabel(label_id); }, v->impl);
 
-    if (!result.has_value()) {
+    if (!result) {
       switch (result.error()) {
         case memgraph::storage::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot remove a label from a deleted vertex!"};
@@ -2463,7 +2463,7 @@ mgp_error mgp_vertex_labels_count(mgp_vertex *v, size_t *result) {
         return std::visit(
             [v](const auto &impl) {
               const auto maybe_labels = impl.Labels(v->graph->view);
-              if (!maybe_labels.has_value()) {
+              if (!maybe_labels) {
                 switch (maybe_labels.error()) {
                   case memgraph::storage::Error::DELETED_OBJECT:
                     throw DeletedObjectException{"Cannot get the labels of a deleted vertex!"};
@@ -2487,7 +2487,7 @@ mgp_error mgp_vertex_label_at(mgp_vertex *v, size_t i, mgp_label *result) {
       [v, i]() -> const char * {
         // TODO: Maybe it's worth caching this in mgp_vertex.
         auto maybe_labels = std::visit([v](const auto &impl) { return impl.Labels(v->graph->view); }, v->impl);
-        if (!maybe_labels.has_value()) {
+        if (!maybe_labels) {
           switch (maybe_labels.error()) {
             case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get a label of a deleted vertex!"};
@@ -2523,7 +2523,7 @@ mgp_error mgp_vertex_has_label_named(mgp_vertex *v, const char *name, int *resul
 
         auto maybe_has_label =
             std::visit([v, label](auto &impl) { return impl.HasLabel(v->graph->view, label); }, v->impl);
-        if (!maybe_has_label.has_value()) {
+        if (!maybe_has_label) {
           switch (maybe_has_label.error()) {
             case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot check the existence of a label on a deleted vertex!"};
@@ -2553,7 +2553,7 @@ mgp_error mgp_vertex_get_property(mgp_vertex *v, const char *name, mgp_memory *m
         const auto &key = std::visit([name](auto *impl) { return impl->NameToProperty(name); }, v->graph->impl);
 
         auto maybe_prop = std::visit([v, key](auto &impl) { return impl.GetProperty(v->graph->view, key); }, v->impl);
-        if (!maybe_prop.has_value()) {
+        if (!maybe_prop) {
           switch (maybe_prop.error()) {
             case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get a property of a deleted vertex!"};
@@ -2579,7 +2579,7 @@ mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_prop
   return WrapExceptions(
       [v, memory] {
         auto maybe_props = std::visit([v](auto &impl) { return impl.Properties(v->graph->view); }, v->impl);
-        if (!maybe_props.has_value()) {
+        if (!maybe_props) {
           switch (maybe_props.error()) {
             case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the properties of a deleted vertex!"};
@@ -2634,7 +2634,7 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
         MG_ASSERT(it != nullptr);
 
         auto maybe_edges = std::visit([v](auto &impl) { return impl.InEdges(v->graph->view); }, v->impl);
-        if (!maybe_edges.has_value()) {
+        if (!maybe_edges) {
           switch (maybe_edges.error()) {
             case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the inbound edges of a deleted vertex!"};
@@ -2685,7 +2685,7 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
         MG_ASSERT(it != nullptr);
         auto maybe_edges = std::visit([v](auto &impl) { return impl.OutEdges(v->graph->view); }, v->impl);
 
-        if (!maybe_edges.has_value()) {
+        if (!maybe_edges) {
           switch (maybe_edges.error()) {
             case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the outbound edges of a deleted vertex!"};
@@ -2849,7 +2849,7 @@ mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memor
         const auto &key = std::visit([name](auto *impl) { return impl->NameToProperty(name); }, e->from.graph->impl);
         auto view = e->from.graph->view;
         auto maybe_prop = e->impl.GetProperty(view, key);
-        if (!maybe_prop.has_value()) {
+        if (!maybe_prop) {
           switch (maybe_prop.error()) {
             case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get a property of a deleted edge!"};
@@ -2885,7 +2885,7 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
         std::visit([property_name](auto *impl) { return impl->NameToProperty(property_name); }, e->from.graph->impl);
     const auto result = e->impl.SetProperty(prop_key, ToPropertyValue(*property_value, GetNameIdMapper(e->from.graph)));
 
-    if (!result.has_value()) {
+    if (!result) {
       switch (result.error()) {
         case memgraph::storage::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot set the properties of a deleted edge!"};
@@ -2945,7 +2945,7 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
         properties->items);
 
     const auto result = e->impl.UpdateProperties(props);
-    if (!result.has_value()) {
+    if (!result) {
       switch (result.error()) {
         case memgraph::storage::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot set the properties of a deleted edge!"};
@@ -2992,7 +2992,7 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
       [e, memory] {
         auto view = e->from.graph->view;
         auto maybe_props = e->impl.Properties(view);
-        if (!maybe_props.has_value()) {
+        if (!maybe_props) {
           switch (maybe_props.error()) {
             case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the properties of a deleted edge!"};
@@ -3047,7 +3047,7 @@ mgp_error mgp_create_label_index(mgp_graph *graph, const char *label, int *resul
                              return impl->GetAccessor()->CreateIndex(label_id);
                            }},
                        graph->impl);
-        return !index_res.has_value() ? 0 : 1;
+        return index_res.has_value() ? 1 : 0;
       },
       result);
 }
@@ -3063,7 +3063,7 @@ mgp_error mgp_drop_label_index(mgp_graph *graph, const char *label, int *result)
                              return impl->GetAccessor()->DropIndex(label_id);
                            }},
                        graph->impl);
-        return !index_res.has_value() ? 0 : 1;
+        return index_res.has_value() ? 1 : 0;
       },
       result);
 }
@@ -3117,7 +3117,7 @@ mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, c
                                           return impl->GetAccessor()->CreateIndex(label_id, {property_path});
                                         }},
             graph->impl);
-        return !index_res.has_value() ? 0 : 1;
+        return index_res.has_value() ? 1 : 0;
       },
       result);
 }
@@ -3145,7 +3145,7 @@ mgp_error mgp_drop_label_property_index(mgp_graph *graph, const char *label, con
                                           return impl->GetAccessor()->DropIndex(label_id, {property_path});
                                         }},
             graph->impl);
-        return !index_res.has_value() ? 0 : 1;
+        return index_res.has_value() ? 1 : 0;
       },
       result);
 }
@@ -3228,7 +3228,7 @@ mgp_error mgp_create_existence_constraint(mgp_graph *graph, const char *label, c
                                           return impl->GetAccessor()->CreateExistenceConstraint(label_id, property_id);
                                         }},
             graph->impl);
-        return !exist_res.has_value() ? 0 : 1;
+        return exist_res.has_value() ? 1 : 0;
       },
       result);
 }
@@ -3247,7 +3247,7 @@ mgp_error mgp_drop_existence_constraint(mgp_graph *graph, const char *label, con
                                           return impl->GetAccessor()->DropExistenceConstraint(label_id, property_id);
                                         }},
             graph->impl);
-        return !exist_res.has_value() ? 0 : 1;
+        return exist_res.has_value() ? 1 : 0;
       },
       result);
 }
@@ -3303,7 +3303,7 @@ mgp_error mgp_create_unique_constraint(mgp_graph *graph, const char *label, mgp_
                                           return impl->GetAccessor()->CreateUniqueConstraint(label_id, property_ids);
                                         }},
             graph->impl);
-        return !unique_res.has_value() ? 0 : 1;
+        return unique_res.has_value() ? 1 : 0;
       },
       result);
 }
@@ -3466,7 +3466,7 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
                        }},
                    graph->impl);
 
-    if (!result.has_value()) {
+    if (!result) {
       switch (result.error()) {
         case memgraph::storage::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing a vertex!");
@@ -3516,7 +3516,7 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
             }},
         graph->impl);
 
-    if (!result.has_value()) {
+    if (!result) {
       switch (result.error()) {
         case memgraph::storage::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing a vertex!");
@@ -3582,7 +3582,7 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
                            }},
                        graph->impl);
 
-        if (!edge.has_value()) {
+        if (!edge) {
           switch (edge.error()) {
             case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot add an edge to a deleted vertex!"};
@@ -3631,7 +3631,7 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
     }
 
     const auto result = std::visit([edge](auto *impl) { return impl->RemoveEdge(&edge->impl); }, graph->impl);
-    if (!result.has_value()) {
+    if (!result) {
       switch (result.error()) {
         case memgraph::storage::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing an edge!");

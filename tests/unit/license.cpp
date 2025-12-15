@@ -100,7 +100,7 @@ TEST_F(LicenseTest, Expiration) {
     CheckLicenseValidity(true);
 
     std::this_thread::sleep_for(delta + std::chrono::seconds(1));
-    ASSERT_TRUE(!license_checker->IsEnterpriseValid(*settings).has_value());
+    ASSERT_FALSE(license_checker->IsEnterpriseValid(*settings).has_value());
     // We can't check fast checker because it has unknown refresh rate
   }
   {

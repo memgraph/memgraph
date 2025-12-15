@@ -740,7 +740,7 @@ void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, BuiltinModule *
     }
 
     const auto parent_module_directory = ParentModuleDirectory(*module_registry, path);
-    if (!parent_module_directory.has_value()) {
+    if (!parent_module_directory) {
       static_cast<void>(mgp_result_set_error_msg(result, parent_module_directory.error()));
       return;
     }

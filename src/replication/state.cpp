@@ -43,7 +43,7 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
 
   auto fetched_replication_data = FetchReplicationData();
-  if (!fetched_replication_data.has_value()) {
+  if (!fetched_replication_data) {
     switch (fetched_replication_data.error()) {
       using enum ReplicationState::FetchReplicationError;
       case NOTHING_FETCHED: {
@@ -124,7 +124,7 @@ bool ReplicationState::TryPersistUnregisterReplica(std::string_view name) {
 auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
   if (!HasDurability()) return std::unexpected{FetchReplicationError::NOTHING_FETCHED};
   const auto replication_data = durability_->Get(durability::kReplicationRoleName);
-  if (!replication_data.has_value()) {
+  if (!replication_data) {
     return std::unexpected{FetchReplicationError::NOTHING_FETCHED};
   }
 

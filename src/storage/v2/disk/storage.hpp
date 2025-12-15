@@ -381,14 +381,14 @@ class DiskStorage final : public Storage {
 
       // Drop indices
       auto index_result = DropIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
-      if (!index_result.has_value()) {
+      if (!index_result) {
         // Silently fail if vertex index already dropped
       }
 
       // Check if edge TTL was enabled and drop edge index if needed
       if (storage_->ttl_.Config().should_run_edge_ttl) {
         auto edge_index_result = DropGlobalEdgeIndex(ttl_property);
-        if (!edge_index_result.has_value()) {
+        if (!edge_index_result) {
           // Silently fail if edge index already dropped
         }
       }

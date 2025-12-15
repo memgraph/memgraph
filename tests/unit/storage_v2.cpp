@@ -2627,7 +2627,7 @@ TYPED_TEST(StorageV2Test, DeletedVertexAccessor) {
   auto deleted_vertex = maybe_deleted_vertex.value();
   ASSERT_TRUE(deleted_vertex);
   // you cannot modify deleted vertex
-  ASSERT_TRUE(!deleted_vertex->ClearProperties().has_value());
+  ASSERT_FALSE(deleted_vertex->ClearProperties().has_value());
 
   // you can call read only methods
   const auto maybe_property = deleted_vertex->GetProperty(property, memgraph::storage::View::OLD);

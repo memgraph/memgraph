@@ -112,7 +112,7 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
 
 inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
     std::expected<ReplicationClient *, RegisterReplicaStatus> &instance_client) {
-  if (!instance_client.has_value()) {
+  if (!instance_client) {
     switch (instance_client.error()) {
       case RegisterReplicaStatus::NOT_MAIN:
         MG_ASSERT(false, "Only main instance can register a replica!");

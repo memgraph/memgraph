@@ -73,7 +73,7 @@ TEST_F(DBMS_Database, New) {
     ASSERT_TRUE(db4.has_value() && db4.value());
     ASSERT_TRUE(std::filesystem::exists(storage_directory / "four"));
     auto db5 = db_handler.New(default_conf("db3"), generic_repl_state);
-    ASSERT_TRUE(!db5.has_value() && db5.error() == memgraph::dbms::NewError::EXISTS);
+    ASSERT_EQ(db5, std::unexpected{memgraph::dbms::NewError::EXISTS});
   }
 
   auto all = db_handler.All();

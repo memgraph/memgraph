@@ -1012,7 +1012,7 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
 
   /// TODO: (andi) Refactor
   auto maybe_result = Storage::Accessor::DetachDelete(nodes, edges, detach);
-  if (!maybe_result.has_value()) {
+  if (!maybe_result) {
     return std::unexpected{maybe_result.error()};
   }
 
@@ -1091,7 +1091,7 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid gid, View vi
                                                                 VertexAccessor *from_vertex,
                                                                 VertexAccessor *to_vertex) {
   auto res = FindEdges(view, edge_type, from_vertex, to_vertex);
-  if (!res.has_value()) return std::nullopt;  // TODO: use a Result type
+  if (!res) return std::nullopt;  // TODO: use a Result type
 
   auto const it = std::ranges::find_if(
       res->edges, [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.ptr->gid == gid; });
@@ -2264,7 +2264,7 @@ DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<
     return constraint_check;
   }
   auto check = on_disk->CheckExistingVerticesBeforeCreatingUniqueConstraint(label, properties);
-  if (!check.has_value()) {
+  if (!check) {
     return std::unexpected{StorageUniqueConstraintDefinitionError{check.error()}};
   }
   if (!disk_unique_constraints->InsertConstraint(label, properties, check.value())) {

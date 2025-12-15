@@ -201,7 +201,7 @@ bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, Pro
   auto res = RegisterIndex(edge_type, property);
   if (!res) return false;
   auto res2 = PopulateIndex(edge_type, property, std::move(vertices), snapshot_info);
-  if (!res2.has_value()) {
+  if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
   return PublishIndex(edge_type, property, 0);

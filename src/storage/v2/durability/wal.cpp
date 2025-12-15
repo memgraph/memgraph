@@ -1334,7 +1334,7 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalEnumCreate &data) {
         auto res = enum_store->RegisterEnum(std::move(data.etype), std::move(data.evalues));
-        if (!res.has_value()) {
+        if (!res) {
           switch (res.error()) {
             case EnumStorageError::EnumExists:
               throw RecoveryFailure("The enum already exist!");
@@ -1348,7 +1348,7 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalEnumAlterAdd &data) {
         auto res = enum_store->AddValue(std::move(data.etype), std::move(data.evalue));
-        if (!res.has_value()) {
+        if (!res) {
           switch (res.error()) {
             case EnumStorageError::InvalidValue:
               throw RecoveryFailure("Enum value already exists.");
@@ -1363,7 +1363,7 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalEnumAlterUpdate const &data) {
         auto const &[enum_name, enum_value_old, enum_value_new] = data;
         auto res = enum_store->UpdateValue(enum_name, enum_value_old, enum_value_new);
-        if (!res.has_value()) {
+        if (!res) {
           switch (res.error()) {
             case EnumStorageError::InvalidValue:
               throw RecoveryFailure("Enum value {}::{} already exists.", enum_name, enum_value_new);
@@ -1441,7 +1441,7 @@ std::optional<RecoveryInfo> LoadWal(
 
       if (should_commit) {
         // First delta which is not WalTransactionStart -> allocate RecoveryInfo
-        if (!ret.has_value()) {
+        if (!ret) {
           ret.emplace(RecoveryInfo{.next_timestamp = delta_ts + 1, .last_durable_timestamp = delta_ts});
         } else {
           ret->next_timestamp = std::max(ret->next_timestamp, delta_ts + 1);

@@ -43,7 +43,7 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
   storage->CreateSnapshotHandler(
       [storage = storage.get()]() -> std::expected<void, storage::InMemoryStorage::CreateSnapshotError> {
         auto result = storage->CreateSnapshot();
-        if (!result.has_value()) {
+        if (!result) {
           return std::unexpected(result.error());
         }
         return {};

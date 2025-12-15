@@ -423,7 +423,7 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   auto get_properties = [&](const auto &record_accessor) {
     TypedValue::TMap properties(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
-    if (!maybe_props.has_value()) {
+    if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get properties from a deleted object.");
@@ -506,7 +506,7 @@ TypedValue StartNode(const TypedValue *args, int64_t nargs, const FunctionContex
 namespace {
 
 size_t UnwrapDegreeResult(storage::Result<size_t> maybe_degree) {
-  if (!maybe_degree.has_value()) {
+  if (!maybe_degree) {
     switch (maybe_degree.error()) {
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get degree of a deleted node.");
@@ -686,7 +686,7 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   auto get_keys = [&](const auto &record_accessor) {
     TypedValue::TVector keys(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
-    if (!maybe_props.has_value()) {
+    if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get keys from a deleted object.");
@@ -728,7 +728,7 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   auto get_values = [&](const auto &record_accessor) {
     TypedValue::TVector values(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
-    if (!maybe_props.has_value()) {
+    if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get keys from a deleted object.");
@@ -773,7 +773,7 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   TypedValue::TVector labels(ctx.memory);
   auto maybe_labels = args[0].ValueVertex().Labels(ctx.view);
-  if (!maybe_labels.has_value()) {
+  if (!maybe_labels) {
     switch (maybe_labels.error()) {
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get labels from a deleted node.");
@@ -1090,7 +1090,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
 
     case Enum: {
       auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-      if (!opt_str.has_value()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+      if (!opt_str) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
       return TypedValue(*opt_str, ctx.memory);
     }
 
@@ -1155,7 +1155,7 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
 
     case Enum: {
       auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-      if (!opt_str.has_value()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+      if (!opt_str) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
       return TypedValue(*opt_str, ctx.memory);
     }
 
@@ -1578,12 +1578,12 @@ TypedValue ToEnum(const TypedValue *args, int64_t nargs, const FunctionContext &
   auto const &s1 = args[0].ValueString();
   if (nargs == 1) {
     auto enum_val = ctx.db_accessor->GetEnumValue(s1);
-    if (!enum_val.has_value()) throw QueryRuntimeException("Invalid enum '{}'", s1);
+    if (!enum_val) throw QueryRuntimeException("Invalid enum '{}'", s1);
     return TypedValue(*enum_val, ctx.memory);
   }
   auto const &s2 = args[1].ValueString();
   auto enum_val = ctx.db_accessor->GetEnumValue(s1, s2);
-  if (!enum_val.has_value()) throw QueryRuntimeException("Invalid enum '{}::{}'", s1, s2);
+  if (!enum_val) throw QueryRuntimeException("Invalid enum '{}::{}'", s1, s2);
   return TypedValue(*enum_val, ctx.memory);
 }
 
@@ -1672,12 +1672,12 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
   std::optional<storage::CoordinateReferenceSystem> mg_crs;
   if (crs.has_value()) {
     mg_crs = storage::StringToCrs(*crs);
-    if (!mg_crs.has_value()) {
+    if (!mg_crs) {
       throw QueryRuntimeException("Invalid CRS.");
     }
   } else if (srid.has_value()) {
     mg_crs = storage::SridToCrs(static_cast<storage::Srid>(*srid));
-    if (!mg_crs.has_value()) {
+    if (!mg_crs) {
       throw QueryRuntimeException("Invalid SRID.");
     }
   }
@@ -1688,8 +1688,8 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
   }
 
   using enum storage::CoordinateReferenceSystem;
-  if (!mg_crs.has_value()) {
-    if (!z_opt.has_value()) {
+  if (!mg_crs) {
+    if (!z_opt) {
       mg_crs = inferred_as_wgs ? WGS84_2d : Cartesian_2d;
     } else {
       mg_crs = inferred_as_wgs ? WGS84_3d : Cartesian_3d;
@@ -1705,7 +1705,7 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
         "Longitude/x [-180, 180] and latitude/y [-90, 90] must be in the given range for WGS point types.");
   }
 
-  if (!z_opt.has_value()) {
+  if (!z_opt) {
     if (!storage::valid2d(*mg_crs)) {
       throw QueryRuntimeException("Concluded point type is 2D but CRS/SRID says it is 3D.");
     }

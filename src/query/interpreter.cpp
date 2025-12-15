@@ -419,7 +419,7 @@ class ReplQueryHandler {
 
     const auto error = handler_->TryRegisterReplica(replication_config);
 
-    if (!error.has_value()) {
+    if (!error) {
       if (error.error() == RegisterReplicaError::NOT_MAIN) {
         throw QueryRuntimeException("Replica can't register another replica!");
       }
@@ -452,7 +452,7 @@ class ReplQueryHandler {
 
   std::vector<ReplicasInfo> ShowReplicas() const {
     auto info = handler_->ShowReplicas();
-    if (!info.has_value()) {
+    if (!info) {
       switch (info.error()) {
         case ShowReplicaError::NOT_MAIN:
           throw QueryRuntimeException("Show replicas query should only be run on the main instance.");
@@ -3521,7 +3521,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
         auto maybe_index_error = properties.empty()
                                      ? dba->CreateIndex(label, std::move(cancel_callback))
                                      : dba->CreateIndex(label, std::move(properties), std::move(cancel_callback));
-        if (!maybe_index_error.has_value()) {
+        if (!maybe_index_error) {
           auto const error_visitor = [&]<typename T>(T const &) {
             if constexpr (std::is_same_v<T, storage::IndexDefinitionError> ||
                           std::is_same_v<T, storage::IndexDefinitionConfigError> ||
@@ -3553,7 +3553,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                  properties = std::move(properties)](Notification &index_notification) mutable {
         auto maybe_index_error =
             properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, std::move(properties));
-        if (!maybe_index_error.has_value()) {
+        if (!maybe_index_error) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title =
               fmt::format("Index on label {} on properties {} doesn't exist.", label_name, properties_stringified);
@@ -3642,7 +3642,7 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
           return dba->CreateIndex(edge_type, properties[0], std::move(cancel_check));
         });
 
-        if (!maybe_index_error.has_value()) {
+        if (!maybe_index_error) {
           auto const error_visitor = [&]<typename T>(T const &) {
             if constexpr (std::is_same_v<T, storage::IndexDefinitionError> ||
                           std::is_same_v<T, storage::IndexDefinitionConfigError> ||
@@ -3679,7 +3679,7 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
           return properties.empty() ? dba->DropIndex(edge_type) : dba->DropIndex(edge_type, properties[0]);
         });
 
-        if (!maybe_index_error.has_value()) {
+        if (!maybe_index_error) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title =
               fmt::format("Index on edge-type {} on {} doesn't exist.", label_name, properties_stringified);
@@ -3738,7 +3738,7 @@ PreparedQuery PreparePointIndexQuery(ParsedQuery parsed_query, bool in_explicit_
         auto maybe_index_error = dba->CreatePointIndex(label_id, prop_id);
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
 
-        if (!maybe_index_error.has_value()) {
+        if (!maybe_index_error) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
           index_notification.title =
               fmt::format("Point index on label {} and property {} already exists.", label_name, prop_name);
@@ -3760,7 +3760,7 @@ PreparedQuery PreparePointIndexQuery(ParsedQuery parsed_query, bool in_explicit_
         auto maybe_index_error = dba->DropPointIndex(label_id, prop_id);
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
 
-        if (!maybe_index_error.has_value()) {
+        if (!maybe_index_error) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title =
               fmt::format("Point index on label {} and property {} doesn't exist.", label_name, prop_name);
@@ -3829,7 +3829,7 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
             .scalar_kind = vector_index_config.scalar_kind,
         });
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
-        if (!maybe_error.has_value()) {
+        if (!maybe_error) {
           index_notification.title = fmt::format(
               "Error while creating vector index on label {}, property {}, for more information check the logs.",
               label_name, prop_name);
@@ -3846,7 +3846,7 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
 
         auto maybe_index_error = dba->DropVectorIndex(index_name);
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
-        if (!maybe_index_error.has_value()) {
+        if (!maybe_index_error) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title = fmt::format("Vector index {} doesn't exist.", index_name);
         }
@@ -3917,7 +3917,7 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
         .scalar_kind = vector_index_config.scalar_kind,
     });
     utils::OnScopeExit const invalidator(invalidate_plan_cache);
-    if (!maybe_error.has_value()) {
+    if (!maybe_error) {
       index_notification.title = fmt::format(
           "Error while creating vector index on edge type {}, property {}, for more information check the logs.",
           edge_type, prop_name);
@@ -3965,7 +3965,7 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       handler = [dba, label_id, index_name, label_name = std::move(label_name),
                  property_ids = std::move(property_ids)](Notification &index_notification) {
         auto maybe_error = dba->CreateTextIndex(storage::TextIndexSpec{index_name, label_id, property_ids});
-        if (!maybe_error.has_value()) {
+        if (!maybe_error) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
           index_notification.title =
               fmt::format("Text index on label {} with name {} already exists.", label_name, index_name);
@@ -3978,7 +3978,7 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       index_notification.title = fmt::format("Dropped text index {}.", index_name);
       handler = [dba, index_name](Notification &index_notification) {
         auto maybe_error = dba->DropTextIndex(index_name);
-        if (!maybe_error.has_value()) {
+        if (!maybe_error) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title = fmt::format("Text index with name {} doesn't exist.", index_name);
         }
@@ -4030,7 +4030,7 @@ PreparedQuery PrepareCreateTextEdgeIndexQuery(ParsedQuery parsed_query, bool in_
   handler = [dba, edge_type_id, index_name, edge_type_name = std::move(text_edge_index_query->edge_type_.name),
              property_ids = std::move(property_ids)](Notification &index_notification) {
     auto maybe_error = dba->CreateTextEdgeIndex(storage::TextEdgeIndexSpec{index_name, edge_type_id, property_ids});
-    if (!maybe_error.has_value()) {
+    if (!maybe_error) {
       index_notification.code = NotificationCode::EXISTENT_INDEX;
       index_notification.title =
           fmt::format("Text index on label {} with name {} already exists.", edge_type_name, index_name);
@@ -4401,7 +4401,7 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
         switch (action) {
           case LockPathQuery::Action::LOCK_PATH: {
             const auto lock_success = mem_storage->LockPath();
-            if (!lock_success.has_value()) [[unlikely]] {
+            if (!lock_success) [[unlikely]] {
               throw QueryRuntimeException("Failed to lock the data directory");
             }
             res = lock_success.value() ? "Data directory is now locked." : "Data directory is already locked.";
@@ -4409,7 +4409,7 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
           }
           case LockPathQuery::Action::UNLOCK_PATH: {
             const auto unlock_success = mem_storage->UnlockPath();
-            if (!unlock_success.has_value()) [[unlikely]] {
+            if (!unlock_success) [[unlikely]] {
               throw QueryRuntimeException("Failed to unlock the data directory");
             }
             res = unlock_success.value() ? "Data directory is now unlocked." : "Data directory is already unlocked.";
@@ -4417,7 +4417,7 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
           }
           case LockPathQuery::Action::STATUS: {
             const auto locked_status = mem_storage->IsPathLocked();
-            if (!locked_status.has_value()) [[unlikely]] {
+            if (!locked_status) [[unlikely]] {
               throw QueryRuntimeException("Failed to access the data directory");
             }
             res = locked_status.value() ? "Data directory is locked." : "Data directory is unlocked.";
@@ -4961,7 +4961,7 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
     auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
     constexpr bool kForce = true;
     const auto maybe_path = mem_storage->CreateSnapshot(kForce);
-    if (!maybe_path.has_value()) {
+    if (!maybe_path) {
       switch (maybe_path.error()) {
         case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
           spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
@@ -5734,7 +5734,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                      properties = std::move(properties)](Notification &constraint_notification) {
             auto maybe_constraint_error = dba->CreateExistenceConstraint(label, properties[0]);
 
-            if (!maybe_constraint_error.has_value()) {
+            if (!maybe_constraint_error) {
               const auto &error = maybe_constraint_error.error();
               std::visit(
                   [storage, &label_name, &properties_stringified, &constraint_notification]<typename T>(T &&arg) {
@@ -5776,7 +5776,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                      properties_stringified = std::move(properties_stringified),
                      property_set = std::move(property_set)](Notification &constraint_notification) {
             auto maybe_constraint_error = dba->CreateUniqueConstraint(label, property_set);
-            if (!maybe_constraint_error.has_value()) {
+            if (!maybe_constraint_error) {
               const auto &error = maybe_constraint_error.error();
               std::visit(
                   [storage, &label_name, &properties_stringified, &constraint_notification]<typename T>(T &&arg) {
@@ -5838,7 +5838,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                      properties = std::move(properties)](Notification & /**/) {
             auto maybe_constraint_error = dba->CreateTypeConstraint(label, properties[0], constraint_type);
 
-            if (!maybe_constraint_error.has_value()) {
+            if (!maybe_constraint_error) {
               const auto &error = maybe_constraint_error.error();
               std::visit(
                   [storage, &label_name, &properties_stringified,
@@ -5885,7 +5885,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification &constraint_notification) {
             auto maybe_constraint_error = dba->DropExistenceConstraint(label, properties[0]);
-            if (!maybe_constraint_error.has_value()) {
+            if (!maybe_constraint_error) {
               constraint_notification.code = NotificationCode::NONEXISTENT_CONSTRAINT;
               constraint_notification.title = fmt::format(
                   "Constraint EXISTS on label {} on properties {} doesn't exist.", label_name, properties_stringified);
@@ -5947,7 +5947,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification & /**/) {
             auto maybe_constraint_error = dba->DropTypeConstraint(label, properties[0], constraint_type);
-            if (!maybe_constraint_error.has_value()) {
+            if (!maybe_constraint_error) {
               throw QueryRuntimeException("Constraint IS TYPED {} on :{}({}) doesn't exist",
                                           storage::TypeConstraintKindToString(constraint_type), label_name,
                                           properties_stringified);
@@ -6002,7 +6002,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
             std::string res;
 
             const auto success = db_handler->New(db_name, &*interpreter->system_transaction_);
-            if (!success.has_value()) {
+            if (!success) {
               switch (success.error()) {
                 case dbms::NewError::EXISTS:
                   res = db_name + " already exists.";
@@ -6338,7 +6338,7 @@ PreparedQuery PrepareCreateEnumQuery(ParsedQuery parsed_query, CurrentDB &curren
            enum_values = std::move(create_enum_query->enum_values_)](
               AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
             auto res = dba.CreateEnum(enum_name, enum_values);
-            if (!res.has_value()) {
+            if (!res) {
               switch (res.error()) {
                 case storage::EnumStorageError::EnumExists:
                   throw QueryRuntimeException("Enum already exists.");
@@ -6387,7 +6387,7 @@ PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &curr
            enum_value = std::move(alter_enum_add_query->enum_value_)](
               AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
             auto res = dba.EnumAlterAdd(enum_name, enum_value);
-            if (!res.has_value()) {
+            if (!res) {
               switch (res.error()) {
                 case storage::EnumStorageError::InvalidValue:
                   throw QueryRuntimeException("Enum value already exists.");
@@ -6416,7 +6416,7 @@ PreparedQuery PrepareEnumAlterUpdateQuery(ParsedQuery parsed_query, CurrentDB &c
            enum_value_new = std::move(alter_enum_update_query->new_enum_value_)](
               AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
             auto res = dba.EnumAlterUpdate(enum_name, enum_value_old, enum_value_new);
-            if (!res.has_value()) {
+            if (!res) {
               switch (res.error()) {
                 case storage::EnumStorageError::InvalidValue:
                   throw QueryRuntimeException("Enum value {}::{} already exists.", enum_name, enum_value_new);
@@ -7497,7 +7497,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
     } else if (utils::Downcast<CoordinatorQuery>(parsed_query.query)) {
 #ifdef MG_ENTERPRISE
-      if (!interpreter_context_->coordinator_state_.has_value()) {
+      if (!interpreter_context_->coordinator_state_) {
         throw QueryRuntimeException(
             "Coordinator was not initialized as coordinator port, coordinator id or management port were not "
             "set.");
@@ -7805,7 +7805,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
       return db_accessor.Commit(make_commit_arg(is_main, db_acc));
     });
 
-    if (!maybe_commit_error.has_value()) {
+    if (!maybe_commit_error) {
       const auto &error = maybe_commit_error.error();
 
       std::visit(
@@ -8025,7 +8025,7 @@ void Interpreter::Commit() {
   // Proactively unlock repl_state
   locked_repl_state.reset();
 
-  if (!maybe_commit_error.has_value()) {
+  if (!maybe_commit_error) {
     const auto &error = maybe_commit_error.error();
 
     std::visit(

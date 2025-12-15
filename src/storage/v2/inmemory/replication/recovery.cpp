@@ -144,7 +144,7 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
 
     if (std::cmp_less(wal_chain_info.first_useful_wal, wal_files.size())) {
       auto rw = GetRecoveryWalFiles(&locker_acc, wal_files, wal_chain_info.first_useful_wal);
-      if (!rw.has_value()) return std::nullopt;
+      if (!rw) return std::nullopt;
       recovery_steps.emplace_back(std::in_place_type_t<RecoveryWals>{}, std::move(*rw));
     }
 

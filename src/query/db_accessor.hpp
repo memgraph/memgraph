@@ -429,13 +429,13 @@ class DbAccessor final {
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
     auto maybe_edge = accessor_->CreateEdge(&from->impl_, &to->impl_, edge_type);
-    if (!maybe_edge.has_value()) return std::unexpected{maybe_edge.error()};
+    if (!maybe_edge) return std::unexpected{maybe_edge.error()};
     return EdgeAccessor(*maybe_edge);
   }
 
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
     auto res = accessor_->DeleteEdge(&edge->impl_);
-    if (!res.has_value()) {
+    if (!res) {
       return std::unexpected{res.error()};
     }
 
@@ -452,7 +452,7 @@ class DbAccessor final {
     using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
 
     auto res = accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
-    if (!res.has_value()) {
+    if (!res) {
       return std::unexpected{res.error()};
     }
 
@@ -473,7 +473,7 @@ class DbAccessor final {
 
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
     auto res = accessor_->DeleteVertex(&vertex_accessor->impl_);
-    if (!res.has_value()) {
+    if (!res) {
       return std::unexpected{res.error()};
     }
 
@@ -504,7 +504,7 @@ class DbAccessor final {
     }
 
     auto res = accessor_->DetachDelete(std::move(nodes_impl), std::move(edges_impl), detach);
-    if (!res.has_value()) {
+    if (!res) {
       return std::unexpected{res.error()};
     }
 

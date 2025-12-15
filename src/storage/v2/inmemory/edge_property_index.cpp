@@ -173,7 +173,7 @@ bool InMemoryEdgePropertyIndex::CreateIndexOnePass(PropertyId property, utils::S
   auto res = RegisterIndex(property);
   if (!res) return false;
   auto res2 = PopulateIndex(property, std::move(vertices), snapshot_info);
-  if (!res2.has_value()) {
+  if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
   return PublishIndex(property, 0);

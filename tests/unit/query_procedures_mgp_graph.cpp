@@ -88,7 +88,7 @@ using MgpValuePtr = std::unique_ptr<mgp_value, MgpValueDeleter>;
 
 template <typename TMaybeIterable, typename TIterableAccessor>
 size_t CountMaybeIterables(TMaybeIterable &&maybe_iterable, TIterableAccessor func) {
-  if (!maybe_iterable.has_value()) {
+  if (!maybe_iterable) {
     ADD_FAILURE() << static_cast<std::underlying_type_t<memgraph::storage::Error>>(maybe_iterable.error());
     return 0;
   }

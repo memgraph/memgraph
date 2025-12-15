@@ -427,7 +427,7 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
 
   auto maybe_result = Storage::Accessor::DetachDelete(nodes, edges, detach);
 
-  if (!maybe_result.has_value()) {
+  if (!maybe_result) {
     return std::unexpected{maybe_result.error()};
   }
 
@@ -578,7 +578,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
                                                                         VertexAccessor *from_vertex,
                                                                         VertexAccessor *to_vertex) {
   auto res = FindEdges(view, edge_type, from_vertex, to_vertex);
-  if (!res.has_value()) return std::nullopt;  // TODO: use a Result type
+  if (!res) return std::nullopt;  // TODO: use a Result type
 
   auto const it = std::invoke([this, gid, &res]() {
     auto const byGid = [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.gid == gid; };
@@ -1855,7 +1855,7 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
   auto ret = mem_unique_constraints->CreateConstraint(label, properties, in_memory->vertices_.access(), std::nullopt);
-  if (!ret.has_value()) {
+  if (!ret) {
     return std::unexpected{StorageUniqueConstraintDefinitionError{ret.error()}};
   }
   if (ret.value() != UniqueConstraints::CreationStatus::SUCCESS) {

@@ -925,7 +925,7 @@ TEST_F(ReplicationTest, EpochTest) {
   replica1.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
       .repl_server = Endpoint(local_host, ports[0]),
   });
-  ASSERT_TRUE(!main.repl_handler
+  ASSERT_FALSE(main.repl_handler
                    .TryRegisterReplica(ReplicationClientConfig{
                        .name = replicas[0],
                        .mode = ReplicationMode::SYNC,

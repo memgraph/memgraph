@@ -157,7 +157,7 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
   const auto license_check_result =
       IsValidLicenseInternal(*maybe_license, locked_previous_license_info->organization_name);
 
-  if (!license_check_result.has_value()) {
+  if (!license_check_result) {
     spdlog::warn(LicenseCheckErrorToString(license_check_result.error(), "Enterprise features"));
     is_valid_.store(false, std::memory_order_relaxed);
     locked_previous_license_info->is_valid = false;

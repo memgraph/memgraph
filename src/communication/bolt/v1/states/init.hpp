@@ -66,7 +66,7 @@ std::optional<State> BasicAuthentication(TSession &session, memgraph::communicat
   auto password = data["credentials"].ValueString();
 
   const auto auth_res = session.Authenticate(username, password);
-  if (!auth_res.has_value()) {
+  if (!auth_res) {
     switch (auth_res.error()) {
       case AuthFailure::kGeneric:
         HandleAuthFailure(session);
@@ -90,7 +90,7 @@ std::optional<State> SSOAuthentication(TSession &session, memgraph::communicatio
   auto scheme = data["scheme"].ValueString();
   auto identity_provider_response = data["credentials"].ValueString();
   const auto auth_res = session.SSOAuthenticate(scheme, identity_provider_response);
-  if (!auth_res.has_value()) {
+  if (!auth_res) {
     switch (auth_res.error()) {
       case AuthFailure::kGeneric:
         HandleAuthFailure(session);

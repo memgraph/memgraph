@@ -493,7 +493,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   utils::AtomicMemoryBlock([storage = storage_, transaction = transaction_, vertex = vertex_, &properties,
                             &id_old_new_change, skip_duplicate_update, &schema_acc]() {
     id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
-    if (!id_old_new_change.has_value()) {
+    if (!id_old_new_change) {
       return;
     }
 
@@ -545,7 +545,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   utils::AtomicMemoryBlock(
       [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &schema_acc]() {
         properties.emplace(vertex->properties.Properties());
-        if (!properties.has_value()) {
+        if (!properties) {
           return;
         }
         auto new_value = PropertyValue();
@@ -628,7 +628,7 @@ Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view)
   }
 
   auto property_result = this->GetProperty(property, view);
-  if (!property_result.has_value()) {
+  if (!property_result) {
     return std::unexpected{property_result.error()};
   }
 

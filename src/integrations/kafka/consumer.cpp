@@ -336,7 +336,7 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
     }
     auto maybe_batch = GetBatch(*consumer_, info_, is_running_);
 
-    if (!maybe_batch.has_value()) {
+    if (!maybe_batch) {
       throw ConsumerCheckFailedException(info_.consumer_name, maybe_batch.error());
     }
 
@@ -393,7 +393,7 @@ void Consumer::StartConsuming() {
 
     while (is_running_) {
       auto maybe_batch = GetBatch(*consumer_, info_, is_running_);
-      if (!maybe_batch.has_value()) {
+      if (!maybe_batch) {
         throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.error());
       }
       const auto &batch = maybe_batch.value();
@@ -436,7 +436,7 @@ void Consumer::StartConsumingWithLimit(uint64_t limit_batches, std::optional<std
     }
 
     const auto maybe_batch = GetBatch(*consumer_, info_, is_running_);
-    if (!maybe_batch.has_value()) {
+    if (!maybe_batch) {
       throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.error());
     }
     const auto &batch = maybe_batch.value();

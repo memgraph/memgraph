@@ -459,12 +459,12 @@ TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorMultipleEntriesEdgeCas
       for (const auto &entry : chunk) {
         if (prop.has_value()) return -1;
         auto v_prop = entry.GetProperty(property_id_, View::OLD);
-        if (!v_prop.has_value()) return -1;
+        if (!v_prop) return -1;
         if (!v_prop->IsInt()) return -1;
         prop = v_prop->ValueInt();
       }
     }
-    if (!prop.has_value()) return -1;
+    if (!prop) return -1;
     return *prop;
   };
 

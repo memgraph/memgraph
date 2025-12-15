@@ -225,7 +225,7 @@ auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedEdgeP
 bool FineGrainedAuthChecker::Has(const memgraph::query::VertexAccessor &vertex, const memgraph::storage::View view,
                                  const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
   auto maybe_labels = vertex.Labels(view);
-  if (!maybe_labels.has_value()) {
+  if (!maybe_labels) {
     switch (maybe_labels.error()) {
       case memgraph::storage::Error::DELETED_OBJECT:
         throw memgraph::query::QueryRuntimeException("Trying to get labels from a deleted node.");

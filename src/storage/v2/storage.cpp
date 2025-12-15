@@ -263,7 +263,7 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
   }
   auto res = DetachDelete({vertex}, {}, false);
 
-  if (!res.has_value()) {
+  if (!res) {
     return std::unexpected{res.error()};
   }
 
@@ -300,7 +300,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
 
   auto res = DetachDelete({vertex}, {}, true);
 
-  if (!res.has_value()) {
+  if (!res) {
     return std::unexpected{res.error()};
   }
 
@@ -319,7 +319,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
 Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
   auto res = DetachDelete({}, {edge}, false);
 
-  if (!res.has_value()) {
+  if (!res) {
     return std::unexpected{res.error()};
   }
 
@@ -362,7 +362,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
 
   // 1. Gather nodes which are not deleted yet in the system
   auto maybe_nodes_to_delete = PrepareDeletableNodes(nodes);
-  if (!maybe_nodes_to_delete.has_value()) {
+  if (!maybe_nodes_to_delete) {
     return std::unexpected{maybe_nodes_to_delete.error()};
   }
   const auto &nodes_to_delete = *maybe_nodes_to_delete.value();
@@ -375,7 +375,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   std::vector<EdgeAccessor> deleted_edges;
   if (detach) {
     auto maybe_cleared_edges = ClearEdgesOnVertices(nodes_to_delete, deleted_edge_ids, schema_acc);
-    if (!maybe_cleared_edges.has_value()) {
+    if (!maybe_cleared_edges) {
       return std::unexpected{maybe_cleared_edges.error()};
     }
 
@@ -384,14 +384,14 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
 
   // Detach nodes on the other end, which don't need deletion, by passing once through their vectors
   auto maybe_remaining_edges = DetachRemainingEdges(std::move(edge_deletion_info), deleted_edge_ids, schema_acc);
-  if (!maybe_remaining_edges.has_value()) {
+  if (!maybe_remaining_edges) {
     return std::unexpected{maybe_remaining_edges.error()};
   }
   const std::vector<EdgeAccessor> remaining_edges = *maybe_remaining_edges.value();
   deleted_edges.insert(deleted_edges.end(), remaining_edges.begin(), remaining_edges.end());
 
   auto const maybe_deleted_vertices = TryDeleteVertices(nodes_to_delete, schema_acc);
-  if (!maybe_deleted_vertices.has_value()) {
+  if (!maybe_deleted_vertices) {
     return std::unexpected{maybe_deleted_vertices.error()};
   }
 
@@ -565,12 +565,12 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
   // no need to lock here, we are just passing the pointer of the in and out edges collections
   for (auto *vertex_ptr : vertices) {
     auto maybe_error = clear_edges(vertex_ptr, &vertex_ptr->in_edges, Delta::AddInEdgeTag(), false);
-    if (!maybe_error.has_value()) {
+    if (!maybe_error) {
       return maybe_error;
     }
 
     maybe_error = clear_edges(vertex_ptr, &vertex_ptr->out_edges, Delta::AddOutEdgeTag(), true);
-    if (!maybe_error.has_value()) {
+    if (!maybe_error) {
       return maybe_error;
     }
   }
@@ -647,14 +647,14 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
   for (auto *vertex_ptr : info.partial_src_vertices) {
     auto maybe_error = clear_edges_on_other_direction(vertex_ptr, &vertex_ptr->out_edges, info.partial_src_edge_ids,
                                                       Delta::AddOutEdgeTag(), false);
-    if (!maybe_error.has_value()) {
+    if (!maybe_error) {
       return maybe_error;
     }
   }
   for (auto *vertex_ptr : info.partial_dest_vertices) {
     auto maybe_error = clear_edges_on_other_direction(vertex_ptr, &vertex_ptr->in_edges, info.partial_dest_edge_ids,
                                                       Delta::AddInEdgeTag(), true);
-    if (!maybe_error.has_value()) {
+    if (!maybe_error) {
       return maybe_error;
     }
   }

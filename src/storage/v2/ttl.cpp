@@ -318,7 +318,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
 
         // Commit the transaction for this batch using the database protector
         auto commit_result = batch_accessor->PrepareForCommitPhase(CommitArgs::make_main(std::move(protector)));
-        if (!commit_result.has_value()) {
+        if (!commit_result) {
           // Transaction failed, will retry in next iteration
           // TODO: on sync replication error it should not continue since it commits
           continue;

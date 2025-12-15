@@ -376,7 +376,7 @@ Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) c
 
   auto property_result = this->GetProperty(property, view);
 
-  if (!property_result.has_value()) {
+  if (!property_result) {
     return std::unexpected{property_result.error()};
   }
 

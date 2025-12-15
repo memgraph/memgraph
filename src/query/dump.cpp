@@ -104,7 +104,7 @@ void DumpDuration(std::ostream &os, const storage::TemporalData &value) {
 
 void DumpEnum(std::ostream &os, const storage::Enum &value, query::DbAccessor *dba) {
   auto const opt_str = dba->EnumToName(value);
-  if (!opt_str.has_value()) throw query::QueryRuntimeException("Unexpected error when getting enum.");
+  if (!opt_str) throw query::QueryRuntimeException("Unexpected error when getting enum.");
   os << *opt_str;
 }
 
@@ -256,7 +256,7 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
   *os << "CREATE (";
   *os << ":" << kInternalVertexLabel;
   auto maybe_labels = vertex.Labels(storage::View::OLD);
-  if (!maybe_labels.has_value()) {
+  if (!maybe_labels) {
     switch (maybe_labels.error()) {
       case storage::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException("Trying to get labels from a deleted node.");
@@ -273,7 +273,7 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
   }
   *os << " ";
   auto maybe_props = vertex.Properties(storage::View::OLD);
-  if (!maybe_props.has_value()) {
+  if (!maybe_props) {
     switch (maybe_props.error()) {
       case storage::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException("Trying to get properties from a deleted object.");
@@ -300,7 +300,7 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccesso
   *os << "CREATE (u)-[";
   *os << ":" << EscapeName(dba->EdgeTypeToName(edge.EdgeType()));
   auto maybe_props = edge.Properties(storage::View::OLD);
-  if (!maybe_props.has_value()) {
+  if (!maybe_props) {
     switch (maybe_props.error()) {
       case storage::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException("Trying to get properties from a deleted object.");
