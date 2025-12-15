@@ -27,13 +27,13 @@ namespace memgraph::query::plan {
 namespace impl {
 
 template <class TDbAccessor>
-class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisitor {
+class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  ParallelAggregateRewriter(SymbolTable *symbolTable, AstStorage *astStorage, TDbAccessor *db, size_t num_threads,
-                            std::shared_ptr<LogicalOperator> root)
+  ParallelRewriter(SymbolTable *symbolTable, AstStorage *astStorage, TDbAccessor *db, size_t num_threads,
+                   std::shared_ptr<LogicalOperator> root)
       : root_(root), symbol_table(symbolTable), ast_storage(astStorage), db(db), num_threads_(num_threads) {}
 
-  ~ParallelAggregateRewriter() override = default;
+  ~ParallelRewriter() override = default;
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -890,7 +890,7 @@ class ParallelAggregateRewriter final : public HierarchicalLogicalOperatorVisito
 }  // namespace impl
 
 template <class TDbAccessor>
-std::unique_ptr<LogicalOperator> RewriteParallelAggregate(
+std::unique_ptr<LogicalOperator> RewriteParallelExecution(
     std::unique_ptr<LogicalOperator> root_op, SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db,
     const memgraph::query::PreQueryDirectives &pre_query_directives, const Parameters &parameters) {
   if (pre_query_directives.parallel_execution_) {
@@ -913,7 +913,7 @@ std::unique_ptr<LogicalOperator> RewriteParallelAggregate(
     // We need to switch from unique to shared pointer to allow the rewriter to modify the tree
     std::shared_ptr<LogicalOperator> root_op_shared = std::move(root_op);
     auto rewriter =
-        impl::ParallelAggregateRewriter<TDbAccessor>{symbol_table, ast_storage, db, get_num_threads(), root_op_shared};
+        impl::ParallelRewriter<TDbAccessor>{symbol_table, ast_storage, db, get_num_threads(), root_op_shared};
     root_op_shared->Accept(rewriter);
     // Clone the root operator tree to convert from shared_ptr to unique_ptr
     return rewriter.root_->Clone(ast_storage);
