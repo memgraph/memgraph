@@ -345,7 +345,7 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
     return;
   }
 
-  auto privilege_context = std::invoke([&]() -> std::optional<Trigger::PrivilegeContext> {
+  auto const privilege_context = std::invoke([&]() -> std::optional<Trigger::PrivilegeContext> {
     if (version == kPreviousVersion) {
       return Trigger::PrivilegeContext::DEFINER;
     }

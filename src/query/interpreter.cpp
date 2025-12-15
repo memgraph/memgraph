@@ -4565,6 +4565,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
                  user_parameters, owner = std::move(owner), db_name,
                  trigger_privilege_context =
                      trigger_query->privilege_context_]() mutable -> std::vector<std::vector<TypedValue>> {
+            // NOLINTNEXTLINE(bugprone-exception-escape)
             trigger_store->AddTrigger(
                 std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
                 before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT,
