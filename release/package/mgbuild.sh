@@ -85,6 +85,7 @@ print_help () {
   echo -e "\nCommands:"
   echo -e "  build [OPTIONS]               Build mgbuild image"
   echo -e "  build-memgraph [OPTIONS]      Build memgraph binary inside mgbuild container"
+  echo -e "  build-ssl [OPTIONS]           Build OpenSSL inside mgbuild container"
   echo -e "  init-tests                    Initialize tests inside mgbuild container"
   echo -e "  copy [OPTIONS]                Copy an artifact from mgbuild container to host"
   echo -e "  package-memgraph              Create memgraph package from built binary inside mgbuild container"
@@ -134,6 +135,11 @@ print_help () {
   echo -e "  --conan-username string       Specify conan username (default \"\")"
   echo -e "  --conan-password string       Specify conan password (default \"\")"
   echo -e "  --build-dependency string     Specify build dependency (default \"\"). Set to \"all\" to install all dependencies, or a specific dependency name to install only that dependency. Dependencies are specified in the format of \"<package>/<version>\"."
+
+  echo -e "\nbuild-ssl options:"
+  echo -e "  --conan-remote string         Specify conan remote (optional)"
+  echo -e "  --conan-username string       Specify conan username (optional, but required for uploading to remote)"
+  echo -e "  --conan-password string       Specify conan password (optional, but required for uploading to remote)"
 
   echo -e "\ncopy options (default \"--binary\"):"
   echo -e "  --artifact-name string        Specify a custom name for the copied artifact"
