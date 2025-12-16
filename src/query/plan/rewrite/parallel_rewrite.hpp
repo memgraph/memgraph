@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <set>
 #include <vector>
@@ -684,6 +685,56 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
     return input_symbols;
   }
 
+  static constexpr auto update_types = std::array{Skip::kType, Limit::kType, Distinct::kType};
+  static constexpr auto conflicting_types =
+      std::array{Aggregate::kType, AggregateParallel::kType, OrderBy::kType, OrderByParallel::kType};
+
+  bool ConflictingOperators(LogicalOperator *start) {
+    if (!start) {
+      return false;
+    }
+    auto *current = start;
+    // Traverse down the input chain, tracing symbol dependencies backwards
+    while (current) {
+      if (std::ranges::find(conflicting_types, current->GetTypeInfo()) != conflicting_types.end()) {
+        return true;
+      }
+      if (current->HasSingleInput()) {
+        // Single input operators
+        current = current->input().get();
+      } else if (auto *cartesian_op = dynamic_cast<Cartesian *>(current)) {
+        if (ConflictingOperators(cartesian_op->left_op_.get()) || ConflictingOperators(cartesian_op->right_op_.get())) {
+          return true;
+        }
+      } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(current)) {
+        if (ConflictingOperators(hash_join_op->left_op_.get()) || ConflictingOperators(hash_join_op->right_op_.get())) {
+          return true;
+        }
+      } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current)) {
+        if (ConflictingOperators(indexed_join_op->main_branch_.get()) ||
+            ConflictingOperators(indexed_join_op->sub_branch_.get())) {
+          return true;
+        }
+      } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(current)) {
+        if (ConflictingOperators(rollup_apply_op->input_.get()) ||
+            ConflictingOperators(rollup_apply_op->list_collection_branch_.get())) {
+          return true;
+        }
+      } else if (dynamic_cast<Once *>(current) != nullptr || dynamic_cast<OutputTable *>(current) != nullptr ||
+                 dynamic_cast<OutputTableStream *>(current) != nullptr) {
+        // Terminal operators with no inputs - cannot have input symbols
+        return false;
+      } else {
+        spdlog::error(
+            "Unsupported operator in operator chain: {}. Please contact Memgraph support as this scenario should not "
+            "happen!",
+            current->ToString());
+        return false;
+      }
+    }
+    return false;
+  }
+
   // Helper function to find the Scan operator that produces the required symbols
   // This traces symbol dependencies backwards through operators
   // Returns true if a suitable Scan is found, false otherwise
@@ -706,14 +757,13 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
       // The nested Aggregate will be processed when we visit it
       // This prevents trying to parallelize outer Aggregates that depend on inner ones
       const auto current_type = current->GetTypeInfo();
-      if (current_type == Aggregate::kType || current_type == AggregateParallel::kType ||
-          current_type == OrderBy::kType || current_type == OrderByParallel::kType) {
+      if (std::ranges::find(conflicting_types, current_type) != conflicting_types.end()) {
         return target_scan != nullptr;
       }
       // Note: Distinct is now supported in parallel chains via SharedDistinctState
       // Each DistinctCursor in the parallel context shares a thread-safe seen_rows set
       // Operators that need to be updated if running in parallel
-      if (current_type == Skip::kType || current_type == Limit::kType || current_type == Distinct::kType) {
+      if (std::ranges::find(update_types, current_type) != update_types.end()) {
         update_ops.push_back(current);
       }
 
@@ -794,6 +844,13 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
               input_symbol_positions.insert(sym.position());
             }
           }
+        } else if (auto *union_op = dynamic_cast<Union *>(current)) {
+          if (union_op->left_op_) {
+            auto left_symbols = union_op->left_op_->ModifiedSymbols(*symbol_table);
+            for (const auto &sym : left_symbols) {
+              input_symbol_positions.insert(sym.position());
+            }
+          }
         } else if (dynamic_cast<Once *>(current) != nullptr || dynamic_cast<OutputTable *>(current) != nullptr ||
                    dynamic_cast<OutputTableStream *>(current) != nullptr) {
           // Terminal operators with no inputs - cannot have input symbols
@@ -838,36 +895,57 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
       parent = current;
 
       if (current->HasSingleInput()) {
+        // Special case for single input operators that have embedded queries
+        if (auto *periodic_subquery_op = dynamic_cast<PeriodicSubquery *>(current)) {
+          if (ConflictingOperators(periodic_subquery_op->subquery_.get())) break;
+        } else if (auto *apply_op = dynamic_cast<Apply *>(current)) {
+          if (ConflictingOperators(apply_op->subquery_.get())) break;
+        }
+        // We still go down the main branch
         current = current->input().get();
       } else {
         // For multi-input operators, check only main/left branches
+        // The right branch is going to be fully executed by each parallel branch, so no need to update operators to
+        // their parallel versions
+        // However, the right branch needs to be checked for conflicting operators
         LogicalOperator *found_scan = nullptr;
         LogicalOperator *found_parent = current;
         std::vector<LogicalOperator *> update_ops;
         if (auto *union_op = dynamic_cast<Union *>(current)) {
+          if (ConflictingOperators(union_op->right_op_.get())) break;
           if (FindScanForSymbols(union_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *cartesian_op = dynamic_cast<Cartesian *>(current)) {
+          if (ConflictingOperators(cartesian_op->right_op_.get())) break;
           if (FindScanForSymbols(cartesian_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current)) {
+          if (ConflictingOperators(indexed_join_op->sub_branch_.get())) break;
           if (FindScanForSymbols(indexed_join_op->main_branch_.get(), symbols_to_find, found_scan, found_parent,
                                  update_ops)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(current)) {
+          if (ConflictingOperators(hash_join_op->right_op_.get())) break;
           if (FindScanForSymbols(hash_join_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(current)) {
+          if (ConflictingOperators(rollup_apply_op->list_collection_branch_.get())) break;
           if (FindScanForSymbols(rollup_apply_op->input_.get(), symbols_to_find, found_scan, found_parent,
                                  update_ops)) {
+            target_scan = found_scan;
+            scan_parent = found_parent;
+          }
+        } else if (auto *union_op = dynamic_cast<Union *>(current)) {
+          if (ConflictingOperators(union_op->right_op_.get())) break;
+          if (FindScanForSymbols(union_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
@@ -882,7 +960,6 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
         break;
       }
     }
-
     return target_scan != nullptr;
   }
 };
