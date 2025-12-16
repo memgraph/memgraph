@@ -12,6 +12,7 @@ copy_graphql_e2e_python_files(graphql_arrays.py)
 copy_graphql_e2e_python_files(graphql_types.py)
 copy_graphql_e2e_python_files(graphql_mathematical_operators.py)
 copy_graphql_e2e_python_files(callable_alias_mapping.json)
+copy_graphql_e2e_python_files(.pnpmrc)
 
 add_subdirectory(graphql_library_config)
 

@@ -48,8 +48,7 @@ void AddNextExpansions(const Symbol &atom_symbol, const Matching &matching, cons
       // therefore bound. If the symbols are not found in the whole expansion,
       // then the semantic analysis should guarantee that the symbols have been
       // bound long before we expand.
-      if (matching.expansion_symbols.find(range_symbol) != matching.expansion_symbols.end() &&
-          expanded_symbols.find(range_symbol) == expanded_symbols.end()) {
+      if (matching.expansion_symbols.contains(range_symbol) && !expanded_symbols.contains(range_symbol)) {
         return false;
       }
     }
@@ -60,7 +59,7 @@ void AddNextExpansions(const Symbol &atom_symbol, const Matching &matching, cons
   auto atom_expansions_it = atom_expansions.begin();
   while (atom_expansions_it != atom_to_expansions_it->second.end()) {
     auto expansion_id = *atom_expansions_it;
-    if (seen_expansions.find(expansion_id) != seen_expansions.end()) {
+    if (seen_expansions.contains(expansion_id)) {
       // Skip and erase seen (already expanded) expansions.
       atom_expansions_it = atom_expansions.erase(atom_expansions_it);
       continue;
@@ -151,7 +150,7 @@ std::vector<Expansion> ExpansionsFrom(const PatternAtom *start_atom, const Match
     // correct order, since the original expansions were verified during
     // semantic analysis.
     for (size_t i = 0; i < matching.expansions.size(); ++i) {
-      if (seen_expansions.find(i) != seen_expansions.end()) {
+      if (seen_expansions.contains(i)) {
         continue;
       }
       expansions.emplace_back(matching.expansions[i]);

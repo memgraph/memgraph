@@ -725,6 +725,10 @@ class InMemoryStorage final : public Storage {
     Storage::StopAllBackgroundTasks();
   }
 
+  std::unordered_map<LabelId, uint64_t> GetLabelCounts() const override { return *label_counts_.Lock(); }
+
+  void UpdateLabelCount(LabelId label, int64_t change) override;
+
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc
@@ -840,6 +844,8 @@ class InMemoryStorage final : public Storage {
   std::optional<SnapshotDigest> last_snapshot_digest_;
 
   AsyncIndexer async_indexer_;
+
+  mutable utils::Synchronized<std::unordered_map<LabelId, uint64_t>, utils::SpinLock> label_counts_;
 };
 
 class ReplicationAccessor final : public InMemoryStorage::InMemoryAccessor {

@@ -470,7 +470,7 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
 
   auto get_errors = [&ret]() -> std::string {
     std::string default_error = "Couldn't authenticate user: check stderr for auth module error messages.";
-    if (ret.find("errors") == ret.end()) {
+    if (!ret.contains("errors")) {
       return default_error;
     }
     const auto &ret_errors = ret.at("errors");
@@ -482,7 +482,7 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
   };
 
   auto get_string_field = [&ret](const auto &name) -> std::optional<std::string> {
-    if (ret.find(name) == ret.end()) {
+    if (!ret.contains(name)) {
       spdlog::warn(utils::MessageWithLink(
           "Couldn't authenticate user: the field \"{}\" was not returned by the external auth module.", name,
           "https://memgr.ph/sso"));
@@ -501,7 +501,7 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
     return ret_field.template get<std::string>();
   };
 
-  if (!ret.is_object() || ret.find("authenticated") == ret.end()) {
+  if (!ret.is_object() || !ret.contains("authenticated")) {
     spdlog::warn(
         utils::MessageWithLink("Couldn't authenticate user: the message returned by the external auth module needs to "
                                "be an object with the success status in the \"authenticated\" field.",
@@ -528,7 +528,7 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
   std::vector<std::string> role_names;
 
   // Check for "roles" field first (multiple roles)
-  if (ret.find("roles") != ret.end()) {
+  if (ret.contains("roles")) {
     const auto &roles_field = ret.at("roles");
     if (roles_field.is_array()) {
       for (const auto &role_name : roles_field) {

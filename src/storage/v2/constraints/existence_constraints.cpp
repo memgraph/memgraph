@@ -20,7 +20,7 @@
 namespace memgraph::storage {
 
 bool ExistenceConstraints::ConstraintExists(LabelId label, PropertyId property) const {
-  return utils::Contains(constraints_, std::make_pair(label, property));
+  return std::ranges::contains(constraints_, std::make_pair(label, property));
 }
 
 void ExistenceConstraints::InsertConstraint(LabelId label, PropertyId property) {
@@ -59,7 +59,7 @@ void ExistenceConstraints::LoadExistenceConstraints(const std::vector<std::strin
 
 [[nodiscard]] std::optional<ConstraintViolation> ExistenceConstraints::ValidateVertexOnConstraint(
     const Vertex &vertex, const LabelId &label, const PropertyId &property) {
-  if (!vertex.deleted && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
+  if (!vertex.deleted && std::ranges::contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
     return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
   }
   return std::nullopt;

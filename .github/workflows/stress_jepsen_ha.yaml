@@ -1,7 +1,4 @@
 name: "Jepsen HA Stress Tests"
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ inputs.mode }}-${{ inputs.run-mt }}-${{ inputs.run-non-mt }}
-  cancel-in-progress: true
 
 on:
   workflow_dispatch:

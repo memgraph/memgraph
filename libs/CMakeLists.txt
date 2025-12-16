@@ -213,13 +213,11 @@ set(RC_ENABLE_GMOCK ON CACHE BOOL "Build Google Mock integration" FORCE)
 mark_as_advanced(RC_ENABLE_GTEST RC_ENABLE_GMOCK)
 add_subdirectory(rapidcheck EXCLUDE_FROM_ALL SYSTEM)
 
-# Setup json
+# Setup json for offline build (TODO: Remove this once the conan package has the patch)
 FetchContent_Declare(
     nlohmann_json
-    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
-    URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d
-    PATCH_COMMAND patch -p1 < "${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json3.11.3.patch"
-    # FIND_PACKAGE_ARGS # maybe needed for FETCHCONTENT_TRY_FIND_PACKAGE_MODE OPT_IN
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json
+    PATCH_COMMAND patch -p1 < "${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json3.11.3.patch" || true
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
@@ -331,13 +329,6 @@ mg_build_if_needed(build_librdtsc "librdtsc")
 mg_create_linkable_if_no_cmake(librdtsc STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdtsc.a" "${MG_TOOLCHAIN_ROOT}/include")
 
 set(ABSL_PROPAGATE_CXX_STD ON)
-
-macro(link_jmalloc)
-  set_path_external_library(jemalloc STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/lib/libjemalloc.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
-endmacro()
-mg_build_if_needed(link_jmalloc "jemalloc")
 
 message(STATUS "MG_TOOLCHAIN_VERSION: ${MG_TOOLCHAIN_VERSION}")
 if(DEFINED MG_TOOLCHAIN_VERSION)

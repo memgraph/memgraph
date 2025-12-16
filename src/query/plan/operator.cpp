@@ -2267,8 +2267,6 @@ class STShortestPathCursor : public query::plan::Cursor {
 
   bool FindPath(const VertexAccessor &source, const VertexAccessor &sink, int64_t lower_bound, int64_t upper_bound,
                 Frame *frame, ExpressionEvaluator *evaluator, ExecutionContext &context) {
-    using utils::Contains;
-
     if (source == sink) return false;
 
     // We expand from both directions, both from the source and the sink.
@@ -2320,9 +2318,9 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-            if (ShouldExpand(edge.To(), edge, frame, evaluator, context) && !Contains(in_edge, edge.To())) {
+            if (ShouldExpand(edge.To(), edge, frame, evaluator, context) && !in_edge.contains(edge.To())) {
               in_edge.emplace(edge.To(), edge);
-              if (Contains(out_edge, edge.To())) {
+              if (out_edge.contains(edge.To())) {
                 if (current_length >= lower_bound) {
                   ReconstructPath(edge.To(), in_edge, out_edge, frame, context);
                   return true;
@@ -2347,9 +2345,9 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-            if (ShouldExpand(edge.From(), edge, frame, evaluator, context) && !Contains(in_edge, edge.From())) {
+            if (ShouldExpand(edge.From(), edge, frame, evaluator, context) && !in_edge.contains(edge.From())) {
               in_edge.emplace(edge.From(), edge);
-              if (Contains(out_edge, edge.From())) {
+              if (out_edge.contains(edge.From())) {
                 if (current_length >= lower_bound) {
                   ReconstructPath(edge.From(), in_edge, out_edge, frame, context);
                   return true;
@@ -2389,9 +2387,9 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-            if (ShouldExpand(vertex, edge, frame, evaluator, context) && !Contains(out_edge, edge.To())) {
+            if (ShouldExpand(vertex, edge, frame, evaluator, context) && !out_edge.contains(edge.To())) {
               out_edge.emplace(edge.To(), edge);
-              if (Contains(in_edge, edge.To())) {
+              if (in_edge.contains(edge.To())) {
                 if (current_length >= lower_bound) {
                   ReconstructPath(edge.To(), in_edge, out_edge, frame, context);
                   return true;
@@ -2416,9 +2414,9 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-            if (ShouldExpand(vertex, edge, frame, evaluator, context) && !Contains(out_edge, edge.From())) {
+            if (ShouldExpand(vertex, edge, frame, evaluator, context) && !out_edge.contains(edge.From())) {
               out_edge.emplace(edge.From(), edge);
-              if (Contains(in_edge, edge.From())) {
+              if (in_edge.contains(edge.From())) {
                 if (current_length >= lower_bound) {
                   ReconstructPath(edge.From(), in_edge, out_edge, frame, context);
                   return true;
@@ -2468,7 +2466,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
                                                                            VertexAccessor vertex) -> bool {
       (void)context;  // unused in community version
       // if we already processed the given vertex it doesn't get expanded
-      if (processed_.find(vertex) != processed_.end()) return false;
+      if (processed_.contains(vertex)) return false;
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(vertex, storage::View::OLD,
@@ -2874,7 +2872,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         auto current_state = create_state(current_vertex, current_depth);
 
         // Check if the vertex has already been processed.
-        if (total_cost_.find(current_state) != total_cost_.end()) {
+        if (total_cost_.contains(current_state)) {
           continue;
         }
         previous_.emplace(current_state, current_edge);
@@ -2890,7 +2888,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
         // If we yielded a path for a vertex already, make the expansion but
         // don't return the path again.
-        if (yielded_vertices_.find(current_vertex) != yielded_vertices_.end()) continue;
+        if (yielded_vertices_.contains(current_vertex)) continue;
 
         // Reconstruct the path.
         auto last_vertex = current_vertex;
@@ -3196,7 +3194,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       auto next_vertex = current_edge_direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
       frame_writer.Write(self_.total_weight_.value(), current_weight);
 
-      if (next_edges_.find({next_vertex, traversal_stack_.size()}) != next_edges_.end()) {
+      if (next_edges_.contains({next_vertex, traversal_stack_.size()})) {
         auto [it, inserted] =
             next_edges_.try_emplace({next_vertex, traversal_stack_.size()}, utils::pmr::list<DirectedEdge>(memory));
 
@@ -3249,7 +3247,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         auto prev_vertex = direction == EdgeAtom::Direction::IN ? current_edge.To() : current_edge.From();
 
         // Update the parent
-        if (next_edges_.find({prev_vertex, current_depth - 1}) == next_edges_.end()) {
+        if (!next_edges_.contains({prev_vertex, current_depth - 1})) {
           next_edges_[{prev_vertex, current_depth - 1}] = utils::pmr::list<DirectedEdge>(memory);
         }
         next_edges_.at({prev_vertex, current_depth - 1}).emplace_back(directed_edge);
@@ -3335,7 +3333,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       create_DFS_traversal_tree();
 
       // DFS traversal tree is create,
-      if (start_vertex && next_edges_.find({*start_vertex, 0}) != next_edges_.end()) {
+      if (start_vertex && next_edges_.contains({*start_vertex, 0})) {
         auto [it, inserted] = next_edges_.try_emplace({*start_vertex, 0}, utils::pmr::list<DirectedEdge>(memory));
         traversal_stack_.emplace_back(utils::pmr::list<DirectedEdge>(it->second, memory));
       }
@@ -3770,8 +3768,6 @@ class KShortestPathsCursor : public Cursor {
 
   PathInfo ComputeShortestPath(const VertexAccessor &source, const VertexAccessor &target,
                                ExpressionEvaluator &evaluator, ExecutionContext &context) {
-    using utils::Contains;
-
     if (source == target) return PathInfo(evaluator.GetMemoryResource());
 
     // We expand from both directions, both from the source and the target.
@@ -3822,7 +3818,7 @@ class KShortestPathsCursor : public Cursor {
               continue;
             }
             in_edge.emplace(edge.To(), edge);
-            if (Contains(out_edge, edge.To())) {
+            if (out_edge.contains(edge.To())) {
               return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
             }
             source_next.push_back(edge.To());
@@ -3840,7 +3836,7 @@ class KShortestPathsCursor : public Cursor {
               continue;
             }
             in_edge.emplace(edge.From(), edge);
-            if (Contains(out_edge, edge.From())) {
+            if (out_edge.contains(edge.From())) {
               return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
             }
             source_next.push_back(edge.From());
@@ -3873,7 +3869,7 @@ class KShortestPathsCursor : public Cursor {
               continue;
             }
             out_edge.emplace(edge.To(), edge);
-            if (Contains(in_edge, edge.To())) {
+            if (in_edge.contains(edge.To())) {
               return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
             }
             target_next.push_back(edge.To());
@@ -3891,7 +3887,7 @@ class KShortestPathsCursor : public Cursor {
               continue;
             }
             out_edge.emplace(edge.From(), edge);
-            if (Contains(in_edge, edge.From())) {
+            if (in_edge.contains(edge.From())) {
               return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
             }
             target_next.push_back(edge.From());
@@ -7337,7 +7333,7 @@ class CallProcedureCursor : public Cursor {
     // Not all results were yielded but they still need to be inserted inside the signature
     uint32_t index = self_->result_fields_.size();
     for (auto const &[name, signature] : proc_->results) {
-      if (result_.signature.find(name) == result_.signature.end()) {
+      if (!result_.signature.contains(name)) {
         result_.signature.emplace(name, ResultsMetadata{signature.first, signature.second, index++});
       }
     }

@@ -10,7 +10,11 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include <algorithm>
+#include <array>
+#include <bitset>
 #include <memory>
+#include <ranges>
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
@@ -22,16 +26,43 @@
 namespace memgraph::storage {
 
 namespace {
+
+/// Utility class to store data in a fixed size array. The array is used
+/// instead of `std::vector` to avoid `std::bad_alloc` exception where not
+/// necessary.
+template <class T>
+struct FixedCapacityArray {
+  size_t size;
+  std::array<T, kUniqueConstraintsMaxProperties> values;
+
+  explicit FixedCapacityArray(size_t array_size) : size(array_size) {
+    MG_ASSERT(size <= kUniqueConstraintsMaxProperties, "Invalid array size!");
+  }
+
+  template <std::ranges::input_range R>
+  requires std::convertible_to<std::ranges::range_value_t<R>, T>
+  explicit FixedCapacityArray(R &&range) : size(std::ranges::size(range)) {
+    MG_ASSERT(size <= kUniqueConstraintsMaxProperties, "Invalid array size!");
+    std::ranges::copy(std::forward<R>(range), values.begin());
+  }
+
+  constexpr T *begin() noexcept { return values.data(); }
+  constexpr T *end() noexcept { return values.data() + size; }
+  constexpr const T *begin() const noexcept { return values.data(); }
+  constexpr const T *end() const noexcept { return values.data() + size; }
+};
+
+using PropertyIdArray = FixedCapacityArray<PropertyId>;
+
 /// Helper function that determines position of the given `property` in the
 /// sorted `property_array` using binary search. In the case that `property`
 /// cannot be found, `std::nullopt` is returned.
 std::optional<size_t> FindPropertyPosition(const PropertyIdArray &property_array, PropertyId property) {
-  const auto *it = std::lower_bound(property_array.values, property_array.values + property_array.size, property);
-  if (it == property_array.values + property_array.size || *it != property) {
+  auto const *const it = std::ranges::lower_bound(property_array, property);
+  if (it == property_array.end() || *it != property) {
     return std::nullopt;
   }
-
-  return it - property_array.values;
+  return static_cast<size_t>(it - property_array.begin());
 }
 
 /// Helper function for validating unique constraints on commit. Returns true if
@@ -43,14 +74,9 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
                                           uint64_t commit_timestamp) {
   MG_ASSERT(properties.size() == value_array.size(), "Invalid database state!");
 
-  PropertyIdArray property_array(properties.size());
-  size_t i = 0;
-  for (const auto &property : properties) {
-    property_array.values[i] = property;
-    ++i;
-  }
+  auto const property_array = PropertyIdArray{properties};
 
-  bool current_value_equal_to_value[kUniqueConstraintsMaxProperties];
+  std::bitset<kUniqueConstraintsMaxProperties> current_value_equal_to_value;
 
   // Since the commit lock is active, any transaction that tries to write to
   // a vertex which is part of the given `transaction` will result in a
@@ -65,17 +91,15 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
     auto guard = std::shared_lock{vertex.lock};
     delta = vertex.delta;
     deleted = vertex.deleted;
-    has_label = utils::Contains(vertex.labels, label);
+    has_label = std::ranges::contains(vertex.labels, label);
 
-    size_t i = 0;
-    for (const auto &property : properties) {
+    for (const auto &[i, property] : std::views::enumerate(properties)) {
       current_value_equal_to_value[i] = vertex.properties.IsPropertyEqual(property, value_array[i]);
-      ++i;
     }
   }
 
   while (delta != nullptr) {
-    auto ts = delta->timestamp->load(std::memory_order_acquire);
+    const auto ts = delta->timestamp->load(std::memory_order_acquire);
     if (ts < commit_timestamp || ts == transaction.transaction_id) {
       break;
     }
@@ -140,15 +164,14 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
   MG_ASSERT(properties.size() == values.size(), "Invalid database state!");
 
   PropertyIdArray property_array(properties.size());
-  bool current_value_equal_to_value[kUniqueConstraintsMaxProperties];
-  memset(current_value_equal_to_value, 0, sizeof(current_value_equal_to_value));
+  std::bitset<kUniqueConstraintsMaxProperties> current_value_equal_to_value;
 
   bool has_label;
   bool deleted;
   Delta *delta;
   {
     auto guard = std::shared_lock{vertex.lock};
-    has_label = utils::Contains(vertex.labels, label);
+    has_label = std::ranges::contains(vertex.labels, label);
     deleted = vertex.deleted;
     delta = vertex.delta;
 
@@ -157,20 +180,16 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
 
     if (delta) {
       // If delta we need to fetch for later processing
-      size_t i = 0;
-      for (const auto &property : properties) {
+      for (const auto &[i, property] : std::views::enumerate(properties)) {
         current_value_equal_to_value[i] = vertex.properties.IsPropertyEqual(property, values[i]);
         property_array.values[i] = property;
-        i++;
       }
     } else {
       // otherwise do a short-circuiting check (we already know !deleted && has_label)
-      size_t i = 0;
-      for (const auto &property : properties) {
-        if (!vertex.properties.IsPropertyEqual(property, values[i])) return false;
-        i++;
-      }
-      return true;
+      return std::ranges::all_of(std::views::zip(properties, values), [&](const auto &prop_val) {
+        const auto &[property, value] = prop_val;
+        return vertex.properties.IsPropertyEqual(property, value);
+      });
     }
   }
 
@@ -334,7 +353,7 @@ bool InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
 std::optional<ConstraintViolation> InMemoryUniqueConstraints::DoValidate(
     const Vertex &vertex, utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
     const std::set<PropertyId> &properties) {
-  if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+  if (vertex.deleted || !std::ranges::contains(vertex.labels, label)) {
     return std::nullopt;
   }
   auto values = vertex.properties.ExtractPropertyValues(properties);
@@ -441,7 +460,7 @@ InMemoryUniqueConstraints::DeletionStatus InMemoryUniqueConstraints::DropConstra
 }
 
 bool InMemoryUniqueConstraints::ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const {
-  return constraints_.find({label, properties}) != constraints_.end();
+  return constraints_.contains({label, properties});
 }
 
 std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Vertex &vertex, const Transaction &tx,

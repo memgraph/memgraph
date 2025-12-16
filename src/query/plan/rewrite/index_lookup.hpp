@@ -112,7 +112,7 @@ struct IndexHints {
       auto property_ids = properties_prefix | ranges::views::transform(property_path_converter(db)) | ranges::to_vector;
       // Check if paths are the same
       for (const auto &path : property_paths) {
-        if (std::ranges::find(property_ids, path) != property_ids.end()) {
+        if (std::ranges::contains(property_ids, path)) {
           return true;
         }
       }
@@ -200,9 +200,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
         auto does_modify = [&]() {
           const auto &symbols = input->ModifiedSymbols(*symbol_table_);
-          return std::any_of(symbols.begin(), symbols.end(), [&modified_symbols](const auto &sym_in) {
-            return modified_symbols.find(sym_in) != modified_symbols.end();
-          });
+          return std::any_of(symbols.begin(), symbols.end(),
+                             [&modified_symbols](const auto &sym_in) { return modified_symbols.contains(sym_in); });
         };
         if (does_modify()) {
           // if we removed something from filter in front of a Cartesian, then we are doing a join from
@@ -932,7 +931,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       -> CandidatePointIndices {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
-        if (!utils::Contains(bound_symbols, used_symbol)) {
+        if (!bound_symbols.contains(used_symbol)) {
           return false;
         }
       }
@@ -1020,7 +1019,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       -> CandidateLabelPropertiesIndices {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
-        if (!utils::Contains(bound_symbols, used_symbol)) {
+        if (!bound_symbols.contains(used_symbol)) {
           return false;
         }
       }
@@ -1349,7 +1348,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
-        if (!utils::Contains(bound_symbols, used_symbol)) {
+        if (!bound_symbols.contains(used_symbol)) {
           return false;
         }
       }

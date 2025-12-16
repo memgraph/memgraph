@@ -130,6 +130,10 @@ print_help () {
   echo -e "  --ubsan                       Build with UBSAN"
   echo -e "  --disable-jemalloc            Build without jemalloc"
   echo -e "  --disable-testing             Build without tests (faster build for packaging)"
+  echo -e "  --conan-remote string         Specify conan remote (default \"\")"
+  echo -e "  --conan-username string       Specify conan username (default \"\")"
+  echo -e "  --conan-password string       Specify conan password (default \"\")"
+  echo -e "  --build-dependency string     Specify build dependency (default \"\"). Set to \"all\" to install all dependencies, or a specific dependency name to install only that dependency. Dependencies are specified in the format of \"<package>/<version>\"."
 
   echo -e "\ncopy options (default \"--binary\"):"
   echo -e "  --artifact-name string        Specify a custom name for the copied artifact"
@@ -375,6 +379,20 @@ copy_project_files() {
   docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR"
 }
 
+
+upload_conan_cache() {
+  local conan_username=$1
+  local conan_password=$2
+  if [[ -z "$conan_username" ]] || [[ -z "$conan_password" ]]; then
+    echo "Warning: Conan username and password are required for Conan cache upload"
+    return 0
+  fi
+  docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan remote login -p $conan_password artifactory $conan_username"
+  docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan upload \"*/*\" -r=artifactory --confirm"
+  return $?
+}
+
+
 build_memgraph () {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
@@ -397,7 +415,10 @@ build_memgraph () {
   local for_docker=false
   local copy_from_host=true
   local init_flags="--ci"
-
+  local conan_remote=""
+  local conan_username=""
+  local conan_password=""
+  local build_dependency=""
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --community)
@@ -440,6 +461,22 @@ build_memgraph () {
       --disable-testing)
         disable_testing_flag="-DMG_ENABLE_TESTING=OFF"
         shift 1
+      ;;
+      --conan-remote)
+        conan_remote=$2
+        shift 2
+      ;;
+      --conan-username)
+        conan_username=$2
+        shift 2
+      ;;
+      --conan-password)
+        conan_password=$2
+        shift 2
+      ;;
+      --build-dependency)
+        build_dependency=$2
+        shift 2
       ;;
       *)
         echo "Error: Unknown flag '$1'"
@@ -520,7 +557,16 @@ build_memgraph () {
   docker exec -u mg "$build_container" bash -c "$CMD_START && pip install conan"
 
   # Check if a conan profile exists and create one if needed
-  docker exec -u mg "$build_container" bash -c "$CMD_START && if [ ! -f \"\$HOME/.conan2/profiles/default\" ]; then conan profile detect; fi"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan profile detect --force"
+
+  # Install our config
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan config install ./conan_config"
+
+  # Set Conan remote if specified
+  if [[ -n "$conan_remote" ]]; then
+    echo "Setting Conan remote to $conan_remote"
+    docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add artifactory $conan_remote --force"
+  fi
 
   # Install our config
   docker exec -u mg "$build_container" bash -c "$CMD_START && conan config install ./conan_config"
@@ -563,7 +609,23 @@ build_memgraph () {
   fi
 
   CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE"
-  docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type"
+  if [[ -n "$build_dependency" ]]; then
+    echo "Installing build dependency: $build_dependency"
+    if [[ "$build_dependency" == "all" ]]; then
+      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+    else
+      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install --requires $build_dependency --lockfile="" --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+    fi
+
+    if [[ -n "$conan_remote" ]]; then
+      echo "Uploading Conan cache to $conan_remote"
+      upload_conan_cache $conan_username $conan_password
+    fi
+
+    exit 0
+  else
+    docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+  fi
   CMD_START="$CMD_START && source build/generators/conanbuild.sh && $ACTIVATE_CARGO"
 
   # Determine preset name based on build type (Conan generates this automatically)
@@ -616,6 +678,12 @@ build_memgraph () {
   else
     local EXPORT_THREADS="export THREADS=$threads"
     docker exec -u mg "$build_container" bash -c "$CMD_START && $EXPORT_THREADS && cmake --build --preset $PRESET -- -j\$THREADS"
+  fi
+
+  # upload conan cache if remote is set
+  if [[ -n "$conan_remote" ]]; then
+    echo "Uploading Conan cache to $conan_remote"
+    upload_conan_cache $conan_username $conan_password
   fi
 
   # Show ccache statistics if ccache is enabled
@@ -1218,7 +1286,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$conan_cache_dir" ]]; then
-  conan_cache_dir="$HOME/.conan2-${os}-${arch}"
+  conan_cache_dir="$HOME/.conan2-ci"
 fi
 
 if [[ "$os" != "all" ]]; then

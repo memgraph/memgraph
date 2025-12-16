@@ -133,7 +133,7 @@ bool VertexNeedsToBeSerialized(const Vertex &vertex) {
 
 bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transaction, View view) {
   bool deleted = vertex.deleted;
-  bool has_label = std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end();
+  bool has_label = std::ranges::contains(vertex.labels, label);
   Delta *delta = vertex.delta;
   ApplyDeltasForRead(transaction, delta, view, [&deleted, &has_label, label](const Delta &delta) {
     switch (delta.action) {
@@ -559,7 +559,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 
   const auto disk_label_property_filter = [](std::string_view key, std::string_view label_property_prefix,
                                              const std::unordered_set<Gid> &gids, Gid curr_gid) -> bool {
-    return key.starts_with(label_property_prefix) && !utils::Contains(gids, curr_gid);
+    return key.starts_with(label_property_prefix) && !gids.contains(curr_gid);
   };
 
   disk_storage->LoadVerticesFromDiskLabelPropertyIndex(&transaction_, label, property, gids, index_deltas,
@@ -681,7 +681,7 @@ void DiskStorage::LoadVerticesFromDiskLabelIndex(Transaction *transaction, Label
     std::string key = index_it->key().ToString();
     Gid curr_gid = Gid::FromString(utils::ExtractGidFromLabelIndexStorage(key));
     spdlog::trace("Loaded vertex with key: {} from label index storage", key);
-    if (key.starts_with(serialized_label) && !utils::Contains(gids, curr_gid)) {
+    if (key.starts_with(serialized_label) && !gids.contains(curr_gid)) {
       // We should pass it->timestamp().ToString() instead of "0"
       // This is hack until RocksDB will support timestamp() in WBWI iterator
       LoadVertexToLabelIndexCache(
@@ -761,7 +761,7 @@ void DiskStorage::LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(
     std::string it_value = index_it->value().ToString();
     Gid curr_gid = Gid::FromString(utils::ExtractGidFromLabelPropertyIndexStorage(key));
     PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value);
-    if (key.starts_with(label_property_prefix) && !utils::Contains(gids, curr_gid) &&
+    if (key.starts_with(label_property_prefix) && !gids.contains(curr_gid) &&
         properties.IsPropertyEqual(property, value)) {
       // We should pass it->timestamp().ToString() instead of "0"
       // This is hack until RocksDB will support timestamp() in WBWI iterator
@@ -820,7 +820,7 @@ void DiskStorage::LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
     /// TODO: andi this will be optimized
     PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value_str);
     PropertyValue prop_value = properties.GetProperty(property);
-    if (!key_str.starts_with(label_property_prefix) || utils::Contains(gids, curr_gid) ||
+    if (!key_str.starts_with(label_property_prefix) || gids.contains(curr_gid) ||
         !IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
       continue;
     }
@@ -933,6 +933,23 @@ StorageInfo DiskStorage::GetInfo() {
   info.property_store_compression_enabled = config_.salient.items.property_store_compression_enabled;
   info.property_store_compression_level = config_.salient.property_store_compression_level;
   return info;
+}
+
+std::unordered_map<LabelId, uint64_t> DiskStorage::GetLabelCounts() const {
+  std::unordered_map<LabelId, uint64_t> label_counts;
+  if (!config_.track_label_counts) {
+    return label_counts;
+  }
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  auto storage_acc = const_cast<DiskStorage *>(this)->ReadOnlyAccess();
+  for (auto &&vertex : storage_acc->Vertices(View::OLD)) {
+    auto const labels_result = vertex.Labels(View::OLD);
+    if (labels_result.HasError()) continue;
+    for (auto const label : *labels_result) {
+      ++label_counts[label];
+    }
+  }
+  return label_counts;
 }
 
 void DiskStorage::SetEdgeImportMode(EdgeImportMode edge_import_status) {
@@ -1537,7 +1554,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
     MG_ASSERT(edge_res.ok(), "rocksdb: Failed to find edge with gid {} in edge column family", edge_gid_str);
 
     auto edge_type_id = utils::ExtractEdgeTypeIdFromEdgeValue(edge_val_str);
-    if (!edge_types.empty() && !utils::Contains(edge_types, edge_type_id)) continue;
+    if (!edge_types.empty() && !std::ranges::contains(edge_types, edge_type_id)) continue;
 
     auto edge_gid = Gid::FromString(edge_gid_str);
     auto properties_str =
@@ -1605,7 +1622,7 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
     MG_ASSERT(edge_res.ok(), "rocksdb: Failed to find edge with gid {} in edge column family", edge_gid_str);
 
     auto edge_type_id = utils::ExtractEdgeTypeIdFromEdgeValue(edge_val_str);
-    if (!edge_types.empty() && !utils::Contains(edge_types, edge_type_id)) continue;
+    if (!edge_types.empty() && !std::ranges::contains(edge_types, edge_type_id)) continue;
 
     auto edge_gid = Gid::FromString(edge_gid_str);
     auto properties_str = utils::GetPropertiesFromEdgeValue(edge_val_str);
@@ -1647,7 +1664,7 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     std::vector<LabelId> labels = utils::DeserializeLabelsFromMainDiskStorage(it->key().ToString());
     PropertyStore properties = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToStringView());
-    if (utils::Contains(labels, label) && !properties.HasProperty(property)) {
+    if (std::ranges::contains(labels, label) && !properties.HasProperty(property)) {
       return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
     }
   }
@@ -1669,9 +1686,9 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
     const std::string key_str = it->key().ToString();
     std::vector<LabelId> labels = utils::DeserializeLabelsFromMainDiskStorage(key_str);
     PropertyStore property_store = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToStringView());
-    if (utils::Contains(labels, label) && property_store.HasAllProperties(properties)) {
+    if (std::ranges::contains(labels, label) && property_store.HasAllProperties(properties)) {
       if (auto target_property_values = property_store.ExtractPropertyValues(properties);
-          target_property_values.has_value() && !utils::Contains(unique_storage, *target_property_values)) {
+          target_property_values.has_value() && !unique_storage.contains(*target_property_values)) {
         unique_storage.insert(*target_property_values);
         vertices_for_constraints.emplace_back(
             utils::SerializeVertexAsKeyForUniqueConstraint(label, properties, utils::ExtractGidFromKey(key_str)),
@@ -1930,7 +1947,7 @@ std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesF
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const std::string key_str = it->key().ToString();
     if (const std::vector<std::string> labels_str = utils::ExtractLabelsFromMainDiskStorage(key_str);
-        utils::Contains(labels_str, serialized_label)) {
+        std::ranges::contains(labels_str, serialized_label)) {
       std::vector<LabelId> labels = utils::DeserializeLabelsFromMainDiskStorage(key_str);
       PropertyStore property_store = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToStringView());
       vertices_to_be_indexed.emplace_back(
@@ -1956,7 +1973,7 @@ std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesF
     const std::string key_str = it->key().ToString();
     PropertyStore const property_store = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToString());
     if (const std::vector<std::string> labels_str = utils::ExtractLabelsFromMainDiskStorage(key_str);
-        utils::Contains(labels_str, serialized_label) && property_store.HasProperty(property)) {
+        std::ranges::contains(labels_str, serialized_label) && property_store.HasProperty(property)) {
       std::vector<LabelId> labels = utils::DeserializeLabelsFromMainDiskStorage(key_str);
       vertices_to_be_indexed.emplace_back(
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label.ToString(), property.ToString(),

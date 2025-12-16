@@ -29,7 +29,6 @@
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
 #include "storage/v2/id_types.hpp"
-#include "utils/algorithm.hpp"
 
 namespace memgraph::query::plan {
 
@@ -86,9 +85,8 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
         auto does_modify = [&]() {
           const auto &symbols = input->ModifiedSymbols(*symbol_table_);
-          return std::any_of(symbols.begin(), symbols.end(), [&modified_symbols](const auto &sym_in) {
-            return modified_symbols.find(sym_in) != modified_symbols.end();
-          });
+          return std::any_of(symbols.begin(), symbols.end(),
+                             [&modified_symbols](const auto &sym_in) { return modified_symbols.contains(sym_in); });
         };
         if (does_modify()) {
           // if we removed something from filter in front of a Cartesian, then we are doing a join from
@@ -883,7 +881,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
-        if (!utils::Contains(bound_symbols, used_symbol)) {
+        if (!bound_symbols.contains(used_symbol)) {
           return false;
         }
       }

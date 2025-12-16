@@ -12,8 +12,7 @@ if ! which node >/dev/null; then
 fi
 
 if [ ! -d node_modules ]; then
-    # Driver generated with: `npm install neo4j-driver`
-    npm install --no-package-lock --no-save neo4j-driver@5.8.0
+    pnpm install --frozen-lockfile
 fi
 
 node write_routing.js

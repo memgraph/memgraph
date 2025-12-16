@@ -11,6 +11,8 @@
 
 #include "communication/bolt/client.hpp"
 
+#include <array>
+
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "utils/logging.hpp"
@@ -19,8 +21,8 @@
 #include "io/network/fmt.hpp"
 
 namespace {
-constexpr uint8_t kBoltV43Version[4] = {0x00, 0x00, 0x03, 0x04};
-constexpr uint8_t kEmptyBoltVersion[4] = {0x00, 0x00, 0x00, 0x00};
+constexpr auto kBoltV43Version = std::array<uint8_t, 4>{0x00, 0x00, 0x03, 0x04};
+constexpr auto kEmptyBoltVersion = std::array<uint8_t, 4>{0x00, 0x00, 0x00, 0x00};
 }  // namespace
 namespace memgraph::communication::bolt {
 
@@ -32,33 +34,33 @@ void Client::Connect(const io::network::Endpoint &endpoint, const std::string &u
     throw ClientFatalException("Couldn't connect to {}!", endpoint.SocketAddress());
   }
 
-  if (!client_.Write(kPreamble, sizeof(kPreamble), true)) {
+  if (!client_.Write(kPreamble, true)) {
     spdlog::error("Couldn't send preamble!");
     throw ServerCommunicationException();
   }
 
-  if (!client_.Write(kBoltV43Version, sizeof(kBoltV43Version), true)) {
+  if (!client_.Write(kBoltV43Version, true)) {
     spdlog::error("Couldn't send protocol version!");
     throw ServerCommunicationException();
   }
 
   for (int i = 0; i < 3; ++i) {
-    if (!client_.Write(kEmptyBoltVersion, sizeof(kEmptyBoltVersion), i != 2)) {
+    if (!client_.Write(kEmptyBoltVersion, i != 2)) {
       spdlog::error("Couldn't send protocol version!");
       throw ServerCommunicationException();
     }
   }
 
-  if (!client_.Read(sizeof(kBoltV43Version))) {
+  if (!client_.Read(kBoltV43Version.size())) {
     spdlog::error("Couldn't get negotiated protocol version!");
     throw ServerCommunicationException();
   }
 
-  if (memcmp(kBoltV43Version, client_.GetData(), sizeof(kBoltV43Version)) != 0) {
+  if (memcmp(kBoltV43Version.data(), client_.GetData(), kBoltV43Version.size()) != 0) {
     spdlog::error("Server negotiated unsupported protocol version!");
     throw ClientFatalException("The server negotiated an usupported protocol version!");
   }
-  client_.ShiftData(sizeof(kBoltV43Version));
+  client_.ShiftData(kBoltV43Version.size());
 
   if (!encoder_.MessageInit({{"user_agent", client_name},
                              {"scheme", "basic"},
@@ -83,7 +85,7 @@ void Client::Connect(const io::network::Endpoint &endpoint, const std::string &u
   spdlog::debug("Metadata of init message response: {}", metadata);
 }
 
-QueryData Client::Execute(const std::string &query, const map_t &parameters, const map_t &extra) {
+QueryData Client::Execute(std::string_view query, const map_t &parameters, const map_t &extra) {
   if (!client_.IsConnected()) {
     throw ClientFatalException("You must first connect to the server before using the client!");
   }
@@ -153,7 +155,7 @@ QueryData Client::Execute(const std::string &query, const map_t &parameters, con
 
   QueryData ret{{}, std::move(records), std::move(metadata.ValueMap())};
 
-  if (header.find("fields") == header.end()) {
+  if (!header.contains("fields")) {
     throw ServerMalformedDataException();
   }
   if (header["fields"].type() != Value::Type::List) {
