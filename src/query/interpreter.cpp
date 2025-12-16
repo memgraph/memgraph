@@ -7026,18 +7026,18 @@ std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_t
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
   ResetInterpreter();
-  const auto prepared_query = PrepareTransactionQuery(TransactionQuery::BEGIN, extras);
+  auto prepared_query = PrepareTransactionQuery(TransactionQuery::BEGIN, extras);
   prepared_query.query_handler(nullptr, {});
 }
 
 void Interpreter::CommitTransaction() {
-  const auto prepared_query = PrepareTransactionQuery(TransactionQuery::COMMIT);
+  auto prepared_query = PrepareTransactionQuery(TransactionQuery::COMMIT);
   prepared_query.query_handler(nullptr, {});
   ResetInterpreter();
 }
 
 void Interpreter::RollbackTransaction() {
-  const auto prepared_query = PrepareTransactionQuery(TransactionQuery::ROLLBACK);
+  auto prepared_query = PrepareTransactionQuery(TransactionQuery::ROLLBACK);
   prepared_query.query_handler(nullptr, {});
   ResetInterpreter();
 }
