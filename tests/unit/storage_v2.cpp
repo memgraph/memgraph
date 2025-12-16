@@ -2659,11 +2659,11 @@ TYPED_TEST(StorageV2Test, UpdatesLabelsCountAfterCommit) {
     auto v2 = acc->CreateVertex();
     v2_gid = v2.Gid();
 
-    ASSERT_FALSE(v1.AddLabel(label1).HasError());
-    ASSERT_FALSE(v2.AddLabel(label1).HasError());
-    ASSERT_FALSE(v2.AddLabel(label2).HasError());
+    ASSERT_TRUE(v1.AddLabel(label1));
+    ASSERT_TRUE(v2.AddLabel(label1));
+    ASSERT_TRUE(v2.AddLabel(label2));
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -2677,8 +2677,8 @@ TYPED_TEST(StorageV2Test, UpdatesLabelsCountAfterCommit) {
   {
     auto acc = this->store->Access();
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::OLD);
-    ASSERT_FALSE(v1->AddLabel(label3).HasError());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(v1->AddLabel(label3));
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -2692,8 +2692,8 @@ TYPED_TEST(StorageV2Test, UpdatesLabelsCountAfterCommit) {
   {
     auto acc = this->store->Access();
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::OLD);
-    ASSERT_FALSE(v2->RemoveLabel(label1).HasError());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(v2->RemoveLabel(label1));
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -2708,8 +2708,8 @@ TYPED_TEST(StorageV2Test, UpdatesLabelsCountAfterCommit) {
     auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
 
-    ASSERT_FALSE(vertex.AddLabel(label3).HasError());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(vertex.AddLabel(label3));
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -2724,8 +2724,8 @@ TYPED_TEST(StorageV2Test, UpdatesLabelsCountAfterCommit) {
     auto acc = this->store->Access();
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v2);
-    ASSERT_FALSE(acc->DeleteVertex(&*v2).HasError());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->DeleteVertex(&*v2));
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -2750,11 +2750,11 @@ TYPED_TEST(StorageV2Test, UpdatesLabelsCountAfterAbort) {
     auto v2 = acc->CreateVertex();
     v2_gid = v2.Gid();
 
-    ASSERT_FALSE(v1.AddLabel(label1).HasError());
-    ASSERT_FALSE(v2.AddLabel(label1).HasError());
-    ASSERT_FALSE(v2.AddLabel(label2).HasError());
+    ASSERT_TRUE(v1.AddLabel(label1));
+    ASSERT_TRUE(v2.AddLabel(label1));
+    ASSERT_TRUE(v2.AddLabel(label2));
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -2768,7 +2768,7 @@ TYPED_TEST(StorageV2Test, UpdatesLabelsCountAfterAbort) {
   {
     auto acc = this->store->Access();
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::OLD);
-    ASSERT_FALSE(v1->AddLabel(label3).HasError());
+    ASSERT_TRUE(v1->AddLabel(label3));
     acc->Abort();
   }
 
@@ -2783,7 +2783,7 @@ TYPED_TEST(StorageV2Test, UpdatesLabelsCountAfterAbort) {
   {
     auto acc = this->store->Access();
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::OLD);
-    ASSERT_FALSE(v2->RemoveLabel(label1).HasError());
+    ASSERT_TRUE(v2->RemoveLabel(label1));
     acc->Abort();
   }
 
@@ -2799,7 +2799,7 @@ TYPED_TEST(StorageV2Test, UpdatesLabelsCountAfterAbort) {
     auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
 
-    ASSERT_FALSE(vertex.AddLabel(label3).HasError());
+    ASSERT_TRUE(vertex.AddLabel(label3));
 
     acc->Abort();
   }
@@ -2816,7 +2816,7 @@ TYPED_TEST(StorageV2Test, UpdatesLabelsCountAfterAbort) {
     auto acc = this->store->Access();
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v2);
-    ASSERT_FALSE(acc->DeleteVertex(&*v2).HasError());
+    ASSERT_TRUE(acc->DeleteVertex(&*v2));
     acc->Abort();
   }
 
