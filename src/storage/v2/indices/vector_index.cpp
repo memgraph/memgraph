@@ -79,7 +79,8 @@ void TryAddVertexToIndex(mg_vector_index_t &vector_index, Vertex &vertex, const 
   }
   auto vector = PropertyToFloatVector(property, spec.dimension);
   if (vector_index.size() >= vector_index.capacity()) {
-    throw query::VectorSearchException("Vector index is full. Try increasing the capacity.");
+    throw query::VectorSearchException(
+        "Vector index is full. Try increasing the capacity.");  // TODO(@DavIvek): Should we do this for user?
   }
   vector_index.add(&vertex, vector.data());
   if (snapshot_info) {
@@ -141,7 +142,7 @@ void VectorIndex::SetupIndex(const VectorIndexSpec &spec) {
 
   // Use the number of workers as the number of possible concurrent index operations
   const unum::usearch::index_limits_t limits(spec.capacity,
-                                             std::min(static_cast<std::uint16_t>(FLAGS_bolt_num_workers),
+                                             std::max(static_cast<std::uint16_t>(FLAGS_bolt_num_workers),
                                                       static_cast<std::uint16_t>(FLAGS_storage_recovery_thread_count)));
   if (!mg_vector_index.index.try_reserve(limits)) {
     throw query::VectorSearchException(
@@ -167,10 +168,7 @@ void VectorIndex::PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor 
                                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &[mg_index, _] = pimpl->index_.at({spec.label_id, spec.property});
   auto vector_index = mg_index->MutableSharedLock();
-
-  for (auto &vertex : vertices) {
-    TryAddVertexToIndex(*vector_index, vertex, spec, snapshot_info);
-  }
+  PopulateVectorIndexSingleThreaded(*vector_index, vertices, spec, snapshot_info, TryAddVertexToIndex);
 }
 
 void VectorIndex::PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices,
@@ -178,20 +176,7 @@ void VectorIndex::PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Access
                                                  std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &[mg_index, _] = pimpl->index_.at({spec.label_id, spec.property});
   auto vector_index = mg_index->MutableSharedLock();
-
-  const auto thread_count = FLAGS_storage_recovery_thread_count;
-  auto vertices_chunks = vertices.create_chunks(thread_count);
-  std::vector<std::jthread> threads;
-  threads.reserve(thread_count);
-
-  for (auto i{0U}; i < thread_count; ++i) {
-    threads.emplace_back([&, i]() {
-      auto &chunk = vertices_chunks[i];
-      for (auto &vertex : chunk) {
-        TryAddVertexToIndex(*vector_index, vertex, spec, snapshot_info);
-      }
-    });
-  }
+  PopulateVectorIndexMultiThreaded(*vector_index, vertices, spec, snapshot_info, TryAddVertexToIndex);
 }
 
 bool VectorIndex::DropIndex(std::string_view index_name) {
@@ -213,39 +198,55 @@ void VectorIndex::Clear() {
 
 bool VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value) {
   auto &[mg_index, spec] = pimpl->index_.at(label_prop);
-  bool is_index_full = false;
 
   // Try to remove entry (if it exists) and then add a new one + check if index is full
   {
     auto locked_index = mg_index->MutableSharedLock();
-    locked_index->remove(vertex);
-    is_index_full = locked_index->size() >= locked_index->capacity();
+    if (locked_index->contains(vertex)) {
+      auto result = locked_index->remove(vertex);
+      if (result.error) {
+        throw query::VectorSearchException(
+            fmt::format("Failed to remove existing vertex from vector index: {}", result.error.what()));
+      }
+    }
   }
 
-  const auto &property = (value != nullptr ? *value : vertex->properties.GetProperty(label_prop.property()));
+  const auto &property = value != nullptr ? *value : vertex->properties.GetProperty(label_prop.property());
   if (property.IsNull()) {
     // Property is null means vertex should not be in the index
     return false;
   }
 
-  // Convert property to float vector (validates type and dimension)
   auto vector = PropertyToFloatVector(property, spec.dimension);
-
-  if (is_index_full) {
-    spdlog::warn("Vector index is full, resizing...");
-    // We need unique lock when resizing the index
-    auto exclusively_locked_index = mg_index->Lock();
-    const auto new_size = spec.resize_coefficient * exclusively_locked_index->capacity();
-    const unum::usearch::index_limits_t new_limits(new_size, FLAGS_bolt_num_workers);
-    if (!exclusively_locked_index->try_reserve(new_limits)) {
-      throw query::VectorSearchException("Failed to resize vector index.");
-    }
-    spec.capacity = exclusively_locked_index->capacity();  // capacity might be larger than requested
-  }
-
   {
     auto locked_index = mg_index->MutableSharedLock();
-    locked_index->add(vertex, vector.data());
+    auto result = locked_index->add(vertex, vector.data());
+    if (!result.error) {
+      return true;
+    }
+    // If error is not due to capacity, then we throw
+    if (locked_index->size() < locked_index->capacity()) {
+      throw query::VectorSearchException(fmt::format("Failed to add vertex to vector index: {}", result.error.what()));
+    }
+  }
+
+  // Addition failed due to capacity, so we need to resize the index and add the vertex again
+  {
+    auto exclusively_locked_index = mg_index->Lock();
+    if (exclusively_locked_index->size() >= exclusively_locked_index->capacity()) {
+      const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * exclusively_locked_index->capacity());
+      const unum::usearch::index_limits_t new_limits(
+          new_size, std::max(static_cast<std::uint16_t>(FLAGS_bolt_num_workers),
+                             static_cast<std::uint16_t>(FLAGS_storage_recovery_thread_count)));
+      if (!exclusively_locked_index->try_reserve(new_limits)) {
+        throw query::VectorSearchException("Failed to resize vector index.");
+      }
+      spec.capacity = exclusively_locked_index->capacity();  // capacity might be larger than requested
+    }
+    auto result = exclusively_locked_index->add(vertex, vector.data());
+    if (result.error) {
+      throw query::VectorSearchException(fmt::format("Failed to add vertex to vector index: {}", result.error.what()));
+    }
   }
   return true;
 }

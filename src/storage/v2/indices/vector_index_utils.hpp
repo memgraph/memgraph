@@ -11,9 +11,16 @@
 
 #pragma once
 
+#include <thread>
+#include <vector>
+
+#include "flags/general.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/snapshot_observer_info.hpp"
+#include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
+#include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
 
@@ -279,6 +286,54 @@ inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double
     vector.push_back(std::visit([](const auto &val) -> float { return static_cast<float>(val); }, *numeric_value));
   }
   return vector;
+}
+
+/// @brief Populates a vector index by iterating over vertices on a single thread.
+/// @tparam Index The locked index type.
+/// @tparam Spec The index specification type.
+/// @tparam ProcessFunc Callable with signature void(Index&, Vertex&, const Spec&, const
+/// std::optional<SnapshotObserverInfo>&).
+/// @param locked_index The locked index to populate.
+/// @param vertices The vertices accessor to iterate over.
+/// @param spec The index specification.
+/// @param snapshot_info Optional snapshot observer info.
+/// @param process The function to call for each vertex.
+template <typename Index, typename Spec, typename ProcessFunc>
+void PopulateVectorIndexSingleThreaded(Index &locked_index, utils::SkipList<Vertex>::Accessor &vertices,
+                                       const Spec &spec, std::optional<SnapshotObserverInfo> const &snapshot_info,
+                                       const ProcessFunc &process) {
+  for (auto &vertex : vertices) {
+    process(locked_index, vertex, spec, snapshot_info);
+  }
+}
+
+/// @brief Populates a vector index by iterating over vertices using multiple threads.
+/// @tparam Index The locked index type.
+/// @tparam Spec The index specification type.
+/// @tparam ProcessFunc Callable with signature void(Index&, Vertex&, const Spec&, const
+/// std::optional<SnapshotObserverInfo>&).
+/// @param locked_index The locked index to populate.
+/// @param vertices The vertices accessor to iterate over.
+/// @param spec The index specification.
+/// @param snapshot_info Optional snapshot observer info.
+/// @param process The function to call for each vertex.
+template <typename Index, typename Spec, typename ProcessFunc>
+void PopulateVectorIndexMultiThreaded(Index &locked_index, utils::SkipList<Vertex>::Accessor &vertices,
+                                      const Spec &spec, std::optional<SnapshotObserverInfo> const &snapshot_info,
+                                      const ProcessFunc &process) {
+  const auto thread_count = FLAGS_storage_recovery_thread_count;
+  auto vertices_chunks = vertices.create_chunks(thread_count);
+  std::vector<std::jthread> threads;
+  threads.reserve(thread_count);
+
+  for (auto i{0U}; i < thread_count; ++i) {
+    threads.emplace_back([&, i]() {
+      auto &chunk = vertices_chunks[i];
+      for (auto &vertex : chunk) {
+        process(locked_index, vertex, spec, snapshot_info);
+      }
+    });
+  }
 }
 
 }  // namespace memgraph::storage
