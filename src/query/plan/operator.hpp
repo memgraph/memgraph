@@ -1749,7 +1749,7 @@ class Accumulate : public memgraph::query::plan::LogicalOperator {
 /// elements are in an undefined state after aggregation.
 class Aggregate : public memgraph::query::plan::LogicalOperator {
  public:
-  static const utils::TypeInfo kType;
+  static constexpr utils::TypeInfo kType{utils::TypeId::AGGREGATE, "Aggregate", &query::plan::LogicalOperator::kType};
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   /// An aggregation element, contains:
@@ -1815,7 +1815,8 @@ class ParallelMerge : public memgraph::query::plan::LogicalOperator {
 
 class AggregateParallel : public memgraph::query::plan::LogicalOperator {
  public:
-  static const utils::TypeInfo kType;
+  static constexpr utils::TypeInfo kType{utils::TypeId::AGGREGATE_PARALLEL, "AggregateParallel",
+                                         &query::plan::ParallelMerge::kType};
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   AggregateParallel() = default;
@@ -1846,7 +1847,8 @@ class AggregateParallel : public memgraph::query::plan::LogicalOperator {
 
 class OrderByParallel : public memgraph::query::plan::LogicalOperator {
  public:
-  static const utils::TypeInfo kType;
+  static constexpr utils::TypeInfo kType{utils::TypeId::ORDERBY_PARALLEL, "OrderByParallel",
+                                         &query::plan::LogicalOperator::kType};
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   OrderByParallel() = default;
@@ -2210,7 +2212,7 @@ class ScanChunkByEdge : public memgraph::query::plan::ScanAllByEdge {
 /// operator's implementation does not expect this.
 class Skip : public memgraph::query::plan::LogicalOperator {
  public:
-  static const utils::TypeInfo kType;
+  static constexpr utils::TypeInfo kType{utils::TypeId::SKIP, "Skip", &query::plan::LogicalOperator::kType};
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Skip() = default;
@@ -2301,7 +2303,7 @@ class EvaluatePatternFilter : public memgraph::query::plan::LogicalOperator {
 /// input should be performed).
 class Limit : public memgraph::query::plan::LogicalOperator {
  public:
-  static const utils::TypeInfo kType;
+  static constexpr utils::TypeInfo kType{utils::TypeId::LIMIT, "Limit", &query::plan::LogicalOperator::kType};
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Limit() = default;
@@ -2352,7 +2354,7 @@ class Limit : public memgraph::query::plan::LogicalOperator {
 /// are valid for usage after the OrderBy operator.
 class OrderBy : public memgraph::query::plan::LogicalOperator {
  public:
-  static const utils::TypeInfo kType;
+  static constexpr utils::TypeInfo kType{utils::TypeId::ORDERBY, "OrderBy", &query::plan::LogicalOperator::kType};
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   OrderBy() = default;
@@ -2522,7 +2524,7 @@ class Unwind : public memgraph::query::plan::LogicalOperator {
 /// This implementation maintains input ordering.
 class Distinct : public memgraph::query::plan::LogicalOperator {
  public:
-  static const utils::TypeInfo kType;
+  static constexpr utils::TypeInfo kType{utils::TypeId::DISTINCT, "Distinct", &query::plan::LogicalOperator::kType};
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Distinct() = default;

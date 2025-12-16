@@ -9231,7 +9231,14 @@ class ScanParallelCursor : public Cursor {
 
   void Shutdown() override { input_cursor_->Shutdown(); }
 
-  void Reset() override { input_cursor_->Reset(); }
+  void Reset() override {
+    std::unique_lock lock(mutex_);
+    index_ = 0;
+    chunks_.reset();
+    frame_.reset();
+    all_pulled_ = false;
+    input_cursor_->Reset();
+  }
 
  private:
   mutable std::mutex mutex_;
@@ -9803,10 +9810,10 @@ class ParallelMergeCursor : public Cursor {
     // Otherwise all would block on the first scan parallel operator and wait until (potentially) evrything has been
     // pulled We would fallback to single threaded execution for all subsequent parallel operators. This is hacky, but
     // it works. The real solution is to convert cursors into coroutines and yield here.
-    if (collection_scheduler_) {
+    if (collection_scheduler_ && !scheduled_) {
       // Scheduler paralle work for this section
       collection_scheduler_->Trigger();
-      collection_scheduler_.reset();
+      scheduled_ = true;
     }
     return res;
   }
@@ -9817,6 +9824,7 @@ class ParallelMergeCursor : public Cursor {
   }
 
   void Reset() override {
+    scheduled_ = false;
     if (input_cursor_) input_cursor_->Reset();
   }
 
@@ -9824,6 +9832,7 @@ class ParallelMergeCursor : public Cursor {
   const ParallelMerge &self_;
   std::shared_ptr<utils::CollectionScheduler> collection_scheduler_{nullptr};
   std::shared_ptr<Cursor> input_cursor_;
+  bool scheduled_{false};
 };
 
 /**
@@ -9950,6 +9959,12 @@ class ParallelBranchCursor : public Cursor {
       });
     }
 
+    if (!collection_scheduler_) {
+      spdlog::warn(
+          "Collection scheduler not initialized. Please contact Memgraph support as this scenario "
+          "should not happen!");
+      throw QueryRuntimeException("Collection scheduler not initialized");
+    }
     collection_scheduler_->SetCollection(std::make_shared<utils::TaskCollection>(std::move(tasks)));
     collection_scheduler_->SetPool(context.worker_pool);
 
@@ -10389,6 +10404,12 @@ class AggregateParallelCursor : public ParallelBranchCursor {
 
     aggregation_it_++;
     return true;
+  }
+
+  void Reset() override {
+    for (const auto &cursor : branch_cursors_) cursor->Reset();
+    initialized_ = false;
+    main_aggregation_ = nullptr;
   }
 
  private:
