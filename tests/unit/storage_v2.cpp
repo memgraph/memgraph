@@ -34,6 +34,7 @@ class StorageV2Test : public testing::Test {
  public:
   StorageV2Test() {
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
+    config_.track_label_counts = true;
     store = std::make_unique<StorageType>(config_);
   }
 
@@ -45,8 +46,8 @@ class StorageV2Test : public testing::Test {
   }
 
   const std::string testSuite = "storage_v2";
-  std::unique_ptr<memgraph::storage::Storage> store;
   memgraph::storage::Config config_;
+  std::unique_ptr<memgraph::storage::Storage> store;
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
@@ -2647,5 +2648,188 @@ TYPED_TEST(StorageV2Test, DeletedVertexAccessor) {
     const auto maybe_property = deleted_vertex->GetProperty(property, memgraph::storage::View::OLD);
     ASSERT_FALSE(maybe_property.HasError());
     ASSERT_EQ(property_value, *maybe_property);
+  }
+}
+
+TYPED_TEST(StorageV2Test, UpdatesLabelsCountAfterCommit) {
+  auto label1 = this->store->NameToLabel("Person");
+  auto label2 = this->store->NameToLabel("Customer");
+  auto label3 = this->store->NameToLabel("Employee");
+
+  memgraph::storage::Gid v1_gid, v2_gid;
+
+  {
+    auto acc = this->store->Access();
+    auto v1 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    auto v2 = acc->CreateVertex();
+    v2_gid = v2.Gid();
+
+    ASSERT_FALSE(v1.AddLabel(label1).HasError());
+    ASSERT_FALSE(v2.AddLabel(label1).HasError());
+    ASSERT_FALSE(v2.AddLabel(label2).HasError());
+
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto counts = this->store->GetLabelCounts();
+    ASSERT_EQ(counts[label1], 2);
+    ASSERT_EQ(counts[label2], 1);
+    ASSERT_EQ(counts[label3], 0);
+  }
+
+  // Check commited AddLabel
+  {
+    auto acc = this->store->Access();
+    auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    ASSERT_FALSE(v1->AddLabel(label3).HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto counts = this->store->GetLabelCounts();
+    ASSERT_EQ(counts[label1], 2);
+    ASSERT_EQ(counts[label2], 1);
+    ASSERT_EQ(counts[label3], 1);
+  }
+
+  // Check commited RemoveLabel
+  {
+    auto acc = this->store->Access();
+    auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_FALSE(v2->RemoveLabel(label1).HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto counts = this->store->GetLabelCounts();
+    ASSERT_EQ(counts[label1], 1);
+    ASSERT_EQ(counts[label2], 1);
+    ASSERT_EQ(counts[label3], 1);
+  }
+
+  // Check commited CreateVertex
+  {
+    auto acc = this->store->Access();
+    auto vertex = acc->CreateVertex();
+
+    ASSERT_FALSE(vertex.AddLabel(label3).HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto counts = this->store->GetLabelCounts();
+    ASSERT_EQ(counts[label1], 1);
+    ASSERT_EQ(counts[label2], 1);
+    ASSERT_EQ(counts[label3], 2);
+  }
+
+  // Check commited DeleteVertex
+  {
+    auto acc = this->store->Access();
+    auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v2);
+    ASSERT_FALSE(acc->DeleteVertex(&*v2).HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto counts = this->store->GetLabelCounts();
+    ASSERT_EQ(counts[label1], 1);
+    ASSERT_EQ(counts[label2], 0);
+    ASSERT_EQ(counts[label3], 2);
+  }
+}
+
+TYPED_TEST(StorageV2Test, UpdatesLabelsCountAfterAbort) {
+  auto label1 = this->store->NameToLabel("Person");
+  auto label2 = this->store->NameToLabel("Customer");
+  auto label3 = this->store->NameToLabel("Employee");
+
+  memgraph::storage::Gid v1_gid, v2_gid;
+
+  {
+    auto acc = this->store->Access();
+    auto v1 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    auto v2 = acc->CreateVertex();
+    v2_gid = v2.Gid();
+
+    ASSERT_FALSE(v1.AddLabel(label1).HasError());
+    ASSERT_FALSE(v2.AddLabel(label1).HasError());
+    ASSERT_FALSE(v2.AddLabel(label2).HasError());
+
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto counts = this->store->GetLabelCounts();
+    ASSERT_EQ(counts[label1], 2);
+    ASSERT_EQ(counts[label2], 1);
+    ASSERT_EQ(counts[label3], 0);
+  }
+
+  // Check aborted AddLabel
+  {
+    auto acc = this->store->Access();
+    auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    ASSERT_FALSE(v1->AddLabel(label3).HasError());
+    acc->Abort();
+  }
+
+  {
+    auto counts = this->store->GetLabelCounts();
+    ASSERT_EQ(counts[label1], 2);
+    ASSERT_EQ(counts[label2], 1);
+    ASSERT_EQ(counts[label3], 0);
+  }
+
+  // Check aborted RemoveLabel
+  {
+    auto acc = this->store->Access();
+    auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_FALSE(v2->RemoveLabel(label1).HasError());
+    acc->Abort();
+  }
+
+  {
+    auto counts = this->store->GetLabelCounts();
+    ASSERT_EQ(counts[label1], 2);
+    ASSERT_EQ(counts[label2], 1);
+    ASSERT_EQ(counts[label3], 0);
+  }
+
+  // Check aborted CreateVertex
+  {
+    auto acc = this->store->Access();
+    auto vertex = acc->CreateVertex();
+
+    ASSERT_FALSE(vertex.AddLabel(label3).HasError());
+
+    acc->Abort();
+  }
+
+  {
+    auto counts = this->store->GetLabelCounts();
+    ASSERT_EQ(counts[label1], 2);
+    ASSERT_EQ(counts[label2], 1);
+    ASSERT_EQ(counts[label3], 0);
+  }
+
+  // Check aborted DeleteVertex
+  {
+    auto acc = this->store->Access();
+    auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v2);
+    ASSERT_FALSE(acc->DeleteVertex(&*v2).HasError());
+    acc->Abort();
+  }
+
+  {
+    auto counts = this->store->GetLabelCounts();
+    ASSERT_EQ(counts[label1], 2);
+    ASSERT_EQ(counts[label2], 1);
+    ASSERT_EQ(counts[label3], 0);
   }
 }
