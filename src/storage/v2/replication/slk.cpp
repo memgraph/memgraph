@@ -19,7 +19,6 @@
 #include "slk/serialization.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
-#include "utils/cast.hpp"
 #include "utils/temporal.hpp"
 
 namespace memgraph::slk {
@@ -95,21 +94,21 @@ void Load(storage::ExternalPropertyValue::Type *type, slk::Reader *reader) {
   slk::Load(&value, reader);
   bool valid;
   switch (value) {
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Null):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Bool):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Int):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Double):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::String):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::List):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::IntList):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::DoubleList):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::NumericList):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Map):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::TemporalData):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::ZonedTemporalData):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Enum):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Point2d):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Point3d):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::Null):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::Bool):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::Int):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::Double):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::String):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::List):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::IntList):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::DoubleList):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::NumericList):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::Map):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::TemporalData):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::ZonedTemporalData):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::Enum):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::Point2d):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::Point3d):
       valid = true;
       break;
     default:

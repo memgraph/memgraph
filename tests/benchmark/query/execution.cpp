@@ -464,7 +464,7 @@ static void OrderBy(benchmark::State &state) {
   sort_items.reserve(state.range(0));
   for (int i = 0; i < state.range(0); ++i) {
     symbols.push_back(symbol_table.CreateSymbol(std::to_string(i), false));
-    auto rand_value = memgraph::utils::MemcpyCast<int64_t>(rg());
+    auto rand_value = std::bit_cast<int64_t>(rg());
     sort_items.push_back({memgraph::query::Ordering::ASC, ast.Create<memgraph::query::PrimitiveLiteral>(rand_value)});
   }
   memgraph::query::plan::OrderBy order_by(scan_all, sort_items, symbols);

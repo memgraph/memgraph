@@ -116,15 +116,18 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   try {
     // Remove
     switch (req.type) {
-      case replication::DropAuthDataReq::DataType::USER: {
+      using enum replication::DropAuthDataReq::DataType;
+      case USER: {
         auth->RemoveUser(req.name);
       } break;
-      case replication::DropAuthDataReq::DataType::ROLE: {
+      case ROLE: {
         auth->RemoveRole(req.name);
       } break;
-      case replication::DropAuthDataReq::DataType::PROFILE: {
+      case PROFILE: {
         auth->DropProfile(req.name);
       } break;
+      case N:
+        __builtin_unreachable();
     }
     // Success
     res = DropAuthDataRes(true);

@@ -22,7 +22,6 @@
 #include "auth/profiles/user_profiles.hpp"
 #include "glue/auth_global.hpp"
 #include "license/license.hpp"
-#include "utils/cast.hpp"
 #include "utils/file.hpp"
 
 #include <boost/dll/runtime_symbol_info.hpp>
@@ -1030,7 +1029,7 @@ TEST(AuthWithoutStorage, Permissions) {
 
   permissions.Grant(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
-  ASSERT_EQ(permissions.grants(), memgraph::utils::UnderlyingCast(Permission::MATCH));
+  ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH));
   ASSERT_EQ(permissions.denies(), 0);
 
   permissions.Revoke(Permission::MATCH);
@@ -1040,37 +1039,36 @@ TEST(AuthWithoutStorage, Permissions) {
 
   permissions.Deny(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::DENY);
-  ASSERT_EQ(permissions.denies(), memgraph::utils::UnderlyingCast(Permission::MATCH));
+  ASSERT_EQ(permissions.denies(), std::to_underlying(Permission::MATCH));
   ASSERT_EQ(permissions.grants(), 0);
 
   permissions.Grant(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
-  ASSERT_EQ(permissions.grants(), memgraph::utils::UnderlyingCast(Permission::MATCH));
+  ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH));
   ASSERT_EQ(permissions.denies(), 0);
 
   permissions.Deny(Permission::CREATE);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.Has(Permission::CREATE), PermissionLevel::DENY);
   ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
-  ASSERT_EQ(permissions.grants(), memgraph::utils::UnderlyingCast(Permission::MATCH));
-  ASSERT_EQ(permissions.denies(), memgraph::utils::UnderlyingCast(Permission::CREATE));
+  ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH));
+  ASSERT_EQ(permissions.denies(), std::to_underlying(Permission::CREATE));
 
   permissions.Grant(Permission::DELETE);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.Has(Permission::CREATE), PermissionLevel::DENY);
   ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.Has(Permission::DELETE), PermissionLevel::GRANT);
-  ASSERT_EQ(permissions.grants(),
-            memgraph::utils::UnderlyingCast(Permission::MATCH) | memgraph::utils::UnderlyingCast(Permission::DELETE));
-  ASSERT_EQ(permissions.denies(), memgraph::utils::UnderlyingCast(Permission::CREATE));
+  ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH) | std::to_underlying(Permission::DELETE));
+  ASSERT_EQ(permissions.denies(), std::to_underlying(Permission::CREATE));
 
   permissions.Revoke(Permission::DELETE);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.Has(Permission::CREATE), PermissionLevel::DENY);
   ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.Has(Permission::DELETE), PermissionLevel::NEUTRAL);
-  ASSERT_EQ(permissions.grants(), memgraph::utils::UnderlyingCast(Permission::MATCH));
-  ASSERT_EQ(permissions.denies(), memgraph::utils::UnderlyingCast(Permission::CREATE));
+  ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH));
+  ASSERT_EQ(permissions.denies(), std::to_underlying(Permission::CREATE));
 }
 
 TEST(AuthWithoutStorage, PermissionsMaskTest) {

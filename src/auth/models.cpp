@@ -23,7 +23,6 @@
 #include "nlohmann/detail/exceptions.hpp"
 #include "query/constants.hpp"
 #include "spdlog/spdlog.h"
-#include "utils/cast.hpp"
 #include "utils/string.hpp"
 #include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
@@ -264,10 +263,10 @@ Permissions::Permissions(uint64_t grants, uint64_t denies) {
 
 PermissionLevel Permissions::Has(Permission permission) const {
   // Check for the deny first because it has greater priority than a grant.
-  if (denies_ & utils::UnderlyingCast(permission)) {
+  if (denies_ & std::to_underlying(permission)) {
     return PermissionLevel::DENY;
   }
-  if (grants_ & utils::UnderlyingCast(permission)) {
+  if (grants_ & std::to_underlying(permission)) {
     return PermissionLevel::GRANT;
   }
   return PermissionLevel::NEUTRAL;
@@ -275,23 +274,23 @@ PermissionLevel Permissions::Has(Permission permission) const {
 
 void Permissions::Grant(Permission permission) {
   // Remove the possible deny.
-  denies_ &= ~utils::UnderlyingCast(permission);
+  denies_ &= ~std::to_underlying(permission);
   // Now we grant the permission.
-  grants_ |= utils::UnderlyingCast(permission);
+  grants_ |= std::to_underlying(permission);
 }
 
 void Permissions::Revoke(Permission permission) {
   // Remove the possible grant.
-  grants_ &= ~utils::UnderlyingCast(permission);
+  grants_ &= ~std::to_underlying(permission);
   // Remove the possible deny.
-  denies_ &= ~utils::UnderlyingCast(permission);
+  denies_ &= ~std::to_underlying(permission);
 }
 
 void Permissions::Deny(Permission permission) {
   // First deny the permission.
-  denies_ |= utils::UnderlyingCast(permission);
+  denies_ |= std::to_underlying(permission);
   // Remove the possible grant.
-  grants_ &= ~utils::UnderlyingCast(permission);
+  grants_ &= ~std::to_underlying(permission);
 }
 
 std::vector<Permission> Permissions::GetGrants() const {

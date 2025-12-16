@@ -1316,7 +1316,7 @@ TypedValue ToByteString(const TypedValue *args, int64_t nargs, const FunctionCon
     unsigned char byte = read_hex(hex_str[i]) * 16U + read_hex(hex_str[i + 1]);
     // MemcpyCast in case we are converting to a signed value, so as to avoid
     // undefined behaviour.
-    bytes.append(1, utils::MemcpyCast<decltype(bytes)::value_type>(byte));
+    bytes.append(1, std::bit_cast<decltype(bytes)::value_type>(byte));
   }
   return TypedValue(std::move(bytes));
 }
@@ -1338,7 +1338,7 @@ TypedValue FromByteString(const TypedValue *args, int64_t nargs, const FunctionC
   // complicated than it should be.
   auto to_hex = [](const unsigned char val) -> char {
     unsigned char ch = val < 10U ? static_cast<unsigned char>('0') + val : static_cast<unsigned char>('a') + val - 10U;
-    return utils::MemcpyCast<char>(ch);
+    return std::bit_cast<char>(ch);
   };
   for (unsigned char byte : bytes) {
     str.append(1, to_hex(byte / 16U));
