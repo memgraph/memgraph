@@ -21,6 +21,9 @@ Settings global_settings;
 void Settings::Initialize(std::filesystem::path storage_path) {
   std::lock_guard settings_guard{settings_lock_};
   storage_.emplace(std::move(storage_path));
+  if (std::atexit([] { global_settings.Finalize(); }) != 0) {
+    spdlog::error("Failed to register settings finalizer! Could cause instabilities on exit.");
+  }
 }
 
 void Settings::Finalize() {
@@ -33,7 +36,7 @@ void Settings::Finalize() {
 void Settings::RegisterSetting(std::string name, const std::string &default_value, OnChangeCallback callback,
                                Validation validation) {
   std::lock_guard settings_guard{settings_lock_};
-  MG_ASSERT(storage_);
+  if (!storage_) return;
   MG_ASSERT(validation(default_value).has_value(), "\"{}\"'s default value does not satisfy the validation condition.",
             name);
 
@@ -54,7 +57,7 @@ void Settings::RegisterSetting(std::string name, const std::string &default_valu
 
 std::optional<std::string> Settings::GetValue(const std::string &setting_name) const {
   std::shared_lock settings_guard{settings_lock_};
-  MG_ASSERT(storage_);
+  if (!storage_) return std::nullopt;
   auto maybe_value = storage_->Get(setting_name);
   return maybe_value;
 }
@@ -62,7 +65,7 @@ std::optional<std::string> Settings::GetValue(const std::string &setting_name) c
 bool Settings::SetValue(const std::string &setting_name, const std::string &new_value) {
   const auto settings_change_callback = std::invoke([&, this]() -> std::optional<OnChangeCallback> {
     std::lock_guard settings_guard{settings_lock_};
-    MG_ASSERT(storage_);
+    if (!storage_) return std::nullopt;
 
     if (const auto maybe_value = storage_->Get(setting_name); !maybe_value) {
       return std::nullopt;
@@ -91,8 +94,7 @@ bool Settings::SetValue(const std::string &setting_name, const std::string &new_
 
 std::vector<std::pair<std::string, std::string>> Settings::AllSettings() const {
   std::shared_lock settings_guard{settings_lock_};
-
-  MG_ASSERT(storage_);
+  if (!storage_) return {};
 
   std::vector<std::pair<std::string, std::string>> settings;
   settings.reserve(storage_->Size());
