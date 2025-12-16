@@ -1,4 +1,5 @@
 find_package(gflags REQUIRED)
+find_package(GTest REQUIRED)
 
 add_library(memgraph__e2e__triggers_common STATIC common.hpp common.cpp)
 target_link_libraries(memgraph__e2e__triggers_common PUBLIC gflags mgclient::mgclient mg-utils)
@@ -13,7 +14,7 @@ add_executable(memgraph__e2e__triggers__on_delete on_delete_triggers.cpp)
 target_link_libraries(memgraph__e2e__triggers__on_delete memgraph__e2e__triggers_common)
 
 add_executable(memgraph__e2e__triggers__privileges privilege_check.cpp)
-target_link_libraries(memgraph__e2e__triggers__privileges memgraph__e2e__triggers_common)
+target_link_libraries(memgraph__e2e__triggers__privileges memgraph__e2e__triggers_common GTest::gtest GTest::gtest_main)
 
 add_subdirectory(procedures)
 
