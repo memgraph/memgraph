@@ -76,7 +76,7 @@ void Load(memgraph::storage::replication::CreateDatabaseReq *self, memgraph::slk
 // Serialize code for CreateDatabaseRes
 
 void Save(const memgraph::storage::replication::CreateDatabaseRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(std::to_underlying(self.result), builder);
+  memgraph::slk::Save(self.result, builder);
 }
 
 void Load(memgraph::storage::replication::CreateDatabaseRes *self, memgraph::slk::Reader *reader) {
@@ -106,7 +106,7 @@ void Load(memgraph::storage::replication::DropDatabaseReq *self, memgraph::slk::
 // Serialize code for DropDatabaseRes
 
 void Save(const memgraph::storage::replication::DropDatabaseRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(std::to_underlying(self.result), builder);
+  memgraph::slk::Save(self.result, builder);
 }
 
 void Load(memgraph::storage::replication::DropDatabaseRes *self, memgraph::slk::Reader *reader) {
@@ -140,7 +140,7 @@ void Load(memgraph::storage::replication::RenameDatabaseReq *self, memgraph::slk
 // Serialize code for RenameDatabaseRes
 
 void Save(const memgraph::storage::replication::RenameDatabaseRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(std::to_underlying(self.result), builder);
+  memgraph::slk::Save(self.result, builder);
 }
 
 void Load(memgraph::storage::replication::RenameDatabaseRes *self, memgraph::slk::Reader *reader) {

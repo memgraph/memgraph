@@ -28,7 +28,9 @@ Constraints::Constraints(const Config &config, StorageMode storage_mode) {
       case StorageMode::ON_DISK_TRANSACTIONAL:
         unique_constraints_ = std::make_unique<DiskUniqueConstraints>(config);
         break;
-    };
+      case StorageMode::N:
+        __builtin_unreachable();
+    }
   });
 }
 

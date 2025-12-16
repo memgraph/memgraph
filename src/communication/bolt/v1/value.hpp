@@ -17,7 +17,6 @@
 #include <vector>
 
 #include "storage/v2/point.hpp"
-#include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/temporal.hpp"
 
@@ -39,13 +38,13 @@ class Id {
   Id() = default;
 
   /** Construct Id from uint64_t */
-  static Id FromUint(uint64_t id) { return Id(utils::MemcpyCast<int64_t>(id)); }
+  static Id FromUint(uint64_t id) { return Id(std::bit_cast<int64_t>(id)); }
 
   /** Construct Id from int64_t */
   static Id FromInt(int64_t id) { return Id(id); }
 
   int64_t AsInt() const { return id_; }
-  uint64_t AsUint() const { return utils::MemcpyCast<uint64_t>(id_); }
+  uint64_t AsUint() const { return std::bit_cast<uint64_t>(id_); }
 
  private:
   explicit Id(int64_t id) : id_(id) {}

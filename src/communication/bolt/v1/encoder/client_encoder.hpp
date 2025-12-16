@@ -58,8 +58,8 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    *          when flushing, false otherwise
    */
   bool MessageInit(const map_t &extra) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
-    WriteRAW(utils::UnderlyingCast(Signature::Init));
+    WriteRAW(std::to_underlying(Marker::TinyStruct1));
+    WriteRAW(std::to_underlying(Signature::Init));
     WriteMap(extra);
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
@@ -84,8 +84,8 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    *          when flushing, false otherwise
    */
   bool MessageRun(std::string_view statement, const map_t &parameters, const map_t &extra, bool have_more = true) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
-    WriteRAW(utils::UnderlyingCast(Signature::Run));
+    WriteRAW(std::to_underlying(Marker::TinyStruct3));
+    WriteRAW(std::to_underlying(Signature::Run));
     WriteString(statement);
     WriteMap(parameters);
     WriteMap(extra);
@@ -110,8 +110,8 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    *          when flushing, false otherwise
    */
   bool MessageDiscard(const map_t &extra) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
-    WriteRAW(utils::UnderlyingCast(Signature::Discard));
+    WriteRAW(std::to_underlying(Marker::TinyStruct1));
+    WriteRAW(std::to_underlying(Signature::Discard));
     WriteMap(extra);
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
@@ -132,8 +132,8 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    *          when flushing, false otherwise
    */
   bool MessagePull(const map_t &extra) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
-    WriteRAW(utils::UnderlyingCast(Signature::Pull));
+    WriteRAW(std::to_underlying(Marker::TinyStruct1));
+    WriteRAW(std::to_underlying(Signature::Pull));
     WriteMap(extra);
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
@@ -153,8 +153,8 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    *          when flushing, false otherwise
    */
   bool MessageReset() {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct));
-    WriteRAW(utils::UnderlyingCast(Signature::Reset));
+    WriteRAW(std::to_underlying(Marker::TinyStruct));
+    WriteRAW(std::to_underlying(Signature::Reset));
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
     if (buffer_.HasData() && !buffer_.Flush(true)) return false;
@@ -176,8 +176,8 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    *          when flushing, false otherwise
    */
   bool MessageRoute(const map_t &routing, const std::vector<Value> &bookmarks, const std::optional<std::string> &db) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
-    WriteRAW(utils::UnderlyingCast(Signature::Route));
+    WriteRAW(std::to_underlying(Marker::TinyStruct3));
+    WriteRAW(std::to_underlying(Signature::Route));
     WriteMap(routing);
     WriteList(bookmarks);
     if (db.has_value()) {

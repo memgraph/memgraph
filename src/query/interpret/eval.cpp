@@ -308,10 +308,10 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       return TypedValue(zdt.LocalYear(), ctx_->memory);
     }
     if (prop_name == "month") {
-      return TypedValue(utils::MemcpyCast<int64_t>(zdt.LocalMonth()), ctx_->memory);
+      return TypedValue(std::bit_cast<int64_t>(zdt.LocalMonth()), ctx_->memory);
     }
     if (prop_name == "day") {
-      return TypedValue(utils::MemcpyCast<int64_t>(zdt.LocalDay()), ctx_->memory);
+      return TypedValue(std::bit_cast<int64_t>(zdt.LocalDay()), ctx_->memory);
     }
     if (prop_name == "hour") {
       return TypedValue(zdt.LocalHour(), ctx_->memory);

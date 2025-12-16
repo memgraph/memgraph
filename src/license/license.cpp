@@ -23,7 +23,6 @@
 
 #include "slk/serialization.hpp"
 #include "utils/base64.hpp"
-#include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -337,7 +336,7 @@ std::string Encode(const License &license) {
   slk::Save(license.organization_name, &builder);
   slk::Save(license.valid_until, &builder);
   slk::Save(license.memory_limit, &builder);
-  slk::Save(utils::UnderlyingCast(license.type), &builder);
+  slk::Save(license.type, &builder);
   builder.Finalize();
 
   return std::string{license_key_prefix} + utils::base64_encode(buffer.data(), buffer.size());

@@ -243,7 +243,7 @@ void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader)
   memgraph::slk::Load(&self->uuid, reader);
   uint8_t sm = 0;
   memgraph::slk::Load(&sm, reader);
-  if (!utils::NumToEnum<3>(sm, self->storage_mode)) {
+  if (!utils::NumToEnum(sm, self->storage_mode)) {
     throw SlkReaderException("Unexpected result line:{}!", __LINE__);
   }
   memgraph::slk::Load(&self->items.properties_on_edges, reader);
