@@ -8083,7 +8083,7 @@ void Interpreter::Commit() {
   if (trigger_context && db->trigger_store()->AfterCommitTriggers().size() > 0) {
     db->AddTask([db_acc = *current_db_.db_acc_, interpreter_context = interpreter_context_,
                  trigger_context = std::move(*trigger_context),
-                 user_transaction = std::shared_ptr(std::move(current_db_.db_transactional_accessor_))]() mutable {
+                 user_transaction = std::move(current_db_.db_transactional_accessor_)]() {
       RunTriggersAfterCommit(db_acc, interpreter_context, std::move(trigger_context));
       user_transaction->FinalizeTransaction();
       SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)

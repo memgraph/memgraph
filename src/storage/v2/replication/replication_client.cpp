@@ -192,7 +192,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                   client_.name_, main_db_name);
     replica_state_.WithLock([&](auto &state) {
       state = ReplicaState::RECOVERY;
-      client_.thread_pool_.AddTask([main_storage, gk = std::shared_ptr{protector.clone()}, this] {
+      client_.thread_pool_.AddTask([main_storage, gk = protector.clone(), this] {
         this->RecoverReplica(/*replica_last_commit_ts*/ 0, main_storage,
                              true);  // needs force reset so we need to recover from 0.
       });
@@ -229,7 +229,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
       spdlog::debug("Replica {} is behind for db {}.", client_.name_, main_db_name);
       state = ReplicaState::RECOVERY;
       client_.thread_pool_.AddTask([main_storage, current_commit_timestamp = heartbeat_res.current_commit_timestamp_,
-                                    gk = std::shared_ptr{protector.clone()},
+                                    gk = protector.clone(),
                                     this] { this->RecoverReplica(current_commit_timestamp, main_storage); });
     }
   });
@@ -249,7 +249,7 @@ void ReplicationStorageClient::LogRpcFailure() const {
 }
 
 void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, DatabaseProtector const &protector) {
-  client_.thread_pool_.AddTask([main_storage, protector = std::shared_ptr{protector.clone()}, this]() mutable {
+  client_.thread_pool_.AddTask([main_storage, protector = protector.clone(), this]() {
     this->TryCheckReplicaStateSync(main_storage, *protector);
   });
 }
@@ -259,7 +259,7 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
                 static_cast<InMemoryStorage *>(main_storage)->name());
   replica_state_.WithLock([&](auto &state) {
     state = ReplicaState::RECOVERY;
-    client_.thread_pool_.AddTask([main_storage, gk = std::shared_ptr{protector.clone()}, this] {
+    client_.thread_pool_.AddTask([main_storage, gk = protector.clone(), this] {
       this->RecoverReplica(/*replica_last_commit_ts*/ 0, main_storage,
                            true);  // needs force reset so we need to recover from 0.
     });
