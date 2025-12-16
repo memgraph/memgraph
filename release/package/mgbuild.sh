@@ -1223,6 +1223,7 @@ build_ssl() {
   done
 
   echo "Building OpenSSL in $build_container..."
+  local conan_remote_flag=""
   if [[ -n "$conan_remote" ]]; then
     conan_remote_flag="--conan-remote $conan_remote"
   fi
