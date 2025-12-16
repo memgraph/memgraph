@@ -7,6 +7,8 @@ ARG TARGETARCH
 ARG SOURCE_CODE
 ARG CUSTOM_MIRROR
 
+COPY openssl/* /usr/lib/memgraph/
+
 # If CUSTOM_MIRROR is set, replace the default archive.ubuntu.com
 # and security.ubuntu.com URIs in your .sources file
 RUN if [ -n "$CUSTOM_MIRROR" ]; then \
