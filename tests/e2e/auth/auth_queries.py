@@ -108,6 +108,54 @@ def test_show_current_roles_with_user_has_roles(memgraph):
     memgraph.execute("DROP ROLE user_role;")
 
 
+def test_username_function_no_user(memgraph):
+    results = list(memgraph.execute_and_fetch("RETURN username() AS username;"))
+    assert len(results) == 1
+    assert results[0]["username"] is None
+
+
+def test_username_function_with_user(provide_user):
+    USERNAME = "anthony"
+    memgraph_with_user = Memgraph(username=USERNAME, password="password")
+    results = list(memgraph_with_user.execute_and_fetch("RETURN username() AS username;"))
+    assert len(results) == 1
+    assert results[0]["username"] == USERNAME
+
+
+def test_roles_function_no_user(memgraph):
+    results = list(memgraph.execute_and_fetch("RETURN roles() AS roles;"))
+    assert len(results) == 1
+    assert results[0]["roles"] == []
+
+
+def test_roles_function_with_user_no_roles(provide_user):
+    USERNAME = "anthony"
+    memgraph_with_user = Memgraph(username=USERNAME, password="password")
+    results = list(memgraph_with_user.execute_and_fetch("RETURN roles() AS roles;"))
+    assert len(results) == 1
+    assert results[0]["roles"] == []
+
+
+def test_roles_function_with_user_has_roles(memgraph):
+    memgraph.execute("CREATE USER test_user;")
+    memgraph.execute("CREATE ROLE admin_role;")
+    memgraph.execute("CREATE ROLE user_role;")
+    memgraph.execute("SET ROLE FOR test_user TO admin_role, user_role;")
+
+    memgraph_with_user = Memgraph(username="test_user", password="")
+    results = list(memgraph_with_user.execute_and_fetch("RETURN roles() AS roles;"))
+    assert len(results) == 1
+    roles = results[0]["roles"]
+    assert isinstance(roles, list)
+    assert len(roles) == 2
+    assert "admin_role" in roles
+    assert "user_role" in roles
+
+    memgraph.execute("DROP USER test_user;")
+    memgraph.execute("DROP ROLE admin_role;")
+    memgraph.execute("DROP ROLE user_role;")
+
+
 def test_show_current_role_single_role(memgraph):
     # Create a user and single role
     memgraph.execute("CREATE USER test_user;")
