@@ -383,12 +383,19 @@ copy_project_files() {
 upload_conan_cache() {
   local conan_username=$1
   local conan_password=$2
+  if [[ $# -gt 2 ]]; then
+    package_name=$3
+  fi
   if [[ -z "$conan_username" ]] || [[ -z "$conan_password" ]]; then
     echo "Warning: Conan username and password are required for Conan cache upload"
     return 0
   fi
   docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan remote login -p $conan_password artifactory $conan_username"
-  docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan upload \"*/*\" -r=artifactory --confirm"
+  if [[ -n "$package_name" ]]; then
+    docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan upload \"$package_name\" -r=artifactory --confirm"
+  else
+    docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan upload \"*/*\" -r=artifactory --confirm"
+  fi
   return $?
 }
 
@@ -1183,8 +1190,42 @@ copy_heaptrack() {
 }
 
 build_ssl() {
+  local conan_remote=""
+  local conan_username=""
+  local conan_password=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --conan-remote)
+        conan_remote=$2
+        shift 2
+      ;;
+      --conan-username)
+        conan_username=$2
+        shift 2
+      ;;
+      --conan-password)
+        conan_password=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
   echo "Building OpenSSL in $build_container..."
-  ./tools/openssl/container-build.sh $build_container
+  if [[ -n "$conan_remote" ]]; then
+    conan_remote_flag="--conan-remote $conan_remote"
+  fi
+  ./tools/openssl/container-build.sh $build_container $conan_remote_flag
+
+  if [[ -n "$conan_username" ]] && [[ -n "$conan_password" ]]; then
+    upload_conan_cache $conan_username $conan_password "openssl/*"
+  fi
+
+  echo "OpenSSL built and uploaded to conan cache"
 }
 ##################################################
 ################### PARSE ARGS ###################

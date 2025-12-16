@@ -1,6 +1,11 @@
 #!/bin/bash
 
 # build OpenSSL using conan for use in the Docker containers
+CONAN_REMOTE=""
+if [[ $# -gt 0 ]]; then
+    CONAN_REMOTE=$1
+    shift 1
+fi
 
 # check if python environment exists
 create_env=false
@@ -36,6 +41,10 @@ fi
 if [ ! -f "$HOME/.conan2/profiles/default" ]; then
     echo "Creating conan profile"
     conan profile detect
+fi
+
+if [[ -n "$CONAN_REMOTE" ]]; then
+    conan remote add artifactory $CONAN_REMOTE --force
 fi
 
 conan install   \
