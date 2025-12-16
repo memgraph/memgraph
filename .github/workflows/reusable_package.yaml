@@ -189,6 +189,15 @@ jobs:
           copy-heaptrack \
           --dest-dir "$(pwd)/release/docker"
 
+      - name: "Build OpenSSL"
+        if: ${{ env.FOR_DOCKER == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          build-ssl
+
       - name: "Stop mgbuild container"
         if: always()
         run: |

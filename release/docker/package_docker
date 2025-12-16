@@ -13,7 +13,7 @@ working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 latest_image=""
 tag_latest=""
-toolchain_version="v6"
+toolchain_version="v7"
 package_path=""
 arch=""
 src_path=""

@@ -1114,6 +1114,10 @@ copy_heaptrack() {
   docker cp $build_container:/tmp/heaptrack/ $dest_dir
 }
 
+build_ssl() {
+  echo "Building OpenSSL in $build_container..."
+  ./tools/openssl/container-build.sh $build_container
+}
 ##################################################
 ################### PARSE ARGS ###################
 ##################################################
@@ -1494,6 +1498,9 @@ case $command in
     ;;
     copy-heaptrack)
       copy_heaptrack $@
+    ;;
+    build-ssl)
+      build_ssl $@
     ;;
     *)
         echo "Error: Unknown command '$command'"
