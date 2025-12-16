@@ -138,28 +138,28 @@ inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *ob
 
   if (object->delta == nullptr) return WriteResult::SUCCESS;
 
-  auto ts = object->delta->timestamp->load(std::memory_order_acquire);
+  auto const ts = object->delta->timestamp->load(std::memory_order_acquire);
 
-  if (ts == transaction->transaction_id) {
-    // If the head delta belongs to the same transaction and is interleaved,
-    // then only another commutative action delta can be prepended.
-    if (IsDeltaInterleaved(*object->delta)) {
-      return WriteResult::INTERLEAVED;
+  if (ts != transaction->transaction_id) {
+    // Standard MVCC visibility rules: if the head delta was committed before
+    // this transaction started, any delta action can be prepended.
+    if (ts < transaction->start_timestamp) {
+      return WriteResult::SUCCESS;
     }
-    // Head delta from same transaction is not interleaved - allow any new delta
-    return WriteResult::SUCCESS;
+    // Head delta is from another uncommitted transaction. Since we're performing
+    // an edge create operation, such operations are never serialized error, but
+    // must be marked as interleaved.
+    return WriteResult::INTERLEAVED;
   }
 
-  // Standard MVCC visibility rules: if the head delta was committed before
-  // this transaction started, any delta action can be prepended.
-  if (ts < transaction->start_timestamp) {
-    return WriteResult::SUCCESS;
+  // Same transaction: check if the head delta is interleaved
+  // If the head delta belongs to the same transaction and is interleaved,
+  // then only another commutative action delta can be prepended.
+  if (IsDeltaInterleaved(*object->delta)) {
+    return WriteResult::INTERLEAVED;
   }
-
-  // Head delta is from another uncommitted transaction. Since we're performing
-  // an edge create operation, such operations are never serialized error, but
-  // must be marked as interleaved.
-  return WriteResult::INTERLEAVED;
+  // Head delta from same transaction is not interleaved - allow any new delta
+  return WriteResult::SUCCESS;
 }
 
 /// This function creates a `DELETE_OBJECT` delta in the transaction and returns
