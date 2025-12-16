@@ -49,6 +49,5 @@ boost/*:extra_b2_flags=cxxflags=--target=x86_64-linux-gnu cflags=--target=x86_64
 {% endif %}
 
 [buildenv]
-CLASSPATH=
 LD_LIBRARY_PATH=
 DYLD_LIBRARY_PATH=
