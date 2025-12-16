@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <functional>
+
 #include "storage/v2/async_indexer.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/isolation_level.hpp"

@@ -118,16 +118,16 @@ TEST(DBMS_Handler, New) {
   {
     const auto dirs = GetDirs(db_dir);
     auto db1 = dbms.New("db1");
-    ASSERT_TRUE(db1.HasValue());
-    ASSERT_TRUE(db1.GetValue());
+    ASSERT_TRUE(db1.has_value());
+    ASSERT_TRUE(db1.value());
     // New flow doesn't make db named directories
     ASSERT_FALSE(std::filesystem::exists(db_dir / "db1"));
     const auto dirs_w_db1 = GetDirs(db_dir);
     ASSERT_EQ(dirs_w_db1.size(), dirs.size() + 1);
-    ASSERT_TRUE(db1.GetValue()->storage() != nullptr);
-    ASSERT_TRUE(db1.GetValue()->streams() != nullptr);
-    ASSERT_TRUE(db1.GetValue()->trigger_store() != nullptr);
-    ASSERT_TRUE(db1.GetValue()->thread_pool() != nullptr);
+    ASSERT_TRUE(db1.value()->storage() != nullptr);
+    ASSERT_TRUE(db1.value()->streams() != nullptr);
+    ASSERT_TRUE(db1.value()->trigger_store() != nullptr);
+    ASSERT_TRUE(db1.value()->thread_pool() != nullptr);
     const auto all = dbms.All();
     ASSERT_EQ(all.size(), 2);
     ASSERT_TRUE(std::find(all.begin(), all.end(), memgraph::dbms::kDefaultDB) != all.end());
@@ -136,20 +136,20 @@ TEST(DBMS_Handler, New) {
   {
     // Fail if name exists
     auto db2 = dbms.New("db1");
-    ASSERT_TRUE(db2.HasError() && db2.GetError() == memgraph::dbms::NewError::EXISTS);
+    ASSERT_EQ(db2, std::unexpected{memgraph::dbms::NewError::EXISTS});
   }
   {
     const auto dirs = GetDirs(db_dir);
     auto db3 = dbms.New("db3");
-    ASSERT_TRUE(db3.HasValue());
+    ASSERT_TRUE(db3.has_value());
     // New flow doesn't make db named directories
     ASSERT_FALSE(std::filesystem::exists(db_dir / "db3"));
     const auto dirs_w_db3 = GetDirs(db_dir);
     ASSERT_EQ(dirs_w_db3.size(), dirs.size() + 1);
-    ASSERT_TRUE(db3.GetValue()->storage() != nullptr);
-    ASSERT_TRUE(db3.GetValue()->streams() != nullptr);
-    ASSERT_TRUE(db3.GetValue()->trigger_store() != nullptr);
-    ASSERT_TRUE(db3.GetValue()->thread_pool() != nullptr);
+    ASSERT_TRUE(db3.value()->storage() != nullptr);
+    ASSERT_TRUE(db3.value()->streams() != nullptr);
+    ASSERT_TRUE(db3.value()->trigger_store() != nullptr);
+    ASSERT_TRUE(db3.value()->thread_pool() != nullptr);
     const auto all = dbms.All();
     ASSERT_EQ(all.size(), 3);
     ASSERT_TRUE(std::find(all.begin(), all.end(), "db3") != all.end());
@@ -189,31 +189,30 @@ TEST(DBMS_Handler, Delete) {
 
   {
     auto del = dbms.TryDelete(memgraph::dbms::kDefaultDB);
-    ASSERT_TRUE(del.HasError() && del.GetError() == memgraph::dbms::DeleteError::DEFAULT_DB);
+    ASSERT_EQ(del, std::unexpected{memgraph::dbms::DeleteError::DEFAULT_DB});
   }
   {
     auto del = dbms.TryDelete("non-existent");
-    ASSERT_TRUE(del.HasError() && del.GetError() == memgraph::dbms::DeleteError::NON_EXISTENT);
+    ASSERT_EQ(del, std::unexpected{memgraph::dbms::DeleteError::NON_EXISTENT});
   }
   {
     // db1_acc is using db1
     auto del = dbms.TryDelete("db1");
-    ASSERT_TRUE(del.HasError());
-    ASSERT_TRUE(del.GetError() == memgraph::dbms::DeleteError::USING);
+    ASSERT_EQ(del, std::unexpected{memgraph::dbms::DeleteError::USING});
   }
   {
     // Reset db1_acc (releases access) so delete will succeed
     db1_acc.reset();
     ASSERT_FALSE(db1_acc);
     auto del = dbms.TryDelete("db1");
-    ASSERT_FALSE(del.HasError()) << (int)del.GetError();
+    ASSERT_TRUE(del.has_value()) << (int)del.error();
     auto del2 = dbms.TryDelete("db1");
-    ASSERT_TRUE(del2.HasError() && del2.GetError() == memgraph::dbms::DeleteError::NON_EXISTENT);
+    ASSERT_EQ(del2, std::unexpected{memgraph::dbms::DeleteError::NON_EXISTENT});
   }
   {
     const auto dirs = GetDirs(db_dir);
     auto del = dbms.TryDelete("db3");
-    ASSERT_FALSE(del.HasError());
+    ASSERT_TRUE(del.has_value());
     const auto dirs_wo_db3 = GetDirs(db_dir);
     ASSERT_EQ(dirs_wo_db3.size(), dirs.size() - 1);
   }

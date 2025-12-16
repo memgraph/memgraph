@@ -1129,7 +1129,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
      */
     auto compare_indices = [](std::optional<LabelPropertyIndex> &found,
                               std::optional<storage::LabelPropertyIndexStats> &new_stats, int vertex_count) {
-      if (!new_stats.has_value()) {
+      if (!new_stats) {
         return 0;
       }
 

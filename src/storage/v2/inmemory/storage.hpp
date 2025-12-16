@@ -390,9 +390,9 @@ class InMemoryStorage final : public Storage {
     // finalize commit method which will bump ldt, update commit ts etc.
     // @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(CommitArgs commit_args) override;
+    std::expected<void, StorageManipulationError> PrepareForCommitPhase(CommitArgs commit_args) override;
 
-    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitArgs commit_args) override;
+    std::expected<void, StorageManipulationError> PeriodicCommit(CommitArgs commit_args) override;
 
     void AbortAndResetCommitTs();
 
@@ -407,14 +407,18 @@ class InMemoryStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
+    // Bring base class convenience overloads into scope (they provide default neverCancel)
+    using Storage::Accessor::CreateGlobalEdgeIndex;
+    using Storage::Accessor::CreateIndex;
+
     /// Create an index.
     /// Returns void if the index has been created.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `IndexDefinitionError`: the index already exists.
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// @throw std::bad_alloc
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
+                                                                 CheckCancelFunction cancel_check) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -422,8 +426,8 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths properties,
+                                                                 CheckCancelFunction cancel_check) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -431,8 +435,8 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        EdgeTypeId edge_type, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type,
+                                                                 CheckCancelFunction cancel_check) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -440,8 +444,8 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type, PropertyId property,
+                                                                 CheckCancelFunction cancel_check) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -449,22 +453,22 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
-        PropertyId property, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateGlobalEdgeIndex(PropertyId property,
+                                                                           CheckCancelFunction cancel_check) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
+    std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+    std::expected<void, StorageIndexDefinitionError> DropIndex(
         LabelId label, std::vector<storage::PropertyPath> &&properties) override;
 
     /// Drop an existing index.
@@ -472,33 +476,33 @@ class InMemoryStorage final : public Storage {
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
+    std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
+    std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(PropertyId property) override;
+    std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(PropertyId property) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreatePointIndex(storage::LabelId label,
-                                                                           storage::PropertyId property) override;
+    std::expected<void, StorageIndexDefinitionError> CreatePointIndex(storage::LabelId label,
+                                                                      storage::PropertyId property) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropPointIndex(storage::LabelId label,
-                                                                         storage::PropertyId property) override;
+    std::expected<void, StorageIndexDefinitionError> DropPointIndex(storage::LabelId label,
+                                                                    storage::PropertyId property) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateVectorIndex(VectorIndexSpec spec) override;
+    std::expected<void, StorageIndexDefinitionError> CreateVectorIndex(VectorIndexSpec spec) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropVectorIndex(std::string_view index_name) override;
+    std::expected<void, StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) override;
+    std::expected<void, StorageIndexDefinitionError> CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) override;
 
     /// Returns void if the existence constraint has been created.
     /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
@@ -507,7 +511,7 @@ class InMemoryStorage final : public Storage {
     /// * `ConstraintDefinitionError`: the constraint already exists.
     /// @throw std::bad_alloc
     /// @throw std::length_error
-    utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
+    std::expected<void, StorageExistenceConstraintDefinitionError> CreateExistenceConstraint(
         LabelId label, PropertyId property) override;
 
     /// Drop an existing existence constraint.
@@ -515,8 +519,8 @@ class InMemoryStorage final : public Storage {
     /// Returns `StorageExistenceConstraintDroppingError` if an error occures. Error can be:
     /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `ConstraintDefinitionError`: the constraint did not exists.
-    utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
-        LabelId label, PropertyId property) override;
+    std::expected<void, StorageExistenceConstraintDroppingError> DropExistenceConstraint(LabelId label,
+                                                                                         PropertyId property) override;
 
     /// Create an unique constraint.
     /// Returns `StorageUniqueConstraintDefinitionError` if an error occures. Error can be:
@@ -528,8 +532,8 @@ class InMemoryStorage final : public Storage {
     /// * `EMPTY_PROPERTIES` if the property set is empty, or
     /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
     /// @throw std::bad_alloc
-    utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
-    CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) override;
+    std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError> CreateUniqueConstraint(
+        LabelId label, const std::set<PropertyId> &properties) override;
 
     /// Removes an existing unique constraint.
     /// Returns `StorageUniqueConstraintDroppingError` if an error occures. Error can be:
@@ -544,13 +548,13 @@ class InMemoryStorage final : public Storage {
 
     /// Create type constraint,
     /// Returns error result if already exists, or if constraint is already violated
-    utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
-        LabelId label, PropertyId property, TypeConstraintKind type) override;
+    std::expected<void, StorageExistenceConstraintDefinitionError> CreateTypeConstraint(
+        LabelId label, PropertyId property, TypeConstraintKind kind) override;
 
     /// Drop type constraint,
     /// Returns error result if constraint does not exist.
-    utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
-        LabelId label, PropertyId property, TypeConstraintKind type) override;
+    std::expected<void, StorageExistenceConstraintDroppingError> DropTypeConstraint(LabelId label, PropertyId property,
+                                                                                    TypeConstraintKind kind) override;
 
     void DropGraph() override;
 
@@ -696,9 +700,9 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> CreateSnapshot(bool force = false);
+  std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> CreateSnapshot(bool force = false);
 
-  utils::BasicResult<InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
+  std::expected<void, InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
       std::filesystem::path path, bool force,
       memgraph::replication_coordination_glue::ReplicationRole replication_role);
 
@@ -706,7 +710,7 @@ class InMemoryStorage final : public Storage {
 
   std::optional<SnapshotFileInfo> ShowNextSnapshot();
 
-  void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb);
+  void CreateSnapshotHandler(std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>()> cb);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 

@@ -23,7 +23,6 @@
 #include "replication_handler/system_rpc.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/metrics_timer.hpp"
-#include "utils/result.hpp"
 
 namespace memgraph::metrics {
 extern const Event SystemRecoveryRpc_us;
@@ -32,7 +31,7 @@ extern const Event SystemRecoveryRpc_us;
 namespace memgraph::replication {
 
 inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
-    utils::BasicResult<RegisterReplicaStatus, ReplicationClient *> &instance_client);
+    std::expected<ReplicationClient *, RegisterReplicaStatus> &instance_client);
 
 #ifdef MG_ENTERPRISE
 void StartReplicaClient(ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
@@ -138,10 +137,10 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
   // as MAIN, define and connect to REPLICAs
   auto TryRegisterReplica(const ReplicationClientConfig &config)
-      -> utils::BasicResult<query::RegisterReplicaError> override;
+      -> std::expected<void, query::RegisterReplicaError> override;
 
   auto RegisterReplica(const ReplicationClientConfig &config)
-      -> utils::BasicResult<query::RegisterReplicaError> override;
+      -> std::expected<void, query::RegisterReplicaError> override;
 
   // as MAIN, remove a REPLICA connection
   auto UnregisterReplica(std::string_view name) -> query::UnregisterReplicaResult override;
@@ -153,7 +152,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   bool IsMain() const override;
   bool IsReplica() const override;
 
-  auto ShowReplicas() const -> utils::BasicResult<query::ShowReplicaError, query::ReplicasInfos> override;
+  auto ShowReplicas() const -> std::expected<query::ReplicasInfos, query::ShowReplicaError> override;
 
   auto GetReplState() const { return repl_state_.ReadLock(); }
   auto GetReplState() { return repl_state_.Lock(); }
@@ -194,21 +193,21 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
   template <bool SendSwapUUID>
   auto RegisterReplica_(auto &locked_repl_state, const ReplicationClientConfig &config)
-      -> utils::BasicResult<query::RegisterReplicaError> {
+      -> std::expected<void, query::RegisterReplicaError> {
     using query::RegisterReplicaError;
     using ClientRegisterReplicaStatus = RegisterReplicaStatus;
 
     auto maybe_client = locked_repl_state->RegisterReplica(config);
-    if (maybe_client.HasError()) {
-      switch (maybe_client.GetError()) {
+    if (!maybe_client) {
+      switch (maybe_client.error()) {
         case ClientRegisterReplicaStatus::NOT_MAIN:
-          return RegisterReplicaError::NOT_MAIN;
+          return std::unexpected{RegisterReplicaError::NOT_MAIN};
         case ClientRegisterReplicaStatus::NAME_EXISTS:
-          return RegisterReplicaError::NAME_EXISTS;
+          return std::unexpected{RegisterReplicaError::NAME_EXISTS};
         case ClientRegisterReplicaStatus::ENDPOINT_EXISTS:
-          return RegisterReplicaError::ENDPOINT_EXISTS;
+          return std::unexpected{RegisterReplicaError::ENDPOINT_EXISTS};
         case ClientRegisterReplicaStatus::COULD_NOT_BE_PERSISTED:
-          return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+          return std::unexpected{RegisterReplicaError::COULD_NOT_BE_PERSISTED};
         case ClientRegisterReplicaStatus::SUCCESS:
           break;
         default:
@@ -218,21 +217,21 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
     auto const main_uuid = std::get<RoleMainData>(locked_repl_state->ReplicationData()).uuid_;
     if constexpr (SendSwapUUID) {
-      if (!replication_coordination_glue::SendSwapMainUUIDRpc(maybe_client.GetValue()->rpc_client_, main_uuid)) {
-        return RegisterReplicaError::ERROR_ACCEPTING_MAIN;
+      if (!replication_coordination_glue::SendSwapMainUUIDRpc((*maybe_client)->rpc_client_, main_uuid)) {
+        return std::unexpected{RegisterReplicaError::ERROR_ACCEPTING_MAIN};
       }
     }
 
 #ifdef MG_ENTERPRISE
     // Update system before enabling individual storage <-> replica clients
-    SystemRestore(*maybe_client.GetValue(), system_, dbms_handler_, main_uuid, auth_);
+    SystemRestore(*maybe_client.value(), system_, dbms_handler_, main_uuid, auth_);
 #endif
 
     if (const auto dbms_error = HandleRegisterReplicaStatus(maybe_client); dbms_error.has_value()) {
-      return *dbms_error;
+      return std::unexpected{*dbms_error};
     }
 
-    auto &instance_client_ptr = maybe_client.GetValue();
+    auto &instance_client_ptr = maybe_client.value();
     // Add database specific clients (NOTE Currently all databases are connected to each replica)
     bool all_clients_good{true};
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
@@ -293,7 +292,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
           spdlog::trace("Replica {} successfully unregistered after failed registration process.", config.name);
           break;
       }
-      return RegisterReplicaError::CONNECTION_FAILED;
+      return std::unexpected{RegisterReplicaError::CONNECTION_FAILED};
     }
 
     // No client error, start instance level client

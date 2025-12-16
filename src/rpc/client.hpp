@@ -167,7 +167,7 @@ class Client {
           }
         });
 
-        if (!maybe_message_header.has_value()) {
+        if (!maybe_message_header) {
           self_->client_->ShiftData(response_data_size);
           throw SlkRpcFailedException();
           ;
@@ -248,7 +248,7 @@ class Client {
         }
       });
 
-      if (!maybe_message_header.has_value()) {
+      if (!maybe_message_header) {
         throw SlkRpcFailedException();
         ;
       }
@@ -365,12 +365,12 @@ class Client {
 
     auto guard = std::invoke([&]() -> std::unique_lock<utils::ResourceLock> {
       // Upgrade stream with existing lock
-      if (guard_arg.has_value()) {
+      if (guard_arg) {
         return std::move(*guard_arg);
       }
       // New stream, new lock, maybe use try_lock_timeout
       auto local_guard = std::unique_lock{mutex_, std::defer_lock};
-      if (!try_lock_timeout.has_value()) {
+      if (!try_lock_timeout) {
         local_guard.lock();
       } else if (!local_guard.try_lock_for(*try_lock_timeout)) {
         throw FailedToGetRpcStreamException();

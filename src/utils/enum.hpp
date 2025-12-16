@@ -10,10 +10,10 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <expected>
 #include <optional>
 #include <string>
 
-#include "utils/result.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::utils {
@@ -30,14 +30,14 @@ auto GetAllowedEnumValuesString(const auto &mappings) -> std::string {
 
 // Checks if the string value can be represented as an enum.
 // If not, the BasicResult will contain an error.
-auto IsValidEnumValueString(const auto &value, const auto &mappings) -> BasicResult<ValidationError> {
+auto IsValidEnumValueString(const auto &value, const auto &mappings) -> std::expected<void, ValidationError> {
   if (value.empty()) {
-    return ValidationError::EmptyValue;
+    return std::unexpected{ValidationError::EmptyValue};
   }
 
   if (std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.first == value; }) ==
       mappings.cend()) {
-    return ValidationError::InvalidValue;
+    return std::unexpected{ValidationError::InvalidValue};
   }
 
   return {};

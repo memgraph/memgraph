@@ -59,24 +59,24 @@ class QueryCostEstimator : public ::testing::Test {
   void SetUp() override {
     {
       auto unique_acc = db->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc->CreateIndex(label).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto unique_acc = db->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label, {prop_a}).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc->CreateIndex(label, {prop_a}).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto unique_acc = db->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label, {prop_c, prop_a, prop_b}).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc->CreateIndex(label, {prop_c, prop_a, prop_b}).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto unique_acc = db->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label, {ms::PropertyPath{prop_d, prop_a}, ms::PropertyPath{prop_d, prop_b}})
-                       .HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc->CreateIndex(label, {ms::PropertyPath{prop_d, prop_a}, ms::PropertyPath{prop_d, prop_b}})
+                      .has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     storage_dba.emplace(db->Access());
     dba.emplace(storage_dba->get());
@@ -90,17 +90,17 @@ class QueryCostEstimator : public ::testing::Test {
     for (int i = 0; i < vertex_count; i++) {
       auto vertex = dba->InsertVertex();
       if (i < labeled_count) {
-        ASSERT_TRUE(vertex.AddLabel(label).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label).has_value());
       }
       if (i < property_count) {
-        ASSERT_TRUE(vertex.SetProperty(prop_a, ms::PropertyValue(i)).HasValue());
-        ASSERT_TRUE(vertex.SetProperty(prop_b, ms::PropertyValue(i)).HasValue());
-        ASSERT_TRUE(vertex.SetProperty(prop_c, ms::PropertyValue(i)).HasValue());
+        ASSERT_TRUE(vertex.SetProperty(prop_a, ms::PropertyValue(i)).has_value());
+        ASSERT_TRUE(vertex.SetProperty(prop_b, ms::PropertyValue(i)).has_value());
+        ASSERT_TRUE(vertex.SetProperty(prop_c, ms::PropertyValue(i)).has_value());
 
         ASSERT_TRUE(vertex
                         .SetProperty(prop_d, ms::PropertyValue{ms::PropertyValue::map_t{
                                                  {prop_a, ms::PropertyValue(i)}, {prop_b, ms::PropertyValue(i)}}})
-                        .HasValue());
+                        .has_value());
       }
     }
 

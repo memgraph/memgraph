@@ -58,14 +58,14 @@ std::optional<License> GetLicense(const std::string &license_key) {
 
 LicenseCheckResult IsValidLicenseInternal(const License &license, const std::string &organization_name) {
   if (license.organization_name != organization_name) {
-    return LicenseCheckError::INVALID_ORGANIZATION_NAME;
+    return std::unexpected{LicenseCheckError::INVALID_ORGANIZATION_NAME};
   }
 
   const auto now =
       std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
   if (license.valid_until != 0 && now > license.valid_until) {
-    return LicenseCheckError::EXPIRED_LICENSE;
+    return std::unexpected{LicenseCheckError::EXPIRED_LICENSE};
   }
 
   return {};
@@ -157,8 +157,8 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
   const auto license_check_result =
       IsValidLicenseInternal(*maybe_license, locked_previous_license_info->organization_name);
 
-  if (license_check_result.HasError()) {
-    spdlog::warn(LicenseCheckErrorToString(license_check_result.GetError(), "Enterprise features"));
+  if (!license_check_result) {
+    spdlog::warn(LicenseCheckErrorToString(license_check_result.error(), "Enterprise features"));
     is_valid_.store(false, std::memory_order_relaxed);
     locked_previous_license_info->is_valid = false;
     license_type_ = maybe_license->type;
@@ -252,10 +252,10 @@ LicenseCheckResult LicenseChecker::IsEnterpriseValid(const utils::Settings &sett
 
   const auto maybe_license = GetLicense(license_info.first);
   if (!maybe_license) {
-    return LicenseCheckError::INVALID_LICENSE_KEY_STRING;
+    return std::unexpected{LicenseCheckError::INVALID_LICENSE_KEY_STRING};
   }
   if (maybe_license->type != LicenseType::ENTERPRISE) {
-    return LicenseCheckError::NOT_ENTERPRISE_LICENSE;
+    return std::unexpected{LicenseCheckError::NOT_ENTERPRISE_LICENSE};
   }
 
   return IsValidLicenseInternal(*maybe_license, license_info.second);

@@ -415,7 +415,7 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
     auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints->unique_constraints_.get());
     auto ret = mem_unique_constraints->CreateConstraint(label, properties, vertices->access(), parallel_exec_info,
                                                         snapshot_info);
-    if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
+    if (!ret || ret.value() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
 
     std::vector<std::string> property_names;
@@ -627,7 +627,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         // Update recovery info data only if WAL file was used and its deltas loaded
 
         bool wal_contains_changes{false};
-        if (info.has_value()) {
+        if (info) {
           recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info->next_vertex_id);
           recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
           recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);

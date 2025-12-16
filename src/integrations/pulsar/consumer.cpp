@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,7 +24,6 @@
 #include "utils/concepts.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "utils/result.hpp"
 #include "utils/thread.hpp"
 
 namespace memgraph::integrations::pulsar {
@@ -49,9 +48,9 @@ pulsar_client::Result ConsumeMessage(pulsar_client::Reader &reader, pulsar_clien
 }
 
 template <PulsarConsumer TConsumer>
-utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consumer, const ConsumerInfo &info,
-                                                               std::atomic<bool> &is_running,
-                                                               const pulsar_client::MessageId &last_message_id) {
+std::expected<std::vector<Message>, std::string> GetBatch(TConsumer &consumer, const ConsumerInfo &info,
+                                                          std::atomic<bool> &is_running,
+                                                          const pulsar_client::MessageId &last_message_id) {
   std::vector<Message> batch{};
 
   batch.reserve(info.batch_size);
@@ -73,7 +72,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consum
       default:
         spdlog::warn(fmt::format("Unexpected error while consuming message from consumer {}, error: {}",
                                  info.consumer_name, result));
-        return {pulsar_client::strResult(result)};
+        return std::unexpected{pulsar_client::strResult(result)};
     }
 
     auto now = std::chrono::steady_clock::now();
@@ -82,7 +81,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consum
     start = now;
   }
 
-  return std::move(batch);
+  return batch;
 }
 
 class SpdlogLogger : public pulsar_client::Logger {
@@ -244,11 +243,11 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
 
     auto maybe_batch = GetBatch(reader, info_, is_running_, last_message_id_);
 
-    if (maybe_batch.HasError()) {
-      throw ConsumerCheckFailedException(info_.consumer_name, maybe_batch.GetError());
+    if (!maybe_batch) {
+      throw ConsumerCheckFailedException(info_.consumer_name, maybe_batch.error());
     }
 
-    const auto &batch = maybe_batch.GetValue();
+    const auto &batch = maybe_batch.value();
 
     if (batch.empty()) {
       continue;
@@ -282,11 +281,11 @@ void Consumer::StartConsuming() {
     while (is_running_) {
       auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);
 
-      if (maybe_batch.HasError()) {
-        throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.GetError());
+      if (!maybe_batch) {
+        throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.error());
       }
 
-      const auto &batch = maybe_batch.GetValue();
+      const auto &batch = maybe_batch.value();
 
       if (batch.empty()) {
         continue;
@@ -325,11 +324,11 @@ void Consumer::StartConsumingWithLimit(uint64_t limit_batches, std::optional<std
 
     const auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);
 
-    if (maybe_batch.HasError()) {
-      throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.GetError());
+    if (!maybe_batch) {
+      throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.error());
     }
 
-    const auto &batch = maybe_batch.GetValue();
+    const auto &batch = maybe_batch.value();
 
     if (batch.empty()) {
       continue;

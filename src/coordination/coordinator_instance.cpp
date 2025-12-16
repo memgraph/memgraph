@@ -347,7 +347,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   spdlog::trace("Sending show instances RPC to leader with id {}", leader_id);
   auto maybe_res = leader->SendShowInstances();
 
-  if (!maybe_res.has_value()) {
+  if (!maybe_res) {
     spdlog::trace("Couldn't get instances from leader {}. Returning result as a follower.", leader_id);
     return ShowInstancesStatusAsFollower();
   }
@@ -504,7 +504,7 @@ void CoordinatorInstance::ShuttingDown() { is_shutting_down_.store(true, std::me
 auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
   utils::MetricsTimer const timer{metrics::DataFailover_us};
   auto const maybe_most_up_to_date_instance = GetInstanceForFailover();
-  if (!maybe_most_up_to_date_instance.has_value()) {
+  if (!maybe_most_up_to_date_instance) {
     spdlog::error("Couldn't choose instance for failover, check logs for more details.");
     metrics::IncrementCounter(metrics::NoAliveInstanceFailedFailovers);
     return FailoverStatus::NO_INSTANCE_ALIVE;
@@ -1200,7 +1200,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
   std::optional<std::pair<std::string, uint64_t>> newest_instance;
   for (auto const &[instance_name, cnt_newest_dbs] : total_instances_counter) {
     // If better on more DBs, update currently the best
-    if (!newest_instance.has_value() || newest_instance->second < cnt_newest_dbs) {
+    if (!newest_instance || newest_instance->second < cnt_newest_dbs) {
       newest_instance.emplace(instance_name, cnt_newest_dbs);
     } else if (newest_instance->second == cnt_newest_dbs) {
       // Instances are the best over the same number of instances, let the sum of timestamps decide
@@ -1214,7 +1214,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
     }
   }
 
-  if (newest_instance.has_value()) {
+  if (newest_instance) {
     spdlog::info("The newest instance is {}", newest_instance->first);
     return newest_instance->first;
   }
@@ -1254,7 +1254,7 @@ auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::s
 
   auto maybe_res = leader->SendGetRoutingTable(db_name);
 
-  if (!maybe_res.has_value()) {
+  if (!maybe_res) {
     spdlog::trace("Couldn't get routing table from leader {}. Returning empty routing table.", leader_id);
     return RoutingTable{};
   }
@@ -1363,7 +1363,7 @@ auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, st
     }
 
     auto maybe_repl_lag_res = repl_instance.GetClient().SendGetReplicationLagRpc();
-    if (!maybe_repl_lag_res.has_value()) {
+    if (!maybe_repl_lag_res) {
       return {};
     }
     auto &replicas_res = maybe_repl_lag_res->replicas_info_;

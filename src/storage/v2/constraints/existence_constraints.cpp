@@ -69,7 +69,7 @@ std::variant<ExistenceConstraints::MultipleThreadsConstraintValidation,
              ExistenceConstraints::SingleThreadConstraintValidation>
 ExistenceConstraints::GetCreationFunction(
     const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info) {
-  if (par_exec_info.has_value()) {
+  if (par_exec_info) {
     return ExistenceConstraints::MultipleThreadsConstraintValidation{par_exec_info.value()};
   }
   return ExistenceConstraints::SingleThreadConstraintValidation{};

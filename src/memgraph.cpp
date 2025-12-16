@@ -275,7 +275,7 @@ int main(int argc, char **argv) {
   std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
 
   const auto vm_max_map_count = memgraph::utils::GetVmMaxMapCount();
-  if (vm_max_map_count.has_value()) {
+  if (vm_max_map_count) {
     if (vm_max_map_count.value() < kMgVmMaxMapCount) {
       std::cout << "Max virtual memory areas vm.max_map_count " << vm_max_map_count.value()
                 << " is too low, increase to at least " << kMgVmMaxMapCount << std::endl;

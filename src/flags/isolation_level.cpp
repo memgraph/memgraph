@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,7 @@
 #include "utils/enum.hpp"
 #include "utils/flag_validation.hpp"
 
-#include "gflags/gflags.h"
+#include "utils/logging.hpp"
 
 #include <array>
 #include <iostream>
@@ -30,8 +30,9 @@ const std::string isolation_level_help_string =
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_string(isolation_level, "SNAPSHOT_ISOLATION", isolation_level_help_string.c_str(), {
-  if (const auto result = memgraph::utils::IsValidEnumValueString(value, isolation_level_mappings); result.HasError()) {
-    switch (result.GetError()) {
+  if (const auto result = memgraph::utils::IsValidEnumValueString(value, isolation_level_mappings);
+      !result.has_value()) {
+    switch (result.error()) {
       case memgraph::utils::ValidationError::EmptyValue: {
         std::cout << "Isolation level cannot be empty." << std::endl;
         break;

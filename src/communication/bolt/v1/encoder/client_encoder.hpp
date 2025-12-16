@@ -180,7 +180,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
     WriteRAW(std::to_underlying(Signature::Route));
     WriteMap(routing);
     WriteList(bookmarks);
-    if (db.has_value()) {
+    if (db) {
       WriteString(*db);
     } else {
       WriteNull();

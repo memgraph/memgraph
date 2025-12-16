@@ -38,7 +38,7 @@ struct PullPlanDump {
   using VertexAccessorIterableIterator = decltype(std::declval<VertexAccessorIterable>().begin());
 
   using EdgeAccessorIterable = decltype(std::declval<VertexAccessor>().OutEdges(storage::View::OLD));
-  using EdgeAccessorIterableIterator = decltype(std::declval<EdgeAccessorIterable>().GetValue().edges.begin());
+  using EdgeAccessorIterableIterator = decltype(std::declval<EdgeAccessorIterable>().value().edges.begin());
 
   VertexAccessorIterable vertices_iterable_;
   bool internal_index_created_ = false;

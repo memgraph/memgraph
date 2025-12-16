@@ -214,7 +214,7 @@ State HandlePrepare(TSession &session) {
     for (auto &i : header) vec.emplace_back(std::move(i));
     data.emplace("fields", std::move(vec));
     if (session.version_.major > 1) {
-      if (qid.has_value()) {
+      if (qid) {
         data.emplace("qid", Value{*qid});
       }
     }

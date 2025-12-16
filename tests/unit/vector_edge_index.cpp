@@ -25,7 +25,7 @@
 using namespace memgraph::storage;
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).HasError())
+#define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
 
 static constexpr std::string_view test_index = "test_edge_index";
 static constexpr std::string_view test_edge_type = "test_edge_type";
@@ -47,7 +47,7 @@ class VectorEdgeIndexTest : public testing::Test {
     const auto property = unique_acc->NameToProperty(test_property.data());
     const auto spec = VectorEdgeIndexSpec{test_index.data(), edge_type,          property, metric,
                                           dimension,         resize_coefficient, capacity, scalar_kind};
-    EXPECT_FALSE(unique_acc->CreateVectorEdgeIndex(spec).HasError());
+    EXPECT_FALSE(!unique_acc->CreateVectorEdgeIndex(spec).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -59,9 +59,9 @@ class VectorEdgeIndexTest : public testing::Test {
     VertexAccessor to_vertex = accessor->CreateVertex();
     const auto etype = accessor->NameToEdgeType(edge_type);
     auto edge_result = accessor->CreateEdge(&from_vertex, &to_vertex, etype);
-    MG_ASSERT(edge_result.HasValue());
-    auto edge = edge_result.GetValue();
-    MG_ASSERT(!edge.SetProperty(accessor->NameToProperty(property), property_value).HasError());
+    MG_ASSERT(edge_result.has_value());
+    auto edge = edge_result.value();
+    MG_ASSERT(edge.SetProperty(accessor->NameToProperty(property), property_value).has_value());
     return {from_vertex, to_vertex, edge};
   }
 
@@ -156,11 +156,11 @@ TEST_F(VectorEdgeIndexTest, UpdatePropertyValueTest) {
     auto acc = this->storage->Access();
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
     PropertyValue updated_value(std::vector<PropertyValue>{PropertyValue(2.0), PropertyValue(2.0)});
-    MG_ASSERT(!edge.SetProperty(acc->NameToProperty(test_property), updated_value).HasError());
+    MG_ASSERT(edge.SetProperty(acc->NameToProperty(test_property), updated_value).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     const auto search_result = acc->VectorIndexSearchOnEdges(test_index.data(), 1, std::vector<float>{2.0, 2.0});
     EXPECT_EQ(search_result.size(), 1);
-    EXPECT_EQ(std::get<0>(search_result[0]).GetProperty(acc->NameToProperty(test_property), View::OLD).GetValue(),
+    EXPECT_EQ(std::get<0>(search_result[0]).GetProperty(acc->NameToProperty(test_property), View::OLD).value(),
               updated_value);
   }
 }
@@ -171,7 +171,7 @@ TEST_F(VectorEdgeIndexTest, DeleteEdgeTest) {
   PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
   auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
   auto maybe_deleted_edge = acc->DeleteEdge(&edge);
-  EXPECT_EQ(maybe_deleted_edge.HasValue(), true);
+  EXPECT_EQ(maybe_deleted_edge.has_value(), true);
   ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   std::vector<float> query = {1.0, 1.0};
   const auto result = acc->VectorIndexSearchOnEdges(test_index.data(), 1, query);
@@ -190,21 +190,21 @@ TEST_F(VectorEdgeIndexTest, MultipleAbortsAndUpdatesTest) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     acc = this->storage->Access();
     edge = acc->FindEdge(edge_gid, View::OLD).value();
-    MG_ASSERT(!edge.SetProperty(acc->NameToProperty(test_property), null_value).HasError());
+    MG_ASSERT(edge.SetProperty(acc->NameToProperty(test_property), null_value).has_value());
     acc->Abort();
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
   }
   {
     auto acc = this->storage->Access();
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
-    MG_ASSERT(!edge.SetProperty(acc->NameToProperty(test_property), null_value).HasError());
+    MG_ASSERT(edge.SetProperty(acc->NameToProperty(test_property), null_value).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
   }
   {
     auto acc = this->storage->Access();
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
-    MG_ASSERT(!edge.SetProperty(acc->NameToProperty(test_property), properties).HasError());
+    MG_ASSERT(edge.SetProperty(acc->NameToProperty(test_property), properties).has_value());
     acc->Abort();
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
   }
@@ -231,7 +231,7 @@ TEST_F(VectorEdgeIndexTest, MultipleAbortsAndUpdatesTest) {
     auto acc = this->storage->Access();
     // delete the edge
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
-    EXPECT_EQ(acc->DeleteEdge(&edge).HasValue(), true);
+    EXPECT_EQ(acc->DeleteEdge(&edge).has_value(), true);
     acc->Abort();
     // check that the index is still not empty
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
@@ -252,7 +252,7 @@ TEST_F(VectorEdgeIndexTest, RemoveObsoleteEntriesTest) {
     auto acc = this->storage->Access();
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
     auto maybe_deleted_edge = acc->DeleteEdge(&edge);
-    EXPECT_EQ(maybe_deleted_edge.HasValue(), true);
+    EXPECT_EQ(maybe_deleted_edge.has_value(), true);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -297,7 +297,7 @@ TEST_F(VectorEdgeIndexTest, DropIndexTest) {
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropVectorIndex(test_index).HasError());
+    EXPECT_FALSE(!unique_acc->DropVectorIndex(test_index).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {

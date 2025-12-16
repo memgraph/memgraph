@@ -427,11 +427,11 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
 
   auto maybe_result = Storage::Accessor::DetachDelete(nodes, edges, detach);
 
-  if (maybe_result.HasError()) {
-    return maybe_result.GetError();
+  if (!maybe_result) {
+    return std::unexpected{maybe_result.error()};
   }
 
-  auto value = maybe_result.GetValue();
+  auto value = maybe_result.value();
 
   if (!value) {
     return std::make_optional<ReturnType>();
@@ -442,7 +442,7 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
   if (storage_->config_.track_label_counts) {
     for (auto const &vertex : deleted_vertices) {
       auto labels = vertex.Labels(View::NEW);
-      if (labels.HasValue()) {
+      if (labels) {
         for (auto const label : *labels) {
           storage_->UpdateLabelCount(label, -1);
         }
@@ -514,12 +514,12 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   transaction_.async_index_helper_.Track(edge_type);
 
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-  if (from_vertex->deleted) return Error::DELETED_OBJECT;
+  if (!PrepareForWrite(&transaction_, from_vertex)) return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   if (to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
-    if (to_vertex->deleted) return Error::DELETED_OBJECT;
+    if (!PrepareForWrite(&transaction_, to_vertex)) return std::unexpected{Error::SERIALIZATION_ERROR};
+    if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
@@ -578,7 +578,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
                                                                         VertexAccessor *from_vertex,
                                                                         VertexAccessor *to_vertex) {
   auto res = FindEdges(view, edge_type, from_vertex, to_vertex);
-  if (res.HasError()) return std::nullopt;  // TODO: use a Result type
+  if (!res) return std::nullopt;  // TODO: use a Result type
 
   auto const it = std::invoke([this, gid, &res]() {
     auto const byGid = [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.gid == gid; };
@@ -625,12 +625,12 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     guard_from.lock();
   }
 
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-  if (from_vertex->deleted) return Error::DELETED_OBJECT;
+  if (!PrepareForWrite(&transaction_, from_vertex)) return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   if (to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
-    if (to_vertex->deleted) return Error::DELETED_OBJECT;
+    if (!PrepareForWrite(&transaction_, to_vertex)) return std::unexpected{Error::SERIALIZATION_ERROR};
+    if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
@@ -776,14 +776,14 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
 void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs() {
   Abort();
   // We have aborted, need to release/cleanup commit_timestamp_ here
-  DMG_ASSERT(commit_timestamp_.has_value());
+  DMG_ASSERT(commit_timestamp_);
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
   commit_timestamp_.reset();
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
-utils::BasicResult<StorageManipulationError> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
+std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
     CommitArgs const commit_args) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
@@ -806,14 +806,14 @@ utils::BasicResult<StorageManipulationError> InMemoryStorage::InMemoryAccessor::
     Abort();
     // We have not started a commit timestamp no cleanup needed for that
     DMG_ASSERT(!commit_timestamp_.has_value());
-    return StorageManipulationError{ReplicaShouldNotWriteError{}};
+    return std::unexpected{ReplicaShouldNotWriteError{}};
   }
 
   if (auto const maybe_violation = ExistenceConstraintsViolation(); maybe_violation.has_value()) {
     Abort();
     // We have not started a commit timestamp no cleanup needed for that
     DMG_ASSERT(!commit_timestamp_.has_value());
-    return StorageManipulationError{*maybe_violation};
+    return std::unexpected{*maybe_violation};
   }
 
   auto engine_guard = std::unique_lock{storage_->engine_lock_};
@@ -825,7 +825,7 @@ utils::BasicResult<StorageManipulationError> InMemoryStorage::InMemoryAccessor::
     // Release engine lock because we don't have to hold it anymore
     engine_guard.unlock();
     AbortAndResetCommitTs();
-    return StorageManipulationError{*maybe_unique_constraint_violation};
+    return std::unexpected{*maybe_unique_constraint_violation};
   }
   // Currently there are queries that write to some subsystem that are allowed on a replica
   // ex. analyze graph stats
@@ -876,7 +876,7 @@ utils::BasicResult<StorageManipulationError> InMemoryStorage::InMemoryAccessor::
   }
 
   auto res = commit_args.apply_if_main(
-      [&](DatabaseProtector const &protector) -> utils::BasicResult<StorageManipulationError> {
+      [&](DatabaseProtector const &protector) -> std::expected<void, StorageManipulationError> {
         // From this point on, only main executes this
         // If there are no STRICT_SYNC replicas for the current txn
         if (!replicating_txn.ShouldRunTwoPC()) {
@@ -884,7 +884,7 @@ utils::BasicResult<StorageManipulationError> InMemoryStorage::InMemoryAccessor::
           FinalizeCommitPhase(durability_commit_timestamp);
           // Throw exception if we couldn't commit on one of SYNC replica
           if (!repl_prepare_phase_status) {
-            return StorageManipulationError{SyncReplicationError{}};
+            return std::unexpected{SyncReplicationError{}};
           }
           return {};
         }
@@ -909,7 +909,7 @@ utils::BasicResult<StorageManipulationError> InMemoryStorage::InMemoryAccessor::
           engine_guard.unlock();
           AbortAndResetCommitTs();
 
-          return StorageManipulationError{StrictSyncReplicationError{}};
+          return std::unexpected{StrictSyncReplicationError{}};
         }
 
         return {};
@@ -968,20 +968,19 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
-utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::PeriodicCommit(
+std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor::PeriodicCommit(
     CommitArgs commit_args) {
   auto result = PrepareForCommitPhase(std::move(commit_args));
 
   const auto fatal_error =
-      result.HasError() &&
-      std::visit(
-          [](const auto &e) {
-            // All errors are handled at a higher level.
-            // Replication errros are not fatal and should procede with finialize transaction
-            return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::SyncReplicationError>;
-          },
-          result.GetError());
-  if (fatal_error) {
+      !result && std::visit(
+                     [](const auto &e) {
+                       // All errors are handled at a higher level.
+                       // Replication errros are not fatal and should procede with finialize transaction
+                       return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::SyncReplicationError>;
+                     },
+                     result.error());
+  if (fatal_error) {  // TODO: this is suspicious, why return like this
     return result;
   }
 
@@ -1490,7 +1489,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
   }
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateIndex(
     LabelId label, CheckCancelFunction cancel_check) {
   // UNIQUE access is also required by schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
@@ -1499,14 +1498,14 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
   if (!mem_label_index->RegisterIndex(label)) {
-    return StorageIndexDefinitionError{IndexDefinitionAlreadyExistsError{}};
+    return std::unexpected{IndexDefinitionAlreadyExistsError{}};
   }
   DowngradeToReadIfValid();
-  if (mem_label_index
-          ->PopulateIndex(label, in_memory->vertices_.access(), std::nullopt, std::nullopt, &transaction_,
-                          std::move(cancel_check))
-          .HasError()) {
-    return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
+  if (!mem_label_index
+           ->PopulateIndex(label, in_memory->vertices_.access(), std::nullopt, std::nullopt, &transaction_,
+                           std::move(cancel_check))
+           .has_value()) {
+    return std::unexpected{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
 
@@ -1522,21 +1521,21 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPaths properties,
                                                     CheckCancelFunction cancel_check)
-    -> utils::BasicResult<StorageIndexDefinitionError, void> {
+    -> std::expected<void, StorageIndexDefinitionError> {
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Creating label-property index requires a unique or read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   if (!mem_label_property_index->RegisterIndex(label, properties)) {
-    return StorageIndexDefinitionError{IndexDefinitionAlreadyExistsError{}};
+    return std::unexpected{IndexDefinitionAlreadyExistsError{}};
   }
   DowngradeToReadIfValid();
-  if (mem_label_property_index
-          ->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt, std::nullopt, &transaction_,
-                          std::move(cancel_check))
-          .HasError()) {
-    return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
+  if (!mem_label_property_index
+           ->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt, std::nullopt, &transaction_,
+                           std::move(cancel_check))
+           .has_value()) {
+    return std::unexpected{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
@@ -1555,21 +1554,21 @@ void InMemoryStorage::InMemoryAccessor::DowngradeToReadIfValid() {
   }
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateIndex(
     EdgeTypeId edge_type, CheckCancelFunction cancel_check) {
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Create index requires a unique or readonly access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   if (!mem_edge_type_index->RegisterIndex(edge_type)) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{IndexDefinitionError{}};
   }
   DowngradeToReadIfValid();
-  if (mem_edge_type_index
-          ->PopulateIndex(edge_type, in_memory->vertices_.access(), std::nullopt, &transaction_,
-                          std::move(cancel_check))
-          .HasError()) {
-    return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
+  if (!mem_edge_type_index
+           ->PopulateIndex(edge_type, in_memory->vertices_.access(), std::nullopt, &transaction_,
+                           std::move(cancel_check))
+           .has_value()) {
+    return std::unexpected{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
@@ -1580,26 +1579,26 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateIndex(
     EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check) {
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY, "Create index requires a unique access to the storage!");
 
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to create the index, no properties on edges
-    return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
+    return std::unexpected{IndexDefinitionConfigError{}};
   }
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   if (!mem_edge_type_property_index->RegisterIndex(edge_type, property)) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{IndexDefinitionError{}};
   }
   DowngradeToReadIfValid();
-  if (mem_edge_type_property_index
-          ->PopulateIndex(edge_type, property, in_memory->vertices_.access(), std::nullopt, &transaction_,
-                          std::move(cancel_check))
-          .HasError()) {
-    return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
+  if (!mem_edge_type_property_index
+           ->PopulateIndex(edge_type, property, in_memory->vertices_.access(), std::nullopt, &transaction_,
+                           std::move(cancel_check))
+           .has_value()) {
+    return std::unexpected{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
@@ -1611,25 +1610,26 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateGlobalEdgeIndex(
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateGlobalEdgeIndex(
     PropertyId property, CheckCancelFunction cancel_check) {
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Create index requires a unique or read-only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to create the index, no properties on edges
-    return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
+    return std::unexpected{IndexDefinitionConfigError{}};
   }
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
   if (!mem_edge_property_index->RegisterIndex(property)) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{IndexDefinitionError{}};
   }
   DowngradeToReadIfValid();
-  if (mem_edge_property_index
-          ->PopulateIndex(property, in_memory->vertices_.access(), std::nullopt, &transaction_, std::move(cancel_check))
-          .HasError()) {
-    return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
+  if (!mem_edge_property_index
+           ->PopulateIndex(property, in_memory->vertices_.access(), std::nullopt, &transaction_,
+                           std::move(cancel_check))
+           .has_value()) {
+    return std::unexpected{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
@@ -1640,7 +1640,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping label index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1649,7 +1649,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   // Done inside the wrapper to ensure plan cache invalidation is safe
   auto was_dropped = storage_->invalidator_->invalidate_now([&] { return mem_label_index->DropIndex(label); });
   if (!was_dropped) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{IndexDefinitionError{}};
   }
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
@@ -1657,7 +1657,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(
     LabelId label, std::vector<storage::PropertyPath> &&properties) {
   // Because of replication we still use UNIQUE ATM
   MG_ASSERT(type() == UNIQUE || type() == READ,
@@ -1670,7 +1670,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   auto was_dropped =
       storage_->invalidator_->invalidate_now([&] { return mem_label_property_index->DropIndex(label, properties); });
   if (!was_dropped) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{IndexDefinitionError{}};
   }
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
@@ -1679,8 +1679,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    EdgeTypeId edge_type) {
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type) {
   // Because of replication we still use UNIQUE ATM
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping edge-type index requires a unique or read access to the storage!");
@@ -1689,21 +1688,21 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   // Done inside the wrapper to ensure plan cache invalidation is safe
   auto was_dropped = storage_->invalidator_->invalidate_now([&] { return mem_edge_type_index->DropIndex(edge_type); });
   if (!was_dropped) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_drop, edge_type);
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    EdgeTypeId edge_type, PropertyId property) {
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type,
+                                                                                              PropertyId property) {
   // Because of replication we still use UNIQUE ATM
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping edge-type property index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to drop the index, no properties on edges
-    return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
+    return std::unexpected{IndexDefinitionConfigError{}};
   }
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
@@ -1711,19 +1710,19 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   auto was_dropped = storage_->invalidator_->invalidate_now(
       [&] { return mem_edge_type_property_index->DropIndex(edge_type, property); });
   if (!was_dropped) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropGlobalEdgeIndex(
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropGlobalEdgeIndex(
     PropertyId property) {
   MG_ASSERT(type() == UNIQUE || type() == READ, "Drop index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to create the index, no properties on edges
-    return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
+    return std::unexpected{IndexDefinitionConfigError{}};
   }
 
   auto *mem_edge_property_index =
@@ -1731,20 +1730,20 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   auto was_dropped =
       storage_->invalidator_->invalidate_now([&] { return mem_edge_property_index->DropIndex(property); });
   if (!was_dropped) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{IndexDefinitionError{}};
   }
 
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreatePointIndex(
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreatePointIndex(
     storage::LabelId label, storage::PropertyId property) {
   MG_ASSERT(type() == UNIQUE, "Creating point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &point_index = in_memory->indices_.point_index_;
   if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_create, label, property);
   // We don't care if there is a replication error because on main node the change will go through
@@ -1752,13 +1751,13 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropPointIndex(
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropPointIndex(
     storage::LabelId label, storage::PropertyId property) {
   MG_ASSERT(type() == UNIQUE, "Dropping point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &point_index = in_memory->indices_.point_index_;
   if (!point_index.DropPointIndex(label, property)) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);
   // We don't care if there is a replication error because on main node the change will go through
@@ -1766,7 +1765,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateVectorIndex(
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateVectorIndex(
     VectorIndexSpec spec) {
   MG_ASSERT(type() == UNIQUE, "Creating vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1775,7 +1774,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   auto vertices_acc = in_memory->vertices_.access();
   // We don't allow creating vector index on nodes with the same name as vector edge index
   if (vector_edge_index.IndexExists(spec.index_name) || !vector_index.CreateIndex(spec, vertices_acc)) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
   // We don't care if there is a replication error because on main node the change will go through
@@ -1783,7 +1782,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropVectorIndex(
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropVectorIndex(
     std::string_view index_name) {
   MG_ASSERT(type() == UNIQUE, "Dropping vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1794,14 +1793,14 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   } else if (vector_edge_index.DropIndex(index_name)) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
   } else {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_drop, index_name);
   // We don't care if there is a replication error because on main node the change will go through
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateVectorEdgeIndex(
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateVectorEdgeIndex(
     VectorEdgeIndexSpec spec) {
   MG_ASSERT(type() == UNIQUE, "Creating vector edge index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1810,7 +1809,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   auto vertices_acc = in_memory->vertices_.access();
   // We don't allow creating vector edge index with the same name as vector index on nodes
   if (vector_index.IndexExists(spec.index_name) || !vector_edge_index.CreateIndex(spec, vertices_acc)) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_edge_index_create, spec);
   // We don't care if there is a replication error because on main node the change will go through
@@ -1818,48 +1817,48 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
+std::expected<void, StorageExistenceConstraintDefinitionError>
 InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
   MG_ASSERT(type() == UNIQUE, "Creating existence requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
   if (existence_constraints->ConstraintExists(label, property)) {
-    return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}};
+    return std::unexpected{StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
   if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label,
                                                                           property, std::nullopt, std::nullopt);
       violation.has_value()) {
-    return StorageExistenceConstraintDefinitionError{violation.value()};
+    return std::unexpected{StorageExistenceConstraintDefinitionError{violation.value()}};
   }
   existence_constraints->InsertConstraint(label, property);
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
 
-utils::BasicResult<StorageExistenceConstraintDroppingError, void>
-InMemoryStorage::InMemoryAccessor::DropExistenceConstraint(LabelId label, PropertyId property) {
+std::expected<void, StorageExistenceConstraintDroppingError> InMemoryStorage::InMemoryAccessor::DropExistenceConstraint(
+    LabelId label, PropertyId property) {
   MG_ASSERT(type() == UNIQUE, "Dropping existence constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
   if (!existence_constraints->DropConstraint(label, property)) {
-    return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
+    return std::unexpected{StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);
   return {};
 }
 
-utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
+std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
 InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
   MG_ASSERT(type() == UNIQUE, "Creating unique constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
   auto ret = mem_unique_constraints->CreateConstraint(label, properties, in_memory->vertices_.access(), std::nullopt);
-  if (ret.HasError()) {
-    return StorageUniqueConstraintDefinitionError{ret.GetError()};
+  if (!ret) {
+    return std::unexpected{StorageUniqueConstraintDefinitionError{ret.error()}};
   }
-  if (ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
-    return ret.GetValue();
+  if (ret.value() != UniqueConstraints::CreationStatus::SUCCESS) {
+    return ret.value();
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
   return UniqueConstraints::CreationStatus::SUCCESS;
@@ -1879,32 +1878,32 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
-utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
-InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyId property, TypeConstraintKind kind) {
+std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(
+    LabelId label, PropertyId property, TypeConstraintKind kind) {
   MG_ASSERT(type() == UNIQUE, "Creating IS TYPED constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
   if (type_constraints->ConstraintExists(label, property)) {
-    return StorageTypeConstraintDefinitionError{ConstraintDefinitionError{}};
+    return std::unexpected{StorageTypeConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
   if (auto violation =
           TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, kind);
       violation.has_value()) {
-    return StorageTypeConstraintDefinitionError{violation.value()};
+    return std::unexpected{StorageTypeConstraintDefinitionError{violation.value()}};
   }
   type_constraints->InsertConstraint(label, property, kind);
   transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, kind);
   return {};
 }
 
-utils::BasicResult<StorageTypeConstraintDroppingError, void> InMemoryStorage::InMemoryAccessor::DropTypeConstraint(
+std::expected<void, StorageTypeConstraintDroppingError> InMemoryStorage::InMemoryAccessor::DropTypeConstraint(
     LabelId label, PropertyId property, TypeConstraintKind kind) {
   MG_ASSERT(type() == UNIQUE, "Dropping IS TYPED constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
   auto deleted_constraint = type_constraints->DropConstraint(label, property, kind);
   if (!deleted_constraint) {
-    return StorageTypeConstraintDroppingError{ConstraintDefinitionError{}};
+    return std::unexpected{StorageTypeConstraintDroppingError{ConstraintDefinitionError{}}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property, kind);
   return {};
@@ -2996,22 +2995,21 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   return replicating_txn.ShipDeltas(durability_commit_timestamp, commit_args);
 }
 
-utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> InMemoryStorage::CreateSnapshot(
-    bool force) {
+std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(bool force) {
   auto abort_reset = utils::OnScopeExit([this]() mutable {
     // Abort is a one shot, reset it to false every time
     abort_snapshot_.store(false, std::memory_order_release);
   });
 
   if (abort_snapshot_.load(std::memory_order_acquire)) {
-    return CreateSnapshotError::AbortSnapshot;
+    return std::unexpected{CreateSnapshotError::AbortSnapshot};
   }
 
   // Make sure only one create snapshot is running at any moment
   auto expected = false;
   auto already_running = !snapshot_running_.compare_exchange_strong(expected, true, std::memory_order_acq_rel);
   if (already_running) {
-    return CreateSnapshotError::AlreadyRunning;
+    return std::unexpected{CreateSnapshotError::AlreadyRunning};
   }
   auto const clear_snapshot_running_on_exit =
       utils::OnScopeExit{[&] { snapshot_running_.store(false, std::memory_order_release); }};
@@ -3043,7 +3041,8 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> 
                                          .storage_uuid_ = storage_uuid,
                                          .last_durable_ts_ = *transaction->last_durable_ts_};
 
-    if (!force && last_snapshot_digest_ == current_digest) return CreateSnapshotError::NothingNewToWrite;
+    if (!force && last_snapshot_digest_ == current_digest)
+      return std::unexpected{CreateSnapshotError::NothingNewToWrite};
     last_snapshot_digest_ = std::move(current_digest);
   }
 
@@ -3052,7 +3051,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> 
       durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
                                  &edges_, storage_uuid, epoch, epochHistory, &file_retainer_, &abort_snapshot_);
   if (!snapshot_path) {
-    return CreateSnapshotError::AbortSnapshot;
+    return std::unexpected{CreateSnapshotError::AbortSnapshot};
   }
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
@@ -3062,14 +3061,14 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> 
 }
 
 // NOTE: Make sure this function is called while exclusively holding on to the main lock
-utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::RecoverSnapshot(
+std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::RecoverSnapshot(
     std::filesystem::path path, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role) {
   using memgraph::replication_coordination_glue::ReplicationRole;
   if (replication_role == ReplicationRole::REPLICA) {
-    return InMemoryStorage::RecoverSnapshotError::DisabledForReplica;
+    return std::unexpected{InMemoryStorage::RecoverSnapshotError::DisabledForReplica};
   }
   if (!std::filesystem::exists(path) || std::filesystem::is_directory(path)) {
-    return InMemoryStorage::RecoverSnapshotError::MissingFile;
+    return std::unexpected{InMemoryStorage::RecoverSnapshotError::MissingFile};
   }
 
   // Copy to local snapshot dir
@@ -3080,7 +3079,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     std::filesystem::copy_file(path, local_path, std::filesystem::copy_options::overwrite_existing, ec);
     if (ec) {
       spdlog::warn("Failed to copy snapshot into local snapshots directory. Err: {}", ec.message());
-      return InMemoryStorage::RecoverSnapshotError::CopyFailure;
+      return std::unexpected{InMemoryStorage::RecoverSnapshotError::CopyFailure};
     }
   }
 
@@ -3097,7 +3096,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   } else {
     if (repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ != kTimestampInitialId) {
       handler_error();
-      return InMemoryStorage::RecoverSnapshotError::NonEmptyStorage;
+      return std::unexpected{InMemoryStorage::RecoverSnapshotError::NonEmptyStorage};
     }
   }
 
@@ -3157,7 +3156,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
       spdlog::warn(
           "Failed to create backup snapshot directory; snapshots directory should be cleaned manually. Err: {}",
           ec.message());
-      return InMemoryStorage::RecoverSnapshotError::BackupFailure;
+      return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
     }
     auto const wal_old_dir = recovery_.wal_directory_ / old_dir;
     // Clear old directory
@@ -3169,7 +3168,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     if (ec) {
       spdlog::warn("Failed to create backup WAL directory; WAL directory should be cleaned manually. Err: {}",
                    ec.message());
-      return InMemoryStorage::RecoverSnapshotError::BackupFailure;
+      return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
     }
 
     // Move all snapshot files to the old directory
@@ -3191,7 +3190,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
                 "Failed to copy snapshot file to backup directory; snapshots directory should be cleaned "
                 "manually. Err: {}",
                 ec.message());
-            return InMemoryStorage::RecoverSnapshotError::BackupFailure;
+            return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
           }
         }
         if (uuid() != snapshot_uuid) {
@@ -3298,7 +3297,7 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   {
     auto locker_accessor = global_locker_.Access();
     const auto ret = locker_accessor.RemovePath(config_.durability.storage_directory);
-    if (ret.HasError() || !ret.GetValue()) {
+    if (!ret || !ret.value()) {
       // Exit without cleaning the queue
       return ret;
     }
@@ -3330,10 +3329,10 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
 }
 
 void InMemoryStorage::CreateSnapshotHandler(
-    std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb) {
+    std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>()> cb) {
   create_snapshot_handler = [cb = std::move(cb)] {
-    if (auto maybe_error = cb(); maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
+    if (auto maybe_error = cb(); !maybe_error.has_value()) {
+      switch (maybe_error.error()) {
         case CreateSnapshotError::ReachedMaxNumTries:
           spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support.");
           break;
