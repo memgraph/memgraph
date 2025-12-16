@@ -14,7 +14,6 @@
 #include <optional>
 #include <string>
 
-#include "utils/result.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::utils {
