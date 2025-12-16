@@ -1777,6 +1777,38 @@ TypedValue GetHopsCounter(const TypedValue * /*args*/, int64_t /*nargs*/, const 
   return TypedValue(ctx.hops_counter, ctx.memory);
 }
 
+TypedValue Username(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
+  FType<void>("username", /*args*/ nullptr, /*nargs*/ 0);
+  if (!ctx.user_or_role) {
+    return TypedValue(ctx.memory);
+  }
+  const auto &username = ctx.user_or_role->username();
+  if (!username) {
+    return TypedValue(ctx.memory);
+  }
+  return TypedValue(*username, ctx.memory);
+}
+
+TypedValue Roles(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
+  FType<void>("roles", /*args*/ nullptr, /*nargs*/ 0);
+  if (!ctx.user_or_role) {
+    return TypedValue(TypedValue::TVector(ctx.memory));
+  }
+
+  std::optional<std::string> db_name;
+  if (ctx.db_accessor) {  // TODO (ivan): is this necessary
+    db_name = ctx.db_accessor->DatabaseName();
+  }
+
+  auto const rolenames = ctx.user_or_role->GetRolenames(db_name);
+  TypedValue::TVector roles_list(ctx.memory);
+  roles_list.reserve(rolenames.size());
+  for (auto const &rolename : rolenames) {
+    roles_list.emplace_back(TypedValue::TString(rolename, ctx.memory));
+  }
+  return TypedValue(std::move(roles_list));
+}
+
 auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     // Predicate functions
     {"ISEMPTY", func_info{.func_ = IsEmpty, .is_pure_ = true}},
@@ -1877,6 +1909,10 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
 
     // Functions for internal objects
     {"GETHOPSCOUNTER", func_info{.func_ = GetHopsCounter, .is_pure_ = false}},
+
+    // User and role functions
+    {"USERNAME", func_info{.func_ = Username, .is_pure_ = false}},
+    {"ROLES", func_info{.func_ = Roles, .is_pure_ = false}},
 };
 
 auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name) -> func_impl {
