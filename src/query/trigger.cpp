@@ -27,6 +27,9 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/memory.hpp"
+#ifdef MG_ENTERPRISE
+#include "license/license.hpp"
+#endif
 
 namespace memgraph::metrics {
 extern const Event TriggersExecuted;
@@ -215,7 +218,7 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
 void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
                       std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context, bool is_main,
-                      std::shared_ptr<QueryUserOrRole> triggering_user) const {
+                      std::shared_ptr<QueryUserOrRole> triggering_user, const AuthChecker *auth_checker) const {
   if (!context.ShouldEventTrigger(event_type_)) {
     return;
   }
@@ -224,6 +227,10 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   auto trigger_plan = GetPlan(dba, db_acc->name(), triggering_user);
   MG_ASSERT(trigger_plan, "Invalid trigger plan received");
   auto &[plan, identifiers] = *trigger_plan;
+
+  // Determine which user to use for fine-grained auth based on privilege context
+  std::shared_ptr<QueryUserOrRole> auth_user =
+      (privilege_context_ == PrivilegeContext::DEFINER) ? creator_ : triggering_user;
 
   ExecutionContext ctx;
   ctx.db_accessor = dba;
@@ -242,7 +249,20 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   ctx.evaluation_context.memory = execution_memory;
   ctx.protector = dbms::DatabaseProtector{db_acc}.clone();
   ctx.is_main = is_main;
-  ctx.user_or_role = privilege_context_ == TriggerPrivilegeContext::DEFINER ? creator_ : triggering_user;
+  ctx.user_or_role = privilege_context_ == TriggerPrivilegeContext::DEFINER ? creator_ : auth_user;
+
+#ifdef MG_ENTERPRISE
+  // Set up fine-grained auth checker for label/edge-type based permissions
+  if (license::global_license_checker.IsEnterpriseValidFast() && auth_checker && auth_user && *auth_user && dba) {
+    auto fine_grained_checker = auth_checker->GetFineGrainedAuthChecker(auth_user, dba);
+    // Only set auth_checker if user doesn't have all global privileges
+    // (if they have all global privileges, fine-grained checks aren't needed)
+    if (!fine_grained_checker->HasAllGlobalPrivilegesOnVertices() ||
+        !fine_grained_checker->HasAllGlobalPrivilegesOnEdges()) {
+      ctx.auth_checker = std::move(fine_grained_checker);
+    }
+  }
+#endif
 
   auto cursor = plan.plan().MakeCursor(execution_memory);
   Frame frame{plan.symbol_table().max_position(), execution_memory};
