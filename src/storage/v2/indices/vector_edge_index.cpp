@@ -88,8 +88,7 @@ void TryAddEdgesToIndex(mg_vector_edge_index_t &vector_index, Vertex &from_verte
     if (vector_index.size() >= vector_index.capacity()) {
       throw query::VectorSearchException("Vector index is full. Try increasing the capacity.");
     }
-    EdgeIndexEntry entry{.from_vertex = &from_vertex, .to_vertex = to_vertex, .edge = edge};
-    vector_index.add(entry, vector.data(), false);
+    vector_index.add({&from_vertex, to_vertex, edge}, vector.data());
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::VECTOR_EDGE_IDX);
     }
@@ -105,12 +104,12 @@ VectorEdgeIndex &VectorEdgeIndex::operator=(VectorEdgeIndex &&) noexcept = defau
 
 bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   try {
     SetupIndex(spec);
     PopulateIndexOnSingleThread(vertices, spec, snapshot_info);
   } catch (const utils::OutOfMemoryException &) {
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+    const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
     CleanupFailedIndex(spec);
     throw;
   }
@@ -119,7 +118,7 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
 
 bool VectorEdgeIndex::RecoverIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                                    std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   try {
     SetupIndex(spec);
     if (FLAGS_storage_parallel_schema_recovery && FLAGS_storage_recovery_thread_count > 1) {
@@ -128,7 +127,7 @@ bool VectorEdgeIndex::RecoverIndex(const VectorEdgeIndexSpec &spec, utils::SkipL
       PopulateIndexOnSingleThread(vertices, spec, snapshot_info);
     }
   } catch (const utils::OutOfMemoryException &) {
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+    const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
     CleanupFailedIndex(spec);
     throw;
   }
@@ -198,7 +197,7 @@ void VectorEdgeIndex::PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Ac
   std::vector<std::jthread> threads;
   threads.reserve(thread_count);
 
-  for (auto i = 0; i < thread_count; ++i) {
+  for (auto i{0U}; i < thread_count; ++i) {
     threads.emplace_back([&, i]() {
       auto &chunk = vertices_chunks[i];
       for (auto &from_vertex : chunk) {
@@ -357,6 +356,27 @@ void VectorEdgeIndex::RestoreEntries(
   }
 }
 
+void VectorEdgeIndex::RemoveObsoleteEntries(std::stop_token token) const {
+  auto maybe_stop = utils::ResettableCounter(2048);
+  for (auto &[_, index_item] : pimpl->edge_index_) {
+    if (maybe_stop() && token.stop_requested()) {
+      return;
+    }
+    auto &[mg_index, spec] = index_item;
+    auto locked_index = mg_index->MutableSharedLock();
+    std::vector<EdgeIndexEntry> edges_to_remove(locked_index->size());
+    locked_index->export_keys(edges_to_remove.data(), 0, locked_index->size());
+
+    auto deleted = edges_to_remove | rv::filter([](const EdgeIndexEntry &entry) {
+                     auto guard = std::shared_lock{entry.edge->lock};
+                     return entry.edge->deleted;
+                   });
+    for (const auto &entry : deleted) {
+      locked_index->remove(entry);
+    }
+  }
+}
+
 VectorEdgeIndex::IndexStats VectorEdgeIndex::Analysis() const {
   IndexStats res{};
   for (const auto &[edge_type_prop, _] : pimpl->edge_index_) {
@@ -378,6 +398,20 @@ EdgeTypeId VectorEdgeIndex::GetEdgeTypeId(std::string_view index_name) {
 
 bool VectorEdgeIndex::IndexExists(std::string_view index_name) const {
   return pimpl->index_name_to_edge_type_prop_.contains(index_name);
+}
+
+std::vector<float> VectorEdgeIndex::GetVectorFromEdge(Vertex *from_vertex, Vertex *to_vertex, Edge *edge,
+                                                      std::string_view index_name) const {
+  const auto edge_type_prop = pimpl->index_name_to_edge_type_prop_.find(index_name);
+  if (edge_type_prop == pimpl->index_name_to_edge_type_prop_.end()) {
+    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
+  }
+  auto &[mg_index, _] = pimpl->edge_index_.at(edge_type_prop->second);
+  auto locked_index = mg_index->ReadLock();
+  std::vector<float> vector(static_cast<std::size_t>(locked_index->dimensions()));
+  EdgeIndexEntry entry{.from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge};
+  locked_index->get(entry, vector.data());
+  return vector;
 }
 
 }  // namespace memgraph::storage

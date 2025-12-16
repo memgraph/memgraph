@@ -15,6 +15,7 @@
 #include <thread>
 #include <usearch/index_plugins.hpp>
 
+#include "flags/general.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
@@ -257,6 +258,12 @@ TEST_F(VectorEdgeIndexTest, RemoveObsoleteEntriesTest) {
   }
   {
     auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
+  }
+  {
+    auto acc = this->storage->Access();
+    auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
+    mem_storage->indices_.vector_edge_index_.RemoveObsoleteEntries(std::stop_token());
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
   }
 }
@@ -332,5 +339,136 @@ TEST_F(VectorEdgeIndexTest, CreateIndexWhenEdgesExistsAlreadyTest) {
   {
     auto acc = this->storage->Access();
     EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 1);
+  }
+}
+
+class VectorEdgeIndexRecoveryTest : public testing::Test {
+ public:
+  static constexpr std::uint16_t kDimension = 2;
+  static constexpr std::size_t kNumEdges = 100;
+
+  void SetUp() override {
+    auto vertices_acc = vertices_.access();
+    auto edges_acc = edges_.access();
+
+    // Create pairs of vertices and edges between them
+    for (std::size_t i = 0; i < kNumEdges; i++) {
+      // Create from and to vertices
+      auto from_gid = Gid::FromUint(i * 2);
+      auto to_gid = Gid::FromUint((i * 2) + 1);
+      auto [from_vertex_iter, from_inserted] = vertices_acc.insert(Vertex{from_gid, nullptr});
+      ASSERT_TRUE(from_inserted);
+      auto [to_vertex_iter, to_inserted] = vertices_acc.insert(Vertex{to_gid, nullptr});
+      ASSERT_TRUE(to_inserted);
+
+      // Create edge
+      auto edge_gid = Gid::FromUint(i);
+      auto [edge_iter, edge_inserted] = edges_acc.insert(Edge{edge_gid, nullptr});
+      ASSERT_TRUE(edge_inserted);
+
+      // Set edge property (vector)
+      PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(static_cast<double>(i) * 100.0),
+                                                              PropertyValue((static_cast<double>(i) * 100.0) + 1.0)});
+      edge_iter->properties.SetProperty(PropertyId::FromUint(1), property_value);
+
+      // Connect edge to vertices via out_edges
+      EdgeRef edge_ref(&(*edge_iter));
+      from_vertex_iter->out_edges.emplace_back(EdgeTypeId::FromUint(1), &(*to_vertex_iter), edge_ref);
+    }
+  }
+
+  static VectorEdgeIndexSpec CreateSpec(const std::string &name = "test_edge_index") {
+    return VectorEdgeIndexSpec{.index_name = name,
+                               .edge_type_id = EdgeTypeId::FromUint(1),
+                               .property = PropertyId::FromUint(1),
+                               .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                               .dimension = kDimension,
+                               .resize_coefficient = 2,
+                               .capacity = kNumEdges,
+                               .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
+  }
+
+  memgraph::utils::SkipList<Vertex> vertices_;
+  memgraph::utils::SkipList<Edge> edges_;
+  VectorEdgeIndex vector_edge_index_;
+};
+
+TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexSingleThreadTest) {
+  // Ensure single-threaded recovery
+  FLAGS_storage_parallel_schema_recovery = false;
+
+  auto vertices_acc = vertices_.access();
+  const auto spec = CreateSpec();
+
+  EXPECT_TRUE(vector_edge_index_.RecoverIndex(spec, vertices_acc));
+
+  // Verify all edges are in the index
+  const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
+  EXPECT_EQ(vector_index_info.size(), 1);
+  EXPECT_EQ(vector_index_info[0].size, kNumEdges);
+
+  // Search for each edge and verify it's found
+  auto edges_acc = edges_.access();
+  for (auto &edge : edges_acc) {
+    Vertex *from_vertex = nullptr;
+    Vertex *to_vertex = nullptr;
+    for (auto &vertex : vertices_acc) {
+      for (auto &edge_tuple : vertex.out_edges) {
+        if (std::get<kEdgeRefPos>(edge_tuple).ptr == &edge) {
+          from_vertex = &vertex;
+          to_vertex = std::get<kVertexPos>(edge_tuple);
+          break;
+        }
+      }
+      if (from_vertex) break;
+    }
+    ASSERT_NE(from_vertex, nullptr);
+    ASSERT_NE(to_vertex, nullptr);
+
+    const auto vector = vector_edge_index_.GetVectorFromEdge(from_vertex, to_vertex, &edge, "test_edge_index");
+    EXPECT_EQ(vector.size(), kDimension);
+    EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint() * 100));
+    EXPECT_EQ(vector[1], static_cast<float>((edge.gid.AsUint() * 100) + 1));
+  }
+}
+
+TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexParallelTest) {
+  // Enable parallel recovery with multiple threads
+  FLAGS_storage_parallel_schema_recovery = true;
+  FLAGS_storage_recovery_thread_count =
+      (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 1;
+
+  auto vertices_acc = vertices_.access();
+  const auto spec = CreateSpec();
+
+  EXPECT_TRUE(vector_edge_index_.RecoverIndex(spec, vertices_acc));
+
+  // Verify all edges are in the index
+  const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
+  EXPECT_EQ(vector_index_info.size(), 1);
+  EXPECT_EQ(vector_index_info[0].size, kNumEdges);
+
+  // Verify all edges are in the index
+  auto edges_acc = edges_.access();
+  for (auto &edge : edges_acc) {
+    Vertex *from_vertex = nullptr;
+    Vertex *to_vertex = nullptr;
+    for (auto &vertex : vertices_acc) {
+      for (auto &edge_tuple : vertex.out_edges) {
+        if (std::get<kEdgeRefPos>(edge_tuple).ptr == &edge) {
+          from_vertex = &vertex;
+          to_vertex = std::get<kVertexPos>(edge_tuple);
+          break;
+        }
+      }
+      if (from_vertex) break;
+    }
+    ASSERT_NE(from_vertex, nullptr);
+    ASSERT_NE(to_vertex, nullptr);
+
+    const auto vector = vector_edge_index_.GetVectorFromEdge(from_vertex, to_vertex, &edge, "test_edge_index");
+    EXPECT_EQ(vector.size(), kDimension);
+    EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint() * 100));
+    EXPECT_EQ(vector[1], static_cast<float>((edge.gid.AsUint() * 100) + 1));
   }
 }

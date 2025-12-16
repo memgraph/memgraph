@@ -119,10 +119,6 @@ class VectorIndex {
   /// @param vertex The vertex on which the property was modified.
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex);
 
-  /// @brief Removes a vertex from the index.
-  /// @param vertex The vertex to be removed.
-  void RemoveNode(Vertex *vertex);
-
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.
   std::vector<VectorIndexInfo> ListVectorIndicesInfo() const;
@@ -156,6 +152,10 @@ class VectorIndex {
   void RestoreEntries(const LabelPropKey &label_prop,
                       std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices);
 
+  /// @brief Removes obsolete entries from the index.
+  /// @param token A stop token to allow for cancellation of the operation.
+  void RemoveObsoleteEntries(std::stop_token token) const;
+
   /// @brief Returns the index statistics.
   /// @return The index statistics.
   IndexStats Analysis() const;
@@ -164,6 +164,14 @@ class VectorIndex {
   /// @param index_name The name of the index to check.
   /// @return true if the index exists, false otherwise.
   bool IndexExists(std::string_view index_name) const;
+
+  /// @brief Returns the vector from a vertex for a given index.
+  /// @param vertex The vertex to get the vector from.
+  /// @param index_name The name of the index to get the vector from.
+  /// @return The vector from the vertex.
+  /// NOTE: Currently used only in the tests but we will use it in the future when we'll store vectors only in the
+  /// index.
+  std::vector<float> GetVectorFromVertex(Vertex *vertex, std::string_view index_name) const;
 
  private:
   /// @brief Sets up a new vector index structure without populating it.

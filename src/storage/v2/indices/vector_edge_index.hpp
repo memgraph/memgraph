@@ -142,6 +142,10 @@ class VectorEdgeIndex {
       const EdgeTypePropKey &edge_type_prop,
       std::span<std::pair<PropertyValue, std::tuple<Vertex *const, Vertex *const, Edge *const>> const> prop_edges);
 
+  /// @brief Removes obsolete entries from the index.
+  /// @param token A stop token to allow for cancellation of the operation.
+  void RemoveObsoleteEntries(std::stop_token token) const;
+
   /// @brief Returns the index statistics.
   /// @return The index statistics.
   IndexStats Analysis() const;
@@ -160,6 +164,17 @@ class VectorEdgeIndex {
   /// @brief Removes an edge from the index.
   /// @param edge The edge to be removed.
   void RemoveEdge(Edge *edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex);
+
+  /// @brief Returns the vector from an edge for a given index.
+  /// @param from_vertex The from vertex of the edge.
+  /// @param to_vertex The to vertex of the edge.
+  /// @param edge The edge to get the vector from.
+  /// @param index_name The name of the index to get the vector from.
+  /// @return The vector from the edge.
+  /// NOTE: Currently used only in the tests but we will use it in the future when we'll store vectors only in the
+  /// index.
+  std::vector<float> GetVectorFromEdge(Vertex *from_vertex, Vertex *to_vertex, Edge *edge,
+                                       std::string_view index_name) const;
 
  private:
   /// @brief Sets up a new vector edge index structure without populating it.

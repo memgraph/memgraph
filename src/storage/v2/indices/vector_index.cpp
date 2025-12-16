@@ -81,7 +81,7 @@ void TryAddVertexToIndex(mg_vector_index_t &vector_index, Vertex &vertex, const 
   if (vector_index.size() >= vector_index.capacity()) {
     throw query::VectorSearchException("Vector index is full. Try increasing the capacity.");
   }
-  vector_index.add(&vertex, vector.data(), false);
+  vector_index.add(&vertex, vector.data());
   if (snapshot_info) {
     snapshot_info->Update(UpdateType::VECTOR_IDX);
   }
@@ -96,12 +96,12 @@ VectorIndex &VectorIndex::operator=(VectorIndex &&) noexcept = default;
 
 bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   try {
     SetupIndex(spec);
     PopulateIndexOnSingleThread(vertices, spec, snapshot_info);
   } catch (const utils::OutOfMemoryException &) {
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+    const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
     CleanupFailedIndex(spec);
     throw;
   }
@@ -110,7 +110,7 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
 
 bool VectorIndex::RecoverIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   try {
     SetupIndex(spec);
     if (FLAGS_storage_parallel_schema_recovery && FLAGS_storage_recovery_thread_count > 1) {
@@ -119,7 +119,7 @@ bool VectorIndex::RecoverIndex(const VectorIndexSpec &spec, utils::SkipList<Vert
       PopulateIndexOnSingleThread(vertices, spec, snapshot_info);
     }
   } catch (const utils::OutOfMemoryException &) {
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+    const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
     CleanupFailedIndex(spec);
     throw;
   }
@@ -140,7 +140,9 @@ void VectorIndex::SetupIndex(const VectorIndexSpec &spec) {
   }
 
   // Use the number of workers as the number of possible concurrent index operations
-  const unum::usearch::index_limits_t limits(spec.capacity, FLAGS_bolt_num_workers);
+  const unum::usearch::index_limits_t limits(spec.capacity,
+                                             std::min(static_cast<std::uint16_t>(FLAGS_bolt_num_workers),
+                                                      static_cast<std::uint16_t>(FLAGS_storage_recovery_thread_count)));
   if (!mg_vector_index.index.try_reserve(limits)) {
     throw query::VectorSearchException(
         fmt::format("Failed to create vector index {}. Failed to reserve memory for the index", spec.index_name));
@@ -182,7 +184,7 @@ void VectorIndex::PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Access
   std::vector<std::jthread> threads;
   threads.reserve(thread_count);
 
-  for (auto i = 0; i < thread_count; ++i) {
+  for (auto i{0U}; i < thread_count; ++i) {
     threads.emplace_back([&, i]() {
       auto &chunk = vertices_chunks[i];
       for (auto &vertex : chunk) {
@@ -278,14 +280,6 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
   }
 }
 
-void VectorIndex::RemoveNode(Vertex *vertex) {
-  r::for_each(pimpl->index_ | rv::keys, [&](const auto &label_prop) {
-    auto &[mg_index, _] = pimpl->index_.at(label_prop);
-    auto locked_index = mg_index->MutableSharedLock();
-    locked_index->remove(vertex);
-  });
-}
-
 std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
   std::vector<VectorIndexInfo> result;
   result.reserve(pimpl->index_.size());
@@ -361,6 +355,27 @@ void VectorIndex::RestoreEntries(const LabelPropKey &label_prop,
   }
 }
 
+void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
+  auto maybe_stop = utils::ResettableCounter(2048);
+  for (auto &[_, index_item] : pimpl->index_) {
+    if (maybe_stop() && token.stop_requested()) {
+      return;
+    }
+    auto &[mg_index, spec] = index_item;
+    auto locked_index = mg_index->MutableSharedLock();
+    std::vector<Vertex *> vertices_to_remove(locked_index->size());
+    locked_index->export_keys(vertices_to_remove.data(), 0, locked_index->size());
+
+    auto deleted = vertices_to_remove | rv::filter([](const Vertex *vertex) {
+                     auto guard = std::shared_lock{vertex->lock};
+                     return vertex->deleted;
+                   });
+    for (const auto &vertex : deleted) {
+      locked_index->remove(vertex);
+    }
+  }
+}
+
 VectorIndex::IndexStats VectorIndex::Analysis() const {
   IndexStats res{};
   for (const auto &[label_prop, _] : pimpl->index_) {
@@ -374,6 +389,18 @@ VectorIndex::IndexStats VectorIndex::Analysis() const {
 
 bool VectorIndex::IndexExists(std::string_view index_name) const {
   return pimpl->index_name_to_label_prop_.contains(index_name);
+}
+
+std::vector<float> VectorIndex::GetVectorFromVertex(Vertex *vertex, std::string_view index_name) const {
+  const auto label_prop = pimpl->index_name_to_label_prop_.find(index_name);
+  if (label_prop == pimpl->index_name_to_label_prop_.end()) {
+    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
+  }
+  auto &[mg_index, _] = pimpl->index_.at(label_prop->second);
+  auto locked_index = mg_index->ReadLock();
+  std::vector<float> vector(locked_index->dimensions());
+  locked_index->get(vertex, vector.data());
+  return vector;
 }
 
 }  // namespace memgraph::storage
