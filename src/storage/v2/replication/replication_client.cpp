@@ -546,7 +546,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
 
   if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
     // When in ASYNC mode, we ignore the return value from task() and always return true
-    client_.thread_pool_.AddTask([task = utils::CopyMovableFunctionWrapper{std::move(task)}]() mutable { task(); });
+    client_.thread_pool_.AddTask(std::move(task));
     return true;
   }
 

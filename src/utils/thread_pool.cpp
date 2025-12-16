@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "utils/thread_pool.hpp"
+
 namespace memgraph::utils {
 
 ThreadPool::ThreadPool(const size_t pool_size) {
@@ -18,7 +19,7 @@ ThreadPool::ThreadPool(const size_t pool_size) {
   }
 }
 
-void ThreadPool::AddTask(std::function<void()> new_task) {
+void ThreadPool::AddTask(TaskSignature new_task) {
   {
     auto guard = std::unique_lock{pool_lock_};
     if (pool_stop_source_.stop_requested()) {
@@ -50,7 +51,7 @@ ThreadPool::~ThreadPool() {
 }
 
 void ThreadPool::ThreadLoop() {
-  auto token = pool_stop_source_.get_token();
+  auto const token = pool_stop_source_.get_token();
   while (true) {
     TaskSignature task;
     {

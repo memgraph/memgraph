@@ -104,7 +104,7 @@ struct ReplicationClient {
       };
 
       if (mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
-        thread_pool_.AddTask([task = utils::CopyMovableFunctionWrapper{std::move(task)}]() mutable { task(); });
+        thread_pool_.AddTask(std::move(task));
         return true;
       }
 

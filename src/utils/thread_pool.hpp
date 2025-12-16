@@ -20,23 +20,13 @@
 
 namespace memgraph::utils {
 
-template <typename Func>
-struct CopyMovableFunctionWrapper {
-  explicit CopyMovableFunctionWrapper(Func &&func) : func_{std::make_shared<Func>(std::move(func))} {}
-
-  void operator()() { (*func_)(); }
-
- private:
-  std::shared_ptr<Func> func_;
-};
-
 class ThreadPool {
-  using TaskSignature = std::function<void()>;
-
  public:
+  using TaskSignature = std::move_only_function<void()>;
+
   explicit ThreadPool(size_t pool_size);
 
-  void AddTask(std::function<void()> new_task);
+  void AddTask(TaskSignature new_task);
 
   void ShutDown();
 
