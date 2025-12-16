@@ -19,7 +19,9 @@
 #include <poll.h>
 #include <pwd.h>
 #include <sched.h>
+#ifdef HAVE_SECCOMP
 #include <seccomp.h>
+#endif
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
@@ -91,6 +93,7 @@ class CharPP final {
 // Security functions and constants.
 ////////////////////////////////////
 
+#ifdef HAVE_SECCOMP
 const std::vector<int> kSeccompSyscallsBlacklist = {
     SCMP_SYS(mknod),         SCMP_SYS(mount),        SCMP_SYS(setuid),
     SCMP_SYS(stime),         SCMP_SYS(ptrace),       SCMP_SYS(setgid),
@@ -135,6 +138,12 @@ bool SetupSeccomp() {
   seccomp_release(ctx);
   return ret == 0;
 }
+#else
+// Seccomp is not available on macOS
+bool SetupSeccomp() {
+  return false;  // Seccomp not available, return false (non-fatal)
+}
+#endif
 
 bool SetLimit(int resource, rlim_t n) {
   struct rlimit limit;

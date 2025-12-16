@@ -1,12 +1,37 @@
-#!/bin/bash -e
+#!/bin/zsh
+set -e
 
 # Download external dependencies.
 # Don't forget to add/update the license in release/third-party-licenses of added/updated libs!
 
 local_cache_host=${MGDEPS_CACHE_HOST_PORT:-mgdeps-cache:8000}
-working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+working_dir="$( cd "$( dirname "${(%):-%x}" )" && pwd )"
 cd "${working_dir}"
 WGET_OR_CLONE_TIMEOUT=60
+
+# Check if timeout command is available (macOS doesn't have it by default)
+if command -v timeout >/dev/null 2>&1; then
+    TIMEOUT_CMD="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+    TIMEOUT_CMD="gtimeout"
+else
+    # macOS: timeout not available, run commands directly
+    TIMEOUT_CMD=""
+fi
+
+# Check if wget is available, otherwise use curl (macOS doesn't have wget by default)
+if command -v wget >/dev/null 2>&1; then
+    DOWNLOAD_CMD="wget"
+    DOWNLOAD_FLAGS=(-nv)
+    DOWNLOAD_OUTPUT_FLAG="-O"
+elif command -v curl >/dev/null 2>&1; then
+    DOWNLOAD_CMD="curl"
+    DOWNLOAD_FLAGS=(-f -L -s -S)
+    DOWNLOAD_OUTPUT_FLAG="-o"
+else
+    echo "Error: Neither wget nor curl found. Please install one of them."
+    exit 1
+fi
 
 #  if the toolchain hasn't been activated, activate it
 if [[ -z "$MG_TOOLCHAIN_VERSION" ]]; then
@@ -53,9 +78,17 @@ clone () {
     # clone the same repo from a different source.
 
     if [[ "$shallow" = true ]]; then
-      timeout $WGET_OR_CLONE_TIMEOUT git clone --depth 1 --branch "$checkout_id" "$git_repo" "$dir_name" || return 1
+      if [[ -n "$TIMEOUT_CMD" ]]; then
+        $TIMEOUT_CMD $WGET_OR_CLONE_TIMEOUT git clone --depth 1 --branch "$checkout_id" "$git_repo" "$dir_name" || return 1
+      else
+        git clone --depth 1 --branch "$checkout_id" "$git_repo" "$dir_name" || return 1
+      fi
     else
-      timeout $WGET_OR_CLONE_TIMEOUT git clone "$git_repo" "$dir_name" || return 1
+      if [[ -n "$TIMEOUT_CMD" ]]; then
+        $TIMEOUT_CMD $WGET_OR_CLONE_TIMEOUT git clone "$git_repo" "$dir_name" || return 1
+      else
+        git clone "$git_repo" "$dir_name" || return 1
+      fi
     fi
   fi
   pushd "$dir_name"
@@ -102,10 +135,18 @@ file_get_try_double () {
     if [[ "$use_cache" == true ]]; then
       echo "Download primary from $primary_url secondary from $secondary_url"
       # Redirect primary/cache to /dev/null to make it less confusing for a new contributor because only CI has access to the cache.
-      timeout $WGET_OR_CLONE_TIMEOUT wget -nv "$primary_url" -O "$filename" >/dev/null 2>&1 || timeout $WGET_OR_CLONE_TIMEOUT wget -nv "$secondary_url" -O "$filename" || exit 1
+      if [[ -n "$TIMEOUT_CMD" ]]; then
+        $TIMEOUT_CMD $WGET_OR_CLONE_TIMEOUT $DOWNLOAD_CMD "${DOWNLOAD_FLAGS[@]}" "$primary_url" $DOWNLOAD_OUTPUT_FLAG "$filename" >/dev/null 2>&1 || $TIMEOUT_CMD $WGET_OR_CLONE_TIMEOUT $DOWNLOAD_CMD "${DOWNLOAD_FLAGS[@]}" "$secondary_url" $DOWNLOAD_OUTPUT_FLAG "$filename" || exit 1
+      else
+        $DOWNLOAD_CMD "${DOWNLOAD_FLAGS[@]}" "$primary_url" $DOWNLOAD_OUTPUT_FLAG "$filename" >/dev/null 2>&1 || $DOWNLOAD_CMD "${DOWNLOAD_FLAGS[@]}" "$secondary_url" $DOWNLOAD_OUTPUT_FLAG "$filename" || exit 1
+      fi
     else
       echo "Download from $secondary_url"
-      timeout $WGET_OR_CLONE_TIMEOUT wget -nv "$secondary_url" -O "$filename" || exit 1
+      if [[ -n "$TIMEOUT_CMD" ]]; then
+        $TIMEOUT_CMD $WGET_OR_CLONE_TIMEOUT $DOWNLOAD_CMD "${DOWNLOAD_FLAGS[@]}" "$secondary_url" $DOWNLOAD_OUTPUT_FLAG "$filename" || exit 1
+      else
+        $DOWNLOAD_CMD "${DOWNLOAD_FLAGS[@]}" "$secondary_url" $DOWNLOAD_OUTPUT_FLAG "$filename" || exit 1
+      fi
     fi
 }
 
