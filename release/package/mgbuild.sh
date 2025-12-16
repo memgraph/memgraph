@@ -389,6 +389,7 @@ copy_project_files() {
 upload_conan_cache() {
   local conan_username=$1
   local conan_password=$2
+  local package_name=""
   if [[ $# -gt 2 ]]; then
     package_name=$3
   fi
