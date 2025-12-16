@@ -80,6 +80,9 @@ fi
 cp "$package_path" "${working_dir}/"
 cd ${working_dir}
 
+# copy SSL files to docker build directory
+cp -r ../../build/openssl "${working_dir}/openssl"
+
 extension="${package_path##*.}"
 dockerfile_path="${working_dir}/${toolchain_version}_${extension}${dockerfile_path_rwdi_extension}.dockerfile"
 echo "Dockerfile: $dockerfile_path"
