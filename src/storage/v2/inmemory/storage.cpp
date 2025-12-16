@@ -442,7 +442,7 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
   if (storage_->config_.track_label_counts) {
     for (auto const &vertex : deleted_vertices) {
       auto labels = vertex.Labels(View::NEW);
-      if (labels.HasValue()) {
+      if (labels) {
         for (auto const label : *labels) {
           storage_->UpdateLabelCount(label, -1);
         }
