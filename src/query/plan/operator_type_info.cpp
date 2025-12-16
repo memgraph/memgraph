@@ -122,19 +122,8 @@ constexpr utils::TypeInfo query::plan::Accumulate::kType{utils::TypeId::ACCUMULA
 
 constexpr utils::TypeInfo query::plan::Aggregate::Element::kType{utils::TypeId::AGGREGATE_ELEMENT, "Element", nullptr};
 
-constexpr utils::TypeInfo query::plan::Aggregate::kType{utils::TypeId::AGGREGATE, "Aggregate",
-                                                        &query::plan::LogicalOperator::kType};
-
-constexpr utils::TypeInfo query::plan::Skip::kType{utils::TypeId::SKIP, "Skip", &query::plan::LogicalOperator::kType};
-
 constexpr utils::TypeInfo query::plan::EvaluatePatternFilter::kType{
     utils::TypeId::EVALUATE_PATTERN_FILTER, "EvaluatePatternFilter", &query::plan::LogicalOperator::kType};
-
-constexpr utils::TypeInfo query::plan::Limit::kType{utils::TypeId::LIMIT, "Limit",
-                                                    &query::plan::LogicalOperator::kType};
-
-constexpr utils::TypeInfo query::plan::OrderBy::kType{utils::TypeId::ORDERBY, "OrderBy",
-                                                      &query::plan::LogicalOperator::kType};
 
 constexpr utils::TypeInfo query::plan::Merge::kType{utils::TypeId::MERGE, "Merge",
                                                     &query::plan::LogicalOperator::kType};
@@ -144,9 +133,6 @@ constexpr utils::TypeInfo query::plan::Optional::kType{utils::TypeId::OPTIONAL, 
 
 constexpr utils::TypeInfo query::plan::Unwind::kType{utils::TypeId::UNWIND, "Unwind",
                                                      &query::plan::LogicalOperator::kType};
-
-constexpr utils::TypeInfo query::plan::Distinct::kType{utils::TypeId::DISTINCT, "Distinct",
-                                                       &query::plan::LogicalOperator::kType};
 
 constexpr utils::TypeInfo query::plan::Union::kType{utils::TypeId::UNION, "Union",
                                                     &query::plan::LogicalOperator::kType};
@@ -256,15 +242,7 @@ constexpr utils::TypeInfo query::plan::ScanParallelByEdgePropertyRange::kType{
     utils::TypeId::SCAN_PARALLEL_BY_EDGE_PROPERTY_RANGE, "ScanParallelByEdgePropertyRange",
     &query::plan::ScanParallel::kType};
 
-constexpr utils::TypeInfo query::plan::AggregateParallel::kType{.id = utils::TypeId::AGGREGATE_PARALLEL,
-                                                                .name = "AggregateParallel",
-                                                                .superclass = &query::plan::ParallelMerge::kType};
-
 constexpr utils::TypeInfo query::plan::ParallelMerge::kType{
     .id = utils::TypeId::PARALLEL_MERGE, .name = "ParallelMerge", .superclass = &query::plan::LogicalOperator::kType};
-
-constexpr utils::TypeInfo query::plan::OrderByParallel::kType{.id = utils::TypeId::ORDERBY_PARALLEL,
-                                                              .name = "OrderByParallel",
-                                                              .superclass = &query::plan::LogicalOperator::kType};
 
 }  // namespace memgraph
