@@ -876,17 +876,23 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
               "will have full privileges to access Memgraph database. If you want to ensure privileges are applied, "
               "please add Memgraph Enterprise License and restart Memgraph for the configuration to apply.",
               username);
-          auth->GrantPrivilege(username, kPrivilegesAll
+          auth->GrantPrivilege(
+              username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-                               ,
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE, {query::kAsterisk}},
-                                 {AuthQuery::FineGrainedPrivilege::DELETE, {query::kAsterisk}}}},
-                               {AuthQuery::LabelMatchingMode::ANY},  // matching mode for label privileges
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE, {query::kAsterisk}},
-                                 {AuthQuery::FineGrainedPrivilege::DELETE, {query::kAsterisk}}}}
+              ,
+              {{{AuthQuery::FineGrainedPrivilege::CREATE, {query::kAsterisk}},
+                {AuthQuery::FineGrainedPrivilege::DELETE, {query::kAsterisk}}}},
+              {AuthQuery::LabelMatchingMode::ANY},  // matching mode for label privileges
+              {
+                {
+                  {AuthQuery::FineGrainedPrivilege::CREATE, {query::kAsterisk}}, {
+                    AuthQuery::FineGrainedPrivilege::DELETE, { query::kAsterisk }
+                  }
+                }
+              }
 #endif
-                               ,
-                               &*interpreter->system_transaction_);
+              ,
+              &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -2446,16 +2452,16 @@ struct TxTimeout {
 };
 
 struct PullPlan {
-  explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query,
-                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
-                    TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
-                    std::optional<int64_t> hops_limit = {}
+  explicit PullPlan(
+      std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query, DbAccessor *dba,
+      InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
+      std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
+      storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
+      TriggerContextCollector *trigger_context_collector = nullptr, std::optional<size_t> memory_limit = {},
+      FrameChangeCollector *frame_change_collector_ = nullptr, std::optional<int64_t> hops_limit = {}
 #ifdef MG_ENTERPRISE
-                    ,
-                    std::shared_ptr<utils::UserResources> user_resource = {}
+      ,
+      std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
   );
 
@@ -2506,7 +2512,9 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       query_logger_(query_logger)
 #ifdef MG_ENTERPRISE
       ,
-      user_resource_{std::move(user_resource)}
+      user_resource_ {
+  std::move(user_resource)
+}
 #endif
 {
   ctx_.hops_limit = query::HopsLimit{hops_limit};
@@ -2784,14 +2792,14 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
 
 namespace {
 
-PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-                                 InterpreterContext *interpreter_context, CurrentDB &current_db,
-                                 utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
-                                 std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                                 Interpreter &interpreter, FrameChangeCollector *frame_change_collector = nullptr
+PreparedQuery PrepareCypherQuery(
+    ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
+    CurrentDB &current_db, utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
+    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context, Interpreter &interpreter,
+    FrameChangeCollector *frame_change_collector = nullptr
 #ifdef MG_ENTERPRISE
-                                 ,
-                                 std::shared_ptr<utils::UserResources> user_resource = {}
+    ,
+    std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
 ) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -2892,9 +2900,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       .priority = utils::Priority::LOW};  // Default to LOW priority for all Cypher queries
 }
 
-PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notification> *notifications,
-                                  InterpreterContext *interpreter_context, Interpreter &interpreter,
-                                  CurrentDB &current_db) {
+PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
+                                  std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
+                                  Interpreter &interpreter, CurrentDB &current_db) {
   const std::string kExplainQueryStart = "explain ";
   MG_ASSERT(
       utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.stripped_query().str()), kExplainQueryStart),
@@ -2950,15 +2958,14 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
       .rw_type = RWType::NONE};
 }
 
-PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                  std::map<std::string, TypedValue> *summary, std::vector<Notification> *notifications,
-                                  InterpreterContext *interpreter_context, Interpreter &interpreter,
-                                  CurrentDB &current_db, utils::MemoryResource *execution_memory,
-                                  std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                                  FrameChangeCollector *frame_change_collector
+PreparedQuery PrepareProfileQuery(
+    ParsedQuery parsed_query, bool in_explicit_transaction, std::map<std::string, TypedValue> *summary,
+    std::vector<Notification> *notifications, InterpreterContext *interpreter_context, Interpreter &interpreter,
+    CurrentDB &current_db, utils::MemoryResource *execution_memory, std::shared_ptr<QueryUserOrRole> user_or_role,
+    StoppingContext stopping_context, FrameChangeCollector *frame_change_collector
 #ifdef MG_ENTERPRISE
-                                  ,
-                                  std::shared_ptr<utils::UserResources> user_resource = {}
+    ,
+    std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
 ) {
   const std::string kProfileQueryStart = "profile ";
@@ -3385,11 +3392,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
 
-  std::transform(label_results.begin(), label_results.end(), std::back_inserter(results),
-                 [execution_db_accessor](const auto &label_index) {
-                   return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)),
-                                                  TypedValue("")};
-                 });
+  std::transform(
+      label_results.begin(), label_results.end(), std::back_inserter(results),
+      [execution_db_accessor](const auto &label_index) {
+        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
+      });
 
   auto const prop_path_to_name = [&](storage::PropertyPath const &property_path) {
     return TypedValue{PropertyPathToName(execution_db_accessor, property_path)};
@@ -4559,19 +4566,14 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
   return {.header = {},
-          // NOLINTNEXTLINE(bugprone-exception-escape)
           .fn = [trigger_name = std::move(trigger_query->trigger_name_),
                  trigger_statement = std::move(trigger_query->statement_), event_type = trigger_query->event_type_,
                  before_commit = trigger_query->before_commit_, trigger_store, interpreter_context, dba,
-                 user_parameters, owner = std::move(owner), db_name,
-                 trigger_privilege_context =
-                     trigger_query->privilege_context_]() mutable -> std::vector<std::vector<TypedValue>> {
-            // NOLINTNEXTLINE(bugprone-exception-escape)
+                 user_parameters, owner = std::move(owner), db_name]() mutable -> std::vector<std::vector<TypedValue>> {
             trigger_store->AddTrigger(
                 std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
                 before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT,
-                &interpreter_context->ast_cache, dba, interpreter_context->config.query, std::move(owner), db_name,
-                static_cast<Trigger::PrivilegeContext>(trigger_privilege_context));
+                &interpreter_context->ast_cache, dba, interpreter_context->config.query, std::move(owner), db_name);
             memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersCreated);
             return {};
           }};
@@ -4579,7 +4581,6 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
 
 Callback DropTrigger(TriggerQuery *trigger_query, TriggerStore *trigger_store) {
   return {.header = {},
-          // NOLINTNEXTLINE(bugprone-exception-escape)
           .fn = [trigger_name = std::move(trigger_query->trigger_name_),
                  trigger_store]() -> std::vector<std::vector<TypedValue>> {
             trigger_store->DropTrigger(trigger_name);
@@ -5072,7 +5073,7 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
       .privileges = std::move(parsed_query.required_privileges),
       .query_handler = [db_acc = *current_db.db_acc_, replication_role, path = std::move(path_value.ValueString()),
                         force = recover_query->force_](AnyStream * /*stream*/, std::optional<int> /*n*/) mutable
-          -> std::optional<QueryHandlerResult> {
+      -> std::optional<QueryHandlerResult> {
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
         if (auto maybe_error = mem_storage->RecoverSnapshot(path, force, replication_role); !maybe_error.has_value()) {
           switch (maybe_error.error()) {
@@ -7260,12 +7261,15 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(IsolationLevelQuery & /*unused*/) override {}
   void Visit(StorageModeQuery & /*unused*/) override {}
   void Visit(CreateSnapshotQuery & /*unused*/)
-      override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/ }
+      override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/
+  }
   void Visit(ShowSnapshotsQuery & /*unused*/) override {}
   void Visit(ShowNextSnapshotQuery & /* unused */) override {}
   void Visit(EdgeImportModeQuery & /*unused*/) override {}
-  void Visit(AlterEnumRemoveValueQuery & /*unused*/) override { /* Not implemented yet */ }
-  void Visit(DropEnumQuery & /*unused*/) override { /* Not implemented yet */ }
+  void Visit(AlterEnumRemoveValueQuery & /*unused*/) override { /* Not implemented yet */
+  }
+  void Visit(DropEnumQuery & /*unused*/) override { /* Not implemented yet */
+  }
   void Visit(SessionTraceQuery & /*unused*/) override {}
 
   // Some queries require an active transaction in order to be prepared.
@@ -7497,8 +7501,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #endif
       );
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
-      prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->notifications,
-                                           interpreter_context_, *this, current_db_);
+      prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary,
+                                           &query_execution->notifications, interpreter_context_, *this, current_db_);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
       prepared_query =
           PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
@@ -8168,7 +8172,7 @@ void Interpreter::Commit() {
   if (trigger_context && db->trigger_store()->AfterCommitTriggers().size() > 0) {
     db->AddTask([db_acc = *current_db_.db_acc_, interpreter_context = interpreter_context_,
                  trigger_context = std::move(*trigger_context), triggering_user = user_or_role_,
-                 user_transaction = std::shared_ptr(std::move(current_db_.db_transactional_accessor_))]() mutable {
+                 user_transaction = std::shared_ptr(std::move(current_db_.db_transactional_accessor_))]() {
       RunTriggersAfterCommit(db_acc, interpreter_context, std::move(trigger_context), triggering_user);
       user_transaction->FinalizeTransaction();
       SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
