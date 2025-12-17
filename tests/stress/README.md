@@ -33,14 +33,30 @@ memgraph:
     MEMGRAPH_ORGANIZATION_NAME: "<org-name>"
 ```
 
-### 2. General Configuration
+### 2. Cluster Configuration (HA Deployments)
+```yaml
+# Optional: Required for HA deployments to define all cluster instances
+cluster:
+  coordinators:
+    - name: <string>  # Unique coordinator name (e.g., "coord-1")
+      host: <string>  # Coordinator host/IP
+      bolt_port: <int>  # Coordinator Bolt port
+    # ... additional coordinators
+  data_instances:
+    - name: <string>  # Unique data instance name (e.g., "data-1")
+      host: <string>  # Data instance host/IP
+      bolt_port: <int>  # Data instance Bolt port
+    # ... additional data instances
+```
+
+### 3. General Configuration
 ```yaml
 general:
   verbose: <true|false>  # Enables verbose logging.
   use_ssl: <true|false>  # Enables SSL.
 ```
 
-### 3. Dataset Configuration
+### 4. Dataset Configuration
 ```yaml
 # The dataset configuration is a legacy way to provide stress tests. For adding your own stress test
 # Please check section 4. Custom Workloads
@@ -56,7 +72,7 @@ dataset:
         - "--flag-name=flag-value"
 ```
 
-### 4. Custom Workloads
+### 5. Custom Workloads
 ```yaml
 # This is the current way of stress testing Memgraph and should be enforced for all adding additional
 # stress tests.
@@ -68,12 +84,11 @@ customWorkloads:
       # Doesn't apply for K8s as they use values file.
       import:
         queries: ["<Cypher Query>"]  # Queries to execute for data import. Used to setup your dataset or workload.
-      # Type of querying needed for workers to connect to the instance
+      # Querying configuration for workers to connect to instances
       querying:
-        # Connection host, default: "localhost"
-        host: "localhost"
-        # Connection port, default: 7687
-        port: 7687
+        host: "localhost"  # Connection host, default: "localhost"
+        port: 7687  # Connection port, default: 7687
+        # For HA deployments, reference the cluster section to determine which instance to target
       workers:
         - name: <string>  # Unique worker name.
           type: <string>
@@ -86,10 +101,10 @@ customWorkloads:
           # users which frequently use Memgraph Lab to see if Lab is doing any instability in the database workload
           query: "<Cypher Query>"  # Cypher query executed by the worker.
           # Optional: if the worker is connecting in a different way from the custom workload querying.
-          # If nothing is specified, the querying type will be injected from the workload.
+          # If nothing is specified, the querying type will be inherited from the workload.
           querying:
-            host: "localhost"
-            port: 7687
+            host: "localhost"  # Override host for this worker
+            port: 7687  # Override port for this worker
           num_repetitions: <int>  # Number of times the query should be executed.
           sleep_millis: <int>  # Sleep duration in milliseconds between executions.
           step: <int>

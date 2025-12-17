@@ -8,6 +8,27 @@ memgraph:
     MEMGRAPH_ENTERPRISE_LICENSE: ""  # Set your license key here or via env var
     MEMGRAPH_ORGANIZATION_NAME: ""   # Set your org name here or via env var
 
+# Cluster configuration (required for HA deployments)
+# Defines all coordinator and data instances in the cluster
+cluster:
+  coordinators:
+    - name: coord-1
+      host: "127.0.0.1"
+      bolt_port: 7691
+    - name: coord-2
+      host: "127.0.0.1"
+      bolt_port: 7692
+    - name: coord-3
+      host: "127.0.0.1"
+      bolt_port: 7693
+  data_instances:
+    - name: data-1
+      host: "127.0.0.1"
+      bolt_port: 7687
+    - name: data-2
+      host: "127.0.0.1"
+      bolt_port: 7688
+
 general:
   verbose: false
   use_ssl: false
@@ -21,24 +42,36 @@ customWorkloads:
     # Copied from configurations/workloads/deadlock/show_replicas_deadlock.yaml
     - name: show-replicas-deadlock
       memgraph_args: []
+      # Querying configuration - use host/port to connect to a specific instance
+      # You can reference instances from the cluster section above
       querying:
-        host: "localhost"
-        port: 7687
+        host: "127.0.0.1"  # Use one of the data instance hosts from cluster config
+        port: 7687  # Use the corresponding bolt_port
       import:
         queries: ["CREATE INDEX ON :Node;", "CREATE INDEX ON :Node(id);"]
       workers:
         - name: periodic-import
           type: writer
           query: "USING PERIODIC COMMIT 1000 UNWIND range(1, 1000000) as x CREATE (:Node {id: x});"
+          # Workers can override querying to target different instances
+          querying:
+            host: "127.0.0.1"
+            port: 7687
           num_repetitions: 1
           sleep_millis: 0
         - name: lab-simulator
           type: lab-simulator
+          querying:
+            host: "127.0.0.1"
+            port: 7691  # Target a coordinator
           num_repetitions: 100
           sleep_millis: 300
         - name: show-replicas
           type: reader
           query: "SHOW REPLICAS;"
+          querying:
+            host: "127.0.0.1"
+            port: 7691  # Target a coordinator
           num_repetitions: 100
           sleep_millis: 300
       timeout_min: 2

@@ -39,6 +39,11 @@ class Config:
         self._memgraph_args = memgraph.get("args", [])
         self._env = memgraph.get("env", {})
 
+        # Cluster configuration (for HA deployments)
+        cluster_config = config.get("cluster", {})
+        self._coordinators = cluster_config.get("coordinators", [])
+        self._data_instances = cluster_config.get("data_instances", [])
+
         # Dataset tests
         dataset = config.get("dataset", {})
         self._tests = dataset.get("tests", [])
@@ -72,6 +77,14 @@ class Config:
     @property
     def env(self):
         return self._env
+
+    @property
+    def coordinators(self):
+        return self._coordinators
+
+    @property
+    def data_instances(self):
+        return self._data_instances
 
 
 def start_deployment(script_path: str, args: List[str], env: Dict[str, str] = None) -> None:
