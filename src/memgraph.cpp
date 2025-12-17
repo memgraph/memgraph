@@ -309,23 +309,20 @@ int main(int argc, char **argv) {
   memgraph::utils::total_memory_tracker.SetMaximumHardLimit(memory_limit);
   memgraph::utils::total_memory_tracker.SetHardLimit(memory_limit);
 
-  memgraph::utils::global_settings.Initialize(data_directory / "settings");
-  memgraph::utils::OnScopeExit settings_finalizer([&] { memgraph::utils::global_settings.Finalize(); });
+  auto settings = std::make_shared<memgraph::utils::Settings>(data_directory / "settings");
 
   // register all runtime settings
-  memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker,
-                                             memgraph::utils::global_settings);
-  memgraph::utils::OnScopeExit global_license_finalizer([] { memgraph::license::global_license_checker.Finalize(); });
+  memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker, *settings);
 
   memgraph::license::global_license_checker.CheckEnvLicense();
   if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
     memgraph::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
   }
 
-  memgraph::license::global_license_checker.StartBackgroundLicenseChecker(memgraph::utils::global_settings);
+  memgraph::license::global_license_checker.StartBackgroundLicenseChecker(settings);
 
   // Has to be initialized after the storage and license startup
-  memgraph::flags::run_time::Initialize();
+  memgraph::flags::run_time::Initialize(*settings);
 
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
@@ -624,7 +621,7 @@ int main(int argc, char **argv) {
   auto db_acc = dbms_handler.Get();
 
   memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
-      interp_config, &dbms_handler, repl_state, system,
+      interp_config, settings.get(), &dbms_handler, repl_state, system,
 #ifdef MG_ENTERPRISE
       coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
                         : std::nullopt,
@@ -772,7 +769,8 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
     metrics_server.Shutdown();
     if (coordinator_state.has_value() && coordinator_state->IsCoordinator()) {
-      coordinator_state->ShutDownCoordinator();
+      // Coordinator instance destruction will handle the complete shutdown
+      coordinator_state.reset();
     }
 #endif
   };

@@ -11,26 +11,16 @@
 
 #include <fmt/format.h>
 
+#include <shared_mutex>
+
 #include "utils/logging.hpp"
 #include "utils/settings.hpp"
 
 namespace memgraph::utils {
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-Settings global_settings;
 
-void Settings::Initialize(std::filesystem::path storage_path) {
+Settings::Settings(std::filesystem::path storage_path) {
   std::lock_guard settings_guard{settings_lock_};
   storage_.emplace(std::move(storage_path));
-  if (std::atexit([] { global_settings.Finalize(); }) != 0) {
-    spdlog::error("Failed to register settings finalizer! Could cause instabilities on exit.");
-  }
-}
-
-void Settings::Finalize() {
-  std::lock_guard settings_guard{settings_lock_};
-  storage_.reset();
-  on_change_callbacks_.clear();
-  validations_.clear();
 }
 
 void Settings::RegisterSetting(std::string name, const std::string &default_value, OnChangeCallback callback,

@@ -17,7 +17,6 @@
 
 #include "kvstore/kvstore.hpp"
 #include "utils/rw_lock.hpp"
-#include "utils/synchronized.hpp"
 
 namespace memgraph::utils {
 struct Settings {
@@ -25,9 +24,7 @@ struct Settings {
   using ValidatorResult = std::expected<void, std::string>;
   using Validation = std::function<ValidatorResult(std::string_view)>;
 
-  void Initialize(std::filesystem::path storage_path);
-  // RocksDB depends on statically allocated objects so we need to delete it before the static destruction kicks in
-  void Finalize();
+  explicit Settings(std::filesystem::path storage_path);
 
   void RegisterSetting(
       std::string name, const std::string &default_value, OnChangeCallback callback,
@@ -43,6 +40,4 @@ struct Settings {
   std::optional<kvstore::KVStore> storage_;
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-extern Settings global_settings;
 }  // namespace memgraph::utils

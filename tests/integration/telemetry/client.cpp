@@ -57,7 +57,7 @@ int main(int argc, char **argv) {
                                            auth_, false
 #endif
   );
-  memgraph::query::InterpreterContext interpreter_context_({}, &dbms_handler, repl_state, system_state
+  memgraph::query::InterpreterContext interpreter_context_({}, nullptr, &dbms_handler, repl_state, system_state
 #ifdef MG_ENTERPRISE
                                                            ,
                                                            std::nullopt, nullptr
