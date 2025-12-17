@@ -156,7 +156,7 @@ class Database {
    *
    * @param new_task
    */
-  void AddTask(std::function<void()> new_task) { after_commit_trigger_pool_.AddTask(std::move(new_task)); }
+  void AddTask(utils::ThreadPool::TaskSignature new_task) { after_commit_trigger_pool_.AddTask(std::move(new_task)); }
 
   /**
    * @brief Returns the PlanCache vector raw pointer

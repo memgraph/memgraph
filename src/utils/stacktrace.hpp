@@ -11,9 +11,12 @@
 
 #pragma once
 
-#include "utils/on_scope_exit.hpp"
+#include <string>
+#include <vector>
 
 #include <fmt/format.h>
+
+#include "utils/on_scope_exit.hpp"
 
 #include <cxxabi.h>
 #include <execinfo.h>

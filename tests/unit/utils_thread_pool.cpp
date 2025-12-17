@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <memory>
 #include <thread>
 
 #include <utils/thread_pool.hpp>
@@ -36,5 +37,47 @@ TEST(ThreadPool, Basic) {
     }
 
     ASSERT_EQ(count.load(), adder_count);
+  }
+}
+
+// Test that move-only lambdas (capturing unique_ptr) work with std::move_only_function
+TEST(ThreadPool, MoveOnlyLambda) {
+  static constexpr size_t task_count = 1000;
+  memgraph::utils::ThreadPool pool{4};
+
+  std::atomic<int> count{0};
+  for (size_t i = 0; i < task_count; ++i) {
+    auto ptr = std::make_unique<int>(1);
+    pool.AddTask([p = std::move(ptr), &count]() { count.fetch_add(*p); });
+  }
+
+  while (pool.UnfinishedTasksNum() != 0) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  ASSERT_EQ(count.load(), task_count);
+}
+
+// High concurrency test with move-only lambdas
+TEST(ThreadPool, MoveOnlyLambdaHighConcurrency) {
+  static constexpr size_t task_count = 100000;
+  static constexpr std::array<size_t, 4> pool_sizes{1, 4, 8, 32};
+
+  for (const auto pool_size : pool_sizes) {
+    memgraph::utils::ThreadPool pool{pool_size};
+
+    std::atomic<int64_t> sum{0};
+    for (size_t i = 0; i < task_count; ++i) {
+      auto ptr = std::make_unique<int64_t>(static_cast<int64_t>(i));
+      pool.AddTask([p = std::move(ptr), &sum]() { sum.fetch_add(*p); });
+    }
+
+    while (pool.UnfinishedTasksNum() != 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    // Sum of 0 to task_count-1 = (task_count-1) * task_count / 2
+    const int64_t expected = static_cast<int64_t>(task_count - 1) * static_cast<int64_t>(task_count) / 2;
+    ASSERT_EQ(sum.load(), expected);
   }
 }
