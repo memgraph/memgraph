@@ -12,7 +12,6 @@
 #include <ranges>
 #include <usearch/index_dense.hpp>
 
-#include "flags/bolt.hpp"
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/edge.hpp"
@@ -153,7 +152,6 @@ void VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &spec) {
                                                    spec.index_name, mg_edge_index.error.what()));
   }
 
-  // Use the number of workers as the number of possible concurrent index operations
   const unum::usearch::index_limits_t limits(spec.capacity, GetVectorIndexThreadCount());
   if (!mg_edge_index.index.try_reserve(limits)) {
     throw query::VectorSearchException(fmt::format("Failed to reserve memory for vector index {}", spec.index_name));

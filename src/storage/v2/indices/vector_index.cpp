@@ -14,7 +14,6 @@
 #include <shared_mutex>
 #include <string_view>
 
-#include "flags/bolt.hpp"
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
@@ -141,7 +140,6 @@ void VectorIndex::SetupIndex(const VectorIndexSpec &spec) {
                                                    spec.index_name, mg_vector_index.error.what()));
   }
 
-  // Use the number of workers as the number of possible concurrent index operations
   const unum::usearch::index_limits_t limits(spec.capacity, GetVectorIndexThreadCount());
   if (!mg_vector_index.index.try_reserve(limits)) {
     throw query::VectorSearchException(

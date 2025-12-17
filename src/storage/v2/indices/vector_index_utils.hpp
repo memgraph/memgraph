@@ -14,11 +14,9 @@
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
-#include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
-#include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
