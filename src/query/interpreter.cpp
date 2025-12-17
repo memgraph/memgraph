@@ -4565,18 +4565,21 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
                        std::shared_ptr<QueryUserOrRole> user_or_role, const std::string &db_name) {
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
-  return {.header = {},
-          .fn = [trigger_name = std::move(trigger_query->trigger_name_),
-                 trigger_statement = std::move(trigger_query->statement_), event_type = trigger_query->event_type_,
-                 before_commit = trigger_query->before_commit_, trigger_store, interpreter_context, dba,
-                 user_parameters, owner = std::move(owner), db_name]() mutable -> std::vector<std::vector<TypedValue>> {
-            trigger_store->AddTrigger(
-                std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
-                before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT,
-                &interpreter_context->ast_cache, dba, interpreter_context->config.query, std::move(owner), db_name);
-            memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersCreated);
-            return {};
-          }};
+  return {
+      .header = {},
+      .fn = [trigger_name = std::move(trigger_query->trigger_name_),
+             trigger_statement = std::move(trigger_query->statement_), event_type = trigger_query->event_type_,
+             before_commit = trigger_query->before_commit_, trigger_store, interpreter_context, dba, user_parameters,
+             owner = std::move(owner), db_name,
+             privilege_context = trigger_query->privilege_context_]() mutable -> std::vector<std::vector<TypedValue>> {
+        trigger_store->AddTrigger(std::move(trigger_name), trigger_statement, user_parameters,
+                                  ToTriggerEventType(event_type),
+                                  before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT,
+                                  &interpreter_context->ast_cache, dba, interpreter_context->config.query,
+                                  std::move(owner), db_name, static_cast<TriggerPrivilegeContext>(privilege_context));
+        memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersCreated);
+        return {};
+      }};
 }
 
 Callback DropTrigger(TriggerQuery *trigger_query, TriggerStore *trigger_store) {

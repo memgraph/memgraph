@@ -27,6 +27,12 @@
 #include "utils/concepts.hpp"
 
 namespace memgraph::query {
+
+enum class TriggerPrivilegeContext : uint8_t {
+  INVOKER = 0,  // trigger is executed with the permissions of the user who invoked the trigger
+  DEFINER = 1   // trigger is executed with the permissions of the user who defined the trigger
+};
+
 namespace detail {
 template <typename T>
 concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;

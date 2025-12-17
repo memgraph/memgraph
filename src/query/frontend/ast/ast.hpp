@@ -3371,7 +3371,7 @@ class TriggerQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  // TODO (ivan): same enum values as Trigger::PrivilegeContext but bad design
+  // TODO (ivan): same enum values as TriggerPrivilegeContext but bad design
   enum class PrivilegeContext : uint8_t { INVOKER = 0, DEFINER = 1 };
 
   enum class Action : uint8_t { CREATE_TRIGGER, DROP_TRIGGER, SHOW_TRIGGERS };

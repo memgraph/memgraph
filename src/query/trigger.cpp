@@ -154,16 +154,16 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
 }  // namespace
 
 Trigger::Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
-                 const TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
-                 DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
-                 std::shared_ptr<QueryUserOrRole> creator, std::string_view db_name, PrivilegeContext privilege_context)
+                 TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                 const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
+                 std::string_view db_name, TriggerPrivilegeContext privilege_context)
     : name_{std::move(name)},
       parsed_statements_{ParseQuery(query, user_parameters, query_cache, query_config)},
       event_type_{event_type},
       creator_{std::move(creator)},
       privilege_context_{privilege_context} {
   // We check immediately if the query is valid by trying to create a plan.
-  if (privilege_context_ == PrivilegeContext::DEFINER) {
+  if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
     GetPlan(db_accessor, db_name, creator_);
   }
 }
@@ -193,19 +193,22 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
 
-  auto check_authorization = [&](std::shared_ptr<QueryUserOrRole> user, std::string error_msg) {
-    if (!user->IsAuthorized(parsed_statements_.required_privileges, db_name, &query::up_to_date_policy)) {
-      throw utils::BasicException(std::move(error_msg));
+  if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
+    // creator_ should never be null since GenQueryUser always returns a non-null shared_ptr
+    MG_ASSERT(creator_, "Trigger creator should not be null!");
+    if (!creator_->IsAuthorized(parsed_statements_.required_privileges, db_name, &query::up_to_date_policy)) {
+      throw utils::BasicException(
+          fmt::format("The owner of trigger '{}' is not authorized to execute the query!", name_));
     }
-  };
-
-  if (privilege_context_ == PrivilegeContext::DEFINER) {
-    check_authorization(creator_,
-                        fmt::format("The owner of trigger '{}' is not authorized to execute the query!", name_));
   } else {
-    check_authorization(
-        triggering_user,
-        fmt::format("The user who invoked the trigger '{}' is not authorized to execute the query!", name_));
+    // no users
+    if (!triggering_user) {  // TODO (ivan): check if this is valid
+      throw utils::BasicException(fmt::format("The user who invoked the trigger '{}' is not set!", name_));
+    }
+    if (!triggering_user->IsAuthorized(parsed_statements_.required_privileges, db_name, &query::up_to_date_policy)) {
+      throw utils::BasicException(
+          fmt::format("The user who invoked the trigger '{}' is not authorized to execute the query!", name_));
+    }
   }
   return trigger_plan_;
 }
@@ -345,16 +348,16 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
     return;
   }
 
-  auto const privilege_context = std::invoke([&]() -> std::optional<Trigger::PrivilegeContext> {
+  auto const privilege_context = std::invoke([&]() -> std::optional<TriggerPrivilegeContext> {
     if (version == kPreviousVersion) {
-      return Trigger::PrivilegeContext::DEFINER;
+      return TriggerPrivilegeContext::DEFINER;
     }
 
     const auto privilege_context_json = json_trigger_data["privilege_context"];
     if (!privilege_context_json.is_number_unsigned()) {
       return std::nullopt;
     }
-    return static_cast<Trigger::PrivilegeContext>(privilege_context_json.get<uint8_t>());
+    return static_cast<TriggerPrivilegeContext>(privilege_context_json.get<uint8_t>());
   });
 
   if (!privilege_context) {
@@ -394,7 +397,7 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
                               TriggerEventType event_type, TriggerPhase phase,
                               utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                               const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
-                              std::string_view db_name, Trigger::PrivilegeContext privilege_context) {
+                              std::string_view db_name, TriggerPrivilegeContext privilege_context) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
     throw utils::BasicException("Trigger with the same name already exists.");
@@ -428,7 +431,7 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
   data["version"] = kVersion;
 
   const auto &owner_from_trigger = trigger->Creator();
-  if (privilege_context == Trigger::PrivilegeContext::DEFINER && owner_from_trigger && *owner_from_trigger) {
+  if (privilege_context == TriggerPrivilegeContext::DEFINER && owner_from_trigger && *owner_from_trigger) {
     const auto &maybe_username = owner_from_trigger->username();
     if (maybe_username) {
       data["owner"] = *maybe_username;
@@ -495,7 +498,8 @@ std::vector<TriggerStore::TriggerInfo> TriggerStore::GetTriggerInfo() const {
     for (const auto &trigger : trigger_list.access()) {
       std::optional<std::string> owner_str{};
       if (const auto &owner = trigger.Creator(); owner && *owner) owner_str = owner->username();
-      info.push_back({trigger.Name(), trigger.OriginalStatement(), trigger.EventType(), phase, std::move(owner_str)});
+      info.push_back({trigger.Name(), trigger.OriginalStatement(), trigger.EventType(), phase, std::move(owner_str),
+                      trigger.PrivilegeContext()});
     }
   };
 
