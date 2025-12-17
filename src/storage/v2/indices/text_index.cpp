@@ -154,6 +154,7 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipList<Ve
   CreateTantivyIndex(index_path, index_info);
 
   if (!index_directory_already_exists) {
+    // If index didn't exist, we need to index all vertices. (This happens if we recover only from the snapshot)
     auto &context = index_.at(index_info.index_name).context;
     std::vector<PropertyId> properties_to_index;
     properties_to_index.reserve(index_info.properties.size());
