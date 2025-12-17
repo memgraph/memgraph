@@ -1430,6 +1430,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             std::swap(*it, *vertex->labels.rbegin());
             vertex->labels.pop_back();
 
+            storage_->UpdateLabelCount(current->label.value, -1);
+
             index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
             break;
           }
@@ -1501,10 +1503,17 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           case Delta::Action::DELETE_OBJECT: {
             vertex->deleted = true;
             my_deleted_vertices.push_back(vertex->gid);
+
+            for (auto const label : vertex->labels) {
+              storage_->UpdateLabelCount(label, -1);
+            }
             break;
           }
           case Delta::Action::RECREATE_OBJECT: {
             vertex->deleted = false;
+            for (auto const label : vertex->labels) {
+              storage_->UpdateLabelCount(label, 1);
+            }
             break;
           }
         }

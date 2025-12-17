@@ -223,7 +223,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithCommittedContributorsAreGarbagedCollected
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -235,13 +235,13 @@ TEST(StorageV2Gc, InterleavedDeltasWithCommittedContributorsAreGarbagedCollected
     auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
     auto edge1_result = acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1"));
-    ASSERT_TRUE(edge1_result.HasValue());
+    ASSERT_TRUE(edge1_result.has_value());
 
     auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
     auto edge2_result = acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2"));
-    ASSERT_TRUE(edge2_result.HasValue());
+    ASSERT_TRUE(edge2_result.has_value());
 
     // The 6 unreleased deltas are:
     // - 2 x CREATE_OBJECT, to create the edges
@@ -252,9 +252,9 @@ TEST(StorageV2Gc, InterleavedDeltasWithCommittedContributorsAreGarbagedCollected
     // Commit in order `acc1` and `acc2`. This means that even though `acc2` does
     // have interleaved deltas, everything downstream from them is committed
     // and so garbage collection can skip the waiting list.
-    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc1.reset();
-    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc2.reset();
 
     ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
@@ -279,7 +279,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithAbortedContributorsAreGarbagedCollected) 
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -291,17 +291,17 @@ TEST(StorageV2Gc, InterleavedDeltasWithAbortedContributorsAreGarbagedCollected) 
     auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
     auto edge1_result = acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1"));
-    ASSERT_TRUE(edge1_result.HasValue());
+    ASSERT_TRUE(edge1_result.has_value());
 
     auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
     auto edge2_result = acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2"));
-    ASSERT_TRUE(edge2_result.HasValue());
+    ASSERT_TRUE(edge2_result.has_value());
 
     ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 
-    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc2.reset();
     acc1->Abort();
     acc1.reset();
@@ -338,7 +338,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithMultipleAbortsAreGarbageCollected) {
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -350,13 +350,13 @@ TEST(StorageV2Gc, InterleavedDeltasWithMultipleAbortsAreGarbageCollected) {
     auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
     auto edge1_result = acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1"));
-    ASSERT_TRUE(edge1_result.HasValue());
+    ASSERT_TRUE(edge1_result.has_value());
 
     auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
     auto edge2_result = acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2"));
-    ASSERT_TRUE(edge2_result.HasValue());
+    ASSERT_TRUE(edge2_result.has_value());
 
     ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 
@@ -403,7 +403,7 @@ TEST(StorageV2Gc, DownstreamDeltaChainsAreGarbageCollected) {
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -416,23 +416,23 @@ TEST(StorageV2Gc, DownstreamDeltaChainsAreGarbageCollected) {
     auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
-    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1")).HasValue());
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1")).has_value());
 
     auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
-    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2")).HasValue());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2")).has_value());
 
     auto v1_t3 = acc3->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t3 = acc3->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
-    ASSERT_TRUE(acc3->CreateEdge(&*v1_t3, &*v2_t3, acc3->NameToEdgeType("Edge3")).HasValue());
+    ASSERT_TRUE(acc3->CreateEdge(&*v1_t3, &*v2_t3, acc3->NameToEdgeType("Edge3")).has_value());
 
     ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 
     // Commit TX1, abort TX2 and TX3
     // TX3's deltas are downstream from TX2, which are downstream from TX1
-    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc1.reset();
     acc3->Abort();
     acc3.reset();
@@ -463,7 +463,7 @@ TEST(StorageV2Gc, MixedCommitAbortCommitInterleavedDeltasAreGarbageCollected) {
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -476,26 +476,26 @@ TEST(StorageV2Gc, MixedCommitAbortCommitInterleavedDeltasAreGarbageCollected) {
     auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
-    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1")).HasValue());
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1")).has_value());
 
     auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
-    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2")).HasValue());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2")).has_value());
 
     auto v1_t3 = acc3->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t3 = acc3->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
-    ASSERT_TRUE(acc3->CreateEdge(&*v1_t3, &*v2_t3, acc3->NameToEdgeType("Edge3")).HasValue());
+    ASSERT_TRUE(acc3->CreateEdge(&*v1_t3, &*v2_t3, acc3->NameToEdgeType("Edge3")).has_value());
 
     ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 
     // TX1 commits, TX2 aborts, TX3 commits
-    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc1.reset();
     acc2->Abort();
     acc2.reset();
-    ASSERT_FALSE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc3.reset();
     acc0.reset();
 
@@ -522,7 +522,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithTwoContributorsAreGarbagedCollected) {
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -535,27 +535,27 @@ TEST(StorageV2Gc, InterleavedDeltasWithTwoContributorsAreGarbagedCollected) {
     auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
     auto edge1_result = acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1"));
-    ASSERT_TRUE(edge1_result.HasValue());
+    ASSERT_TRUE(edge1_result.has_value());
 
     auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
     auto edge2_result = acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2"));
-    ASSERT_TRUE(edge2_result.HasValue());
+    ASSERT_TRUE(edge2_result.has_value());
 
     auto v1_t3 = acc3->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t3 = acc3->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
     auto edge3_result = acc3->CreateEdge(&*v1_t3, &*v2_t3, acc3->NameToEdgeType("Edge3"));
-    ASSERT_TRUE(edge3_result.HasValue());
+    ASSERT_TRUE(edge3_result.has_value());
 
     ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 
-    ASSERT_FALSE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc3.reset();
-    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc1.reset();
-    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc2.reset();
 
     ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
@@ -581,7 +581,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -592,15 +592,15 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
     auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
-    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1")).HasValue());
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1")).has_value());
 
     auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
-    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2")).HasValue());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2")).has_value());
 
-    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge3")).HasValue());
-    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc1->NameToEdgeType("Edge4")).HasValue());
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge3")).has_value());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc1->NameToEdgeType("Edge4")).has_value());
 
     // The 12 unreleased deltas are:
     // - 4 x CREATE_OBJECT, to create the edges
@@ -611,7 +611,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
     // When acc2 commits, its transaction has interleaved deltas which are
     // uncommitted, meaning these deltas must sit in the waiting list until
     // all contributors have committed.
-    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc2.reset();
 
     // wait for GC to clean up
@@ -621,7 +621,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
     // Wait for GC to run but deltas should remain due to uncommitted acc1
     ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 
-    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc1.reset();
   }
 
@@ -641,7 +641,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -652,15 +652,15 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
     auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
-    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1")).HasValue());
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1")).has_value());
 
     auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
-    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2")).HasValue());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2")).has_value());
 
-    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge3")).HasValue());
-    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc1->NameToEdgeType("Edge4")).HasValue());
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge3")).has_value());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc1->NameToEdgeType("Edge4")).has_value());
 
     // The 12 unreleased deltas are:
     // - 4 x CREATE_OBJECT, to create the edges
@@ -671,7 +671,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
     // When acc1 commits first, its transaction has interleaved deltas which are
     // uncommitted, meaning these deltas must sit in the waiting list until
     // all contributors have committed.
-    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc1.reset();
 
     // wait for GC to clean up
@@ -681,7 +681,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
     // Wait for GC to run but deltas should remain due to uncommitted acc2
     ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 
-    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc2.reset();
   }
 
@@ -702,7 +702,7 @@ TEST(StorageV2Gc, ConcurrentEdgeOperationsAbortDeleteRepeat) {
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto tx1 = storage->Access();
@@ -711,13 +711,13 @@ TEST(StorageV2Gc, ConcurrentEdgeOperationsAbortDeleteRepeat) {
   {
     auto v1 = tx1->FindVertex(v1_gid, memgraph::storage::View::OLD).value();
     auto v2 = tx1->FindVertex(v2_gid, memgraph::storage::View::OLD).value();
-    ASSERT_TRUE(tx1->CreateEdge(&v1, &v2, tx1->NameToEdgeType("Edge1")).HasValue());
+    ASSERT_TRUE(tx1->CreateEdge(&v1, &v2, tx1->NameToEdgeType("Edge1")).has_value());
   }
 
   {
     auto v1 = tx2->FindVertex(v1_gid, memgraph::storage::View::OLD).value();
     auto v2 = tx2->FindVertex(v2_gid, memgraph::storage::View::OLD).value();
-    ASSERT_TRUE(tx2->CreateEdge(&v1, &v2, tx2->NameToEdgeType("Edge2")).HasValue());
+    ASSERT_TRUE(tx2->CreateEdge(&v1, &v2, tx2->NameToEdgeType("Edge2")).has_value());
   }
 
   tx1->Abort();
@@ -733,11 +733,11 @@ TEST(StorageV2Gc, ConcurrentEdgeOperationsAbortDeleteRepeat) {
 
     if (v1.has_value()) {
       auto edges = v1->OutEdges(memgraph::storage::View::OLD);
-      ASSERT_TRUE(edges.HasValue());
+      ASSERT_TRUE(edges.has_value());
     }
     if (v2.has_value()) {
       auto edges = v2->OutEdges(memgraph::storage::View::OLD);
-      ASSERT_TRUE(edges.HasValue());
+      ASSERT_TRUE(edges.has_value());
     }
   }
 }
@@ -754,7 +754,7 @@ TEST(StorageV2Gc, RapidGcOutOfOrderCommitTimestamps) {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
     vertex_gid = vertex.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // blocker transaction prevents rapid GC
@@ -765,17 +765,17 @@ TEST(StorageV2Gc, RapidGcOutOfOrderCommitTimestamps) {
     accessor_a = storage->Access();
     auto v = accessor_a->FindVertex(vertex_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v.has_value());
-    ASSERT_FALSE(v->AddLabel(accessor_a->NameToLabel("LabelA")).HasError());
-    ASSERT_FALSE(accessor_a->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(v->AddLabel(accessor_a->NameToLabel("LabelA")).has_value());
+    ASSERT_TRUE(accessor_a->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
     auto accessor_b = storage->Access();
     auto v = accessor_b->FindVertex(vertex_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v.has_value());
-    ASSERT_FALSE(v->AddLabel(accessor_b->NameToLabel("LabelB")).HasError());
+    ASSERT_TRUE(v->AddLabel(accessor_b->NameToLabel("LabelB")).has_value());
 
-    ASSERT_FALSE(accessor_b->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(accessor_b->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   accessor_a.reset();
@@ -786,7 +786,7 @@ TEST(StorageV2Gc, RapidGcOutOfOrderCommitTimestamps) {
   {
     auto gc_trigger = storage->Access();
     gc_trigger->CreateVertex();
-    ASSERT_FALSE(gc_trigger->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(gc_trigger->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -795,7 +795,7 @@ TEST(StorageV2Gc, RapidGcOutOfOrderCommitTimestamps) {
     ASSERT_TRUE(v.has_value());
 
     auto labels = v->Labels(memgraph::storage::View::OLD);
-    ASSERT_TRUE(labels.HasValue());
+    ASSERT_TRUE(labels.has_value());
     EXPECT_EQ(labels->size(), 2);
   }
 }
@@ -813,7 +813,7 @@ TEST(StorageV2Gc, AbortsWithWithNoInterleavedDeltas) {
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -822,8 +822,8 @@ TEST(StorageV2Gc, AbortsWithWithNoInterleavedDeltas) {
     auto v2 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
 
-    ASSERT_TRUE(tx1->CreateEdge(&*v1, &*v2, tx1->NameToEdgeType("EDGE1")).HasValue());
-    ASSERT_TRUE(tx1->CreateEdge(&*v1, &*v2, tx1->NameToEdgeType("EDGE2")).HasValue());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1, &*v2, tx1->NameToEdgeType("EDGE1")).has_value());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1, &*v2, tx1->NameToEdgeType("EDGE2")).has_value());
 
     ASSERT_NE(v1->vertex_->delta, nullptr);
     ASSERT_EQ(v1->vertex_->out_edges.size(), 2);
@@ -861,7 +861,7 @@ TEST(StorageV2Gc, AbortsWhenDeltasAreInterleaved) {
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -869,7 +869,7 @@ TEST(StorageV2Gc, AbortsWhenDeltasAreInterleaved) {
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
-    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).HasValue());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).has_value());
 
     auto const *delta_v1_t1_head = v1_t1->vertex_->delta;
 
@@ -877,8 +877,8 @@ TEST(StorageV2Gc, AbortsWhenDeltasAreInterleaved) {
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
-    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).HasValue());
-    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE3")).HasValue());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).has_value());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE3")).has_value());
 
     ASSERT_EQ(v1_t2->vertex_->out_edges.size(), 3);
 
@@ -887,7 +887,7 @@ TEST(StorageV2Gc, AbortsWhenDeltasAreInterleaved) {
     ASSERT_EQ(v1_t1->vertex_->delta, delta_v1_t1_head);
     ASSERT_EQ(v1_t1->vertex_->out_edges.size(), 1);
 
-    ASSERT_FALSE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -915,7 +915,7 @@ TEST(StorageV2Gc, AbortsWithUpstreamInterleavedDeltas) {
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -923,14 +923,14 @@ TEST(StorageV2Gc, AbortsWithUpstreamInterleavedDeltas) {
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
-    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1A")).HasValue());
-    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1B")).HasValue());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1A")).has_value());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1B")).has_value());
 
     auto tx2 = storage->Access();
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
-    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).HasValue());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).has_value());
 
     auto *delta_v1_t2 = v1_t2->vertex_->delta;
     ASSERT_NE(delta_v1_t2, nullptr);
@@ -941,7 +941,7 @@ TEST(StorageV2Gc, AbortsWithUpstreamInterleavedDeltas) {
     EXPECT_EQ(v1_t2->vertex_->delta, delta_v1_t2);
     EXPECT_EQ(v1_t2->vertex_->out_edges.size(), 1);
 
-    ASSERT_FALSE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -969,7 +969,7 @@ TEST(StorageV2Gc, AbortsWithUpstreamAndDownstreamInterleavedDeltas) {
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -977,20 +977,20 @@ TEST(StorageV2Gc, AbortsWithUpstreamAndDownstreamInterleavedDeltas) {
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
-    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).HasValue());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).has_value());
 
     auto tx2 = storage->Access();
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
-    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2A")).HasValue());
-    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2B")).HasValue());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2A")).has_value());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2B")).has_value());
 
     auto tx3 = storage->Access();
     auto v1_t3 = tx3->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t3 = tx3->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
-    ASSERT_TRUE(tx3->CreateEdge(&*v1_t3, &*v2_t3, tx3->NameToEdgeType("EDGE3")).HasValue());
+    ASSERT_TRUE(tx3->CreateEdge(&*v1_t3, &*v2_t3, tx3->NameToEdgeType("EDGE3")).has_value());
 
     auto *delta_v1_t3 = v1_t3->vertex_->delta;
     ASSERT_NE(delta_v1_t3, nullptr);
@@ -1001,8 +1001,8 @@ TEST(StorageV2Gc, AbortsWithUpstreamAndDownstreamInterleavedDeltas) {
     EXPECT_EQ(v1_t3->vertex_->delta, delta_v1_t3);
     EXPECT_EQ(v1_t3->vertex_->out_edges.size(), 2);
 
-    ASSERT_FALSE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-    ASSERT_FALSE(tx3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(tx3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1030,7 +1030,7 @@ TEST(StorageV2Gc, AbortsWithCommittedDownstreamDeltas) {
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1038,8 +1038,8 @@ TEST(StorageV2Gc, AbortsWithCommittedDownstreamDeltas) {
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
-    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).HasValue());
-    ASSERT_FALSE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).has_value());
+    ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1047,14 +1047,14 @@ TEST(StorageV2Gc, AbortsWithCommittedDownstreamDeltas) {
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
-    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2A")).HasValue());
-    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2B")).HasValue());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2A")).has_value());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2B")).has_value());
 
     auto tx3 = storage->Access();
     auto v1_t3 = tx3->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t3 = tx3->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
-    ASSERT_TRUE(tx3->CreateEdge(&*v1_t3, &*v2_t3, tx3->NameToEdgeType("EDGE3")).HasValue());
+    ASSERT_TRUE(tx3->CreateEdge(&*v1_t3, &*v2_t3, tx3->NameToEdgeType("EDGE3")).has_value());
 
     auto *delta_v1_t3 = v1_t3->vertex_->delta;
     ASSERT_NE(delta_v1_t3, nullptr);
@@ -1065,7 +1065,7 @@ TEST(StorageV2Gc, AbortsWithCommittedDownstreamDeltas) {
     EXPECT_EQ(v1_t3->vertex_->delta, delta_v1_t3);
     EXPECT_EQ(v1_t3->vertex_->out_edges.size(), 2);
 
-    ASSERT_FALSE(tx3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1093,7 +1093,7 @@ TEST(StorageV2Gc, AbortsAtEndOfInterleavedChain) {
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1101,14 +1101,14 @@ TEST(StorageV2Gc, AbortsAtEndOfInterleavedChain) {
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
-    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1A")).HasValue());
-    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1B")).HasValue());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1A")).has_value());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1B")).has_value());
 
     auto tx2 = storage->Access();
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
-    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).HasValue());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).has_value());
 
     auto *delta_v1_t2 = v1_t2->vertex_->delta;
     ASSERT_NE(delta_v1_t2, nullptr);
@@ -1119,7 +1119,7 @@ TEST(StorageV2Gc, AbortsAtEndOfInterleavedChain) {
     EXPECT_EQ(v1_t2->vertex_->delta, delta_v1_t2);
     EXPECT_EQ(v1_t2->vertex_->out_edges.size(), 1);
 
-    ASSERT_FALSE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1147,7 +1147,7 @@ TEST(StorageV2Gc, AbortsWithMultipleTransactionsPrepending) {
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1155,20 +1155,20 @@ TEST(StorageV2Gc, AbortsWithMultipleTransactionsPrepending) {
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
-    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1A")).HasValue());
-    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1B")).HasValue());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1A")).has_value());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1B")).has_value());
 
     auto tx2 = storage->Access();
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
-    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).HasValue());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).has_value());
 
     auto tx3 = storage->Access();
     auto v1_t3 = tx3->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t3 = tx3->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
-    ASSERT_TRUE(tx3->CreateEdge(&*v1_t3, &*v2_t3, tx3->NameToEdgeType("EDGE3")).HasValue());
+    ASSERT_TRUE(tx3->CreateEdge(&*v1_t3, &*v2_t3, tx3->NameToEdgeType("EDGE3")).has_value());
 
     ASSERT_EQ(v1_t1->vertex_->out_edges.size(), 4);
 
@@ -1176,8 +1176,8 @@ TEST(StorageV2Gc, AbortsWithMultipleTransactionsPrepending) {
 
     EXPECT_EQ(v1_t3->vertex_->out_edges.size(), 2);
 
-    ASSERT_FALSE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-    ASSERT_FALSE(tx3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(tx3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1205,7 +1205,7 @@ TEST(StorageV2Gc, AbortsTwoTransactions) {
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1213,20 +1213,20 @@ TEST(StorageV2Gc, AbortsTwoTransactions) {
     auto v1_t0 = tx0->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t0 = tx0->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t0.has_value() && v2_t0.has_value());
-    ASSERT_TRUE(tx0->CreateEdge(&*v1_t0, &*v2_t0, tx0->NameToEdgeType("EDGE0")).HasValue());
+    ASSERT_TRUE(tx0->CreateEdge(&*v1_t0, &*v2_t0, tx0->NameToEdgeType("EDGE0")).has_value());
 
     auto tx1 = storage->Access();
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
-    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1A")).HasValue());
-    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1B")).HasValue());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1A")).has_value());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1B")).has_value());
 
     auto tx2 = storage->Access();
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
-    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).HasValue());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).has_value());
 
     ASSERT_EQ(v1_t2->vertex_->out_edges.size(), 4);
 
@@ -1235,7 +1235,7 @@ TEST(StorageV2Gc, AbortsTwoTransactions) {
 
     EXPECT_EQ(v1_t0->vertex_->out_edges.size(), 1);
 
-    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1261,7 +1261,7 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedAfterAbort) {
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1269,13 +1269,13 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedAfterAbort) {
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
-    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).HasValue());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).has_value());
 
     auto tx2 = storage->Access();
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
-    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).HasValue());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).has_value());
 
     {
       auto const guard = std::shared_lock{v1_t2->vertex_->lock};
@@ -1289,7 +1289,7 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedAfterAbort) {
       ASSERT_FALSE(v1_t2->vertex_->has_uncommitted_interleaved_deltas);
     }
 
-    ASSERT_FALSE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1311,7 +1311,7 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagRemainsAfterPartialAbort) {
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1319,19 +1319,19 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagRemainsAfterPartialAbort) {
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
-    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).HasValue());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).has_value());
 
     auto tx2 = storage->Access();
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
-    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).HasValue());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).has_value());
 
     auto tx3 = storage->Access();
     auto v1_t3 = tx3->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t3 = tx3->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
-    ASSERT_TRUE(tx3->CreateEdge(&*v1_t3, &*v2_t3, tx3->NameToEdgeType("EDGE3")).HasValue());
+    ASSERT_TRUE(tx3->CreateEdge(&*v1_t3, &*v2_t3, tx3->NameToEdgeType("EDGE3")).has_value());
 
     {
       auto const guard = std::shared_lock{v1_t3->vertex_->lock};
@@ -1345,8 +1345,8 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagRemainsAfterPartialAbort) {
       ASSERT_TRUE(v1_t3->vertex_->has_uncommitted_interleaved_deltas);
     }
 
-    ASSERT_FALSE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-    ASSERT_FALSE(tx3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(tx3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1369,7 +1369,7 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedWhenAllDeltasRemoved) {
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_FALSE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1377,13 +1377,13 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedWhenAllDeltasRemoved) {
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
-    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).HasValue());
+    ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).has_value());
 
     auto tx2 = storage->Access();
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
-    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).HasValue());
+    ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).has_value());
 
     {
       auto const guard = std::shared_lock{v1_t2->vertex_->lock};

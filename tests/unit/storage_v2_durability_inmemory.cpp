@@ -4290,7 +4290,7 @@ TEST_F(DurabilityTest, WalInterleavedDeltaEncoding) {
       v1_gid = v1.Gid();
       v2_gid = v2.Gid();
       v3_gid = v3.Gid();
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     auto tx1 = storage->Access();
@@ -4300,7 +4300,7 @@ TEST_F(DurabilityTest, WalInterleavedDeltaEncoding) {
     ASSERT_TRUE(v2_tx1.has_value());
 
     auto edge1 = tx1->CreateEdge(&*v1_tx1, &*v2_tx1, tx1->NameToEdgeType("Edge1"));
-    ASSERT_TRUE(edge1.HasValue());
+    ASSERT_TRUE(edge1.has_value());
     edge_type_1 = tx1->NameToEdgeType("Edge1");
 
     auto tx2 = storage->Access();
@@ -4310,9 +4310,9 @@ TEST_F(DurabilityTest, WalInterleavedDeltaEncoding) {
     ASSERT_TRUE(v3_tx2.has_value());
 
     auto edge2 = tx2->CreateEdge(&*v1_tx2, &*v3_tx2, tx2->NameToEdgeType("Edge2"));
-    ASSERT_TRUE(edge2.HasValue());
+    ASSERT_TRUE(edge2.has_value());
 
-    ASSERT_FALSE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     tx2->Abort();
   }
@@ -4332,7 +4332,7 @@ TEST_F(DurabilityTest, WalInterleavedDeltaEncoding) {
     ASSERT_TRUE(v2.has_value());
 
     auto edges = v1->OutEdges(memgraph::storage::View::OLD);
-    ASSERT_TRUE(edges.HasValue());
+    ASSERT_TRUE(edges.has_value());
     ASSERT_EQ(edges->edges.size(), 1);
     ASSERT_EQ(edges->edges[0].EdgeType(), edge_type_1);
     ASSERT_EQ(edges->edges[0].ToVertex().Gid(), v2_gid);
