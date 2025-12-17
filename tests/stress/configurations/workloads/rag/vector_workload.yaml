@@ -34,8 +34,7 @@ dataset:
 
 customWorkloads:
   tests:
-    - name: custom-script-workload
+    - name: vector-workload
       memgraph_args: []
-      # Path to Python script (relative to stress/ directory or absolute)
-      # The script receives --host and --port arguments automatically
-      script: "workload_scripts/sample_workload.py"
+      script: "workload_scripts/rag/vector_workload.py"
+      timeout_min: 30
