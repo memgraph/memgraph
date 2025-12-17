@@ -302,13 +302,15 @@ inline std::size_t GetVectorIndexThreadCount() {
 /// @param spec The index specification (will be updated if resize occurs).
 /// @param key The key to add to the index.
 /// @param vector_data Pointer to the float vector data.
+/// @param thread_id Optional thread ID hint for usearch's internal thread-local optimizations.
 /// @throws query::VectorSearchException if add fails for reasons other than capacity.
 template <typename Index, typename Key, typename Spec>
 void AddToVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, Spec &spec, const Key &key,
-                      const float *vector_data) {
+                      const float *vector_data, std::optional<std::size_t> thread_id = std::nullopt) {
+  const auto thread_id_for_adding = thread_id ? *thread_id : Index::any_thread();
   {
     auto locked_index = mg_index.MutableSharedLock();
-    auto result = locked_index->add(key, vector_data);
+    auto result = locked_index->add(key, vector_data, thread_id_for_adding);
     if (!result.error) return;
     if (locked_index->size() >= locked_index->capacity()) {
       // Error is due to capacity, release the error because we will resize the index.
@@ -326,7 +328,7 @@ void AddToVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, S
       }
       spec.capacity = exclusively_locked_index->capacity();
     }
-    auto result = exclusively_locked_index->add(key, vector_data);
+    auto result = exclusively_locked_index->add(key, vector_data, thread_id_for_adding);
   }
 }
 
@@ -334,7 +336,7 @@ void AddToVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, S
 /// @tparam SyncIndex The synchronized index wrapper type.
 /// @tparam Spec The index specification type.
 /// @tparam ProcessFunc Callable with signature void(SyncIndex&, Spec&, Vertex&, const
-/// std::optional<SnapshotObserverInfo>&).
+/// std::optional<SnapshotObserverInfo>&, std::optional<std::size_t> thread_id).
 /// @param mg_index The synchronized index wrapper.
 /// @param spec The index specification (may be modified if resize occurs).
 /// @param vertices The vertices accessor to iterate over.
@@ -345,7 +347,7 @@ void PopulateVectorIndexSingleThreaded(SyncIndex &mg_index, Spec &spec, utils::S
                                        std::optional<SnapshotObserverInfo> const &snapshot_info,
                                        const ProcessFunc &process) {
   for (auto &vertex : vertices) {
-    process(mg_index, spec, vertex, snapshot_info);
+    process(mg_index, spec, vertex, snapshot_info, std::nullopt);
   }
 }
 
@@ -353,7 +355,7 @@ void PopulateVectorIndexSingleThreaded(SyncIndex &mg_index, Spec &spec, utils::S
 /// @tparam SyncIndex The synchronized index wrapper type.
 /// @tparam Spec The index specification type (must have resize_coefficient and capacity).
 /// @tparam ProcessFunc Callable with signature void(SyncIndex&, Spec&, Vertex&, const
-/// std::optional<SnapshotObserverInfo>&).
+/// std::optional<SnapshotObserverInfo>&, std::optional<std::size_t> thread_id).
 /// @param mg_index The synchronized index wrapper.
 /// @param spec The index specification (may be modified if resize occurs).
 /// @param vertices The vertices accessor to iterate over.
@@ -368,11 +370,11 @@ void PopulateVectorIndexMultiThreaded(SyncIndex &mg_index, Spec &spec, utils::Sk
   std::vector<std::jthread> threads;
   threads.reserve(thread_count);
 
-  for (auto i{0U}; i < thread_count; ++i) {
+  for (std::size_t i = 0; i < thread_count; ++i) {
     threads.emplace_back([&, i]() {
       auto &chunk = vertices_chunks[i];
       for (auto &vertex : chunk) {
-        process(mg_index, spec, vertex, snapshot_info);
+        process(mg_index, spec, vertex, snapshot_info, i);
       }
     });
   }

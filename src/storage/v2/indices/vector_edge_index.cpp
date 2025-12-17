@@ -65,8 +65,10 @@ using SyncVectorEdgeIndex = utils::Synchronized<mg_vector_edge_index_t, std::sha
 /// @param spec The index specification (may be modified if resize occurs).
 /// @param from_vertex The source vertex whose edges to process.
 /// @param snapshot_info Optional snapshot observer for progress tracking.
+/// @param thread_id Optional thread ID hint for usearch's internal optimizations.
 void TryAddEdgesToIndex(SyncVectorEdgeIndex &mg_index, VectorEdgeIndexSpec &spec, Vertex &from_vertex,
-                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                        std::optional<SnapshotObserverInfo> const &snapshot_info,
+                        std::optional<std::size_t> thread_id = std::nullopt) {
   if (from_vertex.deleted) {
     return;
   }
@@ -88,7 +90,7 @@ void TryAddEdgesToIndex(SyncVectorEdgeIndex &mg_index, VectorEdgeIndexSpec &spec
     }
     auto vector = PropertyToFloatVector(property, spec.dimension);
     const EdgeIndexEntry entry{&from_vertex, to_vertex, edge};
-    AddToVectorIndex(mg_index, spec, entry, vector.data());
+    AddToVectorIndex(mg_index, spec, entry, vector.data(), thread_id);
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::VECTOR_EDGE_IDX);
     }

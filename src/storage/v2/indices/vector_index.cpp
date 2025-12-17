@@ -71,8 +71,10 @@ using SyncVectorIndex = utils::Synchronized<mg_vector_index_t, std::shared_mutex
 /// @param spec The index specification (may be modified if resize occurs).
 /// @param vertex The vertex to potentially add.
 /// @param snapshot_info Optional snapshot observer for progress tracking.
+/// @param thread_id Optional thread ID hint for usearch's internal optimizations.
 void TryAddVertexToIndex(SyncVectorIndex &mg_index, VectorIndexSpec &spec, Vertex &vertex,
-                         std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                         std::optional<SnapshotObserverInfo> const &snapshot_info,
+                         std::optional<std::size_t> thread_id = std::nullopt) {
   if (!std::ranges::contains(vertex.labels, spec.label_id)) {
     return;
   }
@@ -81,7 +83,7 @@ void TryAddVertexToIndex(SyncVectorIndex &mg_index, VectorIndexSpec &spec, Verte
     return;
   }
   auto vector = PropertyToFloatVector(property, spec.dimension);
-  AddToVectorIndex(mg_index, spec, &vertex, vector.data());
+  AddToVectorIndex(mg_index, spec, &vertex, vector.data(), thread_id);
   if (snapshot_info) {
     snapshot_info->Update(UpdateType::VECTOR_IDX);
   }
