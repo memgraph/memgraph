@@ -367,8 +367,8 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
       ASSERT_TRUE(edge_inserted);
 
       // Set edge property (vector)
-      PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(static_cast<double>(i) * 100.0),
-                                                              PropertyValue((static_cast<double>(i) * 100.0) + 1.0)});
+      PropertyValue property_value(
+          std::vector<PropertyValue>{PropertyValue(static_cast<double>(i)), PropertyValue(static_cast<double>(i + 1))});
       edge_iter->properties.SetProperty(PropertyId::FromUint(1), property_value);
 
       // Connect edge to vertices via out_edges
@@ -427,8 +427,8 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexSingleThreadTest) {
 
     const auto vector = vector_edge_index_.GetVectorFromEdge(from_vertex, to_vertex, &edge, "test_edge_index");
     EXPECT_EQ(vector.size(), kDimension);
-    EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint() * 100));
-    EXPECT_EQ(vector[1], static_cast<float>((edge.gid.AsUint() * 100) + 1));
+    EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
+    EXPECT_EQ(vector[1], static_cast<float>(edge.gid.AsUint() + 1));
   }
 }
 
@@ -468,8 +468,8 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexParallelTest) {
 
     const auto vector = vector_edge_index_.GetVectorFromEdge(from_vertex, to_vertex, &edge, "test_edge_index");
     EXPECT_EQ(vector.size(), kDimension);
-    EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint() * 100));
-    EXPECT_EQ(vector[1], static_cast<float>((edge.gid.AsUint() * 100) + 1));
+    EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
+    EXPECT_EQ(vector[1], static_cast<float>(edge.gid.AsUint() + 1));
   }
 }
 
@@ -515,7 +515,7 @@ TEST_F(VectorEdgeIndexRecoveryTest, ConcurrentAddWithResizeTest) {
 
     const auto vector = vector_edge_index_.GetVectorFromEdge(from_vertex, to_vertex, &edge, "resize_test_edge_index");
     EXPECT_EQ(vector.size(), kDimension);
-    EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint() * 100));
-    EXPECT_EQ(vector[1], static_cast<float>((edge.gid.AsUint() * 100) + 1));
+    EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
+    EXPECT_EQ(vector[1], static_cast<float>((edge.gid.AsUint()) + 1));
   }
 }
