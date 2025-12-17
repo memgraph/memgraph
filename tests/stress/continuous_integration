@@ -153,8 +153,31 @@ def _find_test_binary(args: Args, config: Config, test: str) -> List[str]:
     raise Exception(f"Test '{test}' binary not supported!")
 
 
-def run_custom_workloads(script_path: str, config: Config) -> Dict[str, Any]:
-    """Runs custom workloads on Memgraph using GQLAlchemy."""
+def run_workload_script(workload: Dict[str, Any], args: Args, timeout_sec: int) -> None:
+    """Executes a custom Python script for a workload."""
+    workload_script = workload["script"]
+    script_args = workload.get("script_args", [])
+
+    # Resolve script path (relative to stress directory or absolute)
+    if not os.path.isabs(workload_script):
+        workload_script = os.path.join(SCRIPT_DIR, workload_script)
+
+    if not os.path.exists(workload_script):
+        raise Exception(f"Workload script not found: {workload_script}")
+
+    # Build command
+    cmd = [args.python, "-u", workload_script]
+    cmd.extend(script_args)
+
+    print(f"Executing workload script: {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=SCRIPT_DIR, timeout=timeout_sec)
+
+    if result.returncode != 0:
+        raise Exception(f"Workload script returned non-zero ({result.returncode})!")
+
+
+def run_custom_workloads(script_path: str, config: Config, args: Args) -> Dict[str, Any]:
+    """Runs custom workloads on Memgraph using GQLAlchemy or custom scripts."""
     print("Running custom workloads...")
     runtimes = {}
 
@@ -183,32 +206,38 @@ def run_custom_workloads(script_path: str, config: Config) -> Dict[str, Any]:
                 memgraph.execute(query)
             print(f"Finished import for workload '{workload_name}'")
 
-            # Execute workers in steps
-            processes = []
-            workers = workload.get("workers", [])
-            steps = get_worker_steps(workers)
+            timeout_sec = workload.get("timeout_min", 10) * 60
 
-            for step in steps:
-                print(f"Running step {step}.")
+            # Check if workload uses a custom script or workers
+            if "script" in workload:
+                run_workload_script(workload, args, timeout_sec)
+            else:
+                # Execute workers in steps
+                processes = []
+                workers = workload.get("workers", [])
+                steps = get_worker_steps(workers)
 
-                for worker in [x for x in workers if x.get("step", 1) == step]:
-                    # Override with workload global querying if not set on the worker
-                    if "querying" not in worker.keys():
-                        worker["querying"] = {"host": query_host, "port": query_port}
-                    worker_object = get_worker_object(worker)
+                for step in steps:
+                    print(f"Running step {step}.")
 
-                    for i in range(worker.get("replicas", 1)):
-                        process = multiprocessing.Process(target=worker_object.run)
-                        processes.append((process, workload.get("timeout_min", 10) * 60))
-                        process.start()
+                    for worker in [x for x in workers if x.get("step", 1) == step]:
+                        # Override with workload global querying if not set on the worker
+                        if "querying" not in worker.keys():
+                            worker["querying"] = {"host": query_host, "port": query_port}
+                        worker_object = get_worker_object(worker)
 
-                # Monitor processes and enforce timeouts
-                for process, timeout in processes:
-                    process.join(timeout)
-                    if process.is_alive():
-                        print(f"Worker process exceeded timeout of {timeout // 60} minutes. Terminating...")
-                        process.terminate()
-                        process.join()
+                        for i in range(worker.get("replicas", 1)):
+                            process = multiprocessing.Process(target=worker_object.run)
+                            processes.append((process, timeout_sec))
+                            process.start()
+
+                    # Monitor processes and enforce timeouts
+                    for process, timeout in processes:
+                        process.join(timeout)
+                        if process.is_alive():
+                            print(f"Worker process exceeded timeout of {timeout // 60} minutes. Terminating...")
+                            process.terminate()
+                            process.join()
 
             print(f"Finished workload '{workload_name}'")
             end = time.time()
@@ -254,7 +283,7 @@ def run_stress_test_suite(args: Args, config: Config) -> Dict[str, Any]:
         finally:
             stop_deployment(script_path)
 
-    workload_result = run_custom_workloads(script_path, config)
+    workload_result = run_custom_workloads(script_path, config, args)
     if "error" in workload_result:
         return workload_result
 

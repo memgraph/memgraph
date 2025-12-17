@@ -1,0 +1,41 @@
+memgraph:
+  deployment:
+    script: "binary_ha.sh"
+  args: []
+  env:
+    MEMGRAPH_ENTERPRISE_LICENSE: "mglk-IQAAAAgAAAAAAAAATWVtZ3JhcGgAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    MEMGRAPH_ORGANIZATION_NAME: "Memgraph"
+
+cluster:
+  coordinators:
+    - name: coord-1
+      host: "127.0.0.1"
+      bolt_port: 7691
+    - name: coord-2
+      host: "127.0.0.1"
+      bolt_port: 7692
+    - name: coord-3
+      host: "127.0.0.1"
+      bolt_port: 7693
+  data_instances:
+    - name: data-1
+      host: "127.0.0.1"
+      bolt_port: 7687
+    - name: data-2
+      host: "127.0.0.1"
+      bolt_port: 7688
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: custom-script-workload
+      memgraph_args: []
+      # Path to Python script (relative to stress/ directory or absolute)
+      # The script receives --host and --port arguments automatically
+      script: "workload_scripts/sample_workload.py"
