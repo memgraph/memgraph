@@ -553,3 +553,34 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexParallelTest) {
     EXPECT_EQ(vector[1], static_cast<float>(vertex.gid.AsUint() + 1));
   }
 }
+
+TEST_F(VectorIndexRecoveryTest, ConcurrentAddWithResizeTest) {
+  FLAGS_storage_parallel_schema_recovery = true;
+  FLAGS_storage_recovery_thread_count =
+      (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 4;
+
+  auto vertices_acc = vertices_.access();
+
+  auto spec = VectorIndexSpec{.index_name = "resize_test_index",
+                              .label_id = LabelId::FromUint(1),
+                              .property = PropertyId::FromUint(1),
+                              .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                              .dimension = kDimension,
+                              .resize_coefficient = 2,
+                              .capacity = 10,  // Small capacity to force resize
+                              .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
+
+  EXPECT_TRUE(vector_index_.RecoverIndex(spec, vertices_acc));
+
+  const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
+  EXPECT_EQ(vector_index_info.size(), 1);
+  EXPECT_EQ(vector_index_info[0].size, kNumNodes);
+  EXPECT_GE(vector_index_info[0].capacity, kNumNodes);
+
+  for (auto &vertex : vertices_acc) {
+    const auto vector = vector_index_.GetVectorFromVertex(&vertex, "resize_test_index");
+    EXPECT_EQ(vector.size(), kDimension);
+    EXPECT_EQ(vector[0], static_cast<float>(vertex.gid.AsUint()));
+    EXPECT_EQ(vector[1], static_cast<float>(vertex.gid.AsUint() + 1));
+  }
+}

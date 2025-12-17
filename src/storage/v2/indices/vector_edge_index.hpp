@@ -161,10 +161,6 @@ class VectorEdgeIndex {
   /// @return true if the index exists, false otherwise.
   bool IndexExists(std::string_view index_name) const;
 
-  /// @brief Removes an edge from the index.
-  /// @param edge The edge to be removed.
-  void RemoveEdge(Edge *edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex);
-
   /// @brief Returns the vector from an edge for a given index.
   /// @param from_vertex The from vertex of the edge.
   /// @param to_vertex The to vertex of the edge.
