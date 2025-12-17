@@ -437,7 +437,7 @@ class SharedDistinctState {
                                 utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
                                 TypedValueVectorEqual>;
 
-  static constexpr size_t kNumShards = 128;  // Power of 2 for fast modulo via bitwise AND
+  static constexpr size_t kNumShards = 64;  // Power of 2 for fast modulo via bitwise AND
 
   explicit SharedDistinctState(utils::MemoryResource *mem) : mem_(mem) {
     // Initialize all shards with the same memory resource
@@ -446,18 +446,16 @@ class SharedDistinctState {
     }
   }
 
-  ~SharedDistinctState() { Clear(); }
-
   /// Batch insert: takes a vector of rows and returns a vector of bools indicating which are unique.
   /// Groups rows by shard and locks once per shard for efficiency.
-  std::vector<bool> TryInsertBatch(std::vector<utils::pmr::vector<TypedValue>> &rows) {
+  std::vector<bool> TryInsertBatch(auto &rows) {
     std::vector<bool> results;
     results.reserve(rows.size());
-    for (size_t i = 0; i < rows.size(); ++i) {
-      size_t hash = utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>{}(rows[i]);
+    for (const auto &row : rows) {
+      size_t hash = utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>{}(row);
       size_t shard_idx = hash & (kNumShards - 1);
       std::lock_guard<std::mutex> lock(shard_mutexes_[shard_idx].mutex);
-      auto [it, inserted] = shards_[shard_idx].emplace(std::move(rows[i]));
+      auto [it, inserted] = shards_[shard_idx].emplace(std::move(row));
       results.push_back(inserted);
     }
     return results;
@@ -6900,7 +6898,7 @@ class DistinctCursor : public Cursor {
 
 class DistinctParallelCursor : public Cursor {
  public:
-  static constexpr size_t kLocalCacheBatchSize = 10;
+  static constexpr size_t kLocalCacheBatchSize = 8;
 
   /// Constructor for parallel distinct (uses shared state with local caching)
   DistinctParallelCursor(const Distinct &self, utils::MemoryResource *mem,
@@ -6908,12 +6906,8 @@ class DistinctParallelCursor : public Cursor {
       : self_(self),
         input_cursor_(self.input_->MakeCursor(mem)),
         shared_state_(std::move(shared_state)),
-        local_seen_(mem),
-        it_(local_cache_.begin()) {
+        local_seen_(mem) {
     DMG_ASSERT(shared_state_, "DistinctParallelCursor must be created with a shared state");
-    local_cache_.reserve(kLocalCacheBatchSize);
-    it_ = local_cache_.begin();
-    local_seen_.reserve(kLocalCacheBatchSize);
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -6922,17 +6916,29 @@ class DistinctParallelCursor : public Cursor {
 
     AbortCheck(context);
 
+    if (local_cache_.empty()) {
+      local_cache_.resize(kLocalCacheBatchSize, Frame(frame.elems().size(), shared_state_->GetMemoryResource()));
+      local_seen_.reserve(kLocalCacheBatchSize);
+    }
+
     // Return from local cache if available
-    if (it_ != local_cache_.end()) {
-      frame = std::move(*it_);
-      ++it_;
+    if (unique_count_ > 0) {
+      std::swap(frame, local_cache_[unique_count_ - 1]);
+      unique_count_--;
       return true;
     }
     // Refill local cache by pulling a batch from input
     while (true) {
       const auto res = RefillCacheAndPull(frame, context);
       if (res) return true;
-      if (pulled_all_) return false;
+      if (pulled_all_) {
+        // Postpone state destruction to another worker thread
+        if (context.worker_pool) {
+          context.worker_pool->ScheduledAddTask([shared_state = std::move(shared_state_)](auto /* unused */) {},
+                                                utils::Priority::LOW);
+        }
+        return false;
+      }
     }
   }
 
@@ -6952,14 +6958,12 @@ class DistinctParallelCursor : public Cursor {
     if (pulled_all_) return false;
     utils::MemoryResource *row_mem = shared_state_->GetMemoryResource();
 
-    // Pull batch of rows from input, deduplicating locally first
-    // local_seen_ tracks distinct keys, local_cache_ stores full frames
-    std::vector<utils::pmr::vector<TypedValue>> rows_batch;
-    std::vector<Frame> frames_batch;
-    rows_batch.reserve(kLocalCacheBatchSize);
-    frames_batch.reserve(kLocalCacheBatchSize);
+    // Clear local seen set for next batch
+    local_seen_.clear();
+    unique_count_ = 0;
 
-    while (rows_batch.size() < kLocalCacheBatchSize) {
+    // Pull batch of rows from input, deduplicating locally first
+    while (local_seen_.size() < kLocalCacheBatchSize) {
       if (!input_cursor_->Pull(frame, context)) {
         pulled_all_ = true;
         break;  // Input exhausted
@@ -6973,41 +6977,34 @@ class DistinctParallelCursor : public Cursor {
       }
 
       // Local deduplication within batch using local_seen_ set
-      if (local_seen_.insert(row).second) {
-        rows_batch.emplace_back(std::move(row));
-        frames_batch.emplace_back(frame);
+      if (local_seen_.insert(std::move(row)).second) {
+        std::swap(local_cache_[local_seen_.size() - 1], frame);
       }
     }
 
-    // Clear local seen set for next batch
-    local_seen_.clear();
-
-    if (rows_batch.empty()) {
+    if (local_seen_.empty()) {
       // Input exhausted and no cached items
       return false;
     }
 
     // Batch check against global shared state
-    auto uniqueness = shared_state_->TryInsertBatch(rows_batch);
-    local_cache_.clear();
-
-    // Add globally unique frames to local cache
+    auto uniqueness = shared_state_->TryInsertBatch(local_seen_);
     for (size_t i = 0; i < uniqueness.size(); ++i) {
       if (uniqueness[i]) {
-        local_cache_.emplace_back(std::move(frames_batch[i]));
+        if (unique_count_ != i) {
+          std::swap(local_cache_[unique_count_], local_cache_[i]);
+        }
+        unique_count_++;
       }
     }
 
-    if (local_cache_.empty()) {
-      // All pulled items were duplicates globally, try again
-      return false;
+    if (unique_count_ > 0) {
+      std::swap(frame, local_cache_[unique_count_ - 1]);
+      unique_count_--;
+      return true;
     }
-
-    // Return first unique item
-    it_ = local_cache_.begin();
-    frame = std::move(*it_);
-    ++it_;
-    return true;
+    // All pulled items were duplicates globally, try again
+    return false;
   }
 
   using RowSet =
@@ -7023,7 +7020,7 @@ class DistinctParallelCursor : public Cursor {
   RowSet local_seen_;
   // Local cache of unique frames for parallel mode (avoids per-row global locking)
   std::vector<Frame> local_cache_;
-  std::vector<Frame>::iterator it_;
+  size_t unique_count_{0};
   bool pulled_all_{false};
 };
 

@@ -105,9 +105,7 @@ SharedQuota::SharedQuota(int64_t limit, int64_t n_batches)
     : coord_(std::make_shared<QuotaCoordinator>(limit)),
       desired_batch_size_(std::max<int64_t>(1, limit / n_batches)),
       handle_(coord_->Acquire(desired_batch_size_)) {
-  MG_ASSERT(limit > 0, "Limit has to be greater than 0");
   MG_ASSERT(n_batches > 0, "Number of batches has to be greater than 0");
-  DMG_ASSERT(handle_ && handle_->Count() > 0, "Failed to acquire quota");
 }
 
 SharedQuota::SharedQuota(const SharedQuota &other) noexcept
