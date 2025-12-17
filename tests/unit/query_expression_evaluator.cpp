@@ -577,9 +577,9 @@ TYPED_TEST(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   auto prop = this->dba.NameToProperty("prop");
   auto v1 = this->dba.InsertVertex();
   auto e11 = this->dba.InsertEdge(&v1, &v1, edge_type);
-  ASSERT_TRUE(e11.HasValue());
-  ASSERT_TRUE(v1.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
-  ASSERT_TRUE(e11->SetProperty(prop, memgraph::storage::PropertyValue(43)).HasValue());
+  ASSERT_TRUE(e11.has_value());
+  ASSERT_TRUE(v1.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
+  ASSERT_TRUE(e11->SetProperty(prop, memgraph::storage::PropertyValue(43)).has_value());
   this->dba.AdvanceCommand();
 
   auto *vertex_id = this->CreateIdentifierWithValue("v1", TypedValue(v1));
@@ -826,9 +826,9 @@ TYPED_TEST(ExpressionEvaluatorTest, IsNullOperator) {
 
 TYPED_TEST(ExpressionEvaluatorTest, LabelsTest) {
   auto v1 = this->dba.InsertVertex();
-  ASSERT_TRUE(v1.AddLabel(this->dba.NameToLabel("ANIMAL")).HasValue());
-  ASSERT_TRUE(v1.AddLabel(this->dba.NameToLabel("DOG")).HasValue());
-  ASSERT_TRUE(v1.AddLabel(this->dba.NameToLabel("NICE_DOG")).HasValue());
+  ASSERT_TRUE(v1.AddLabel(this->dba.NameToLabel("ANIMAL")).has_value());
+  ASSERT_TRUE(v1.AddLabel(this->dba.NameToLabel("DOG")).has_value());
+  ASSERT_TRUE(v1.AddLabel(this->dba.NameToLabel("NICE_DOG")).has_value());
   this->dba.AdvanceCommand();
   auto *identifier = this->storage.template Create<Identifier>("n");
   auto node_symbol = this->symbol_table.CreateSymbol("n", true);
@@ -865,7 +865,7 @@ TYPED_TEST(ExpressionEvaluatorTest, EdgeTypesTest) {
   auto to_vertex = this->dba.InsertVertex();
   auto edge_type_a = this->dba.NameToEdgeType("TYPE_A");
   auto edge = this->dba.InsertEdge(&from_vertex, &to_vertex, edge_type_a);
-  ASSERT_TRUE(edge.HasValue());
+  ASSERT_TRUE(edge.has_value());
   this->dba.AdvanceCommand();
 
   // Setup: Create edge identifier and write edge to frame
@@ -1379,7 +1379,7 @@ TYPED_TEST_SUITE(ExpressionEvaluatorPropertyLookup, StorageTypes);
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Vertex) {
   auto v1 = this->dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).has_value());
   this->dba.AdvanceCommand();
   auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
   frame_writer.Write(this->symbol, TypedValue(v1));
@@ -1591,8 +1591,8 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Edge) {
   auto v1 = this->dba.InsertVertex();
   auto v2 = this->dba.InsertVertex();
   auto e12 = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("edge_type"));
-  ASSERT_TRUE(e12.HasValue());
-  ASSERT_TRUE(e12->SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_TRUE(e12.has_value());
+  ASSERT_TRUE(e12->SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).has_value());
   this->dba.AdvanceCommand();
   auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
   frame_writer.Write(this->symbol, TypedValue(*e12));
@@ -1636,7 +1636,7 @@ TYPED_TEST_SUITE(ExpressionEvaluatorAllPropertiesLookup, StorageTypes);
 
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Vertex) {
   auto v1 = this->dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).has_value());
   this->dba.AdvanceCommand();
   auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
   frame_writer.Write(this->symbol, TypedValue(v1));
@@ -1648,8 +1648,8 @@ TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Edge) {
   auto v1 = this->dba.InsertVertex();
   auto v2 = this->dba.InsertVertex();
   auto e12 = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("edge_type"));
-  ASSERT_TRUE(e12.HasValue());
-  ASSERT_TRUE(e12->SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_TRUE(e12.has_value());
+  ASSERT_TRUE(e12->SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).has_value());
   this->dba.AdvanceCommand();
   auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
   frame_writer.Write(this->symbol, TypedValue(*e12));
@@ -1770,11 +1770,11 @@ TYPED_TEST(FunctionTest, EndNode) {
   ASSERT_THROW(this->EvaluateFunction("ENDNODE"), QueryRuntimeException);
   ASSERT_TRUE(this->EvaluateFunction("ENDNODE", TypedValue()).IsNull());
   auto v1 = this->dba.InsertVertex();
-  ASSERT_TRUE(v1.AddLabel(this->dba.NameToLabel("label1")).HasValue());
+  ASSERT_TRUE(v1.AddLabel(this->dba.NameToLabel("label1")).has_value());
   auto v2 = this->dba.InsertVertex();
-  ASSERT_TRUE(v2.AddLabel(this->dba.NameToLabel("label2")).HasValue());
+  ASSERT_TRUE(v2.AddLabel(this->dba.NameToLabel("label2")).has_value());
   auto e = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("t"));
-  ASSERT_TRUE(e.HasValue());
+  ASSERT_TRUE(e.has_value());
   ASSERT_TRUE(*this->EvaluateFunction("ENDNODE", *e)
                    .ValueVertex()
                    .HasLabel(memgraph::storage::View::NEW, this->dba.NameToLabel("label2")));
@@ -1795,13 +1795,13 @@ TYPED_TEST(FunctionTest, Properties) {
   ASSERT_THROW(this->EvaluateFunction("PROPERTIES"), QueryRuntimeException);
   ASSERT_TRUE(this->EvaluateFunction("PROPERTIES", TypedValue()).IsNull());
   auto v1 = this->dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(this->dba.NameToProperty("height"), memgraph::storage::PropertyValue(5)).HasValue());
-  ASSERT_TRUE(v1.SetProperty(this->dba.NameToProperty("age"), memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(this->dba.NameToProperty("height"), memgraph::storage::PropertyValue(5)).has_value());
+  ASSERT_TRUE(v1.SetProperty(this->dba.NameToProperty("age"), memgraph::storage::PropertyValue(10)).has_value());
   auto v2 = this->dba.InsertVertex();
   auto e = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("type1"));
-  ASSERT_TRUE(e.HasValue());
-  ASSERT_TRUE(e->SetProperty(this->dba.NameToProperty("height"), memgraph::storage::PropertyValue(3)).HasValue());
-  ASSERT_TRUE(e->SetProperty(this->dba.NameToProperty("age"), memgraph::storage::PropertyValue(15)).HasValue());
+  ASSERT_TRUE(e.has_value());
+  ASSERT_TRUE(e->SetProperty(this->dba.NameToProperty("height"), memgraph::storage::PropertyValue(3)).has_value());
+  ASSERT_TRUE(e->SetProperty(this->dba.NameToProperty("age"), memgraph::storage::PropertyValue(15)).has_value());
   this->dba.AdvanceCommand();
 
   auto prop_values_to_int = [](TypedValue t) {
@@ -1847,7 +1847,7 @@ TYPED_TEST(FunctionTest, Size) {
   EXPECT_EQ(this->EvaluateFunction("SIZE", path).ValueInt(), 0);
   auto v1 = this->dba.InsertVertex();
   auto edge = this->dba.InsertEdge(&v0, &v1, this->dba.NameToEdgeType("type"));
-  ASSERT_TRUE(edge.HasValue());
+  ASSERT_TRUE(edge.has_value());
   path.Expand(*edge);
   path.Expand(v1);
   EXPECT_EQ(this->EvaluateFunction("SIZE", path).ValueInt(), 1);
@@ -1857,11 +1857,11 @@ TYPED_TEST(FunctionTest, StartNode) {
   ASSERT_THROW(this->EvaluateFunction("STARTNODE"), QueryRuntimeException);
   ASSERT_TRUE(this->EvaluateFunction("STARTNODE", TypedValue()).IsNull());
   auto v1 = this->dba.InsertVertex();
-  ASSERT_TRUE(v1.AddLabel(this->dba.NameToLabel("label1")).HasValue());
+  ASSERT_TRUE(v1.AddLabel(this->dba.NameToLabel("label1")).has_value());
   auto v2 = this->dba.InsertVertex();
-  ASSERT_TRUE(v2.AddLabel(this->dba.NameToLabel("label2")).HasValue());
+  ASSERT_TRUE(v2.AddLabel(this->dba.NameToLabel("label2")).has_value());
   auto e = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("t"));
-  ASSERT_TRUE(e.HasValue());
+  ASSERT_TRUE(e.has_value());
   ASSERT_TRUE(*this->EvaluateFunction("STARTNODE", *e)
                    .ValueVertex()
                    .HasLabel(memgraph::storage::View::NEW, this->dba.NameToLabel("label1")));
@@ -1899,8 +1899,8 @@ TYPED_TEST(FunctionTest, Degree) {
   auto v2 = this->dba.InsertVertex();
   auto v3 = this->dba.InsertVertex();
   auto e12 = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("t"));
-  ASSERT_TRUE(e12.HasValue());
-  ASSERT_TRUE(this->dba.InsertEdge(&v3, &v2, this->dba.NameToEdgeType("t")).HasValue());
+  ASSERT_TRUE(e12.has_value());
+  ASSERT_TRUE(this->dba.InsertEdge(&v3, &v2, this->dba.NameToEdgeType("t")).has_value());
   this->dba.AdvanceCommand();
   ASSERT_EQ(this->EvaluateFunction("DEGREE", v1).ValueInt(), 1);
   ASSERT_EQ(this->EvaluateFunction("DEGREE", v2).ValueInt(), 2);
@@ -1916,8 +1916,8 @@ TYPED_TEST(FunctionTest, InDegree) {
   auto v2 = this->dba.InsertVertex();
   auto v3 = this->dba.InsertVertex();
   auto e12 = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("t"));
-  ASSERT_TRUE(e12.HasValue());
-  ASSERT_TRUE(this->dba.InsertEdge(&v3, &v2, this->dba.NameToEdgeType("t")).HasValue());
+  ASSERT_TRUE(e12.has_value());
+  ASSERT_TRUE(this->dba.InsertEdge(&v3, &v2, this->dba.NameToEdgeType("t")).has_value());
   this->dba.AdvanceCommand();
   ASSERT_EQ(this->EvaluateFunction("INDEGREE", v1).ValueInt(), 0);
   ASSERT_EQ(this->EvaluateFunction("INDEGREE", v2).ValueInt(), 2);
@@ -1933,8 +1933,8 @@ TYPED_TEST(FunctionTest, OutDegree) {
   auto v2 = this->dba.InsertVertex();
   auto v3 = this->dba.InsertVertex();
   auto e12 = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("t"));
-  ASSERT_TRUE(e12.HasValue());
-  ASSERT_TRUE(this->dba.InsertEdge(&v3, &v2, this->dba.NameToEdgeType("t")).HasValue());
+  ASSERT_TRUE(e12.has_value());
+  ASSERT_TRUE(this->dba.InsertEdge(&v3, &v2, this->dba.NameToEdgeType("t")).has_value());
   this->dba.AdvanceCommand();
   ASSERT_EQ(this->EvaluateFunction("OUTDEGREE", v1).ValueInt(), 1);
   ASSERT_EQ(this->EvaluateFunction("OUTDEGREE", v2).ValueInt(), 0);
@@ -1983,11 +1983,11 @@ TYPED_TEST(FunctionTest, Type) {
   ASSERT_THROW(this->EvaluateFunction("TYPE"), QueryRuntimeException);
   ASSERT_TRUE(this->EvaluateFunction("TYPE", TypedValue()).IsNull());
   auto v1 = this->dba.InsertVertex();
-  ASSERT_TRUE(v1.AddLabel(this->dba.NameToLabel("label1")).HasValue());
+  ASSERT_TRUE(v1.AddLabel(this->dba.NameToLabel("label1")).has_value());
   auto v2 = this->dba.InsertVertex();
-  ASSERT_TRUE(v2.AddLabel(this->dba.NameToLabel("label2")).HasValue());
+  ASSERT_TRUE(v2.AddLabel(this->dba.NameToLabel("label2")).has_value());
   auto e = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("type1"));
-  ASSERT_TRUE(e.HasValue());
+  ASSERT_TRUE(e.has_value());
   ASSERT_EQ(this->EvaluateFunction("TYPE", *e).ValueString(), "type1");
   ASSERT_THROW(this->EvaluateFunction("TYPE", 2), QueryRuntimeException);
 }
@@ -2016,7 +2016,7 @@ TYPED_TEST(FunctionTest, ValueType) {
   auto v2 = this->dba.InsertVertex();
   ASSERT_EQ(this->EvaluateFunction("VALUETYPE", v1).ValueString(), "NODE");
   auto e = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("type1"));
-  ASSERT_TRUE(e.HasValue());
+  ASSERT_TRUE(e.has_value());
   ASSERT_EQ(this->EvaluateFunction("VALUETYPE", *e).ValueString(), "RELATIONSHIP");
   Path p(v1, *e, v2);
   ASSERT_EQ(this->EvaluateFunction("VALUETYPE", p).ValueString(), "PATH");
@@ -2029,8 +2029,8 @@ TYPED_TEST(FunctionTest, Labels) {
   ASSERT_THROW(this->EvaluateFunction("LABELS"), QueryRuntimeException);
   ASSERT_TRUE(this->EvaluateFunction("LABELS", TypedValue()).IsNull());
   auto v = this->dba.InsertVertex();
-  ASSERT_TRUE(v.AddLabel(this->dba.NameToLabel("label1")).HasValue());
-  ASSERT_TRUE(v.AddLabel(this->dba.NameToLabel("label2")).HasValue());
+  ASSERT_TRUE(v.AddLabel(this->dba.NameToLabel("label1")).has_value());
+  ASSERT_TRUE(v.AddLabel(this->dba.NameToLabel("label2")).has_value());
   this->dba.AdvanceCommand();
   std::vector<std::string> labels;
   auto _labels = this->EvaluateFunction("LABELS", v).ValueList();
@@ -2053,9 +2053,9 @@ TYPED_TEST(FunctionTest, NodesRelationships) {
     auto v2 = this->dba.InsertVertex();
     auto v3 = this->dba.InsertVertex();
     auto e1 = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("Type"));
-    ASSERT_TRUE(e1.HasValue());
+    ASSERT_TRUE(e1.has_value());
     auto e2 = this->dba.InsertEdge(&v2, &v3, this->dba.NameToEdgeType("Type"));
-    ASSERT_TRUE(e2.HasValue());
+    ASSERT_TRUE(e2.has_value());
     memgraph::query::Path path{v1, *e1, v2, *e2, v3};
     this->dba.AdvanceCommand();
 
@@ -2098,13 +2098,13 @@ TYPED_TEST(FunctionTest, Keys) {
   ASSERT_THROW(this->EvaluateFunction("KEYS"), QueryRuntimeException);
   ASSERT_TRUE(this->EvaluateFunction("KEYS", TypedValue()).IsNull());
   auto v1 = this->dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(this->dba.NameToProperty("height"), memgraph::storage::PropertyValue(5)).HasValue());
-  ASSERT_TRUE(v1.SetProperty(this->dba.NameToProperty("age"), memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(this->dba.NameToProperty("height"), memgraph::storage::PropertyValue(5)).has_value());
+  ASSERT_TRUE(v1.SetProperty(this->dba.NameToProperty("age"), memgraph::storage::PropertyValue(10)).has_value());
   auto v2 = this->dba.InsertVertex();
   auto e = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("type1"));
-  ASSERT_TRUE(e.HasValue());
-  ASSERT_TRUE(e->SetProperty(this->dba.NameToProperty("width"), memgraph::storage::PropertyValue(3)).HasValue());
-  ASSERT_TRUE(e->SetProperty(this->dba.NameToProperty("age"), memgraph::storage::PropertyValue(15)).HasValue());
+  ASSERT_TRUE(e.has_value());
+  ASSERT_TRUE(e->SetProperty(this->dba.NameToProperty("width"), memgraph::storage::PropertyValue(3)).has_value());
+  ASSERT_TRUE(e->SetProperty(this->dba.NameToProperty("age"), memgraph::storage::PropertyValue(15)).has_value());
   this->dba.AdvanceCommand();
 
   auto prop_keys_to_string = [](TypedValue t) {
@@ -2308,7 +2308,7 @@ TYPED_TEST(FunctionTest, Counter) {
 TYPED_TEST(FunctionTest, Id) {
   auto va = this->dba.InsertVertex();
   auto ea = this->dba.InsertEdge(&va, &va, this->dba.NameToEdgeType("edge"));
-  ASSERT_TRUE(ea.HasValue());
+  ASSERT_TRUE(ea.has_value());
   auto vb = this->dba.InsertVertex();
   this->dba.AdvanceCommand();
   EXPECT_TRUE(this->EvaluateFunction("ID", TypedValue()).IsNull());

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <span>
 #include <vector>
 
 #include <fmt/format.h>
@@ -74,6 +75,15 @@ class ChunkedDecoderBuffer {
   }
 
   /**
+   * Reads data from the internal buffer into a span.
+   *
+   * @param data a span to write data into
+   * @returns true if exactly data.size() bytes were copied,
+   *          false otherwise
+   */
+  bool Read(std::span<uint8_t> data) { return Read(data.data(), data.size()); }
+
+  /**
    * Peeks data from the internal buffer.
    * Reads data, but doesn't remove it from the buffer.
    *
@@ -88,6 +98,17 @@ class ChunkedDecoderBuffer {
     memcpy(data, &data_[pos_ + offset], len);
     return true;
   }
+
+  /**
+   * Peeks data from the internal buffer into a span.
+   * Reads data, but doesn't remove it from the buffer.
+   *
+   * @param data a span to write data into
+   * @param offset offset from the beginning of the data
+   * @returns true if exactly data.size() bytes were copied,
+   *          false otherwise
+   */
+  bool Peek(std::span<uint8_t> data, size_t offset = 0) { return Peek(data.data(), data.size(), offset); }
 
   /**
    * Gets a chunk from the underlying raw data buffer.

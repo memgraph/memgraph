@@ -66,8 +66,8 @@ std::optional<State> BasicAuthentication(TSession &session, memgraph::communicat
   auto password = data["credentials"].ValueString();
 
   const auto auth_res = session.Authenticate(username, password);
-  if (auth_res.HasError()) {
-    switch (auth_res.GetError()) {
+  if (!auth_res) {
+    switch (auth_res.error()) {
       case AuthFailure::kGeneric:
         HandleAuthFailure(session);
         break;
@@ -90,8 +90,8 @@ std::optional<State> SSOAuthentication(TSession &session, memgraph::communicatio
   auto scheme = data["scheme"].ValueString();
   auto identity_provider_response = data["credentials"].ValueString();
   const auto auth_res = session.SSOAuthenticate(scheme, identity_provider_response);
-  if (auth_res.HasError()) {
-    switch (auth_res.GetError()) {
+  if (!auth_res) {
+    switch (auth_res.error()) {
       case AuthFailure::kGeneric:
         HandleAuthFailure(session);
         break;
@@ -152,7 +152,7 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
 template <typename TSession>
 std::optional<Value> GetMetadataV1(TSession &session, const Marker marker) {
   if (marker != Marker::TinyStruct2) [[unlikely]] {
-    spdlog::trace("Expected TinyStruct2 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct2 marker, but received 0x{:02X}!", std::to_underlying(marker));
     spdlog::trace(
         "The client sent malformed data, but we are continuing "
         "because the official Neo4j Java driver sends malformed "
@@ -181,7 +181,7 @@ std::optional<Value> GetMetadataV1(TSession &session, const Marker marker) {
 template <typename TSession>
 std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
   if (marker != Marker::TinyStruct1) [[unlikely]] {
-    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", std::to_underlying(marker));
     spdlog::trace(
         "The client sent malformed data, but we are continuing "
         "because the official Neo4j Java driver sends malformed "
@@ -210,7 +210,7 @@ std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
 template <typename TSession>
 std::optional<Value> GetInitDataV5(TSession &session, const Marker marker) {
   if (marker != Marker::TinyStruct1) [[unlikely]] {
-    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", std::to_underlying(marker));
     return std::nullopt;
   }
 
@@ -234,7 +234,7 @@ std::optional<Value> GetInitDataV5(TSession &session, const Marker marker) {
 template <typename TSession>
 std::optional<Value> GetAuthDataV5(TSession &session, const Marker marker) {
   if (marker != Marker::TinyStruct1) [[unlikely]] {
-    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", std::to_underlying(marker));
     return std::nullopt;
   }
 
@@ -269,7 +269,7 @@ State SendSuccessMessage(TSession &session) {
 template <typename TSession>
 State StateInitRunV1(TSession &session, const Marker marker, const Signature signature) {
   if (signature != Signature::Init) [[unlikely]] {
-    spdlog::trace("Expected Init signature, but received 0x{:02X}!", utils::UnderlyingCast(signature));
+    spdlog::trace("Expected Init signature, but received 0x{:02X}!", std::to_underlying(signature));
     return State::Close;
   }
 
@@ -298,7 +298,7 @@ State StateInitRunV4(TSession &session, Marker marker, Signature signature) {
   }
 
   if (signature != Signature::Init) [[unlikely]] {
-    spdlog::trace("Expected Init signature, but received 0x{:02X}!", utils::UnderlyingCast(signature));
+    spdlog::trace("Expected Init signature, but received 0x{:02X}!", std::to_underlying(signature));
     return State::Close;
   }
 
@@ -344,7 +344,7 @@ State StateInitRunV5(TSession &session, Marker marker, Signature signature) {
 
   if (signature == Signature::LogOn) {
     if (marker != Marker::TinyStruct1) [[unlikely]] {
-      spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+      spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", std::to_underlying(marker));
       spdlog::trace(
           "The client sent malformed data, but we are continuing "
           "because the official Neo4j Java driver sends malformed "
@@ -372,7 +372,7 @@ State StateInitRunV5(TSession &session, Marker marker, Signature signature) {
     return State::Idle;
   }
 
-  spdlog::trace("Expected Init signature, but received 0x{:02X}!", utils::UnderlyingCast(signature));
+  spdlog::trace("Expected Init signature, but received 0x{:02X}!", std::to_underlying(signature));
   return State::Close;
 }
 }  // namespace details

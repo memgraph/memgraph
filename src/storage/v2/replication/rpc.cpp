@@ -231,7 +231,7 @@ void Load(memgraph::storage::replication::FinalizeCommitReq *self, memgraph::slk
 void Save(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(*self.name.str_view(), builder);
   memgraph::slk::Save(self.uuid, builder);
-  memgraph::slk::Save(utils::EnumToNum<3, uint8_t>(self.storage_mode), builder);
+  memgraph::slk::Save(std::to_underlying(self.storage_mode), builder);
   memgraph::slk::Save(self.items.properties_on_edges, builder);
   memgraph::slk::Save(self.items.enable_schema_metadata, builder);
 }
@@ -243,7 +243,7 @@ void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader)
   memgraph::slk::Load(&self->uuid, reader);
   uint8_t sm = 0;
   memgraph::slk::Load(&sm, reader);
-  if (!utils::NumToEnum<3>(sm, self->storage_mode)) {
+  if (!utils::NumToEnum(sm, self->storage_mode)) {
     throw SlkReaderException("Unexpected result line:{}!", __LINE__);
   }
   memgraph::slk::Load(&self->items.properties_on_edges, reader);

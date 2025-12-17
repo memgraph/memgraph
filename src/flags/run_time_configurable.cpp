@@ -11,7 +11,6 @@
 
 #include "flags/run_time_configurable.hpp"
 
-#include <exception>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -26,7 +25,6 @@
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 #include "utils/observer.hpp"
-#include "utils/result.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
@@ -211,7 +209,7 @@ auto ToLLEnum(std::string_view val) {
 memgraph::utils::Settings::ValidatorResult ValidBoolStr(std::string_view in) {
   const auto lc = memgraph::utils::ToLowerCase(in);
   if (lc != "false" && lc != "true") {
-    return {"Boolean value supports only 'false' or 'true' as the input."};
+    return std::unexpected{"Boolean value supports only 'false' or 'true' as the input."};
   }
   return {};
 }
@@ -361,8 +359,8 @@ void Initialize() {
       },
       [](auto in) -> utils::Settings::ValidatorResult {
         if (!memgraph::flags::ValidLogLevel(in)) {
-          return {"Unsupported log level. Log level must be defined as one of the following strings: " +
-                  memgraph::flags::GetAllowedLogLevels()};
+          return std::unexpected{"Unsupported log level. Log level must be defined as one of the following strings: " +
+                                 memgraph::flags::GetAllowedLogLevels()};
         }
         return {};
       });
@@ -414,7 +412,8 @@ void Initialize() {
       },
       [](auto in) -> utils::Settings::ValidatorResult {
         if (!ValidTimezone(in)) {
-          return {"Timezone names must follow the IANA standard. Please note that the names are case-sensitive."};
+          return std::unexpected{
+              "Timezone names must follow the IANA standard. Please note that the names are case-sensitive."};
         }
         return {};
       });
@@ -455,7 +454,7 @@ void Initialize() {
       },
       [](auto in) -> utils::Settings::ValidatorResult {
         if (!ValidPeriodicSnapshot<false>(in)) {
-          return {
+          return std::unexpected{
               "Snapshot interval can be defined as an integer period in seconds or as a 6-field cron expression. "
               "Please note that a valid license is needed in order to use cron expressions."};
         }
@@ -478,7 +477,7 @@ void Initialize() {
           utils::ParseStringToUint64(in);
           return {};
         } catch (utils::ParseException const &e) {
-          return {"Input for file_download_connection_timeout_sec cannot be parsed as uint64_t"};
+          return std::unexpected{"Input for file_download_connection_timeout_sec cannot be parsed as uint64_t"};
         }
       }
 

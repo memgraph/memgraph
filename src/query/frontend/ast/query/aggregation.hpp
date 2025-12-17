@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <array>
+#include <string_view>
+
 #include "query/frontend/ast/query/binary_operator.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 
@@ -24,17 +27,17 @@ class Aggregation : public memgraph::query::BinaryOperator {
 
   Aggregation() = default;
 
-  static const constexpr char *const kCount = "COUNT";
-  static const constexpr char *const kMin = "MIN";
-  static const constexpr char *const kMax = "MAX";
-  static const constexpr char *const kSum = "SUM";
-  static const constexpr char *const kAvg = "AVG";
-  static const constexpr char *const kCollect = "COLLECT";
-  static const constexpr char *const kProject = "PROJECT";
+  static constexpr std::string_view kCount = "COUNT";
+  static constexpr std::string_view kMin = "MIN";
+  static constexpr std::string_view kMax = "MAX";
+  static constexpr std::string_view kSum = "SUM";
+  static constexpr std::string_view kAvg = "AVG";
+  static constexpr std::string_view kCollect = "COLLECT";
+  static constexpr std::string_view kProject = "PROJECT";
 
   static std::string OpToString(Op op) {
-    const char *op_strings[] = {kCount, kMin, kMax, kSum, kAvg, kCollect, kCollect, kProject, kProject};
-    return op_strings[static_cast<int>(op)];
+    static constexpr std::array op_strings = {kCount, kMin, kMax, kSum, kAvg, kCollect, kCollect, kProject, kProject};
+    return std::string{op_strings[static_cast<int>(op)]};
   }
 
   DECLARE_VISITABLE(ExpressionVisitor<TypedValue>);

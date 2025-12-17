@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <spdlog/spdlog.h>
+#include <expected>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -20,7 +22,6 @@
 #include "global.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
-#include "utils/result.hpp"
 #include "utils/thread_pool.hpp"
 
 namespace memgraph::dbms {
@@ -33,7 +34,7 @@ namespace memgraph::dbms {
 template <typename T>
 class Handler {
  public:
-  using NewResult = utils::BasicResult<NewError, typename utils::Gatekeeper<T>::Accessor>;
+  using NewResult = std::expected<typename utils::Gatekeeper<T>::Accessor, NewError>;
 
   /**
    * @brief Empty Handler constructor.
@@ -59,10 +60,10 @@ class Handler {
                                      std::forward_as_tuple(std::forward<Args>(args)...));
       auto db_acc = itr->second.access();
       if (db_acc) return std::move(*db_acc);
-      return NewError::DEFUNCT;
+      return std::unexpected{NewError::DEFUNCT};
     }
     spdlog::info("Item with name \"{}\" already exists.", name);
-    return NewError::EXISTS;
+    return std::unexpected{NewError::EXISTS};
   }
 
   /**
@@ -146,19 +147,19 @@ class Handler {
    * @param new_name New name for the context
    * @return true on success, false if new_name already exists or context is in use
    */
-  utils::BasicResult<RenameError> Rename(std::string_view old_name, std::string_view new_name) {
+  std::expected<void, RenameError> Rename(std::string_view old_name, std::string_view new_name) {
     if (old_name == new_name) {
       return {};  // No-op
     }
 
     auto old_itr = items_.find(old_name);
     if (old_itr == items_.end()) {
-      return RenameError::NON_EXISTENT;
+      return std::unexpected{RenameError::NON_EXISTENT};
     }
 
     auto new_itr = items_.find(new_name);
     if (new_itr != items_.end()) {
-      return RenameError::ALREADY_EXISTS;
+      return std::unexpected{RenameError::ALREADY_EXISTS};
     }
 
     // Move the gatekeeper to the new name

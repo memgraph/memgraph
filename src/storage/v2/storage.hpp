@@ -449,10 +449,10 @@ class Storage {
     virtual void DropAllConstraints() = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(CommitArgs commit_args) = 0;
+    virtual std::expected<void, StorageManipulationError> PrepareForCommitPhase(CommitArgs commit_args) = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitArgs commit_args) = 0;
+    virtual std::expected<void, StorageManipulationError> PeriodicCommit(CommitArgs commit_args) = 0;
 
     virtual void Abort() = 0;
 
@@ -489,71 +489,89 @@ class Storage {
 
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, CheckCancelFunction cancel_check = neverCancel) = 0;
+    virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
+                                                                         CheckCancelFunction cancel_check) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel) = 0;
+    virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths properties,
+                                                                         CheckCancelFunction cancel_check) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        EdgeTypeId edge_type, CheckCancelFunction cancel_check = neverCancel) = 0;
+    virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type,
+                                                                         CheckCancelFunction cancel_check) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel) = 0;
+    virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type, PropertyId property,
+                                                                         CheckCancelFunction cancel_check) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
-        PropertyId property, CheckCancelFunction cancel_check = neverCancel) = 0;
+    virtual std::expected<void, StorageIndexDefinitionError> CreateGlobalEdgeIndex(
+        PropertyId property, CheckCancelFunction cancel_check) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
+    // Convenience overloads with default cancel check
+    auto CreateIndex(LabelId label) -> std::expected<void, StorageIndexDefinitionError> {
+      return CreateIndex(label, neverCancel);
+    }
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+    auto CreateIndex(LabelId label, PropertiesPaths properties) -> std::expected<void, StorageIndexDefinitionError> {
+      return CreateIndex(label, std::move(properties), neverCancel);
+    }
+
+    auto CreateIndex(EdgeTypeId edge_type) -> std::expected<void, StorageIndexDefinitionError> {
+      return CreateIndex(edge_type, neverCancel);
+    }
+
+    auto CreateIndex(EdgeTypeId edge_type, PropertyId property) -> std::expected<void, StorageIndexDefinitionError> {
+      return CreateIndex(edge_type, property, neverCancel);
+    }
+
+    auto CreateGlobalEdgeIndex(PropertyId property) -> std::expected<void, StorageIndexDefinitionError> {
+      return CreateGlobalEdgeIndex(property, neverCancel);
+    }
+
+    virtual std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) = 0;
+
+    virtual std::expected<void, StorageIndexDefinitionError> DropIndex(
         LabelId label, std::vector<storage::PropertyPath> &&properties) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) = 0;
+    virtual std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type,
-                                                                            PropertyId property) = 0;
+    virtual std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type, PropertyId property) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(PropertyId property) = 0;
+    virtual std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(PropertyId property) = 0;
 
-    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(
+    virtual std::expected<void, storage::StorageIndexDefinitionError> CreatePointIndex(
         storage::LabelId label, storage::PropertyId property) = 0;
 
-    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropPointIndex(
-        storage::LabelId label, storage::PropertyId property) = 0;
+    virtual std::expected<void, storage::StorageIndexDefinitionError> DropPointIndex(storage::LabelId label,
+                                                                                     storage::PropertyId property) = 0;
 
-    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(
-        const TextIndexSpec &text_index_info);
+    std::expected<void, storage::StorageIndexDefinitionError> CreateTextIndex(const TextIndexSpec &text_index_info);
 
-    utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(const std::string &index_name);
+    std::expected<void, storage::StorageIndexDefinitionError> DropTextIndex(const std::string &index_name);
 
-    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextEdgeIndex(
+    std::expected<void, storage::StorageIndexDefinitionError> CreateTextEdgeIndex(
         const TextEdgeIndexSpec &text_edge_index_info);
 
-    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(VectorIndexSpec spec) = 0;
+    virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorIndex(VectorIndexSpec spec) = 0;
 
-    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
-        std::string_view index_name) = 0;
+    virtual std::expected<void, storage::StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name) = 0;
 
-    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(
+    virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorEdgeIndex(
         VectorEdgeIndexSpec spec) = 0;
 
-    virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
+    virtual std::expected<void, StorageExistenceConstraintDefinitionError> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;
 
-    virtual utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
+    virtual std::expected<void, StorageExistenceConstraintDroppingError> DropExistenceConstraint(
         LabelId label, PropertyId property) = 0;
 
-    virtual utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
+    virtual std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
     CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) = 0;
 
     virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                                    const std::set<PropertyId> &properties) = 0;
 
-    virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
+    virtual std::expected<void, StorageExistenceConstraintDefinitionError> CreateTypeConstraint(
         LabelId label, PropertyId property, TypeConstraintKind type) = 0;
 
-    virtual utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
+    virtual std::expected<void, StorageExistenceConstraintDroppingError> DropTypeConstraint(
         LabelId label, PropertyId property, TypeConstraintKind type) = 0;
 
     virtual void DropGraph() = 0;
@@ -567,40 +585,39 @@ class Storage {
     auto GetEnumStoreShared() const -> EnumStore const & { return storage_->enum_store_; }
 
     auto CreateEnum(std::string_view name, std::span<std::string const> values)
-        -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
+        -> std::expected<EnumTypeId, EnumStorageError> {
       auto res = storage_->enum_store_.RegisterEnum(name, values);
-      if (res.HasValue()) {
-        transaction_.md_deltas.emplace_back(MetadataDelta::enum_create, res.GetValue());
+      if (res) {
+        transaction_.md_deltas.emplace_back(MetadataDelta::enum_create, res.value());
       }
       return res;
     }
 
     auto EnumAlterAdd(std::string_view name, std::string_view value)
-        -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+        -> std::expected<storage::Enum, storage::EnumStorageError> {
       auto res = storage_->enum_store_.AddValue(name, value);
-      if (res.HasValue()) {
-        transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_add, res.GetValue());
+      if (res) {
+        transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_add, res.value());
       }
       return res;
     }
 
     auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
-        -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+        -> std::expected<storage::Enum, storage::EnumStorageError> {
       auto res = storage_->enum_store_.UpdateValue(name, old_value, new_value);
-      if (res.HasValue()) {
-        transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_update, res.GetValue(), std::string{old_value});
+      if (res) {
+        transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_update, res.value(), std::string{old_value});
       }
       return res;
     }
 
     auto ShowEnums() { return storage_->enum_store_.AllRegistered(); }
 
-    auto GetEnumValue(std::string_view name, std::string_view value) const
-        -> utils::BasicResult<EnumStorageError, Enum> {
+    auto GetEnumValue(std::string_view name, std::string_view value) const -> std::expected<Enum, EnumStorageError> {
       return storage_->enum_store_.ToEnum(name, value);
     }
 
-    auto GetEnumValue(std::string_view enum_str) -> utils::BasicResult<EnumStorageError, Enum> {
+    auto GetEnumValue(std::string_view enum_str) -> std::expected<Enum, EnumStorageError> {
       return storage_->enum_store_.ToEnum(enum_str);
     }
 
@@ -727,7 +744,7 @@ class Storage {
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
-  utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
+  std::expected<void, SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
   IsolationLevel GetIsolationLevel() const noexcept;
 
   virtual StorageInfo GetBaseInfo() = 0;
@@ -735,6 +752,10 @@ class Storage {
   static std::vector<EventInfo> GetMetrics() noexcept;
 
   virtual StorageInfo GetInfo() = 0;
+
+  virtual std::unordered_map<LabelId, uint64_t> GetLabelCounts() const = 0;
+
+  virtual void UpdateLabelCount(LabelId label, int64_t change) = 0;
 
   virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
 

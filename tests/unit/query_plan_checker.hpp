@@ -933,7 +933,7 @@ class FakeDbAccessor {
   std::string PropertyName(memgraph::storage::PropertyId property) const { return PropertyToName(property); }
 
   auto GetEnumValue(std::string_view name, std::string_view value)
-      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+      -> std::expected<storage::Enum, storage::EnumStorageError> {
     // Does this need to be less fake?
     return memgraph::storage::Enum{memgraph::storage::EnumTypeId{0}, memgraph::storage::EnumValueId{0}};
   }

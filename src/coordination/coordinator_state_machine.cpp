@@ -111,7 +111,7 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
     }
     if (stored_version == LogStoreVersion::kV2) {
       const auto maybe_last_commited_idx = durability_->Get(kLastCommitedIdx);
-      if (!maybe_last_commited_idx.has_value()) {
+      if (!maybe_last_commited_idx) {
         logger_.Log(
             nuraft_log_level::ERROR,
             fmt::format(
@@ -159,7 +159,7 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStat
   nlohmann::json delta_state_json;
 
   auto const add_if_set = [&delta_state_json](std::string_view const key, auto const &opt_value) {
-    if (opt_value.has_value()) {
+    if (opt_value) {
       delta_state_json.emplace(key, *opt_value);
     }
   };

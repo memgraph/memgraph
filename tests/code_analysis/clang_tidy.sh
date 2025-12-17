@@ -28,11 +28,11 @@ trap 'error_handler $LINENO' ERR
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 BASE_BRANCH="origin/master"
-# Limit threads based on available memory (clang-tidy can use 2GB+ per process)
-# Default to nproc but cap based on available memory (assume 2GB per job)
+# Limit threads based on available memory (clang-tidy can use 3GB+ per process)
+# Default to nproc but cap based on available memory (assume 3GB per job)
 MAX_THREADS_BY_CPU=$(nproc)
 AVAILABLE_MEM_GB=$(awk '/MemAvailable/ {printf "%.0f", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo "16")
-MAX_THREADS_BY_MEM=$((AVAILABLE_MEM_GB / 2))
+MAX_THREADS_BY_MEM=$((AVAILABLE_MEM_GB / 3))
 MAX_THREADS_BY_MEM=$((MAX_THREADS_BY_MEM > 0 ? MAX_THREADS_BY_MEM : 1))
 DEFAULT_THREADS=$((MAX_THREADS_BY_CPU < MAX_THREADS_BY_MEM ? MAX_THREADS_BY_CPU : MAX_THREADS_BY_MEM))
 THREADS=${THREADS:-$DEFAULT_THREADS}
@@ -73,9 +73,23 @@ if [[ ! -f "build/generators/conanbuild.sh" ]]; then
 fi
 source build/generators/conanbuild.sh
 
+# Add toolchain to PATH for clang-tidy
+MG_TOOLCHAIN_ROOT="${MG_TOOLCHAIN_ROOT:-/opt/toolchain-v7}"
+if [[ -d "$MG_TOOLCHAIN_ROOT/bin" ]]; then
+  export PATH="$MG_TOOLCHAIN_ROOT/bin:$PATH"
+else
+  echo "Warning: Toolchain bin directory not found at $MG_TOOLCHAIN_ROOT/bin"
+fi
+
 if ! command -v ninja &> /dev/null; then
   echo "Error: ninja build tool not found in PATH"
   echo "Please ensure ninja is installed and the Conan environment is activated"
+  exit 1
+fi
+
+if ! command -v clang-tidy &> /dev/null; then
+  echo "Error: clang-tidy not found in PATH"
+  echo "Please ensure the toolchain is installed at $MG_TOOLCHAIN_ROOT"
   exit 1
 fi
 ninja -C build -t inputs | grep -E '\.cppm\.o$|\.o\.modmap$' | xargs -r ninja -C build

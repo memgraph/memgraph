@@ -15,7 +15,6 @@
 #include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "storage/v2/replication/enums.hpp"
-#include "utils/result.hpp"
 #include "utils/uuid.hpp"
 
 // BEGIN fwd declares
@@ -101,10 +100,10 @@ struct ReplicationQueryHandler {
 
   // as MAIN, define and connect to REPLICAs
   virtual auto TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
-      -> utils::BasicResult<RegisterReplicaError> = 0;
+      -> std::expected<void, RegisterReplicaError> = 0;
 
   virtual auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
-      -> utils::BasicResult<RegisterReplicaError> = 0;
+      -> std::expected<void, RegisterReplicaError> = 0;
 
   // as MAIN, remove a REPLICA connection
   virtual auto UnregisterReplica(std::string_view name) -> UnregisterReplicaResult = 0;
@@ -114,7 +113,7 @@ struct ReplicationQueryHandler {
   virtual bool IsMain() const = 0;
   virtual bool IsReplica() const = 0;
 
-  virtual auto ShowReplicas() const -> utils::BasicResult<ShowReplicaError, ReplicasInfos> = 0;
+  virtual auto ShowReplicas() const -> std::expected<ReplicasInfos, ShowReplicaError> = 0;
 };
 
 }  // namespace memgraph::query

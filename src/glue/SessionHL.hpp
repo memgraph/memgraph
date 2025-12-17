@@ -17,7 +17,6 @@
 #include "communication/v2/session.hpp"
 #include "glue/SessionContext.hpp"
 #include "query/interpreter.hpp"
-#include "utils/result.hpp"
 
 namespace memgraph::glue {
 using bolt_value_t = memgraph::communication::bolt::Value;
@@ -103,12 +102,12 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   /// Server/Session level API ///
 
   // Called during Init
-  utils::BasicResult<communication::bolt::AuthFailure> Authenticate(const std::string &username,
-                                                                    const std::string &password);
+  std::expected<void, communication::bolt::AuthFailure> Authenticate(const std::string &username,
+                                                                     const std::string &password);
 
   // Called during Init
-  utils::BasicResult<communication::bolt::AuthFailure> SSOAuthenticate(const std::string &scheme,
-                                                                       const std::string &identity_provider_response);
+  std::expected<void, communication::bolt::AuthFailure> SSOAuthenticate(const std::string &scheme,
+                                                                        const std::string &identity_provider_response);
 
   void LogOff();
 

@@ -26,7 +26,7 @@
 using namespace memgraph::storage;
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).HasError())
+#define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
 
 static constexpr std::string_view test_index = "test_index";
 static constexpr std::string_view test_label = "test_label";
@@ -59,7 +59,7 @@ class VectorIndexTest : public testing::Test {
                                       .capacity = capacity,
                                       .scalar_kind = scalar_kind};
 
-    EXPECT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
+    EXPECT_FALSE(!unique_acc->CreateVectorIndex(spec).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -67,8 +67,8 @@ class VectorIndexTest : public testing::Test {
                               const PropertyValue &property_value, std::string_view label) {
     VertexAccessor vertex = accessor->CreateVertex();
     // NOLINTBEGIN
-    MG_ASSERT(!vertex.AddLabel(accessor->NameToLabel(label)).HasError());
-    MG_ASSERT(!vertex.SetProperty(accessor->NameToProperty(property), property_value).HasError());
+    MG_ASSERT(vertex.AddLabel(accessor->NameToLabel(label)).has_value());
+    MG_ASSERT(vertex.SetProperty(accessor->NameToProperty(property), property_value).has_value());
     // NOLINTEND
 
     return vertex;
@@ -207,7 +207,7 @@ TEST_F(VectorIndexTest, UpdatePropertyValueTest) {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
     PropertyValue updated_value(std::vector<PropertyValue>{PropertyValue(2.0), PropertyValue(2.0)});
-    MG_ASSERT(!vertex.SetProperty(acc->NameToProperty(test_property), updated_value).HasError());  // NOLINT
+    MG_ASSERT(vertex.SetProperty(acc->NameToProperty(test_property), updated_value).has_value());  // NOLINT
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     // Verify update with search
@@ -227,7 +227,7 @@ TEST_F(VectorIndexTest, DeleteVertexTest) {
 
   // Delete the vertex
   auto maybe_deleted_vertex = acc->DeleteVertex(&vertex);
-  EXPECT_EQ(maybe_deleted_vertex.HasValue(), true);
+  EXPECT_EQ(maybe_deleted_vertex.has_value(), true);
   ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
   // Verify that the vertex was deleted
@@ -271,7 +271,7 @@ TEST_F(VectorIndexTest, MultipleAbortsAndUpdatesTest) {
     acc = this->storage->Access();
     vertex = acc->FindVertex(vertex.Gid(), View::OLD).value();
     vertex_gid = vertex.Gid();
-    MG_ASSERT(!vertex.RemoveLabel(acc->NameToLabel(test_label)).HasError());  // NOLINT
+    MG_ASSERT(vertex.RemoveLabel(acc->NameToLabel(test_label)).has_value());  // NOLINT
     acc->Abort();
 
     // Expect the index to have 1 entry, as the transaction was aborted
@@ -283,7 +283,7 @@ TEST_F(VectorIndexTest, MultipleAbortsAndUpdatesTest) {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
     PropertyValue null_value;
-    MG_ASSERT(!vertex.SetProperty(acc->NameToProperty(test_property), null_value).HasError());  // NOLINT
+    MG_ASSERT(vertex.SetProperty(acc->NameToProperty(test_property), null_value).has_value());  // NOLINT
     acc->Abort();
 
     // Expect the index to have 1 entry, as the transaction was aborted
@@ -294,7 +294,7 @@ TEST_F(VectorIndexTest, MultipleAbortsAndUpdatesTest) {
   {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
-    MG_ASSERT(!vertex.RemoveLabel(acc->NameToLabel(test_label)).HasError());  // NOLINT
+    MG_ASSERT(vertex.RemoveLabel(acc->NameToLabel(test_label)).has_value());  // NOLINT
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     // Expect the index to have 0 entries, as the transaction was committed
@@ -307,7 +307,7 @@ TEST_F(VectorIndexTest, MultipleAbortsAndUpdatesTest) {
   {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
-    MG_ASSERT(!vertex.AddLabel(acc->NameToLabel(test_label)).HasError());  // NOLINT
+    MG_ASSERT(vertex.AddLabel(acc->NameToLabel(test_label)).has_value());  // NOLINT
     acc->Abort();
 
     // Expect the index to have 0 entries, as the transaction was aborted
@@ -318,7 +318,7 @@ TEST_F(VectorIndexTest, MultipleAbortsAndUpdatesTest) {
   {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
-    MG_ASSERT(!vertex.AddLabel(acc->NameToLabel(test_label)).HasError());  // NOLINT
+    MG_ASSERT(vertex.AddLabel(acc->NameToLabel(test_label)).has_value());  // NOLINT
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     // Expect the index to have 1 entry, as the transaction was committed
@@ -331,7 +331,7 @@ TEST_F(VectorIndexTest, MultipleAbortsAndUpdatesTest) {
   {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
-    MG_ASSERT(!vertex.SetProperty(acc->NameToProperty(test_property), null_value).HasError());  // NOLINT
+    MG_ASSERT(vertex.SetProperty(acc->NameToProperty(test_property), null_value).has_value());  // NOLINT
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     // Expect the index to have 0 entries, as the transaction was committed
@@ -344,7 +344,7 @@ TEST_F(VectorIndexTest, MultipleAbortsAndUpdatesTest) {
   {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
-    MG_ASSERT(!vertex.SetProperty(acc->NameToProperty(test_property), properties).HasError());  // NOLINT
+    MG_ASSERT(vertex.SetProperty(acc->NameToProperty(test_property), properties).has_value());  // NOLINT
     acc->Abort();
 
     // Expect the index to have 0 entries, as the transaction was aborted
@@ -369,7 +369,7 @@ TEST_F(VectorIndexTest, RemoveObsoleteEntriesTest) {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
     auto maybe_deleted_vertex = acc->DeleteVertex(&vertex);
-    EXPECT_EQ(maybe_deleted_vertex.HasValue(), true);
+    EXPECT_EQ(maybe_deleted_vertex.has_value(), true);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -422,7 +422,7 @@ TEST_F(VectorIndexTest, DropIndexTest) {
   // Drop the index
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropVectorIndex(test_index.data()).HasError());
+    EXPECT_FALSE(!unique_acc->DropVectorIndex(test_index.data()).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 

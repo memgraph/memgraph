@@ -13,6 +13,7 @@
 
 #include <fmt/format.h>
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <iterator>
 
@@ -85,7 +86,7 @@ inline bool CopyProtocolInformationIfSupportedWithOffset(auto data_position, uin
  */
 template <typename TSession>
 State StateHandshakeRun(TSession &session) {
-  auto precmp = std::memcmp(session.input_stream_.data(), kPreamble, sizeof(kPreamble));
+  auto precmp = std::memcmp(session.input_stream_.data(), kPreamble.data(), kPreamble.size());
   if (precmp != 0) [[unlikely]] {
     spdlog::trace("Received a wrong preamble!");
     return State::Close;
@@ -93,8 +94,8 @@ State StateHandshakeRun(TSession &session) {
 
   DMG_ASSERT(session.input_stream_.size() >= kHandshakeSize, "Wrong size of the handshake data!");
 
-  auto dataPosition = session.input_stream_.data() + sizeof(kPreamble);
-  uint8_t protocol[4] = {0x00};
+  auto dataPosition = session.input_stream_.data() + kPreamble.size();
+  auto protocol = std::array<uint8_t, 4>{0x00};
 
   session.client_supported_bolt_versions_ = StringifySupportedVersions(dataPosition);
 
@@ -102,7 +103,7 @@ State StateHandshakeRun(TSession &session) {
     // If there is an offset defined (e.g. 0x00 0x03 0x03 0x04) the second byte
     // That would enable the client to pick between 4.0 and 4.3 versions
     // as per changes in handshake bolt protocol in v4.3
-    if (CopyProtocolInformationIfSupportedWithOffset(dataPosition + 1, protocol + 2)) break;
+    if (CopyProtocolInformationIfSupportedWithOffset(dataPosition + 1, protocol.data() + 2)) break;
 
     dataPosition += 2;  // version is defined only by the last 2 bytes
     uint16_t version{0};
@@ -110,7 +111,7 @@ State StateHandshakeRun(TSession &session) {
     if (!version) {
       break;
     }
-    if (CopyProtocolInformationIfSupported(version, protocol + 2)) {
+    if (CopyProtocolInformationIfSupported(version, protocol.data() + 2)) {
       break;
     }
 
@@ -124,7 +125,7 @@ State StateHandshakeRun(TSession &session) {
     return State::Close;
   }
 
-  if (!session.output_stream_.Write(protocol, sizeof(protocol))) {
+  if (!session.output_stream_.Write(protocol)) {
     spdlog::trace("Couldn't write handshake response!");
     return State::Close;
   }

@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <optional>
@@ -17,7 +18,6 @@
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
-#include "utils/cast.hpp"
 #include "utils/endian.hpp"
 #include "utils/temporal.hpp"
 
@@ -90,7 +90,7 @@ void Encoder<FileType>::WriteUint(uint64_t value) {
 
 template <typename FileType>
 void Encoder<FileType>::WriteDouble(double value) {
-  auto value_uint = utils::MemcpyCast<uint64_t>(value);
+  auto value_uint = std::bit_cast<uint64_t>(value);
   value_uint = utils::HostToLittleEndian(value_uint);
   WriteMarker(Marker::TYPE_DOUBLE);
   Write(reinterpret_cast<const uint8_t *>(&value_uint), sizeof(value_uint));
@@ -142,7 +142,7 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
       break;
     }
     case ExternalPropertyValue::Type::Int: {
-      WriteUint(utils::MemcpyCast<uint64_t>(value.ValueInt()));
+      WriteUint(std::bit_cast<uint64_t>(value.ValueInt()));
       break;
     }
     case ExternalPropertyValue::Type::Double: {
@@ -210,14 +210,14 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
       const auto temporal_data = value.ValueTemporalData();
       WriteMarker(Marker::TYPE_TEMPORAL_DATA);
       WriteUint(static_cast<uint64_t>(temporal_data.type));
-      WriteUint(utils::MemcpyCast<uint64_t>(temporal_data.microseconds));
+      WriteUint(std::bit_cast<uint64_t>(temporal_data.microseconds));
       break;
     }
     case ExternalPropertyValue::Type::ZonedTemporalData: {
       const auto zoned_temporal_data = value.ValueZonedTemporalData();
       WriteMarker(Marker::TYPE_ZONED_TEMPORAL_DATA);
       WriteUint(static_cast<uint64_t>(zoned_temporal_data.type));
-      WriteUint(utils::MemcpyCast<uint64_t>(zoned_temporal_data.IntMicroseconds()));
+      WriteUint(std::bit_cast<uint64_t>(zoned_temporal_data.IntMicroseconds()));
       if (zoned_temporal_data.timezone.InTzDatabase()) {
         WriteString(zoned_temporal_data.timezone.TimezoneName());
       } else {
@@ -371,7 +371,7 @@ std::optional<double> Decoder::ReadDouble() {
   uint64_t value_int;
   if (!Read(reinterpret_cast<uint8_t *>(&value_int), sizeof(value_int))) return std::nullopt;
   value_int = utils::LittleEndianToHost(value_int);
-  return utils::MemcpyCast<double>(value_int);
+  return std::bit_cast<double>(value_int);
 }
 
 std::optional<std::string> Decoder::ReadString() {
@@ -452,7 +452,7 @@ std::optional<TemporalData> ReadTemporalData(Decoder &decoder) {
   const auto microseconds = decoder.ReadUint();
   if (!microseconds) return std::nullopt;
 
-  return TemporalData{static_cast<TemporalType>(*type), utils::MemcpyCast<int64_t>(*microseconds)};
+  return TemporalData{static_cast<TemporalType>(*type), std::bit_cast<int64_t>(*microseconds)};
 }
 
 std::optional<ZonedTemporalData> ReadZonedTemporalData(Decoder &decoder) {
@@ -472,14 +472,14 @@ std::optional<ZonedTemporalData> ReadZonedTemporalData(Decoder &decoder) {
       auto timezone_name = decoder.ReadString();
       if (!timezone_name) return std::nullopt;
       return ZonedTemporalData{static_cast<ZonedTemporalType>(*type),
-                               utils::AsSysTime(utils::MemcpyCast<int64_t>(*microseconds)),
+                               utils::AsSysTime(std::bit_cast<int64_t>(*microseconds)),
                                utils::Timezone(*timezone_name)};
     }
     case Marker::TYPE_INT: {
       auto offset_minutes = decoder.ReadUint();
       if (!offset_minutes) return std::nullopt;
       return ZonedTemporalData{static_cast<ZonedTemporalType>(*type),
-                               utils::AsSysTime(utils::MemcpyCast<int64_t>(*microseconds)),
+                               utils::AsSysTime(std::bit_cast<int64_t>(*microseconds)),
                                utils::Timezone(std::chrono::minutes{*offset_minutes})};
     }
     default:
@@ -509,7 +509,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
     case Marker::TYPE_INT: {
       auto value = ReadUint();
       if (!value) return std::nullopt;
-      return ExternalPropertyValue(utils::MemcpyCast<int64_t>(*value));
+      return ExternalPropertyValue(std::bit_cast<int64_t>(*value));
     }
     case Marker::TYPE_DOUBLE: {
       auto value = ReadDouble();
@@ -660,12 +660,12 @@ bool Decoder::SkipString() {
   auto maybe_size = ReadSize(this);
   if (!maybe_size) return false;
 
-  const uint64_t kBufferSize = 262144;
-  uint8_t buffer[kBufferSize];
+  static constexpr uint64_t kBufferSize = 262144;
+  std::array<uint8_t, kBufferSize> buffer;  // intentionally uninitialized for performance
   uint64_t size = *maybe_size;
   while (size > 0) {
     uint64_t to_read = size < kBufferSize ? size : kBufferSize;
-    if (!Read(reinterpret_cast<uint8_t *>(&buffer), to_read)) return false;
+    if (!Read(buffer.data(), to_read)) return false;
     size -= to_read;
   }
 

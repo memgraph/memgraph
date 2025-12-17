@@ -11,6 +11,7 @@
 
 #include "io/network/endpoint.hpp"
 
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -44,7 +45,7 @@ auto Endpoint::SocketAddress() const -> std::string { return fmt::format("{}{}{}
 
 auto Endpoint::GetResolvedSocketAddress() const -> std::string {
   auto const result = TryResolveAddress(address_, port_);
-  if (!result.has_value()) {
+  if (!result) {
     throw NetworkError("Couldn't resolve {}:{}.", address_, port_);
   }
 
@@ -56,7 +57,7 @@ auto Endpoint::GetResolvedSocketAddress() const -> std::string {
 
 auto Endpoint::GetResolvedIPAddress() const -> std::string {
   auto const result = TryResolveAddress(address_, port_);
-  if (!result.has_value()) {
+  if (!result) {
     throw NetworkError("Couldn't resolve {}:{}.", address_, port_);
   }
 
@@ -67,7 +68,7 @@ auto Endpoint::GetResolvedIPAddress() const -> std::string {
 
 [[nodiscard]] auto Endpoint::GetIpFamily() const -> IpFamily {
   auto const result = TryResolveAddress(address_, port_);
-  if (!result.has_value()) {
+  if (!result) {
     throw NetworkError("Couldn't resolve {}:{}.", address_, port_);
   }
 
@@ -76,27 +77,28 @@ auto Endpoint::GetResolvedIPAddress() const -> std::string {
 
 std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view address, uint16_t port) {
   auto const process_ipv4_family = [address](addrinfo *socket_addr, uint16_t port) -> std::optional<RetValue> {
-    char buffer[INET_ADDRSTRLEN];
+    std::array<char, INET_ADDRSTRLEN> buffer;  // intentionally uninitialized
     auto *socket_address_ipv4 = reinterpret_cast<struct sockaddr_in *>(socket_addr->ai_addr);
-    auto const *res = inet_ntop(socket_addr->ai_family, &(socket_address_ipv4->sin_addr), buffer, sizeof(buffer));
+    auto const *res = inet_ntop(socket_addr->ai_family, &(socket_address_ipv4->sin_addr), buffer.data(), buffer.size());
     if (res == NULL) {    // NOLINT
       int errsv = errno;  // don't reorder, otherwise errno could get reassigned.
       spdlog::error("inet_ntop failed with errno {} when resolving {} to ipv4 address.", errsv, address);
       return std::nullopt;
     }
-    return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP4};
+    return std::tuple{std::string{buffer.data()}, port, Endpoint::IpFamily::IP4};
   };
 
   auto const process_ipv6_family = [address](addrinfo *socket_addr, uint16_t port) -> std::optional<RetValue> {
-    char buffer[INET6_ADDRSTRLEN];
+    std::array<char, INET6_ADDRSTRLEN> buffer;  // intentionally uninitialized
     auto *socket_address_ipv6 = reinterpret_cast<sockaddr_in6 *>(socket_addr->ai_addr);
-    auto const *res = inet_ntop(socket_addr->ai_family, &(socket_address_ipv6->sin6_addr), buffer, sizeof(buffer));
+    auto const *res =
+        inet_ntop(socket_addr->ai_family, &(socket_address_ipv6->sin6_addr), buffer.data(), buffer.size());
     if (res == NULL) {    // NOLINT
       int errsv = errno;  // don't reorder, otherwise errno could get reassigned.
       spdlog::error("inet_ntop failed with errno {} when resolving {} to ipv6 address.", errsv, address);
       return std::nullopt;
     }
-    return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP6};
+    return std::tuple{std::string{buffer.data()}, port, Endpoint::IpFamily::IP6};
   };
 
   auto const parse_ip_family = [&address, &port](
@@ -136,7 +138,7 @@ std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view a
   };
 
   auto ip_v4_family = parse_ip_family(process_ipv4_family, AF_INET);
-  if (ip_v4_family.has_value()) {
+  if (ip_v4_family) {
     return std::move(*ip_v4_family);
   }
   return parse_ip_family(process_ipv6_family, AF_INET6);

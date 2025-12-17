@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -61,7 +61,7 @@ class DiskNameIdMapper final : public NameIdMapper {
 
   const std::string &IdToName(uint64_t id) override {
     auto maybe_name = NameIdMapper::MaybeIdToName(id);
-    if (maybe_name.has_value()) {
+    if (maybe_name) {
       return maybe_name.value();
     }
 

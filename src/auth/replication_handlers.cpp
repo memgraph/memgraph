@@ -40,7 +40,7 @@ void UpdateAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_acc
   using replication::UpdateAuthDataRes;
   UpdateAuthDataRes res(false);
 
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, replication::UpdateAuthDataReq::kType.name);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -95,7 +95,7 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   using replication::DropAuthDataRes;
   DropAuthDataRes res(false);
 
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, replication::DropAuthDataRes::kType.name);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -116,15 +116,18 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   try {
     // Remove
     switch (req.type) {
-      case replication::DropAuthDataReq::DataType::USER: {
+      using enum replication::DropAuthDataReq::DataType;
+      case USER: {
         auth->RemoveUser(req.name);
       } break;
-      case replication::DropAuthDataReq::DataType::ROLE: {
+      case ROLE: {
         auth->RemoveRole(req.name);
       } break;
-      case replication::DropAuthDataReq::DataType::PROFILE: {
+      case PROFILE: {
         auth->DropProfile(req.name);
       } break;
+      case N:
+        __builtin_unreachable();
     }
     // Success
     res = DropAuthDataRes(true);
