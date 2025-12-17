@@ -134,9 +134,47 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
   }
 }
 
-void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info,
+void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::SkipList<Vertex>::Accessor vertices,
+                                 NameIdMapper *name_id_mapper,
                                  std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, index_info.index_name), index_info);
+  const auto index_path = MakeIndexPath(text_index_storage_dir_, index_info.index_name);
+  const auto index_directory_already_exists = std::filesystem::exists(index_path);
+  CreateTantivyIndex(index_path, index_info);
+
+  if (!index_directory_already_exists) {
+    auto &context = index_.at(index_info.index_name).context;
+    std::vector<PropertyId> properties_to_index;
+    properties_to_index.reserve(index_info.properties.size());
+
+    for (const auto &vertex : vertices) {
+      for (const auto &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
+        if (edge_type != index_info.edge_type) continue;
+
+        auto *edge = edge_ref.ptr;
+        auto edge_properties = edge->properties.ExtractPropertyIds();
+        properties_to_index.clear();
+        if (index_info.properties.empty()) {
+          properties_to_index = std::move(edge_properties);
+        } else {
+          std::ranges::copy_if(index_info.properties, std::back_inserter(properties_to_index),
+                               [&](auto property) { return std::ranges::contains(edge_properties, property); });
+        }
+        if (properties_to_index.empty()) continue;
+
+        auto properties_to_index_map = ExtractProperties(edge->properties, properties_to_index);
+        TextEdgeIndex::AddEdgeToTextIndex(edge->gid.AsInt(), vertex.gid.AsInt(), to_vertex->gid.AsInt(),
+                                          SerializeProperties(properties_to_index_map, name_id_mapper),
+                                          StringifyProperties(properties_to_index_map), context);
+      }
+    }
+
+    try {
+      mgcxx::text_search::commit(context);
+    } catch (const std::exception &e) {
+      throw query::TextSearchException("Text index commit error: {}", e.what());
+    }
+  }
+
   if (snapshot_info) {
     snapshot_info->Update(UpdateType::TEXT_IDX);
   }
