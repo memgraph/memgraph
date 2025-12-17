@@ -1596,9 +1596,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
     }
 
-    // Set timestamp before moving deltas
-    transaction_.commit_timestamp->store(kAbortedTransactionId, std::memory_order_release);
-
     {
       auto engine_guard = std::unique_lock(storage_->engine_lock_);
       uint64_t mark_timestamp = storage_->timestamp_;  // a timestamp no active transaction can currently have
@@ -2524,7 +2521,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       bool all_contributors_committed = true;
       auto const our_commit_ts = it->commit_timestamp_->load(std::memory_order_acquire);
 
-      uint64_t highest_commit_ts = (our_commit_ts == kAbortedTransactionId) ? 0 : our_commit_ts;
+      uint64_t highest_commit_ts = our_commit_ts;
       // By tracking visited deltas, we can avoid redundant traversal when
       // multiple deltas in this transaction share downstream subchains.
       std::unordered_set<const Delta *> visited;
@@ -2537,12 +2534,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         while (current != nullptr && !visited.contains(current)) {
           visited.insert(current);
           auto ts = current->timestamp->load();
-
-          if (ts == kAbortedTransactionId) {
-            // Deltas from aborted transactions don't block GC.
-            current = current->next.load(std::memory_order_acquire);
-            continue;
-          }
 
           if (ts >= kTransactionInitialId) {
             // If the delta is from a transaction still running, we cannot
@@ -2574,7 +2565,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
         // Aborted transactions now go directly to garbage_undo_buffers_ from Abort(),
         // so we should only see committed transactions here
-        MG_ASSERT(our_commit_ts != kAbortedTransactionId, "Aborted transactions should not be in waiting_gc_deltas_");
         committed_transactions_.WithLock(
             [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(*it)); });
         it = waiting_list.erase(it);
