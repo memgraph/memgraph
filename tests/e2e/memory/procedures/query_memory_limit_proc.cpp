@@ -83,6 +83,8 @@ void New(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
 
   try {
     auto *ptr = new char[mb_size_268];
+    // Prevent compiler from optimizing away the allocation
+    asm volatile("" : : "r"(ptr) : "memory");
 
     memgraph::utils::OnScopeExit cleanup{[&ptr]() {
       if (nullptr != ptr) delete[] ptr;

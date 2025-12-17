@@ -54,7 +54,7 @@ target_link_libraries(memgraph "$<LINK_LIBRARY:WHOLE_ARCHIVE,mg-memory>" Threads
 target_link_options(memgraph PRIVATE -nostdlib++)
 
 # NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
-# should be dynamically exported, so that `dlopen` can correctly link th
+# should be dynamically exported, so that `dlopen` can correctly link the
 # symbols in custom procedure module libraries.
 # The better approach might be to use visibility to define what to export. This is a simple way to have targeted
 # exporting of symbols without having to deal with all the libraries and their visibility.
