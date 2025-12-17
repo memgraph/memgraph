@@ -6,11 +6,11 @@ import os
 import subprocess
 import time
 from argparse import Namespace as Args
-from typing import Dict, List, Optional
-from gqlalchemy import Memgraph
-import yaml
-from workers import get_worker_object, get_worker_steps
+from typing import Any, Dict, List
 
+import yaml
+from gqlalchemy import Memgraph
+from workers import get_worker_object, get_worker_steps
 
 # Paths
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -37,6 +37,7 @@ class Config:
         memgraph = config.get("memgraph", {})
         self._script = memgraph.get("deployment", {}).get("script", None)
         self._memgraph_args = memgraph.get("args", [])
+        self._env = memgraph.get("env", {})
 
         # Dataset tests
         dataset = config.get("dataset", {})
@@ -68,11 +69,24 @@ class Config:
     def memgraph_args(self):
         return self._memgraph_args
 
+    @property
+    def env(self):
+        return self._env
 
-def start_deployment(script_path: str, args: List[str]) -> None:
+
+def start_deployment(script_path: str, args: List[str], env: Dict[str, str] = None) -> None:
     cmd = [script_path, "start"] + args
     print(f"Starting Memgraph with: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
+
+    # Merge provided env with current environment
+    run_env = os.environ.copy()
+    if env:
+        for key, value in env.items():
+            # Only set if value is non-empty, otherwise use existing env var
+            if value:
+                run_env[key] = value
+
+    subprocess.run(cmd, check=True, env=run_env)
     time.sleep(2)  # Ensure the server has time to start
 
 
@@ -92,7 +106,7 @@ def parse_arguments() -> Args:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Run stress tests on Memgraph.")
     parser.add_argument("--config-file", default=os.path.join(SCRIPT_DIR, "configurations/templates/config_small.yaml"))
-    parser.add_argument("--python", default=os.path.join(BASE_DIR, "tests","ve3", "bin", "python3"), type=str)
+    parser.add_argument("--python", default=os.path.join(BASE_DIR, "tests", "ve3", "bin", "python3"), type=str)
     return parser.parse_args()
 
 
@@ -126,27 +140,30 @@ def _find_test_binary(args: Args, config: Config, test: str) -> List[str]:
     raise Exception(f"Test '{test}' binary not supported!")
 
 
-def run_custom_workloads(script_path: str, config: Config) -> Optional[Dict[str, float]]:
+def run_custom_workloads(script_path: str, config: Config) -> Dict[str, Any]:
     """Runs custom workloads on Memgraph using GQLAlchemy."""
     print("Running custom workloads...")
     runtimes = {}
-    err = False
 
     for workload in config.custom_workloads:
         workload_name = workload["name"]
         print(f"Running workload '{workload_name}'")
         start = time.time()
 
+        # Start Memgraph deployment
         try:
-            # Start Memgraph deployment
-            start_deployment(script_path, config.memgraph_args + workload.get("memgraph_args", []))
+            start_deployment(script_path, config.memgraph_args + workload.get("memgraph_args", []), config.env)
+        except Exception as ex:
+            stop_deployment(script_path)
+            return {"error": f"Failed to start deployment for workload '{workload_name}': {ex}"}
 
+        try:
             # Run import queries
             print(f"Started import for workload '{workload_name}'")
-            
+
             query_host = workload.get("querying", {}).get("host", "127.0.0.1")
             query_port = workload.get("querying", {}).get("port", 7687)
-            
+
             memgraph = Memgraph(host=query_host, port=query_port)
             for query in workload.get("import", {}).get("queries", []):
                 print(f"Executing query: {query}")
@@ -161,7 +178,7 @@ def run_custom_workloads(script_path: str, config: Config) -> Optional[Dict[str,
             for step in steps:
                 print(f"Running step {step}.")
 
-                for worker in [x for x in workers if x.get("step", 1) == step]:              
+                for worker in [x for x in workers if x.get("step", 1) == step]:
                     # Override with workload global querying if not set on the worker
                     if "querying" not in worker.keys():
                         worker["querying"] = {"host": query_host, "port": query_port}
@@ -185,27 +202,24 @@ def run_custom_workloads(script_path: str, config: Config) -> Optional[Dict[str,
             runtimes[workload_name] = end - start
 
         except Exception as ex:
-            print(f"Failed to execute workload {workload_name} with exception:", ex)
-            err = True
+            stop_deployment(script_path)
+            return {"error": f"Failed to execute workload '{workload_name}': {ex}"}
         finally:
             stop_deployment(script_path)
-
-        if err:
-            return None
 
     return runtimes
 
 
-def run_stress_test_suite(args: Args, config: Config) -> Optional[Dict[str, float]]:
+def run_stress_test_suite(args: Args, config: Config) -> Dict[str, Any]:
     """Runs the stress test suite on Memgraph."""
     runtimes = {}
 
     script_path = config.script
     if not script_path:
-        raise Exception("Memgraph deployment script not found!")
+        return {"error": "Memgraph deployment script not specified in config!"}
     script_path = os.path.join(DEPLOYMENTS_DIR, script_path)
     if not os.path.exists(script_path):
-        raise Exception(f"Memgraph deployment script not found: {script_path}!")
+        return {"error": f"Memgraph deployment script not found: {script_path}!"}
 
     for test in config.tests:
         test_name = test["name"]
@@ -214,29 +228,24 @@ def run_stress_test_suite(args: Args, config: Config) -> Optional[Dict[str, floa
         memgraph_flags = config.memgraph_args + test.get("memgraph_args", [])
 
         try:
-            start_deployment(script_path, memgraph_flags)
+            start_deployment(script_path, memgraph_flags, config.env)
         except Exception as ex:
-            print("Exception occurred while starting Memgraph:", ex)
-            return None
+            return {"error": f"Failed to start deployment for test '{test_name}': {ex}"}
 
-        err = False
         try:
             runtime = run_test(args, config, test_name, test_flags, timeout)
             runtimes[os.path.splitext(test_name)[0]] = runtime
         except Exception as ex:
-            print(f"Failed to execute {test_name} with exception:", ex)
-            err = True
+            stop_deployment(script_path)
+            return {"error": f"Failed to execute test '{test_name}': {ex}"}
         finally:
             stop_deployment(script_path)
 
-        if err:
-            return None
+    workload_result = run_custom_workloads(script_path, config)
+    if "error" in workload_result:
+        return workload_result
 
-    workload_runtimes = run_custom_workloads(script_path, config)
-    if workload_runtimes is None:
-        return None
-
-    return runtimes | workload_runtimes
+    return runtimes | workload_result
 
 
 def write_stats(runtimes: Dict[str, float]) -> None:
@@ -249,11 +258,11 @@ if __name__ == "__main__":
     args = parse_arguments()
     config = Config(yaml.safe_load(open(args.config_file)))
 
-    runtimes = run_stress_test_suite(args, config)
+    result = run_stress_test_suite(args, config)
 
-    if runtimes is None:
-        print("Some stress tests have failed")
+    if "error" in result:
+        print(f"Stress test failed: {result['error']}")
         exit(1)
 
-    write_stats(runtimes)
+    write_stats(result)
     print("Successfully ran stress tests!")

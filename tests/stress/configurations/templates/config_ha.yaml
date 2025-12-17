@@ -3,6 +3,10 @@ memgraph:
     # Script needs to be located in stress/configurations/deployments
     script: "binary_ha.sh"
   args: [] # Any additional flags you need
+  env:
+    # Environment variables passed to the deployment script (required for HA)
+    MEMGRAPH_ENTERPRISE_LICENSE: ""  # Set your license key here or via env var
+    MEMGRAPH_ORGANIZATION_NAME: ""   # Set your org name here or via env var
 
 general:
   verbose: false

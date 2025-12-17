@@ -13,18 +13,24 @@ memgraph:
     # Specifies the path to the deployment script
     # Deployment script needs to setup and cleanup the Memgraph ecosystem it is run on.
     # Script needs to have methods for start, stop and status, since continuous integration
-    # calls the script with these arguments. Optionally, the script can have an additional 
+    # calls the script with these arguments. Optionally, the script can have an additional
     # argument to pass memgraph flags to the cluster, which will override the existing cluster
-    # flags. Stopping of the cluster needs to guarantee the cleanup of the resources so that 
+    # flags. Stopping of the cluster needs to guarantee the cleanup of the resources so that
     # no files or directories are left behind. Check binary_standalone.sh for more info.
     script: <path to script>
   args:
-    # Additional memgraph arguments that are passed. Overrides the arguments from the 
+    # Additional memgraph arguments that are passed. Overrides the arguments from the
     # deployment script.
     - "--telemetry-enabled=false"  # Disables telemetry.
     - "--bolt-server-name-for-init=Neo4j/"  # Specifies the Bolt server name.
     - "--log-file=stress_test.log"  # Log file location.
     - "--data-directory=stress_data"  # Directory for storing data.
+  env:
+    # (Optional) Environment variables passed to the deployment script.
+    # Required for HA deployments which need an enterprise license.
+    # If value is empty, the variable will be inherited from the shell environment.
+    MEMGRAPH_ENTERPRISE_LICENSE: "<license-key>"
+    MEMGRAPH_ORGANIZATION_NAME: "<org-name>"
 ```
 
 ### 2. General Configuration
@@ -98,5 +104,21 @@ customWorkloads:
 ## Running the Test Suite
 To run the stress test suite, ensure you have the necessary dependencies installed and execute the following command:
 ```sh
-python run_stress_test.py --config <path-to-config.yaml>
+./continuous_integration --config-file <path-to-config.yaml>
+```
+
+### Example: Standalone Memgraph
+Run the stress test suite against a standalone Memgraph instance:
+```sh
+./continuous_integration --config-file configurations/templates/config_small.yaml
+```
+
+### Example: High Availability Memgraph
+Run the stress test suite against a High Availability (HA) Memgraph cluster.
+
+**Note:** HA requires an enterprise license. Set the license either in the config YAML under `memgraph.env` or via shell environment variables:
+```sh
+export MEMGRAPH_ENTERPRISE_LICENSE="your-license-key"
+export MEMGRAPH_ORGANIZATION_NAME="your-org-name"
+./continuous_integration --config-file configurations/templates/config_ha.yaml
 ```
