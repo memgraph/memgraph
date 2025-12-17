@@ -117,7 +117,7 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
   return true;
 }
 
-bool VectorEdgeIndex::RecoverIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+void VectorEdgeIndex::RecoverIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                                    std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   try {
@@ -132,7 +132,6 @@ bool VectorEdgeIndex::RecoverIndex(const VectorEdgeIndexSpec &spec, utils::SkipL
     CleanupFailedIndex(spec);
     throw;
   }
-  return true;
 }
 
 void VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &spec) {

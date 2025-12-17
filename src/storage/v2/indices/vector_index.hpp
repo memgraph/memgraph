@@ -91,8 +91,7 @@ class VectorIndex {
   /// @param spec The specification for the index to be recovered.
   /// @param vertices vertices from which to recover the index.
   /// @param snapshot_info Optional snapshot observer for progress tracking.
-  /// @return true if the index was recovered successfully, false otherwise.
-  bool RecoverIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+  void RecoverIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.

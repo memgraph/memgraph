@@ -109,7 +109,7 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
   return true;
 }
 
-bool VectorIndex::RecoverIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+void VectorIndex::RecoverIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   try {
@@ -124,7 +124,6 @@ bool VectorIndex::RecoverIndex(const VectorIndexSpec &spec, utils::SkipList<Vert
     CleanupFailedIndex(spec);
     throw;
   }
-  return true;
 }
 
 void VectorIndex::SetupIndex(const VectorIndexSpec &spec) {

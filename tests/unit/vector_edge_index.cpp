@@ -400,7 +400,7 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexSingleThreadTest) {
   auto vertices_acc = vertices_.access();
   const auto spec = CreateSpec();
 
-  EXPECT_TRUE(vector_edge_index_.RecoverIndex(spec, vertices_acc));
+  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(spec, vertices_acc));
 
   // Verify all edges are in the index
   const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
@@ -441,7 +441,7 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexParallelTest) {
   auto vertices_acc = vertices_.access();
   const auto spec = CreateSpec();
 
-  EXPECT_TRUE(vector_edge_index_.RecoverIndex(spec, vertices_acc));
+  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(spec, vertices_acc));
 
   // Verify all edges are in the index
   const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
@@ -489,7 +489,7 @@ TEST_F(VectorEdgeIndexRecoveryTest, ConcurrentAddWithResizeTest) {
                                   .capacity = 10,
                                   .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
 
-  EXPECT_TRUE(vector_edge_index_.RecoverIndex(spec, vertices_acc));
+  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(spec, vertices_acc));
 
   const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);

@@ -513,7 +513,7 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexSingleThreadTest) {
   auto vertices_acc = vertices_.access();
   const auto spec = CreateSpec();
 
-  EXPECT_TRUE(vector_index_.RecoverIndex(spec, vertices_acc));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(spec, vertices_acc));
 
   // Verify all nodes are in the index
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
@@ -537,8 +537,7 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexParallelTest) {
 
   auto vertices_acc = vertices_.access();
   const auto spec = CreateSpec();
-
-  EXPECT_TRUE(vector_index_.RecoverIndex(spec, vertices_acc));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(spec, vertices_acc));
 
   // Verify all nodes are in the index
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
@@ -570,7 +569,7 @@ TEST_F(VectorIndexRecoveryTest, ConcurrentAddWithResizeTest) {
                               .capacity = 10,  // Small capacity to force resize
                               .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
 
-  EXPECT_TRUE(vector_index_.RecoverIndex(spec, vertices_acc));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(spec, vertices_acc));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);
