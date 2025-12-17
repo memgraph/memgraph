@@ -1409,6 +1409,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             std::swap(*it, *vertex->labels.rbegin());
             vertex->labels.pop_back();
 
+            storage_->UpdateLabelCount(current->label.value, -1);
+
             index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
 
             // we have to remove the vertex from the vector index if this label is indexed and vertex has
@@ -1429,6 +1431,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             auto it = r::find(vertex->labels, current->label.value);
             MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
             vertex->labels.push_back(current->label.value);
+
+            storage_->UpdateLabelCount(current->label.value, 1);
+
             // we have to add the vertex to the vector index if this label is indexed and vertex has needed
             // property
             const auto &vector_properties = index_abort_processor.vector_.l2p.find(current->label.value);
@@ -1518,10 +1523,17 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           case Delta::Action::DELETE_OBJECT: {
             vertex->deleted = true;
             my_deleted_vertices.push_back(vertex->gid);
+
+            for (auto const label : vertex->labels) {
+              storage_->UpdateLabelCount(label, -1);
+            }
             break;
           }
           case Delta::Action::RECREATE_OBJECT: {
             vertex->deleted = false;
+            for (auto const label : vertex->labels) {
+              storage_->UpdateLabelCount(label, 1);
+            }
             break;
           }
         }
