@@ -124,8 +124,9 @@ void TextIndex::RemoveNode(const Vertex *vertex, Transaction &tx) {
 
 void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIterable vertices,
                             NameIdMapper *name_id_mapper) {
-  CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, index_info.index_name),
-                     {index_info.index_name, index_info.label, index_info.properties});
+  CreateTantivyIndex(
+      MakeIndexPath(text_index_storage_dir_, index_info.index_name),
+      {.index_name = index_info.index_name, .label = index_info.label, .properties = index_info.properties});
 
   auto &index_data = index_.at(index_info.index_name);
   for (const auto &v : vertices) {
@@ -236,14 +237,20 @@ std::optional<uint64_t> TextIndex::ApproximateVerticesTextCount(std::string_view
 }
 
 void TextIndex::Clear() {
-  if (!index_.empty()) {
-    std::error_code ec;
-    std::filesystem::remove_all(text_index_storage_dir_, ec);
-    if (ec) {
-      spdlog::error("Error removing text index directory '{}': {}", text_index_storage_dir_, ec.message());
-      return;
+  std::vector<TextIndexSpec> index_specs_to_recover;
+  index_specs_to_recover.reserve(index_.size());
+  for (const auto &[index_name, index_data] : index_) {
+    try {
+      // We have to keep this order of operations because DropIndex removes the index from the map
+      index_specs_to_recover.emplace_back(index_name, index_data.scope, index_data.properties);
+      DropIndex(index_name);
+    } catch (const std::exception &e) {
+      // Recover indices that were dropped before (we can pop last entry since it was already recovered in DropIndex)
+      index_specs_to_recover.pop_back();
+      for (const auto &index_spec : index_specs_to_recover) {
+        CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, index_spec.index_name), index_spec);
+      }
     }
-    index_.clear();
   }
 }
 

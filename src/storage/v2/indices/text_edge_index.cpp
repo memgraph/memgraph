@@ -16,7 +16,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 
-namespace r = ranges;
 namespace memgraph::storage {
 
 void TextEdgeIndex::CreateTantivyIndex(const std::string &index_path, const TextEdgeIndexSpec &index_info) {
@@ -222,15 +221,21 @@ std::vector<TextEdgeIndexSpec> TextEdgeIndex::ListIndices() const {
 }
 
 void TextEdgeIndex::Clear() {
-  if (!index_.empty()) {
-    std::error_code ec;
-    std::filesystem::remove_all(text_index_storage_dir_, ec);
-    if (ec) {
-      spdlog::error("Error removing text edge index directory '{}': {}", text_index_storage_dir_, ec.message());
-      return;
+  std::vector<TextEdgeIndexSpec> index_specs_to_recover;
+  index_specs_to_recover.reserve(index_.size());
+  for (const auto &[index_name, index_data] : index_) {
+    try {
+      // We have to keep this order of operations because DropIndex removes the index from the map
+      index_specs_to_recover.emplace_back(index_name, index_data.scope, index_data.properties);
+      DropIndex(index_name);
+    } catch (const std::exception &e) {
+      // Recover indices that were dropped before (we can pop last entry since it was already recovered in DropIndex)
+      index_specs_to_recover.pop_back();
+      for (const auto &index_spec : index_specs_to_recover) {
+        CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, index_spec.index_name), index_spec);
+      }
     }
   }
-  index_.clear();
 }
 
 std::optional<uint64_t> TextEdgeIndex::ApproximateEdgesTextCount(std::string_view index_name) const {
