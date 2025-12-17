@@ -17,7 +17,10 @@ memgraph:
     # argument to pass memgraph flags to the cluster, which will override the existing cluster
     # flags. Stopping of the cluster needs to guarantee the cleanup of the resources so that
     # no files or directories are left behind. Check binary_standalone.sh for more info.
-    script: <path to script>
+    #
+    # If script is empty or not specified, the test suite assumes the cluster is managed
+    # externally (e.g., K8s, cloud deployment) and will skip start/stop operations.
+    script: <path to script>  # Leave empty for externally managed clusters
   args:
     # Additional memgraph arguments that are passed. Overrides the arguments from the
     # deployment script.
@@ -137,3 +140,17 @@ export MEMGRAPH_ENTERPRISE_LICENSE="your-license-key"
 export MEMGRAPH_ORGANIZATION_NAME="your-org-name"
 ./continuous_integration --config-file configurations/templates/config_ha.yaml
 ```
+
+### Example: Externally Managed Cluster
+Run workloads against an existing cluster (e.g., K8s, cloud deployment) without managing the cluster lifecycle:
+```yaml
+memgraph:
+  deployment:
+    script: ""  # Empty = cluster managed externally
+```
+
+```sh
+./continuous_integration --config-file configurations/workloads/rag/vector_workload.yaml
+```
+
+The test suite will skip start/stop operations and run workloads directly against the existing cluster.

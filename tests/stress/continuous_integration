@@ -180,18 +180,22 @@ def run_custom_workloads(script_path: str, config: Config, args: Args) -> Dict[s
     """Runs custom workloads on Memgraph using GQLAlchemy or custom scripts."""
     print("Running custom workloads...")
     runtimes = {}
+    manage_deployment = script_path is not None
 
     for workload in config.custom_workloads:
         workload_name = workload["name"]
         print(f"Running workload '{workload_name}'")
         start = time.time()
 
-        # Start Memgraph deployment
-        try:
-            start_deployment(script_path, config.memgraph_args + workload.get("memgraph_args", []), config.env)
-        except Exception as ex:
-            stop_deployment(script_path)
-            return {"error": f"Failed to start deployment for workload '{workload_name}': {ex}"}
+        # Start Memgraph deployment (skip if no deployment script - cluster managed externally)
+        if manage_deployment:
+            try:
+                start_deployment(script_path, config.memgraph_args + workload.get("memgraph_args", []), config.env)
+            except Exception as ex:
+                stop_deployment(script_path)
+                return {"error": f"Failed to start deployment for workload '{workload_name}': {ex}"}
+        else:
+            print("No deployment script specified - assuming cluster is managed externally")
 
         try:
             # Run import queries
@@ -244,10 +248,12 @@ def run_custom_workloads(script_path: str, config: Config, args: Args) -> Dict[s
             runtimes[workload_name] = end - start
 
         except Exception as ex:
-            stop_deployment(script_path)
+            if manage_deployment:
+                stop_deployment(script_path)
             return {"error": f"Failed to execute workload '{workload_name}': {ex}"}
         finally:
-            stop_deployment(script_path)
+            if manage_deployment:
+                stop_deployment(script_path)
 
     return runtimes
 
@@ -256,12 +262,17 @@ def run_stress_test_suite(args: Args, config: Config) -> Dict[str, Any]:
     """Runs the stress test suite on Memgraph."""
     runtimes = {}
 
+    # Determine if we're managing deployment or using external cluster
     script_path = config.script
-    if not script_path:
-        return {"error": "Memgraph deployment script not specified in config!"}
-    script_path = os.path.join(DEPLOYMENTS_DIR, script_path)
-    if not os.path.exists(script_path):
-        return {"error": f"Memgraph deployment script not found: {script_path}!"}
+    manage_deployment = bool(script_path)
+
+    if manage_deployment:
+        script_path = os.path.join(DEPLOYMENTS_DIR, script_path)
+        if not os.path.exists(script_path):
+            return {"error": f"Memgraph deployment script not found: {script_path}!"}
+    else:
+        script_path = None
+        print("No deployment script specified - assuming cluster is managed externally")
 
     for test in config.tests:
         test_name = test["name"]
@@ -269,19 +280,22 @@ def run_stress_test_suite(args: Args, config: Config) -> Dict[str, Any]:
         timeout = test["timeout_min"]
         memgraph_flags = config.memgraph_args + test.get("memgraph_args", [])
 
-        try:
-            start_deployment(script_path, memgraph_flags, config.env)
-        except Exception as ex:
-            return {"error": f"Failed to start deployment for test '{test_name}': {ex}"}
+        if manage_deployment:
+            try:
+                start_deployment(script_path, memgraph_flags, config.env)
+            except Exception as ex:
+                return {"error": f"Failed to start deployment for test '{test_name}': {ex}"}
 
         try:
             runtime = run_test(args, config, test_name, test_flags, timeout)
             runtimes[os.path.splitext(test_name)[0]] = runtime
         except Exception as ex:
-            stop_deployment(script_path)
+            if manage_deployment:
+                stop_deployment(script_path)
             return {"error": f"Failed to execute test '{test_name}': {ex}"}
         finally:
-            stop_deployment(script_path)
+            if manage_deployment:
+                stop_deployment(script_path)
 
     workload_result = run_custom_workloads(script_path, config, args)
     if "error" in workload_result:
