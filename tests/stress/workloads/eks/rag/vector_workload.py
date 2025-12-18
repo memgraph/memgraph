@@ -27,7 +27,7 @@ RESTART_INSTANCE = "data-1"
 
 # Deployment script path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEPLOYMENT_SCRIPT = os.path.join(SCRIPT_DIR, "..", "..", "configurations", "deployments", "eks_ha.sh")
+DEPLOYMENT_SCRIPT = os.path.join(SCRIPT_DIR, "..", "..", "..", "deployments", "eks_ha.sh")
 
 # Global connection URI (will be set dynamically)
 URI = None

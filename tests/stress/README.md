@@ -130,7 +130,7 @@ To run the stress test suite, ensure you have the necessary dependencies install
 ### Example: Standalone Memgraph
 Run the stress test suite against a standalone Memgraph instance:
 ```sh
-./continuous_integration --config-file configurations/templates/config_small.yaml
+./continuous_integration --config-file templates/config_small.yaml
 ```
 
 ### Example: High Availability Memgraph
@@ -140,7 +140,7 @@ Run the stress test suite against a High Availability (HA) Memgraph cluster.
 ```sh
 export MEMGRAPH_ENTERPRISE_LICENSE="your-license-key"
 export MEMGRAPH_ORGANIZATION_NAME="your-org-name"
-./continuous_integration --config-file configurations/templates/config_ha.yaml
+./continuous_integration --config-file templates/config_ha.yaml
 ```
 
 ### Example: Externally Managed Cluster
@@ -152,7 +152,7 @@ memgraph:
 ```
 
 ```sh
-./continuous_integration --config-file configurations/workloads/rag/vector_workload.yaml
+./continuous_integration --config-file workloads/eks/rag/vector_workload.yaml
 ```
 
 The test suite will skip start/stop operations and run workloads directly against the existing cluster.
@@ -188,7 +188,7 @@ The exporter collects metrics from all Memgraph instances (data nodes and coordi
 
 ## EKS Deployment
 
-For deploying Memgraph HA on AWS EKS, use the `eks_ha.sh` script located in `configurations/deployments/`.
+For deploying Memgraph HA on AWS EKS, use the `eks_ha.sh` script located in `deployments/`.
 
 ### Prerequisites
 
@@ -199,7 +199,7 @@ For deploying Memgraph HA on AWS EKS, use the `eks_ha.sh` script located in `con
 
 ### Configuration Files
 
-The EKS deployment uses configuration files in `configurations/deployments/eks/`:
+The EKS deployment uses configuration files in `deployments/eks/`:
 
 | File | Description |
 |------|-------------|
@@ -218,7 +218,7 @@ The EKS deployment uses configuration files in `configurations/deployments/eks/`
 
 2. **Create cluster and deploy Memgraph:**
    ```sh
-   cd tests/stress/configurations/deployments
+   cd tests/stress/deployments
    ./eks_ha.sh start
    ```
 

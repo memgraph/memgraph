@@ -1,0 +1,32 @@
+memgraph:
+  deployment:
+    # No script - EKS cluster is managed externally via eks_ha.sh
+    script: null
+  args: []
+  env:
+    MEMGRAPH_ENTERPRISE_LICENSE: ""
+    MEMGRAPH_ORGANIZATION_NAME: ""
+
+cluster:
+  coordinators:
+    - name: coordinator-1
+      host: "memgraph-coordinator-1"
+      bolt_port: 7687
+  data_instances:
+    - name: data-0
+      host: "memgraph-data-0"
+      bolt_port: 7687
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: dummy-workload-eks
+      memgraph_args: []
+      script: "workloads/eks/dummy_workload.py"
+      timeout_min: 180  # 100 iterations * 100 seconds = ~3 hours

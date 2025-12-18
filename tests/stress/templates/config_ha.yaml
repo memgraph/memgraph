@@ -1,6 +1,6 @@
 memgraph:
   deployment:
-    # Script needs to be located in stress/configurations/deployments
+    # Script needs to be located in stress/deployments
     script: "binary_ha.sh"
   args: [] # Any additional flags you need
   env:

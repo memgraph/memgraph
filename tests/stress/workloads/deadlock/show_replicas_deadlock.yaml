@@ -1,6 +1,6 @@
 memgraph:
   deployment:
-    # Script needs to be located in stress/configurations/deployments
+    # Script needs to be located in stress/deployments
     script: "binary_ha.sh"
   args: [] # Any additional flags you need
 
@@ -14,7 +14,7 @@ dataset:
 
 customWorkloads:
   tests:
-    # Copied from configurations/workloads/deadlock/show_replicas_deadlock.yaml
+    # Copied from workloads/deadlock/show_replicas_deadlock.yaml
     - name: show-replicas-deadlock
       memgraph_args: []
       querying:

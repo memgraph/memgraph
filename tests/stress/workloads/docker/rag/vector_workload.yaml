@@ -1,10 +1,11 @@
 memgraph:
   deployment:
-    script: "binary_ha.sh"
+    script: "docker_ha.sh"
   args: []
   env:
     MEMGRAPH_ENTERPRISE_LICENSE: ""
     MEMGRAPH_ORGANIZATION_NAME: ""
+    ENABLE_MONITORING: "true"
 
 cluster:
   coordinators:
@@ -36,5 +37,5 @@ customWorkloads:
   tests:
     - name: vector-workload
       memgraph_args: []
-      script: "workload_scripts/rag/vector_workload.py"
+      script: "workloads/docker/rag/vector_workload.py"
       timeout_min: 30

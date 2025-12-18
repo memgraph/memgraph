@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vector workload script for RAG stress testing.
+Vector workload script for RAG stress testing on Docker.
 Creates nodes with 1500-dimension vectors in batches using multiprocessing.
 
 Workers write to the MAIN instance (data_1, port 7687).
@@ -30,7 +30,7 @@ RESTART_INSTANCE = "data_2"  # port 7688
 
 # Deployment script path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEPLOYMENT_SCRIPT = os.path.join(SCRIPT_DIR, "..", "..", "configurations", "deployments", "docker_ha.sh")
+DEPLOYMENT_SCRIPT = os.path.join(SCRIPT_DIR, "..", "..", "..", "deployments", "docker_ha.sh")
 
 
 def restart_container(instance_name: str) -> None:

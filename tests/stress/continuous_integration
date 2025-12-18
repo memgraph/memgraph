@@ -19,7 +19,7 @@ BUILD_DIR = os.path.join(BASE_DIR, "build")
 MEASUREMENTS_FILE = os.path.join(SCRIPT_DIR, ".apollo_measurements")
 KEY_FILE = os.path.join(SCRIPT_DIR, ".key.pem")
 CERT_FILE = os.path.join(SCRIPT_DIR, ".cert.pem")
-DEPLOYMENTS_DIR = os.path.join(SCRIPT_DIR, "configurations/deployments")
+DEPLOYMENTS_DIR = os.path.join(SCRIPT_DIR, "deployments")
 
 # Long running stats file
 STATS_FILE = os.path.join(SCRIPT_DIR, ".long_running_stats")
@@ -118,7 +118,7 @@ def check_deployment_status(script_path: str) -> bool:
 def parse_arguments() -> Args:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Run stress tests on Memgraph.")
-    parser.add_argument("--config-file", default=os.path.join(SCRIPT_DIR, "configurations/templates/config_small.yaml"))
+    parser.add_argument("--config-file", default=os.path.join(SCRIPT_DIR, "templates/config_small.yaml"))
     parser.add_argument("--python", default=os.path.join(BASE_DIR, "tests", "ve3", "bin", "python3"), type=str)
     return parser.parse_args()
 
