@@ -25,6 +25,10 @@ STORAGE_CLASS_FILE="${SCRIPT_DIR}/eks/gp3-sc.yaml"
 # Helm values file
 HELM_VALUES_FILE="${SCRIPT_DIR}/eks/values.yaml"
 
+# Monitoring configuration
+ENABLE_MONITORING="${ENABLE_MONITORING:-true}"
+PROMETHEUS_NAMESPACE="monitoring"
+
 # Timeouts
 CLUSTER_CREATE_TIMEOUT="${CLUSTER_CREATE_TIMEOUT:-30m}"
 POD_READY_TIMEOUT="${POD_READY_TIMEOUT:-600}"  # 10 minutes
@@ -142,9 +146,58 @@ setup_helm_repo() {
         helm repo add "$HELM_REPO_NAME" "$HELM_REPO_URL"
     fi
 
+    # Add Prometheus community repo if monitoring is enabled
+    if [[ "$ENABLE_MONITORING" == "true" ]]; then
+        if ! helm repo list | grep -q "prometheus-community"; then
+            helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+        fi
+    fi
+
     helm repo update
 
     log_info "Helm repository configured"
+}
+
+install_kube_prometheus_stack() {
+    if [[ "$ENABLE_MONITORING" != "true" ]]; then
+        log_info "Monitoring disabled, skipping kube-prometheus-stack installation"
+        return 0
+    fi
+
+    log_info "Installing kube-prometheus-stack for monitoring..."
+
+    # Create monitoring namespace if it doesn't exist
+    if ! kubectl get namespace "$PROMETHEUS_NAMESPACE" &> /dev/null; then
+        kubectl create namespace "$PROMETHEUS_NAMESPACE"
+    fi
+
+    # Check if already installed
+    if helm list -n "$PROMETHEUS_NAMESPACE" -q | grep -q "^kube-prometheus-stack$"; then
+        log_info "kube-prometheus-stack already installed"
+        return 0
+    fi
+
+    # Install kube-prometheus-stack with minimal config
+    helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+        --namespace "$PROMETHEUS_NAMESPACE" \
+        --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+        --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
+        --set grafana.adminPassword=admin \
+        --wait --timeout 10m
+
+    if [[ $? -ne 0 ]]; then
+        log_error "Failed to install kube-prometheus-stack"
+        return 1
+    fi
+
+    # Wait for Prometheus operator to be ready
+    log_info "Waiting for Prometheus operator to be ready..."
+    kubectl wait --for=condition=available deployment/kube-prometheus-stack-operator \
+        -n "$PROMETHEUS_NAMESPACE" --timeout=300s 2>/dev/null || true
+
+    log_info "kube-prometheus-stack installed successfully"
+    log_info "  Grafana: kubectl port-forward -n $PROMETHEUS_NAMESPACE svc/kube-prometheus-stack-grafana 3000:80"
+    log_info "  Prometheus: kubectl port-forward -n $PROMETHEUS_NAMESPACE svc/kube-prometheus-stack-prometheus 9090:9090"
 }
 
 install_ebs_csi_driver() {
@@ -406,6 +459,7 @@ start_memgraph() {
     install_ebs_csi_driver
     apply_storage_class
     attach_ebs_policy
+    install_kube_prometheus_stack
     install_memgraph_ha
     wait_for_pods
 
@@ -429,25 +483,25 @@ start_memgraph() {
     log_info "Release: $HELM_RELEASE_NAME"
     echo ""
 
-    # Show services with external access info
+    # Show services
     log_info "Services:"
     echo ""
-    printf "  %-35s %-10s %-20s\n" "SERVICE" "PORT" "CLUSTER-IP"
-    printf "  %-35s %-10s %-20s\n" "-------" "----" "----------"
+    printf "  %-35s %-15s %-20s\n" "SERVICE" "PORT" "CLUSTER-IP"
+    printf "  %-35s %-15s %-20s\n" "-------" "----" "----------"
     while IFS= read -r line; do
         local svc_name=$(echo "$line" | awk '{print $1}')
         local cluster_ip=$(echo "$line" | awk '{print $3}')
         local ports=$(echo "$line" | awk '{print $5}' | cut -d'/' -f1)
 
-        printf "  %-35s %-10s %-20s\n" "$svc_name" "$ports" "$cluster_ip"
+        printf "  %-35s %-15s %-20s\n" "$svc_name" "$ports" "$cluster_ip"
     done < <(kubectl get svc --no-headers 2>/dev/null | grep "^memgraph-")
 
-    # Show external endpoints separately with DNS and IP
+    # Show LoadBalancer external endpoints with DNS and resolved IP
     local lb_count
     lb_count=$(kubectl get svc --no-headers 2>/dev/null | grep "^memgraph-" | grep -c "LoadBalancer") || lb_count=0
     if [[ "$lb_count" -gt 0 ]]; then
         echo ""
-        log_info "External Endpoints:"
+        log_info "External Endpoints (LoadBalancer):"
         echo ""
         while IFS= read -r line; do
             local svc_name=$(echo "$line" | awk '{print $1}')
@@ -457,7 +511,7 @@ start_memgraph() {
             if [[ "$external_dns" != "<none>" && "$external_dns" != "<pending>" && -n "$external_dns" ]]; then
                 # Resolve DNS to IP
                 local external_ip
-                external_ip=$(dig +short "$external_dns" 2>/dev/null | head -1) || external_ip=""
+                external_ip=$(dig +short "$external_dns" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1) || external_ip=""
 
                 echo "  $svc_name (port $ports):"
                 echo "    DNS: $external_dns"
@@ -469,11 +523,24 @@ start_memgraph() {
         done < <(kubectl get svc --no-headers 2>/dev/null | grep "^memgraph-" | grep "LoadBalancer")
     fi
 
-    log_info "To access Memgraph via port-forwarding:"
-    echo "  kubectl port-forward svc/memgraph-coordinator-1 7687:7687"
+    # Show connection info
     echo ""
-    log_info "Then connect with:"
-    echo "  mgconsole --host 127.0.0.1 --port 7687"
+    log_info "To access Memgraph coordinator:"
+    local coord_dns
+    coord_dns=$(kubectl get svc memgraph-coordinator-1-external -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null) || coord_dns=""
+    local coord_ip
+    if [[ -n "$coord_dns" ]]; then
+        coord_ip=$(dig +short "$coord_dns" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1) || coord_ip=""
+    fi
+
+    if [[ -n "$coord_ip" ]]; then
+        echo "  mgconsole --host $coord_ip --port 7687"
+    elif [[ -n "$coord_dns" ]]; then
+        echo "  mgconsole --host $coord_dns --port 7687"
+    else
+        echo "  kubectl port-forward svc/memgraph-coordinator-1 7687:7687"
+        echo "  mgconsole --host 127.0.0.1 --port 7687"
+    fi
 }
 
 stop_memgraph() {
@@ -655,8 +722,10 @@ print_usage() {
     echo "  HELM_RELEASE_NAME           - Helm release name (default: mem-ha-test)"
     echo "  HELM_CHART_PATH             - Path to Helm chart (default: memgraph/memgraph-high-availability)"
     echo "  POD_READY_TIMEOUT           - Timeout for pods to be ready in seconds (default: 600)"
+    echo "  ENABLE_MONITORING           - Install kube-prometheus-stack (default: false)"
     echo ""
     echo "Note: Set MEMGRAPH_ENTERPRISE_LICENSE and MEMGRAPH_ORGANIZATION_NAME in eks/values.yaml"
+    echo "      When ENABLE_MONITORING=true, also set prometheus.enabled=true in values.yaml"
     echo ""
     echo "Examples:"
     echo "  $0 start                           # Create cluster and deploy"
