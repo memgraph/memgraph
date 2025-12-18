@@ -698,8 +698,153 @@ port_forward() {
     kubectl port-forward "$svc_name" "$local_port:$remote_port"
 }
 
+get_service_ip() {
+    # Get the external IP of a LoadBalancer service
+    # Returns the IP address (resolves DNS if needed)
+    # Automatically appends -external suffix for the LoadBalancer service
+    local service_name=$1
+
+    if [[ -z "$service_name" ]]; then
+        echo "Usage: $0 get-ip <service-name>" >&2
+        return 1
+    fi
+
+    # Normalize service name (add memgraph- prefix if needed)
+    local base_name
+    if [[ "$service_name" == memgraph-* ]]; then
+        base_name="$service_name"
+    else
+        base_name="memgraph-${service_name//_/-}"
+    fi
+
+    # Remove -external suffix if present (we'll add it back)
+    base_name="${base_name%-external}"
+
+    # The external LoadBalancer service has -external suffix
+    local svc_name="${base_name}-external"
+
+    # Check if service exists
+    if ! kubectl get svc "$svc_name" &>/dev/null; then
+        echo "Service $svc_name not found" >&2
+        return 1
+    fi
+
+    # Try to get direct IP first
+    local ip
+    ip=$(kubectl get svc "$svc_name" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+    if [[ -n "$ip" && "$ip" != "<none>" ]]; then
+        echo "$ip"
+        return 0
+    fi
+
+    # Fall back to hostname (AWS returns DNS name)
+    local hostname
+    hostname=$(kubectl get svc "$svc_name" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+    if [[ -n "$hostname" && "$hostname" != "<none>" ]]; then
+        # Resolve DNS to IP
+        ip=$(dig +short "$hostname" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+        if [[ -n "$ip" ]]; then
+            echo "$ip"
+            return 0
+        fi
+        # Return hostname if DNS resolution failed
+        echo "$hostname"
+        return 0
+    fi
+
+    echo "Could not get external IP for service $svc_name (may still be pending)" >&2
+    return 1
+}
+
+wait_service_ip() {
+    # Wait for a LoadBalancer service to get an external IP
+    local service_name=$1
+    local timeout=${2:-300}  # Default 5 minutes
+
+    if [[ -z "$service_name" ]]; then
+        echo "Usage: $0 wait-ip <service-name> [timeout_seconds]" >&2
+        return 1
+    fi
+
+    # Normalize service name
+    local svc_name
+    if [[ "$service_name" == memgraph-* ]]; then
+        svc_name="$service_name"
+    else
+        svc_name="memgraph-${service_name//_/-}"
+    fi
+
+    local start_time=$(date +%s)
+    while true; do
+        local current_time=$(date +%s)
+        local elapsed=$((current_time - start_time))
+
+        if [[ $elapsed -ge $timeout ]]; then
+            echo "Timeout waiting for LoadBalancer IP for $svc_name" >&2
+            return 1
+        fi
+
+        local ip
+        ip=$(get_service_ip "$svc_name" 2>/dev/null)
+        if [[ -n "$ip" && "$ip" != "<pending>" ]]; then
+            echo "$ip"
+            return 0
+        fi
+
+        echo "Waiting for LoadBalancer IP for $svc_name (${elapsed}s/${timeout}s)..." >&2
+        sleep 10
+    done
+}
+
+restart_instance() {
+    # Restart an instance by deleting the pod (StatefulSet will recreate it)
+    # Accepts formats: data_0, data-0, data_1, data-1, coordinator_1, coordinator-1, etc.
+    local instance_name=$1
+
+    if [[ -z "$instance_name" ]]; then
+        log_error "Instance name is required"
+        echo ""
+        log_info "Available pods:"
+        kubectl get pods --no-headers -o custom-columns=":metadata.name" | grep "^memgraph-"
+        echo ""
+        echo "Usage: $0 restart <instance>"
+        echo ""
+        echo "Examples:"
+        echo "  $0 restart data_0"
+        echo "  $0 restart data_1"
+        echo "  $0 restart coordinator_1"
+        return 1
+    fi
+
+    # Normalize instance name: data_0 -> memgraph-data-0-0, coordinator_1 -> memgraph-coordinator-1-0
+    local pod_name
+    # Replace underscores with dashes
+    local normalized_name="${instance_name//_/-}"
+
+    # Check if it already has memgraph- prefix
+    if [[ "$normalized_name" == memgraph-* ]]; then
+        pod_name="${normalized_name}-0"
+    else
+        pod_name="memgraph-${normalized_name}-0"
+    fi
+
+    # Verify pod exists
+    if ! kubectl get pod "$pod_name" &> /dev/null; then
+        log_error "Pod '$pod_name' not found"
+        log_info "Available pods:"
+        kubectl get pods --no-headers -o custom-columns=":metadata.name" | grep "^memgraph-"
+        return 1
+    fi
+
+    log_info "Restarting instance: $pod_name"
+
+    # Delete the pod (StatefulSet will recreate it automatically)
+    kubectl delete pod "$pod_name" --wait=false
+    log_info "Pod $pod_name deleted (will be recreated by StatefulSet)"
+}
+
 print_usage() {
-    echo "Usage: $0 {start|stop|destroy|status|upgrade|logs|exec|port-forward} [options]"
+    echo "Usage: $0 {start|stop|destroy|status|upgrade|restart|logs|exec|port-forward} [options]"
     echo ""
     echo "Commands:"
     echo "  start              - Create EKS cluster and deploy Memgraph HA"
@@ -707,6 +852,9 @@ print_usage() {
     echo "  destroy            - Delete entire EKS cluster"
     echo "  status             - Check deployment status"
     echo "  upgrade [flags]    - Upgrade Helm release with optional flags"
+    echo "  restart <instance> - Restart an instance (delete pod)"
+    echo "  get-ip <service>   - Get external IP for a LoadBalancer service"
+    echo "  wait-ip <service>  - Wait for external IP and return it"
     echo "  logs <pod>         - Follow logs for a pod"
     echo "  exec <pod>         - Open shell in a pod"
     echo "  port-forward [svc] - Port forward to a service (default: coordinator)"
@@ -730,6 +878,7 @@ print_usage() {
     echo "Examples:"
     echo "  $0 start                           # Create cluster and deploy"
     echo "  $0 status                          # Check status"
+    echo "  $0 restart data_1                  # Restart data instance 1"
     echo "  $0 port-forward coordinator 7687   # Port forward coordinator"
     echo "  $0 logs mem-ha-test-data-0         # View pod logs"
     echo "  $0 upgrade --set key=value         # Upgrade with custom values"
@@ -754,6 +903,15 @@ case "$1" in
     upgrade)
         shift
         upgrade_memgraph "$@"
+        ;;
+    restart)
+        restart_instance "$2"
+        ;;
+    get-ip)
+        get_service_ip "$2"
+        ;;
+    wait-ip)
+        wait_service_ip "$2" "$3"
         ;;
     logs)
         show_logs "$2"
