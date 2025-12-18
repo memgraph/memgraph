@@ -97,7 +97,7 @@ def start_deployment(script_path: str, args: List[str], env: Dict[str, str] = No
         for key, value in env.items():
             # Only set if value is non-empty, otherwise use existing env var
             if value:
-                run_env[key] = value
+                run_env[key] = str(value)
 
     subprocess.run(cmd, check=True, env=run_env)
     time.sleep(2)  # Ensure the server has time to start

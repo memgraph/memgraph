@@ -34,6 +34,8 @@ memgraph:
     # If value is empty, the variable will be inherited from the shell environment.
     MEMGRAPH_ENTERPRISE_LICENSE: "<license-key>"
     MEMGRAPH_ORGANIZATION_NAME: "<org-name>"
+    # Enable Prometheus monitoring (for docker_ha.sh deployments)
+    ENABLE_MONITORING: "true"  # Starts Prometheus exporter on port 9100
 ```
 
 ### 2. Cluster Configuration (HA Deployments)
@@ -154,3 +156,32 @@ memgraph:
 ```
 
 The test suite will skip start/stop operations and run workloads directly against the existing cluster.
+
+## Monitoring with Prometheus & Grafana
+For Docker HA deployments (`docker_ha.sh`), you can enable the full monitoring stack by setting `ENABLE_MONITORING`:
+
+```yaml
+memgraph:
+  deployment:
+    script: "docker_ha.sh"
+  env:
+    MEMGRAPH_ENTERPRISE_LICENSE: "<license-key>"
+    MEMGRAPH_ORGANIZATION_NAME: "<org-name>"
+    ENABLE_MONITORING: "true"
+```
+
+When enabled, the deployment script starts:
+- **[Prometheus exporter](https://github.com/memgraph/prometheus-exporter):** `http://localhost:9100`
+- **Grafana dashboard:** `http://localhost:3000` (login: `admin`/`admin`)
+
+Grafana comes pre-configured with:
+- **Data source:** Memgraph Prometheus (already connected)
+- **Dashboard:** "Memgraph HA Overview" with panels for:
+  - Vertex/Edge counts
+  - Memory usage
+  - Active transactions
+  - Query rate
+
+Just open http://localhost:3000, login with `admin`/`admin`, and go to **Dashboards → Memgraph → Memgraph HA Overview**.
+
+The exporter collects metrics from all Memgraph instances (data nodes and coordinators) including HA-specific metrics.
