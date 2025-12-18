@@ -48,10 +48,10 @@ on:
         description: "Generate SBOM"
         default: false
 
-outputs:
-  package_s3_url:
-    description: "The URL of the package in the S3 bucket."
-    value: ${{ steps.output_package_s3_url.outputs.package_s3_url }}
+    outputs:
+      package_s3_url:
+        description: "The URL of the package in the S3 bucket."
+        value: ${{ jobs.PackageAndUpload.outputs.package_s3_url }}
 
 env:
   TOOLCHAIN: v7
@@ -74,6 +74,8 @@ jobs:
   PackageAndUpload:
     runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "DockerMgBuild", "ARM64"]') || fromJSON((inputs.os == 'centos-10' || inputs.os == 'rocky-10') && '["self-hosted", "DockerMgBuild", "X64", "x86-64-v3"]' || '["self-hosted", "DockerMgBuild", "X64"]') }}
     timeout-minutes: ${{ inputs.arch == 'arm' && 120 || 60 }}
+    outputs:
+      package_s3_url: ${{ steps.output_package_s3_url.outputs.package_s3_url }}
     steps:
       - name: "Validate S3 dest dir for official package"
         if: ${{ inputs.push_to_s3 == 'true' && inputs.s3_bucket == 'download.memgraph.com' }}

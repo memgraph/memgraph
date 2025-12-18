@@ -47,7 +47,7 @@ jobs:
     with:
       os: ${{ inputs.os }}
       arch: amd
-      build_type: ${{ env.BUILD_TYPE }}
+      build_type: ${{ inputs.build_type }}
       additional_build_args: ''
       push_to_github: false
       push_to_s3: true
@@ -76,7 +76,7 @@ jobs:
     with:
       os: ${{ inputs.os }}
       arch: arm64
-      build_type: ${{ env.BUILD_TYPE }}
+      build_type: ${{ inputs.build_type }}
       additional_build_args: ''
       push_to_github: false
       push_to_s3: true
@@ -105,7 +105,7 @@ jobs:
     with:
       os: ${{ inputs.os }}
       arch: cuda
-      build_type: ${{ env.BUILD_TYPE }}
+      build_type: ${{ inputs.build_type }}
       additional_build_args: ''
       push_to_github: false
       push_to_s3: true
