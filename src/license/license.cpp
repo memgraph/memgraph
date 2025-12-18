@@ -265,6 +265,9 @@ LicenseCheckResult LicenseChecker::IsEnterpriseValid(std::string_view license_ke
 }
 
 LicenseCheckResult LicenseChecker::IsEnterpriseValid() const {
+  if (enterprise_enabled_) [[unlikely]] {
+    return {};
+  }
   auto locked_previous_license_info_ptr = previous_license_info_.Lock();
   const auto &license_info = *locked_previous_license_info_ptr;
   if (!license_info) {
