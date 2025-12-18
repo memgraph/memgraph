@@ -1,0 +1,13 @@
+[package]
+name = "rsmgp-example"
+version = "0.1.0"
+authors = ["Marko Budiselic <marko.budiselic@memgraph.com>"]
+edition = "2018"
+
+[dependencies]
+c_str_macro = "1.0.2"
+rsmgp-sys = { path = "../rsmgp-sys" }
+
+[lib]
+name = "rust_example"
+crate-type = ["cdylib"]

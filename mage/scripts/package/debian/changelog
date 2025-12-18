@@ -1,0 +1,5 @@
+memgraph-mage (@VERSION@) stable; urgency=medium
+
+  * Release v@VERSION@.
+
+ -- Matt James <matthew.james@memgraph.io>

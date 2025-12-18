@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 project_folder=$(git rev-parse --show-toplevel)
 if git rev-parse --verify HEAD >/dev/null 2>&1
@@ -15,9 +15,39 @@ exec 1>&2
 tmpdir=$(mktemp -d repo-XXXXXXXX)
 trap "rm -rf $tmpdir" EXIT INT
 
+exclude_dirs=(
+  mage/cpp/community_detection_module/grappolo
+  mage/cpp/text_module/utf8
+)
+
+exclude_files=(
+  mage/cpp/util_module/algorithm/md5.hpp
+  mage/cpp/util_module/algorithm/md5.cpp
+)
+
 modified_files=$(git diff --cached --name-only --diff-filter=AM $against | sed -nE "/.*\.(cpp|cc|cxx|c|h|hpp)$/p")
 FAIL=0
 for file in $modified_files; do
+
+  run_check=true
+  for exclude_dir in ${exclude_dirs[@]}; do
+    if [[ $file == $exclude_dir* ]]; then
+      run_check=false
+      echo "Skipping $file because it is in $exclude_dir"
+      break
+    fi
+  done
+  for exclude_file in ${exclude_files[@]}; do
+    if [[ $file == $exclude_file ]]; then
+      run_check=false
+      echo "Skipping $file because it is in $exclude_file"
+      break
+    fi
+  done
+  if ! $run_check; then
+    continue
+  fi
+
   echo "Checking $file..."
 
   cp $project_folder/.clang-format $project_folder/.clang-tidy $tmpdir
