@@ -145,6 +145,11 @@ TEST_F(SettingsTest, Persistance) {
     memgraph::utils::Settings settings(settings_directory);
     ASSERT_THAT(settings.AllSettings(), testing::UnorderedElementsAreArray(generated_settings));
 
+    // Setting's data is persisted, but not the callbacks
+    for (const auto &[setting_name, setting_value] : generated_settings) {
+      settings.RegisterSetting(setting_name, setting_value, DummyCallback);
+    }
+
     for (size_t i = 0; i < generated_settings.size(); ++i) {
       auto &[setting_name, setting_value] = generated_settings[i];
       setting_value = fmt::format("new_value{}", i);
