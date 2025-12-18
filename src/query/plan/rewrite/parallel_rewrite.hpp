@@ -344,11 +344,6 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
       return failure("No target scan or scan parent found");
     }
 
-    // Verify the path from operator to Scan is read-only
-    if (!IsPathReadOnly(&op, target_scan)) {
-      return failure("Path from operator to Scan is not read-only");
-    }
-
     // Operator -> Scan -> etc is rewritten to OperatorParallel -> ScanChunk -> ParallelMerge -> ScanParallel -> etc
     auto scan_input = target_scan->input();
     auto state_symbol = symbol_table->CreateAnonymousSymbol();
@@ -769,6 +764,10 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
 
       // Check if this is a Scan that produces any of the symbols we're looking for
       if (utils::IsSubtype(*current, ScanAll::kType)) {
+        // Make sure the scan is read-only
+        if (!IsPathReadOnly(start, current)) {
+          return target_scan != nullptr;
+        }
         size_t found = ScanProducesSymbols(current, symbols_to_find);
         // Exact match
         if (found == symbols_to_find.size()) {
