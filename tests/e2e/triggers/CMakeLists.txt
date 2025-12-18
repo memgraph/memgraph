@@ -27,5 +27,6 @@ endfunction()
 
 copy_triggers_e2e_python_files(common.py)
 copy_triggers_e2e_python_files(triggers_properties_false.py)
+copy_triggers_e2e_python_files(show_triggers.py)
 
 copy_e2e_files(triggers workloads.yaml)

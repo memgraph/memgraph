@@ -4592,15 +4592,18 @@ Callback DropTrigger(TriggerQuery *trigger_query, TriggerStore *trigger_store) {
 }
 
 Callback ShowTriggers(TriggerStore *trigger_store) {
-  return {.header = {"trigger name", "statement", "event type", "phase", "owner"}, .fn = [trigger_store] {
+  return {.header = {"trigger name", "statement", "privilege context", "event type", "phase", "owner"},
+          .fn = [trigger_store] {
             std::vector<std::vector<TypedValue>> results;
             auto trigger_infos = trigger_store->GetTriggerInfo();
             results.reserve(trigger_infos.size());
             for (auto &trigger_info : trigger_infos) {
               std::vector<TypedValue> typed_trigger_info;
-              typed_trigger_info.reserve(4);
+              typed_trigger_info.reserve(5);
               typed_trigger_info.emplace_back(std::move(trigger_info.name));
               typed_trigger_info.emplace_back(std::move(trigger_info.statement));
+              typed_trigger_info.emplace_back(
+                  trigger_info.privilege_context == TriggerPrivilegeContext::INVOKER ? "INVOKER" : "DEFINER");
               typed_trigger_info.emplace_back(TriggerEventTypeToString(trigger_info.event_type));
               typed_trigger_info.emplace_back(trigger_info.phase == TriggerPhase::BEFORE_COMMIT ? "BEFORE COMMIT"
                                                                                                 : "AFTER COMMIT");
