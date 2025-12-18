@@ -291,7 +291,9 @@ jobs:
           else
             filename="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph* 2>/dev/null | head -n 1)"
           fi
-          S3_URL="https://s3.eu-west-1.amazonaws.com/${S3_BUCKET}/${S3_DEST_DIR}/${{ env.ARTIFACT_NAME }}/${filename}"
+          # URL-encode the filename to handle unsafe characters like +, ~, etc.
+          encoded_filename=$(python3 -c "import urllib.parse; import sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$(basename "$filename")")
+          S3_URL="https://s3.eu-west-1.amazonaws.com/${S3_BUCKET}/${S3_DEST_DIR}/${{ env.ARTIFACT_NAME }}/${encoded_filename}"
           echo "package_s3_url=$S3_URL" >> $GITHUB_OUTPUT
 
       - name: "Upload to Github"
