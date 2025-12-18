@@ -17,6 +17,8 @@
 #include <mutex>
 #include <queue>
 
+#include "utils/logging.hpp"
+
 // Same as rocksdb/util/work_queue.h but moves in the pop()
 
 namespace memgraph::utils {

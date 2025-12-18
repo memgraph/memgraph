@@ -9,19 +9,34 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include "utils/terminate_handler.hpp"
 
-#include <iosfwd>
+#include <cstdlib>
+#include <exception>
+#include <iostream>
+
+#include <spdlog/spdlog.h>
+
+#include "utils/stacktrace.hpp"
 
 namespace memgraph::utils {
 
-/**
- * Dump stacktrace to the stream and abort the program. For more details
- * about the abort please take a look at
- * http://en.cppreference.com/w/cpp/utility/program/abort.
- */
-void TerminateHandler(std::ostream &stream) noexcept;
+void TerminateHandler(std::ostream &stream) noexcept {
+  if (auto exc = std::current_exception()) {
+    try {
+      std::rethrow_exception(exc);
+    } catch (std::exception &ex) {
+      stream << ex.what() << std::endl << std::endl;
+      utils::Stacktrace stacktrace;
+      stacktrace.dump(stream);
+    }
+  }
 
-void TerminateHandler() noexcept;
+  // Flush all the logs
+  spdlog::shutdown();
+  std::abort();
+}
+
+void TerminateHandler() noexcept { TerminateHandler(std::cout); }
 
 }  // namespace memgraph::utils

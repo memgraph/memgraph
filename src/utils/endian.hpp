@@ -12,6 +12,8 @@
 #pragma once
 
 #include <endian.h>
+#include <bit>
+#include <cstdint>
 
 namespace memgraph::utils {
 
