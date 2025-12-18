@@ -156,6 +156,49 @@ def test_roles_function_with_user_has_roles(memgraph):
     memgraph.execute("DROP ROLE user_role;")
 
 
+def test_username_and_roles_functions_in_trigger(memgraph):
+    memgraph.execute("CREATE USER test_user;")
+    memgraph.execute("CREATE ROLE admin_role;")
+    memgraph.execute("CREATE ROLE user_role;")
+    memgraph.execute("SET ROLE FOR test_user TO admin_role, user_role;")
+
+    memgraph.execute(
+        """
+        CREATE TRIGGER test_username_roles_trigger_invoker
+        SECURITY INVOKER
+        ON () CREATE
+        BEFORE COMMIT
+        EXECUTE
+        UNWIND createdVertices AS createdVertex
+        SET createdVertex.trigger_username = username(),
+            createdVertex.trigger_roles = roles()
+        """
+    )
+
+    memgraph_with_user = Memgraph(username="test_user", password="")
+    memgraph_with_user.execute("CREATE (n:TestNode {id: 1});")
+
+    results = list(
+        memgraph_with_user.execute_and_fetch(
+            "MATCH (n:TestNode {id: 1}) RETURN n.trigger_username AS username, n.trigger_roles AS roles;"
+        )
+    )
+    assert len(results) == 1
+    assert results[0]["username"] == "test_user"
+    roles = results[0]["roles"]
+    assert isinstance(roles, list)
+    assert len(roles) == 2
+    assert "admin_role" in roles
+    assert "user_role" in roles
+
+    memgraph.execute("DROP TRIGGER test_username_roles_trigger_invoker;")
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+
+    memgraph.execute("DROP USER test_user;")
+    memgraph.execute("DROP ROLE admin_role;")
+    memgraph.execute("DROP ROLE user_role;")
+
+
 def test_show_current_role_single_role(memgraph):
     # Create a user and single role
     memgraph.execute("CREATE USER test_user;")
