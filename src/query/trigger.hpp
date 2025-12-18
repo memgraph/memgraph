@@ -44,7 +44,7 @@ struct Trigger {
                    TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                    const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
                    std::string_view db_name,
-                   TriggerPrivilegeContext privilege_context = TriggerPrivilegeContext::INVOKER);
+                   TriggerPrivilegeContext privilege_context = TriggerPrivilegeContext::DEFINER);
 
   void Execute(DbAccessor *dba, memgraph::dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
                double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
@@ -84,7 +84,7 @@ struct Trigger {
   mutable utils::RWSpinLock plan_lock_;
   mutable std::shared_ptr<TriggerPlan> trigger_plan_;
   std::shared_ptr<QueryUserOrRole> creator_;
-  TriggerPrivilegeContext privilege_context_{TriggerPrivilegeContext::INVOKER};
+  TriggerPrivilegeContext privilege_context_{TriggerPrivilegeContext::DEFINER};
 };
 
 enum class TriggerPhase : uint8_t { BEFORE_COMMIT, AFTER_COMMIT };

@@ -97,7 +97,7 @@ bool VertexHasProperty(mg::Client &client, int vertex_id, std::string_view prope
   return value.type() == mg::Value::Type::Bool && value.ValueBool();
 }
 
-// Test 1: Default INVOKER mode - invoker needs SET permission
+// Test 1: Default DEFINER mode - definer needs SET permission
 void TestDefaultInvoker(mg::Client &admin_client, const std::string &phase) {
   auto definer_client = ConnectWithUser(kDefinerUser);
   auto invoker_client = ConnectWithUser(kInvokerUser);
@@ -105,33 +105,28 @@ void TestDefaultInvoker(mg::Client &admin_client, const std::string &phase) {
 
   const bool is_after = (phase == "AFTER");
 
-  // Definer creates trigger (default is INVOKER)
+  // Definer creates trigger (default is DEFINER)
   CreateTrigger(*definer_client, "DefaultInvoker", phase, "");
 
-  // Invoker with SET can trigger it successfully
+  // Any invoker can trigger it successfully (definer's permissions are used)
   CreateVertex(*invoker_client, kVertexId);
   if (is_after) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
   CheckNumberOfAllVertices(*invoker_client, 1);
-  MG_ASSERT(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty), "Vertex should have trigger property set");
+  MG_ASSERT(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty),
+            "Vertex should have trigger property set (definer's permissions)");
 
   CleanupVertices(*invoker_client);
 
-  // Invoker without SET - behavior differs for BEFORE vs AFTER COMMIT
-  if (!is_after) {
-    // BEFORE COMMIT: transaction should fail
-    MG_ASSERT(FunctionThrows<mg::TransientException>([&] { CreateVertex(*invoker_without_set_client, kVertexId); }),
-              "BEFORE COMMIT trigger should fail transaction when invoker lacks SET privilege");
-    CheckNumberOfAllVertices(*invoker_without_set_client, 0);
-  } else {
-    // AFTER COMMIT: transaction succeeds but trigger fails, property not set
-    CreateVertex(*invoker_without_set_client, kVertexId);
+  // Invoker without SET can also trigger it successfully (definer's permissions are used)
+  CreateVertex(*invoker_without_set_client, kVertexId);
+  if (is_after) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    CheckNumberOfAllVertices(*invoker_without_set_client, 1);
-    MG_ASSERT(!VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty),
-              "Vertex should not have trigger property set when invoker lacks SET privilege");
   }
+  CheckNumberOfAllVertices(*invoker_without_set_client, 1);
+  MG_ASSERT(VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty),
+            "Vertex should have trigger property set (definer's permissions)");
 
   CleanupVertices(*invoker_without_set_client);
   DropTrigger(admin_client, "DefaultInvoker");

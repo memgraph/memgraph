@@ -93,7 +93,7 @@ def test_show_triggers_output_format(connect):
     default = triggers["trigger_default"]
     assert default["trigger name"] == "trigger_default"
     assert "deletedVertices" in default["statement"]
-    assert default["privilege context"] == "INVOKER"  # default is INVOKER
+    assert default["privilege context"] == "DEFINER"  # default is DEFINER
     assert default["event type"] == "DELETE"
     assert default["phase"] == "BEFORE COMMIT"
     assert default["owner"] is None

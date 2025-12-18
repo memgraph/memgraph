@@ -1060,10 +1060,10 @@ PullPlanDump::PullChunk PullPlanDump::CreateTriggersPullChunk() {
       auto trigger_statement_copy = trigger.statement;
       std::ranges::replace(trigger_statement_copy, '\n', ' ');
       os << "CREATE TRIGGER " << trigger.name;
-      if (trigger.privilege_context == TriggerPrivilegeContext::DEFINER) {
-        os << " SECURITY DEFINER";
-      } else {
+      if (trigger.privilege_context == TriggerPrivilegeContext::INVOKER) {
         os << " SECURITY INVOKER";
+      } else {
+        os << " SECURITY DEFINER";
       }
       if (trigger.event_type != TriggerEventType::ANY) {
         os << " ON " << memgraph::query::TriggerEventTypeToString(trigger.event_type);
