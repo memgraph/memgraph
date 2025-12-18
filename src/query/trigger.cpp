@@ -193,18 +193,15 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
 
+  // GenQueryUser always returns a non-null shared_ptr and
+  // both creator_ and triggering_user come from GenQueryUser
   if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
-    // creator_ should never be null since GenQueryUser always returns a non-null shared_ptr
-    MG_ASSERT(creator_, "Trigger creator should not be null!");
     if (!creator_->IsAuthorized(parsed_statements_.required_privileges, db_name, &query::up_to_date_policy)) {
       throw utils::BasicException(
           fmt::format("The owner of trigger '{}' is not authorized to execute the query!", name_));
     }
   } else {
     // no users
-    if (!triggering_user) {  // TODO (ivan): check if this is valid
-      throw utils::BasicException(fmt::format("The user who invoked the trigger '{}' is not set!", name_));
-    }
     if (!triggering_user->IsAuthorized(parsed_statements_.required_privileges, db_name, &query::up_to_date_policy)) {
       throw utils::BasicException(
           fmt::format("The user who invoked the trigger '{}' is not authorized to execute the query!", name_));
@@ -265,8 +262,9 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
 
 namespace {
 // When the format of the persisted trigger is changed, increase this version
+// also update tests/integration/triggers
+inline constexpr uint64_t kDefinerVersion{2};
 inline constexpr uint64_t kVersion{3};
-inline constexpr uint64_t kPreviousVersion{2};
 }  // namespace
 
 TriggerStore::TriggerStore(std::filesystem::path directory) : storage_{std::move(directory)} {}
@@ -289,9 +287,9 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
     return;
   }
   const auto version = json_trigger_data["version"].get<uint64_t>();
-  if (version != kVersion && version != kPreviousVersion) {
+  if (version != kVersion && version != kDefinerVersion) {
     spdlog::warn(get_failed_message(fmt::format("Invalid version of the trigger data. Expected {} or {}, got {}.",
-                                                kVersion, kPreviousVersion, version)));
+                                                kVersion, kDefinerVersion, version)));
     return;
   }
 
@@ -349,7 +347,7 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
   }
 
   auto const privilege_context = std::invoke([&]() -> std::optional<TriggerPrivilegeContext> {
-    if (version == kPreviousVersion) {
+    if (version == kDefinerVersion) {
       return TriggerPrivilegeContext::DEFINER;
     }
 
