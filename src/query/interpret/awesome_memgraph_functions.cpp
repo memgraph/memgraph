@@ -1795,16 +1795,12 @@ TypedValue Roles(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionC
     return TypedValue(TypedValue::TVector(ctx.memory));
   }
 
-  std::optional<std::string> db_name;
-  if (ctx.db_accessor) {  // TODO (ivan): is this necessary
-    db_name = ctx.db_accessor->DatabaseName();
-  }
-
-  auto const rolenames = ctx.user_or_role->GetRolenames(db_name);
+  auto db_name = ctx.db_accessor->DatabaseName();
+  auto const rolenames = ctx.user_or_role->GetRolenames(std::move(db_name));
   TypedValue::TVector roles_list(ctx.memory);
   roles_list.reserve(rolenames.size());
   for (auto const &rolename : rolenames) {
-    roles_list.emplace_back(TypedValue::TString(rolename, ctx.memory));
+    roles_list.emplace_back(TypedValue::TString(rolename, ctx.memory));  // string to pmr string
   }
   return TypedValue(std::move(roles_list));
 }
