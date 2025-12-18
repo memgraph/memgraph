@@ -2900,9 +2900,9 @@ PreparedQuery PrepareCypherQuery(
       .priority = utils::Priority::LOW};  // Default to LOW priority for all Cypher queries
 }
 
-PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-                                  std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
-                                  Interpreter &interpreter, CurrentDB &current_db) {
+PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notification> *notifications,
+                                  InterpreterContext *interpreter_context, Interpreter &interpreter,
+                                  CurrentDB &current_db) {
   const std::string kExplainQueryStart = "explain ";
   MG_ASSERT(
       utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.stripped_query().str()), kExplainQueryStart),
@@ -4567,6 +4567,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
   return {
       .header = {},
+      // NOLINTNEXTLINE(bugprone-exception-escape)
       .fn = [trigger_name = std::move(trigger_query->trigger_name_),
              trigger_statement = std::move(trigger_query->statement_), event_type = trigger_query->event_type_,
              before_commit = trigger_query->before_commit_, trigger_store, interpreter_context, dba, user_parameters,
@@ -7507,8 +7508,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #endif
       );
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
-      prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary,
-                                           &query_execution->notifications, interpreter_context_, *this, current_db_);
+      prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->notifications,
+                                           interpreter_context_, *this, current_db_);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
       prepared_query =
           PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
@@ -8179,7 +8180,7 @@ void Interpreter::Commit() {
     db->AddTask([db_acc = *current_db_.db_acc_, interpreter_context = interpreter_context_,
                  trigger_context = std::move(*trigger_context), triggering_user = user_or_role_,
                  user_transaction = std::shared_ptr(std::move(current_db_.db_transactional_accessor_))]() {
-      RunTriggersAfterCommit(db_acc, interpreter_context, std::move(trigger_context), triggering_user);
+      RunTriggersAfterCommit(db_acc, interpreter_context, trigger_context, triggering_user);
       user_transaction->FinalizeTransaction();
       SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
     });
