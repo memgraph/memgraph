@@ -129,7 +129,7 @@ template <bool is_pull, typename TSession>
 State HandlePullDiscardV1(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct;
   if (marker != expected_marker) {
-    spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!", std::to_underlying(marker));
     return State::Close;
   }
 
@@ -150,7 +150,7 @@ template <bool is_pull, typename TSession>
 State HandlePullDiscardV4(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct1;
   if (marker != expected_marker) {
-    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", std::to_underlying(marker));
     return State::Close;
   }
 
@@ -214,7 +214,7 @@ State HandlePrepare(TSession &session) {
     for (auto &i : header) vec.emplace_back(std::move(i));
     data.emplace("fields", std::move(vec));
     if (session.version_.major > 1) {
-      if (qid.has_value()) {
+      if (qid) {
         data.emplace("qid", Value{*qid});
       }
     }
@@ -235,7 +235,7 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct2;
   if (marker != expected_marker) {
     spdlog::trace("Expected {} marker, but received 0x{:02X}!",
-                  session.version_.major == 1 ? "TinyStruct2" : "TinyStruct3", utils::UnderlyingCast(marker));
+                  session.version_.major == 1 ? "TinyStruct2" : "TinyStruct3", std::to_underlying(marker));
     return State::Close;
   }
   Value query;
@@ -280,7 +280,7 @@ template <typename TSession>
 State HandleRunV4(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct3;
   if (marker != expected_marker) {
-    spdlog::trace("Expected TinyStruct3 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct3 marker, but received 0x{:02X}!", std::to_underlying(marker));
     return State::Close;
   }
   Value query;
@@ -388,7 +388,7 @@ State HandleReset(TSession &session, const Marker marker) {
   // does not IGNORE running and pending commands as it should.
   spdlog::trace("Received RESET message");
   if (marker != Marker::TinyStruct) {
-    spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!", std::to_underlying(marker));
     return State::Close;
   }
 
@@ -409,7 +409,7 @@ template <typename TSession>
 State HandleBegin(TSession &session, const State state, const Marker marker) {
   spdlog::trace("Received BEGIN message");
   if (marker != Marker::TinyStruct1) {
-    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02x}!", std::to_underlying(marker));
     return State::Close;
   }
 
@@ -443,7 +443,7 @@ template <typename TSession>
 State HandleCommit(TSession &session, const State state, const Marker marker) {
   spdlog::trace("Received COMMIT message");
   if (marker != Marker::TinyStruct) {
-    spdlog::trace("Expected TinyStruct marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct marker, but received 0x{:02x}!", std::to_underlying(marker));
     return State::Close;
   }
 
@@ -469,7 +469,7 @@ State HandleCommit(TSession &session, const State state, const Marker marker) {
 template <typename TSession>
 State HandleRollback(TSession &session, const State state, const Marker marker) {
   if (marker != Marker::TinyStruct) {
-    spdlog::trace("Expected TinyStruct marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct marker, but received 0x{:02x}!", std::to_underlying(marker));
     return State::Close;
   }
 
@@ -534,7 +534,7 @@ template <typename TSession, int bolt_major, int bolt_minor = 0>
 State HandleRoute(TSession &session, const Marker marker) {
   spdlog::trace("Received ROUTE message");
   if (marker != Marker::TinyStruct3) {
-    spdlog::trace("Expected TinyStruct3 marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct3 marker, but received 0x{:02x}!", std::to_underlying(marker));
     return State::Close;
   }
   Value routing;

@@ -129,13 +129,13 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
 
   auto &index_data = index_.at(index_info.index_name);
   for (const auto &v : vertices) {
-    if (!v.HasLabel(index_info.label, View::NEW).GetValue()) {
+    if (!v.HasLabel(index_info.label, View::NEW).value()) {
       continue;
     }
     // If properties are specified, we serialize only those properties; otherwise, all properties of the vertex.
     auto vertex_properties = index_info.properties.empty()
-                                 ? v.Properties(View::NEW).GetValue()
-                                 : v.PropertiesByPropertyIds(index_info.properties, View::NEW).GetValue();
+                                 ? v.Properties(View::NEW).value()
+                                 : v.PropertiesByPropertyIds(index_info.properties, View::NEW).value();
     TextIndex::AddNodeToTextIndex(v.Gid().AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
                                   StringifyProperties(vertex_properties), index_data.context);
   }

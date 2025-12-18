@@ -12,7 +12,9 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -20,6 +22,7 @@
 #include <optional>
 #include <system_error>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 
 #include "auth/auth.hpp"
@@ -42,27 +45,34 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/isolation_level.hpp"
 #include "utils/logging.hpp"
-#include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {
 
 struct Statistics {
-  uint64_t num_vertex;           //!< Sum of vertexes in every database
-  uint64_t num_edges;            //!< Sum of edges in every database
-  uint64_t triggers;             //!< Sum of triggers in every database
-  uint64_t streams;              //!< Sum of streams in every database
-  uint64_t users;                //!< Number of defined users
-  uint64_t num_databases;        //!< Number of isolated databases
-  uint64_t indices;              //!< Sum of indices in every database
-  uint64_t constraints;          //!< Sum of constraints in every database
-  uint64_t storage_modes[3];     //!< Number of databases in each storage mode [IN_MEM_TX, IN_MEM_ANA, ON_DISK_TX]
-  uint64_t isolation_levels[3];  //!< Number of databases in each isolation level [SNAPSHOT, READ_COMM, READ_UNC]
-  uint64_t snapshot_enabled;     //!< Number of databases with snapshots enabled
-  uint64_t wal_enabled;          //!< Number of databases with WAL enabled
-  uint64_t property_store_compression_enabled;   //!< Number of databases with property store compression enabled
-  uint64_t property_store_compression_level[3];  //!< Number of databases with each compression level [LOW, MID, HIGH]
+  uint64_t num_vertex;     //!< Sum of vertexes in every database
+  uint64_t num_edges;      //!< Sum of edges in every database
+  uint64_t triggers;       //!< Sum of triggers in every database
+  uint64_t streams;        //!< Sum of streams in every database
+  uint64_t users;          //!< Number of defined users
+  uint64_t roles;          //!< Number of defined roles
+  uint64_t num_databases;  //!< Number of isolated databases
+  uint64_t num_labels;     //!< Number of distinct labels
+  std::array<uint64_t, 7>
+      label_node_count_histogram;  //!< Log10 histogram: [0]=1-9, [1]=10-99, ..., [6]=1M+
+  uint64_t num_edge_types; //!< Number of distinct edge types
+  uint64_t indices;        //!< Sum of indices in every database
+  uint64_t constraints;    //!< Sum of constraints in every database
+  std::array<uint64_t, 3>
+      storage_modes{};  //!< Number of databases in each storage mode [IN_MEM_TX, IN_MEM_ANA, ON_DISK_TX]
+  std::array<uint64_t, 3>
+      isolation_levels{};     //!< Number of databases in each isolation level [SNAPSHOT, READ_COMM, READ_UNC]
+  uint64_t snapshot_enabled;  //!< Number of databases with snapshots enabled
+  uint64_t wal_enabled;       //!< Number of databases with WAL enabled
+  uint64_t property_store_compression_enabled;  //!< Number of databases with property store compression enabled
+  std::array<uint64_t, 3>
+      property_store_compression_level{};  //!< Number of databases with each compression level [LOW, MID, HIGH]
 };
 
 static inline nlohmann::json ToJson(const Statistics &stats) {
@@ -73,6 +83,7 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
   res["triggers"] = stats.triggers;
   res["streams"] = stats.streams;
   res["users"] = stats.users;
+  res["roles"] = stats.roles;
   res["databases"] = stats.num_databases;
   res["indices"] = stats.indices;
   res["constraints"] = stats.constraints;
@@ -88,6 +99,11 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
       {utils::CompressionLevelToString(utils::CompressionLevel::LOW), stats.property_store_compression_level[0]},
       {utils::CompressionLevelToString(utils::CompressionLevel::MID), stats.property_store_compression_level[1]},
       {utils::CompressionLevelToString(utils::CompressionLevel::HIGH), stats.property_store_compression_level[2]}};
+  res["label_node_count_histogram"] = {
+      {"1-9", stats.label_node_count_histogram[0]},       {"10-99", stats.label_node_count_histogram[1]},
+      {"100-999", stats.label_node_count_histogram[2]},   {"1K-9.99K", stats.label_node_count_histogram[3]},
+      {"10K-99.9K", stats.label_node_count_histogram[4]}, {"100K-999K", stats.label_node_count_histogram[5]},
+      {"1M+", stats.label_node_count_histogram[6]}};
 
   return res;
 }
@@ -100,9 +116,9 @@ class DbmsHandler {
   using LockT = utils::RWLock;
 #ifdef MG_ENTERPRISE
 
-  using NewResultT = utils::BasicResult<NewError, DatabaseAccess>;
-  using DeleteResult = utils::BasicResult<DeleteError>;
-  using RenameResult = utils::BasicResult<RenameError>;
+  using NewResultT = std::expected<DatabaseAccess, NewError>;
+  using DeleteResult = std::expected<void, DeleteError>;
+  using RenameResult = std::expected<void, RenameError>;
 
   /**
    * @brief Initialize the handler.
@@ -158,7 +174,7 @@ class DbmsHandler {
   NewResultT Update(const storage::SalientConfig &config) {
     auto wr = std::lock_guard{lock_};
     auto new_db = New_(config);
-    if (new_db.HasValue() || new_db.GetError() != NewError::EXISTS) {
+    if (new_db || new_db.error() != NewError::EXISTS) {
       // NOTE: If db already exists we retry below
       return new_db;
     }
@@ -183,7 +199,7 @@ class DbmsHandler {
       if (db->storage()->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ !=
           storage::kTimestampInitialId) {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
-        return NewError::GENERIC;  // Update error
+        return std::unexpected{NewError::GENERIC};  // Update error
       }
       spdlog::debug("Updated default db's UUID");
       // Default db cannot be deleted and remade, have to just update the UUID
@@ -353,6 +369,14 @@ class DbmsHandler {
         using underlying_type = std::underlying_type_t<utils::CompressionLevel>;
         ++stats.property_store_compression_level[static_cast<underlying_type>(
             storage_info.property_store_compression_level)];
+
+        auto const label_counts = db_acc->storage()->GetLabelCounts();
+
+        constexpr size_t kMaxHistogramBucket = 6;
+        for (auto &&[label, count] : label_counts) {
+          std::size_t const bucket = std::min(kMaxHistogramBucket, static_cast<std::size_t>(std::log10(count)));
+          ++stats.label_node_count_histogram[bucket];
+        }
       }
     }
     return stats;
@@ -518,7 +542,7 @@ class DbmsHandler {
       Get(kDefaultDB);
     } catch (const UnknownDatabaseException &) {
       // No default DB restored, create it
-      MG_ASSERT(New_(kDefaultDB, {/* random UUID */}, nullptr, ".").HasValue(),
+      MG_ASSERT(New_(kDefaultDB, {/* random UUID */}, nullptr, ".").has_value(),
                 "Failed while creating the default database");
     }
 

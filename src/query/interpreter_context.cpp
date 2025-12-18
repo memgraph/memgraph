@@ -68,7 +68,7 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
       }
     });
     std::optional<uint64_t> intr_trans = interpreter->GetTransactionId();
-    if (!intr_trans.has_value()) continue;
+    if (!intr_trans) continue;
 
     auto transaction_id = intr_trans.value();
 
@@ -128,7 +128,7 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
       continue;
     }
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
-    if (transaction_id.has_value()) {
+    if (transaction_id) {
       results.push_back(transaction_id.value());
     }
   }

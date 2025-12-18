@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,6 @@
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "storage/v2/point.hpp"
-#include "utils/cast.hpp"
 #include "utils/endian.hpp"
 #include "utils/logging.hpp"
 #include "utils/temporal.hpp"
@@ -179,11 +178,11 @@ class Decoder {
         }
       }
       default:
-        if ((value & 0xF0) == utils::UnderlyingCast(Marker::TinyString)) {
+        if ((value & 0xF0) == std::to_underlying(Marker::TinyString)) {
           return ReadString(marker, data);
-        } else if ((value & 0xF0) == utils::UnderlyingCast(Marker::TinyList)) {
+        } else if ((value & 0xF0) == std::to_underlying(Marker::TinyList)) {
           return ReadList(marker, data);
-        } else if ((value & 0xF0) == utils::UnderlyingCast(Marker::TinyMap)) {
+        } else if ((value & 0xF0) == std::to_underlying(Marker::TinyMap)) {
           return ReadMap(marker, data);
         } else {
           return ReadInt(marker, data);
@@ -221,9 +220,9 @@ class Decoder {
    *          false otherwise
    */
   bool ReadMessageHeader(Signature *signature, Marker *marker) {
-    uint8_t values[2];
+    std::array<uint8_t, 2> values;
 
-    if (!buffer_.Read(values, 2)) {
+    if (!buffer_.Read(values)) {
       return false;
     }
 
@@ -257,7 +256,7 @@ class Decoder {
   }
 
   bool ReadInt(const Marker &marker, Value *data) {
-    uint8_t value = utils::UnderlyingCast(marker);
+    uint8_t value = std::to_underlying(marker);
     int64_t ret;
     if (value >= 240 || value <= 127) {
       ret = value;
@@ -300,14 +299,14 @@ class Decoder {
       return false;
     }
     value = utils::BigEndianToHost(value);
-    ret = utils::MemcpyCast<double>(value);
+    ret = std::bit_cast<double>(value);
     *data = Value(ret);
     return true;
   }
 
   int64_t ReadTypeSize(const Marker &marker, const uint8_t type) {
-    uint8_t value = utils::UnderlyingCast(marker);
-    if ((value & 0xF0) == utils::UnderlyingCast(MarkerTiny[type])) {
+    uint8_t value = std::to_underlying(marker);
+    if ((value & 0xF0) == std::to_underlying(MarkerTiny[type])) {
       return value & 0x0F;
     } else if (marker == Marker8[type]) {
       uint8_t tmp;
@@ -335,8 +334,8 @@ class Decoder {
   }
 
   bool ReadString(const Marker &marker, Value *data) {
-    const int kMaxStackBuffer = 8192;
-    uint8_t buffer[kMaxStackBuffer];
+    static constexpr int kMaxStackBuffer = 8192;
+    std::array<uint8_t, kMaxStackBuffer> buffer;  // intentionally uninitialized for performance
     auto size = ReadTypeSize(marker, MarkerString);
     if (size == -1) {
       return false;
@@ -350,11 +349,11 @@ class Decoder {
     // Value(std::string('\0', size))` and just call
     // `buffer_.Read(data->ValueString().data())`.
     if (size < kMaxStackBuffer) {
-      if (!buffer_.Read(buffer, size)) {
+      if (!buffer_.Read(buffer.data(), size)) {
         SPDLOG_WARN("[ReadString] Missing data!");
         return false;
       }
-      *data = Value(std::string(reinterpret_cast<char *>(buffer), size));
+      *data = Value(std::string(reinterpret_cast<char *>(buffer.data()), size));
     } else {
       std::unique_ptr<uint8_t[]> ret(new uint8_t[size]);
       if (!buffer_.Read(ret.get(), size)) {

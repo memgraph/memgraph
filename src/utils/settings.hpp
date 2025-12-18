@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,14 +16,13 @@
 #include <unordered_map>
 
 #include "kvstore/kvstore.hpp"
-#include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::utils {
 struct Settings {
   using OnChangeCallback = std::function<void()>;
-  using ValidatorResult = BasicResult<std::string>;
+  using ValidatorResult = std::expected<void, std::string>;
   using Validation = std::function<ValidatorResult(std::string_view)>;
 
   void Initialize(std::filesystem::path storage_path);
@@ -32,7 +31,7 @@ struct Settings {
 
   void RegisterSetting(
       std::string name, const std::string &default_value, OnChangeCallback callback,
-      Validation validation = [](auto) -> BasicResult<std::string> { return {}; });
+      Validation validation = [](auto) -> ValidatorResult { return {}; });
   std::optional<std::string> GetValue(const std::string &setting_name) const;
   bool SetValue(const std::string &setting_name, const std::string &new_value);
   std::vector<std::pair<std::string, std::string>> AllSettings() const;

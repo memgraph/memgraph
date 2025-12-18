@@ -21,7 +21,7 @@ using memgraph::replication_coordination_glue::ReplicationRole;
 
 constexpr int kNumThreads = 8;
 
-#define ASSERT_OK(x) ASSERT_FALSE((x).HasError())
+#define ASSERT_OK(x) ASSERT_TRUE((x).has_value())
 
 using memgraph::storage::LabelId;
 using memgraph::storage::PropertyId;
@@ -70,7 +70,7 @@ void SetProperties(memgraph::storage::Storage *storage, memgraph::storage::Gid g
   for (size_t i = 0; i < properties.size(); ++i) {
     ASSERT_OK(vertex->SetProperty(properties[i], values[i]));
   }
-  *commit_status = !acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError();
+  *commit_status = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value();
 }
 
 void AddLabel(memgraph::storage::Storage *storage, memgraph::storage::Gid gid, LabelId label, bool *commit_status) {
@@ -82,7 +82,7 @@ void AddLabel(memgraph::storage::Storage *storage, memgraph::storage::Gid gid, L
     ASSERT_OK(vertex->RemoveLabel(label));
   }
   ASSERT_OK(vertex->AddLabel(label));
-  *commit_status = !acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError();
+  *commit_status = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value();
 }
 
 TEST_F(StorageUniqueConstraints, ParallelAbortCommit) {
@@ -94,7 +94,7 @@ TEST_F(StorageUniqueConstraints, ParallelAbortCommit) {
   {
     auto unique_acc = storage->UniqueAccess();
     auto res = unique_acc->CreateUniqueConstraint(label, {prop1});
-    ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
     spdlog::trace("Created UC");
   }
 
@@ -109,7 +109,7 @@ TEST_F(StorageUniqueConstraints, ParallelAbortCommit) {
       }
 
       if (bernoulli(gen)) {
-        auto res = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError();
+        auto res = !acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value();
         spdlog::trace("Res: {}", res);
       } else {
         acc->Abort();
@@ -128,9 +128,9 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
   {
     auto unique_acc = storage->UniqueAccess();
     auto res = unique_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
-    ASSERT_TRUE(res.HasValue());
-    ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(res.has_value());
+    ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -212,9 +212,9 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
   {
     auto unique_acc = storage->UniqueAccess();
     auto res = unique_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
-    ASSERT_TRUE(res.HasValue());
-    ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(res.has_value());
+    ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // In the first part of the test, each transaction tries to add the same label

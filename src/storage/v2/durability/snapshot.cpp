@@ -649,19 +649,19 @@ void OverwriteSnapshotUUID(std::filesystem::path const &path, utils::UUID const 
 std::vector<BatchInfo> ReadBatchInfos(Decoder &snapshot) {
   std::vector<BatchInfo> infos;
   const auto infos_size = snapshot.ReadUint();
-  if (!infos_size.has_value()) {
+  if (!infos_size) {
     throw RecoveryFailure("Couldn't read number of batch infos!");
   }
   infos.reserve(*infos_size);
 
   for (auto i{0U}; i < *infos_size; ++i) {
     const auto offset = snapshot.ReadUint();
-    if (!offset.has_value()) {
+    if (!offset) {
       throw RecoveryFailure("Couldn't read batch info offset!");
     }
 
     const auto count = snapshot.ReadUint();
-    if (!count.has_value()) {
+    if (!count) {
       throw RecoveryFailure("Couldn't read batch info count!");
     }
     infos.push_back(BatchInfo{*offset, *count});
@@ -2483,7 +2483,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
       spdlog::info("Recovering metadata of {} text indices.", size);
       for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
@@ -2675,7 +2675,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret) {
         throw storage::durability::RecoveryFailure("The enum could not be created!");
       }
     }
@@ -2931,7 +2931,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
       spdlog::info("Recovering metadata of {} text indices.", size);
       for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
@@ -3121,7 +3121,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret) {
         throw storage::durability::RecoveryFailure("The enum could not be created!");
       }
     }
@@ -3397,7 +3397,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
       spdlog::info("Recovering metadata of {} text indices.", size);
       for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
@@ -3617,7 +3617,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret) {
         throw storage::durability::RecoveryFailure("The enum could not be created!");
       }
     }
@@ -3894,7 +3894,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
       spdlog::info("Recovering metadata of {} vector indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read vector index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read vector index name!");
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
@@ -3935,7 +3935,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
       spdlog::info("Recovering metadata of {} text indices.", size);
       for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
@@ -4155,7 +4155,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret) {
         throw RecoveryFailure("The enum could not be created!");
       }
     }
@@ -4478,7 +4478,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
       spdlog::info("Recovering metadata of {} vector indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read vector index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read vector index name!");
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
@@ -4519,7 +4519,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
       spdlog::info("Recovering metadata of {} text indices.", size);
       for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
@@ -4739,7 +4739,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret) {
         throw RecoveryFailure("The enum could not be created!");
       }
     }
@@ -5054,7 +5054,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
       spdlog::info("Recovering metadata of {} vector indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read vector index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read vector index name!");
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
@@ -5095,7 +5095,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
       spdlog::info("Recovering metadata of {} text indices.", size);
       for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
@@ -5315,7 +5315,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret) {
         throw RecoveryFailure("The enum could not be created!");
       }
     }
@@ -5630,7 +5630,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
       spdlog::info("Recovering metadata of {} vector indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read vector index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read vector index name!");
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
@@ -5673,7 +5673,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
       spdlog::info("Recovering metadata of {} text indices.", size);
       for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
@@ -5893,7 +5893,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret) {
         throw RecoveryFailure("The enum could not be created!");
       }
     }
@@ -6208,7 +6208,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
       spdlog::info("Recovering metadata of {} vector indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read vector index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read vector index name!");
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
@@ -6253,7 +6253,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
       spdlog::info("Recovering metadata of {} vector indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read vector index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read vector index name!");
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
@@ -6298,7 +6298,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
       spdlog::info("Recovering metadata of {} text indices.", size);
       for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
@@ -6518,7 +6518,7 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret) {
         throw RecoveryFailure("The enum could not be created!");
       }
     }
@@ -6833,7 +6833,7 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
       spdlog::info("Recovering metadata of {} vector indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read vector index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read vector index name!");
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
@@ -6878,7 +6878,7 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
       spdlog::info("Recovering metadata of {} vector indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read vector index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read vector index name!");
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
@@ -6923,7 +6923,7 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
       spdlog::info("Recovering metadata of {} text indices.", size);
       for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         auto n_props = snapshot.ReadUint();
@@ -7153,7 +7153,7 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret) {
         throw RecoveryFailure("The enum could not be created!");
       }
     }
@@ -7468,7 +7468,7 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
       spdlog::info("Recovering metadata of {} vector indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read vector index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read vector index name!");
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
@@ -7513,7 +7513,7 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
       spdlog::info("Recovering metadata of {} vector indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read vector index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read vector index name!");
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
@@ -7558,17 +7558,17 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
       spdlog::info("Recovering metadata of {} text indices.", size);
       for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         // Read properties
         auto n_props = snapshot.ReadUint();
-        if (!n_props.has_value()) throw RecoveryFailure("Couldn't read text index properties count!");
+        if (!n_props) throw RecoveryFailure("Couldn't read text index properties count!");
         std::vector<PropertyId> properties;
         properties.reserve(*n_props);
         for (uint64_t j = 0; j < *n_props; ++j) {
           auto property = snapshot.ReadUint();
-          if (!property.has_value()) throw RecoveryFailure("Couldn't read text index property!");
+          if (!property) throw RecoveryFailure("Couldn't read text index property!");
           properties.emplace_back(get_property_from_id(*property));
         }
 
@@ -7709,38 +7709,38 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
 
     // Read TTL enabled state
     auto ttl_enabled = snapshot.ReadBool();
-    if (!ttl_enabled.has_value()) throw RecoveryFailure("Couldn't read TTL enabled state!");
+    if (!ttl_enabled) throw RecoveryFailure("Couldn't read TTL enabled state!");
 
     if (*ttl_enabled) {
       // Running
       auto ttl_running = snapshot.ReadBool();
-      if (!ttl_running.has_value()) throw RecoveryFailure("Couldn't read TTL running state!");
+      if (!ttl_running) throw RecoveryFailure("Couldn't read TTL running state!");
 
       // Read period
       auto has_period = snapshot.ReadBool();
-      if (!has_period.has_value()) throw RecoveryFailure("Couldn't read TTL period flag!");
+      if (!has_period) throw RecoveryFailure("Couldn't read TTL period flag!");
 
       std::optional<std::chrono::microseconds> period;
       if (*has_period) {
         auto period_count = snapshot.ReadUint();
-        if (!period_count.has_value()) throw RecoveryFailure("Couldn't read TTL period count!");
+        if (!period_count) throw RecoveryFailure("Couldn't read TTL period count!");
         period = std::chrono::microseconds(*period_count);
       }
 
       // Read start_time
       auto has_start_time = snapshot.ReadBool();
-      if (!has_start_time.has_value()) throw RecoveryFailure("Couldn't read TTL start_time flag!");
+      if (!has_start_time) throw RecoveryFailure("Couldn't read TTL start_time flag!");
 
       std::optional<std::chrono::system_clock::time_point> start_time;
       if (*has_start_time) {
         auto start_time_count = snapshot.ReadUint();
-        if (!start_time_count.has_value()) throw RecoveryFailure("Couldn't read TTL start_time count!");
+        if (!start_time_count) throw RecoveryFailure("Couldn't read TTL start_time count!");
         start_time = std::chrono::system_clock::time_point(std::chrono::system_clock::duration(*start_time_count));
       }
 
       // Read should_run_edge_ttl
       auto should_run_edge_ttl = snapshot.ReadBool();
-      if (!should_run_edge_ttl.has_value()) throw RecoveryFailure("Couldn't read TTL should_run_edge_ttl!");
+      if (!should_run_edge_ttl) throw RecoveryFailure("Couldn't read TTL should_run_edge_ttl!");
 
       // Create TtlInfo and store it in recovery_info;
       ttl->Enable();
@@ -7852,7 +7852,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       }
 
       auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
-      if (ret.HasError()) {
+      if (!ret) {
         throw RecoveryFailure("The enum could not be created!");
       }
     }
@@ -8167,7 +8167,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       spdlog::info("Recovering metadata of {} vector indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read vector index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read vector index name!");
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
@@ -8212,7 +8212,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       spdlog::info("Recovering metadata of {} vector indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read vector index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read vector index name!");
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
@@ -8259,17 +8259,17 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         spdlog::info("Recovering metadata of {} text indices.", size);
         for (uint64_t i = 0; i < size; ++i) {
           auto index_name = snapshot.ReadString();
-          if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+          if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
           auto label = snapshot.ReadUint();
           if (!label) throw RecoveryFailure("Couldn't read text index label!");
           // Read properties
           auto n_props = snapshot.ReadUint();
-          if (!n_props.has_value()) throw RecoveryFailure("Couldn't read text index properties count!");
+          if (!n_props) throw RecoveryFailure("Couldn't read text index properties count!");
           std::vector<PropertyId> properties;
           properties.reserve(*n_props);
           for (uint64_t j = 0; j < *n_props; ++j) {
             auto property = snapshot.ReadUint();
-            if (!property.has_value()) throw RecoveryFailure("Couldn't read text index property!");
+            if (!property) throw RecoveryFailure("Couldn't read text index property!");
             properties.emplace_back(get_property_from_id(*property));
           }
 
@@ -8289,17 +8289,17 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         spdlog::info("Recovering metadata of {} text indices.", size);
         for (uint64_t i = 0; i < size; ++i) {
           const auto index_name = snapshot.ReadString();
-          if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+          if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
           const auto edge_type_id = snapshot.ReadUint();
           if (!edge_type_id) throw RecoveryFailure("Couldn't read text index edge type!");
           // Read properties
           const auto n_props = snapshot.ReadUint();
-          if (!n_props.has_value()) throw RecoveryFailure("Couldn't read text index properties count!");
+          if (!n_props) throw RecoveryFailure("Couldn't read text index properties count!");
           std::vector<PropertyId> properties;
           properties.reserve(*n_props);
           for (uint64_t j = 0; j < *n_props; ++j) {
             const auto property = snapshot.ReadUint();
-            if (!property.has_value()) throw RecoveryFailure("Couldn't read text index property!");
+            if (!property) throw RecoveryFailure("Couldn't read text index property!");
             properties.emplace_back(get_property_from_id(*property));
           }
           AddRecoveredIndexConstraint(
@@ -8441,38 +8441,38 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
     // Read TTL enabled state
     auto ttl_enabled = snapshot.ReadBool();
-    if (!ttl_enabled.has_value()) throw RecoveryFailure("Couldn't read TTL enabled state!");
+    if (!ttl_enabled) throw RecoveryFailure("Couldn't read TTL enabled state!");
 
     if (*ttl_enabled) {
       // Running
       auto ttl_running = snapshot.ReadBool();
-      if (!ttl_running.has_value()) throw RecoveryFailure("Couldn't read TTL running state!");
+      if (!ttl_running) throw RecoveryFailure("Couldn't read TTL running state!");
 
       // Read period
       auto has_period = snapshot.ReadBool();
-      if (!has_period.has_value()) throw RecoveryFailure("Couldn't read TTL period flag!");
+      if (!has_period) throw RecoveryFailure("Couldn't read TTL period flag!");
 
       std::optional<std::chrono::microseconds> period;
       if (*has_period) {
         auto period_count = snapshot.ReadUint();
-        if (!period_count.has_value()) throw RecoveryFailure("Couldn't read TTL period count!");
+        if (!period_count) throw RecoveryFailure("Couldn't read TTL period count!");
         period = std::chrono::microseconds(*period_count);
       }
 
       // Read start_time
       auto has_start_time = snapshot.ReadBool();
-      if (!has_start_time.has_value()) throw RecoveryFailure("Couldn't read TTL start_time flag!");
+      if (!has_start_time) throw RecoveryFailure("Couldn't read TTL start_time flag!");
 
       std::optional<std::chrono::system_clock::time_point> start_time;
       if (*has_start_time) {
         auto start_time_count = snapshot.ReadUint();
-        if (!start_time_count.has_value()) throw RecoveryFailure("Couldn't read TTL start_time count!");
+        if (!start_time_count) throw RecoveryFailure("Couldn't read TTL start_time count!");
         start_time = std::chrono::system_clock::time_point(std::chrono::system_clock::duration(*start_time_count));
       }
 
       // Read should_run_edge_ttl
       auto should_run_edge_ttl = snapshot.ReadBool();
-      if (!should_run_edge_ttl.has_value()) throw RecoveryFailure("Couldn't read TTL should_run_edge_ttl!");
+      if (!should_run_edge_ttl) throw RecoveryFailure("Couldn't read TTL should_run_edge_ttl!");
 
       // Create TtlInfo and store it in recovery_info;
       ttl->Enable();
@@ -8844,13 +8844,13 @@ std::optional<std::filesystem::path> CreateSnapshot(
 
       // Get edge data.
       auto maybe_props = ea.Properties(View::OLD);
-      MG_ASSERT(maybe_props.HasValue(), "Invalid database state!");
+      MG_ASSERT(maybe_props.has_value(), "Invalid database state!");
 
       // Store the edge.
       {
         edges_snapshot.WriteMarker(Marker::SECTION_EDGE);
         edges_snapshot.WriteUint(edge.gid.AsUint());
-        const auto &props = maybe_props.GetValue();
+        const auto &props = maybe_props.value();
         edges_snapshot.WriteUint(props.size());
         for (const auto &item : props) {
           write_mapping_to(edges_snapshot, res.used_ids, item.first);
@@ -8916,32 +8916,32 @@ std::optional<std::filesystem::path> CreateSnapshot(
       // TODO (mferencevic): All of these functions could be written into a
       // single function so that we traverse the undo deltas only once.
       auto maybe_labels = va->Labels(View::OLD);
-      MG_ASSERT(maybe_labels.HasValue(), "Invalid database state!");
+      MG_ASSERT(maybe_labels.has_value(), "Invalid database state!");
       auto maybe_props = va->Properties(View::OLD);
-      MG_ASSERT(maybe_props.HasValue(), "Invalid database state!");
+      MG_ASSERT(maybe_props.has_value(), "Invalid database state!");
       auto maybe_in_edges = va->InEdges(View::OLD);
-      MG_ASSERT(maybe_in_edges.HasValue(), "Invalid database state!");
+      MG_ASSERT(maybe_in_edges.has_value(), "Invalid database state!");
       auto maybe_out_edges = va->OutEdges(View::OLD);
-      MG_ASSERT(maybe_out_edges.HasValue(), "Invalid database state!");
+      MG_ASSERT(maybe_out_edges.has_value(), "Invalid database state!");
 
       // Store the vertex.
       {
         vertex_snapshot.WriteMarker(Marker::SECTION_VERTEX);
         vertex_snapshot.WriteUint(vertex.gid.AsUint());
-        const auto &labels = maybe_labels.GetValue();
+        const auto &labels = maybe_labels.value();
         vertex_snapshot.WriteUint(labels.size());
         for (const auto &item : labels) {
           write_mapping_to(vertex_snapshot, res.used_ids, item);
         }
-        const auto &props = maybe_props.GetValue();
+        const auto &props = maybe_props.value();
         vertex_snapshot.WriteUint(props.size());
         for (const auto &item : props) {
           write_mapping_to(vertex_snapshot, res.used_ids, item.first);
           vertex_snapshot.WriteExternalPropertyValue(
               ToExternalPropertyValue(item.second, storage->name_id_mapper_.get()));
         }
-        const auto &in_edges = maybe_in_edges.GetValue().edges;
-        const auto &out_edges = maybe_out_edges.GetValue().edges;
+        const auto &in_edges = maybe_in_edges->edges;
+        const auto &out_edges = maybe_out_edges->edges;
 
         if (storage->config_.salient.items.properties_on_edges) {
           vertex_snapshot.WriteUint(in_edges.size());

@@ -51,9 +51,9 @@ class FineGrainedAuthCheckerFixture : public testing::Test {
 
   void SetUp() override {
     memgraph::license::global_license_checker.EnableTesting();
-    ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).HasValue());
-    ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).HasValue());
-    ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).HasValue());
+    ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).has_value());
+    ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).has_value());
+    ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).has_value());
     dba.AdvanceCommand();
   }
 
@@ -178,8 +178,8 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, MultipleVertexLabels) {
   user.fine_grained_access_handler().label_permissions().Grant({"l2"}, memgraph::auth::kAllPermissions);
   user.fine_grained_access_handler().label_permissions().Grant({"l3"}, memgraph::auth::FineGrainedPermission::NOTHING);
   memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
-  ASSERT_TRUE(this->v1.AddLabel(this->dba.NameToLabel("l3")).HasValue());
-  ASSERT_TRUE(this->v2.AddLabel(this->dba.NameToLabel("l1")).HasValue());
+  ASSERT_TRUE(this->v1.AddLabel(this->dba.NameToLabel("l3")).has_value());
+  ASSERT_TRUE(this->v2.AddLabel(this->dba.NameToLabel("l1")).has_value());
   this->dba.AdvanceCommand();
 
   ASSERT_FALSE(

@@ -67,7 +67,7 @@ std::size_t CheckVertexProperties(std::unique_ptr<Accessor> acc, memgraph::stora
     auto vertex = *it;
     auto results = props | rv::transform([&](auto &&prop) {
                      auto result = vertex.GetProperty(prop[0], memgraph::storage::View::OLD);
-                     if (!result.HasValue()) {
+                     if (!result) {
                        return memgraph::storage::PropertyValue{};
                      }
                      auto value = ReadNestedPropertyValue(*result, prop | rv::drop(1));

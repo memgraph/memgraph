@@ -25,8 +25,8 @@ namespace memgraph::flags {
 
 bool ValidStoragePropertyStoreCompressionLevel(std::string_view value) {
   if (const auto result = memgraph::utils::IsValidEnumValueString(value, compression_level_mappings);
-      result.HasError()) {
-    const auto error = result.GetError();
+      !result.has_value()) {
+    const auto error = result.error();
     switch (error) {
       case memgraph::utils::ValidationError::EmptyValue: {
         std::cout << "Compression level cannot be empty." << '\n';

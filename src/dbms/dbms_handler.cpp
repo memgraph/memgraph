@@ -181,7 +181,7 @@ DbmsHandler::DbmsHandler(storage::Config config,
       const auto rel_dir = json.at("rel_dir").get<std::filesystem::path>();
       spdlog::info("Restoring database {} at {}.", name, rel_dir);
       auto new_db = New_(name, uuid, nullptr, rel_dir);
-      MG_ASSERT(!new_db.HasError(), "Failed while creating database {}.", name);
+      MG_ASSERT(new_db.has_value(), "Failed while creating database {}.", name);
       directories.emplace(rel_dir.filename());
       spdlog::info("Database {} restored.", name);
     }
@@ -282,13 +282,13 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
   auto wr = std::lock_guard{lock_};
   if (db_name == kDefaultDB) {
     // MSG cannot delete the default db
-    return DeleteError::DEFAULT_DB;
+    return std::unexpected{DeleteError::DEFAULT_DB};
   }
 
   // Get DB config for the UUID and disk clean up
   const auto conf = db_handler_.GetConfig(db_name);
   if (!conf) {
-    return DeleteError::NON_EXISTENT;
+    return std::unexpected{DeleteError::NON_EXISTENT};
   }
   const auto &storage_path = conf->durability.storage_directory;
   const auto &uuid = conf->salient.uuid;
@@ -297,10 +297,10 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
   try {
     // Low level handlers
     if (!db_handler_.TryDelete(db_name)) {
-      return DeleteError::USING;
+      return std::unexpected{DeleteError::USING};
     }
   } catch (utils::BasicException &) {
-    return DeleteError::NON_EXISTENT;
+    return std::unexpected{DeleteError::NON_EXISTENT};
   }
 
   // Remove from durability list
@@ -328,12 +328,12 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::
   // Get DB config for the UUID and disk clean up
   const auto conf = db_handler_.GetConfig(db_name);
   if (!conf) {
-    return DeleteError::NON_EXISTENT;
+    return std::unexpected{DeleteError::NON_EXISTENT};
   }
 
   // Force delete
   const auto res = Delete_(db_name);
-  if (!res.HasError()) {
+  if (res) {
     // Success; save delta
     if (transaction) {
       transaction->AddAction<DropDatabase>(conf->salient.uuid);
@@ -354,7 +354,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(utils::UUID uuid) {
     const auto db = Get_(uuid);
     db_name = db->name();
   } catch (const UnknownDatabaseException &) {
-    return DeleteError::NON_EXISTENT;
+    return std::unexpected{DeleteError::NON_EXISTENT};
   }
   return Delete_(db_name);
 }
@@ -365,18 +365,18 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
 
   // Check if trying to rename default database
   if (old_name == kDefaultDB) {
-    return RenameError::DEFAULT_DB;
+    return std::unexpected{RenameError::DEFAULT_DB};
   }
 
   // Perform the rename operation in the handler
-  if (auto rename_result = db_handler_.Rename(old_name, new_name); rename_result.HasError()) {
-    return rename_result.GetError();
+  if (auto rename_result = db_handler_.Rename(old_name, new_name); !rename_result.has_value()) {
+    return std::unexpected{rename_result.error()};
   }
 
   // Update current db config
   auto new_db = db_handler_.Get(new_name);
   MG_ASSERT(new_db, "Database {} not found after rename.", new_name);
-  new_db.value()->storage()->config_.salient.name = new_name;
+  (*new_db)->storage()->config_.salient.name = new_name;
 
   // Update durability metadata
   if (durability_) {
@@ -437,11 +437,11 @@ struct CreateDatabase : memgraph::system::ISystemAction {
 DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config, system::Transaction *txn) {
   auto new_db = db_handler_.New(storage_config, repl_state_);
 
-  if (new_db.HasValue()) {  // Success
-                            // Save delta
+  if (new_db) {  // Success
+                 // Save delta
     UpdateDurability(storage_config);
     if (txn) {
-      txn->AddAction<CreateDatabase>(storage_config.salient, new_db.GetValue());
+      txn->AddAction<CreateDatabase>(storage_config.salient, new_db.value());
     }
   }
   return new_db;
@@ -450,15 +450,15 @@ DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config, system
 DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   if (db_name == kDefaultDB) {
     // MSG cannot delete the default db
-    return DeleteError::DEFAULT_DB;
+    return std::unexpected{DeleteError::DEFAULT_DB};
   }
 
   const auto storage_path = StorageDir_(db_name);
-  if (!storage_path) return DeleteError::NON_EXISTENT;
+  if (!storage_path) return std::unexpected{DeleteError::NON_EXISTENT};
 
   {
     auto db = db_handler_.Get(db_name);
-    if (!db) return DeleteError::NON_EXISTENT;
+    if (!db) return std::unexpected{DeleteError::NON_EXISTENT};
     // TODO: ATM we assume REPLICA won't have streams,
     //       this is a best effort approach just in case they do
     //       there is still subtle data race we stream manipulation

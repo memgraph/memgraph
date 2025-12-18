@@ -33,9 +33,8 @@ namespace rv = r::views;
 namespace memgraph::integrations::kafka {
 
 namespace {
-utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaConsumer &consumer,
-                                                               const ConsumerInfo &info,
-                                                               std::atomic<bool> &is_running) {
+std::expected<std::vector<Message>, std::string> GetBatch(RdKafka::KafkaConsumer &consumer, const ConsumerInfo &info,
+                                                          std::atomic<bool> &is_running) {
   std::vector<Message> batch{};
 
   batch.reserve(info.batch_size);
@@ -62,7 +61,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaCon
         auto error = msg->errstr();
         spdlog::warn("Unexpected error while consuming message in consumer {}, error: {} (code {})!",
                      info.consumer_name, msg->errstr(), msg->err());
-        return {std::move(error)};
+        return std::unexpected{std::move(error)};
     }
 
     if (!run_batch) {
@@ -75,7 +74,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaCon
     start = now;
   }
 
-  return std::move(batch);
+  return batch;
 }
 
 void CheckAndDestroyLastAssignmentIfNeeded(RdKafka::KafkaConsumer &consumer, const ConsumerInfo &info,
@@ -195,7 +194,7 @@ Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 
-  consumer_ = std::unique_ptr<RdKafka::KafkaConsumer, std::function<void(RdKafka::KafkaConsumer *)>>(
+  consumer_ = std::unique_ptr<RdKafka::KafkaConsumer, std::move_only_function<void(RdKafka::KafkaConsumer *)>>(
       RdKafka::KafkaConsumer::create(conf.get(), error), [this](auto *consumer) {
         this->StopConsuming();
         consumer->close();
@@ -340,11 +339,11 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
     }
     auto maybe_batch = GetBatch(*consumer_, info_, is_running_);
 
-    if (maybe_batch.HasError()) {
-      throw ConsumerCheckFailedException(info_.consumer_name, maybe_batch.GetError());
+    if (!maybe_batch) {
+      throw ConsumerCheckFailedException(info_.consumer_name, maybe_batch.error());
     }
 
-    const auto &batch = maybe_batch.GetValue();
+    const auto &batch = maybe_batch.value();
 
     if (batch.empty()) {
       continue;
@@ -397,10 +396,10 @@ void Consumer::StartConsuming() {
 
     while (is_running_) {
       auto maybe_batch = GetBatch(*consumer_, info_, is_running_);
-      if (maybe_batch.HasError()) {
-        throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.GetError());
+      if (!maybe_batch) {
+        throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.error());
       }
-      const auto &batch = maybe_batch.GetValue();
+      const auto &batch = maybe_batch.value();
 
       if (batch.empty()) {
         continue;
@@ -440,10 +439,10 @@ void Consumer::StartConsumingWithLimit(uint64_t limit_batches, std::optional<std
     }
 
     const auto maybe_batch = GetBatch(*consumer_, info_, is_running_);
-    if (maybe_batch.HasError()) {
-      throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.GetError());
+    if (!maybe_batch) {
+      throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.error());
     }
-    const auto &batch = maybe_batch.GetValue();
+    const auto &batch = maybe_batch.value();
 
     if (batch.empty()) {
       continue;
@@ -463,7 +462,7 @@ void Consumer::StopConsuming() {
   if (thread_.joinable()) thread_.join();
 }
 
-utils::BasicResult<std::string> Consumer::SetConsumerOffsets(int64_t offset) {
+std::expected<void, std::string> Consumer::SetConsumerOffsets(int64_t offset) {
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
   }
@@ -476,7 +475,8 @@ utils::BasicResult<std::string> Consumer::SetConsumerOffsets(int64_t offset) {
 
   cb_.set_offset(offset);
   if (const auto err = consumer_->subscribe(info_.topics); err != RdKafka::ERR_NO_ERROR) {
-    return fmt::format("Could not set offset of consumer: {}. Error: {}", info_.consumer_name, RdKafka::err2str(err));
+    return std::unexpected{
+        fmt::format("Could not set offset of consumer: {}. Error: {}", info_.consumer_name, RdKafka::err2str(err))};
   }
   return {};
 }

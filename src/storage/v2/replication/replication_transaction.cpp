@@ -80,7 +80,7 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
     } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
       if (decision) {
         client->FinalizeTransactionReplication(protector, std::move(replica_stream), durability_commit_timestamp);
-      } else if (replica_stream.has_value()) {
+      } else if (replica_stream) {
         // Reconnect needed because we optimistically prepared PrepareCommitReq message already.
         // We should only do this if we own the RPC lock.
         client->AbortRpcClient();

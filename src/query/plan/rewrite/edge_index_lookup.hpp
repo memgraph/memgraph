@@ -813,7 +813,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   std::vector<CandidateIndex> GetCandidateIndices(
       const Symbol &symbol, const std::optional<storage::EdgeTypeId> edge_type_from_relationship) {
-    if (edge_type_from_relationship.has_value()) {
+    if (edge_type_from_relationship) {
       return GetCandidateIndicesFromRelationship(symbol, edge_type_from_relationship);
     } else {
       return GetCandidateIndicesFromFilter(symbol);

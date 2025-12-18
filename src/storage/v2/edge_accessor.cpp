@@ -19,7 +19,6 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/result.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -146,7 +145,7 @@ VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const {
 
 Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
+  if (!storage_->config_.salient.items.properties_on_edges) return std::unexpected{Error::PROPERTIES_DISABLED};
 
   // This needs to happen before locking the object
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
@@ -156,9 +155,9 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
 
   auto guard = std::unique_lock{edge_.ptr->lock};
 
-  if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
+  if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-  if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
+  if (edge_.ptr->deleted) return std::unexpected{Error::DELETED_OBJECT};
   using ReturnType = decltype(edge_.ptr->properties.GetProperty(property));
   std::optional<ReturnType> current_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
@@ -198,7 +197,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
 
 Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
+  if (!storage_->config_.salient.items.properties_on_edges) return std::unexpected{Error::PROPERTIES_DISABLED};
 
   // This needs to happen before locking the object
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
@@ -208,9 +207,9 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
 
   auto guard = std::unique_lock{edge_.ptr->lock};
 
-  if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
+  if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-  if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
+  if (edge_.ptr->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   if (!edge_.ptr->properties.InitProperties(properties)) return false;
   utils::AtomicMemoryBlock([this, &properties, &schema_acc]() {
@@ -238,7 +237,7 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
 Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAccessor::UpdateProperties(
     std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
+  if (!storage_->config_.salient.items.properties_on_edges) return std::unexpected{Error::PROPERTIES_DISABLED};
 
   // This needs to happen before locking the object
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
@@ -248,9 +247,9 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
 
   auto guard = std::unique_lock{edge_.ptr->lock};
 
-  if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
+  if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-  if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
+  if (edge_.ptr->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   using ReturnType = decltype(edge_.ptr->properties.UpdateProperties(properties));
@@ -276,11 +275,11 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
     // TODO If the current implementation is too slow there is an UpdateProperties option
   });
 
-  return id_old_new_change.has_value() ? std::move(id_old_new_change.value()) : ReturnType{};
+  return std::move(id_old_new_change).value_or(ReturnType{});
 }
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
-  if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
+  if (!storage_->config_.salient.items.properties_on_edges) return std::unexpected{Error::PROPERTIES_DISABLED};
 
   // This needs to happen before locking the object
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
@@ -290,9 +289,9 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
 
   auto guard = std::unique_lock{edge_.ptr->lock};
 
-  if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
+  if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-  if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
+  if (edge_.ptr->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   using ReturnType = decltype(edge_.ptr->properties.Properties());
   std::optional<ReturnType> properties;
@@ -320,7 +319,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
     edge_.ptr->properties.ClearProperties();
   });
 
-  return properties.has_value() ? std::move(properties.value()) : ReturnType{};
+  return std::move(properties).value_or(ReturnType{});
 }
 
 Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
@@ -361,8 +360,8 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
         break;
     }
   });
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return *std::move(value);
 }
 
@@ -377,8 +376,8 @@ Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) c
 
   auto property_result = this->GetProperty(property, view);
 
-  if (property_result.HasError()) {
-    return property_result.GetError();
+  if (!property_result) {
+    return std::unexpected{property_result.error()};
   }
 
   auto property_store = storage::PropertyStore();
@@ -434,8 +433,8 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
         break;
     }
   });
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return std::move(properties);
 }
 
@@ -494,8 +493,8 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyId
         break;
     }
   });
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return properties_map;
 }
 

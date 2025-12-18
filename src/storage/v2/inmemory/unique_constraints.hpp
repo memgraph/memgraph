@@ -29,21 +29,6 @@ namespace memgraph::storage {
 
 struct Transaction;
 
-/// Utility class to store data in a fixed size array. The array is used
-/// instead of `std::vector` to avoid `std::bad_alloc` exception where not
-/// necessary.
-template <class T>
-struct FixedCapacityArray {
-  size_t size;
-  T values[kUniqueConstraintsMaxProperties];
-
-  explicit FixedCapacityArray(size_t array_size) : size(array_size) {
-    MG_ASSERT(size <= kUniqueConstraintsMaxProperties, "Invalid array size!");
-  }
-};
-
-using PropertyIdArray = FixedCapacityArray<PropertyId>;
-
 class InMemoryUniqueConstraints : public UniqueConstraints {
  public:
   bool empty() const override;
@@ -98,7 +83,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// exceeds the maximum allowed number of properties, and
   /// `CreationStatus::SUCCESS` on success.
   /// @throw std::bad_alloc
-  utils::BasicResult<ConstraintViolation, CreationStatus> CreateConstraint(
+  std::expected<CreationStatus, ConstraintViolation> CreateConstraint(
       LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
       const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);

@@ -205,7 +205,7 @@ std::vector<EventInfo> Storage::GetMetrics() noexcept {
 
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
-utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
+std::expected<void, Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   std::unique_lock main_guard{main_lock_};
   isolation_level_ = isolation_level;
   return {};
@@ -248,26 +248,26 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
   if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
     auto out_edges_res = vertex->OutEdges(View::OLD);
     auto in_edges_res = vertex->InEdges(View::OLD);
-    if (out_edges_res.HasError() && out_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
-      return out_edges_res.GetError();
+    if (!out_edges_res && out_edges_res.error() != Error::NONEXISTENT_OBJECT) {
+      return std::unexpected{out_edges_res.error()};
     }
-    if (!out_edges_res.HasError() && !out_edges_res->edges.empty()) {
-      return Error::VERTEX_HAS_EDGES;
+    if (out_edges_res.has_value() && !out_edges_res->edges.empty()) {
+      return std::unexpected{Error::VERTEX_HAS_EDGES};
     }
-    if (in_edges_res.HasError() && in_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
-      return in_edges_res.GetError();
+    if (!in_edges_res && in_edges_res.error() != Error::NONEXISTENT_OBJECT) {
+      return std::unexpected{in_edges_res.error()};
     }
-    if (!in_edges_res.HasError() && !in_edges_res->edges.empty()) {
-      return Error::VERTEX_HAS_EDGES;
+    if (in_edges_res.has_value() && !in_edges_res->edges.empty()) {
+      return std::unexpected{Error::VERTEX_HAS_EDGES};
     }
   }
   auto res = DetachDelete({vertex}, {}, false);
 
-  if (res.HasError()) {
-    return res.GetError();
+  if (!res) {
+    return std::unexpected{res.error()};
   }
 
-  const auto &value = res.GetValue();
+  const auto &value = res.value();
   if (!value) {
     return std::optional<VertexAccessor>{};
   }
@@ -290,21 +290,21 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
   if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
     auto out_edges_res = vertex->OutEdges(View::OLD);
     auto in_edges_res = vertex->InEdges(View::OLD);
-    if (out_edges_res.HasError() && out_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
-      return out_edges_res.GetError();
+    if (!out_edges_res && out_edges_res.error() != Error::NONEXISTENT_OBJECT) {
+      return std::unexpected{out_edges_res.error()};
     }
-    if (in_edges_res.HasError() && in_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
-      return in_edges_res.GetError();
+    if (!in_edges_res && in_edges_res.error() != Error::NONEXISTENT_OBJECT) {
+      return std::unexpected{in_edges_res.error()};
     }
   }
 
   auto res = DetachDelete({vertex}, {}, true);
 
-  if (res.HasError()) {
-    return res.GetError();
+  if (!res) {
+    return std::unexpected{res.error()};
   }
 
-  auto &value = res.GetValue();
+  auto &value = res.value();
   if (!value) {
     return std::optional<ReturnType>{};
   }
@@ -319,11 +319,11 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
 Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
   auto res = DetachDelete({}, {edge}, false);
 
-  if (res.HasError()) {
-    return res.GetError();
+  if (!res) {
+    return std::unexpected{res.error()};
   }
 
-  const auto &value = res.GetValue();
+  const auto &value = res.value();
   if (!value) {
     return std::optional<EdgeAccessor>{};
   }
@@ -348,11 +348,11 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
       /// TODO: (andi) Extract into a separate function.
       auto out_edges_res = vertex->OutEdges(View::OLD);
       auto in_edges_res = vertex->InEdges(View::OLD);
-      if (out_edges_res.HasError() && out_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
-        return out_edges_res.GetError();
+      if (!out_edges_res && out_edges_res.error() != Error::NONEXISTENT_OBJECT) {
+        return std::unexpected{out_edges_res.error()};
       }
-      if (in_edges_res.HasError() && in_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
-        return in_edges_res.GetError();
+      if (!in_edges_res && in_edges_res.error() != Error::NONEXISTENT_OBJECT) {
+        return std::unexpected{in_edges_res.error()};
       }
     }
   }
@@ -362,10 +362,10 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
 
   // 1. Gather nodes which are not deleted yet in the system
   auto maybe_nodes_to_delete = PrepareDeletableNodes(nodes);
-  if (maybe_nodes_to_delete.HasError()) {
-    return maybe_nodes_to_delete.GetError();
+  if (!maybe_nodes_to_delete) {
+    return std::unexpected{maybe_nodes_to_delete.error()};
   }
-  const auto &nodes_to_delete = *maybe_nodes_to_delete.GetValue();
+  const auto &nodes_to_delete = *maybe_nodes_to_delete.value();
 
   // 2. Gather edges and corresponding node on the other end of the edge for the deletable nodes
   EdgeInfoForDeletion edge_deletion_info = PrepareDeletableEdges(nodes_to_delete, edges, detach);
@@ -375,24 +375,24 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   std::vector<EdgeAccessor> deleted_edges;
   if (detach) {
     auto maybe_cleared_edges = ClearEdgesOnVertices(nodes_to_delete, deleted_edge_ids, schema_acc);
-    if (maybe_cleared_edges.HasError()) {
-      return maybe_cleared_edges.GetError();
+    if (!maybe_cleared_edges) {
+      return std::unexpected{maybe_cleared_edges.error()};
     }
 
-    deleted_edges = *maybe_cleared_edges.GetValue();
+    deleted_edges = *maybe_cleared_edges.value();
   }
 
   // Detach nodes on the other end, which don't need deletion, by passing once through their vectors
   auto maybe_remaining_edges = DetachRemainingEdges(std::move(edge_deletion_info), deleted_edge_ids, schema_acc);
-  if (maybe_remaining_edges.HasError()) {
-    return maybe_remaining_edges.GetError();
+  if (!maybe_remaining_edges) {
+    return std::unexpected{maybe_remaining_edges.error()};
   }
-  const std::vector<EdgeAccessor> remaining_edges = *maybe_remaining_edges.GetValue();
+  const std::vector<EdgeAccessor> remaining_edges = *maybe_remaining_edges.value();
   deleted_edges.insert(deleted_edges.end(), remaining_edges.begin(), remaining_edges.end());
 
   auto const maybe_deleted_vertices = TryDeleteVertices(nodes_to_delete, schema_acc);
-  if (maybe_deleted_vertices.HasError()) {
-    return maybe_deleted_vertices.GetError();
+  if (!maybe_deleted_vertices) {
+    return std::unexpected{maybe_deleted_vertices.error()};
   }
 
   // Cleanup text indices
@@ -405,7 +405,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
     }
   }
 
-  auto deleted_vertices = maybe_deleted_vertices.GetValue();
+  auto deleted_vertices = maybe_deleted_vertices.value();
   return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
 }
 
@@ -422,7 +422,7 @@ Result<std::optional<std::unordered_set<Vertex *>>> Storage::Accessor::PrepareDe
     {
       auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
-      if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+      if (!PrepareForWrite(&transaction_, vertex_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
       if (vertex_ptr->deleted) {
         continue;
@@ -519,10 +519,10 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
         auto edge_ptr = edge_ref.ptr;
         guard = std::unique_lock{edge_ptr->lock};
 
-        if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
+        if (!PrepareForWrite(&transaction_, edge_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
       }
 
-      if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+      if (!PrepareForWrite(&transaction_, vertex_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
       MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
 
       // MarkEdgeAsDeleted allocates additional memory
@@ -565,12 +565,12 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
   // no need to lock here, we are just passing the pointer of the in and out edges collections
   for (auto *vertex_ptr : vertices) {
     auto maybe_error = clear_edges(vertex_ptr, &vertex_ptr->in_edges, Delta::AddInEdgeTag(), false);
-    if (maybe_error.HasError()) {
+    if (!maybe_error) {
       return maybe_error;
     }
 
     maybe_error = clear_edges(vertex_ptr, &vertex_ptr->out_edges, Delta::AddOutEdgeTag(), true);
-    if (maybe_error.HasError()) {
+    if (!maybe_error) {
       return maybe_error;
     }
   }
@@ -590,7 +590,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
                                             auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
-    if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+    if (!PrepareForWrite(&transaction_, vertex_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
     MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
 
     auto mid = std::partition(
@@ -647,14 +647,14 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
   for (auto *vertex_ptr : info.partial_src_vertices) {
     auto maybe_error = clear_edges_on_other_direction(vertex_ptr, &vertex_ptr->out_edges, info.partial_src_edge_ids,
                                                       Delta::AddOutEdgeTag(), false);
-    if (maybe_error.HasError()) {
+    if (!maybe_error) {
       return maybe_error;
     }
   }
   for (auto *vertex_ptr : info.partial_dest_vertices) {
     auto maybe_error = clear_edges_on_other_direction(vertex_ptr, &vertex_ptr->in_edges, info.partial_dest_edge_ids,
                                                       Delta::AddInEdgeTag(), true);
-    if (maybe_error.HasError()) {
+    if (!maybe_error) {
       return maybe_error;
     }
   }
@@ -670,12 +670,12 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(
   for (auto *vertex_ptr : vertices) {
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
-    if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+    if (!PrepareForWrite(&transaction_, vertex_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
     MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
 
     if (!vertex_ptr->in_edges.empty() || !vertex_ptr->out_edges.empty()) {
-      return Error::VERTEX_HAS_EDGES;
+      return std::unexpected{Error::VERTEX_HAS_EDGES};
     }
 
     CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
@@ -703,19 +703,19 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
   }
 }
 
-utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor::CreateTextIndex(
+std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::CreateTextIndex(
     const TextIndexSpec &text_index_info) {
   MG_ASSERT(type() == UNIQUE, "Creating a text index requires unique access to storage!");
 
   // Check for name conflicts with existing text edge indexes
   if (storage_->indices_.text_edge_index_.IndexExists(text_index_info.index_name)) {
-    return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
   try {
     storage_->indices_.text_index_.CreateIndex(text_index_info, Vertices(View::NEW), storage_->name_id_mapper_.get());
   } catch (const query::TextSearchException &e) {
-    return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, text_index_info);
@@ -723,20 +723,20 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
   return {};
 }
 
-utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor::CreateTextEdgeIndex(
+std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::CreateTextEdgeIndex(
     const TextEdgeIndexSpec &text_edge_index_info) {
   MG_ASSERT(type() == UNIQUE, "Creating a text edge index requires unique access to storage!");
 
   // Check for name conflicts with existing text node indexes
   if (storage_->indices_.text_index_.IndexExists(text_edge_index_info.index_name)) {
-    return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
   try {
     storage_->indices_.text_edge_index_.CreateIndex(text_edge_index_info, Vertices(View::NEW),
                                                     storage_->name_id_mapper_.get());
   } catch (const query::TextSearchException &e) {
-    return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
   transaction_.md_deltas.emplace_back(MetadataDelta::text_edge_index_create, text_edge_index_info);
@@ -744,7 +744,7 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
   return {};
 }
 
-utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor::DropTextIndex(
+std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::DropTextIndex(
     const std::string &index_name) {
   MG_ASSERT(type() == UNIQUE, "Dropping a text index requires unique access to storage!");
   if (storage_->indices_.text_index_.IndexExists(index_name)) {
@@ -752,7 +752,7 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
   } else if (storage_->indices_.text_edge_index_.IndexExists(index_name)) {
     storage_->indices_.text_edge_index_.DropIndex(index_name);
   } else {
-    return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name);
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);

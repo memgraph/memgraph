@@ -15,7 +15,6 @@
 #include <optional>
 #include <string>
 
-#include "utils/result.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
 #include "utils/spin_lock.hpp"
@@ -76,7 +75,7 @@ enum class LicenseCheckError : uint8_t {
 
 std::string LicenseCheckErrorToString(LicenseCheckError error, std::string_view feature);
 
-using LicenseCheckResult = utils::BasicResult<LicenseCheckError, void>;
+using LicenseCheckResult = std::expected<void, LicenseCheckError>;
 
 struct LicenseChecker {
  public:

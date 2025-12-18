@@ -18,6 +18,7 @@
 #include "requests/requests.hpp"
 #include "storage/v2/config.hpp"
 #include "telemetry/telemetry.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/system_info.hpp"
 #include "utils/uuid.hpp"
 

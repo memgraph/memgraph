@@ -16,7 +16,6 @@
 
 #include "storage/v2/delta_action.hpp"
 #include "storage/v2/edge_direction.hpp"
-#include "storage/v2/result.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "utils/small_vector.hpp"
 #include "utils/variant_helpers.hpp"

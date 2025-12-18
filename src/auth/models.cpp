@@ -21,7 +21,6 @@
 #include "license/license.hpp"
 #include "nlohmann/detail/exceptions.hpp"
 #include "spdlog/spdlog.h"
-#include "utils/cast.hpp"
 #include "utils/string.hpp"
 #include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
@@ -96,7 +95,7 @@ const FineGrainedAccessPermissions empty_permissions{};
 
 #ifdef MG_ENTERPRISE
 void to_json(nlohmann::json &data, const std::optional<UserImpersonation> &usr_imp) {
-  if (usr_imp.has_value()) {
+  if (usr_imp) {
     data = *usr_imp;
   } else {
     data = nlohmann::json();  // null
@@ -216,17 +215,16 @@ FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
 
   // If either global permissions is set to NOTHING, the merged result
   // is NOTHING.
-  if ((first_global.has_value() && first_global.value() == 0) ||
-      (second_global.has_value() && second_global.value() == 0)) {
+  if (first_global == 0 || second_global == 0) {
     global_permission = 0;
     // If both global permissions are set, they are merged using |
   } else if (first_global.has_value() && second_global.has_value()) {
     global_permission = first_global.value() | second_global.value();
     // If only one global permission is set and the other is not, the merged
     // result is the value of the set global permission.
-  } else if (first_global.has_value()) {
+  } else if (first_global) {
     global_permission = first_global;
-  } else if (second_global.has_value()) {
+  } else if (second_global) {
     global_permission = second_global;
   }
 
@@ -260,10 +258,10 @@ Permissions::Permissions(uint64_t grants, uint64_t denies) {
 
 PermissionLevel Permissions::Has(Permission permission) const {
   // Check for the deny first because it has greater priority than a grant.
-  if (denies_ & utils::UnderlyingCast(permission)) {
+  if (denies_ & std::to_underlying(permission)) {
     return PermissionLevel::DENY;
   }
-  if (grants_ & utils::UnderlyingCast(permission)) {
+  if (grants_ & std::to_underlying(permission)) {
     return PermissionLevel::GRANT;
   }
   return PermissionLevel::NEUTRAL;
@@ -271,23 +269,23 @@ PermissionLevel Permissions::Has(Permission permission) const {
 
 void Permissions::Grant(Permission permission) {
   // Remove the possible deny.
-  denies_ &= ~utils::UnderlyingCast(permission);
+  denies_ &= ~std::to_underlying(permission);
   // Now we grant the permission.
-  grants_ |= utils::UnderlyingCast(permission);
+  grants_ |= std::to_underlying(permission);
 }
 
 void Permissions::Revoke(Permission permission) {
   // Remove the possible grant.
-  grants_ &= ~utils::UnderlyingCast(permission);
+  grants_ &= ~std::to_underlying(permission);
   // Remove the possible deny.
-  denies_ &= ~utils::UnderlyingCast(permission);
+  denies_ &= ~std::to_underlying(permission);
 }
 
 void Permissions::Deny(Permission permission) {
   // First deny the permission.
-  denies_ |= utils::UnderlyingCast(permission);
+  denies_ |= std::to_underlying(permission);
   // Remove the possible grant.
-  grants_ &= ~utils::UnderlyingCast(permission);
+  grants_ &= ~std::to_underlying(permission);
 }
 
 std::vector<Permission> Permissions::GetGrants() const {
@@ -465,7 +463,7 @@ void FineGrainedAccessPermissions::Revoke(std::unordered_set<std::string> const 
 }
 
 void FineGrainedAccessPermissions::RevokeGlobal(const FineGrainedPermission fine_grained_permission) {
-  if (global_permission_.has_value()) {
+  if (global_permission_) {
     if (fine_grained_permission == FineGrainedPermission::NOTHING) {
       if (global_permission_.value() == 0) {
         global_permission_ = std::nullopt;
@@ -487,7 +485,7 @@ void FineGrainedAccessPermissions::RevokeAll() {
 }
 
 void FineGrainedAccessPermissions::RevokeAll(const FineGrainedPermission fine_grained_permission) {
-  if (global_permission_.has_value()) {
+  if (global_permission_) {
     global_permission_ = global_permission_.value() & ~static_cast<uint64_t>(fine_grained_permission);
     if (global_permission_.value() == 0) {
       global_permission_ = std::nullopt;
@@ -510,7 +508,7 @@ nlohmann::json FineGrainedAccessPermissions::Serialize() const {
     return {};
   }
   nlohmann::json data = nlohmann::json::object();
-  if (global_permission_.has_value()) {
+  if (global_permission_) {
     data[kGlobalPermission] = global_permission_.value();
   } else {
     data[kGlobalPermission] = -1;
@@ -1080,7 +1078,7 @@ nlohmann::json User::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data[kUsername] = username_;
   data[kUUID] = uuid_;
-  if (password_hash_.has_value()) {
+  if (password_hash_) {
     data[kPasswordHash] = *password_hash_;
   } else {
     data[kPasswordHash] = nullptr;
@@ -1215,7 +1213,7 @@ bool UserImpersonation::IsDenied(const User &user) const {
   //      no -> remove user from the list and return false
   auto user_denied = find_denied(username);
   if (user_denied) {
-    if (user_denied.value()->uuid == user.uuid()) return true;
+    if ((*user_denied)->uuid == user.uuid()) return true;
     erase_denied(*user_denied);  // Stale user; remove
   }
   return false;
@@ -1232,7 +1230,7 @@ bool UserImpersonation::IsGranted(const User &user) const {
   if (grants_all()) return true;
   auto user_granted = find_granted(username);
   if (user_granted) {
-    if (user_granted.value()->uuid == user.uuid()) return true;
+    if ((*user_granted)->uuid == user.uuid()) return true;
     erase_granted(*user_granted);  // Stale user; remove
   }
   return false;
@@ -1255,7 +1253,7 @@ void UserImpersonation::grant_one(const User &user) {
   if (grants_all()) return;
   auto granted_user = find_granted(user.username());
   if (granted_user) {
-    if (granted_user.value()->uuid == user.uuid()) return;
+    if ((*granted_user)->uuid == user.uuid()) return;
     erase_granted(*granted_user);  // Stale user; remove
   }
   emplace_granted(user.username(), user.uuid());
@@ -1283,7 +1281,7 @@ void UserImpersonation::deny_one(const User &user) {
   //        yes -> return
   auto denied_user = find_denied(user.username());
   if (denied_user) {
-    if (denied_user.value()->uuid == user.uuid()) return;
+    if ((*denied_user)->uuid == user.uuid()) return;
     erase_denied(*denied_user);  // Stale user; remove
   }
   denied_.emplace(user.username(), user.uuid());

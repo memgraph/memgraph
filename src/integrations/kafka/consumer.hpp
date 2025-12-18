@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,18 +13,17 @@
 
 #include <atomic>
 #include <chrono>
+#include <expected>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
 #include <thread>
-#include <utility>
 #include <vector>
 
 #include <librdkafka/rdkafka.h>
 #include <librdkafka/rdkafkacpp.h>
-#include "utils/result.hpp"
 
 namespace memgraph::integrations::kafka {
 
@@ -157,7 +156,7 @@ class Consumer final : public RdKafka::EventCb {
   /// This function returns the empty string on success or an error message otherwise.
   ///
   /// @param offset: the offset to set.
-  [[nodiscard]] utils::BasicResult<std::string> SetConsumerOffsets(int64_t offset);
+  [[nodiscard]] std::expected<void, std::string> SetConsumerOffsets(int64_t offset);
 
   const ConsumerInfo &Info() const;
 
@@ -187,7 +186,7 @@ class Consumer final : public RdKafka::EventCb {
   ConsumerFunction consumer_function_;
   mutable std::atomic<bool> is_running_{false};
   mutable std::vector<RdKafka::TopicPartition *> last_assignment_;  // Protected by is_running_
-  std::unique_ptr<RdKafka::KafkaConsumer, std::function<void(RdKafka::KafkaConsumer *)>> consumer_;
+  std::unique_ptr<RdKafka::KafkaConsumer, std::move_only_function<void(RdKafka::KafkaConsumer *)>> consumer_;
   std::thread thread_;
   ConsumerRebalanceCb cb_;
 };
