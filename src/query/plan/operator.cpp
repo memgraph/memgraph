@@ -9900,7 +9900,9 @@ class ParallelBranchCursor : public Cursor {
                      mem_tracking = memgraph::memory::CrossThreadMemoryTracking()](utils::Priority /*unused*/) mutable {
         OOMExceptionEnabler oom_exception;
         utils::Timer timer;
+#ifdef USE_JEMALLOC
         mem_tracking.StartTracking();  // automatically stops
+#endif
         // Create parallel operator entry in branch's stats tree
         context.stats_root = nullptr;
         context.stats = plan::ProfilingStats();
