@@ -29,6 +29,7 @@ void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextInde
 
     auto [_, success] = index_.try_emplace(
         index_info.index_name,
+        // If index already exists, it will be loaded and reused.
         mgcxx::text_search::create_index(index_path, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
         index_info.label, index_info.properties);
     if (!success) {

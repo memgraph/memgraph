@@ -28,6 +28,7 @@ void TextEdgeIndex::CreateTantivyIndex(const std::string &index_path, const Text
 
     auto [_, success] = index_.try_emplace(
         index_info.index_name,
+        // If index already exists, it will be loaded and reused.
         mgcxx::text_search::create_index(index_path, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
         index_info.edge_type, index_info.properties);
     if (!success) {
