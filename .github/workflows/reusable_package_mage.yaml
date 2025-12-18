@@ -1,0 +1,491 @@
+name: "Reusable package mage and upload"
+on:
+  workflow_call:
+    inputs:
+      arch:
+        type: string
+        description: "Architecture to build the image for"
+        required: true
+      mage_version:
+        type: string
+        description: "Mage version built into this image (format: X.Y.Z)"
+        required: true
+      mage_build_type:
+        type: string
+        description: "Mage build type"
+        default: 'Release'
+      memgraph_version:
+        type: string
+        description: "Memgraph version built into this image (format: X.Y.Z)"
+        required: true
+      memgraph_download_link:
+        type: string
+        description: "Memgraph package download link. Leave empty to use the official download link."
+        default: ""
+      shorten_tag:
+        type: boolean
+        description: "Make the final tag as short as possible, shortest format is X.Y-memgraph-X.Y"
+        default: true
+      push_to_github:
+        type: boolean
+        description: "Push the image, DEB and tar.gz to GitHub?"
+        default: false
+      push_to_s3:
+        type: boolean
+        description: "Push the image to S3?"
+        default: false
+      s3_dest_dir:
+        type: string
+        description: "Destination directory in S3 bucket"
+        default: "mage-unofficial"
+      malloc:
+        type: boolean
+        description: "Use malloc build of memgraph (no jemalloc)"
+        default: false
+      run_smoke_tests:
+        type: boolean
+        description: "Run smoke tests on images after building (tests against previous tagged image)"
+        default: false
+      ref:
+        type: string
+        description: "MAGE branch or tag to build"
+        default: ''
+      print_output_url:
+        type: boolean
+        description: "Print the output URL at the end of the workflow"
+        default: false
+      cuda:
+        type: boolean
+        description: "Build the image for CUDA"
+        default: false
+      run_tests:
+        type: boolean
+        description: "Run tests"
+        default: false
+      memgraph_ref:
+        type: string
+        description: "Memgraph submodule branch to build query modules from"
+        default: 'master'
+      memgraph_ref_update:
+        type: boolean
+        description: "Update Memgraph submodule to the latest commit"
+        default: true
+      package_deb:
+        type: string
+        description: "Build deb package (true|false|default)"
+        # default is build only for Release/RelWithDebInfo + amd64/arm64 (other combinations are not actually different)
+        default: default
+      generate_sbom:
+        type: boolean
+        description: "Generate SBOM"
+        default: false
+
+env:
+  OS: "${{ inputs.arch == 'arm64' && 'ubuntu-24.04-aarch64' || 'ubuntu-24.04' }}${{ inputs.malloc && '-malloc' || '' }}${{ inputs.mage_build_type == 'RelWithDebInfo' && '-relwithdebinfo' || '' }}"
+  ARCH: "${{ inputs.arch }}"
+  DOCKER_REPOSITORY_NAME: memgraph/memgraph-mage
+  BUILD_TYPE: "${{ inputs.mage_build_type }}"
+  MALLOC: "${{ inputs.malloc }}"
+  CUDA: "${{ inputs.cuda }}"
+  MAGE_VERSION: "${{ inputs.mage_version }}"
+  MEMGRAPH_VERSION: "${{ inputs.memgraph_version }}"
+  CONTAINER_NAME: "mgbuild"
+  MAGE_CONTAINER: "mage"
+  MEMGRAPH_PORT: 7687
+  NEO4J_PORT: 7688
+  NEO4J_CONTAINER: "neo4j_test"
+  MEMGRAPH_NETWORK: "memgraph_test_network"
+  MYSQL_CONTAINER: "mysql_test"
+  POSTGRESQL_CONTAINER: "postgresql_test"
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  MEMGRAPH_DOWNLOAD_LINK: "${{ inputs.memgraph_download_link }}"
+  GENERATE_SBOM: "${{ inputs.generate_sbom }}"
+
+jobs:
+  BuildAndPush:
+    runs-on: [self-hosted, DockerMgBuild, Linux, "${{ inputs.arch == 'arm64' && 'ARM64' || 'X64' }}"]
+    outputs:
+      s3_package_url: ${{ steps.output-url.outputs.s3_url }}
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: Pull e2e Docker images in background
+        if: ${{ inputs.run_tests == true }}
+        run: |
+          ./scripts/pull-e2e-docker-images.sh &
+
+
+      - name: Check package deb build
+        env:
+          INPUT_PACKAGE_DEB: "${{ inputs.package_deb }}"
+        run: |
+          if [[ "$INPUT_PACKAGE_DEB" == "true" ]]; then
+            package_deb=true
+          elif [[ "$INPUT_PACKAGE_DEB" == "false" ]]; then
+            package_deb=false
+          else
+            if [[ "$MALLOC" == true ]]; then
+              package_deb=false
+            else
+              package_deb=true
+            fi
+          fi
+          if [[ "$package_deb" == true ]]; then
+            echo "Building deb package"
+          else
+            echo "Not building deb package"
+          fi
+          echo "PACKAGE_DEB=${package_deb}" >> $GITHUB_ENV
+
+      - name: Check mgdeps-cache availability
+        run: |
+          if [ "$ARCH" == "amd64" ]; then
+            echo "mgdeps-cache is temporary disabled for amd64"
+            echo "CACHE_PRESENT=false" >> $GITHUB_ENV
+          elif curl --silent --fail "http://mgdeps-cache:8000/wheels/" -o /dev/null; then
+            echo "mgdeps-cache is reachable :D"
+            echo "CACHE_PRESENT=true" >> $GITHUB_ENV
+          else
+            echo "mgdeps-cache is NOT reachable"
+            echo "CACHE_PRESENT=false" >> $GITHUB_ENV
+          fi
+
+      - name: Create wheels directory and fetch wheels if available
+        run: |
+          mkdir -p wheels
+          if [ "$CACHE_PRESENT" = "true" ]; then
+            echo "Cache is present. Fetching wheels..."
+            wget -r -np -nH --cut-dirs=1 -P wheels "http://mgdeps-cache:8000/wheels/"
+          else
+            echo "Cache is not present. Skipping wheel fetch."
+          fi
+
+      # TODO(matt): check this with daily/RC build workflows
+      - name: Checkout specific branch in submodule
+        env:
+          MEMGRAPH_REF: "${{ inputs.memgraph_ref }}"
+          MEMGRAPH_REF_UPDATE: "${{ inputs.memgraph_ref_update }}"
+        run: |
+          cd cpp/memgraph
+          # If no ref is provided, just checkout master.
+          if [ -z "$MEMGRAPH_REF" ]; then
+            echo "No memgraph_ref provided, checking out master."
+            git checkout master || true
+          else
+            git fetch --all
+            git checkout "$MEMGRAPH_REF" || true
+          fi
+
+          # Only pull if we are on a branch.
+          current_branch=$(git symbolic-ref --short -q HEAD) || true
+          echo "Current branch: $current_branch"
+          if [ -n "$current_branch" ]; then
+            if [[ "$MEMGRAPH_REF_UPDATE" == "true" ]]; then
+              git pull
+            fi
+          else
+            echo "Detached HEAD state detected; skipping git pull."
+          fi
+
+      - name: Set image tag and artifact name
+        env:
+          SHORTEN_TAG: "${{ inputs.shorten_tag }}"
+        run: |
+          read IMAGE_TAG ARTIFACT_NAME < <(scripts/artifact-name-tag.sh "$MEMGRAPH_VERSION" "$MAGE_VERSION" "$SHORTEN_TAG" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA")
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
+
+      - name: Set CI branch name for PR events
+        if: ${{ github.event_name == 'pull_request' }}
+        run: echo "CI_BRANCH=${{ github.event.pull_request.head.ref }}" >> $GITHUB_ENV
+
+      - name: Get Current MAGE Commit/Tag
+        env:
+          INPUT_REF: "${{ inputs.ref }}"
+        run: |
+          ./scripts/get_mage_commit.sh "$INPUT_REF" "$CI_BRANCH" "$GITHUB_REF"
+
+      - name: Set up and check memgraph download link
+        run: |
+          if [[ -z "$MEMGRAPH_DOWNLOAD_LINK" ]]; then
+            echo "Using official download link"
+            mg_url="https://download.memgraph.com/memgraph/v$MEMGRAPH_VERSION/$OS/memgraph_$MEMGRAPH_VERSION-1_$ARCH.deb"
+          else
+            echo "Using custom download link"
+            mg_url=$MEMGRAPH_DOWNLOAD_LINK
+          fi
+
+          ./scripts/verify_download_url.sh "$mg_url"
+          echo "MEMGRAPH_DOWNLOAD_LINK=${mg_url}" >> $GITHUB_ENV
+
+      - name: Download memgraph binary
+        run: curl -L --retry 5 --retry-delay 20 --retry-max-time 120 $MEMGRAPH_DOWNLOAD_LINK > memgraph-$ARCH.deb
+
+      - name: Probe fastest mirror
+        run: |
+          FASTEST=$(bash scripts/test-mirrors.sh)
+          echo "CUSTOM_MIRROR=${FASTEST}" >> $GITHUB_ENV
+
+      - name: Build Query Modules in MGBUILD container
+        run: |
+          ./scripts/container-build.sh \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            --container-name $CONTAINER_NAME
+
+      - name: Build DEB package in MGBUILD container
+        if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.PACKAGE_DEB == 'true' }}
+        run: |
+          ./scripts/container-package-deb.sh \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            --container-name $CONTAINER_NAME \
+            --version $MAGE_VERSION \
+            --malloc $MALLOC \
+            --cuda $CUDA
+
+          DEB_PACKAGE="$(ls output/memgraph-mage*.deb)"
+          echo "DEB_PACKAGE=${DEB_PACKAGE}" >> $GITHUB_ENV
+
+      - name: Build pymgclient in MGBUILD container
+        if: ${{ inputs.arch == 'arm64' }}
+        run: |
+          # This has to be done here, otherwise we will need to build pymgclient from source within
+          # docker image build because we currently do not provide an arm64 wheel for Linux.
+          docker exec -i -u mg $CONTAINER_NAME bash -c "cd /home/mg/mage/scripts && ./build-pymgclient.sh"
+          package_name=$(docker exec -i -u mg $CONTAINER_NAME bash -c "ls /home/mg/mage/scripts/pymgclient/dist/")
+          docker cp $CONTAINER_NAME:/home/mg/mage/scripts/pymgclient/dist/$package_name wheels/
+
+      - name: Build heaptrack
+        if: ${{ inputs.mage_build_type == 'RelWithDebInfo' }}
+        run: |
+          ./scripts/container-build-heaptrack.sh $CONTAINER_NAME
+
+      - name: Run tests
+        if: ${{ inputs.run_tests == true }}
+        run: |
+          ./scripts/container-test.sh \
+            --container-name $CONTAINER_NAME \
+            --ci \
+            --cache-present $CACHE_PRESENT \
+            --cuda $CUDA \
+            --arch $ARCH
+
+      - name: Generate SBOM
+        if: ${{ inputs.generate_sbom == true }}
+        env:
+          CONAN_REMOTE: "${{ secrets.CONAN_REMOTE }}"
+        run: |
+          ./scripts/sbom/mgbuild-container-sbom.sh $CONTAINER_NAME
+
+      - name: Remove mgbbuild container
+        if: always()
+        run: |
+          docker stop $CONTAINER_NAME || true
+
+      - name: Build image
+        run: |
+          if [[ "$BUILD_TYPE" = "RelWithDebInfo" ]]; then
+            DOCKER_TARGET=relwithdebinfo
+          else
+            DOCKER_TARGET=prod
+          fi
+          docker buildx build \
+          --target $DOCKER_TARGET \
+          --platform linux/$ARCH \
+          --tag ${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG \
+          --file Dockerfile.release \
+          --build-arg BUILD_TYPE=$BUILD_TYPE \
+          --build-arg MAGE_COMMIT=$MAGE_COMMIT \
+          --build-arg CACHE_PRESENT=$CACHE_PRESENT \
+          --build-arg CUSTOM_MIRROR=$CUSTOM_MIRROR \
+          --load .
+
+          # print the image size in both SI and IEC units
+          ./scripts/print_image_size.sh ${DOCKER_REPOSITORY_NAME} $IMAGE_TAG
+
+      - name: Generate SBOM
+        if: ${{ inputs.generate_sbom == true }}
+        run: |
+          ./scripts/sbom/mage-sbom.sh "${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG"
+
+      - name: Upload SBOM to GitHub
+        if: ${{ inputs.generate_sbom == true }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: "mage-sbom"
+          path: "sbom/"
+
+      - name: Start container for e2e tests
+        if: ${{ inputs.run_tests == true }}
+        run: |
+          docker network create $MEMGRAPH_NETWORK || true
+
+          docker run -d \
+            --rm \
+            --network $MEMGRAPH_NETWORK \
+            --name $MAGE_CONTAINER \
+            -p $MEMGRAPH_PORT:$MEMGRAPH_PORT \
+            -e MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE \
+            -e MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME \
+            ${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG \
+            --telemetry-enabled=False
+
+      - name: Run end-to-end tests
+        if: ${{ inputs.run_tests == true }}
+        run: |
+          python3 -m venv env
+          source env/bin/activate
+          pip install -r python/tests/requirements.txt --break-system-packages
+          cd e2e/ && python3 -m pytest . -k "not cugraph and not embeddings_test-test_cuda_compute"
+
+      - name: Wait for e2e Docker images to be available
+        if: ${{ inputs.run_tests == true }}
+        run: |
+          ./scripts/wait-for-docker-images.sh
+
+      - name: Run End-to-end correctness tests
+        if: ${{ inputs.run_tests == true }}
+        env:
+          PYTHONPATH: "$PWD/e2e"
+        run: |
+          source env/bin/activate
+          ./run_e2e_correctness_tests.sh $MEMGRAPH_PORT $NEO4J_PORT $NEO4J_CONTAINER $MAGE_CONTAINER $MEMGRAPH_NETWORK
+
+      - name: Cleanup after correctness tests
+        if: ${{ inputs.run_tests == true && always() }}
+        run: |
+          docker stop $NEO4J_CONTAINER || true
+          docker rm $NEO4J_CONTAINER || true
+
+      - name: Run End-to-end migration tests
+        if: ${{ inputs.run_tests == true }}
+        env:
+          PYTHONPATH: "$PWD/e2e"
+        run: |
+          source env/bin/activate
+          ./run_e2e_migration_tests.sh --mage-container $MAGE_CONTAINER --mysql-container $MYSQL_CONTAINER --postgresql-container $POSTGRESQL_CONTAINER
+
+      - name: Cleanup after migration tests
+        if: ${{ inputs.run_tests == true && always() }}
+        run: |
+          docker stop $MAGE_CONTAINER || true
+          docker rm $MAGE_CONTAINER || true
+          docker stop $MYSQL_CONTAINER || true
+          docker rm $MYSQL_CONTAINER || true
+          docker stop $POSTGRESQL_CONTAINER || true
+          docker rm $POSTGRESQL_CONTAINER || true
+          docker stop $NEO4J_CONTAINER || true
+          docker rm $NEO4J_CONTAINER || true
+          docker network rm $MEMGRAPH_NETWORK || true
+
+      - name: Save docker image
+        if: ${{ inputs.push_to_github || inputs.push_to_s3 }}
+        run: |
+          mkdir -p output
+          docker save ${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG | gzip > output/${ARTIFACT_NAME}.tar.gz
+          du -h output/${ARTIFACT_NAME}.tar.gz
+
+      - name: Push query module archive to GitHub
+        if: ${{ inputs.push_to_github }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${ARTIFACT_NAME}-query-modules"
+          path: "mage.tar.gz"
+
+      - name: Push DEB package to GitHub
+        if: ${{ inputs.push_to_github && env.PACKAGE_DEB == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${ARTIFACT_NAME}-deb"
+          path: "${DEB_PACKAGE}"
+
+      - name: Push docker image to GitHub
+        if: ${{ inputs.push_to_github }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${IMAGE_TAG}-docker"
+          path: "output/${ARTIFACT_NAME}.tar.gz"
+
+      - name: Push to S3 with retry
+        if: ${{ inputs.push_to_s3 }}
+        env:
+          AWS_S3_BUCKET: deps.memgraph.io
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: "eu-west-1"
+          SOURCE_DIR: "output"
+          DEST_DIR: "${{ inputs.s3_dest_dir }}/"
+        run: |
+          max_attempts=3
+          attempt_num=1
+          until [ $attempt_num -gt $max_attempts ]
+          do
+            echo "Attempt $attempt_num..."
+            # Replace the next line with your actual s3 sync command or action logic
+            aws s3 sync $SOURCE_DIR s3://$AWS_S3_BUCKET/$DEST_DIR && break || {
+              echo "Attempt $attempt_num failed. Retrying in 5 seconds..."
+              sleep 5
+              attempt_num=$((attempt_num+1))
+            }
+          done
+
+      - name: Construct Output URL
+        id: output-url
+        if: ${{ inputs.push_to_s3 && (inputs.run_smoke_tests || inputs.print_output_url) }}
+        env:
+          DEST_DIR: "${{ inputs.s3_dest_dir }}"
+        run: |
+          filename="${ARTIFACT_NAME}.tar.gz"
+          output_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/$DEST_DIR/$filename"
+          echo "s3_url=$output_url" >> $GITHUB_OUTPUT
+
+      - name: Print Output URL
+        if: ${{ inputs.print_output_url && inputs.push_to_s3 }}
+        run: |
+          echo "::notice::Output URL: ${{ steps.output-url.outputs.s3_url }}"
+
+      - name: Memgraph Docker Cleanup
+        if: always()
+        run: |
+          ./cpp/memgraph/tools/docker_cleanup.sh
+
+  SetupSmokeTest:
+    runs-on: [self-hosted]
+    needs: [BuildAndPush]
+    if: ${{ inputs.run_smoke_tests && inputs.push_to_s3 }}
+    outputs:
+      last_version: ${{ steps.get-latest-tag.outputs.clean_tag }}
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: Get Latest MAGE Tag
+        id: get-latest-tag
+        run: |
+          tag="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
+          clean_tag="${tag#v}"
+          echo "Found latest tag: ${clean_tag}"
+          echo "clean_tag=$clean_tag" >> $GITHUB_OUTPUT
+
+  RunSmokeTests:
+    needs: [BuildAndPush, SetupSmokeTest]
+    uses: ./.github/workflows/reusable_smoke_tests.yml
+    with:
+      arch: "${{ inputs.arch }}"
+      next_version: "${{ needs.BuildAndPush.outputs.s3_package_url }}"
+      last_version: "${{ needs.SetupSmokeTest.outputs.last_version }}"
+      malloc: ${{ inputs.malloc }}
+    secrets: inherit

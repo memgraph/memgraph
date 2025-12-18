@@ -48,6 +48,11 @@ on:
         description: "Generate SBOM"
         default: false
 
+outputs:
+  package_s3_url:
+    description: "The URL of the package in the S3 bucket."
+    value: ${{ steps.output_package_s3_url.outputs.package_s3_url }}
+
 env:
   TOOLCHAIN: v7
   GENERATE_SBOM: ${{ inputs.generate_sbom }}
@@ -275,6 +280,17 @@ jobs:
 
           # rename it
           mv -v $old_name "$artifact_path/$new_name"
+
+      - name: Output Package S3 URL
+        id: output_package_s3_url
+        run: |
+          if [[ "$FOR_DOCKER" == "true" ]]; then
+            filename="$(ls -1 $DOCKER_ARTIFACT_DIR/memgraph* 2>/dev/null | head -n 1)"
+          else
+            filename="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph* 2>/dev/null | head -n 1)"
+          fi
+          S3_URL="https://s3.eu-west-1.amazonaws.com/${S3_BUCKET}/${S3_DEST_DIR}/${{ env.ARTIFACT_NAME }}/${filename}"
+          echo "package_s3_url=$S3_URL" >> $GITHUB_OUTPUT
 
       - name: "Upload to Github"
         if: ${{  inputs.push_to_github == 'true' }}

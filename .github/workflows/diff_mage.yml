@@ -1,0 +1,129 @@
+name: "Diff-MAGE"
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        type: string
+        description: "Target os. Default value is ubuntu-24.04."
+        default: 'ubuntu-24.04'
+      run_amd:
+        type: boolean
+        description: "Should the amd mage tests be run? Default is true."
+        default: true
+      run_arm:
+        type: boolean
+        description: "Should the arm mage tests be run? Default is true."
+        default: true
+      run_cuda:
+        type: boolean
+        description: "Should the cuda mage tests be run? Default is true."
+        default: false
+      run_id:
+        type: string
+        description: "The ID of the run that triggered this workflow."
+        default: '0'
+      ref:
+        description: 'Branch or commit ref to run the workflow on'
+        required: false
+        default: ''
+        type: string
+
+env:
+  BUILD_TYPE: 'Release'
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  OS: ${{ inputs.os }}
+  TOOLCHAIN: v7
+  DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+  CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+  CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+
+jobs:
+  amd_memgraph_build:
+    if: ${{ inputs.run_amd }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: ${{ inputs.os }}
+      arch: amd
+      build_type: ${{ env.BUILD_TYPE }}
+      additional_build_args: ''
+      push_to_github: false
+      push_to_s3: true
+      s3_bucket: deps.memgraph.io
+      s3_region: eu-west-1
+      s3_dest_dir: 'diff-temp/${{ github.ref_name }}'
+    secrets: inherit
+
+  amd_mage_tests:
+    needs: amd_memgraph_build
+    if: ${{ inputs.run_amd }}
+    uses: ./.github/workflows/reusable_package_mage.yaml
+    with:
+      arch: amd64
+      mage_version: 3.7.1
+      memgraph_version: 3.7.1
+      memgraph_download_link: ${{ needs.amd_memgraph_build.outputs.package_s3_url }}
+      push_to_github: false
+      push_to_s3: false
+      run_tests: true
+    secrets: inherit
+
+  arm_memgraph_build:
+    if: ${{ inputs.run_arm }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: ${{ inputs.os }}
+      arch: arm64
+      build_type: ${{ env.BUILD_TYPE }}
+      additional_build_args: ''
+      push_to_github: false
+      push_to_s3: true
+      s3_bucket: deps.memgraph.io
+      s3_region: eu-west-1
+      s3_dest_dir: 'diff-temp/${{ github.ref_name }}'
+    secrets: inherit
+
+  arm_mage_tests:
+    needs: arm_memgraph_build
+    if: ${{ inputs.run_arm }}
+    uses: ./.github/workflows/reusable_package_mage.yaml
+    with:
+      arch: arm64
+      mage_version: 3.7.1
+      memgraph_version: 3.7.1
+      memgraph_download_link: ${{ needs.arm_memgraph_build.outputs.package_s3_url }}
+      push_to_github: false
+      push_to_s3: false
+      run_tests: true
+    secrets: inherit
+
+  cuda_memgraph_build:
+    if: ${{ inputs.run_cuda }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: ${{ inputs.os }}
+      arch: cuda
+      build_type: ${{ env.BUILD_TYPE }}
+      additional_build_args: ''
+      push_to_github: false
+      push_to_s3: true
+      s3_bucket: deps.memgraph.io
+      s3_region: eu-west-1
+      s3_dest_dir: 'diff-temp/${{ github.ref_name }}'
+    secrets: inherit
+
+  cuda_mage_tests:
+    needs: cuda_memgraph_build
+    if: ${{ inputs.run_cuda }}
+    uses: ./.github/workflows/reusable_package_mage.yaml
+    with:
+      arch: cuda
+      mage_version: 3.7.1
+      memgraph_version: 3.7.1
+      memgraph_download_link: ${{ needs.cuda_memgraph_build.outputs.package_s3_url }}
+      push_to_github: false
+      push_to_s3: false
+      run_tests: true
+    secrets: inherit
