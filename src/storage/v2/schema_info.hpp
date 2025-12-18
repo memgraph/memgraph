@@ -81,9 +81,9 @@ struct SchemaTracking final : public SchemaTrackingInterface {
 
   void Clear() override;
 
-  size_t NumberOfVertices() const { return vertex_state_.size(); }
+  constexpr size_t NumberOfVertices() const { return vertex_state_.size(); }
 
-  size_t NumberOfEdges() const { return edge_state_.size(); }
+  constexpr size_t NumberOfEdges() const { return edge_state_.size(); }
 
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const override;
 
@@ -296,12 +296,14 @@ struct SchemaInfo {
     return AnalyticalEdgeModifyingAccessor{*this, prop_on_edges};
   }
 
-  static ModifyingAccessor CreateVertexModifyingAccessor(auto &tracking, auto &post_process, uint64_t start_ts,
-                                                         uint64_t commit_ts, bool prop_on_edges) {
+  static constexpr ModifyingAccessor CreateVertexModifyingAccessor(auto &tracking, auto &post_process,
+                                                                   uint64_t start_ts, uint64_t commit_ts,
+                                                                   bool prop_on_edges) {
     return VertexModifyingAccessor{tracking, &post_process, start_ts, commit_ts, prop_on_edges};
   }
-  static ModifyingAccessor CreateEdgeModifyingAccessor(auto &tracking, SchemaInfoPostProcess *post_process,
-                                                       uint64_t start_ts, uint64_t commit_ts, bool prop_on_edges) {
+  static constexpr ModifyingAccessor CreateEdgeModifyingAccessor(auto &tracking, SchemaInfoPostProcess *post_process,
+                                                                 uint64_t start_ts, uint64_t commit_ts,
+                                                                 bool prop_on_edges) {
     return TransactionalEdgeModifyingAccessor{tracking, post_process, start_ts, commit_ts, prop_on_edges};
   }
 

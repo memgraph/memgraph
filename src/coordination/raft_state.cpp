@@ -286,7 +286,7 @@ auto RaftState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> void 
   // Waiting for server to join
   constexpr int max_tries{10};
   auto maybe_stop = utils::ResettableCounter(max_tries);
-  std::chrono::milliseconds const waiting_period{200};
+  std::chrono::milliseconds constexpr waiting_period{200};
   bool removed{false};
   while (!maybe_stop()) {
     std::this_thread::sleep_for(waiting_period);
@@ -326,7 +326,7 @@ auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) 
   // Waiting for server to join
   constexpr int max_tries{10};
   auto maybe_stop = utils::ResettableCounter(max_tries);
-  std::chrono::milliseconds const waiting_period{200};
+  std::chrono::milliseconds constexpr waiting_period{200};
   while (!maybe_stop()) {
     std::this_thread::sleep_for(waiting_period);
     if (const auto server_config = raft_server_->get_srv_config(config.coordinator_id)) {

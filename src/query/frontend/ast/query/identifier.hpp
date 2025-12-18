@@ -28,13 +28,13 @@ class Identifier : public memgraph::query::Expression {
   DECLARE_VISITABLE(ExpressionVisitor<void>);
   DECLARE_VISITABLE(HierarchicalTreeVisitor);
 
-  Identifier *MapTo(const Symbol &symbol) {
+  constexpr Identifier *MapTo(const Symbol &symbol) {
     symbol_pos_ = symbol.position();
     return this;
   }
 
-  explicit Identifier(const std::string &name) : name_(name) {}
-  Identifier(const std::string &name, bool user_declared) : name_(name), user_declared_(user_declared) {}
+  constexpr explicit Identifier(const std::string &name) : name_(name) {}
+  constexpr Identifier(const std::string &name, bool user_declared) : name_(name), user_declared_(user_declared) {}
 
   std::string name_;
   bool user_declared_{true};

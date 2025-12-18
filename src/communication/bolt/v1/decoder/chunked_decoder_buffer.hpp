@@ -52,7 +52,7 @@ enum class ChunkState : uint8_t {
 template <typename TBuffer>
 class ChunkedDecoderBuffer {
  public:
-  explicit ChunkedDecoderBuffer(TBuffer &buffer) : buffer_(buffer) { data_.reserve(kChunkWholeSize); }
+  constexpr explicit ChunkedDecoderBuffer(TBuffer &buffer) : buffer_(buffer) { data_.reserve(kChunkWholeSize); }
 
   /**
    * Reads data from the internal buffer.
@@ -81,7 +81,7 @@ class ChunkedDecoderBuffer {
    * @returns true if exactly data.size() bytes were copied,
    *          false otherwise
    */
-  bool Read(std::span<uint8_t> data) { return Read(data.data(), data.size()); }
+  constexpr bool Read(std::span<uint8_t> data) { return Read(data.data(), data.size()); }
 
   /**
    * Peeks data from the internal buffer.
@@ -108,7 +108,7 @@ class ChunkedDecoderBuffer {
    * @returns true if exactly data.size() bytes were copied,
    *          false otherwise
    */
-  bool Peek(std::span<uint8_t> data, size_t offset = 0) { return Peek(data.data(), data.size(), offset); }
+  constexpr bool Peek(std::span<uint8_t> data, size_t offset = 0) { return Peek(data.data(), data.size(), offset); }
 
   /**
    * Gets a chunk from the underlying raw data buffer.
@@ -151,7 +151,7 @@ class ChunkedDecoderBuffer {
    *
    * @returns size of available data
    */
-  size_t Size() { return data_.size() - pos_; }
+  constexpr size_t Size() { return data_.size() - pos_; }
 
  private:
   TBuffer &buffer_;

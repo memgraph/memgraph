@@ -34,7 +34,7 @@ extern struct UpToDatePolicy : UserPolicy {
 } up_to_date_policy;
 
 struct QueryUserOrRole {
-  QueryUserOrRole(std::optional<std::string> username, std::vector<std::string> rolenames)
+  constexpr QueryUserOrRole(std::optional<std::string> username, std::vector<std::string> rolenames)
       : username_{std::move(username)}, rolenames_{std::move(rolenames)} {}
   virtual ~QueryUserOrRole() = default;
 
@@ -49,11 +49,11 @@ struct QueryUserOrRole {
   virtual std::string GetDefaultDB() const = 0;
 #endif
 
-  const std::optional<std::string> &username() const { return username_; }
-  const std::vector<std::string> &rolenames() const { return rolenames_; }
+  constexpr const std::optional<std::string> &username() const { return username_; }
+  constexpr const std::vector<std::string> &rolenames() const { return rolenames_; }
 
   bool operator==(const QueryUserOrRole &other) const = default;
-  operator bool() const { return username_.has_value(); }
+  constexpr operator bool() const { return username_.has_value(); }
 
  protected:
   std::optional<std::string> username_;

@@ -51,7 +51,7 @@ const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResourc
 
 const std::map<std::string, storage::ExternalPropertyValue> empty_parameters{};
 
-auto GetStream(auto &map, const std::string &stream_name) {
+constexpr auto GetStream(auto &map, const std::string &stream_name) {
   if (auto it = map.find(stream_name); it != map.end()) {
     return it;
   }
@@ -123,8 +123,8 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
 }
 
 template <typename TStream>
-StreamStatus<TStream> CreateStatus(std::string stream_name, std::string transformation_name,
-                                   std::optional<std::string> owner, const TStream &stream) {
+constexpr StreamStatus<TStream> CreateStatus(std::string stream_name, std::string transformation_name,
+                                             std::optional<std::string> owner, const TStream &stream) {
   return {.name = std::move(stream_name),
           .type = StreamType(stream),
           .is_running = stream.IsRunning(),

@@ -3475,7 +3475,7 @@ void InMemoryStorage::Clear() {
 
   // Replication epoch and timestamp reset
   repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
-  CommitTsInfo const new_info{.ldt_ = 0, .num_committed_txns_ = 0};
+  CommitTsInfo constexpr new_info{.ldt_ = 0, .num_committed_txns_ = 0};
   repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
   repl_storage_state_.history.clear();
 

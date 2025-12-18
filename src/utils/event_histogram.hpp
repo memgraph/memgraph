@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -69,12 +69,12 @@ class Histogram {
   std::mutex samples_mutex_;
 
  public:
-  Histogram() {
+  constexpr Histogram() {
     samples_.resize(kSampleLimit, 0);
     percentiles_ = {0, 25, 50, 75, 90, 100};
   }
 
-  explicit Histogram(std::vector<uint8_t> percentiles) : percentiles_(std::move(percentiles)) {
+  constexpr explicit Histogram(std::vector<uint8_t> percentiles) : percentiles_(std::move(percentiles)) {
     samples_.resize(kSampleLimit, 0);
   }
 
@@ -82,7 +82,7 @@ class Histogram {
 
   uint64_t Sum() const { return sum_.load(std::memory_order_relaxed); }
 
-  std::vector<uint8_t> Percentiles() const { return percentiles_; }
+  constexpr std::vector<uint8_t> Percentiles() const { return percentiles_; }
 
   void Measure(uint64_t value) {
     // "compression" logic
@@ -147,11 +147,11 @@ class Histogram {
 
 class EventHistograms {
  public:
-  explicit EventHistograms(Histogram *allocated_histograms) noexcept : histograms_(allocated_histograms) {}
+  constexpr explicit EventHistograms(Histogram *allocated_histograms) noexcept : histograms_(allocated_histograms) {}
 
-  auto &operator[](const Event event) { return histograms_[event]; }
+  constexpr auto &operator[](const Event event) { return histograms_[event]; }
 
-  const auto &operator[](const Event event) const { return histograms_[event]; }
+  constexpr const auto &operator[](const Event event) const { return histograms_[event]; }
 
   void Measure(Event event, Value value);
 

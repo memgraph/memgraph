@@ -59,10 +59,10 @@ struct Parameters {
   }
 
   /** Returns the number of arguments in this container */
-  auto size() const { return storage_.size(); }
+  constexpr auto size() const { return storage_.size(); }
 
-  auto begin() const { return storage_.begin(); }
-  auto end() const { return storage_.end(); }
+  constexpr auto begin() const { return storage_.begin(); }
+  constexpr auto end() const { return storage_.end(); }
 
  private:
   std::vector<std::pair<int, storage::ExternalPropertyValue>> storage_;

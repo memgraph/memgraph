@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,7 +38,7 @@ GaugeType global_gauge_types_array[END] = {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 EventGauges global_gauges(global_gauges_array);
 
-const Event EventGauges::num_gauges = END;
+constexpr Event EventGauges::num_gauges = END;
 
 void EventGauges::SetValue(const Event event, Value value) {
   auto current_value = gauges_[event].load(std::memory_order_acquire);

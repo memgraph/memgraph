@@ -111,13 +111,13 @@ inline void deleteSized(void *ptr, const std::size_t /*unused*/, const std::alig
 }
 #endif
 
-inline void TrackMemory(std::size_t size) {
+constexpr inline void TrackMemory(std::size_t size) {
 #if !USE_JEMALLOC
   memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
 #endif
 }
 
-inline void TrackMemory(std::size_t size, const std::align_val_t align) {
+constexpr inline void TrackMemory(std::size_t size, const std::align_val_t align) {
 #if !USE_JEMALLOC
   memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
 #endif
@@ -143,7 +143,7 @@ inline bool TrackMemoryNoExcept(const std::size_t size, const std::align_val_t a
   return true;
 }
 
-inline void UntrackMemory([[maybe_unused]] void *ptr, [[maybe_unused]] std::size_t size = 0) noexcept {
+constexpr inline void UntrackMemory([[maybe_unused]] void *ptr, [[maybe_unused]] std::size_t size = 0) noexcept {
   try {
 #if !USE_JEMALLOC
     if (size) {
@@ -157,7 +157,8 @@ inline void UntrackMemory([[maybe_unused]] void *ptr, [[maybe_unused]] std::size
   }
 }
 
-inline void UntrackMemory(void *ptr, const std::align_val_t align, [[maybe_unused]] std::size_t size = 0) noexcept {
+constexpr inline void UntrackMemory(void *ptr, const std::align_val_t align,
+                                    [[maybe_unused]] std::size_t size = 0) noexcept {
   try {
 #if !USE_JEMALLOC
     if (size) {

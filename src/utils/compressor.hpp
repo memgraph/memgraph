@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,17 +46,17 @@ utils::CompressionLevel ParseCompressionLevel();
 namespace memgraph::utils {
 
 struct CompressedBuffer {
-  CompressedBuffer(std::unique_ptr<uint8_t[]> data, uint32_t compressed_size, uint32_t original_size)
+  constexpr CompressedBuffer(std::unique_ptr<uint8_t[]> data, uint32_t compressed_size, uint32_t original_size)
       : data_(std::move(data)), compressed_size_(compressed_size), original_size_(original_size) {}
 
   CompressedBuffer() = default;
   CompressedBuffer(CompressedBuffer &&other) noexcept = default;
   CompressedBuffer &operator=(CompressedBuffer &&other) noexcept = default;
 
-  auto original_size() const -> uint32_t { return original_size_; }
+  constexpr auto original_size() const -> uint32_t { return original_size_; }
 
-  auto view() -> std::span<uint8_t> { return std::span{data_.get(), compressed_size_}; }
-  auto view() const -> std::span<uint8_t const> { return std::span{data_.get(), compressed_size_}; }
+  constexpr auto view() -> std::span<uint8_t> { return std::span{data_.get(), compressed_size_}; }
+  constexpr auto view() const -> std::span<uint8_t const> { return std::span{data_.get(), compressed_size_}; }
 
  private:
   std::unique_ptr<uint8_t[]> data_;
@@ -65,17 +65,17 @@ struct CompressedBuffer {
 };
 
 struct DecompressedBuffer {
-  DecompressedBuffer(std::unique_ptr<uint8_t[]> data, uint32_t original_size)
+  constexpr DecompressedBuffer(std::unique_ptr<uint8_t[]> data, uint32_t original_size)
       : data_(std::move(data)), original_size_(original_size) {}
 
   DecompressedBuffer() = default;
   DecompressedBuffer(DecompressedBuffer &&other) noexcept = default;
   DecompressedBuffer &operator=(DecompressedBuffer &&other) noexcept = default;
 
-  auto view() -> std::span<uint8_t> { return std::span{data_.get(), original_size_}; }
-  auto view() const -> std::span<uint8_t const> { return std::span{data_.get(), original_size_}; }
+  constexpr auto view() -> std::span<uint8_t> { return std::span{data_.get(), original_size_}; }
+  constexpr auto view() const -> std::span<uint8_t const> { return std::span{data_.get(), original_size_}; }
 
-  void release() {
+  constexpr void release() {
     data_.release();
     original_size_ = 0;
   }

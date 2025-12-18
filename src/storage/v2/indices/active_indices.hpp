@@ -32,11 +32,11 @@ struct IndicesCollection {
 
 struct ActiveIndices {
   ActiveIndices() = delete;  // to avoid nullptr
-  explicit ActiveIndices(std::unique_ptr<LabelIndex::ActiveIndices> label,
-                         std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties,
-                         std::unique_ptr<EdgeTypeIndex::ActiveIndices> edge_type,
-                         std::unique_ptr<EdgeTypePropertyIndex::ActiveIndices> edge_type_properties,
-                         std::unique_ptr<EdgePropertyIndex::ActiveIndices> edge_property)
+  constexpr explicit ActiveIndices(std::unique_ptr<LabelIndex::ActiveIndices> label,
+                                   std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties,
+                                   std::unique_ptr<EdgeTypeIndex::ActiveIndices> edge_type,
+                                   std::unique_ptr<EdgeTypePropertyIndex::ActiveIndices> edge_type_properties,
+                                   std::unique_ptr<EdgePropertyIndex::ActiveIndices> edge_property)
       : label_{std::move(label)},
         label_properties_{std::move(label_properties)},
         edge_type_{std::move(edge_type)},

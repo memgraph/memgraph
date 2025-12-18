@@ -55,7 +55,7 @@ struct EClassBase {
  */
 template <typename Analysis>
 struct EClass : private detail::EClassBase {
-  explicit EClass(ENodeId initial_enode_id) : EClassBase(initial_enode_id) {}
+  constexpr explicit EClass(ENodeId initial_enode_id) : EClassBase(initial_enode_id) {}
 
   using EClassBase::add_parent;
   using EClassBase::nodes;

@@ -58,7 +58,7 @@ struct SystemRecoveryRes {
   static void Load(SystemRecoveryRes *self, memgraph::slk::Reader *reader);
   static void Save(const SystemRecoveryRes &self, memgraph::slk::Builder *builder);
   SystemRecoveryRes() = default;
-  explicit SystemRecoveryRes(Result res) : result(res) {}
+  constexpr explicit SystemRecoveryRes(Result res) : result(res) {}
 
   Result result;
 };

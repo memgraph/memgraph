@@ -40,7 +40,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
   using BaseEncoder<Buffer>::buffer_;
 
  public:
-  explicit ClientEncoder(Buffer &buffer) : BaseEncoder<Buffer>(buffer) {}
+  constexpr explicit ClientEncoder(Buffer &buffer) : BaseEncoder<Buffer>(buffer) {}
 
   using BaseEncoder<Buffer>::UpdateVersion;
 

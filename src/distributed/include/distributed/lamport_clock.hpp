@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,7 +29,7 @@ struct timestamp {
  private:
   friend struct LamportClock<Tag>;
 
-  explicit timestamp(uint64_t value) : value_{value} {}
+  constexpr explicit timestamp(uint64_t value) : value_{value} {}
   uint64_t value_;
 };
 

@@ -30,7 +30,7 @@ class VertexAccessor final {
  public:
   storage::VertexAccessor impl_;
 
-  explicit VertexAccessor(storage::VertexAccessor impl) : impl_(impl) {}
+  constexpr explicit VertexAccessor(storage::VertexAccessor impl) : impl_(impl) {}
 
   bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
 
@@ -103,14 +103,14 @@ class VertexAccessor final {
 
   int64_t CypherId() const { return impl_.Gid().AsInt(); }
 
-  storage::Gid Gid() const noexcept { return impl_.Gid(); }
+  constexpr storage::Gid Gid() const noexcept { return impl_.Gid(); }
 
-  bool operator==(const VertexAccessor &v) const noexcept {
+  constexpr bool operator==(const VertexAccessor &v) const noexcept {
     static_assert(noexcept(impl_ == v.impl_));
     return impl_ == v.impl_;
   }
 
-  bool operator!=(const VertexAccessor &v) const noexcept { return !(*this == v); }
+  constexpr bool operator!=(const VertexAccessor &v) const noexcept { return !(*this == v); }
 };
 
 static_assert(std::is_trivially_copyable<VertexAccessor>::value,

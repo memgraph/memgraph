@@ -316,15 +316,15 @@ struct TypeInfo {
   const TypeInfo *superclass{nullptr};
 };
 
-inline bool operator==(const TypeInfo &a, const TypeInfo &b) { return a.id == b.id; }
-inline bool operator!=(const TypeInfo &a, const TypeInfo &b) { return a.id != b.id; }
-inline bool operator<(const TypeInfo &a, const TypeInfo &b) { return a.id < b.id; }
-inline bool operator<=(const TypeInfo &a, const TypeInfo &b) { return a.id <= b.id; }
-inline bool operator>(const TypeInfo &a, const TypeInfo &b) { return a.id > b.id; }
-inline bool operator>=(const TypeInfo &a, const TypeInfo &b) { return a.id >= b.id; }
+constexpr inline bool operator==(const TypeInfo &a, const TypeInfo &b) { return a.id == b.id; }
+constexpr inline bool operator!=(const TypeInfo &a, const TypeInfo &b) { return a.id != b.id; }
+constexpr inline bool operator<(const TypeInfo &a, const TypeInfo &b) { return a.id < b.id; }
+constexpr inline bool operator<=(const TypeInfo &a, const TypeInfo &b) { return a.id <= b.id; }
+constexpr inline bool operator>(const TypeInfo &a, const TypeInfo &b) { return a.id > b.id; }
+constexpr inline bool operator>=(const TypeInfo &a, const TypeInfo &b) { return a.id >= b.id; }
 
 /// Return true if `a` is subtype or the same type as `b`.
-inline bool IsSubtype(const TypeInfo &a, const TypeInfo &b) {
+constexpr inline bool IsSubtype(const TypeInfo &a, const TypeInfo &b) {
   if (a == b) return true;
   const TypeInfo *super_a = a.superclass;
   while (super_a) {
@@ -335,7 +335,7 @@ inline bool IsSubtype(const TypeInfo &a, const TypeInfo &b) {
 }
 
 template <class T>
-bool IsSubtype(const T &a, const TypeInfo &b) {
+constexpr bool IsSubtype(const T &a, const TypeInfo &b) {
   return IsSubtype(a.GetTypeInfo(), b);
 }
 
@@ -347,7 +347,7 @@ bool IsSubtype(const T &a, const TypeInfo &b) {
 /// This downcast is ill-formed if TBase is ambiguous, inaccessible, or virtual
 /// base (or a base of a virtual base) of TDerived.
 template <class TDerived, class TBase>
-TDerived *Downcast(TBase *a) {
+constexpr TDerived *Downcast(TBase *a) {
   if (!a) return nullptr;
   if (IsSubtype(*a, TDerived::kType)) return static_cast<TDerived *>(a);
   return nullptr;

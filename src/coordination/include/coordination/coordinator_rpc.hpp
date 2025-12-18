@@ -32,7 +32,8 @@ struct PromoteToMainReq {
   static void Load(PromoteToMainReq *self, memgraph::slk::Reader *reader);
   static void Save(const PromoteToMainReq &self, memgraph::slk::Builder *builder);
 
-  explicit PromoteToMainReq(const utils::UUID &uuid, std::vector<ReplicationClientInfo> replication_clients_info)
+  constexpr explicit PromoteToMainReq(const utils::UUID &uuid,
+                                      std::vector<ReplicationClientInfo> replication_clients_info)
       : main_uuid(uuid), replication_clients_info(std::move(replication_clients_info)) {}
   PromoteToMainReq() = default;
 
@@ -48,7 +49,7 @@ struct PromoteToMainRes {
   static void Load(PromoteToMainRes *self, memgraph::slk::Reader *reader);
   static void Save(const PromoteToMainRes &self, memgraph::slk::Builder *builder);
 
-  explicit PromoteToMainRes(bool success) : success(success) {}
+  constexpr explicit PromoteToMainRes(bool success) : success(success) {}
   PromoteToMainRes() = default;
 
   bool success;
@@ -64,7 +65,7 @@ struct RegisterReplicaOnMainReq {
   static void Load(RegisterReplicaOnMainReq *self, memgraph::slk::Reader *reader);
   static void Save(const RegisterReplicaOnMainReq &self, memgraph::slk::Builder *builder);
 
-  explicit RegisterReplicaOnMainReq(const utils::UUID &uuid, ReplicationClientInfo replication_client_info)
+  constexpr explicit RegisterReplicaOnMainReq(const utils::UUID &uuid, ReplicationClientInfo replication_client_info)
       : main_uuid(uuid), replication_client_info(std::move(replication_client_info)) {}
   RegisterReplicaOnMainReq() = default;
 
@@ -80,7 +81,7 @@ struct RegisterReplicaOnMainRes {
   static void Load(RegisterReplicaOnMainRes *self, memgraph::slk::Reader *reader);
   static void Save(const RegisterReplicaOnMainRes &self, memgraph::slk::Builder *builder);
 
-  explicit RegisterReplicaOnMainRes(bool success) : success(success) {}
+  constexpr explicit RegisterReplicaOnMainRes(bool success) : success(success) {}
   RegisterReplicaOnMainRes() = default;
 
   bool success;
@@ -98,8 +99,8 @@ struct DemoteMainToReplicaReq {
 
   // main uuid is provided when Demote is called from InstanceSuccessCallback because at that point we already know
   // what's next main uuid since the failover has already been done
-  explicit DemoteMainToReplicaReq(ReplicationClientInfo replication_client_info,
-                                  std::optional<utils::UUID> const &main_uuid = std::nullopt)
+  constexpr explicit DemoteMainToReplicaReq(ReplicationClientInfo replication_client_info,
+                                            std::optional<utils::UUID> const &main_uuid = std::nullopt)
       : replication_client_info_(std::move(replication_client_info)), main_uuid_(main_uuid) {}
 
   DemoteMainToReplicaReq() = default;
@@ -116,7 +117,7 @@ struct DemoteMainToReplicaRes {
   static void Load(DemoteMainToReplicaRes *self, memgraph::slk::Reader *reader);
   static void Save(const DemoteMainToReplicaRes &self, memgraph::slk::Builder *builder);
 
-  explicit DemoteMainToReplicaRes(bool success) : success(success) {}
+  constexpr explicit DemoteMainToReplicaRes(bool success) : success(success) {}
   DemoteMainToReplicaRes() = default;
 
   bool success;
@@ -132,7 +133,7 @@ struct UnregisterReplicaReq {
   static void Load(UnregisterReplicaReq *self, memgraph::slk::Reader *reader);
   static void Save(UnregisterReplicaReq const &self, memgraph::slk::Builder *builder);
 
-  explicit UnregisterReplicaReq(std::string_view inst_name) : instance_name(inst_name) {}
+  constexpr explicit UnregisterReplicaReq(std::string_view inst_name) : instance_name(inst_name) {}
 
   UnregisterReplicaReq() = default;
 
@@ -147,7 +148,7 @@ struct UnregisterReplicaRes {
   static void Load(UnregisterReplicaRes *self, memgraph::slk::Reader *reader);
   static void Save(const UnregisterReplicaRes &self, memgraph::slk::Builder *builder);
 
-  explicit UnregisterReplicaRes(bool success) : success(success) {}
+  constexpr explicit UnregisterReplicaRes(bool success) : success(success) {}
   UnregisterReplicaRes() = default;
 
   bool success;
@@ -174,7 +175,7 @@ struct EnableWritingOnMainRes {
   static void Load(EnableWritingOnMainRes *self, memgraph::slk::Reader *reader);
   static void Save(EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder);
 
-  explicit EnableWritingOnMainRes(bool const success) : success(success) {}
+  constexpr explicit EnableWritingOnMainRes(bool const success) : success(success) {}
   EnableWritingOnMainRes() = default;
 
   bool success;
@@ -201,7 +202,7 @@ struct GetDatabaseHistoriesReq {
   static void Load(GetDatabaseHistoriesReq *self, memgraph::slk::Reader *reader);
   static void Save(const GetDatabaseHistoriesReq &self, memgraph::slk::Builder *builder);
 
-  static GetDatabaseHistoriesReq Upgrade(GetDatabaseHistoriesReqV1 const & /*prev*/) {
+  constexpr static GetDatabaseHistoriesReq Upgrade(GetDatabaseHistoriesReqV1 const & /*prev*/) {
     return GetDatabaseHistoriesReq{};
   }
 
@@ -216,7 +217,7 @@ struct GetDatabaseHistoriesResV1 {
   static void Load(GetDatabaseHistoriesResV1 *self, memgraph::slk::Reader *reader);
   static void Save(const GetDatabaseHistoriesResV1 &self, memgraph::slk::Builder *builder);
 
-  explicit GetDatabaseHistoriesResV1(replication_coordination_glue::InstanceInfoV1 instance_info)
+  constexpr explicit GetDatabaseHistoriesResV1(replication_coordination_glue::InstanceInfoV1 instance_info)
       : instance_info(std::move(instance_info)) {}
   GetDatabaseHistoriesResV1() = default;
 
@@ -230,7 +231,7 @@ struct GetDatabaseHistoriesRes {
   static void Load(GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader);
   static void Save(const GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder);
 
-  explicit GetDatabaseHistoriesRes(replication_coordination_glue::InstanceInfo instance_info)
+  constexpr explicit GetDatabaseHistoriesRes(replication_coordination_glue::InstanceInfo instance_info)
       : instance_info(std::move(instance_info)) {}
   GetDatabaseHistoriesRes() = default;
 
@@ -260,7 +261,7 @@ struct ShowInstancesRes {
   static void Load(ShowInstancesRes *self, memgraph::slk::Reader *reader);
   static void Save(const ShowInstancesRes &self, memgraph::slk::Builder *builder);
 
-  explicit ShowInstancesRes(std::optional<std::vector<InstanceStatus>> instances_status)
+  constexpr explicit ShowInstancesRes(std::optional<std::vector<InstanceStatus>> instances_status)
       : instances_status_(std::move(instances_status)) {}
 
   ShowInstancesRes() = default;
@@ -279,7 +280,7 @@ struct GetRoutingTableReq {
   static void Save(const GetRoutingTableReq &self, memgraph::slk::Builder *builder);
 
   GetRoutingTableReq() = default;
-  explicit GetRoutingTableReq(std::string db_name) : db_name_(std::move(db_name)) {}
+  constexpr explicit GetRoutingTableReq(std::string db_name) : db_name_(std::move(db_name)) {}
 
   std::string db_name_;
 };
@@ -292,7 +293,7 @@ struct GetRoutingTableRes {
   static void Load(GetRoutingTableRes *self, memgraph::slk::Reader *reader);
   static void Save(const GetRoutingTableRes &self, memgraph::slk::Builder *builder);
 
-  explicit GetRoutingTableRes(RoutingTable routing_table) : routing_table_(std::move(routing_table)) {}
+  constexpr explicit GetRoutingTableRes(RoutingTable routing_table) : routing_table_(std::move(routing_table)) {}
 
   GetRoutingTableRes() = default;
 
@@ -317,7 +318,7 @@ struct StateCheckReq {
   static void Load(StateCheckReq *self, memgraph::slk::Reader *reader);
   static void Save(const StateCheckReq &self, memgraph::slk::Builder *builder);
 
-  static StateCheckReq Upgrade(StateCheckReqV1 const &) { return StateCheckReq{}; }
+  constexpr static StateCheckReq Upgrade(StateCheckReqV1 const &) { return StateCheckReq{}; }
 
   StateCheckReq() = default;
 };
@@ -329,10 +330,10 @@ struct StateCheckResV1 {
   static void Load(StateCheckResV1 *self, memgraph::slk::Reader *reader);
   static void Save(const StateCheckResV1 &self, memgraph::slk::Builder *builder);
 
-  StateCheckResV1(bool const replica, std::optional<utils::UUID> const &req_uuid, bool const writing_enabled)
+  constexpr StateCheckResV1(bool const replica, std::optional<utils::UUID> const &req_uuid, bool const writing_enabled)
       : state({.is_replica = replica, .uuid = req_uuid, .is_writing_enabled = writing_enabled}) {}
 
-  explicit StateCheckResV1(InstanceStateV1 const &rec_state) : state(rec_state) {}
+  constexpr explicit StateCheckResV1(InstanceStateV1 const &rec_state) : state(rec_state) {}
 
   StateCheckResV1() = default;
 
@@ -346,7 +347,7 @@ struct StateCheckRes {
   static void Load(StateCheckRes *self, memgraph::slk::Reader *reader);
   static void Save(const StateCheckRes &self, memgraph::slk::Builder *builder);
 
-  StateCheckRes(
+  constexpr StateCheckRes(
       bool const replica, std::optional<utils::UUID> const &req_uuid, bool const writing_enabled,
       std::optional<std::map<std::string, uint64_t>> const &maybe_main_num_txns,
       // instance -> (db -> lag)
@@ -357,11 +358,11 @@ struct StateCheckRes {
                .main_num_txns = maybe_main_num_txns,
                .replicas_num_txns = maybe_main_num_txns_replicas}) {}
 
-  explicit StateCheckRes(InstanceState const &rec_state) : state(rec_state) {}
+  constexpr explicit StateCheckRes(InstanceState const &rec_state) : state(rec_state) {}
 
   StateCheckRes() = default;
 
-  StateCheckResV1 Downgrade() const { return StateCheckResV1{state.Downgrade()}; }
+  constexpr StateCheckResV1 Downgrade() const { return StateCheckResV1{state.Downgrade()}; }
 
   InstanceState state;
 };
@@ -386,7 +387,7 @@ struct ReplicationLagRes {
   static void Load(ReplicationLagRes *self, memgraph::slk::Reader *reader);
   static void Save(const ReplicationLagRes &self, memgraph::slk::Builder *builder);
 
-  explicit ReplicationLagRes(std::optional<ReplicationLagInfo> lag_info) : lag_info_(std::move(lag_info)) {}
+  constexpr explicit ReplicationLagRes(std::optional<ReplicationLagInfo> lag_info) : lag_info_(std::move(lag_info)) {}
   ReplicationLagRes() = default;
 
   std::optional<ReplicationLagInfo> lag_info_;

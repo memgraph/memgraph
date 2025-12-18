@@ -18,11 +18,11 @@ namespace memgraph::storage {
 struct Edge;
 
 struct EdgeRef {
-  explicit EdgeRef(Gid gid) : gid(gid) {}
-  explicit EdgeRef(Edge *ptr) : ptr(ptr) {}
+  constexpr explicit EdgeRef(Gid gid) : gid(gid) {}
+  constexpr explicit EdgeRef(Edge *ptr) : ptr(ptr) {}
 
-  friend bool operator==(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid == b.gid; }
-  friend bool operator<(const EdgeRef &first, const EdgeRef &second) { return first.gid < second.gid; }
+  constexpr friend bool operator==(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid == b.gid; }
+  constexpr friend bool operator<(const EdgeRef &first, const EdgeRef &second) { return first.gid < second.gid; }
 
   union {
     Gid gid;
@@ -30,7 +30,7 @@ struct EdgeRef {
   };
 
   template <typename H>
-  friend H AbslHashValue(H h, EdgeRef const &edge_ref) {
+  friend constexpr H AbslHashValue(H h, EdgeRef const &edge_ref) {
     return H::combine(std::move(h), edge_ref.gid);
   }
 };

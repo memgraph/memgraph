@@ -56,7 +56,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   };
   struct Compare {
     template <std::ranges::forward_range T, std::ranges::forward_range U>
-    bool operator()(T const &lhs, U const &rhs) const {
+    constexpr bool operator()(T const &lhs, U const &rhs) const {
       return std::ranges::lexicographical_compare(lhs, rhs);
     }
 

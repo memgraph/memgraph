@@ -48,7 +48,7 @@ namespace memgraph::communication::bolt {
 template <class TOutputStream>
 class ChunkedEncoderBuffer {
  public:
-  explicit ChunkedEncoderBuffer(TOutputStream &output_stream) : output_stream_(output_stream) {}
+  constexpr explicit ChunkedEncoderBuffer(TOutputStream &output_stream) : output_stream_(output_stream) {}
 
   /**
    * Writes n values into the buffer. If n is bigger than whole chunk size
@@ -89,7 +89,7 @@ class ChunkedEncoderBuffer {
    *                  `Write` method to indicate wether we have more data
    *                  waiting to be sent (in order to optimize network packets)
    */
-  bool Flush(bool have_more = false) {
+  constexpr bool Flush(bool have_more = false) {
     // Write the size of the chunk.
     chunk_[chunk_start_] = (pos_ - chunk_start_ - kChunkHeaderSize) >> 8;
     chunk_[chunk_start_ + 1] = (pos_ - chunk_start_ - kChunkHeaderSize) & 0xFF;
@@ -109,7 +109,7 @@ class ChunkedEncoderBuffer {
   }
 
   /** Clears the internal buffers. */
-  void Clear() {
+  constexpr void Clear() {
     pos_ = kChunkHeaderSize;
     chunk_start_ = 0;
   }
@@ -119,7 +119,7 @@ class ChunkedEncoderBuffer {
    * @returns true if there is data in the buffer,
    *          false otherwise
    */
-  bool HasData() const { return (pos_ - chunk_start_) > kChunkHeaderSize; }
+  constexpr bool HasData() const { return (pos_ - chunk_start_) > kChunkHeaderSize; }
 
  private:
   // The output stream used.

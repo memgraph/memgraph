@@ -23,7 +23,9 @@ namespace memgraph::storage {
 class TransactionReplication;
 
 struct CommitArgs {
-  static auto make_main(DatabaseProtectorPtr protector) -> CommitArgs { return CommitArgs{Main{std::move(protector)}}; }
+  constexpr static auto make_main(DatabaseProtectorPtr protector) -> CommitArgs {
+    return CommitArgs{Main{std::move(protector)}};
+  }
 
   static auto make_replica_write(uint64_t const desired_commit_timestamp, bool const two_phase_commit,
                                  std::function<void()> in_progress_cb) -> CommitArgs {
@@ -32,7 +34,7 @@ struct CommitArgs {
                                    .in_progress_cb_ = std::move(in_progress_cb)}};
   }
 
-  static auto make_replica_read() -> CommitArgs { return CommitArgs{ReplicaRead{}}; }
+  constexpr static auto make_replica_read() -> CommitArgs { return CommitArgs{ReplicaRead{}}; }
 
   auto durable_timestamp(uint64_t commit_timestamp) const -> uint64_t {
     auto const f = utils::Overloaded{[&](Main const &main) { return commit_timestamp; },
@@ -41,11 +43,11 @@ struct CommitArgs {
     return std::visit(f, data);
   }
 
-  bool durability_allowed() const { return !std::holds_alternative<ReplicaRead>(data); }
-  bool replication_allowed() const { return std::holds_alternative<Main>(data); }
+  constexpr bool durability_allowed() const { return !std::holds_alternative<ReplicaRead>(data); }
+  constexpr bool replication_allowed() const { return std::holds_alternative<Main>(data); }
 
   auto database_protector() const -> DatabaseProtector const & {
-    auto const f =
+    auto constexpr f =
         utils::Overloaded{[&](Main const &main) -> DatabaseProtector const & { return *main.db_acc; },
                           [](auto const &) -> DatabaseProtector const & { MG_ASSERT(false, "invalid state"); }};
     return std::visit(f, data);
@@ -54,7 +56,7 @@ struct CommitArgs {
   bool two_phase_commit(TransactionReplication &replicating_txn) const;
 
   template <typename Func>
-  bool apply_if_replica_write(Func &&func) const {
+  constexpr bool apply_if_replica_write(Func &&func) const {
     auto const f = utils::Overloaded{[](auto const &) { return false; },
                                      [&](ReplicaWrite const &replica) {
                                        func(replica.two_phase_commit_, replica.desired_commit_timestamp);
@@ -63,14 +65,15 @@ struct CommitArgs {
     return std::visit(f, data);
   }
 
-  void apply_cb_if_replica_write() const {
-    auto const f = utils::Overloaded{[](auto const &) {},
-                                     [](ReplicaWrite const &replica) { std::invoke(replica.in_progress_cb_); }};
+  constexpr void apply_cb_if_replica_write() const {
+    auto constexpr f = utils::Overloaded{[](auto const &) {},
+                                         [](ReplicaWrite const &replica) { std::invoke(replica.in_progress_cb_); }};
     std::visit(f, data);
   }
 
   template <typename Func>
-  auto apply_if_main(Func &&func) const -> std::optional<std::invoke_result_t<Func, DatabaseProtector const &>> {
+  constexpr auto apply_if_main(Func &&func) const
+      -> std::optional<std::invoke_result_t<Func, DatabaseProtector const &>> {
     using result_t = std::optional<std::invoke_result_t<Func, DatabaseProtector const &>>;
     auto const f = utils::Overloaded{[](auto const &) -> result_t { return {}; },
                                      [&](Main const &main) -> result_t { return func(*main.db_acc); }};
@@ -93,7 +96,7 @@ struct CommitArgs {
     DatabaseProtectorPtr db_acc;
   };
 
-  explicit CommitArgs(std::variant<Main, ReplicaWrite, ReplicaRead> data) : data(std::move(data)) {}
+  constexpr explicit CommitArgs(std::variant<Main, ReplicaWrite, ReplicaRead> data) : data(std::move(data)) {}
 
   std::variant<Main, ReplicaWrite, ReplicaRead> data;
 };

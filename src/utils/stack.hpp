@@ -55,11 +55,11 @@ class Stack {
     TObj obj[TSize];
   };
   struct EmptyLock {
-    void lock() {}
-    void unlock() {}
+    constexpr void lock() {}
+    constexpr void unlock() {}
   };
   struct NoOpDeleter {
-    void operator()(const TObj & /*unused*/) const {}
+    constexpr void operator()(const TObj & /*unused*/) const {}
   };
 
   class Iterator {
@@ -70,23 +70,23 @@ class Stack {
     using pointer = TObj *;
     using reference = TObj &;
 
-    Iterator() : stack_(nullptr), block_(nullptr), index_(0) {}
+    constexpr Iterator() : stack_(nullptr), block_(nullptr), index_(0) {}
 
-    Iterator(Stack *stack, Block *block) : stack_(stack), block_(block) {
+    constexpr Iterator(Stack *stack, Block *block) : stack_(stack), block_(block) {
       if (block_ != nullptr && block_->used == 0) {
         block_ = block_->prev;
       }
       index_ = block_ != nullptr ? block_->used - 1 : 0;
     }
 
-    reference operator*() {
+    constexpr reference operator*() {
       DMG_ASSERT(block_ != nullptr && index_ < block_->used, "Iterator dereference out of bounds!");
       return block_->obj[index_];
     }
 
-    pointer operator->() { return &(operator*()); }
+    constexpr pointer operator->() { return &(operator*()); }
 
-    Iterator &operator++() {
+    constexpr Iterator &operator++() {
       if (block_ == nullptr) {
         return *this;
       }
@@ -101,13 +101,13 @@ class Stack {
       return *this;
     }
 
-    Iterator operator++(int) {
+    constexpr Iterator operator++(int) {
       Iterator tmp = *this;
       ++(*this);
       return tmp;
     }
 
-    Iterator &operator--() {
+    constexpr Iterator &operator--() {
       // If we're at end(), find the last (oldest) element
       if (block_ == nullptr) {
         if (stack_ != nullptr && stack_->head_ != nullptr) {
@@ -138,18 +138,18 @@ class Stack {
       return *this;
     }
 
-    Iterator operator--(int) {
+    constexpr Iterator operator--(int) {
       Iterator tmp = *this;
       --(*this);
       return tmp;
     }
 
-    bool operator==(const Iterator &other) const {
+    constexpr bool operator==(const Iterator &other) const {
       bool result = block_ == other.block_ && index_ == other.index_;
       return result;
     }
 
-    bool operator!=(const Iterator &other) const {
+    constexpr bool operator!=(const Iterator &other) const {
       bool result = block_ != other.block_ || index_ != other.index_;
       return result;
     }
@@ -164,14 +164,14 @@ class Stack {
   [[no_unique_address]] std::conditional_t<ThreadSafe, SpinLock, EmptyLock> lock_;
 
  public:
-  Stack() {
+  constexpr Stack() {
     static_assert(sizeof(Block) % kLinuxPageSize == 0,
                   "It is recommended that you set the TSize constant so that "
                   "the size of Stack::Block is a multiple of the page size.");
   }
 
-  Stack(Stack &&other) noexcept : head_(other.head_) { other.head_ = nullptr; }
-  Stack &operator=(Stack &&other) noexcept {
+  constexpr Stack(Stack &&other) noexcept : head_(other.head_) { other.head_ = nullptr; }
+  constexpr Stack &operator=(Stack &&other) noexcept {
     while (head_ != nullptr) {
       Block *prev = head_->prev;
       delete head_;
@@ -240,7 +240,7 @@ class Stack {
   }
 
   template <typename Predicate, typename Deleter = NoOpDeleter>
-  void EraseIf(Predicate &&pred, Deleter &&deleter = NoOpDeleter{}) {
+  constexpr void EraseIf(Predicate &&pred, Deleter &&deleter = NoOpDeleter{}) {
     auto guard = std::lock_guard{lock_};
     if (head_ == nullptr) {
       return;
@@ -268,9 +268,9 @@ class Stack {
     }
   }
 
-  Iterator begin() { return Iterator(this, head_); }
+  constexpr Iterator begin() { return Iterator(this, head_); }
 
-  Iterator end() { return Iterator(this, nullptr); }
+  constexpr Iterator end() { return Iterator(this, nullptr); }
 };
 
 }  // namespace memgraph::utils

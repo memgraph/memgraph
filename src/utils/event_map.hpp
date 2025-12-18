@@ -26,7 +26,7 @@ class EventMap {
  public:
   static constexpr int kMaxCounters = 48;
 
-  explicit EventMap(Counter *allocated_counters) noexcept : counters_(allocated_counters) {}
+  constexpr explicit EventMap(Counter *allocated_counters) noexcept : counters_(allocated_counters) {}
 
   bool Increment(std::string_view event, Count amount = 1);
 

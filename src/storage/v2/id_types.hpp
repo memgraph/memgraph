@@ -57,11 +57,11 @@ STORAGE_DEFINE_ID_TYPE(EdgeTypeId, uint32_t, int32_t);
 #undef STORAGE_DEFINE_ID_TYPE
 
 struct LabelPropKey {
-  LabelPropKey(LabelId const &label, PropertyId const &property) : label_(label), property_(property) {}
+  constexpr LabelPropKey(LabelId const &label, PropertyId const &property) : label_(label), property_(property) {}
   friend auto operator<=>(LabelPropKey const &, LabelPropKey const &) = default;
 
-  auto label() const -> LabelId { return label_; }
-  auto property() const -> PropertyId { return property_; }
+  constexpr auto label() const -> LabelId { return label_; }
+  constexpr auto property() const -> PropertyId { return property_; }
 
  private:
   LabelId label_;
@@ -69,12 +69,12 @@ struct LabelPropKey {
 };
 
 struct EdgeTypePropKey {
-  EdgeTypePropKey(EdgeTypeId const &edge_type, PropertyId const &property)
+  constexpr EdgeTypePropKey(EdgeTypeId const &edge_type, PropertyId const &property)
       : edge_type_(edge_type), property_(property) {}
   friend auto operator<=>(EdgeTypePropKey const &, EdgeTypePropKey const &) = default;
 
-  auto edge_type() const -> EdgeTypeId { return edge_type_; }
-  auto property() const -> PropertyId { return property_; }
+  constexpr auto edge_type() const -> EdgeTypeId { return edge_type_; }
+  constexpr auto property() const -> PropertyId { return property_; }
 
  private:
   EdgeTypeId edge_type_;

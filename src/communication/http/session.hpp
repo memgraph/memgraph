@@ -48,7 +48,7 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSe
 
  public:
   template <typename... Args>
-  static std::shared_ptr<Session> Create(Args &&...args) {
+  static constexpr std::shared_ptr<Session> Create(Args &&...args) {
     return std::shared_ptr<Session>{new Session{std::forward<Args>(args)...}};
   }
 

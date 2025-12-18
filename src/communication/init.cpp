@@ -51,8 +51,8 @@ void Cleanup() {
   crypto_locks.clear();
 }
 #else
-void SetupThreading() {}
-void Cleanup() {}
+constexpr void SetupThreading() {}
+constexpr void Cleanup() {}
 #endif
 }  // namespace
 

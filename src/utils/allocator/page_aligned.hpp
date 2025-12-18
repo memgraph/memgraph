@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,7 @@ struct PageAlignedAllocator {
   PageAlignedAllocator() = default;
 
   template <class U>
-  explicit PageAlignedAllocator(const PageAlignedAllocator<U> &) noexcept {}
+  constexpr explicit PageAlignedAllocator(const PageAlignedAllocator<U> &) noexcept {}
 
   auto allocate(std::size_t n) -> T * {
     auto size = std::max(n * sizeof(T), PAGE_SIZE);
@@ -37,7 +37,7 @@ struct PageAlignedAllocator {
     return static_cast<T *>(ptr);
   }
 
-  void deallocate(T *p, std::size_t) const noexcept { operator delete (p, std::align_val_t{PAGE_SIZE}); }
+  constexpr void deallocate(T *p, std::size_t) const noexcept { operator delete (p, std::align_val_t{PAGE_SIZE}); }
 
   constexpr friend bool operator==(PageAlignedAllocator const &, PageAlignedAllocator const &) noexcept { return true; }
 };

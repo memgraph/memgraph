@@ -97,7 +97,7 @@ TypedValue ToTypedValue(const std::vector<T> &values, DbAccessor *dba) requires(
 }
 
 template <typename T>
-const char *TypeToString() {
+const constexpr char *TypeToString() {
   if constexpr (std::same_as<T, detail::CreatedObject<VertexAccessor>>) {
     return "created_vertex";
   } else if constexpr (std::same_as<T, detail::CreatedObject<EdgeAccessor>>) {
@@ -152,7 +152,7 @@ concept WithEmpty = requires(const T value) {
 };
 
 template <WithEmpty... TContainer>
-bool AnyContainsValue(const TContainer &...value_containers) {
+constexpr bool AnyContainsValue(const TContainer &...value_containers) {
   return (!value_containers.empty() || ...);
 }
 
@@ -167,7 +167,7 @@ using PropertyChangesLists =
     std::pair<std::vector<detail::SetObjectProperty<TAccessor>>, std::vector<detail::RemovedObjectProperty<TAccessor>>>;
 
 template <detail::ObjectAccessor TAccessor>
-[[nodiscard]] PropertyChangesLists<TAccessor> PropertyMapToList(
+[[nodiscard]] constexpr PropertyChangesLists<TAccessor> PropertyMapToList(
     query::TriggerContextCollector::PropertyChangesMap<TAccessor> &&map) {
   std::vector<detail::SetObjectProperty<TAccessor>> set_object_properties;
   std::vector<detail::RemovedObjectProperty<TAccessor>> removed_object_properties;
@@ -198,7 +198,8 @@ template <detail::ObjectAccessor TAccessor>
 }
 
 template <detail::ObjectAccessor TAccessor>
-[[nodiscard]] ChangesSummary<TAccessor> Summarize(query::TriggerContextCollector::Registry<TAccessor> &&registry) {
+[[nodiscard]] constexpr ChangesSummary<TAccessor> Summarize(
+    query::TriggerContextCollector::Registry<TAccessor> &&registry) {
   auto [set_object_properties, removed_object_properties] = PropertyMapToList(std::move(registry.property_changes));
   std::vector<detail::CreatedObject<TAccessor>> created_objects_vec;
   created_objects_vec.reserve(registry.created_objects.size());
@@ -494,7 +495,7 @@ TriggerContextCollector::TriggerContextCollector(const std::unordered_set<Trigge
     }
   }
 
-  const auto deduce_if_should_register_created = [](auto &registry) {
+  constexpr auto deduce_if_should_register_created = [](auto &registry) {
     // Registering the created objects is necessary to:
     // - eliminate deleted objects that were created in the same transaction
     // - eliminate set/removed properties and labels of newly created objects

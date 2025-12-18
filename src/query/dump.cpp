@@ -58,7 +58,7 @@ const char *kInternalPropertyId = "__mg_id__";
 const char *kInternalVertexLabel = "__mg_vertex__";
 
 /// A helper function that escapes label, edge type and property names.
-std::string EscapeName(const std::string_view value) {
+constexpr std::string EscapeName(const std::string_view value) {
   std::string out;
   out.reserve(value.size() + 2);
   out.append(1, '`');
@@ -423,7 +423,7 @@ void DumpTypeConstraint(std::ostream *os, query::DbAccessor *dba, storage::Label
       << EscapeName(dba->PropertyToName(property)) << " IS TYPED " << storage::TypeConstraintKindToString(type) << ";";
 }
 
-const char *triggerPhaseToString(TriggerPhase phase) {
+constexpr const char *triggerPhaseToString(TriggerPhase phase) {
   switch (phase) {
     case TriggerPhase::BEFORE_COMMIT:
       return "BEFORE COMMIT EXECUTE";

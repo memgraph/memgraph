@@ -38,11 +38,11 @@ struct PropertyValueRange {
     return {Type::INVALID, std::move(lower), std::move(upper)};
   };
 
-  static auto Bounded(std::optional<utils::Bound<PropertyValue>> lower,
-                      std::optional<utils::Bound<PropertyValue>> upper) -> PropertyValueRange {
+  constexpr static auto Bounded(std::optional<utils::Bound<PropertyValue>> lower,
+                                std::optional<utils::Bound<PropertyValue>> upper) -> PropertyValueRange {
     return {Type::BOUNDED, std::move(lower), std::move(upper)};
   }
-  static auto IsNotNull() -> PropertyValueRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
+  constexpr static auto IsNotNull() -> PropertyValueRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
 
   bool IsValueInRange(PropertyValue const &value) const {
     if (lower_) {
@@ -64,7 +64,7 @@ struct PropertyValueRange {
 
   size_t hash() const noexcept;
 
-  friend bool operator==(PropertyValueRange const &lhs, PropertyValueRange const &rhs) noexcept {
+  constexpr friend bool operator==(PropertyValueRange const &lhs, PropertyValueRange const &rhs) noexcept {
     return std::tie(lhs.type_, lhs.lower_, lhs.upper_) == std::tie(rhs.type_, rhs.lower_, rhs.upper_);
   }
 
@@ -73,8 +73,8 @@ struct PropertyValueRange {
   std::optional<utils::Bound<PropertyValue>> upper_;
 
  private:
-  PropertyValueRange(Type type, std::optional<utils::Bound<PropertyValue>> lower,
-                     std::optional<utils::Bound<PropertyValue>> upper)
+  constexpr PropertyValueRange(Type type, std::optional<utils::Bound<PropertyValue>> lower,
+                               std::optional<utils::Bound<PropertyValue>> upper)
       : type_{type}, lower_{std::move(lower)}, upper_{std::move(upper)} {}
 };
 
@@ -88,7 +88,7 @@ struct LabelPropertiesIndicesInfo {
 };
 
 struct IndexOrderedPropertyValues {
-  IndexOrderedPropertyValues(std::vector<PropertyValue> value) : values_{std::move(value)} {}
+  constexpr IndexOrderedPropertyValues(std::vector<PropertyValue> value) : values_{std::move(value)} {}
 
   friend auto operator<=>(IndexOrderedPropertyValues const &, IndexOrderedPropertyValues const &) = default;
 
@@ -146,8 +146,8 @@ struct PropertiesPermutationHelper {
    * values. This returns a vector of boolean flags indicating per-element
    * equality (in monotonic property id order.)
    */
-  auto MatchesValues(PropertyStore const &properties,
-                     IndexOrderedPropertyValues const &values) const -> std::vector<bool>;
+  auto MatchesValues(PropertyStore const &properties, IndexOrderedPropertyValues const &values) const
+      -> std::vector<bool>;
 
   /** Returns an augmented view over the values in the given vector, where each
    * element is a tuple comprising: (position, [property id path], and value).

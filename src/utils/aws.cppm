@@ -48,7 +48,7 @@ struct S3Config {
   std::optional<std::string> aws_secret_key;
   std::optional<std::string> aws_endpoint_url;
 
-  void Validate() const {
+  constexpr void Validate() const {
     if (!aws_region.has_value()) {
       throw BasicException(
           "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} "

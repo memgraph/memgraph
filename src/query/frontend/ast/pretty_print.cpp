@@ -30,7 +30,7 @@ namespace {
 
 class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
  public:
-  explicit ExpressionPrettyPrinter(std::ostream *out, const DbAccessor *dba);
+  constexpr explicit ExpressionPrettyPrinter(std::ostream *out, const DbAccessor *dba);
 
   // Unary operators
   void Visit(NotOperator &op) override;
@@ -97,7 +97,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
 // of the overloads within the source, which is quite fragile.
 
 template <typename T>
-void PrintObject(std::ostream *out, const DbAccessor *dba, const T &arg);
+constexpr void PrintObject(std::ostream *out, const DbAccessor *dba, const T &arg);
 
 void PrintObject(std::ostream *out, const DbAccessor *dba, const std::string &str);
 
@@ -135,7 +135,7 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, PropertyIx const &pro
 void PrintObject(std::ostream *out, PropertyIx const &property);
 
 template <typename T>
-void PrintObject(std::ostream *out, const DbAccessor * /*dba*/, const T &arg) {
+constexpr void PrintObject(std::ostream *out, const DbAccessor * /*dba*/, const T &arg) {
   static_assert(!std::is_convertible_v<T, Expression *>,
                 "This overload shouldn't be called with pointers convertible "
                 "to Expression *. This means your other PrintObject overloads aren't "
@@ -372,7 +372,8 @@ void PrintOperator(std::ostream *out, const DbAccessor *dba, const std::string &
   PrintOperatorArgs(out, dba, args...);
 }
 
-ExpressionPrettyPrinter::ExpressionPrettyPrinter(std::ostream *out, const DbAccessor *dba) : out_(out), dba_(dba) {}
+constexpr ExpressionPrettyPrinter::ExpressionPrettyPrinter(std::ostream *out, const DbAccessor *dba)
+    : out_(out), dba_(dba) {}
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define UNARY_OPERATOR_VISIT(OP_NODE, OP_STR)      \

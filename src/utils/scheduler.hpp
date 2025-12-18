@@ -26,18 +26,18 @@ struct SchedulerInterval {
   SchedulerInterval() = default;
 
   template <typename TRep, typename TPeriod>
-  explicit SchedulerInterval(std::chrono::duration<TRep, TPeriod> period,
-                             std::optional<std::chrono::system_clock::time_point> start_time = {})
+  constexpr explicit SchedulerInterval(std::chrono::duration<TRep, TPeriod> period,
+                                       std::optional<std::chrono::system_clock::time_point> start_time = {})
       : period_or_cron{PeriodStartTime{period, start_time}} {}
   explicit SchedulerInterval(std::string str);
 
   friend bool operator==(const SchedulerInterval &lrh, const SchedulerInterval &rhs) = default;
 
   struct PeriodStartTime {
-    PeriodStartTime() {}
+    constexpr PeriodStartTime() {}
     template <typename TRep, typename TPeriod>
-    PeriodStartTime(std::chrono::duration<TRep, TPeriod> period,
-                    std::optional<std::chrono::system_clock::time_point> start_time)
+    constexpr PeriodStartTime(std::chrono::duration<TRep, TPeriod> period,
+                              std::optional<std::chrono::system_clock::time_point> start_time)
         : period{std::chrono::duration_cast<std::chrono::milliseconds>(period)}, start_time{start_time} {}
 
     std::chrono::milliseconds period{0};
@@ -50,7 +50,7 @@ struct SchedulerInterval {
 
   explicit operator bool() const;
 
-  void Execute(auto &&overloaded) const {
+  constexpr void Execute(auto &&overloaded) const {
     std::visit(utils::Overloaded([&overloaded](PeriodStartTime pst) { overloaded(pst.period, pst.start_time); },
                                  [&overloaded](std::string_view cron) { overloaded(cron); }),
                period_or_cron);

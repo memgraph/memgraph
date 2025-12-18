@@ -127,7 +127,7 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
 
 template <bool is_pull, typename TSession>
 State HandlePullDiscardV1(TSession &session, const State state, const Marker marker) {
-  const auto expected_marker = Marker::TinyStruct;
+  constexpr auto expected_marker = Marker::TinyStruct;
   if (marker != expected_marker) {
     spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!", std::to_underlying(marker));
     return State::Close;
@@ -148,7 +148,7 @@ State HandlePullDiscardV1(TSession &session, const State state, const Marker mar
 
 template <bool is_pull, typename TSession>
 State HandlePullDiscardV4(TSession &session, const State state, const Marker marker) {
-  const auto expected_marker = Marker::TinyStruct1;
+  constexpr auto expected_marker = Marker::TinyStruct1;
   if (marker != expected_marker) {
     spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", std::to_underlying(marker));
     return State::Close;
@@ -232,7 +232,7 @@ State HandlePrepare(TSession &session) {
 
 template <typename TSession>
 State HandleRunV1(TSession &session, const State state, const Marker marker) {
-  const auto expected_marker = Marker::TinyStruct2;
+  constexpr auto expected_marker = Marker::TinyStruct2;
   if (marker != expected_marker) {
     spdlog::trace("Expected {} marker, but received 0x{:02X}!",
                   session.version_.major == 1 ? "TinyStruct2" : "TinyStruct3", std::to_underlying(marker));
@@ -278,7 +278,7 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
 
 template <typename TSession>
 State HandleRunV4(TSession &session, const State state, const Marker marker) {
-  const auto expected_marker = Marker::TinyStruct3;
+  constexpr auto expected_marker = Marker::TinyStruct3;
   if (marker != expected_marker) {
     spdlog::trace("Expected TinyStruct3 marker, but received 0x{:02X}!", std::to_underlying(marker));
     return State::Close;
@@ -335,23 +335,23 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
 }
 
 template <typename TSession>
-State HandleRunV5(TSession &session, const State state, const Marker marker) {
+constexpr State HandleRunV5(TSession &session, const State state, const Marker marker) {
   // Using V4 on purpose
   return HandleRunV4<TSession>(session, state, marker);
 }
 
 template <typename TSession>
-State HandlePullV1(TSession &session, const State state, const Marker marker) {
+constexpr State HandlePullV1(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV1<true>(session, state, marker);
 }
 
 template <typename TSession>
-State HandlePullV4(TSession &session, const State state, const Marker marker) {
+constexpr State HandlePullV4(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV4<true>(session, state, marker);
 }
 
 template <typename TSession>
-State HandlePullV5(TSession &session, const State state, const Marker marker) {
+constexpr State HandlePullV5(TSession &session, const State state, const Marker marker) {
   // Using V4 on purpose
   return HandlePullV4<TSession>(session, state, marker);
 }
@@ -576,7 +576,7 @@ State HandleRoute(TSession &session, const Marker marker) {
 }
 
 template <typename TSession>
-State HandleLogOff(TSession &session) {
+constexpr State HandleLogOff(TSession &session) {
   // No arguments and cannot fail
   session.LogOff();
   return State::Init;

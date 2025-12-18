@@ -24,13 +24,13 @@ namespace memgraph::query::plan {
 
 namespace {
 
-unsigned long long IndividualCycles(const ProfilingStats &cumulative_stats) {
+constexpr unsigned long long IndividualCycles(const ProfilingStats &cumulative_stats) {
   return cumulative_stats.num_cycles - std::accumulate(cumulative_stats.children.begin(),
                                                        cumulative_stats.children.end(), 0ULL,
                                                        [](auto acc, auto &stats) { return acc + stats.num_cycles; });
 }
 
-double RelativeTime(unsigned long long num_cycles, unsigned long long total_cycles) {
+constexpr double RelativeTime(unsigned long long num_cycles, unsigned long long total_cycles) {
   return static_cast<double>(num_cycles) / total_cycles;
 }
 
@@ -50,7 +50,7 @@ namespace {
 
 class ProfilingStatsToTableHelper {
  public:
-  ProfilingStatsToTableHelper(unsigned long long total_cycles, std::chrono::duration<double> total_time)
+  constexpr ProfilingStatsToTableHelper(unsigned long long total_cycles, std::chrono::duration<double> total_time)
       : total_cycles_(total_cycles), total_time_(total_time) {}
 
   void Output(const ProfilingStats &cumulative_stats) {

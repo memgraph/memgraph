@@ -27,7 +27,7 @@ constexpr auto kReplicationDirectory = std::string_view{"replication"};
 
 namespace memgraph::replication {
 
-auto BuildReplicaKey(std::string_view name) -> std::string {
+constexpr auto BuildReplicaKey(std::string_view name) -> std::string {
   auto key = std::string{durability::kReplicationReplicaPrefix};
   key.append(name);
   return key;
@@ -307,7 +307,7 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
 
 std::expected<ReplicationClient *, RegisterReplicaStatus> ReplicationState::RegisterReplica(
     const ReplicationClientConfig &config) {
-  auto const replica_handler = [](RoleReplicaData const &) { return RegisterReplicaStatus::NOT_MAIN; };
+  auto constexpr replica_handler = [](RoleReplicaData const &) { return RegisterReplicaStatus::NOT_MAIN; };
 
   ReplicationClient *client{nullptr};
   auto const main_handler = [&client, &config, this](RoleMainData &mainData) -> RegisterReplicaStatus {
@@ -350,11 +350,11 @@ std::expected<ReplicationClient *, RegisterReplicaStatus> ReplicationState::Regi
 }
 
 std::optional<nlohmann::json> ReplicationState::GetTelemetryJson() const {
-  auto const replica_handler = [](RoleReplicaData const & /*replica*/) -> std::optional<nlohmann::json> {
+  auto constexpr replica_handler = [](RoleReplicaData const & /*replica*/) -> std::optional<nlohmann::json> {
     return std::nullopt;
   };
 
-  auto const main_handler = [](RoleMainData const &main) -> std::optional<nlohmann::json> {
+  auto constexpr main_handler = [](RoleMainData const &main) -> std::optional<nlohmann::json> {
     struct ReplicasTypeCounter {
       uint32_t num_async_{0};
       uint32_t num_sync_{0};

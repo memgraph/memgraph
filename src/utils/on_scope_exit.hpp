@@ -41,7 +41,7 @@ class [[nodiscard]] OnScopeExit {
  public:
   template <typename U>
   requires std::constructible_from<Callable, U>
-  explicit OnScopeExit(U &&function) : function_{std::forward<U>(function)}, doCall_{true} {}
+  constexpr explicit OnScopeExit(U &&function) : function_{std::forward<U>(function)}, doCall_{true} {}
   OnScopeExit(OnScopeExit const &) = delete;
   OnScopeExit(OnScopeExit &&) = delete;
   OnScopeExit &operator=(OnScopeExit const &) = delete;

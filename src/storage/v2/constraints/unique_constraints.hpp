@@ -19,7 +19,7 @@
 namespace memgraph::storage {
 
 // NOLINTNEXTLINE(misc-definitions-in-headers)
-const size_t kUniqueConstraintsMaxProperties = 32;
+constexpr size_t kUniqueConstraintsMaxProperties = 32;
 
 class UniqueConstraints {
  public:

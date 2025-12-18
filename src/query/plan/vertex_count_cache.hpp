@@ -28,7 +28,7 @@ namespace memgraph::query::plan {
 /// `VerticesCount`.
 class VertexCountCache {
  public:
-  explicit VertexCountCache(DbAccessor *db) : db_(db) {}
+  constexpr explicit VertexCountCache(DbAccessor *db) : db_(db) {}
 
   auto NameToLabel(const std::string &name) { return db_->NameToLabel(name); }
   auto NameToProperty(const std::string &name) { return db_->NameToProperty(name); }
@@ -213,7 +213,7 @@ class VertexCountCache {
   };
 
   struct LabelPropertiesRangesEqual {
-    bool operator()(LabelPropertiesRangesKey const &lhs, LabelPropertiesRangesKey const &rhs) const noexcept {
+    constexpr bool operator()(LabelPropertiesRangesKey const &lhs, LabelPropertiesRangesKey const &rhs) const noexcept {
       return lhs == rhs;
     }
   };

@@ -147,10 +147,10 @@ class MonotonicBufferResource final : public MemoryResource {
     size_t alignment;
 
     /// Get the size of the area reserved for `this`
-    size_t bytes_for_buffer() const { return *RoundUint64ToMultiple(sizeof(*this), alignment); }
+    constexpr size_t bytes_for_buffer() const { return *RoundUint64ToMultiple(sizeof(*this), alignment); }
 
     /// Get total allocated size.
-    size_t size() const { return bytes_for_buffer() + capacity; }
+    constexpr size_t size() const { return bytes_for_buffer() + capacity; }
 
     /// Get the pointer to data which is after the Buffer instance itself.
     char *data() { return reinterpret_cast<char *>(this) + bytes_for_buffer(); }
@@ -189,7 +189,7 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
   explicit ThreadSafeMonotonicBufferResource(void *buffer, size_t size, MemoryResource *memory = NewDeleteResource())
       : memory_(memory) {
     // Need to align to Block alignment
-    const size_t alignment = alignof(Block);
+    constexpr size_t alignment = alignof(Block);
     void *aligned_buffer = buffer;
     size_t available = size;
     if (!std::align(alignment, sizeof(Block), aligned_buffer, available)) {
@@ -257,7 +257,7 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
     char *begin() { return reinterpret_cast<char *>(this) + sizeof(*this); }
     char *data() { return begin() + size.load(std::memory_order_acquire); }
 
-    size_t total_size() const { return sizeof(*this) + capacity; }
+    constexpr size_t total_size() const { return sizeof(*this) + capacity; }
   };
 
   MemoryResource *memory_{NewDeleteResource()};
@@ -296,7 +296,7 @@ class Pool final {
   struct Chunk {
     // TODO: make blocks_per_chunk a per chunk thing (ie. allow chunk growth)
     std::byte *raw_data;
-    explicit Chunk(std::byte *rawData) : raw_data(rawData) {}
+    constexpr explicit Chunk(std::byte *rawData) : raw_data(rawData) {}
     std::byte *build_freelist(std::size_t block_size, std::size_t blocks_in_chunk) {
       auto current = raw_data;
       std::byte *prev = nullptr;
@@ -453,7 +453,7 @@ constexpr std::size_t bin_index(std::size_t n) {
 // This is the inverse opperation for bin_index
 // bin_size(bin_index(X)-1) < X <= bin_size(bin_index(X))
 template <std::size_t B = 2, std::size_t LB = 8>
-std::size_t bin_size(std::size_t idx) {
+constexpr std::size_t bin_size(std::size_t idx) {
   constexpr auto kExponent = B - 1U;
   constexpr auto kSize = 1U << kExponent;
   constexpr auto kOffset = msb_index(LB);
@@ -471,8 +471,8 @@ struct MultiPool {
   static_assert((LB << Bits) % sizeof(void *) == 0, "Smallest pool must have space and alignment for freelist");
 
   // upper bound is inclusive
-  static bool is_size_handled(std::size_t size) { return LB < size && size <= UB; }
-  static bool is_above_upper_bound(std::size_t size) { return UB < size; }
+  constexpr static bool is_size_handled(std::size_t size) { return LB < size && size <= UB; }
+  constexpr static bool is_above_upper_bound(std::size_t size) { return UB < size; }
 
   static constexpr auto n_bins = bin_index<Bits, LB>(UB) + 1U;
 
@@ -551,7 +551,7 @@ struct MultiPool {
 template <typename P = impl::Pool>
 class PoolResource final : public std::pmr::memory_resource {
  public:
-  PoolResource(uint8_t blocks_per_chunk, std::pmr::memory_resource *memory = NewDeleteResource(),
+  constexpr PoolResource(uint8_t blocks_per_chunk, std::pmr::memory_resource *memory = NewDeleteResource(),
                 std::pmr::memory_resource *internal_memory = NewDeleteResource())
       : mini_pools_{
             P{8, blocks_per_chunk, memory},
@@ -585,7 +585,7 @@ class PoolResource final : public std::pmr::memory_resource {
 // NOTE: Used only for procedure calls (single threaded)
 class MemoryTrackingResource final : public std::pmr::memory_resource {
  public:
-  explicit MemoryTrackingResource(std::pmr::memory_resource *memory, size_t max_allocated_bytes)
+  constexpr explicit MemoryTrackingResource(std::pmr::memory_resource *memory, size_t max_allocated_bytes)
       : memory_(memory), max_allocated_bytes_(max_allocated_bytes) {}
 
   size_t GetAllocatedBytes() const noexcept { return max_allocated_bytes_ - available_bytes_; }
@@ -612,7 +612,7 @@ class MemoryTrackingResource final : public std::pmr::memory_resource {
 // puts total allocated amount over the limit.
 class ResourceWithOutOfMemoryException : public MemoryResource {
  public:
-  explicit ResourceWithOutOfMemoryException(std::pmr::memory_resource *upstream = utils::NewDeleteResource())
+  constexpr explicit ResourceWithOutOfMemoryException(std::pmr::memory_resource *upstream = utils::NewDeleteResource())
       : upstream_{upstream} {}
 
   auto GetUpstream() noexcept -> std::pmr::memory_resource * { return upstream_; }

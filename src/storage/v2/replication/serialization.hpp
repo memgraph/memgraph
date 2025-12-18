@@ -22,7 +22,7 @@ namespace memgraph::storage::replication {
 
 class Encoder final : public durability::BaseEncoder {
  public:
-  explicit Encoder(slk::Builder *builder) : builder_(builder) {}
+  constexpr explicit Encoder(slk::Builder *builder) : builder_(builder) {}
 
   void WriteMarker(durability::Marker marker) override;
 
@@ -48,7 +48,7 @@ class Encoder final : public durability::BaseEncoder {
 
   bool WriteFile(const std::filesystem::path &path, std::filesystem::path const &path_to_write);
 
-  slk::Builder *GetBuilder() const { return builder_; }
+  constexpr slk::Builder *GetBuilder() const { return builder_; }
 
  private:
   slk::Builder *builder_;
@@ -56,7 +56,7 @@ class Encoder final : public durability::BaseEncoder {
 
 class Decoder final : public durability::BaseDecoder {
  public:
-  explicit Decoder(slk::Reader *reader) : reader_(reader) {}
+  constexpr explicit Decoder(slk::Reader *reader) : reader_(reader) {}
 
   std::optional<durability::Marker> ReadMarker() override;
 

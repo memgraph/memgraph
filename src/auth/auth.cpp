@@ -173,7 +173,7 @@ struct UpdateAuthData : memgraph::system::ISystemAction {
 struct DropAuthData : memgraph::system::ISystemAction {
   enum class AuthDataType : uint8_t { USER, ROLE, PROFILE };
 
-  explicit DropAuthData(AuthDataType type, std::string_view name) : type_{type}, name_{name} {}
+  constexpr explicit DropAuthData(AuthDataType type, std::string_view name) : type_{type}, name_{name} {}
 
   void DoDurability() override { /* Done during Auth execution */
   }
@@ -325,7 +325,7 @@ void MigrateVersions(kvstore::KVStore &store) {
 
     auto puts = std::map<std::string, std::string>{{kVersion, kVersionV3}};
 
-    auto const convert_v2_to_v3_permissions = [](uint64_t const v2_perm) -> uint64_t {
+    auto constexpr convert_v2_to_v3_permissions = [](uint64_t const v2_perm) -> uint64_t {
       // V2 permissions used bit_0 for read, bit_1 for update, and bit_2 for
       // create_delete, but note that the trailing bits are also set because the
       // permission formed a hierarchy.

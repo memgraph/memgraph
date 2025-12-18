@@ -20,11 +20,11 @@ using Counter = std::atomic<Count>;
 
 class EventCounters {
  public:
-  explicit EventCounters(Counter *allocated_counters) noexcept : counters_(allocated_counters) {}
+  constexpr explicit EventCounters(Counter *allocated_counters) noexcept : counters_(allocated_counters) {}
 
-  auto &operator[](const Event event) { return counters_[event]; }
+  constexpr auto &operator[](const Event event) { return counters_[event]; }
 
-  const auto &operator[](const Event event) const { return counters_[event]; }
+  constexpr const auto &operator[](const Event event) const { return counters_[event]; }
 
   void Increment(Event event, Count amount = 1);
 

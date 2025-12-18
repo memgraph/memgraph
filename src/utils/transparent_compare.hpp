@@ -18,9 +18,9 @@ namespace memgraph::utils {
 template <typename T>
 struct LessContainerCompare {
   using is_transparent = void;  // Enable heterogeneous compare
-  bool operator()(std::span<T const> lhs, std::span<T const> rhs) const { return lhs < rhs; }
-  bool operator()(std::vector<T> const &lhs, std::vector<T> const &rhs) const { return lhs < rhs; }
-  bool operator()(std::vector<T> const &lhs, std::span<T const> rhs) const { return lhs < rhs; }
-  bool operator()(std::span<T const> lhs, std::vector<T> const &rhs) const { return lhs < rhs; }
+  constexpr bool operator()(std::span<T const> lhs, std::span<T const> rhs) const { return lhs < rhs; }
+  constexpr bool operator()(std::vector<T> const &lhs, std::vector<T> const &rhs) const { return lhs < rhs; }
+  constexpr bool operator()(std::vector<T> const &lhs, std::span<T const> rhs) const { return lhs < rhs; }
+  constexpr bool operator()(std::span<T const> lhs, std::vector<T> const &rhs) const { return lhs < rhs; }
 };
 }  // namespace memgraph::utils

@@ -25,13 +25,13 @@ using EnumValueId = strong::type<uint64_t, struct EnumValueId_, strong::regular,
 struct Enum {
   Enum() = default;  // needed for slk
 
-  Enum(EnumTypeId type, EnumValueId value) : type_id_{type}, value_id_{value} {}
+  constexpr Enum(EnumTypeId type, EnumValueId value) : type_id_{type}, value_id_{value} {}
 
   //  friend auto operator==(Enum const &, Enum const &) -> bool = default;
   //  friend auto operator<(Enum const &, Enum const &) -> bool = default;
   friend auto operator<=>(Enum const &, Enum const &) -> std::weak_ordering = default;
 
-  friend auto as_tuple(const Enum &obj) { return std::tie(obj.type_id_, obj.value_id_); }
+  constexpr friend auto as_tuple(const Enum &obj) { return std::tie(obj.type_id_, obj.value_id_); }
 
   friend auto hash_value(Enum const &obj) {
     size_t seed = 0;
@@ -40,8 +40,8 @@ struct Enum {
     return seed;
   }
 
-  auto type_id() const -> EnumTypeId const & { return type_id_; }
-  auto value_id() const -> EnumValueId const & { return value_id_; }
+  constexpr auto type_id() const -> EnumTypeId const & { return type_id_; }
+  constexpr auto value_id() const -> EnumValueId const & { return value_id_; }
 
  private:
   EnumTypeId type_id_{};
@@ -49,7 +49,7 @@ struct Enum {
 };
 
 template <std::size_t N>
-decltype(auto) get(const Enum &obj) {
+constexpr decltype(auto) get(const Enum &obj) {
   return std::get<N>(as_tuple(obj));
 }
 

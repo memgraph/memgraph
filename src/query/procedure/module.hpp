@@ -36,7 +36,7 @@ namespace memgraph::query::procedure {
 
 class Module {
  public:
-  Module() {}
+  constexpr Module() {}
   virtual ~Module();
   Module(const Module &) = delete;
   Module(Module &&) = delete;
@@ -165,8 +165,8 @@ concept IsCallable = utils::SameAsAnyOf<T, mgp_proc, mgp_func>;
 /// Ensures right number of required + optional args
 /// Ensures args are of the right type
 template <IsCallable TCall>
-void ValidateArguments(std::span<TypedValue const> args, const TCall &callable,
-                       const std::string_view fully_qualified_name) {
+constexpr void ValidateArguments(std::span<TypedValue const> args, const TCall &callable,
+                                 const std::string_view fully_qualified_name) {
   const auto n_args = args.size();
   const auto c_args_sz = callable.args.size();
   const auto c_opt_args_sz = callable.opt_args.size();

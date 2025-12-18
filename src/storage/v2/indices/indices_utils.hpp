@@ -402,7 +402,7 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
 // Returns true if we are allowed to see the entity in the index data structures
 // If the method returns true, the reverts of the deltas will finally decide what's the version
 // of the graph entity
-inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction *transaction, View view) {
+constexpr inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction *transaction, View view) {
   // Not enough information, need to rely on MVCC to fully check entry
   if (transaction->command_id != 0) return true;
   auto const original_start_timestamp = transaction->original_start_timestamp.value_or(transaction->start_timestamp);
@@ -471,7 +471,7 @@ inline auto MakeBoundsFromRange(PropertyValueRange const &range) -> LowerAndUppe
       upper_bound = std::nullopt;
     }
 
-    auto const are_comparable_ranges = [](auto const &lower_bound, auto const &upper_bound) {
+    auto constexpr are_comparable_ranges = [](auto const &lower_bound, auto const &upper_bound) {
       if (AreComparableTypes(lower_bound.value().type(), upper_bound.value().type())) {
         return true;
       } else if (upper_bound.IsInclusive()) {
@@ -540,7 +540,7 @@ inline std::optional<std::vector<PropertyValue>> GenerateBounds(
 }
 
 template <typename T>
-inline void RechunkIndex(typename T::ChunkCollection &chunks, auto &&compare_fn) {
+inline constexpr void RechunkIndex(typename T::ChunkCollection &chunks, auto &&compare_fn) {
   // Index can have duplicate vertex entries, we need to make sure each unique vertex is inside a single chunk.
   // Chunks are divided at the skiplist level, we need to move each adjacent chunk's star/end to valid entries
   for (int i = 1; i < chunks.size(); ++i) {

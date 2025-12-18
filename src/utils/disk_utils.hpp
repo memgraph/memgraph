@@ -23,7 +23,7 @@ namespace memgraph::utils {
 auto GetOldDiskKeyOrNull(storage::Delta *head) -> std::optional<std::string_view>;
 
 template <typename TSkipListAccessor>
-bool ObjectExistsInCache(TSkipListAccessor &accessor, storage::Gid gid) {
+constexpr bool ObjectExistsInCache(TSkipListAccessor &accessor, storage::Gid gid) {
   return accessor.contains(gid);
 }
 

@@ -106,7 +106,7 @@ struct CoordinatorInstanceConfig {
 
 struct ManagementServerConfig {
   io::network::Endpoint endpoint;
-  explicit ManagementServerConfig(io::network::Endpoint endpoint) : endpoint(std::move(endpoint)) {}
+  constexpr explicit ManagementServerConfig(io::network::Endpoint endpoint) : endpoint(std::move(endpoint)) {}
   friend bool operator==(ManagementServerConfig const &, ManagementServerConfig const &) = default;
 };
 

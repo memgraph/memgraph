@@ -43,7 +43,7 @@ namespace memgraph::query::plan {
 
 namespace {
 template <class TDbAccessor>
-auto property_path_converter(TDbAccessor *db) {
+constexpr auto property_path_converter(TDbAccessor *db) {
   return [=](PropertyIxPath const &property_path) -> storage::PropertyPath {
     return property_path.path |
            ranges::views::transform([&](auto const &prop_ix) { return db->NameToProperty(prop_ix.name); }) |
@@ -92,7 +92,7 @@ struct IndexHints {
   }
 
   template <class TDbAccessor>
-  bool HasLabelIndex(TDbAccessor *db, storage::LabelId label) const {
+  constexpr bool HasLabelIndex(TDbAccessor *db, storage::LabelId label) const {
     for (const auto &[index_type, label_hint, _] : label_index_hints_) {
       auto label_id = db->NameToLabel(label_hint.name);
       if (label_id == label) {
@@ -103,8 +103,8 @@ struct IndexHints {
   }
 
   template <class TDbAccessor>
-  bool HasLabelPropertiesIndex(TDbAccessor *db, storage::LabelId label,
-                               std::span<storage::PropertyPath const> property_paths) const {
+  constexpr bool HasLabelPropertiesIndex(TDbAccessor *db, storage::LabelId label,
+                                         std::span<storage::PropertyPath const> property_paths) const {
     for (const auto &[index_type, label_hint, properties_prefix] : label_property_index_hints_) {
       auto label_id = db->NameToLabel(label_hint.name);
       if (label_id != label) continue;
@@ -122,7 +122,7 @@ struct IndexHints {
 
   // TODO: look into making index hints work for point indexes
   template <class TDbAccessor>
-  bool HasPointIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
+  constexpr bool HasPointIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
     for (const auto &[index_type, label_hint, property_hint] : point_index_hints_) {
       auto label_id = db->NameToLabel(label_hint.name);
       auto property_id = db->NameToProperty(property_hint[0].path[0].name);
@@ -142,7 +142,7 @@ namespace impl {
 
 struct HashPair {
   template <class T1, class T2>
-  std::size_t operator()(const std::pair<T1, T2> &pair) const {
+  constexpr std::size_t operator()(const std::pair<T1, T2> &pair) const {
     return utils::HashCombine<T1, T2>{}(pair.first, pair.second);
   }
 };
@@ -150,7 +150,8 @@ struct HashPair {
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints)
+  constexpr IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db,
+                                IndexHints index_hints)
       : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), index_hints_(std::move(index_hints)) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
@@ -890,9 +891,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
   }
 
-  storage::LabelId GetLabel(const LabelIx &label) { return db_->NameToLabel(label.name); }
+  constexpr storage::LabelId GetLabel(const LabelIx &label) { return db_->NameToLabel(label.name); }
 
-  storage::PropertyId GetProperty(const PropertyIx &prop) { return db_->NameToProperty(prop.name); }
+  constexpr storage::PropertyId GetProperty(const PropertyIx &prop) { return db_->NameToProperty(prop.name); }
 
   std::optional<LabelIx> FindBestLabelIndex(const std::unordered_set<LabelIx> &labels) {
     MG_ASSERT(!labels.empty(), "Trying to find the best label without any labels.");
@@ -1355,7 +1356,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return true;
     };
 
-    auto const to_expression_range = [&](auto &&filter) -> ExpressionRange {
+    auto constexpr to_expression_range = [&](auto &&filter) -> ExpressionRange {
       DMG_ASSERT(filter.property_filter);
       switch (filter.property_filter->type_) {
         case PropertyFilter::Type::EQUAL:

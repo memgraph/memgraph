@@ -128,10 +128,10 @@ constexpr uint32_t SizeToByteSize(Size size) {
 
 using Type = PropertyStoreType;
 
-const uint8_t kMaskType = 0xf0;
-const uint8_t kMaskIdSize = 0x0c;
-const uint8_t kMaskPayloadSize = 0x03;
-const uint8_t kShiftIdSize = 2;
+constexpr uint8_t kMaskType = 0xf0;
+constexpr uint8_t kMaskIdSize = 0x0c;
+constexpr uint8_t kMaskPayloadSize = 0x03;
+constexpr uint8_t kShiftIdSize = 2;
 
 // Values are encoded as follows:
 //   * NULL
@@ -209,7 +209,7 @@ const uint8_t kShiftIdSize = 2;
 //     - encoded property ID
 //     - encoded value as 2 (for 2D) or 3 (for 3D) doubles forced to be encoded as int64
 
-const auto TZ_NAME_LENGTH_SIZE = Size::INT8;
+constexpr auto TZ_NAME_LENGTH_SIZE = Size::INT8;
 // As the underlying type for zoned temporal data is std::chrono::zoned_time, valid timezone names are limited
 // to those in the IANA time zone database.
 // The timezone names in the IANA database follow https://data.iana.org/time-zones/theory.html#naming rules:
@@ -237,9 +237,9 @@ class Writer {
    public:
     MetadataHandle() = default;
 
-    explicit MetadataHandle(uint8_t *value) : value_(value) {}
+    constexpr explicit MetadataHandle(uint8_t *value) : value_(value) {}
 
-    void Set(Metadata metadata) {
+    constexpr void Set(Metadata metadata) {
       if (!value_) return;
       auto value = static_cast<uint8_t>(metadata.type);
       value |= static_cast<uint8_t>(static_cast<uint8_t>(metadata.id_size) << kShiftIdSize);
@@ -253,7 +253,7 @@ class Writer {
 
   Writer() = default;
 
-  Writer(uint8_t *data, uint32_t size) : data_(data), size_(size) {}
+  constexpr Writer(uint8_t *data, uint32_t size) : data_(data), size_(size) {}
 
   std::optional<MetadataHandle> WriteMetadata() {
     if (data_ && pos_ + 1 > size_) return std::nullopt;
@@ -308,7 +308,7 @@ class Writer {
     return WriteBytes(reinterpret_cast<const uint8_t *>(data), size);
   }
 
-  uint32_t Written() const { return pos_; }
+  constexpr uint32_t Written() const { return pos_; }
 
   template <typename T, typename V>
   static constexpr bool FitsInt(V value) {
@@ -356,7 +356,7 @@ class Writer {
 // Helper class used to read data from the binary stream.
 class Reader {
  public:
-  Reader(const uint8_t *data, uint32_t size) : data_(data), size_(size) {}
+  constexpr Reader(const uint8_t *data, uint32_t size) : data_(data), size_(size) {}
   Reader(Reader const &other, uint32_t offset, uint32_t size) : data_(other.data_ + offset), size_(size) {
     DMG_ASSERT(other.size_ - offset >= size);
   }
@@ -521,7 +521,7 @@ class Reader {
   uint32_t pos_ = 0;
 };
 
-auto CrsToSize(CoordinateReferenceSystem value) -> Size {
+constexpr auto CrsToSize(CoordinateReferenceSystem value) -> Size {
   switch (value) {
     using enum Size;
     using enum CoordinateReferenceSystem;
@@ -536,7 +536,7 @@ auto CrsToSize(CoordinateReferenceSystem value) -> Size {
   }
 }
 
-auto SizeToCrs(Size value) -> CoordinateReferenceSystem {
+constexpr auto SizeToCrs(Size value) -> CoordinateReferenceSystem {
   switch (value) {
     using enum Size;
     using enum CoordinateReferenceSystem;
@@ -1994,7 +1994,7 @@ struct SpecificPropertyAndBufferInfoMinimal {
   uint64_t property_begin;
   uint64_t property_end;
 
-  auto property_size() const { return property_end - property_begin; }
+  constexpr auto property_size() const { return property_end - property_begin; }
 };
 
 // Function used to find the position where the property should be in the data
@@ -2057,7 +2057,7 @@ SpecificPropertyAndBufferInfoMinimal FindSpecificPropertyAndBufferInfoMinimal(Re
 }
 
 // All data buffers will be allocated to a multiple of 8 size.
-uint32_t ToMultipleOf8(uint32_t size) {
+constexpr uint32_t ToMultipleOf8(uint32_t size) {
   const uint32_t mod = size % 8;
   if (mod == 0) return size;
   return size - mod + 8;
@@ -2092,8 +2092,8 @@ uint32_t ToMultipleOf8(uint32_t size) {
 // only use the leftover 15 bytes for raw data storage.
 static_assert(std::endian::native == std::endian::little, "Our code assumes little endian");
 
-const uint8_t kUseLocalBuffer = 0x01;
-const uint8_t kUseCompressedBuffer = 0x02;
+constexpr uint8_t kUseLocalBuffer = 0x01;
+constexpr uint8_t kUseCompressedBuffer = 0x02;
 static_assert(kUseLocalBuffer % 8 != 0, "Special storage modes need to be not a multiple of 8");
 static_assert(kUseCompressedBuffer % 8 != 0, "Special storage modes need to be not a multiple of 8");
 
@@ -2114,7 +2114,7 @@ struct DecodedBuffer {
 
   // implicit conversion operator
   // NOLINTNEXTLINE( hicpp-explicit-conversions )
-  explicit(false) operator DecodedBufferConst() {
+  constexpr explicit(false) operator DecodedBufferConst() {
     return {
         .view = view,
         .storage_mode = storage_mode,
@@ -2122,7 +2122,7 @@ struct DecodedBuffer {
   }
 };
 
-void FreeMemory(DecodedBuffer const &buffer_info) {
+constexpr void FreeMemory(DecodedBuffer const &buffer_info) {
   switch (buffer_info.storage_mode) {
     case StorageMode::BUFFER:
     case StorageMode::COMPRESSED:
@@ -2139,7 +2139,7 @@ void SetSizeData(std::array<uint8_t, 12> &buffer, uint32_t size, const uint8_t *
   // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
   memcpy(buffer.data() + sizeof(size), static_cast<void const *>(&data), sizeof(uint8_t *));
 }
-DecodedBuffer SetupLocalBuffer(std::array<uint8_t, 12> &buffer) {
+constexpr DecodedBuffer SetupLocalBuffer(std::array<uint8_t, 12> &buffer) {
   buffer[0] = kUseLocalBuffer;
   return DecodedBuffer{
       .view = std::span{&buffer[1], sizeof(buffer) - 1},
@@ -2204,7 +2204,7 @@ void CompressBuffer(std::array<uint8_t, 12> &buffer, DecodedBuffer const &buffer
   }
 
   auto compressed_view = compressed_buffer->view();
-  auto const metadata_size = sizeof(uint32_t) + 1;
+  auto constexpr metadata_size = sizeof(uint32_t) + 1;
   auto size_needed = compressed_view.size_bytes() + metadata_size;
   auto compressed_size_to_multiple_of_8 = ToMultipleOf8(size_needed);
   if (compressed_size_to_multiple_of_8 >= uncompressed_size) {
@@ -2448,7 +2448,7 @@ class ReaderPropPositionHistory {
   // The maximum history depth will always be one less than the maximum
   // amount of nesting in properties we expect to read. For example, to
   // read a.b.c.d, we need to store three levels of nesting (`a`, `b`, and `c`).
-  ReaderPropPositionHistory(std::size_t max_size) { history_.reserve(max_size); }
+  constexpr ReaderPropPositionHistory(std::size_t max_size) { history_.reserve(max_size); }
 
   // Move the reader to a position where the expected leaf property will be
   // located after the reader.

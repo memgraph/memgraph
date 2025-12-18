@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,7 +46,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
   ~Listener() = default;
 
   template <typename... Args>
-  static std::shared_ptr<Listener> Create(Args &&...args) {
+  static constexpr std::shared_ptr<Listener> Create(Args &&...args) {
     return std::shared_ptr<Listener>{new Listener(std::forward<Args>(args)...)};
   }
 

@@ -31,7 +31,7 @@ namespace memgraph::query::plan {
 
 namespace {
 
-bool IsConstantLiteral(const Expression *expression) {
+constexpr bool IsConstantLiteral(const Expression *expression) {
   return utils::Downcast<const PrimitiveLiteral>(expression) || utils::Downcast<const ParameterLookup>(expression);
 }
 

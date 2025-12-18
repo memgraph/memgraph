@@ -250,7 +250,7 @@ void EnsureMainInstance(InterpreterContext *interpreter_context, const std::stri
 #endif
 
 template <typename T, typename K>
-void Sort(std::vector<T, K> &vec) {
+constexpr void Sort(std::vector<T, K> &vec) {
   std::sort(vec.begin(), vec.end());
 }
 
@@ -277,7 +277,7 @@ void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
 }
 
 template <typename T>
-std::optional<T> GenOptional(const T &in) {
+constexpr std::optional<T> GenOptional(const T &in) {
   return in.empty() ? std::nullopt : std::make_optional<T>(in);
 }
 
@@ -359,7 +359,7 @@ std::string PropertyPathToName(auto &&context, storage::PropertyPath const &prop
 
 class ReplQueryHandler {
  public:
-  explicit ReplQueryHandler(query::ReplicationQueryHandler &replication_query_handler)
+  constexpr explicit ReplQueryHandler(query::ReplicationQueryHandler &replication_query_handler)
       : handler_{&replication_query_handler} {}
 
   /// @throw QueryRuntimeException if an error ocurred.
@@ -1555,7 +1555,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
 
       callback.fn = [handler = ReplQueryHandler{replication_query_handler}, replica_nfields = callback.header.size(),
                      full_info] {
-        auto const sync_mode_to_tv = [](replication_coordination_glue::ReplicationMode sync_mode) {
+        auto constexpr sync_mode_to_tv = [](replication_coordination_glue::ReplicationMode sync_mode) {
           using namespace std::string_view_literals;
           switch (sync_mode) {
             using enum replication_coordination_glue::ReplicationMode;
@@ -1568,7 +1568,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
           }
         };
 
-        auto const replica_sys_state_to_tv = [](replication::ReplicationClient::State state) {
+        auto constexpr replica_sys_state_to_tv = [](replication::ReplicationClient::State state) {
           using namespace std::string_view_literals;
           switch (state) {
             using enum memgraph::replication::ReplicationClient::State;
@@ -1590,7 +1590,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
           return TypedValue{std::move(info)};
         };
 
-        auto const replica_state_to_tv = [](memgraph::storage::replication::ReplicaState state) {
+        auto constexpr replica_state_to_tv = [](memgraph::storage::replication::ReplicaState state) {
           using namespace std::string_view_literals;
           switch (state) {
             using enum memgraph::storage::replication::ReplicaState;
@@ -1870,7 +1870,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                          "health", "role",        "last_succ_resp_ms"};
       callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
         auto const instances = handler.ShowInstances();
-        auto const converter = [](const auto &status) -> std::vector<TypedValue> {
+        auto constexpr converter = [](const auto &status) -> std::vector<TypedValue> {
           return {TypedValue{status.instance_name},
                   TypedValue{status.bolt_server},
                   TypedValue{status.coordinator_server},
@@ -1976,7 +1976,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         std::vector<std::vector<TypedValue>> results;
         results.reserve(lag_info.size());
 
-        auto const db_lag_data_to_tv = [](coordination::ReplicaDBLagData orig) {
+        auto constexpr db_lag_data_to_tv = [](coordination::ReplicaDBLagData orig) {
           auto info = std::map<std::string, TypedValue>{};
           info.emplace("num_committed_txns", TypedValue{static_cast<int64_t>(orig.num_committed_txns_)});
           info.emplace("num_txns_behind_main", TypedValue{static_cast<int64_t>(orig.num_txns_behind_main_)});
@@ -2404,7 +2404,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
 
 // Struct for lazy pulling from a vector
 struct PullPlanVector {
-  explicit PullPlanVector(std::vector<std::vector<TypedValue>> values) : values_(std::move(values)) {}
+  constexpr explicit PullPlanVector(std::vector<std::vector<TypedValue>> values) : values_(std::move(values)) {}
 
   // @return true if there are more unstreamed elements in vector,
   // false otherwise.
@@ -2426,16 +2426,16 @@ struct PullPlanVector {
 
 struct TxTimeout {
   TxTimeout() = default;
-  explicit TxTimeout(std::chrono::duration<double> value) noexcept : value_{std::in_place, value} {
+  constexpr explicit TxTimeout(std::chrono::duration<double> value) noexcept : value_{std::in_place, value} {
     // validation
     // - negative timeout makes no sense
     // - zero timeout means no timeout
     if (value_ <= std::chrono::milliseconds{0}) value_.reset();
   };
-  explicit operator bool() const { return value_.has_value(); }
+  constexpr explicit operator bool() const { return value_.has_value(); }
 
   /// Must call operator bool() first to know if safe
-  auto ValueUnsafe() const -> std::chrono::duration<double> const & { return *value_; }
+  constexpr auto ValueUnsafe() const -> std::chrono::duration<double> const & { return *value_; }
 
  private:
   std::optional<std::chrono::duration<double>> value_;
@@ -2654,7 +2654,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
 using RWType = plan::ReadWriteTypeChecker::RWType;
 
-bool IsQueryWrite(const query::plan::ReadWriteTypeChecker::RWType query_type) {
+constexpr bool IsQueryWrite(const query::plan::ReadWriteTypeChecker::RWType query_type) {
   return query_type == RWType::W || query_type == RWType::RW;
 }
 
@@ -4479,7 +4479,7 @@ PreparedQuery PrepareShowConfigQuery(ParsedQuery parsed_query, bool in_explicit_
                        RWType::NONE};
 }
 
-TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
+constexpr TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
   switch (event_type) {
     case TriggerQuery::EventType::ANY:
       return TriggerEventType::ANY;
@@ -4683,13 +4683,13 @@ constexpr auto ToEdgeImportMode(const EdgeImportModeQuery::Status status) noexce
   return storage::EdgeImportMode::INACTIVE;
 }
 
-bool SwitchingFromInMemoryToDisk(storage::StorageMode current_mode, storage::StorageMode next_mode) {
+constexpr bool SwitchingFromInMemoryToDisk(storage::StorageMode current_mode, storage::StorageMode next_mode) {
   return (current_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL ||
           current_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL) &&
          next_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL;
 }
 
-bool SwitchingFromDiskToInMemory(storage::StorageMode current_mode, storage::StorageMode next_mode) {
+constexpr bool SwitchingFromDiskToInMemory(storage::StorageMode current_mode, storage::StorageMode next_mode) {
   return current_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL &&
          (next_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL ||
           next_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL);
@@ -5313,16 +5313,16 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       header = {"index type", "label", "property", "count"};
       handler = [database, dba] {
         auto *storage = database->storage();
-        const std::string_view label_index_mark{"label"};
-        const std::string_view label_property_index_mark{"label+property"};
-        const std::string_view edge_type_index_mark{"edge-type"};
-        const std::string_view edge_type_property_index_mark{"edge-type+property"};
-        const std::string_view edge_property_index_mark{"edge-property"};
-        const std::string_view text_label_index_mark{"label_text"};
-        const std::string_view text_edge_type_index_mark{"edge-type_text"};
-        const std::string_view point_label_property_index_mark{"point"};
-        const std::string_view vector_label_property_index_mark{"label+property_vector"};
-        const std::string_view vector_edge_property_index_mark{"edge-type+property_vector"};
+        constexpr std::string_view label_index_mark{"label"};
+        constexpr std::string_view label_property_index_mark{"label+property"};
+        constexpr std::string_view edge_type_index_mark{"edge-type"};
+        constexpr std::string_view edge_type_property_index_mark{"edge-type+property"};
+        constexpr std::string_view edge_property_index_mark{"edge-property"};
+        constexpr std::string_view text_label_index_mark{"label_text"};
+        constexpr std::string_view text_edge_type_index_mark{"edge-type_text"};
+        constexpr std::string_view point_label_property_index_mark{"point"};
+        constexpr std::string_view vector_label_property_index_mark{"label+property_vector"};
+        constexpr std::string_view vector_edge_property_index_mark{"edge-type+property_vector"};
         auto info = dba->ListAllIndices();
         auto storage_acc = database->Access();
         std::vector<std::vector<TypedValue>> results;
@@ -7141,7 +7141,8 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
 struct QueryTransactionRequirements : QueryVisitor<void> {
   using QueryVisitor<void>::Visit;
 
-  QueryTransactionRequirements(bool is_schema_assert_query, bool is_cypher_read, bool is_in_memory_transactional)
+  constexpr QueryTransactionRequirements(bool is_schema_assert_query, bool is_cypher_read,
+                                         bool is_in_memory_transactional)
       : is_schema_assert_query_{is_schema_assert_query},
         is_cypher_read_{is_cypher_read},
         is_in_memory_transactional_{is_in_memory_transactional} {}

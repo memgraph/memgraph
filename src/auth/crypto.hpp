@@ -45,7 +45,7 @@ auto HashSize(PasswordHashAlgorithm hash_algo) -> struct HashSize;
 
 struct HashedPassword {
   HashedPassword() = default;
-  HashedPassword(PasswordHashAlgorithm hash_algo, std::string password_hash)
+  constexpr HashedPassword(PasswordHashAlgorithm hash_algo, std::string password_hash)
       : hash_algo{hash_algo}, password_hash{std::move(password_hash)} {}
   HashedPassword(HashedPassword const &) = default;
   HashedPassword(HashedPassword &&) = default;
@@ -58,7 +58,7 @@ struct HashedPassword {
 
   bool IsSalted() const;
 
-  auto HashAlgo() const -> PasswordHashAlgorithm { return hash_algo; }
+  constexpr auto HashAlgo() const -> PasswordHashAlgorithm { return hash_algo; }
 
   friend void to_json(nlohmann::json &j, const HashedPassword &p);
   friend void from_json(const nlohmann::json &j, HashedPassword &p);

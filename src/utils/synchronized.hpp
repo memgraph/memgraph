@@ -78,7 +78,7 @@ template <class T, class TMutex = std::mutex>
 class Synchronized {
  public:
   template <class... Args>
-  explicit Synchronized(Args &&...args) : object_(std::forward<Args>(args)...) {}
+  constexpr explicit Synchronized(Args &&...args) : object_(std::forward<Args>(args)...) {}
 
   Synchronized(const Synchronized &) = delete;
   Synchronized(Synchronized &&) = delete;
@@ -90,12 +90,13 @@ class Synchronized {
    private:
     friend class Synchronized<T, TMutex>;
 
-    LockedPtr(T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
-    LockedPtr(T *object_ptr, std::unique_lock<TMutex> &&guard) : object_ptr_(object_ptr), guard_(std::move(guard)) {}
+    constexpr LockedPtr(T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
+    constexpr LockedPtr(T *object_ptr, std::unique_lock<TMutex> &&guard)
+        : object_ptr_(object_ptr), guard_(std::move(guard)) {}
 
    public:
-    T *operator->() { return object_ptr_; }
-    T &operator*() { return *object_ptr_; }
+    constexpr T *operator->() { return object_ptr_; }
+    constexpr T &operator*() { return *object_ptr_; }
 
    private:
     T *object_ptr_;
@@ -106,13 +107,13 @@ class Synchronized {
    private:
     friend class Synchronized<T, TMutex>;
 
-    ReadLockedPtr(const T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
-    ReadLockedPtr(const T *object_ptr, std::shared_lock<TMutex> &&guard)
+    constexpr ReadLockedPtr(const T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
+    constexpr ReadLockedPtr(const T *object_ptr, std::shared_lock<TMutex> &&guard)
         : object_ptr_(object_ptr), guard_(std::move(guard)) {}
 
    public:
-    const T *operator->() const { return object_ptr_; }
-    const T &operator*() const { return *object_ptr_; }
+    constexpr const T *operator->() const { return object_ptr_; }
+    constexpr const T &operator*() const { return *object_ptr_; }
 
    private:
     const T *object_ptr_;
@@ -125,13 +126,13 @@ class Synchronized {
    private:
     friend class Synchronized<T, TMutex>;
 
-    MutableSharedLockPtr(T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
-    MutableSharedLockPtr(T *object_ptr, std::shared_lock<TMutex> &&guard)
+    constexpr MutableSharedLockPtr(T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
+    constexpr MutableSharedLockPtr(T *object_ptr, std::shared_lock<TMutex> &&guard)
         : object_ptr_(object_ptr), guard_(std::move(guard)) {}
 
    public:
-    T *operator->() { return object_ptr_; }
-    T &operator*() { return *object_ptr_; }
+    constexpr T *operator->() { return object_ptr_; }
+    constexpr T &operator*() { return *object_ptr_; }
 
    private:
     T *object_ptr_;

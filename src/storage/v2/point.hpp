@@ -40,7 +40,7 @@ constexpr auto kSrid_WGS84_3D = 4979;  // GEOGRAPHIC_3D_CRS
 constexpr auto kSrid_Cartesian_2D = 7203;
 constexpr auto kSrid_Cartesian_3D = 9157;
 
-inline auto CrsToSrid(CoordinateReferenceSystem val) -> Srid {
+constexpr inline auto CrsToSrid(CoordinateReferenceSystem val) -> Srid {
   switch (val) {
     using enum CoordinateReferenceSystem;
     case WGS84_2d:
@@ -74,7 +74,7 @@ inline auto StringToCrs(std::string_view crs) -> std::optional<CoordinateReferen
   return std::nullopt;
 }
 
-inline auto CrsToString(CoordinateReferenceSystem crs) -> std::string {
+constexpr inline auto CrsToString(CoordinateReferenceSystem crs) -> std::string {
   switch (crs) {
     using enum CoordinateReferenceSystem;
     case WGS84_2d:
@@ -86,7 +86,7 @@ inline auto CrsToString(CoordinateReferenceSystem crs) -> std::string {
   }
 }
 
-inline auto SridToCrs(Srid val) -> std::optional<CoordinateReferenceSystem> {
+constexpr inline auto SridToCrs(Srid val) -> std::optional<CoordinateReferenceSystem> {
   switch (val.value_of()) {
     using enum CoordinateReferenceSystem;
     case kSrid_WGS84_2D:
@@ -105,22 +105,22 @@ inline auto SridToCrs(Srid val) -> std::optional<CoordinateReferenceSystem> {
   return std::nullopt;
 }
 
-inline bool valid2d(CoordinateReferenceSystem val) {
+constexpr inline bool valid2d(CoordinateReferenceSystem val) {
   using enum CoordinateReferenceSystem;
   return val == WGS84_2d || val == Cartesian_2d;
 }
 
-inline bool valid3d(CoordinateReferenceSystem val) {
+constexpr inline bool valid3d(CoordinateReferenceSystem val) {
   using enum CoordinateReferenceSystem;
   return val == WGS84_3d || val == Cartesian_3d;
 }
 
-inline bool IsWGS(CoordinateReferenceSystem val) {
+constexpr inline bool IsWGS(CoordinateReferenceSystem val) {
   using enum CoordinateReferenceSystem;
   return val == WGS84_2d || val == WGS84_3d;
 }
 
-inline bool IsCartesian(CoordinateReferenceSystem val) {
+constexpr inline bool IsCartesian(CoordinateReferenceSystem val) {
   using enum CoordinateReferenceSystem;
   return val == Cartesian_2d || val == Cartesian_3d;
 }
@@ -128,19 +128,19 @@ inline bool IsCartesian(CoordinateReferenceSystem val) {
 struct Point2d {
   Point2d() = default;  // needed for slk
 
-  Point2d(CoordinateReferenceSystem crs, double x, double y) : crs_{crs}, x_longitude_{x}, y_latitude_{y} {
+  constexpr Point2d(CoordinateReferenceSystem crs, double x, double y) : crs_{crs}, x_longitude_{x}, y_latitude_{y} {
     DMG_ASSERT(valid2d(crs), "Not a valid 2d Coordinate Reference System");
   }
 
-  [[nodiscard]] auto crs() const -> CoordinateReferenceSystem { return crs_; }
-  [[nodiscard]] auto x() const -> double { return x_longitude_; }
-  [[nodiscard]] auto y() const -> double { return y_latitude_; }
-  [[nodiscard]] auto longitude() const -> double { return x_longitude_; }
-  [[nodiscard]] auto latitude() const -> double { return y_latitude_; }
+  [[nodiscard]] constexpr auto crs() const -> CoordinateReferenceSystem { return crs_; }
+  [[nodiscard]] constexpr auto x() const -> double { return x_longitude_; }
+  [[nodiscard]] constexpr auto y() const -> double { return y_latitude_; }
+  [[nodiscard]] constexpr auto longitude() const -> double { return x_longitude_; }
+  [[nodiscard]] constexpr auto latitude() const -> double { return y_latitude_; }
 
   friend bool operator==(Point2d const &, Point2d const &) = default;
 
-  friend auto operator<=>(Point2d const &lhs, Point2d const &rhs) -> std::partial_ordering {
+  constexpr friend auto operator<=>(Point2d const &lhs, Point2d const &rhs) -> std::partial_ordering {
     return std::tie(lhs.crs_, lhs.x_longitude_, lhs.y_latitude_) <=>
            std::tie(rhs.crs_, rhs.x_longitude_, rhs.y_latitude_);
   }
@@ -154,22 +154,22 @@ struct Point2d {
 struct Point3d {
   Point3d() = default;  // needed for slk
 
-  Point3d(CoordinateReferenceSystem crs, double x, double y, double z)
+  constexpr Point3d(CoordinateReferenceSystem crs, double x, double y, double z)
       : crs_{crs}, x_longitude_{x}, y_latitude_{y}, z_height_{z} {
     DMG_ASSERT(valid3d(crs), "Not a valid 3d Coordinate Reference System");
   }
 
-  [[nodiscard]] auto crs() const -> CoordinateReferenceSystem { return crs_; }
-  [[nodiscard]] auto x() const -> double { return x_longitude_; }
-  [[nodiscard]] auto y() const -> double { return y_latitude_; }
-  [[nodiscard]] auto z() const -> double { return z_height_; }
-  [[nodiscard]] auto longitude() const -> double { return x_longitude_; }
-  [[nodiscard]] auto latitude() const -> double { return y_latitude_; }
-  [[nodiscard]] auto height() const -> double { return z_height_; }
+  [[nodiscard]] constexpr auto crs() const -> CoordinateReferenceSystem { return crs_; }
+  [[nodiscard]] constexpr auto x() const -> double { return x_longitude_; }
+  [[nodiscard]] constexpr auto y() const -> double { return y_latitude_; }
+  [[nodiscard]] constexpr auto z() const -> double { return z_height_; }
+  [[nodiscard]] constexpr auto longitude() const -> double { return x_longitude_; }
+  [[nodiscard]] constexpr auto latitude() const -> double { return y_latitude_; }
+  [[nodiscard]] constexpr auto height() const -> double { return z_height_; }
 
   friend bool operator==(Point3d const &A, Point3d const &B) = default;
 
-  friend auto operator<=>(Point3d const &lhs, Point3d const &rhs) -> std::partial_ordering {
+  constexpr friend auto operator<=>(Point3d const &lhs, Point3d const &rhs) -> std::partial_ordering {
     return std::tie(lhs.crs_, lhs.x_longitude_, lhs.y_latitude_, lhs.z_height_) <=>
            std::tie(rhs.crs_, rhs.x_longitude_, rhs.y_latitude_, rhs.z_height_);
   }

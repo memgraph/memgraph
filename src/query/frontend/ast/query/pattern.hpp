@@ -31,7 +31,7 @@ class PatternAtom : public memgraph::query::Tree, public utils::Visitable<Hierar
   PatternAtom *Clone(AstStorage *storage) const override = 0;
 
  protected:
-  explicit PatternAtom(Identifier *identifier) : identifier_(identifier) {}
+  constexpr explicit PatternAtom(Identifier *identifier) : identifier_(identifier) {}
 
  private:
   friend class AstStorage;

@@ -35,7 +35,7 @@ class Aggregation : public memgraph::query::BinaryOperator {
   static constexpr std::string_view kCollect = "COLLECT";
   static constexpr std::string_view kProject = "PROJECT";
 
-  static std::string OpToString(Op op) {
+  constexpr static std::string OpToString(Op op) {
     static constexpr std::array op_strings = {kCount, kMin, kMax, kSum, kAvg, kCollect, kCollect, kProject, kProject};
     return std::string{op_strings[static_cast<int>(op)]};
   }
@@ -46,7 +46,7 @@ class Aggregation : public memgraph::query::BinaryOperator {
   DECLARE_VISITABLE(ExpressionVisitor<void>);
   DECLARE_VISITABLE(HierarchicalTreeVisitor);
 
-  Aggregation *MapTo(const Symbol &symbol) {
+  constexpr Aggregation *MapTo(const Symbol &symbol) {
     symbol_pos_ = symbol.position();
     return this;
   }
@@ -68,7 +68,7 @@ class Aggregation : public memgraph::query::BinaryOperator {
 
  protected:
   // Use only for serialization.
-  explicit Aggregation(Op op) : op_(op) {}
+  constexpr explicit Aggregation(Op op) : op_(op) {}
 
   /// Aggregation's first expression is the value being aggregated. The second expression is used either as a key in
   /// COLLECT_MAP or for the relationships list in the two-argument overload of PROJECT_PATH; no other aggregate

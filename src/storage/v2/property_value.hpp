@@ -38,7 +38,7 @@ concept Reservable = requires(T &t, std::size_t n) {
 // This code is here to do nothing right now, but to ensure we put back in
 // reserves when we go back to flat_map
 template <typename T>
-void do_reserve(T &v, std::size_t n) {
+constexpr void do_reserve(T &v, std::size_t n) {
   if constexpr (Reservable<T>) {
     v.reserve(n);
   }
@@ -77,19 +77,19 @@ struct DoubleListTag {};
 struct NumericListTag {};
 
 /// Helper function to check if a type is any kind of list
-inline bool IsListType(PropertyValueType type) {
+constexpr inline bool IsListType(PropertyValueType type) {
   return type == PropertyValueType::List || type == PropertyValueType::IntList ||
          type == PropertyValueType::DoubleList || type == PropertyValueType::NumericList;
 }
 
-inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
+constexpr inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
   return (a == b) || (a == PropertyValueType::Int && b == PropertyValueType::Double) ||
          (a == PropertyValueType::Double && b == PropertyValueType::Int);
 }
 
 /// Helper function to compare two numeric values (int or double)
-inline std::partial_ordering CompareNumericValues(const std::variant<int, double> &a,
-                                                  const std::variant<int, double> &b) {
+constexpr inline std::partial_ordering CompareNumericValues(const std::variant<int, double> &a,
+                                                            const std::variant<int, double> &b) {
   return std::visit([](const auto &val_a, const auto &val_b) -> std::partial_ordering { return val_a <=> val_b; }, a,
                     b);
 }
@@ -120,51 +120,54 @@ class PropertyValueImpl {
       std::vector<std::variant<int, double>, typename alloc_trait::template rebind_alloc<std::variant<int, double>>>;
 
   /// Make a Null value
-  PropertyValueImpl(allocator_type const &alloc = allocator_type{}) : alloc_{alloc}, type_(Type::Null) {}
+  constexpr PropertyValueImpl(allocator_type const &alloc = allocator_type{}) : alloc_{alloc}, type_(Type::Null) {}
 
   // constructors for primitive types
-  explicit PropertyValueImpl(const bool value, allocator_type const &alloc = allocator_type{})
+  constexpr explicit PropertyValueImpl(const bool value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, bool_v{.val_ = value} {}
-  explicit PropertyValueImpl(const int value, allocator_type const &alloc = allocator_type{})
+  constexpr explicit PropertyValueImpl(const int value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, int_v{.val_ = value} {}
-  explicit PropertyValueImpl(const int64_t value, allocator_type const &alloc = allocator_type{})
+  constexpr explicit PropertyValueImpl(const int64_t value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, int_v{.val_ = value} {}
-  explicit PropertyValueImpl(const double value, allocator_type const &alloc = allocator_type{})
+  constexpr explicit PropertyValueImpl(const double value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, double_v{.val_ = value} {}
   explicit PropertyValueImpl(const TemporalData value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, temporal_data_v{.val_ = value} {}
   explicit PropertyValueImpl(const ZonedTemporalData value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, zoned_temporal_data_v{.val_ = value} {}
-  explicit PropertyValueImpl(const Enum value, allocator_type const &alloc = allocator_type{})
+  constexpr explicit PropertyValueImpl(const Enum value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, enum_data_v{.val_ = value} {}
-  explicit PropertyValueImpl(const Point2d value, allocator_type const &alloc = allocator_type{})
+  constexpr explicit PropertyValueImpl(const Point2d value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, point2d_data_v{.val_ = value} {}
-  explicit PropertyValueImpl(const Point3d value, allocator_type const &alloc = allocator_type{})
+  constexpr explicit PropertyValueImpl(const Point3d value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, point3d_data_v{.val_ = value} {}
 
   // copy constructors for non-primitive types
   /// @throw std::bad_alloc
-  explicit PropertyValueImpl(string_t const &value) : alloc_{value.get_allocator()}, string_v{.val_ = value} {}
-  explicit PropertyValueImpl(string_t &&value) : alloc_{value.get_allocator()}, string_v{.val_ = std::move(value)} {}
-  explicit PropertyValueImpl(string_t const &value, allocator_type const &alloc)
+  constexpr explicit PropertyValueImpl(string_t const &value)
+      : alloc_{value.get_allocator()}, string_v{.val_ = value} {}
+  constexpr explicit PropertyValueImpl(string_t &&value)
+      : alloc_{value.get_allocator()}, string_v{.val_ = std::move(value)} {}
+  constexpr explicit PropertyValueImpl(string_t const &value, allocator_type const &alloc)
       : alloc_{alloc}, string_v{.val_ = string_t{value, alloc}} {}
-  explicit PropertyValueImpl(string_t &&value, allocator_type const &alloc)
+  constexpr explicit PropertyValueImpl(string_t &&value, allocator_type const &alloc)
       : alloc_{alloc}, string_v{.val_ = string_t{std::move(value), alloc}} {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if length of value exceeds
   ///        std::string::max_length().
-  explicit PropertyValueImpl(std::string_view value, allocator_type const &alloc = allocator_type{})
+  constexpr explicit PropertyValueImpl(std::string_view value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, string_v{.val_ = string_t{value, alloc}} {}
-  explicit PropertyValueImpl(char const *value, allocator_type const &alloc = allocator_type{})
+  constexpr explicit PropertyValueImpl(char const *value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, string_v{.val_ = string_t{value, alloc}} {}
 
   /// @throw std::bad_alloc
-  explicit PropertyValueImpl(list_t const &value) : alloc_{value.get_allocator()}, list_v{.val_ = value} {}
-  explicit PropertyValueImpl(list_t &&value) : alloc_{value.get_allocator()}, list_v{.val_ = std::move(value)} {}
-  explicit PropertyValueImpl(list_t const &value, allocator_type const &alloc)
+  constexpr explicit PropertyValueImpl(list_t const &value) : alloc_{value.get_allocator()}, list_v{.val_ = value} {}
+  constexpr explicit PropertyValueImpl(list_t &&value)
+      : alloc_{value.get_allocator()}, list_v{.val_ = std::move(value)} {}
+  constexpr explicit PropertyValueImpl(list_t const &value, allocator_type const &alloc)
       : alloc_{alloc}, list_v{.val_ = list_t{value, alloc}} {}
-  explicit PropertyValueImpl(list_t &&value, allocator_type const &alloc)
+  constexpr explicit PropertyValueImpl(list_t &&value, allocator_type const &alloc)
       : alloc_{alloc}, list_v{.val_ = list_t{std::move(value), alloc}} {}
 
   /// @throw std::bad_alloc
@@ -346,57 +349,59 @@ class PropertyValueImpl {
   }
 
   /// @throw std::bad_alloc
-  explicit PropertyValueImpl(map_t const &value) : alloc_{value.get_allocator()}, map_v{.val_ = value} {}
-  explicit PropertyValueImpl(map_t &&value) : alloc_{value.get_allocator()}, map_v{.val_ = std::move(value)} {}
-  explicit PropertyValueImpl(map_t const &value, allocator_type const &alloc)
+  constexpr explicit PropertyValueImpl(map_t const &value) : alloc_{value.get_allocator()}, map_v{.val_ = value} {}
+  constexpr explicit PropertyValueImpl(map_t &&value)
+      : alloc_{value.get_allocator()}, map_v{.val_ = std::move(value)} {}
+  constexpr explicit PropertyValueImpl(map_t const &value, allocator_type const &alloc)
       : alloc_{alloc}, map_v{.val_ = map_t{value, alloc}} {}
-  explicit PropertyValueImpl(map_t &&value, allocator_type const &alloc)
+  constexpr explicit PropertyValueImpl(map_t &&value, allocator_type const &alloc)
       : alloc_{alloc}, map_v{.val_ = map_t{std::move(value), alloc}} {}
 
   /// @throw std::bad_alloc
-  explicit PropertyValueImpl(int_list_t const &value) : alloc_{value.get_allocator()}, int_list_v{.val_ = value} {}
-  explicit PropertyValueImpl(int_list_t &&value)
+  constexpr explicit PropertyValueImpl(int_list_t const &value)
+      : alloc_{value.get_allocator()}, int_list_v{.val_ = value} {}
+  constexpr explicit PropertyValueImpl(int_list_t &&value)
       : alloc_{value.get_allocator()}, int_list_v{.val_ = std::move(value)} {}
-  explicit PropertyValueImpl(int_list_t const &value, allocator_type const &alloc)
+  constexpr explicit PropertyValueImpl(int_list_t const &value, allocator_type const &alloc)
       : alloc_{alloc}, int_list_v{.val_ = int_list_t{value, alloc}} {}
-  explicit PropertyValueImpl(int_list_t &&value, allocator_type const &alloc)
+  constexpr explicit PropertyValueImpl(int_list_t &&value, allocator_type const &alloc)
       : alloc_{alloc}, int_list_v{.val_ = int_list_t{std::move(value), alloc}} {}
 
   /// @throw std::bad_alloc
-  explicit PropertyValueImpl(double_list_t const &value)
+  constexpr explicit PropertyValueImpl(double_list_t const &value)
       : alloc_{value.get_allocator()}, double_list_v{.val_ = value} {}
-  explicit PropertyValueImpl(double_list_t &&value)
+  constexpr explicit PropertyValueImpl(double_list_t &&value)
       : alloc_{value.get_allocator()}, double_list_v{.val_ = std::move(value)} {}
-  explicit PropertyValueImpl(double_list_t const &value, allocator_type const &alloc)
+  constexpr explicit PropertyValueImpl(double_list_t const &value, allocator_type const &alloc)
       : alloc_{alloc}, double_list_v{.val_ = double_list_t{value, alloc}} {}
-  explicit PropertyValueImpl(double_list_t &&value, allocator_type const &alloc)
+  constexpr explicit PropertyValueImpl(double_list_t &&value, allocator_type const &alloc)
       : alloc_{alloc}, double_list_v{.val_ = double_list_t{std::move(value), alloc}} {}
 
   /// @throw std::bad_alloc
-  explicit PropertyValueImpl(numeric_list_t const &value)
+  constexpr explicit PropertyValueImpl(numeric_list_t const &value)
       : alloc_{value.get_allocator()}, numeric_list_v{.val_ = value} {}
-  explicit PropertyValueImpl(numeric_list_t &&value)
+  constexpr explicit PropertyValueImpl(numeric_list_t &&value)
       : alloc_{value.get_allocator()}, numeric_list_v{.val_ = std::move(value)} {}
-  explicit PropertyValueImpl(numeric_list_t const &value, allocator_type const &alloc)
+  constexpr explicit PropertyValueImpl(numeric_list_t const &value, allocator_type const &alloc)
       : alloc_{alloc}, numeric_list_v{.val_ = numeric_list_t{value, alloc}} {}
-  explicit PropertyValueImpl(numeric_list_t &&value, allocator_type const &alloc)
+  constexpr explicit PropertyValueImpl(numeric_list_t &&value, allocator_type const &alloc)
       : alloc_{alloc}, numeric_list_v{.val_ = numeric_list_t{std::move(value), alloc}} {}
 
   // copy constructor
   /// @throw std::bad_alloc
-  PropertyValueImpl(const PropertyValueImpl &other);
-  PropertyValueImpl(const PropertyValueImpl &other, allocator_type const &alloc);
+  constexpr PropertyValueImpl(const PropertyValueImpl &other);
+  constexpr PropertyValueImpl(const PropertyValueImpl &other, allocator_type const &alloc);
 
   // move constructor
-  PropertyValueImpl(PropertyValueImpl &&other) noexcept;
-  PropertyValueImpl(PropertyValueImpl &&other, allocator_type const &alloc) noexcept;
+  constexpr PropertyValueImpl(PropertyValueImpl &&other) noexcept;
+  constexpr PropertyValueImpl(PropertyValueImpl &&other, allocator_type const &alloc) noexcept;
 
   // copy assignment
   /// @throw std::bad_alloc
-  PropertyValueImpl &operator=(const PropertyValueImpl &other);
+  constexpr PropertyValueImpl &operator=(const PropertyValueImpl &other);
 
   // move assignment
-  PropertyValueImpl &operator=(PropertyValueImpl &&other) noexcept(
+  constexpr PropertyValueImpl &operator=(PropertyValueImpl &&other) noexcept(
       alloc_trait::is_always_equal::value || alloc_trait::propagate_on_container_move_assignment::value);
 
   // TODO: Implement copy assignment operators for primitive types.
@@ -407,9 +412,11 @@ class PropertyValueImpl {
 
   /// Copy accross allocators
   template <typename AllocOther, typename KeyTypeOther>
-  requires(!std::same_as<allocator_type, AllocOther> && std::same_as<KeyType, KeyTypeOther>)
-      PropertyValueImpl(PropertyValueImpl<AllocOther, KeyTypeOther> const &other,
-                        allocator_type const &alloc = allocator_type{})
+  requires(
+      !std::same_as<allocator_type, AllocOther> &&
+      std::same_as<KeyType, KeyTypeOther>) constexpr PropertyValueImpl(PropertyValueImpl<AllocOther, KeyTypeOther> const
+                                                                           &other,
+                                                                       allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, type_{other.type_} {
     switch (other.type_) {
       case Type::Null:
@@ -497,25 +504,25 @@ class PropertyValueImpl {
     }
   }
 
-  Type type() const { return type_; }
+  constexpr Type type() const { return type_; }
 
   // type checkers
-  bool IsNull() const { return type_ == Type::Null; }
-  bool IsBool() const { return type_ == Type::Bool; }
-  bool IsInt() const { return type_ == Type::Int; }
-  bool IsDouble() const { return type_ == Type::Double; }
-  bool IsString() const { return type_ == Type::String; }
-  bool IsList() const { return type_ == Type::List; }
-  bool IsAnyList() const { return IsListType(type_); }
-  bool IsMap() const { return type_ == Type::Map; }
-  bool IsEnum() const { return type_ == Type::Enum; }
-  bool IsTemporalData() const { return type_ == Type::TemporalData; }
-  bool IsZonedTemporalData() const { return type_ == Type::ZonedTemporalData; }
-  bool IsPoint2d() const { return type_ == Type::Point2d; }
-  bool IsPoint3d() const { return type_ == Type::Point3d; }
-  bool IsIntList() const { return type_ == Type::IntList; }
-  bool IsDoubleList() const { return type_ == Type::DoubleList; }
-  bool IsNumericList() const { return type_ == Type::NumericList; }
+  constexpr bool IsNull() const { return type_ == Type::Null; }
+  constexpr bool IsBool() const { return type_ == Type::Bool; }
+  constexpr bool IsInt() const { return type_ == Type::Int; }
+  constexpr bool IsDouble() const { return type_ == Type::Double; }
+  constexpr bool IsString() const { return type_ == Type::String; }
+  constexpr bool IsList() const { return type_ == Type::List; }
+  constexpr bool IsAnyList() const { return IsListType(type_); }
+  constexpr bool IsMap() const { return type_ == Type::Map; }
+  constexpr bool IsEnum() const { return type_ == Type::Enum; }
+  constexpr bool IsTemporalData() const { return type_ == Type::TemporalData; }
+  constexpr bool IsZonedTemporalData() const { return type_ == Type::ZonedTemporalData; }
+  constexpr bool IsPoint2d() const { return type_ == Type::Point2d; }
+  constexpr bool IsPoint3d() const { return type_ == Type::Point3d; }
+  constexpr bool IsIntList() const { return type_ == Type::IntList; }
+  constexpr bool IsDoubleList() const { return type_ == Type::DoubleList; }
+  constexpr bool IsNumericList() const { return type_ == Type::NumericList; }
 
   size_t ListSize() const {
     switch (type_) {
@@ -811,8 +818,8 @@ inline size_t GetListSize(const PropertyValueImpl<Alloc, KeyType> &list) {
 
 /// Helper function to compare two lists of different types
 template <typename Alloc, typename Alloc2, typename KeyType>
-inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType> &first,
-                                       const PropertyValueImpl<Alloc2, KeyType> &second) {
+inline constexpr std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType> &first,
+                                                 const PropertyValueImpl<Alloc2, KeyType> &second) {
   const size_t size1 = GetListSize(first);
   const size_t size2 = GetListSize(second);
 
@@ -860,8 +867,8 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType> &
 // Note: this function is only used for backwards compatibility with the old list types
 // It is not used for new list types
 template <typename Alloc, typename Alloc2, typename KeyType>
-inline std::weak_ordering CompareIncompatibleTypes(const PropertyValueImpl<Alloc, KeyType> &first,
-                                                   const PropertyValueImpl<Alloc2, KeyType> &second) {
+inline constexpr std::weak_ordering CompareIncompatibleTypes(const PropertyValueImpl<Alloc, KeyType> &first,
+                                                             const PropertyValueImpl<Alloc2, KeyType> &second) {
   auto first_is_list = IsListType(first.type());
   auto second_is_list = IsListType(second.type());
   if (first_is_list || second_is_list) {
@@ -878,8 +885,8 @@ inline std::weak_ordering CompareIncompatibleTypes(const PropertyValueImpl<Alloc
 // `PropertyStore::ComparePropertyValue`. If you change this operator make sure
 // to change the function so that they have identical functionality.
 template <typename Alloc, typename Alloc2, typename KeyType>
-inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
-                        const PropertyValueImpl<Alloc2, KeyType> &second) noexcept -> std::weak_ordering {
+inline constexpr auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
+                                  const PropertyValueImpl<Alloc2, KeyType> &second) noexcept -> std::weak_ordering {
   auto are_comparable = AreComparableTypes(first.type(), second.type());
   auto are_lists = IsListType(first.type()) && IsListType(second.type());
   if (!are_comparable && !are_lists) return CompareIncompatibleTypes(first, second);
@@ -922,8 +929,8 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
       if (second.type() == PropertyValueType::List) {
         auto const &l1 = first.ValueList();
         auto const &l2 = second.ValueList();
-        auto const three_way_cmp = [](PropertyValueImpl<Alloc, KeyType> const &v1,
-                                      PropertyValueImpl<Alloc2, KeyType> const &v2) { return v1 <=> v2; };
+        auto constexpr three_way_cmp = [](PropertyValueImpl<Alloc, KeyType> const &v1,
+                                          PropertyValueImpl<Alloc2, KeyType> const &v2) { return v1 <=> v2; };
         return std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end(), three_way_cmp);
       }
       return CompareLists(first, second);
@@ -948,7 +955,9 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
       if (second.type() == PropertyValueType::NumericList) {
         auto const &l1 = first.ValueNumericList();
         auto const &l2 = second.ValueNumericList();
-        auto const numeric_three_way_cmp = [](auto const &v1, auto const &v2) { return CompareNumericValues(v1, v2); };
+        auto constexpr numeric_three_way_cmp = [](auto const &v1, auto const &v2) {
+          return CompareNumericValues(v1, v2);
+        };
         return to_weak_order(
             std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end(), numeric_three_way_cmp));
       }
@@ -980,17 +989,18 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
 }
 
 template <typename Alloc, typename Alloc2, typename KeyType>
-inline bool operator==(const PropertyValueImpl<Alloc, KeyType> &first,
-                       const PropertyValueImpl<Alloc2, KeyType> &second) noexcept {
+inline constexpr bool operator==(const PropertyValueImpl<Alloc, KeyType> &first,
+                                 const PropertyValueImpl<Alloc2, KeyType> &second) noexcept {
   return is_eq(first <=> second);
 }
 
 template <typename Alloc, typename KeyType>
-inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(const PropertyValueImpl &other)
+inline constexpr PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(const PropertyValueImpl &other)
     : PropertyValueImpl{other, other.alloc_} {}
 
 template <typename Alloc, typename KeyType>
-inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(const PropertyValueImpl &other, allocator_type const &alloc)
+inline constexpr PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(const PropertyValueImpl &other,
+                                                                      allocator_type const &alloc)
     : alloc_{alloc}, type_(other.type_) {
   switch (other.type_) {
     case Type::Null:
@@ -1041,12 +1051,12 @@ inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(const PropertyValueI
 }
 
 template <typename Alloc, typename KeyType>
-inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(PropertyValueImpl &&other) noexcept
+inline constexpr PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(PropertyValueImpl &&other) noexcept
     : PropertyValueImpl{std::move(other), other.alloc_} {}
 
 template <typename Alloc, typename KeyType>
-inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(PropertyValueImpl &&other,
-                                                            allocator_type const &alloc) noexcept
+inline constexpr PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(PropertyValueImpl &&other,
+                                                                      allocator_type const &alloc) noexcept
     : alloc_{alloc}, type_(other.type_) {
   switch (type_) {
     case Type::Null:
@@ -1097,7 +1107,8 @@ inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(PropertyValueImpl &&
 }
 
 template <typename Alloc, typename KeyType>
-inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl const &other) -> PropertyValueImpl & {
+inline constexpr auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl const &other)
+    -> PropertyValueImpl & {
   auto do_copy = [&]() -> PropertyValueImpl<Alloc, KeyType> & {
     // if same type try assignment
     if (type_ == other.type_) {
@@ -1183,7 +1194,7 @@ inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl const
 }
 
 template <typename Alloc, typename KeyType>
-inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl &&other) noexcept(
+inline constexpr auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl &&other) noexcept(
     alloc_trait::is_always_equal::value || alloc_trait::propagate_on_container_move_assignment::value)
     -> PropertyValueImpl<Alloc, KeyType> & {
   auto do_move = [&]() -> PropertyValueImpl<Alloc, KeyType> & {
@@ -1483,10 +1494,10 @@ struct ExtendedPropertyType {
   EnumTypeId enum_type;
 
   ExtendedPropertyType() = default;
-  explicit ExtendedPropertyType(PropertyValueType type) : type{type} {}
-  explicit ExtendedPropertyType(TemporalType temporal_type)
+  constexpr explicit ExtendedPropertyType(PropertyValueType type) : type{type} {}
+  constexpr explicit ExtendedPropertyType(TemporalType temporal_type)
       : type{PropertyValueType::TemporalData}, temporal_type{temporal_type} {}
-  explicit ExtendedPropertyType(EnumTypeId enum_type) : type{PropertyValueType::Enum}, enum_type{enum_type} {}
+  constexpr explicit ExtendedPropertyType(EnumTypeId enum_type) : type{PropertyValueType::Enum}, enum_type{enum_type} {}
   explicit ExtendedPropertyType(const PropertyValue &val) {
     if (val.IsAnyList()) {
       // It's not important for user to know the list type, so we set it to List
@@ -1502,7 +1513,7 @@ struct ExtendedPropertyType {
     }
   }
 
-  bool operator==(const ExtendedPropertyType &other) const {
+  constexpr bool operator==(const ExtendedPropertyType &other) const {
     return type == other.type && temporal_type == other.temporal_type && enum_type == other.enum_type;
   }
 };

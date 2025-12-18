@@ -31,7 +31,7 @@ struct ComparisonFilterInfo {
     return false;
   }
 
-  explicit operator bool() const { return type != Type::UNKNOWN; }
+  constexpr explicit operator bool() const { return type != Type::UNKNOWN; }
 };
 
 /**
@@ -43,8 +43,8 @@ struct ComparisonFilterInfo {
  * @param rhs out
  * @return utils::TypeInfo normalized operator type
  */
-utils::TypeInfo PropertyComparisonType(Expression *filter, PropertyLookup *&prop_lookup, Identifier *&ident,
-                                       Expression *&rhs) {
+constexpr utils::TypeInfo PropertyComparisonType(Expression *filter, PropertyLookup *&prop_lookup, Identifier *&ident,
+                                                 Expression *&rhs) {
   auto get_prop_filter = [](BinaryOperator *op, PropertyLookup *&prop_lookup, Identifier *&ident, Expression *&rhs) {
     auto get_property_lookup = [](auto *maybe_lookup, PropertyLookup *&prop_lookup, Identifier *&ident) {
       return (prop_lookup = utils::Downcast<PropertyLookup>(maybe_lookup)) &&

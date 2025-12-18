@@ -142,7 +142,7 @@ class CoordinatorQueryHandler {
     bool alive;
     bool is_main;
 
-    MainReplicaStatus(std::string_view name, std::string_view socket_address, bool alive, bool is_main)
+    constexpr MainReplicaStatus(std::string_view name, std::string_view socket_address, bool alive, bool is_main)
         : name{name}, socket_address{socket_address}, alive{alive}, is_main{is_main} {}
   };
 
@@ -241,7 +241,7 @@ struct CurrentDB {
     in_explicit_db_ = in_explicit_db;
   }
 
-  void ResetDB() {
+  constexpr void ResetDB() {
     db_acc_.reset();
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
@@ -466,7 +466,8 @@ class Interpreter final {
     } thread_safe_;
 
     QueryExecution() = default;
-    explicit QueryExecution(ThreadSafe /*marker*/) : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>} {}
+    constexpr explicit QueryExecution(ThreadSafe /*marker*/)
+        : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>} {}
 
     QueryExecution(const QueryExecution &) = delete;
     QueryExecution(QueryExecution &&) = delete;
@@ -482,8 +483,8 @@ class Interpreter final {
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;
 
-    static auto Create() -> std::unique_ptr<QueryExecution> { return std::make_unique<QueryExecution>(); }
-    static auto CreateThreadSafe() -> std::unique_ptr<QueryExecution> {
+    constexpr static auto Create() -> std::unique_ptr<QueryExecution> { return std::make_unique<QueryExecution>(); }
+    constexpr static auto CreateThreadSafe() -> std::unique_ptr<QueryExecution> {
       return std::make_unique<QueryExecution>(thread_safe_);
     }
 

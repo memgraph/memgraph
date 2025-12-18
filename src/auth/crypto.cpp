@@ -185,7 +185,7 @@ auto ExtractSalt(std::string_view salt_durable) -> std::array<char, SALT_SIZE> {
   auto salt = std::array<char, SALT_SIZE>{};
   auto *inserter = salt.begin();
 
-  auto const toval = [](char a) -> uint8_t {
+  auto constexpr toval = [](char a) -> uint8_t {
     if ('0' <= a && a <= '9') {
       return a - '0';
     }
@@ -202,7 +202,7 @@ auto ExtractSalt(std::string_view salt_durable) -> std::array<char, SALT_SIZE> {
   return salt;
 }
 
-bool IsSalted(std::string_view hash) { return hash.size() == SHA_LENGTH + SALT_SIZE_DURABLE; }
+constexpr bool IsSalted(std::string_view hash) { return hash.size() == SHA_LENGTH + SALT_SIZE_DURABLE; }
 
 bool VerifyPassword(std::string_view password, std::string_view hash, const uint64_t number_of_iterations) {
   auto password_hash = std::invoke([&] {
@@ -247,7 +247,7 @@ HashedPassword HashPassword(const std::string &password, std::optional<PasswordH
 
 namespace {
 
-auto InternalParseHashAlgorithm(std::string_view algo) -> PasswordHashAlgorithm {
+constexpr auto InternalParseHashAlgorithm(std::string_view algo) -> PasswordHashAlgorithm {
   auto maybe_parsed = utils::StringToEnum<PasswordHashAlgorithm>(algo, password_hash_mappings);
   if (!maybe_parsed) {
     throw AuthException("Invalid password encryption '{}'!", algo);
