@@ -42,6 +42,7 @@ env:
 
 jobs:
   amd_memgraph_build:
+    name: "Memgraph Package (AMD)"
     if: ${{ inputs.run_amd }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
@@ -57,6 +58,7 @@ jobs:
     secrets: inherit
 
   amd_mage_tests:
+    name: "MAGE Tests (AMD)"
     needs: amd_memgraph_build
     if: ${{ inputs.run_amd }}
     uses: ./.github/workflows/reusable_package_mage.yaml
@@ -71,6 +73,7 @@ jobs:
     secrets: inherit
 
   arm_memgraph_build:
+    name: "Memgraph Package (ARM)"
     if: ${{ inputs.run_arm }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
@@ -86,6 +89,7 @@ jobs:
     secrets: inherit
 
   arm_mage_tests:
+    name: "MAGE Tests (ARM)"
     needs: arm_memgraph_build
     if: ${{ inputs.run_arm }}
     uses: ./.github/workflows/reusable_package_mage.yaml
@@ -100,6 +104,7 @@ jobs:
     secrets: inherit
 
   cuda_memgraph_build:
+    name: "Memgraph Package (CUDA)"
     if: ${{ inputs.run_cuda }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
@@ -115,6 +120,7 @@ jobs:
     secrets: inherit
 
   cuda_mage_tests:
+    name: "MAGE Tests (CUDA)"
     needs: cuda_memgraph_build
     if: ${{ inputs.run_cuda }}
     uses: ./.github/workflows/reusable_package_mage.yaml

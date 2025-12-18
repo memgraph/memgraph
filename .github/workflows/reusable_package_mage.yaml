@@ -80,6 +80,8 @@ on:
         description: "Generate SBOM"
         default: false
 
+run-name: "Build and test MAGE for ${{ inputs.arch }}"
+
 env:
   OS: "${{ inputs.arch == 'arm64' && 'ubuntu-24.04-aarch64' || 'ubuntu-24.04' }}${{ inputs.malloc && '-malloc' || '' }}${{ inputs.mage_build_type == 'RelWithDebInfo' && '-relwithdebinfo' || '' }}"
   ARCH: "${{ inputs.arch }}"
