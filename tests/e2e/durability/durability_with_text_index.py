@@ -343,5 +343,388 @@ def test_durability_with_text_index_recovery_disabled(connection):
     interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_WITHOUT_RECOVERY, "main")
 
 
+def test_durability_text_index_recovery_from_snapshot_only(connection):
+    # Goal: Test that text indices are correctly rebuilt when text_indices folder is deleted but snapshot exists.
+    # This simulates a scenario where the text index files are corrupted/missing but the data is in the snapshot.
+    # 0/ Setup the database
+    # 1/ Create text indices on both nodes and edges, add searchable data
+    # 2/ Validate text search works for both nodes and edges
+    # 3/ Kill MAIN
+    # 4/ Delete the text_indices folder (simulating corruption/missing files)
+    # 5/ Start MAIN (recovery from snapshot should rebuild the indices)
+    # 6/ Validate text indices exist and data is searchable
+
+    import shutil
+
+    data_directory = tempfile.TemporaryDirectory()
+    text_indices_path = os.path.join(data_directory.name, "text_indices")
+
+    MEMGRAPH_INSTANCE_DESCRIPTION = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_text_index_snapshot_recovery.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    # 0/
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION, "main")
+    cursor = connection(7687, "main").cursor()
+
+    # 1/
+    # Create text indices on both nodes and edges
+    execute_and_fetch_all(cursor, "CREATE TEXT INDEX article_index ON :Article;")
+    execute_and_fetch_all(cursor, "CREATE TEXT EDGE INDEX reference_index ON :REFERENCES(description, notes);")
+
+    # Add data that will be indexed (both nodes and edges)
+    execute_and_fetch_all(
+        cursor,
+        """CREATE (a1:Article {title: 'Article One', content: 'alpha'})
+           -[:REFERENCES {description: 'Link One', notes: 'first'}]->
+           (a2:Article {title: 'Article Two', content: 'beta'});""",
+    )
+    execute_and_fetch_all(
+        cursor,
+        """CREATE (a3:Article {title: 'Article Three', content: 'gamma'})
+           -[:REFERENCES {description: 'Link Two', notes: 'second'}]->
+           (a4:Article {title: 'Article Four', content: 'delta'});""",
+    )
+
+    # 2/
+    def search_articles(cursor, query):
+        return execute_and_fetch_all(
+            cursor,
+            f"CALL text_search.search('article_index', '{query}') YIELD node RETURN node.title AS title ORDER BY title;",
+        )
+
+    def search_references(cursor, query):
+        return execute_and_fetch_all(
+            cursor,
+            f"CALL text_search.search_edges('reference_index', '{query}') YIELD edge RETURN edge.description AS description ORDER BY description;",
+        )
+
+    # Validate text indices exist
+    index_info = execute_and_fetch_all(cursor, "SHOW INDEX INFO;")
+    assert len(index_info) == 2
+    assert sorted(index_info) == sorted(
+        [
+            ("label_text (name: article_index)", "Article", [], 4),
+            ("edge-type_text (name: reference_index)", "REFERENCES", ["description", "notes"], 2),
+        ]
+    )
+
+    # Validate text search works before restart - nodes
+    search_results = search_articles(cursor, "data.content:alpha")
+    assert len(search_results) == 1
+    assert search_results[0][0] == "Article One"
+
+    search_results = search_articles(cursor, "data.content:gamma")
+    assert len(search_results) == 1
+    assert search_results[0][0] == "Article Three"
+
+    # Validate text search works before restart - edges
+    search_results = search_references(cursor, "data.notes:first")
+    assert len(search_results) == 1
+    assert search_results[0][0] == "Link One"
+
+    search_results = search_references(cursor, "data.notes:second")
+    assert len(search_results) == 1
+    assert search_results[0][0] == "Link Two"
+
+    # 3/
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION, "main")
+
+    # 4/
+    # Delete the text_indices folder to simulate missing/corrupted index files
+    if os.path.exists(text_indices_path):
+        shutil.rmtree(text_indices_path)
+    assert not os.path.exists(text_indices_path), "text_indices folder should be deleted"
+
+    # 5/
+    # Start MAIN - recovery from snapshot should rebuild the text indices
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION, "main")
+    cursor = connection(7687, "main").cursor()
+
+    # 6/
+    # Validate text indices are restored
+    index_info = execute_and_fetch_all(cursor, "SHOW INDEX INFO;")
+    assert len(index_info) == 2
+    assert sorted(index_info) == sorted(
+        [
+            ("label_text (name: article_index)", "Article", [], 4),
+            ("edge-type_text (name: reference_index)", "REFERENCES", ["description", "notes"], 2),
+        ]
+    )
+
+    # Validate the text_indices folder was recreated
+    assert os.path.exists(text_indices_path), "text_indices folder should be recreated after recovery"
+
+    # Validate all nodes are restored
+    all_articles = execute_and_fetch_all(cursor, "MATCH (a:Article) RETURN a.title ORDER BY a.title;")
+    assert len(all_articles) == 4
+    assert all_articles == [
+        ("Article Four",),
+        ("Article One",),
+        ("Article Three",),
+        ("Article Two",),
+    ]
+
+    # Validate all edges are restored
+    all_references = execute_and_fetch_all(
+        cursor, "MATCH ()-[r:REFERENCES]->() RETURN r.description ORDER BY r.description;"
+    )
+    assert len(all_references) == 2
+    assert all_references == [("Link One",), ("Link Two",)]
+
+    # Validate text search works after recovery - nodes
+    search_results = search_articles(cursor, "data.content:alpha")
+    assert len(search_results) == 1
+    assert search_results[0][0] == "Article One"
+
+    search_results = search_articles(cursor, "data.content:beta")
+    assert len(search_results) == 1
+    assert search_results[0][0] == "Article Two"
+
+    search_results = search_articles(cursor, "data.content:gamma")
+    assert len(search_results) == 1
+    assert search_results[0][0] == "Article Three"
+
+    search_results = search_articles(cursor, "data.content:delta")
+    assert len(search_results) == 1
+    assert search_results[0][0] == "Article Four"
+
+    # Validate text search works after recovery - edges
+    search_results = search_references(cursor, "data.notes:first")
+    assert len(search_results) == 1
+    assert search_results[0][0] == "Link One"
+
+    search_results = search_references(cursor, "data.notes:second")
+    assert len(search_results) == 1
+    assert search_results[0][0] == "Link Two"
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION, "main")
+
+
+def test_partial_text_index_folder_deletion_nodes(connection):
+    # Goal: Test that when one of two node text index folders is deleted, both indices are recovered from snapshot.
+    # 0/ Setup the database
+    # 1/ Create two text indices on different node labels
+    # 2/ Add one node to each index
+    # 3/ Kill MAIN (snapshot is created)
+    # 4/ Delete only ONE text index folder
+    # 5/ Start MAIN (recovery from snapshot)
+    # 6/ Validate both indices exist and are searchable
+
+    import shutil
+
+    data_directory = tempfile.TemporaryDirectory()
+    text_indices_path = os.path.join(data_directory.name, "text_indices")
+
+    MEMGRAPH_INSTANCE_DESCRIPTION = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_partial_text_index_deletion_nodes.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    # 0/
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION, "main")
+    cursor = connection(7687, "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(cursor, "CREATE TEXT INDEX index_one ON :LabelOne;")
+    execute_and_fetch_all(cursor, "CREATE TEXT INDEX index_two ON :LabelTwo;")
+
+    # 2/
+    execute_and_fetch_all(cursor, "CREATE (:LabelOne {content: 'alpha'});")
+    execute_and_fetch_all(cursor, "CREATE (:LabelTwo {content: 'beta'});")
+
+    # Validate indices exist with correct counts
+    index_info = execute_and_fetch_all(cursor, "SHOW INDEX INFO;")
+    assert len(index_info) == 2
+    assert sorted(index_info) == sorted(
+        [
+            ("label_text (name: index_one)", "LabelOne", [], 1),
+            ("label_text (name: index_two)", "LabelTwo", [], 1),
+        ]
+    )
+
+    # Validate search works before restart
+    search_results = execute_and_fetch_all(
+        cursor, "CALL text_search.search('index_one', 'data.content:alpha') YIELD node RETURN node.content;"
+    )
+    assert len(search_results) == 1
+    assert search_results[0][0] == "alpha"
+
+    search_results = execute_and_fetch_all(
+        cursor, "CALL text_search.search('index_two', 'data.content:beta') YIELD node RETURN node.content;"
+    )
+    assert len(search_results) == 1
+    assert search_results[0][0] == "beta"
+
+    # 3/
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION, "main")
+
+    # 4/ Delete only ONE text index folder
+    index_one_path = os.path.join(text_indices_path, "index_one")
+    assert os.path.exists(index_one_path), "index_one folder should exist before deletion"
+    shutil.rmtree(index_one_path)
+    assert not os.path.exists(index_one_path), "index_one folder should be deleted"
+    # index_two folder should still exist
+    index_two_path = os.path.join(text_indices_path, "index_two")
+    assert os.path.exists(index_two_path), "index_two folder should still exist"
+
+    # 5/
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION, "main")
+    cursor = connection(7687, "main").cursor()
+
+    # 6/ Validate both indices exist
+    index_info = execute_and_fetch_all(cursor, "SHOW INDEX INFO;")
+    assert len(index_info) == 2
+    assert sorted(index_info) == sorted(
+        [
+            ("label_text (name: index_one)", "LabelOne", [], 1),
+            ("label_text (name: index_two)", "LabelTwo", [], 1),
+        ]
+    )
+
+    # Validate index_one folder was recreated
+    assert os.path.exists(index_one_path), "index_one folder should be recreated after recovery"
+
+    # Validate search works for both indices after recovery
+    search_results = execute_and_fetch_all(
+        cursor, "CALL text_search.search('index_one', 'data.content:alpha') YIELD node RETURN node.content;"
+    )
+    assert len(search_results) == 1
+    assert search_results[0][0] == "alpha"
+
+    search_results = execute_and_fetch_all(
+        cursor, "CALL text_search.search('index_two', 'data.content:beta') YIELD node RETURN node.content;"
+    )
+    assert len(search_results) == 1
+    assert search_results[0][0] == "beta"
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION, "main")
+
+
+def test_partial_text_index_folder_deletion_edges(connection):
+    # Goal: Test that when one of two edge text index folders is deleted, both indices are recovered from snapshot.
+    # 0/ Setup the database
+    # 1/ Create two text indices on different edge types
+    # 2/ Add one edge to each index
+    # 3/ Kill MAIN (snapshot is created)
+    # 4/ Delete only ONE text index folder
+    # 5/ Start MAIN (recovery from snapshot)
+    # 6/ Validate both indices exist and are searchable
+
+    import shutil
+
+    data_directory = tempfile.TemporaryDirectory()
+    text_indices_path = os.path.join(data_directory.name, "text_indices")
+
+    MEMGRAPH_INSTANCE_DESCRIPTION = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_partial_text_index_deletion_edges.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    # 0/
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION, "main")
+    cursor = connection(7687, "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(cursor, "CREATE TEXT EDGE INDEX edge_index_one ON :EDGE_ONE(content);")
+    execute_and_fetch_all(cursor, "CREATE TEXT EDGE INDEX edge_index_two ON :EDGE_TWO(content);")
+
+    # 2/
+    execute_and_fetch_all(cursor, "CREATE (:Node)-[:EDGE_ONE {content: 'alpha'}]->(:Node);")
+    execute_and_fetch_all(cursor, "CREATE (:Node)-[:EDGE_TWO {content: 'beta'}]->(:Node);")
+
+    # Validate indices exist with correct counts
+    index_info = execute_and_fetch_all(cursor, "SHOW INDEX INFO;")
+    assert len(index_info) == 2
+    assert sorted(index_info) == sorted(
+        [
+            ("edge-type_text (name: edge_index_one)", "EDGE_ONE", ["content"], 1),
+            ("edge-type_text (name: edge_index_two)", "EDGE_TWO", ["content"], 1),
+        ]
+    )
+
+    # Validate search works before restart
+    search_results = execute_and_fetch_all(
+        cursor, "CALL text_search.search_edges('edge_index_one', 'data.content:alpha') YIELD edge RETURN edge.content;"
+    )
+    assert len(search_results) == 1
+    assert search_results[0][0] == "alpha"
+
+    search_results = execute_and_fetch_all(
+        cursor, "CALL text_search.search_edges('edge_index_two', 'data.content:beta') YIELD edge RETURN edge.content;"
+    )
+    assert len(search_results) == 1
+    assert search_results[0][0] == "beta"
+
+    # 3/
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION, "main")
+
+    # 4/ Delete only ONE text index folder
+    edge_index_one_path = os.path.join(text_indices_path, "edge_index_one")
+    assert os.path.exists(edge_index_one_path), "edge_index_one folder should exist before deletion"
+    shutil.rmtree(edge_index_one_path)
+    assert not os.path.exists(edge_index_one_path), "edge_index_one folder should be deleted"
+    # edge_index_two folder should still exist
+    edge_index_two_path = os.path.join(text_indices_path, "edge_index_two")
+    assert os.path.exists(edge_index_two_path), "edge_index_two folder should still exist"
+
+    # 5/
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION, "main")
+    cursor = connection(7687, "main").cursor()
+
+    # 6/ Validate both indices exist
+    index_info = execute_and_fetch_all(cursor, "SHOW INDEX INFO;")
+    assert len(index_info) == 2
+    assert sorted(index_info) == sorted(
+        [
+            ("edge-type_text (name: edge_index_one)", "EDGE_ONE", ["content"], 1),
+            ("edge-type_text (name: edge_index_two)", "EDGE_TWO", ["content"], 1),
+        ]
+    )
+
+    # Validate edge_index_one folder was recreated
+    assert os.path.exists(edge_index_one_path), "edge_index_one folder should be recreated after recovery"
+
+    # Validate search works for both indices after recovery
+    search_results = execute_and_fetch_all(
+        cursor, "CALL text_search.search_edges('edge_index_one', 'data.content:alpha') YIELD edge RETURN edge.content;"
+    )
+    assert len(search_results) == 1
+    assert search_results[0][0] == "alpha"
+
+    search_results = execute_and_fetch_all(
+        cursor, "CALL text_search.search_edges('edge_index_two', 'data.content:beta') YIELD edge RETURN edge.content;"
+    )
+    assert len(search_results) == 1
+    assert search_results[0][0] == "beta"
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION, "main")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
