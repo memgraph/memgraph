@@ -185,3 +185,84 @@ Grafana comes pre-configured with:
 Just open http://localhost:3000, login with `admin`/`admin`, and go to **Dashboards → Memgraph → Memgraph HA Overview**.
 
 The exporter collects metrics from all Memgraph instances (data nodes and coordinators) including HA-specific metrics.
+
+## EKS Deployment
+
+For deploying Memgraph HA on AWS EKS, use the `eks_ha.sh` script located in `configurations/deployments/`.
+
+### Prerequisites
+
+- **AWS CLI** configured with appropriate credentials
+- **eksctl** for EKS cluster management
+- **kubectl** for Kubernetes operations
+- **Helm** for deploying Memgraph
+
+### Configuration Files
+
+The EKS deployment uses configuration files in `configurations/deployments/eks/`:
+
+| File | Description |
+|------|-------------|
+| `cluster.yaml` | EKS cluster configuration (node groups, instance types) |
+| `values.yaml` | Helm values for Memgraph HA (license, storage, affinity) |
+| `gp3-sc.yaml` | GP3 storage class for EBS volumes |
+
+### Quick Start
+
+1. **Configure your license** in `eks/values.yaml`:
+   ```yaml
+   env:
+     MEMGRAPH_ENTERPRISE_LICENSE: "<your-license>"
+     MEMGRAPH_ORGANIZATION_NAME: "<your-organization>"
+   ```
+
+2. **Create cluster and deploy Memgraph:**
+   ```sh
+   cd tests/stress/configurations/deployments
+   ./eks_ha.sh start
+   ```
+
+   This will:
+   - Create an EKS cluster with 3 coordinator nodes (t3.medium) and 2 data nodes (r5.large)
+   - Apply GP3 storage class
+   - Attach necessary IAM policies for EBS
+   - Install Memgraph HA via Helm
+   - Wait for all pods to be ready
+
+3. **Check deployment status:**
+   ```sh
+   ./eks_ha.sh status
+   ```
+
+4. **Connect to Memgraph:**
+   ```sh
+   # Port forward to coordinator
+   ./eks_ha.sh port-forward coordinator 7687
+
+   # Then connect with mgconsole
+   mgconsole --host 127.0.0.1 --port 7687
+   ```
+
+5. **View logs:**
+   ```sh
+   ./eks_ha.sh logs <pod-name>
+   ```
+
+6. **Stop Memgraph (keeps cluster):**
+   ```sh
+   ./eks_ha.sh stop
+   ```
+
+7. **Destroy entire cluster:**
+   ```sh
+   ./eks_ha.sh destroy
+   ```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLUSTER_NAME` | `test-cluster-ha` | EKS cluster name |
+| `CLUSTER_REGION` | `eu-west-1` | AWS region |
+| `HELM_RELEASE_NAME` | `mem-ha-test` | Helm release name |
+| `POD_READY_TIMEOUT` | `600` | Timeout in seconds for pods to be ready |
