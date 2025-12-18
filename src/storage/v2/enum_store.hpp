@@ -11,8 +11,10 @@
 
 #pragma once
 
+#include <expected>
 #include "absl/container/flat_hash_map.h"
 #include "storage/v2/enum.hpp"
+#include "utils/logging.hpp"
 
 namespace r = std::ranges;
 namespace rv = r::views;
