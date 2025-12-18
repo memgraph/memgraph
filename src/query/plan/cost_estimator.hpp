@@ -248,9 +248,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanChunk &op) override {
-    // ScanChunk has the output symbol, sp we need to save the stats here
+    // ScanChunk has the output symbol, so we need to save the stats here
     if (last_index_stats_) {
-      std::visit([&](auto &&index_stats) { SaveStatsFor(op.output_symbol_, std::move(index_stats)); },
+      std::visit([&](auto index_stats) { SaveStatsFor(op.output_symbol_, std::move(index_stats)); },
                  std::move(*last_index_stats_));
     }
     return true;

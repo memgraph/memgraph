@@ -9996,7 +9996,9 @@ class ParallelBranchCursor : public Cursor {
     if (pull_result.load() == 0) return false;
 
     // Unify context fields from all branches
-    UnifyContexts(context, branch_contexts, branch_trigger_collectors, branch_frame_collectors, std::move(profile));
+    plan::ProfilingStats *parallel_stats = context.stats_root;  // save before resetting the profile
+    const_cast<std::optional<ScopedProfile> &>(profile).reset();
+    UnifyContexts(context, branch_contexts, branch_trigger_collectors, branch_frame_collectors, parallel_stats);
 
     return true;
   }
@@ -10006,10 +10008,8 @@ class ParallelBranchCursor : public Cursor {
    */
   void UnifyContexts(ExecutionContext &context, std::vector<ExecutionContext> &branch_contexts,
                      const std::vector<std::optional<TriggerContextCollector>> &branch_trigger_collectors,
-                     const std::vector<std::optional<FrameChangeCollector>> &branch_frame_collectors, auto &&profile) {
-    plan::ProfilingStats *parallel_stats = context.stats_root;  // save before resetting the profile
-    const_cast<std::optional<ScopedProfile> &>(profile).reset();
-
+                     const std::vector<std::optional<FrameChangeCollector>> &branch_frame_collectors,
+                     plan::ProfilingStats *parallel_stats) {
     // Helper to find all ancestors of a stats node
     auto FindAncestors = [](plan::ProfilingStats &root,
                             plan::ProfilingStats *target) -> std::vector<plan::ProfilingStats *> {
