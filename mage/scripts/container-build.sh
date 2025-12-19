@@ -70,4 +70,4 @@ echo -e "${GREEN_BOLD}Compressing query modules${RESET}"
 docker exec -i $CONTAINER_NAME bash -c "cd /home/mg/memgraph/mage && ./scripts/compress.sh"
 
 echo -e "${GREEN_BOLD}Copying compressed query modules${RESET}"
-docker cp $CONTAINER_NAME:/home/mg/mage.tar.gz .
+docker cp $CONTAINER_NAME:/home/mg/mage.tar.gz ./mage/mage.tar.gz
