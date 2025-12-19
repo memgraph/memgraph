@@ -12,11 +12,24 @@
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
 
+#include "flags/general.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::kvstore {
+
+namespace {
+rocksdb::InfoLogLevel ParseRocksDBInfoLogLevel(const std::string &level) {
+  if (level == "DEBUG_LEVEL") return rocksdb::InfoLogLevel::DEBUG_LEVEL;
+  if (level == "INFO_LEVEL") return rocksdb::InfoLogLevel::INFO_LEVEL;
+  if (level == "WARN_LEVEL") return rocksdb::InfoLogLevel::WARN_LEVEL;
+  if (level == "ERROR_LEVEL") return rocksdb::InfoLogLevel::ERROR_LEVEL;
+  if (level == "FATAL_LEVEL") return rocksdb::InfoLogLevel::FATAL_LEVEL;
+  if (level == "HEADER_LEVEL") return rocksdb::InfoLogLevel::HEADER_LEVEL;
+  return rocksdb::InfoLogLevel::INFO_LEVEL;
+}
+}  // namespace
 
 struct KVStore::impl {
   std::filesystem::path storage;
@@ -29,6 +42,7 @@ KVStore::KVStore(std::filesystem::path storage) : pimpl_(std::make_unique<impl>(
   if (!utils::EnsureDir(pimpl_->storage))
     throw KVStoreError("Folder for the key-value store " + pimpl_->storage.string() + " couldn't be initialized!");
   pimpl_->options.create_if_missing = true;
+  pimpl_->options.info_log_level = ParseRocksDBInfoLogLevel(FLAGS_storage_rocksdb_info_log_level);
   rocksdb::DB *db = nullptr;
   auto s = rocksdb::DB::Open(pimpl_->options, pimpl_->storage.c_str(), &db);
   if (!s.ok())

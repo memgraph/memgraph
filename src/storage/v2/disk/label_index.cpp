@@ -12,6 +12,7 @@
 #include <rocksdb/options.h>
 #include <rocksdb/utilities/transaction.h>
 
+#include "flags/general.hpp"
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/disk_utils.hpp"
@@ -35,6 +36,16 @@ namespace {
   return true;
 }
 
+rocksdb::InfoLogLevel ParseRocksDBInfoLogLevel(const std::string &level) {
+  if (level == "DEBUG_LEVEL") return rocksdb::InfoLogLevel::DEBUG_LEVEL;
+  if (level == "INFO_LEVEL") return rocksdb::InfoLogLevel::INFO_LEVEL;
+  if (level == "WARN_LEVEL") return rocksdb::InfoLogLevel::WARN_LEVEL;
+  if (level == "ERROR_LEVEL") return rocksdb::InfoLogLevel::ERROR_LEVEL;
+  if (level == "FATAL_LEVEL") return rocksdb::InfoLogLevel::FATAL_LEVEL;
+  if (level == "HEADER_LEVEL") return rocksdb::InfoLogLevel::HEADER_LEVEL;
+  return rocksdb::InfoLogLevel::INFO_LEVEL;
+}
+
 /// TODO: duplication with label_property_index.cpp
 bool CommitWithTimestamp(rocksdb::Transaction *disk_transaction, uint64_t commit_ts) {
   disk_transaction->SetCommitTimestamp(commit_ts);
@@ -52,6 +63,7 @@ DiskLabelIndex::DiskLabelIndex(const Config &config) {
   kvstore_ = std::make_unique<RocksDBStorage>();
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
+  kvstore_->options_.info_log_level = ParseRocksDBInfoLogLevel(FLAGS_storage_rocksdb_info_log_level);
   logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
                                                             config.disk.label_index_directory, &kvstore_->db_));
 }

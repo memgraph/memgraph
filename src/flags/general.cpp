@@ -145,6 +145,13 @@ DEFINE_bool(storage_enable_edges_metadata, false,
 DEFINE_bool(storage_delta_on_identical_property_update, true,
             "Controls whether updating a property with the same value should create a delta object.");
 
+// RocksDB flags (for disk storage mode)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(storage_rocksdb_info_log_level, "INFO_LEVEL",
+              "RocksDB info log level. Options: DEBUG_LEVEL, INFO_LEVEL, WARN_LEVEL, ERROR_LEVEL, "
+              "FATAL_LEVEL, HEADER_LEVEL. Lower verbosity (e.g., ERROR_LEVEL) reduces gettimeofday "
+              "syscalls but decreases observability for disk storage debugging.");
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(schema_info_enabled, false, "Set to true to enable run-time schema info tracking.");
 

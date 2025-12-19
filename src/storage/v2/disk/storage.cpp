@@ -28,6 +28,7 @@
 #include <rocksdb/utilities/transaction_db.h>
 
 #include "flags/experimental.hpp"
+#include "flags/general.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/delta.hpp"
@@ -226,6 +227,17 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
   return true;
 }
 
+rocksdb::InfoLogLevel ParseRocksDBInfoLogLevel(const std::string &level) {
+  if (level == "DEBUG_LEVEL") return rocksdb::InfoLogLevel::DEBUG_LEVEL;
+  if (level == "INFO_LEVEL") return rocksdb::InfoLogLevel::INFO_LEVEL;
+  if (level == "WARN_LEVEL") return rocksdb::InfoLogLevel::WARN_LEVEL;
+  if (level == "ERROR_LEVEL") return rocksdb::InfoLogLevel::ERROR_LEVEL;
+  if (level == "FATAL_LEVEL") return rocksdb::InfoLogLevel::FATAL_LEVEL;
+  if (level == "HEADER_LEVEL") return rocksdb::InfoLogLevel::HEADER_LEVEL;
+  spdlog::warn("Unknown RocksDB info log level '{}', using INFO_LEVEL", level);
+  return rocksdb::InfoLogLevel::INFO_LEVEL;
+}
+
 }  // namespace
 
 DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator,
@@ -241,6 +253,7 @@ DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator,
   kvstore_->options_.wal_recovery_mode = rocksdb::WALRecoveryMode::kPointInTimeRecovery;
   kvstore_->options_.wal_dir = config_.disk.wal_directory;
   kvstore_->options_.wal_compression = rocksdb::kNoCompression;
+  kvstore_->options_.info_log_level = ParseRocksDBInfoLogLevel(FLAGS_storage_rocksdb_info_log_level);
   std::vector<rocksdb::ColumnFamilyHandle *> column_handles;
   std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
   if (utils::DirExists(config.disk.main_storage_directory)) {

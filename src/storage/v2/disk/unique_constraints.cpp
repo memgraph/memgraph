@@ -14,6 +14,7 @@
 #include <limits>
 #include <optional>
 #include <tuple>
+#include "flags/general.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/id_types.hpp"
@@ -54,6 +55,16 @@ bool IsDifferentVertexWithSameConstraintLabel(const std::string &key, const Gid 
   return true;
 }
 
+rocksdb::InfoLogLevel ParseRocksDBInfoLogLevel(const std::string &level) {
+  if (level == "DEBUG_LEVEL") return rocksdb::InfoLogLevel::DEBUG_LEVEL;
+  if (level == "INFO_LEVEL") return rocksdb::InfoLogLevel::INFO_LEVEL;
+  if (level == "WARN_LEVEL") return rocksdb::InfoLogLevel::WARN_LEVEL;
+  if (level == "ERROR_LEVEL") return rocksdb::InfoLogLevel::ERROR_LEVEL;
+  if (level == "FATAL_LEVEL") return rocksdb::InfoLogLevel::FATAL_LEVEL;
+  if (level == "HEADER_LEVEL") return rocksdb::InfoLogLevel::HEADER_LEVEL;
+  return rocksdb::InfoLogLevel::INFO_LEVEL;
+}
+
 }  // namespace
 
 DiskUniqueConstraints::DiskUniqueConstraints(const Config &config) {
@@ -61,6 +72,7 @@ DiskUniqueConstraints::DiskUniqueConstraints(const Config &config) {
   utils::EnsureDirOrDie(config.disk.unique_constraints_directory);
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
+  kvstore_->options_.info_log_level = ParseRocksDBInfoLogLevel(FLAGS_storage_rocksdb_info_log_level);
   logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
                                                             config.disk.unique_constraints_directory, &kvstore_->db_));
 }
