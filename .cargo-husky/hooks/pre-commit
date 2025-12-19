@@ -1,0 +1,30 @@
+#!/bin/bash
+
+set -Eeuo pipefail
+MAGE_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/../.."
+
+check() {
+   cargo clippy
+   cargo fmt
+}
+
+# If cargo is not installed locally just skip because the contributor is
+# probably not working on the Rust modules (it doesn't make sense to force
+# installing Rust toolchain just to be able to make a commit). The checks will
+# still be done server-side.
+if ! command -v cargo 2>/dev/null >/dev/null; then
+    echo "WARNING: cargo is not installed, completely skipping local Rust checks."
+    exit 0
+fi
+
+# Run check only if there is a Rust project inside rust directory
+# (Cargo.toml exists).
+cd "$MAGE_ROOT" || exit 1
+for project in "$MAGE_ROOT"/rust/*; do
+    if [ -d "$project" ]; then
+        if [ -f "$project/Cargo.toml" ]; then
+            cd "$project" || exit 1
+            check
+        fi
+    fi
+done
