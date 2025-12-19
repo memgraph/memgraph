@@ -23,8 +23,8 @@ using namespace memgraph::utils;
 class ConsolidatedSchedulerTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    // Use condition_variable backend for deterministic testing
-    scheduler_ = std::make_unique<ConsolidatedScheduler>(TimerBackendType::CONDITION_VARIABLE);
+    // Uses timerfd on Linux, condition_variable fallback elsewhere
+    scheduler_ = std::make_unique<ConsolidatedScheduler>();
   }
 
   void TearDown() override {
@@ -254,10 +254,9 @@ TEST_F(ConsolidatedSchedulerTest, ExecuteImmediately) {
   handle.Stop();
 }
 
-/// Test timerfd backend on Linux
-#ifdef __linux__
-TEST(ConsolidatedSchedulerTimerFd, BasicExecution) {
-  ConsolidatedScheduler scheduler(TimerBackendType::TIMERFD);
+/// Test that scheduler works outside of test fixture (uses timerfd on Linux)
+TEST(ConsolidatedSchedulerStandalone, BasicExecution) {
+  ConsolidatedScheduler scheduler;
 
   std::atomic<int> counter{0};
   auto handle = scheduler.Register("test", 100ms, [&counter]() { ++counter; });
@@ -270,4 +269,3 @@ TEST(ConsolidatedSchedulerTimerFd, BasicExecution) {
   handle.Stop();
   scheduler.Shutdown();
 }
-#endif

@@ -18,6 +18,7 @@
 
 #include "utils/logging.hpp"
 #include "utils/thread.hpp"
+#include "utils/timer_backend.hpp"
 
 namespace memgraph::utils {
 
@@ -35,7 +36,7 @@ struct TaskState {
   std::atomic<bool> trigger_now{false};
 
   // Pointer to timer backend for waking the dispatcher
-  ITimerBackend *timer_backend{nullptr};
+  TimerBackend *timer_backend{nullptr};
 
   void WakeDispatcher() const {
     if (timer_backend) {
@@ -61,9 +62,9 @@ struct TaskComparator {
 /// Implementation details hidden from header
 class ConsolidatedScheduler::Impl {
  public:
-  explicit Impl(TimerBackendType backend_type) : timer_backend_(CreateTimerBackend(backend_type)) {}
+  Impl() = default;
 
-  std::unique_ptr<ITimerBackend> timer_backend_;
+  TimerBackend timer_backend_;
   std::priority_queue<std::shared_ptr<TaskState>, std::vector<std::shared_ptr<TaskState>>, TaskComparator> task_queue_;
   std::vector<std::shared_ptr<TaskState>> all_tasks_;  // For iteration/removal
   mutable std::mutex mutex_;
@@ -147,8 +148,7 @@ ConsolidatedScheduler &ConsolidatedScheduler::Global() {
   return instance;
 }
 
-ConsolidatedScheduler::ConsolidatedScheduler(TimerBackendType backend_type)
-    : impl_(std::make_unique<Impl>(backend_type)) {
+ConsolidatedScheduler::ConsolidatedScheduler() : impl_(std::make_unique<Impl>()) {
   impl_->running_.store(true, std::memory_order_release);
   impl_->dispatcher_thread_ = std::jthread([this](std::stop_token token) {
     utils::ThreadSetName("scheduler");
@@ -169,7 +169,7 @@ TaskHandle ConsolidatedScheduler::Register(TaskConfig config, std::function<void
   task->schedule = config.schedule;
   task->priority = config.priority;
   task->callback = std::move(callback);
-  task->timer_backend = impl_->timer_backend_.get();
+  task->timer_backend = &impl_->timer_backend_;
 
   auto now = std::chrono::steady_clock::now();
   if (config.schedule.execute_immediately) {
@@ -194,7 +194,7 @@ void ConsolidatedScheduler::Shutdown() {
     return;  // Already shut down
   }
 
-  impl_->timer_backend_->Cancel();
+  impl_->timer_backend_.Cancel();
 
   if (impl_->dispatcher_thread_.joinable()) {
     impl_->dispatcher_thread_.request_stop();
@@ -293,16 +293,14 @@ void ConsolidatedScheduler::DispatcherLoop() {
 
     // No task due - wait until next deadline
     if (next_deadline != time_point::max()) {
-      impl_->timer_backend_->WaitUntil(next_deadline);
+      impl_->timer_backend_.WaitUntil(next_deadline);
     } else {
       // No tasks - wait for a long time (will be woken when task added)
-      impl_->timer_backend_->WaitUntil(std::chrono::steady_clock::now() + std::chrono::hours(24));
+      impl_->timer_backend_.WaitUntil(std::chrono::steady_clock::now() + std::chrono::hours(24));
     }
   }
 }
 
-void ConsolidatedScheduler::WakeDispatcher() {
-  impl_->timer_backend_->UpdateDeadline(std::chrono::steady_clock::now());
-}
+void ConsolidatedScheduler::WakeDispatcher() { impl_->timer_backend_.UpdateDeadline(std::chrono::steady_clock::now()); }
 
 }  // namespace memgraph::utils

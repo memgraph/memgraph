@@ -11,44 +11,63 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
-#include <memory>
+
+#ifdef __linux__
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
+#include <sys/timerfd.h>
+#include <unistd.h>
+#else
+#include <condition_variable>
+#include <mutex>
+#endif
 
 namespace memgraph::utils {
 
-/// Timer backend type selection
-enum class TimerBackendType {
-  AUTO,                ///< Auto-select best backend for platform
-  TIMERFD,             ///< Linux timerfd (lowest non-determinism events)
-  CONDITION_VARIABLE,  ///< Portable condition_variable fallback
-};
-
-/// Abstract interface for timer backends
-/// Used by ConsolidatedScheduler to wait for the next task deadline
-class ITimerBackend {
+/// Timer backend for ConsolidatedScheduler
+/// Uses timerfd on Linux (lowest non-determinism events), condition_variable fallback elsewhere
+class TimerBackend {
  public:
   using time_point = std::chrono::steady_clock::time_point;
 
-  virtual ~ITimerBackend() = default;
+  TimerBackend();
+  ~TimerBackend();
+
+  TimerBackend(const TimerBackend &) = delete;
+  TimerBackend &operator=(const TimerBackend &) = delete;
+  TimerBackend(TimerBackend &&) = delete;
+  TimerBackend &operator=(TimerBackend &&) = delete;
 
   /// Wait until the specified deadline or until cancelled
   /// @param deadline The time point to wait until
   /// @return true if deadline was reached, false if cancelled
-  virtual bool WaitUntil(time_point deadline) = 0;
+  bool WaitUntil(time_point deadline);
 
   /// Update the current deadline (wakes the waiting thread to re-evaluate)
   /// Call this when a new task is added with an earlier deadline
-  virtual void UpdateDeadline(time_point new_deadline) = 0;
+  void UpdateDeadline(time_point new_deadline);
 
   /// Cancel any pending wait (used for shutdown)
-  virtual void Cancel() = 0;
+  void Cancel();
 
   /// Check if the backend has been cancelled
-  virtual bool IsCancelled() const = 0;
-};
+  bool IsCancelled() const { return cancelled_.load(std::memory_order_acquire); }
 
-/// Factory function to create the appropriate timer backend
-/// @param type The type of backend to create (AUTO selects timerfd on Linux)
-std::unique_ptr<ITimerBackend> CreateTimerBackend(TimerBackendType type = TimerBackendType::AUTO);
+ private:
+#ifdef __linux__
+  void SetTimerDeadline(time_point deadline);
+
+  int timer_fd_{-1};
+  int cancel_fd_{-1};
+  int epoll_fd_{-1};
+#else
+  mutable std::mutex mutex_;
+  std::condition_variable cv_;
+  bool deadline_updated_{false};
+#endif
+  std::atomic<bool> cancelled_{false};
+};
 
 }  // namespace memgraph::utils

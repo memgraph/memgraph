@@ -19,9 +19,10 @@
 #include <string>
 #include <thread>
 
-#include "utils/timer_backend.hpp"
-
 namespace memgraph::utils {
+
+// Forward declaration
+class TimerBackend;
 
 /// Task priority levels for the consolidated scheduler
 /// Lower values = higher priority (executed first when multiple tasks due)
@@ -114,8 +115,8 @@ class ConsolidatedScheduler {
   /// Get the global scheduler instance
   static ConsolidatedScheduler &Global();
 
-  /// Create a scheduler with the specified timer backend
-  explicit ConsolidatedScheduler(TimerBackendType backend_type = TimerBackendType::AUTO);
+  /// Create a scheduler (uses timerfd on Linux, condition_variable fallback elsewhere)
+  ConsolidatedScheduler();
   ~ConsolidatedScheduler();
 
   ConsolidatedScheduler(const ConsolidatedScheduler &) = delete;
