@@ -148,11 +148,11 @@ class Synchronized {
   }
 
   template <class TCallable>
-  decltype(auto) WithLock(TCallable &&callable) {
+  auto WithLock(TCallable &&callable) {
     return callable(*Lock());
   }
   template <class TCallable>
-  decltype(auto) TryWithLock(TCallable &&callable) {
+  auto TryWithLock(TCallable &&callable) {
     return callable(*TryLock());
   }
 
@@ -176,7 +176,7 @@ class Synchronized {
   auto WithReadLock(TCallable &&callable) const { return callable(*ReadLock()); }
   template <class TCallable>
   requires SharedMutex<TMutex> && requires(TCallable &&c, const T &v) { c(v); }
-  decltype(auto) TryWithReadLock(TCallable &&callable) const { return callable(*TryReadLock()); }
+  auto TryWithReadLock(TCallable &&callable) const { return callable(*TryReadLock()); }
 
   template <typename = void>
   requires SharedMutex<TMutex> ReadLockedPtr operator->() const { return ReadLockedPtr(&object_, &mutex_); }
@@ -188,7 +188,7 @@ class Synchronized {
 
   template <class TCallable>
   requires SharedMutex<TMutex>
-  decltype(auto) WithMutableSharedLock(TCallable &&callable) { return callable(*MutableSharedLock()); }
+  auto WithMutableSharedLock(TCallable &&callable) { return callable(*MutableSharedLock()); }
 
   template <typename = void>
   requires SharedMutex<TMutex> MutableSharedLockPtr operator->() { return MutableSharedLockPtr(&object_, &mutex_); }
