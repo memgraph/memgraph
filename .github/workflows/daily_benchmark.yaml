@@ -36,6 +36,9 @@ jobs:
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
       LOOP_COUNT: ${{ inputs.loop_count || 10 }}
+      CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+      CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+      CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
 
     steps:
       - name: Set up repository
@@ -64,7 +67,10 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -93,8 +99,7 @@ jobs:
             ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
             ${{ github.run_number }} \
-            $BRANCH_NAME \
-            load_parquet
+            $BRANCH_NAME
 
       - name: Run and upload macro benchmarks
         id: macro-benchmark
