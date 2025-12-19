@@ -268,7 +268,8 @@ jobs:
 
       - name: Build image
         run: |
-         cp src/auth/reference_modules/requirements.txt mage/auth-module-requirements.txt
+          cp src/auth/reference_modules/requirements.txt mage/auth-module-requirements.txt
+          cp release/docker/run_with_gdb.sh mage/run_with_gdb.sh
           cd mage
           if [[ "$BUILD_TYPE" = "RelWithDebInfo" ]]; then
             DOCKER_TARGET=relwithdebinfo

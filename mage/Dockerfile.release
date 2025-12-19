@@ -116,7 +116,7 @@ RUN if [ -n "$CUSTOM_MIRROR" ]; then \
     fi
 
 # Copy script from Memgraph repo to run Memgraph with GDB - override the entrypoint to use it
-COPY cpp/memgraph/release/docker/run_with_gdb.sh /usr/lib/memgraph/run_with_gdb.sh
+COPY run_with_gdb.sh /usr/lib/memgraph/run_with_gdb.sh
 
 USER memgraph
 EXPOSE 7687
