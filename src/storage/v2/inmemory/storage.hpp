@@ -34,6 +34,7 @@
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
+#include "utils/consolidated_scheduler.hpp"
 #include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -793,7 +794,7 @@ class InMemoryStorage final : public Storage {
   // whatever.
   std::optional<CommitLog> commit_log_;
 
-  utils::Scheduler gc_runner_;
+  utils::TaskHandle gc_handle_;
   std::mutex gc_lock_;
 
   struct GCDeltas {

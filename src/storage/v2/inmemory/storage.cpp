@@ -291,9 +291,13 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   }
 
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
-    // TODO: move out of storage have one global gc_runner_
-    gc_runner_.SetInterval(config_.gc.interval);
-    gc_runner_.Run("Storage GC", [this] { this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true); });
+    // Use global scheduler for GC to reduce thread count
+    gc_handle_ = utils::ConsolidatedScheduler::Global().Register(
+        "Storage GC", config_.gc.interval,
+        [this] {
+          this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true);
+        },
+        utils::SchedulerPriority::HIGH);
   }
   if (timestamp_ == kTimestampInitialId) {
     commit_log_.emplace();
@@ -312,7 +316,7 @@ InMemoryStorage::~InMemoryStorage() {
   stop_source.request_stop();
 
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
-    gc_runner_.Stop();
+    gc_handle_.Stop();
   }
   {
     // Stop replication (Stop all clients or stop the REPLICA server)
