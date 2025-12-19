@@ -93,6 +93,9 @@ struct CrossThreadMemoryTracking {
   CrossThreadMemoryTracking &operator=(CrossThreadMemoryTracking &) = delete;
   CrossThreadMemoryTracking(CrossThreadMemoryTracking &&other) noexcept;
   CrossThreadMemoryTracking &operator=(CrossThreadMemoryTracking &&other) noexcept;
+#else
+  void StartTracking() const {}
+  void StopTracking() const {}
 #endif
 };
 
