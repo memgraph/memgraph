@@ -21,8 +21,8 @@
 #include <fmt/core.h>
 #include <nlohmann/json_fwd.hpp>
 
+#include "utils/consolidated_scheduler.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/scheduler.hpp"
 
 // Forward declarations
 namespace memgraph::storage {
@@ -170,13 +170,15 @@ class TTL final {
    *
    * @return TtlInfo
    */
-  TtlInfo Config() const { /*TODO what is !enabled_? should we return a pair?*/ return info_; }
+  TtlInfo Config() const { /*TODO what is !enabled_? should we return a pair?*/
+    return info_;
+  }
 
   /**
    * @brief Shutdown TTL (stop background job)
    *
    */
-  void Shutdown() { ttl_.Stop(); }
+  void Shutdown() { ttl_handle_.Stop(); }
 
   /**
    * @brief Check if TTL is enabled
@@ -195,9 +197,9 @@ class TTL final {
    * @brief Returns whether TTL is running. @note: Paused TTL still counts as running.
    *
    */
-  bool Running() { return ttl_.IsRunning(); }
+  bool Running() { return ttl_handle_.IsValid(); }
 
-  bool Paused() const { return ttl_.IsPaused(); }
+  bool Paused() const { return ttl_handle_.IsPaused(); }
 
   /**
    * @brief Disable the TTL feature.
@@ -206,20 +208,20 @@ class TTL final {
   void Disable() {
     enabled_ = false;
     info_ = {};
-    ttl_.Stop();
+    ttl_handle_.Stop();
   }
 
   /**
    * @brief TTL's background job should be paused in case instance becomes a REPLICA.
    *
    */
-  void Pause() { ttl_.Pause(); }
+  void Pause() { ttl_handle_.Pause(); }
 
   /**
    * @brief Use Resume() to restart once MAIN.
    *
    */
-  void Resume() { ttl_.Resume(); }
+  void Resume() { ttl_handle_.Resume(); }
 
   /**
    * @brief Set the function to check if this is a main instance
@@ -229,9 +231,9 @@ class TTL final {
   void SetUserCheck(std::function<bool()> check_fn) { user_check_.Update(std::move(check_fn)); }
 
  private:
-  utils::Scheduler ttl_;  //!< background thread
-  TtlInfo info_{};        //!< configuration
-  bool enabled_{false};   //!< feature enabler
+  utils::TaskHandle ttl_handle_;  //!< task handle for ConsolidatedScheduler
+  TtlInfo info_{};                //!< configuration
+  bool enabled_{false};           //!< feature enabler
   Storage *storage_ptr_{};
 
   // User-defined function to check if this is a main instance

@@ -148,7 +148,7 @@ void TTL::SetInterval(std::optional<std::chrono::microseconds> period,
   if (!enabled_) {
     throw TtlException("TTL not enabled!");
   }
-  if (!ttl_.IsRunning()) {
+  if (!ttl_handle_.IsValid()) {
     throw TtlException("TTL not running!");
   }
 
@@ -159,14 +159,24 @@ void TTL::SetInterval(std::optional<std::chrono::microseconds> period,
   info_.period = actual_period;
   info_.start_time = start_time;
 
-  ttl_.SetInterval(actual_period, start_time);
+  // Note: start_time is stored in info_ but ConsolidatedScheduler doesn't directly support
+  // scheduled start times. TTL will run at the interval from registration time.
+  if (start_time) {
+    spdlog::info(
+        "TTL start_time specified but ConsolidatedScheduler uses interval-based scheduling. "
+        "TTL will run at {} interval from now.",
+        TtlInfo::StringifyPeriod(actual_period));
+  }
+
+  ttl_handle_.SetSchedule(
+      utils::ScheduleSpec::Interval(std::chrono::duration_cast<std::chrono::milliseconds>(actual_period)));
 }
 
 void TTL::Configure(bool should_run_edge_ttl) {
   if (!enabled_) {
     throw TtlException("TTL not enabled!");
   }
-  if (ttl_.IsRunning()) {
+  if (ttl_handle_.IsValid()) {
     throw TtlException("TTL already running!");
   }
 
@@ -339,9 +349,12 @@ void TTL::Configure(bool should_run_edge_ttl) {
                   std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count());
   };
 
-  // Starts the TTL job, but will not run until the period is set
-  ttl_.Pause();
-  ttl_.Run("storage-ttl", std::move(ttl_job));
+  // Register TTL task with ConsolidatedScheduler
+  // Uses 1 day default interval; actual interval set via SetInterval()
+  // Task is registered paused - will be resumed when SetInterval() is called or externally
+  ttl_handle_ = utils::ConsolidatedScheduler::Global().Register("storage-ttl", std::chrono::days(1), std::move(ttl_job),
+                                                                utils::SchedulerPriority::NORMAL);
+  ttl_handle_.Pause();
 }
 
 }  // namespace memgraph::storage::ttl
