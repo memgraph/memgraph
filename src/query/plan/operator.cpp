@@ -7038,24 +7038,17 @@ ACCEPT_WITH_INPUT(Distinct)
 // Distinct::MakeCursor implementation - needs to be after parallel namespace to access plan_creation_helper_
 UniqueCursorPtr Distinct::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::DistinctOperator);
-  if (!parallel_execution_) {
-    // Single-threaded mode
-    return MakeUniqueCursorPtr<DistinctCursor>(mem, *this, mem);
-  }
 #ifdef MG_ENTERPRISE
-  if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryRuntimeException("DistinctParallel is not supported in the community edition");
-  }
-  // Check if we're in a parallel execution context
-  auto shared_state = plan_creation_helper_.GetSharedDistinctState(this, mem);
-  if (shared_state) {
+  if (parallel_execution_) {
     // Parallel mode: use shared state for global deduplication
-    return MakeUniqueCursorPtr<DistinctParallelCursor>(mem, *this, mem, std::move(shared_state));
+    auto shared_state = plan_creation_helper_.GetSharedDistinctState(this, mem);
+    if (shared_state) {
+      return MakeUniqueCursorPtr<DistinctParallelCursor>(mem, *this, mem, std::move(shared_state));
+    }
+    throw QueryRuntimeException("Failed to create distinct cursor");
   }
-  throw QueryRuntimeException("Failed to create distinct cursor");
-#else
-  throw QueryRuntimeException("DistinctParallel is not supported in the community edition");
 #endif
+  return MakeUniqueCursorPtr<DistinctCursor>(mem, *this, mem);
 }
 
 std::vector<Symbol> Distinct::OutputSymbols(const SymbolTable &symbol_table) const {
@@ -9914,9 +9907,7 @@ class ParallelBranchCursor : public Cursor {
                      mem_tracking = memgraph::memory::CrossThreadMemoryTracking()](utils::Priority /*unused*/) mutable {
         OOMExceptionEnabler oom_exception;
         utils::Timer timer;
-#ifdef USE_JEMALLOC
         mem_tracking.StartTracking();  // automatically stops
-#endif
         // Create parallel operator entry in branch's stats tree
         context.stats_root = nullptr;
         context.stats = plan::ProfilingStats();
@@ -10603,10 +10594,12 @@ std::unique_ptr<LogicalOperator> Skip::Clone(AstStorage *storage) const {
 
 Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {
+#ifdef MG_ENTERPRISE
   if (self_.parallel_execution_) {
     // Use a globally defined quota for parallel execution
     shared_quota_ = plan_creation_helper_.GetSharedQuota(&self_);
   }
+#endif
 }
 
 bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
@@ -10681,10 +10674,12 @@ std::unique_ptr<LogicalOperator> Limit::Clone(AstStorage *storage) const {
 
 Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {
+#ifdef MG_ENTERPRISE
   if (self_.parallel_execution_) {
     // Use a globally defined quota for parallel execution
     shared_quota_ = plan_creation_helper_.GetSharedQuota(&self_);
   }
+#endif
 }
 
 bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {

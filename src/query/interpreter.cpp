@@ -2551,10 +2551,10 @@ struct PullPlan {
       storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
       TriggerContextCollector *trigger_context_collector = nullptr, std::optional<size_t> memory_limit = {},
       FrameChangeCollector *frame_change_collector_ = nullptr, std::optional<int64_t> hops_limit = {},
-      std::optional<size_t> parallel_execution = std::nullopt, utils::PriorityThreadPool *worker_pool = nullptr
+      utils::PriorityThreadPool *worker_pool = nullptr
 #ifdef MG_ENTERPRISE
       ,
-      std::shared_ptr<utils::UserResources> user_resource = {}
+      std::optional<size_t> parallel_execution = std::nullopt, std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
   );
 
@@ -2593,10 +2593,10 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
                    TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
                    FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
-                   std::optional<size_t> parallel_execution, utils::PriorityThreadPool *worker_pool
+                   utils::PriorityThreadPool *worker_pool
 #ifdef MG_ENTERPRISE
                    ,
-                   std::shared_ptr<utils::UserResources> user_resource
+                   std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
 #endif
                    )
     : plan_(plan),
@@ -2614,12 +2614,16 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.profile_execution_time = std::chrono::duration<double>(0.0);
   if (hops_limit) {
     int64_t batch = 0;
+#ifdef MG_ENTERPRISE
     if (parallel_execution) {
       batch = (int64_t)(parallel_execution.value() * 4);
     }
+#endif
     ctx_.hops_limit = HopsLimit(*hops_limit, batch);
   }
+#ifdef MG_ENTERPRISE
   ctx_.parallel_execution = parallel_execution;
+#endif
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
@@ -2895,6 +2899,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
 }
 
 namespace {
+#ifdef MG_ENTERPRISE
 std::optional<size_t> EvaluateParallelExecution(CypherQuery *cypher_query,
                                                 PrimitiveLiteralExpressionEvaluator &evaluator) {
   std::optional<size_t> parallel_execution = std::nullopt;
@@ -2907,6 +2912,7 @@ std::optional<size_t> EvaluateParallelExecution(CypherQuery *cypher_query,
   }
   return parallel_execution;
 }
+#endif
 
 PreparedQuery PrepareCypherQuery(
     ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
@@ -2978,6 +2984,7 @@ PreparedQuery PrepareCypherQuery(
   AccessorCompliance(*plan, *dba);
   const auto rw_type = plan->rw_type();
 
+#ifdef MG_ENTERPRISE
   if (cypher_query->pre_query_directives_.parallel_execution_) {
     plan::ParallelChecker parallel_checker;
     parallel_checker.CheckParallelized(plan->plan());
@@ -2989,6 +2996,7 @@ PreparedQuery PrepareCypherQuery(
                                   "Parallel execution fallback to single threaded execution.");
     }
   }
+#endif
 
   auto output_symbols = plan->plan().OutputSymbols(plan->symbol_table());
   std::vector<std::string> header;
@@ -3005,15 +3013,15 @@ PreparedQuery PrepareCypherQuery(
   // TODO: pass current DB into plan, in future current can change during pull
   auto *trigger_context_collector =
       current_db.trigger_context_collector_ ? &*current_db.trigger_context_collector_ : nullptr;
-  auto pull_plan = std::make_shared<PullPlan>(
-      plan, parsed_query.parameters, is_profile_query, dba, interpreter_context, execution_memory,
-      std::move(user_or_role), std::move(stopping_context), dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
-      interpreter.query_logger_, trigger_context_collector, memory_limit,
-      frame_change_collector->AnyCaches() ? frame_change_collector : nullptr, hops_limit,
-      EvaluateParallelExecution(cypher_query, evaluator), interpreter_context->worker_pool
+  auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, is_profile_query, dba, interpreter_context,
+                                              execution_memory, std::move(user_or_role), std::move(stopping_context),
+                                              dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
+                                              interpreter.query_logger_, trigger_context_collector, memory_limit,
+                                              frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
+                                              hops_limit, interpreter_context->worker_pool
 #ifdef MG_ENTERPRISE
-      ,
-      user_resource
+                                              ,
+                                              EvaluateParallelExecution(cypher_query, evaluator), user_resource
 #endif
   );
   return PreparedQuery{
@@ -3174,10 +3182,10 @@ PreparedQuery PrepareProfileQuery(
                         stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
                         pull_plan = std::shared_ptr<PullPlanVector>(nullptr), frame_change_collector,
                         stopping_context = std::move(stopping_context), db_acc = *current_db.db_acc_, hops_limit,
-                        &query_logger = interpreter.query_logger_,
-                        parallel_execution = EvaluateParallelExecution(cypher_query, evaluator)
+                        &query_logger = interpreter.query_logger_
 #ifdef MG_ENTERPRISE
                         ,
+                        parallel_execution = EvaluateParallelExecution(cypher_query, evaluator),
                         user_resource = std::move(user_resource)
 #endif
   ](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
@@ -3187,10 +3195,10 @@ PreparedQuery PrepareProfileQuery(
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
                        std::move(stopping_context), dbms::DatabaseProtector{db_acc}.clone(), query_logger, nullptr,
                        memory_limit, frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,
-                       hops_limit, parallel_execution, interpreter_context->worker_pool
+                       hops_limit, interpreter_context->worker_pool
 #ifdef MG_ENTERPRISE
                        ,
-                       user_resource
+                       parallel_execution, user_resource
 #endif
                        )
                   .Pull(stream, {}, {}, summary);
@@ -7619,6 +7627,14 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     parallel_execution = cypher_query->pre_query_directives_.parallel_execution_;
   } else if (const auto *profile = utils::Downcast<ProfileQuery>(parsed_query.query)) {
     parallel_execution = profile->cypher_query_->pre_query_directives_.parallel_execution_;
+  }
+
+  if (parallel_execution) {
+#ifdef MG_ENTERPRISE
+    if (!license::global_license_checker.IsEnterpriseValidFast())
+#endif
+      throw QueryRuntimeException(
+          license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "PARALLEL EXECUTION"));
   }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;

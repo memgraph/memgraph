@@ -11,6 +11,7 @@
 
 #pragma once
 
+#ifdef MG_ENTERPRISE
 #include "query/plan/operator.hpp"
 
 namespace memgraph::query::plan {
@@ -42,3 +43,4 @@ struct ParallelChecker : public virtual HierarchicalLogicalOperatorVisitor {
 };
 
 }  // namespace memgraph::query::plan
+#endif
