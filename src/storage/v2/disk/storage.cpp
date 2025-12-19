@@ -254,6 +254,7 @@ DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator,
   kvstore_->options_.wal_dir = config_.disk.wal_directory;
   kvstore_->options_.wal_compression = rocksdb::kNoCompression;
   kvstore_->options_.info_log_level = ParseRocksDBInfoLogLevel(FLAGS_storage_rocksdb_info_log_level);
+  kvstore_->options_.enable_thread_tracking = FLAGS_storage_rocksdb_enable_thread_tracking;
   std::vector<rocksdb::ColumnFamilyHandle *> column_handles;
   std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
   if (utils::DirExists(config.disk.main_storage_directory)) {

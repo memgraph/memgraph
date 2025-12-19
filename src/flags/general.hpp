@@ -96,6 +96,8 @@ DECLARE_bool(storage_delta_on_identical_property_update);
 // RocksDB flags (for disk storage mode)
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(storage_rocksdb_info_log_level);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(storage_rocksdb_enable_thread_tracking);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(schema_info_enabled);

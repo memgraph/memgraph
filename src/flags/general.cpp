@@ -147,10 +147,14 @@ DEFINE_bool(storage_delta_on_identical_property_update, true,
 
 // RocksDB flags (for disk storage mode)
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(storage_rocksdb_info_log_level, "INFO_LEVEL",
+DEFINE_string(storage_rocksdb_info_log_level, "ERROR_LEVEL",
               "RocksDB info log level. Options: DEBUG_LEVEL, INFO_LEVEL, WARN_LEVEL, ERROR_LEVEL, "
-              "FATAL_LEVEL, HEADER_LEVEL. Lower verbosity (e.g., ERROR_LEVEL) reduces gettimeofday "
-              "syscalls but decreases observability for disk storage debugging.");
+              "FATAL_LEVEL, HEADER_LEVEL. Default is ERROR_LEVEL for reduced syscall overhead. "
+              "Use INFO_LEVEL or DEBUG_LEVEL when debugging disk storage issues.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_rocksdb_enable_thread_tracking, false,
+            "Enable RocksDB thread status tracking. Default is false for reduced syscall overhead. "
+            "Enable when debugging disk storage performance issues (provides GetThreadList API).");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(schema_info_enabled, false, "Set to true to enable run-time schema info tracking.");

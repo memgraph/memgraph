@@ -43,6 +43,7 @@ KVStore::KVStore(std::filesystem::path storage) : pimpl_(std::make_unique<impl>(
     throw KVStoreError("Folder for the key-value store " + pimpl_->storage.string() + " couldn't be initialized!");
   pimpl_->options.create_if_missing = true;
   pimpl_->options.info_log_level = ParseRocksDBInfoLogLevel(FLAGS_storage_rocksdb_info_log_level);
+  pimpl_->options.enable_thread_tracking = FLAGS_storage_rocksdb_enable_thread_tracking;
   rocksdb::DB *db = nullptr;
   auto s = rocksdb::DB::Open(pimpl_->options, pimpl_->storage.c_str(), &db);
   if (!s.ok())

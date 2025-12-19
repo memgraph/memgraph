@@ -73,6 +73,7 @@ DiskUniqueConstraints::DiskUniqueConstraints(const Config &config) {
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
   kvstore_->options_.info_log_level = ParseRocksDBInfoLogLevel(FLAGS_storage_rocksdb_info_log_level);
+  kvstore_->options_.enable_thread_tracking = FLAGS_storage_rocksdb_enable_thread_tracking;
   logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
                                                             config.disk.unique_constraints_directory, &kvstore_->db_));
 }
