@@ -596,6 +596,7 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
 
   // Read metadata.
   {
+    spdlog::trace("ReadSnapshotInfo. Before: {}, After: {}", snapshot.GetPosition(), info.offset_metadata);
     if (!snapshot.SetPosition(info.offset_metadata)) throw RecoveryFailure("Couldn't read metadata offset!");
 
     auto marker = snapshot.ReadMarker();
@@ -1127,6 +1128,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
   std::unordered_map<uint64_t, uint64_t> snapshot_id_map;
   {
     spdlog::info("Recovering mapper metadata.");
+    spdlog::trace("Mapper. Before: {}, After: {}", snapshot.GetPosition(), info.offset_mapper);
     if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     auto marker = snapshot.ReadMarker();
@@ -1170,6 +1172,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
     uint64_t last_edge_gid = 0;
     if (snapshot_has_edges) {
       spdlog::info("Recovering {} edges.", info.edges_count);
+      spdlog::trace("Edges. Before: {}, After: {}", snapshot.GetPosition(), info.offset_edges);
       if (!snapshot.SetPosition(info.offset_edges)) throw RecoveryFailure("Couldn't read data from snapshot!");
       for (uint64_t i = 0; i < info.edges_count; ++i) {
         {
@@ -1225,6 +1228,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
     }
 
     // Recover vertices (labels and properties).
+    spdlog::trace("Vertices. Before: {}, After: {}", snapshot.GetPosition(), info.offset_vertices);
     if (!snapshot.SetPosition(info.offset_vertices)) throw RecoveryFailure("Couldn't read data from snapshot!");
     auto vertex_acc = vertices->access();
     uint64_t last_vertex_gid = 0;
@@ -7787,6 +7791,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   std::unordered_map<uint64_t, uint64_t> snapshot_id_map;
   {
     spdlog::info("Recovering mapper metadata.");
+    spdlog::trace("Mapper. Before: {}, After: {}", snapshot.GetPosition(), info.offset_mapper);
     if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     auto marker = snapshot.ReadMarker();
@@ -7810,6 +7815,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   // TODO: when we have enum deletion/edits we will need to handle remapping
   {
     spdlog::info("Recovering metadata of enums.");
+    spdlog::trace("Enums. Before: {}, After: {}", snapshot.GetPosition(), info.offset_enums);
     if (!snapshot.SetPosition(info.offset_enums)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     auto marker = snapshot.ReadMarker();
@@ -7885,7 +7891,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     // Recover vertices (labels and properties).
     spdlog::info("Recovering vertices.");
     uint64_t last_vertex_gid{0};
-
+    spdlog::trace("VertexBatches. Before: {}, After: {}", snapshot.GetPosition(), info.offset_vertex_batches);
     if (!snapshot.SetPosition(info.offset_vertex_batches)) {
       throw RecoveryFailure("Couldn't read data from snapshot!");
     }
@@ -7916,6 +7922,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       // affect what it does:
       // 1. If properties are allowed on edges, then it loads the edges.
       // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
+      spdlog::trace("EdgeBatches. Before: {}, After: {}", snapshot.GetPosition(), info.offset_edge_batches);
       if (!snapshot.SetPosition(info.offset_edge_batches)) {
         throw RecoveryFailure("Couldn't read data from snapshot!");
       }
@@ -7967,6 +7974,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   // Recover indices.
   {
     spdlog::info("Recovering metadata of indices.");
+    spdlog::trace("Indices. Before: {}, After: {}", snapshot.GetPosition(), info.offset_indices);
     if (!snapshot.SetPosition(info.offset_indices)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     auto marker = snapshot.ReadMarker();
@@ -8067,6 +8075,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     }
 
     spdlog::info("Recovering metadata of indices.");
+    spdlog::trace("EdgeIndices. Before: {}, After: {}", snapshot.GetPosition(), info.offset_edge_indices);
     if (!snapshot.SetPosition(info.offset_edge_indices)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     marker = snapshot.ReadMarker();
@@ -8303,6 +8312,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   // Recover constraints.
   {
     spdlog::info("Recovering metadata of constraints.");
+    spdlog::trace("Constraints. Before: {}, After: {}", snapshot.GetPosition(), info.offset_constraints);
     if (!snapshot.SetPosition(info.offset_constraints)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     auto marker = snapshot.ReadMarker();
@@ -8389,6 +8399,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   spdlog::info("Recovering metadata.");
   // Recover epoch history
   {
+    spdlog::trace("EpochHistory. Before: {}, After: {}", snapshot.GetPosition(), info.offset_epoch_history);
     if (!snapshot.SetPosition(info.offset_epoch_history)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     const auto marker = snapshot.ReadMarker();
@@ -8414,6 +8425,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   }
 
   // Recover TTL data if available
+  spdlog::trace("TTL. Before: {}, After: {}", snapshot.GetPosition(), info.offset_ttl);
   if (info.offset_ttl != SnapshotInfo::kInvalidOffset) {
     spdlog::info("Recovering TTL data.");
     if (!snapshot.SetPosition(info.offset_ttl)) throw RecoveryFailure("Couldn't read TTL data from snapshot!");
