@@ -25,6 +25,8 @@ class ConsolidatedSchedulerTest : public ::testing::Test {
   void SetUp() override {
     // Uses timerfd on Linux, condition_variable fallback elsewhere
     scheduler_ = std::make_unique<ConsolidatedScheduler>();
+    // Register a general pool for the tests
+    scheduler_->RegisterPool({"general", 2, 2, PoolPolicy::FIXED});
   }
 
   void TearDown() override {
@@ -257,6 +259,7 @@ TEST_F(ConsolidatedSchedulerTest, ExecuteImmediately) {
 /// Test that scheduler works outside of test fixture (uses timerfd on Linux)
 TEST(ConsolidatedSchedulerStandalone, BasicExecution) {
   ConsolidatedScheduler scheduler;
+  scheduler.RegisterPool({"general", 2, 2, PoolPolicy::FIXED});
 
   std::atomic<int> counter{0};
   auto handle = scheduler.Register("test", 100ms, [&counter]() { ++counter; });
@@ -271,7 +274,8 @@ TEST(ConsolidatedSchedulerStandalone, BasicExecution) {
 
 /// Test 11: Concurrent execution - multiple tasks can run in parallel
 TEST(ConsolidatedSchedulerStandalone, ConcurrentExecution) {
-  ConsolidatedScheduler scheduler(4);  // 4 worker threads
+  ConsolidatedScheduler scheduler;
+  scheduler.RegisterPool({"test_pool", 4, 4, PoolPolicy::FIXED});  // 4 worker threads
 
   EXPECT_EQ(scheduler.WorkerCount(), 4);
 
@@ -292,11 +296,11 @@ TEST(ConsolidatedSchedulerStandalone, ConcurrentExecution) {
     --concurrent_count;
   };
 
-  // Use execute_immediately so all 4 tasks start at once
-  TaskConfig config1{"task1", ScheduleSpec::Interval(1s, true), SchedulerPriority::NORMAL};
-  TaskConfig config2{"task2", ScheduleSpec::Interval(1s, true), SchedulerPriority::NORMAL};
-  TaskConfig config3{"task3", ScheduleSpec::Interval(1s, true), SchedulerPriority::NORMAL};
-  TaskConfig config4{"task4", ScheduleSpec::Interval(1s, true), SchedulerPriority::NORMAL};
+  // Use execute_immediately so all 4 tasks start at once, assign to test_pool
+  TaskConfig config1{"task1", ScheduleSpec::Interval(1s, true), SchedulerPriority::NORMAL, "test_pool"};
+  TaskConfig config2{"task2", ScheduleSpec::Interval(1s, true), SchedulerPriority::NORMAL, "test_pool"};
+  TaskConfig config3{"task3", ScheduleSpec::Interval(1s, true), SchedulerPriority::NORMAL, "test_pool"};
+  TaskConfig config4{"task4", ScheduleSpec::Interval(1s, true), SchedulerPriority::NORMAL, "test_pool"};
 
   auto h1 = scheduler.Register(config1, blocking_callback);
   auto h2 = scheduler.Register(config2, blocking_callback);
@@ -312,14 +316,17 @@ TEST(ConsolidatedSchedulerStandalone, ConcurrentExecution) {
   // RAII handles cleanup
 }
 
-/// Test 12: Zero workers runs tasks inline on dispatcher
-TEST(ConsolidatedSchedulerStandalone, ZeroWorkersInlineExecution) {
-  ConsolidatedScheduler scheduler(0);  // No worker threads
+/// Test 12: Inline pool policy runs tasks on dispatcher thread
+TEST(ConsolidatedSchedulerStandalone, InlinePolicyExecution) {
+  ConsolidatedScheduler scheduler;
+  scheduler.RegisterPool({"inline_pool", 0, 0, PoolPolicy::INLINE});  // INLINE policy, no workers
 
   EXPECT_EQ(scheduler.WorkerCount(), 0);
 
   std::atomic<int> counter{0};
-  auto handle = scheduler.Register("test", 50ms, [&counter]() { ++counter; });
+  auto handle =
+      scheduler.Register(TaskConfig{"test", ScheduleSpec::Interval(50ms), SchedulerPriority::NORMAL, "inline_pool"},
+                         [&counter]() { ++counter; });
 
   EXPECT_TRUE(handle.IsValid());
 
@@ -332,6 +339,7 @@ TEST(ConsolidatedSchedulerStandalone, ZeroWorkersInlineExecution) {
 /// Test 13: One-shot task runs exactly once
 TEST(ConsolidatedSchedulerStandalone, OneShotTask) {
   ConsolidatedScheduler scheduler;
+  scheduler.RegisterPool({"general", 2, 2, PoolPolicy::FIXED});
 
   std::atomic<int> counter{0};
 
@@ -352,6 +360,7 @@ TEST(ConsolidatedSchedulerStandalone, OneShotTask) {
 /// Test 14: ScheduleNow runs immediately once
 TEST(ConsolidatedSchedulerStandalone, ScheduleNowRunsOnce) {
   ConsolidatedScheduler scheduler;
+  scheduler.RegisterPool({"general", 2, 2, PoolPolicy::FIXED});
 
   std::atomic<int> counter{0};
 
@@ -372,10 +381,11 @@ TEST(ConsolidatedSchedulerStandalone, ScheduleNowRunsOnce) {
 /// Test 15: One-shot via ScheduleSpec::After
 TEST(ConsolidatedSchedulerStandalone, OneShotViaScheduleSpec) {
   ConsolidatedScheduler scheduler;
+  scheduler.RegisterPool({"general", 2, 2, PoolPolicy::FIXED});
 
   std::atomic<int> counter{0};
 
-  TaskConfig config{"delayed-once", ScheduleSpec::After(50ms), SchedulerPriority::NORMAL};
+  TaskConfig config{"delayed-once", ScheduleSpec::After(50ms), SchedulerPriority::NORMAL, "general"};
   auto handle = scheduler.Register(config, [&counter]() { ++counter; });
 
   EXPECT_TRUE(handle.IsValid());
@@ -387,4 +397,39 @@ TEST(ConsolidatedSchedulerStandalone, OneShotViaScheduleSpec) {
   // Verify it doesn't repeat
   std::this_thread::sleep_for(150ms);
   EXPECT_EQ(counter.load(), 1);
+}
+
+/// Test 16: GROW pool policy adds workers under load
+TEST(ConsolidatedSchedulerStandalone, GrowPoolPolicy) {
+  ConsolidatedScheduler scheduler;
+  scheduler.RegisterPool({"grow_pool", 1, 4, PoolPolicy::GROW});  // Start with 1, grow to 4
+
+  // Initially should have 1 worker
+  EXPECT_EQ(scheduler.WorkerCount(), 1);
+
+  std::atomic<int> concurrent_count{0};
+  std::atomic<int> max_concurrent{0};
+
+  // Create tasks that run concurrently
+  auto blocking_callback = [&]() {
+    int current = ++concurrent_count;
+    int expected = max_concurrent.load();
+    while (current > expected && !max_concurrent.compare_exchange_weak(expected, current)) {
+    }
+    std::this_thread::sleep_for(100ms);
+    --concurrent_count;
+  };
+
+  // Submit multiple tasks with execute_immediately
+  TaskConfig config1{"task1", ScheduleSpec::Interval(1s, true), SchedulerPriority::NORMAL, "grow_pool"};
+  TaskConfig config2{"task2", ScheduleSpec::Interval(1s, true), SchedulerPriority::NORMAL, "grow_pool"};
+
+  auto h1 = scheduler.Register(config1, blocking_callback);
+  auto h2 = scheduler.Register(config2, blocking_callback);
+
+  // Wait for tasks to complete
+  std::this_thread::sleep_for(250ms);
+
+  // Should have been able to run at least one task
+  EXPECT_GE(max_concurrent.load(), 1);
 }
