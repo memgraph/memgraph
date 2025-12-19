@@ -83,6 +83,19 @@ jobs:
             echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
           fi
 
+      - name: Run and upload load_parquet benchmark
+        id: load-parquet
+        continue-on-error: true
+        run: |
+          ./tools/loop-benchmark.sh \
+            mgbench-load-parquet \
+            load-parquet \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            load_parquet
+
       - name: Run and upload macro benchmarks
         id: macro-benchmark
         continue-on-error: true
