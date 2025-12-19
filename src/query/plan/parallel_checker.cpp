@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/plan/parallel_checker.hpp"
+#ifdef MG_ENTERPRISE
 namespace memgraph::query::plan {
 bool ParallelChecker::PreVisit(AggregateParallel &) {
   is_parallelized_ = true;
@@ -30,3 +31,4 @@ void ParallelChecker::CheckParallelized(const LogicalOperator &root) {
 }
 
 }  // namespace memgraph::query::plan
+#endif
