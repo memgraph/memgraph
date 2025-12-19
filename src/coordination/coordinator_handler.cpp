@@ -15,8 +15,8 @@
 #include <string_view>
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_handler.hpp"
 #include "coordination/coordinator_ops_status.hpp"
-#include "dbms/coordinator_handler.hpp"
 
 namespace memgraph::dbms {
 
