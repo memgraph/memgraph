@@ -106,17 +106,22 @@ class TaskHandle {
 /// Forward declaration
 struct TaskState;
 
-/// Consolidated scheduler that manages multiple tasks with a single thread
+/// Consolidated scheduler that manages multiple tasks with a thread pool
 /// Uses timerfd on Linux for minimal non-determinism events
+/// Tasks are dispatched by a single thread and executed concurrently by worker threads
 class ConsolidatedScheduler {
  public:
   using time_point = std::chrono::steady_clock::time_point;
 
+  /// Default number of worker threads
+  static constexpr size_t kDefaultWorkerCount = 4;
+
   /// Get the global scheduler instance
   static ConsolidatedScheduler &Global();
 
-  /// Create a scheduler (uses timerfd on Linux, condition_variable fallback elsewhere)
-  ConsolidatedScheduler();
+  /// Create a scheduler with specified number of worker threads
+  /// @param worker_count Number of worker threads (0 = tasks run inline on dispatcher)
+  explicit ConsolidatedScheduler(size_t worker_count = kDefaultWorkerCount);
   ~ConsolidatedScheduler();
 
   ConsolidatedScheduler(const ConsolidatedScheduler &) = delete;
@@ -147,8 +152,12 @@ class ConsolidatedScheduler {
   /// Get the number of active tasks
   [[nodiscard]] size_t TaskCount() const;
 
+  /// Get the number of worker threads
+  [[nodiscard]] size_t WorkerCount() const;
+
  private:
   void DispatcherLoop();
+  void WorkerLoop();
   void RemoveTask(const std::shared_ptr<TaskState> &task);
   void WakeDispatcher();
 

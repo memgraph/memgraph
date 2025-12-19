@@ -18,7 +18,7 @@
 #include <nlohmann/json_fwd.hpp>
 
 #include "license/license.hpp"
-#include "utils/scheduler.hpp"
+#include "utils/consolidated_scheduler.hpp"
 #include "utils/timer.hpp"
 
 namespace memgraph::license {
@@ -44,7 +44,7 @@ class LicenseInfoSender final {
   const int64_t memory_limit_;
 
   utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &license_info_;
-  utils::Scheduler scheduler_;
+  utils::TaskHandle scheduler_;
 };
 
 }  // namespace memgraph::license

@@ -37,17 +37,18 @@ LicenseInfoSender::LicenseInfoSender(std::string url, std::string uuid, std::str
       machine_id_{std::move(machine_id)},
       memory_limit_{memory_limit},
       license_info_{license_info} {
-  scheduler_.SetInterval(
-      std::min(kFirstShotAfter, request_interval));  // use user-defined interval if shorter than first shot
-  scheduler_.Run("Telemetry", [this, final_interval = request_interval,
-                               update_interval = kFirstShotAfter < request_interval]() mutable {
-    SendData();
-    // First run after 60s; all subsequent runs at the user-defined interval
-    if (update_interval) {
-      update_interval = false;
-      scheduler_.SetInterval(final_interval);
-    }
-  });
+  auto initial_interval = std::min(kFirstShotAfter, request_interval);
+  scheduler_ = utils::ConsolidatedScheduler::Global().Register(
+      utils::TaskConfig{"License sender", utils::ScheduleSpec::Interval(initial_interval),
+                        utils::SchedulerPriority::LOW},
+      [this, final_interval = request_interval, update_interval = kFirstShotAfter < request_interval]() mutable {
+        SendData();
+        // First run after 60s; all subsequent runs at the user-defined interval
+        if (update_interval) {
+          update_interval = false;
+          scheduler_.SetSchedule(utils::ScheduleSpec::Interval(final_interval));
+        }
+      });
 }
 
 LicenseInfoSender::~LicenseInfoSender() { scheduler_.Stop(); }

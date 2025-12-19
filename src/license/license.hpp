@@ -15,7 +15,7 @@
 #include <optional>
 #include <string>
 
-#include "utils/scheduler.hpp"
+#include "utils/consolidated_scheduler.hpp"
 #include "utils/settings.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -112,7 +112,7 @@ struct LicenseChecker {
   bool enterprise_enabled_{false};
   std::atomic<bool> is_valid_{false};
   LicenseType license_type_;
-  utils::Scheduler scheduler_;
+  utils::TaskHandle scheduler_;
 
   friend void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &settings);
 };

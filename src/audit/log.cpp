@@ -137,8 +137,9 @@ void Log::Start() {
   started_.store(true, std::memory_order_release);
 
   ReopenLog();
-  scheduler_.SetInterval(std::chrono::milliseconds(buffer_flush_interval_millis_));
-  scheduler_.Run("Audit", [&] { Flush(); });
+  scheduler_ = utils::ConsolidatedScheduler::Global().Register(
+      "Audit", std::chrono::milliseconds(buffer_flush_interval_millis_), [this] { Flush(); },
+      utils::SchedulerPriority::NORMAL);
 }
 
 Log::~Log() {

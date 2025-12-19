@@ -19,9 +19,9 @@
 #include <queue>
 #include <thread>
 
+#include "utils/consolidated_scheduler.hpp"
 #include "utils/logging.hpp"
 #include "utils/priorities.hpp"
-#include "utils/scheduler.hpp"
 
 namespace memgraph::utils {
 // Thread-safe mask that returns the position of first set bit
@@ -182,7 +182,7 @@ class PriorityThreadPool {
   HotMask hot_threads_;  // Mask of workers waiting for new work (but still not sleeping)
 
   std::vector<std::jthread> pool_;  // All available threads (list so the elements are stable)
-  utils::Scheduler monitoring_;     // Background task monitoring the overall throughput and rearranging
+  utils::TaskHandle monitoring_;    // Background task monitoring the overall throughput and rearranging
 
   std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
   std::atomic<uint16_t> last_wid_;  // Used to pick next worker

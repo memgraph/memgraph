@@ -266,6 +266,65 @@ TEST(ConsolidatedSchedulerStandalone, BasicExecution) {
   std::this_thread::sleep_for(250ms);
   EXPECT_GE(counter.load(), 2);
 
-  handle.Stop();
-  scheduler.Shutdown();
+  // RAII handles cleanup - handle.Stop() and scheduler.Shutdown() called by destructors
+}
+
+/// Test 11: Concurrent execution - multiple tasks can run in parallel
+TEST(ConsolidatedSchedulerStandalone, ConcurrentExecution) {
+  ConsolidatedScheduler scheduler(4);  // 4 worker threads
+
+  EXPECT_EQ(scheduler.WorkerCount(), 4);
+
+  std::atomic<int> concurrent_count{0};
+  std::atomic<int> max_concurrent{0};
+
+  // Create 4 tasks that all sleep for 100ms
+  // If they run concurrently, they should overlap
+  auto blocking_callback = [&]() {
+    int current = ++concurrent_count;
+
+    // Update max concurrent
+    int expected = max_concurrent.load();
+    while (current > expected && !max_concurrent.compare_exchange_weak(expected, current)) {
+    }
+
+    std::this_thread::sleep_for(100ms);
+    --concurrent_count;
+  };
+
+  // Use execute_immediately so all 4 tasks start at once
+  TaskConfig config1{"task1", ScheduleSpec::Interval(1s, true), SchedulerPriority::NORMAL};
+  TaskConfig config2{"task2", ScheduleSpec::Interval(1s, true), SchedulerPriority::NORMAL};
+  TaskConfig config3{"task3", ScheduleSpec::Interval(1s, true), SchedulerPriority::NORMAL};
+  TaskConfig config4{"task4", ScheduleSpec::Interval(1s, true), SchedulerPriority::NORMAL};
+
+  auto h1 = scheduler.Register(config1, blocking_callback);
+  auto h2 = scheduler.Register(config2, blocking_callback);
+  auto h3 = scheduler.Register(config3, blocking_callback);
+  auto h4 = scheduler.Register(config4, blocking_callback);
+
+  // Wait for tasks to complete
+  std::this_thread::sleep_for(200ms);
+
+  // With 4 workers, all 4 tasks should have run concurrently
+  EXPECT_GE(max_concurrent.load(), 2);  // At least 2 concurrent (conservative)
+
+  // RAII handles cleanup
+}
+
+/// Test 12: Zero workers runs tasks inline on dispatcher
+TEST(ConsolidatedSchedulerStandalone, ZeroWorkersInlineExecution) {
+  ConsolidatedScheduler scheduler(0);  // No worker threads
+
+  EXPECT_EQ(scheduler.WorkerCount(), 0);
+
+  std::atomic<int> counter{0};
+  auto handle = scheduler.Register("test", 50ms, [&counter]() { ++counter; });
+
+  EXPECT_TRUE(handle.IsValid());
+
+  std::this_thread::sleep_for(150ms);
+  EXPECT_GE(counter.load(), 2);
+
+  // RAII handles cleanup
 }

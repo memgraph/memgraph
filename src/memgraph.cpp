@@ -58,6 +58,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/consolidated_scheduler.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -249,20 +250,22 @@ int main(int argc, char **argv) {
   memgraph::requests::Init();
 
   // Start memory warning logger.
-  memgraph::utils::Scheduler mem_log_scheduler;
+  memgraph::utils::TaskHandle mem_log_handle;
   if (FLAGS_memory_warning_threshold > 0) {
     auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
     if (free_ram) {
-      mem_log_scheduler.SetInterval(std::chrono::seconds(3));
-      mem_log_scheduler.Run("Memory check", [] {
-        auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
-        if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
-          spdlog::warn(memgraph::utils::MessageWithLink("Running out of available RAM, only {} MB left.",
-                                                        *free_ram / 1024, "https://memgr.ph/ram"));
+      mem_log_handle = memgraph::utils::ConsolidatedScheduler::Global().Register(
+          "Memory check", std::chrono::seconds(3),
+          [] {
+            auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
+            if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
+              spdlog::warn(memgraph::utils::MessageWithLink("Running out of available RAM, only {} MB left.",
+                                                            *free_ram / 1024, "https://memgr.ph/ram"));
 
-        auto memory_res = memgraph::utils::GetMemoryRES();
-        memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, memory_res);
-      });
+            auto memory_res = memgraph::utils::GetMemoryRES();
+            memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, memory_res);
+          },
+          memgraph::utils::SchedulerPriority::LOW);
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs
       spdlog::warn(
@@ -407,9 +410,9 @@ int main(int argc, char **argv) {
   }
   spdlog::info("config recover on startup {}, flags {}", db_config.durability.recover_on_startup,
                FLAGS_data_recovery_on_startup);
-  memgraph::utils::Scheduler jemalloc_purge_scheduler;
-  jemalloc_purge_scheduler.SetInterval(std::chrono::seconds(FLAGS_storage_gc_cycle_sec));
-  jemalloc_purge_scheduler.Run("Jemalloc purge", [] { memgraph::memory::PurgeUnusedMemory(); });
+  auto jemalloc_purge_handle = memgraph::utils::ConsolidatedScheduler::Global().Register(
+      "Jemalloc purge", std::chrono::seconds(FLAGS_storage_gc_cycle_sec), [] { memgraph::memory::PurgeUnusedMemory(); },
+      memgraph::utils::SchedulerPriority::HIGH);
 
   using namespace std::chrono_literals;
   using enum memgraph::storage::StorageMode;

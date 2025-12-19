@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -14,8 +14,8 @@
 
 #include "communication/bolt/v1/value.hpp"
 #include "data_structures/ring_buffer.hpp"
+#include "utils/consolidated_scheduler.hpp"
 #include "utils/file.hpp"
-#include "utils/scheduler.hpp"
 
 namespace memgraph::audit {
 
@@ -63,7 +63,7 @@ class Log {
   std::atomic<bool> started_;
 
   std::optional<RingBuffer<Item>> buffer_;
-  utils::Scheduler scheduler_;
+  utils::TaskHandle scheduler_;
 
   utils::OutputFile log_;
   std::mutex lock_;

@@ -11,6 +11,9 @@
 
 #include "utils/consolidated_scheduler.hpp"
 
+#include <sys/eventfd.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <mutex>
 #include <queue>
@@ -35,13 +38,29 @@ struct TaskState {
   std::atomic<bool> stopped{false};
   std::atomic<bool> trigger_now{false};
 
-  // Pointer to timer backend for waking the dispatcher
-  TimerBackend *timer_backend{nullptr};
+  // Function pointers for scheduler operations (set by Impl)
+  std::function<void()> wake_dispatcher;
+  std::function<void(std::shared_ptr<TaskState>)> reschedule_task;
 
   void WakeDispatcher() const {
-    if (timer_backend) {
-      timer_backend->UpdateDeadline(std::chrono::steady_clock::now());
+    if (wake_dispatcher) {
+      wake_dispatcher();
     }
+  }
+
+  void ExecuteCallback() {
+    trigger_now.store(false, std::memory_order_release);
+    running.store(true, std::memory_order_release);
+
+    try {
+      callback();
+    } catch (const std::exception &e) {
+      spdlog::warn("Scheduler task '{}' threw exception: {}", name, e.what());
+    } catch (...) {
+      spdlog::warn("Scheduler task '{}' threw unknown exception", name);
+    }
+
+    running.store(false, std::memory_order_release);
   }
 
   /// Comparison for priority queue (min-heap: earliest time, then highest priority)
@@ -62,14 +81,56 @@ struct TaskComparator {
 /// Implementation details hidden from header
 class ConsolidatedScheduler::Impl {
  public:
-  Impl() = default;
+  explicit Impl(size_t worker_count) : worker_count_(worker_count) {
+    // EFD_SEMAPHORE: each write increments counter, each read decrements by 1
+    // This allows precise wake-one semantics and reduces futex calls vs CV
+    work_eventfd_ = eventfd(0, EFD_SEMAPHORE);
+  }
 
+  ~Impl() {
+    if (work_eventfd_ >= 0) {
+      close(work_eventfd_);
+    }
+  }
+
+  Impl(const Impl &) = delete;
+  Impl &operator=(const Impl &) = delete;
+  Impl(Impl &&) = delete;
+  Impl &operator=(Impl &&) = delete;
+
+  // Timer backend for dispatcher sleep
   TimerBackend timer_backend_;
+
+  // Task scheduling
   std::priority_queue<std::shared_ptr<TaskState>, std::vector<std::shared_ptr<TaskState>>, TaskComparator> task_queue_;
   std::vector<std::shared_ptr<TaskState>> all_tasks_;  // For iteration/removal
   mutable std::mutex mutex_;
+
+  // Worker thread pool (priority queue so highest priority tasks dispatch first)
+  std::priority_queue<std::shared_ptr<TaskState>, std::vector<std::shared_ptr<TaskState>>, TaskComparator> work_queue_;
+  std::mutex work_mutex_;
+  int work_eventfd_{-1};  // eventfd for worker wake (reduces futex calls vs CV)
+  std::vector<std::jthread> workers_;
+  size_t worker_count_;
+
+  // Control
   std::jthread dispatcher_thread_;
   std::atomic<bool> running_{false};
+
+  /// Signal workers that work is available (write to eventfd)
+  void SignalWorkers(size_t count) {
+    uint64_t val = count;
+    [[maybe_unused]] auto written = write(work_eventfd_, &val, sizeof(val));
+  }
+
+  /// Wait for work signal (blocking read from eventfd)
+  /// Returns false if should stop
+  bool WaitForWork() {
+    uint64_t val;
+    // Blocking read - decrements semaphore by 1
+    auto bytes = read(work_eventfd_, &val, sizeof(val));
+    return bytes > 0 && running_.load(std::memory_order_acquire);
+  }
 };
 
 // TaskHandle implementation
@@ -148,8 +209,15 @@ ConsolidatedScheduler &ConsolidatedScheduler::Global() {
   return instance;
 }
 
-ConsolidatedScheduler::ConsolidatedScheduler() : impl_(std::make_unique<Impl>()) {
+ConsolidatedScheduler::ConsolidatedScheduler(size_t worker_count) : impl_(std::make_unique<Impl>(worker_count)) {
   impl_->running_.store(true, std::memory_order_release);
+
+  // Start worker threads
+  for (size_t i = 0; i < worker_count; ++i) {
+    impl_->workers_.emplace_back([this](std::stop_token token) { WorkerLoop(); });
+  }
+
+  // Start dispatcher thread
   impl_->dispatcher_thread_ = std::jthread([this](std::stop_token token) {
     utils::ThreadSetName("scheduler");
     DispatcherLoop();
@@ -169,7 +237,25 @@ TaskHandle ConsolidatedScheduler::Register(TaskConfig config, std::function<void
   task->schedule = config.schedule;
   task->priority = config.priority;
   task->callback = std::move(callback);
-  task->timer_backend = &impl_->timer_backend_;
+
+  // Set up wake function
+  task->wake_dispatcher = [this]() { WakeDispatcher(); };
+
+  // Set up reschedule function (captures task as weak_ptr to avoid cycle)
+  std::weak_ptr<TaskState> weak_task = task;
+  task->reschedule_task = [this, weak_task](std::shared_ptr<TaskState>) {
+    if (auto t = weak_task.lock()) {
+      if (!t->stopped.load(std::memory_order_acquire)) {
+        auto now = std::chrono::steady_clock::now();
+        t->next_execution = now + t->schedule.interval;
+        {
+          std::lock_guard lock(impl_->mutex_);
+          impl_->task_queue_.push(t);
+        }
+        WakeDispatcher();
+      }
+    }
+  };
 
   auto now = std::chrono::steady_clock::now();
   if (config.schedule.execute_immediately) {
@@ -194,12 +280,26 @@ void ConsolidatedScheduler::Shutdown() {
     return;  // Already shut down
   }
 
+  // Cancel timer to wake dispatcher
   impl_->timer_backend_.Cancel();
 
+  // Wake all workers so they can exit
+  impl_->SignalWorkers(impl_->worker_count_);
+
+  // Join dispatcher
   if (impl_->dispatcher_thread_.joinable()) {
     impl_->dispatcher_thread_.request_stop();
     impl_->dispatcher_thread_.join();
   }
+
+  // Join workers
+  for (auto &worker : impl_->workers_) {
+    if (worker.joinable()) {
+      worker.request_stop();
+      worker.join();
+    }
+  }
+  impl_->workers_.clear();
 
   // Clear all tasks
   {
@@ -218,33 +318,42 @@ size_t ConsolidatedScheduler::TaskCount() const {
   return impl_->all_tasks_.size();
 }
 
+size_t ConsolidatedScheduler::WorkerCount() const { return impl_->worker_count_; }
+
 void ConsolidatedScheduler::DispatcherLoop() {
   while (impl_->running_.load(std::memory_order_acquire)) {
-    std::shared_ptr<TaskState> task_to_run;
+    std::vector<std::shared_ptr<TaskState>> tasks_to_dispatch;
     time_point next_deadline = time_point::max();
 
     {
       std::lock_guard lock(impl_->mutex_);
 
-      // Remove stopped tasks and rebuild queue
+      // Remove stopped tasks
       std::erase_if(impl_->all_tasks_, [](const auto &t) { return t->stopped.load(std::memory_order_acquire); });
 
-      // Rebuild priority queue (simple approach - could be optimized)
+      // Rebuild priority queue from non-stopped, non-running tasks
       std::priority_queue<std::shared_ptr<TaskState>, std::vector<std::shared_ptr<TaskState>>, TaskComparator>
           new_queue;
       for (const auto &task : impl_->all_tasks_) {
-        if (!task->stopped.load(std::memory_order_acquire)) {
+        // Only add to queue if not stopped and not currently running
+        if (!task->stopped.load(std::memory_order_acquire) && !task->running.load(std::memory_order_acquire)) {
           new_queue.push(task);
         }
       }
       impl_->task_queue_ = std::move(new_queue);
 
-      // Find next task to run
+      // Find all tasks that are due now
       auto now = std::chrono::steady_clock::now();
       while (!impl_->task_queue_.empty()) {
         auto top = impl_->task_queue_.top();
 
         if (top->stopped.load(std::memory_order_acquire)) {
+          impl_->task_queue_.pop();
+          continue;
+        }
+
+        // Skip if already running (shouldn't happen due to rebuild, but be safe)
+        if (top->running.load(std::memory_order_acquire)) {
           impl_->task_queue_.pop();
           continue;
         }
@@ -255,39 +364,40 @@ void ConsolidatedScheduler::DispatcherLoop() {
         }
 
         if (top->trigger_now.load(std::memory_order_acquire) || top->next_execution <= now) {
-          task_to_run = top;
+          tasks_to_dispatch.push_back(top);
           impl_->task_queue_.pop();
-          break;
+          continue;  // Keep looking for more due tasks
         }
 
+        // This task is not due yet - it defines the next deadline
         next_deadline = top->next_execution;
         break;
       }
     }
 
-    if (task_to_run) {
-      task_to_run->trigger_now.store(false, std::memory_order_release);
-      task_to_run->running.store(true, std::memory_order_release);
-
-      try {
-        task_to_run->callback();
-      } catch (const std::exception &e) {
-        spdlog::warn("Scheduler task '{}' threw exception: {}", task_to_run->name, e.what());
-      } catch (...) {
-        spdlog::warn("Scheduler task '{}' threw unknown exception", task_to_run->name);
+    // Dispatch tasks to workers (or run inline if no workers)
+    if (!tasks_to_dispatch.empty()) {
+      if (impl_->worker_count_ > 0) {
+        // Submit to worker pool (priority queue ensures highest priority dispatched first)
+        size_t num_tasks = tasks_to_dispatch.size();
+        {
+          std::lock_guard lock(impl_->work_mutex_);
+          for (auto &task : tasks_to_dispatch) {
+            impl_->work_queue_.push(std::move(task));
+          }
+        }
+        // Signal workers via eventfd (one signal per task for precise wake)
+        impl_->SignalWorkers(num_tasks);
+      } else {
+        // Run inline (no worker threads)
+        for (auto &task : tasks_to_dispatch) {
+          task->ExecuteCallback();
+          // Reschedule after execution completes
+          if (task->reschedule_task) {
+            task->reschedule_task(task);
+          }
+        }
       }
-
-      task_to_run->running.store(false, std::memory_order_release);
-
-      // Reschedule if not stopped
-      if (!task_to_run->stopped.load(std::memory_order_acquire)) {
-        auto now = std::chrono::steady_clock::now();
-        task_to_run->next_execution = now + task_to_run->schedule.interval;
-
-        std::lock_guard lock(impl_->mutex_);
-        impl_->task_queue_.push(task_to_run);
-      }
-
       continue;  // Check for more due tasks immediately
     }
 
@@ -297,6 +407,39 @@ void ConsolidatedScheduler::DispatcherLoop() {
     } else {
       // No tasks - wait for a long time (will be woken when task added)
       impl_->timer_backend_.WaitUntil(std::chrono::steady_clock::now() + std::chrono::hours(24));
+    }
+  }
+}
+
+void ConsolidatedScheduler::WorkerLoop() {
+  utils::ThreadSetName("sched_idle");
+
+  while (impl_->running_.load(std::memory_order_acquire)) {
+    // Wait for work signal via eventfd (blocks until signaled)
+    if (!impl_->WaitForWork()) {
+      break;  // Shutdown or error
+    }
+
+    std::shared_ptr<TaskState> task;
+    {
+      std::lock_guard lock(impl_->work_mutex_);
+      if (!impl_->work_queue_.empty()) {
+        // Priority queue: highest priority (lowest enum value) at top
+        task = impl_->work_queue_.top();
+        impl_->work_queue_.pop();
+      }
+    }
+
+    if (task && !task->stopped.load(std::memory_order_acquire)) {
+      // Set thread name to task name while executing
+      utils::ThreadSetName(task->name);
+      task->ExecuteCallback();
+      // Restore idle name
+      utils::ThreadSetName("sched_idle");
+      // Reschedule after execution completes
+      if (task->reschedule_task) {
+        task->reschedule_task(task);
+      }
     }
   }
 }

@@ -102,44 +102,46 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
   barrier.wait();
 
   // Under heavy load a task can get stuck, monitor and move to different thread
-  monitoring_.SetInterval(std::chrono::milliseconds(100));
-  monitoring_.Run("sched_mon", [this, workers_num = workers_.size(), hp_workers_num = hp_workers_.size(),
-                                last_task = std::array<TaskID, kMaxWorkers>{}]() mutable {
-    size_t i = 0;
-    for (auto &worker : workers_) {
-      const auto worker_id = i++;
-      auto &worker_last_task = last_task[worker_id];
-      auto update = utils::OnScopeExit{[&]() mutable { worker_last_task = worker->last_task_; }};
-      if (worker_last_task == worker->last_task_ && worker->working_ && worker->has_pending_work_) {
-        // worker stuck on a task; move task to a different queue
-        auto l = std::unique_lock{worker->mtx_, std::defer_lock};
-        if (!l.try_lock()) continue;  // Thread is busy...
-        // Recheck under lock
-        if (worker->work_.empty() || worker_last_task != worker->last_task_) continue;
-        // Update flag as soon as possible
-        worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
-        Worker::Work work{worker->work_.top().id, std::move(worker->work_.top().work)};
-        worker->work_.pop();
-        l.unlock();
+  monitoring_ = ConsolidatedScheduler::Global().Register(
+      "sched_mon", std::chrono::milliseconds(100),
+      [this, workers_num = workers_.size(), hp_workers_num = hp_workers_.size(),
+       last_task = std::array<TaskID, kMaxWorkers>{}]() mutable {
+        size_t i = 0;
+        for (auto &worker : workers_) {
+          const auto worker_id = i++;
+          auto &worker_last_task = last_task[worker_id];
+          auto update = utils::OnScopeExit{[&]() mutable { worker_last_task = worker->last_task_; }};
+          if (worker_last_task == worker->last_task_ && worker->working_ && worker->has_pending_work_) {
+            // worker stuck on a task; move task to a different queue
+            auto l = std::unique_lock{worker->mtx_, std::defer_lock};
+            if (!l.try_lock()) continue;  // Thread is busy...
+            // Recheck under lock
+            if (worker->work_.empty() || worker_last_task != worker->last_task_) continue;
+            // Update flag as soon as possible
+            worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
+            Worker::Work work{worker->work_.top().id, std::move(worker->work_.top().work)};
+            worker->work_.pop();
+            l.unlock();
 
-        auto tid = hot_threads_.GetHotElement();
-        if (!tid) {
-          // No hot LP threads available; schedule HP work to HP thread
-          if (work.id > kMinHighPriorityId) {
-            static size_t last_hp_thread = 0;
-            auto &hp_worker = hp_workers_[hp_workers_num > 1 ? last_hp_thread++ % hp_workers_num : 0];
-            if (!hp_worker->has_pending_work_) {
-              hp_worker->push(std::move(work.work), work.id);
-              continue;
+            auto tid = hot_threads_.GetHotElement();
+            if (!tid) {
+              // No hot LP threads available; schedule HP work to HP thread
+              if (work.id > kMinHighPriorityId) {
+                static size_t last_hp_thread = 0;
+                auto &hp_worker = hp_workers_[hp_workers_num > 1 ? last_hp_thread++ % hp_workers_num : 0];
+                if (!hp_worker->has_pending_work_) {
+                  hp_worker->push(std::move(work.work), work.id);
+                  continue;
+                }
+              }
+              // No hot thread and low priority work, schedule to the next lp worker
+              tid = (worker_id + 1) % workers_num;
             }
+            workers_[*tid]->push(std::move(work.work), work.id);
           }
-          // No hot thread and low priority work, schedule to the next lp worker
-          tid = (worker_id + 1) % workers_num;
         }
-        workers_[*tid]->push(std::move(work.work), work.id);
-      }
-    }
-  });
+      },
+      SchedulerPriority::LOW);
 }
 
 PriorityThreadPool::~PriorityThreadPool() {

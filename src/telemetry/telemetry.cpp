@@ -64,18 +64,19 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
     return utils::DetectRuntimeEnv() == utils::RuntimeEnv::KUBERNETES ? "kubernetes" : "else";
   });
 
-  scheduler_.Pause();  // Don't run until all collects have been added
-  scheduler_.SetInterval(
-      std::min(kFirstShotAfter, refresh_interval));  // use user-defined interval if shorter than first shot
-  scheduler_.Run("Telemetry", [this, final_interval = refresh_interval,
-                               update_interval = kFirstShotAfter < refresh_interval]() mutable {
-    CollectData();
-    // First run after 60s; all subsequent runs at the user-defined interval
-    if (update_interval) {
-      update_interval = false;
-      scheduler_.SetInterval(final_interval);
-    }
-  });
+  // Register paused task - don't run until all collectors have been added (Start() called)
+  auto initial_interval = std::min(kFirstShotAfter, refresh_interval);
+  scheduler_ = utils::ConsolidatedScheduler::Global().Register(
+      utils::TaskConfig{"Telemetry", utils::ScheduleSpec::Interval(initial_interval), utils::SchedulerPriority::LOW},
+      [this, final_interval = refresh_interval, update_interval = kFirstShotAfter < refresh_interval]() mutable {
+        CollectData();
+        // First run after 60s; all subsequent runs at the user-defined interval
+        if (update_interval) {
+          update_interval = false;
+          scheduler_.SetSchedule(utils::ScheduleSpec::Interval(final_interval));
+        }
+      });
+  scheduler_.Pause();  // Don't run until all collectors have been added
 }
 
 void Telemetry::Start() { scheduler_.Resume(); }

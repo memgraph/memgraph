@@ -17,7 +17,7 @@
 #include <nlohmann/json_fwd.hpp>
 #include "dbms/dbms_handler.hpp"
 #include "kvstore/kvstore.hpp"
-#include "utils/scheduler.hpp"
+#include "utils/consolidated_scheduler.hpp"
 #include "utils/timer.hpp"
 
 namespace memgraph::telemetry {
@@ -82,7 +82,7 @@ class Telemetry final {
   const std::string machine_id_;
   const bool ssl_;
   uint64_t num_{0};
-  utils::Scheduler scheduler_;
+  utils::TaskHandle scheduler_;
   utils::Timer timer_;
 
   const uint64_t send_every_n_;
