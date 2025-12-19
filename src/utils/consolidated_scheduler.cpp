@@ -28,11 +28,18 @@ namespace memgraph::utils {
 /// Internal state for a scheduled task
 struct TaskState {
   std::string name;
-  ScheduleSpec schedule;
   SchedulerPriority priority;
   std::function<void()> callback;
 
-  std::chrono::steady_clock::time_point next_execution;
+  // Atomic state - all scheduling state packed into atomics for lock-free access
+  // next_execution stored as nanoseconds since epoch
+  std::atomic<int64_t> next_execution_ns{0};
+  // interval stored as milliseconds
+  std::atomic<int64_t> interval_ms{0};
+  // one_shot flag
+  std::atomic<bool> one_shot{false};
+
+  // Control flags
   std::atomic<bool> paused{false};
   std::atomic<bool> running{false};
   std::atomic<bool> stopped{false};
@@ -63,10 +70,48 @@ struct TaskState {
     running.store(false, std::memory_order_release);
   }
 
+  /// Thread-safe getter for next_execution
+  std::chrono::steady_clock::time_point GetNextExecution() const {
+    auto ns = next_execution_ns.load(std::memory_order_acquire);
+    return std::chrono::steady_clock::time_point{std::chrono::nanoseconds{ns}};
+  }
+
+  /// Thread-safe setter for next_execution
+  void SetNextExecution(std::chrono::steady_clock::time_point tp) {
+    next_execution_ns.store(tp.time_since_epoch().count(), std::memory_order_release);
+  }
+
+  /// Thread-safe getter for interval
+  std::chrono::milliseconds GetInterval() const {
+    return std::chrono::milliseconds{interval_ms.load(std::memory_order_acquire)};
+  }
+
+  /// Thread-safe getter for one_shot
+  bool IsOneShot() const { return one_shot.load(std::memory_order_acquire); }
+
+  /// Thread-safe update of schedule and next_execution together
+  void UpdateSchedule(const ScheduleSpec &new_schedule) {
+    // Store interval and one_shot first, then next_execution
+    // This order ensures readers see consistent state
+    interval_ms.store(new_schedule.interval.count(), std::memory_order_release);
+    one_shot.store(new_schedule.one_shot, std::memory_order_release);
+    auto now = std::chrono::steady_clock::now();
+    next_execution_ns.store((now + new_schedule.interval).time_since_epoch().count(), std::memory_order_release);
+  }
+
+  /// Initialize schedule (called during registration, single-threaded)
+  void InitSchedule(const ScheduleSpec &schedule, std::chrono::steady_clock::time_point next) {
+    interval_ms.store(schedule.interval.count(), std::memory_order_relaxed);
+    one_shot.store(schedule.one_shot, std::memory_order_relaxed);
+    next_execution_ns.store(next.time_since_epoch().count(), std::memory_order_relaxed);
+  }
+
   /// Comparison for priority queue (min-heap: earliest time, then highest priority)
   bool operator>(const TaskState &other) const {
-    if (next_execution != other.next_execution) {
-      return next_execution > other.next_execution;
+    auto this_next = GetNextExecution();
+    auto other_next = other.GetNextExecution();
+    if (this_next != other_next) {
+      return this_next > other_next;
     }
     // Lower priority enum = higher priority
     return static_cast<uint8_t>(priority) > static_cast<uint8_t>(other.priority);
@@ -189,8 +234,7 @@ void TaskHandle::TriggerNow() {
 
 void TaskHandle::SetSchedule(const ScheduleSpec &new_schedule) {
   if (auto state = state_.lock()) {
-    state->schedule = new_schedule;
-    state->next_execution = std::chrono::steady_clock::now() + new_schedule.interval;
+    state->UpdateSchedule(new_schedule);
     state->WakeDispatcher();
   }
 }
@@ -200,7 +244,7 @@ std::optional<std::chrono::steady_clock::time_point> TaskHandle::NextExecution()
   if (!state || state->stopped.load(std::memory_order_acquire) || state->paused.load(std::memory_order_acquire)) {
     return std::nullopt;
   }
-  return state->next_execution;
+  return state->GetNextExecution();
 }
 
 // ConsolidatedScheduler implementation
@@ -234,9 +278,13 @@ TaskHandle ConsolidatedScheduler::Register(TaskConfig config, std::function<void
 
   auto task = std::make_shared<TaskState>();
   task->name = std::move(config.name);
-  task->schedule = config.schedule;
   task->priority = config.priority;
   task->callback = std::move(callback);
+
+  // Initialize schedule (single-threaded at this point)
+  auto now = std::chrono::steady_clock::now();
+  auto next_exec = config.schedule.execute_immediately ? now : (now + config.schedule.interval);
+  task->InitSchedule(config.schedule, next_exec);
 
   // Set up wake function
   task->wake_dispatcher = [this]() { WakeDispatcher(); };
@@ -250,14 +298,14 @@ TaskHandle ConsolidatedScheduler::Register(TaskConfig config, std::function<void
       }
 
       // One-shot tasks stop after single execution
-      if (t->schedule.one_shot) {
+      if (t->IsOneShot()) {
         t->stopped.store(true, std::memory_order_release);
         return;
       }
 
       // Reschedule periodic task
-      auto now = std::chrono::steady_clock::now();
-      t->next_execution = now + t->schedule.interval;
+      auto reschedule_now = std::chrono::steady_clock::now();
+      t->SetNextExecution(reschedule_now + t->GetInterval());
       {
         std::lock_guard lock(impl_->mutex_);
         impl_->task_queue_.push(t);
@@ -265,13 +313,6 @@ TaskHandle ConsolidatedScheduler::Register(TaskConfig config, std::function<void
       WakeDispatcher();
     }
   };
-
-  auto now = std::chrono::steady_clock::now();
-  if (config.schedule.execute_immediately) {
-    task->next_execution = now;
-  } else {
-    task->next_execution = now + config.schedule.interval;
-  }
 
   {
     std::lock_guard lock(impl_->mutex_);
@@ -310,13 +351,21 @@ void ConsolidatedScheduler::Shutdown() {
   }
   impl_->workers_.clear();
 
-  // Clear all tasks
+  // Clear all tasks (all threads joined, safe to access without lock but use it for clarity)
   {
     std::lock_guard lock(impl_->mutex_);
     while (!impl_->task_queue_.empty()) {
       impl_->task_queue_.pop();
     }
     impl_->all_tasks_.clear();
+  }
+
+  // Clear work queue (all workers joined, safe to access)
+  {
+    std::lock_guard lock(impl_->work_mutex_);
+    while (!impl_->work_queue_.empty()) {
+      impl_->work_queue_.pop();
+    }
   }
 }
 
@@ -372,17 +421,18 @@ void ConsolidatedScheduler::DispatcherLoop() {
           continue;
         }
 
-        if (top->trigger_now.load(std::memory_order_acquire) || top->next_execution <= now) {
+        auto task_next = top->GetNextExecution();
+        if (top->trigger_now.load(std::memory_order_acquire) || task_next <= now) {
           // Advance next_execution to prevent re-dispatch before execution starts
           // (task stays in all_tasks_ but won't be "due" when queue is rebuilt)
-          top->next_execution = now + top->schedule.interval;
+          top->SetNextExecution(now + top->GetInterval());
           tasks_to_dispatch.push_back(top);
           impl_->task_queue_.pop();
           continue;  // Keep looking for more due tasks
         }
 
         // This task is not due yet - it defines the next deadline
-        next_deadline = top->next_execution;
+        next_deadline = task_next;
         break;
       }
     }
