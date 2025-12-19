@@ -75,10 +75,15 @@ class PostProcessor final {
            [&](auto p) { return RewriteWithIndexLookup(std::move(p), symbol_table, ast, db, index_hints_); } |
            [&](auto p) { return RewriteWithJoinRewriter(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db); } |
-           [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); } | [&](auto p) {
+           [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); }
+#ifdef MG_ENTERPRISE
+           |
+           [&](auto p) {
              return RewriteParallelExecution(std::move(p), symbol_table, ast, db, context->query->pre_query_directives_,
                                              parameters_);
-           };
+           }
+#endif
+    ;
   }
 
   bool IsValidPlan(const std::unique_ptr<LogicalOperator> &plan, const SymbolTable &table) {

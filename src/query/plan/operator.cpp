@@ -5941,11 +5941,15 @@ void DefaultAggregation(ExecutionContext &context, const std::vector<Aggregate::
 inline size_t align_forward(size_t ptr, size_t alignment) { return (ptr + (alignment - 1)) & ~(alignment - 1); }
 }  // namespace
 
+#ifdef MG_ENTERPRISE
 class AggregateParallelCursor;
+#endif
 
 class AggregateCursor : public Cursor {
  public:
+#ifdef MG_ENTERPRISE
   friend class AggregateParallelCursor;
+#endif
   AggregateCursor(const Aggregate &self, utils::MemoryResource *mem)
       : self_(self),
         input_cursor_(self_.input_->MakeCursor(mem)),
@@ -6896,6 +6900,7 @@ class DistinctCursor : public Cursor {
       seen_rows_;
 };
 
+#ifdef MG_ENTERPRISE
 class DistinctParallelCursor : public Cursor {
  public:
   static constexpr size_t kLocalCacheBatchSize = 8;
@@ -7023,6 +7028,7 @@ class DistinctParallelCursor : public Cursor {
   size_t unique_count_{0};
   bool pulled_all_{false};
 };
+#endif
 
 Distinct::Distinct(const std::shared_ptr<LogicalOperator> &input, const std::vector<Symbol> &value_symbols)
     : input_(input ? input : std::make_shared<Once>()), value_symbols_(value_symbols) {}
@@ -7036,13 +7042,20 @@ UniqueCursorPtr Distinct::MakeCursor(utils::MemoryResource *mem) const {
     // Single-threaded mode
     return MakeUniqueCursorPtr<DistinctCursor>(mem, *this, mem);
   }
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryRuntimeException("DistinctParallel is not supported in the community edition");
+  }
   // Check if we're in a parallel execution context
   auto shared_state = plan_creation_helper_.GetSharedDistinctState(this, mem);
   if (shared_state) {
     // Parallel mode: use shared state for global deduplication
     return MakeUniqueCursorPtr<DistinctParallelCursor>(mem, *this, mem, std::move(shared_state));
   }
-  throw std::runtime_error("Failed to create distinct cursor");
+  throw QueryRuntimeException("Failed to create distinct cursor");
+#else
+  throw QueryRuntimeException("DistinctParallel is not supported in the community edition");
+#endif
 }
 
 std::vector<Symbol> Distinct::OutputSymbols(const SymbolTable &symbol_table) const {
@@ -9829,6 +9842,7 @@ class ParallelMergeCursor : public Cursor {
   bool scheduled_{false};
 };
 
+#ifdef MG_ENTERPRISE
 /**
  * Generic base class for parallel branch execution.
  * Handles creating multiple cursors, executing them in parallel, and unifying context fields.
@@ -10414,6 +10428,7 @@ class AggregateParallelCursor : public ParallelBranchCursor {
   decltype(AggregateCursor::aggregation_.begin()) aggregation_it_;
   const AggregateParallel &self_;
 };
+#endif
 
 AggregateParallel::AggregateParallel(const std::shared_ptr<LogicalOperator> &agg_inputs, size_t num_threads)
     : input_(agg_inputs), num_threads_(num_threads) {
@@ -10423,8 +10438,14 @@ AggregateParallel::AggregateParallel(const std::shared_ptr<LogicalOperator> &agg
 
 UniqueCursorPtr AggregateParallel::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::AggregateOperator);
-
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryRuntimeException("AggregateParallel is not supported in the community edition");
+  }
   return MakeUniqueCursorPtr<AggregateParallelCursor>(mem, *this, mem);
+#else
+  throw QueryRuntimeException("AggregateParallel is not supported in the community edition");
+#endif
 }
 
 std::vector<Symbol> AggregateParallel::ModifiedSymbols(const SymbolTable &table) const {
@@ -10436,6 +10457,7 @@ std::vector<Symbol> AggregateParallel::ModifiedSymbols(const SymbolTable &table)
 
 ACCEPT_WITH_INPUT(AggregateParallel);
 
+#ifdef MG_ENTERPRISE
 class OrderByParallelCursor : public ParallelBranchCursor {
  public:
   OrderByParallelCursor(const OrderByParallel &self, utils::MemoryResource *mem)
@@ -10520,6 +10542,7 @@ class OrderByParallelCursor : public ParallelBranchCursor {
       branch_iters_;
   const OrderByParallel &self_;
 };
+#endif
 
 OrderByParallel::OrderByParallel(const std::shared_ptr<LogicalOperator> &orderby_input, size_t num_threads)
     : input_(orderby_input), num_threads_(num_threads) {
@@ -10529,8 +10552,14 @@ OrderByParallel::OrderByParallel(const std::shared_ptr<LogicalOperator> &orderby
 
 UniqueCursorPtr OrderByParallel::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::OrderByOperator);
-
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryRuntimeException("OrderByParallel is not supported in the community edition");
+  }
   return MakeUniqueCursorPtr<OrderByParallelCursor>(mem, *this, mem);
+#else
+  throw QueryRuntimeException("OrderByParallel is not supported in the community edition");
+#endif
 }
 
 std::vector<Symbol> OrderByParallel::ModifiedSymbols(const SymbolTable &table) const {

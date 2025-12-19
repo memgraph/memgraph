@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include "license/license.hpp"
+#ifdef MG_ENTERPRISE
+
 #include <algorithm>
 #include <memory>
 #include <set>
@@ -970,6 +973,9 @@ std::unique_ptr<LogicalOperator> RewriteParallelExecution(
     std::unique_ptr<LogicalOperator> root_op, SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db,
     const memgraph::query::PreQueryDirectives &pre_query_directives, const Parameters &parameters) {
   if (pre_query_directives.parallel_execution_) {
+    if (!license::global_license_checker.IsEnterpriseValidFast()) {
+      throw QueryException("Parallel execution is not supported in the community edition");
+    }
     auto get_num_threads = [&]() -> size_t {
       if (auto *num_threads = pre_query_directives.num_threads_) {
         // Create a minimal evaluation context to evaluate the expression
@@ -998,3 +1004,5 @@ std::unique_ptr<LogicalOperator> RewriteParallelExecution(
 }
 
 }  // namespace memgraph::query::plan
+
+#endif
