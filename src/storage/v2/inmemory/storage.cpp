@@ -145,16 +145,26 @@ auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from
 
 class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::utils::SchedulerInterval> {
  public:
-  explicit PeriodicSnapshotObserver(memgraph::utils::Scheduler &scheduler) : scheduler_{&scheduler} {}
+  explicit PeriodicSnapshotObserver(memgraph::utils::TaskHandle &handle) : handle_{&handle} {}
 
-  // String HAS to be a valid cron expr
+  // Update the snapshot schedule (supports simple intervals only, not cron)
   void Update(const memgraph::utils::SchedulerInterval &in) override {
-    scheduler_->SetInterval(in);
-    scheduler_->SpinOnce();
+    in.Execute(utils::Overloaded{[this](std::chrono::milliseconds period,
+                                        std::optional<std::chrono::system_clock::time_point> /* start_time */) {
+                                   if (handle_->IsValid()) {
+                                     handle_->SetSchedule(utils::ScheduleSpec::Interval(period));
+                                     handle_->TriggerNow();
+                                   }
+                                 },
+                                 [](std::string_view cron) {
+                                   // Cron expressions not supported in ConsolidatedScheduler
+                                   spdlog::warn("Cron expressions not supported for snapshot scheduler, ignoring: {}",
+                                                cron);
+                                 }});
   }
 
  private:
-  memgraph::utils::Scheduler *scheduler_;
+  memgraph::utils::TaskHandle *handle_;
 };
 
 };  // namespace
@@ -168,7 +178,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
-      snapshot_periodic_observer_(std::make_shared<PeriodicSnapshotObserver>(snapshot_runner_)),
+      snapshot_periodic_observer_(nullptr),  // Created after snapshot_handle_ is registered
       global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
@@ -326,7 +336,7 @@ InMemoryStorage::~InMemoryStorage() {
     wal_file_->FinalizeWal();
     wal_file_.reset();
   }
-  snapshot_runner_.Stop();
+  snapshot_handle_.Stop();
   if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
     create_snapshot_handler();
   }
@@ -2136,11 +2146,11 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
     if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       // Ensure all pending work has been completed before changing to IN_MEMORY_ANALYTICAL
       async_indexer_.CompleteRemaining();
-      snapshot_runner_.Pause();
+      snapshot_handle_.Pause();
     } else {
       // No need to resume async indexer, it is always running.
       // As IN_MEMORY_TRANSACTIONAL we will now start giving it new work
-      snapshot_runner_.Resume();
+      snapshot_handle_.Resume();
     }
     storage_mode_ = new_storage_mode;
     FreeMemory(std::move(main_guard), false);
@@ -2575,7 +2585,8 @@ StorageInfo InMemoryStorage::GetInfo() {
   }
   info.storage_mode = storage_mode_;
   info.isolation_level = isolation_level_;
-  info.durability_snapshot_enabled = snapshot_runner_.NextExecution() || config_.durability.snapshot_on_exit;
+  info.durability_snapshot_enabled =
+      snapshot_handle_.NextExecution().has_value() || config_.durability.snapshot_on_exit;
   info.durability_wal_enabled =
       config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
   info.property_store_compression_enabled = config_.salient.items.property_store_compression_enabled;
@@ -3226,8 +3237,8 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
 
 std::optional<SnapshotFileInfo> InMemoryStorage::ShowNextSnapshot() {
   auto lock = std::unique_lock{snapshot_lock_};
-  auto next = snapshot_runner_.NextExecution();
-  if (next) {
+  auto next = snapshot_handle_.NextExecution();
+  if (next.has_value()) {
     return SnapshotFileInfo{.path = recovery_.snapshot_directory_,
                             .durable_timestamp = 0,
                             .creation_time = utils::LocalDateTime{*next},
@@ -3353,16 +3364,34 @@ void InMemoryStorage::CreateSnapshotHandler(
     }
   };
 
-  // Start the snapshot thread in any case, paused if in analytical mode
-  if (config_.salient.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-    snapshot_runner_.Pause();
+  // Register snapshot task with ConsolidatedScheduler
+  // Extract interval from SchedulerInterval (cron expressions not supported)
+  auto snapshot_interval_ms = std::chrono::milliseconds{0};
+  config_.durability.snapshot_interval.Execute(utils::Overloaded{
+      [&snapshot_interval_ms](std::chrono::milliseconds period,
+                              std::optional<std::chrono::system_clock::time_point> /* start_time */) {
+        snapshot_interval_ms = period;
+      },
+      [](std::string_view cron) { spdlog::warn("Cron expressions not supported for snapshot scheduler: {}", cron); }});
+
+  if (snapshot_interval_ms.count() > 0) {
+    snapshot_handle_ = utils::ConsolidatedScheduler::Global().Register(
+        "Snapshot", snapshot_interval_ms,
+        [this, token = stop_source.get_token()]() {
+          if (!token.stop_requested()) {
+            this->create_snapshot_handler();
+          }
+        },
+        utils::SchedulerPriority::HIGH);
   }
-  snapshot_runner_.SetInterval(config_.durability.snapshot_interval);
-  snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
-    if (!token.stop_requested()) {
-      this->create_snapshot_handler();
-    }
-  });
+
+  // Create the observer now that snapshot_handle_ is valid
+  snapshot_periodic_observer_ = std::make_shared<PeriodicSnapshotObserver>(snapshot_handle_);
+
+  // Pause if in analytical mode
+  if (config_.salient.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+    snapshot_handle_.Pause();
+  }
 }
 
 EdgeInfo ExtractEdgeInfo(Vertex *from_vertex, const Edge *edge_ptr) {

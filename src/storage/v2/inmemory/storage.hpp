@@ -770,7 +770,7 @@ class InMemoryStorage final : public Storage {
   std::filesystem::path lock_file_path_;
   std::unique_ptr<utils::OutputFile> lock_file_handle_ = std::make_unique<utils::OutputFile>();
 
-  utils::Scheduler snapshot_runner_;
+  utils::TaskHandle snapshot_handle_;
   utils::ResourceLock snapshot_lock_;
   std::atomic_bool snapshot_running_{false};
   std::atomic_bool abort_snapshot_{false};

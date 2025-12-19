@@ -33,6 +33,21 @@ enum class SchedulerPriority : uint8_t {
   LOW = 3,       ///< Monitoring, statistics
 };
 
+/// Policy for how a pool handles work when all workers are busy
+enum class PoolPolicy {
+  FIXED,   ///< Fixed worker count, tasks queue up and wait
+  GROW,    ///< Grow workers as needed up to max_workers
+  INLINE,  ///< Execute on dispatcher thread if no workers available (for critical tasks)
+};
+
+/// Configuration for a worker pool
+struct PoolConfig {
+  std::string name;                      ///< Pool name (e.g., "critical", "general", "io")
+  size_t min_workers{1};                 ///< Minimum workers (always running)
+  size_t max_workers{1};                 ///< Maximum workers (for GROW policy)
+  PoolPolicy policy{PoolPolicy::FIXED};  ///< How to handle backpressure
+};
+
 /// Specification for when a task should run
 struct ScheduleSpec {
   std::chrono::milliseconds interval{0};  ///< Fixed interval scheduling
@@ -62,7 +77,8 @@ struct ScheduleSpec {
 struct TaskConfig {
   std::string name;                                       ///< Human-readable task name (for logging)
   ScheduleSpec schedule;                                  ///< When to run
-  SchedulerPriority priority{SchedulerPriority::NORMAL};  ///< Execution priority
+  SchedulerPriority priority{SchedulerPriority::NORMAL};  ///< Execution priority (for ordering within pool)
+  std::string pool{"general"};                            ///< Target pool for execution
 };
 
 /// RAII handle for managing a scheduled task's lifecycle
@@ -116,22 +132,23 @@ class TaskHandle {
 /// Forward declaration
 struct TaskState;
 
-/// Consolidated scheduler that manages multiple tasks with a thread pool
+/// Consolidated scheduler that manages multiple tasks with named worker pools
 /// Uses timerfd on Linux for minimal non-determinism events
-/// Tasks are dispatched by a single thread and executed concurrently by worker threads
+/// Tasks are dispatched by a single thread and executed by pool-specific worker threads
 class ConsolidatedScheduler {
  public:
   using time_point = std::chrono::steady_clock::time_point;
 
-  /// Default number of worker threads
-  static constexpr size_t kDefaultWorkerCount = 4;
+  /// Default pool names
+  static constexpr const char *kCriticalPool = "critical";  ///< For license, replication heartbeats
+  static constexpr const char *kGeneralPool = "general";    ///< Default pool for most tasks
+  static constexpr const char *kIoPool = "io";              ///< For IO-bound tasks (optional)
 
-  /// Get the global scheduler instance
+  /// Get the global scheduler instance (pre-configured with default pools)
   static ConsolidatedScheduler &Global();
 
-  /// Create a scheduler with specified number of worker threads
-  /// @param worker_count Number of worker threads (0 = tasks run inline on dispatcher)
-  explicit ConsolidatedScheduler(size_t worker_count = kDefaultWorkerCount);
+  /// Create a scheduler (call RegisterPool() to add pools before registering tasks)
+  ConsolidatedScheduler();
   ~ConsolidatedScheduler();
 
   ConsolidatedScheduler(const ConsolidatedScheduler &) = delete;
@@ -139,32 +156,41 @@ class ConsolidatedScheduler {
   ConsolidatedScheduler(ConsolidatedScheduler &&) = delete;
   ConsolidatedScheduler &operator=(ConsolidatedScheduler &&) = delete;
 
+  /// Register a worker pool (must be called before registering tasks to that pool)
+  /// @param config Pool configuration
+  void RegisterPool(PoolConfig config);
+
   /// Register a new task with the scheduler
-  /// @param config Task configuration (name, schedule, priority)
+  /// @param config Task configuration (name, schedule, priority, pool)
   /// @param callback Function to call when task is due
   /// @return Handle to control the task. Invalid if schedule is disabled (interval == 0)
   [[nodiscard]] TaskHandle Register(TaskConfig config, std::function<void()> callback);
 
-  /// Convenience overload for simple interval-based tasks
+  /// Convenience overload for simple interval-based tasks (uses "general" pool)
   template <typename Rep, typename Period>
   [[nodiscard]] TaskHandle Register(std::string name, std::chrono::duration<Rep, Period> interval,
                                     std::function<void()> callback,
-                                    SchedulerPriority priority = SchedulerPriority::NORMAL) {
-    return Register(TaskConfig{std::move(name), ScheduleSpec::Interval(interval), priority}, std::move(callback));
+                                    SchedulerPriority priority = SchedulerPriority::NORMAL,
+                                    std::string pool = kGeneralPool) {
+    return Register(TaskConfig{std::move(name), ScheduleSpec::Interval(interval), priority, std::move(pool)},
+                    std::move(callback));
   }
 
   /// Schedule a one-shot task to run after a delay
   template <typename Rep, typename Period>
   [[nodiscard]] TaskHandle ScheduleAfter(std::string name, std::chrono::duration<Rep, Period> delay,
                                          std::function<void()> callback,
-                                         SchedulerPriority priority = SchedulerPriority::NORMAL) {
-    return Register(TaskConfig{std::move(name), ScheduleSpec::After(delay), priority}, std::move(callback));
+                                         SchedulerPriority priority = SchedulerPriority::NORMAL,
+                                         std::string pool = kGeneralPool) {
+    return Register(TaskConfig{std::move(name), ScheduleSpec::After(delay), priority, std::move(pool)},
+                    std::move(callback));
   }
 
   /// Schedule a one-shot task to run as soon as possible
   [[nodiscard]] TaskHandle ScheduleNow(std::string name, std::function<void()> callback,
-                                       SchedulerPriority priority = SchedulerPriority::NORMAL) {
-    return Register(TaskConfig{std::move(name), ScheduleSpec::Once(), priority}, std::move(callback));
+                                       SchedulerPriority priority = SchedulerPriority::NORMAL,
+                                       std::string pool = kGeneralPool) {
+    return Register(TaskConfig{std::move(name), ScheduleSpec::Once(), priority, std::move(pool)}, std::move(callback));
   }
 
   /// Shutdown the scheduler and stop all tasks
@@ -176,13 +202,15 @@ class ConsolidatedScheduler {
   /// Get the number of active tasks
   [[nodiscard]] size_t TaskCount() const;
 
-  /// Get the number of worker threads
+  /// Get the total number of worker threads across all pools
   [[nodiscard]] size_t WorkerCount() const;
+
+  /// Get the number of registered pools
+  [[nodiscard]] size_t PoolCount() const;
 
  private:
   void DispatcherLoop();
-  void WorkerLoop();
-  void RemoveTask(const std::shared_ptr<TaskState> &task);
+  void PoolWorkerLoop(const std::string &pool_name);
   void WakeDispatcher();
 
   class Impl;
