@@ -2,39 +2,39 @@
 //
 //            Grappolo: A C++ library for graph clustering
 //               Mahantesh Halappanavar (hala@pnnl.gov)
-//               Pacific Northwest National Laboratory
+//               Pacific Northwest National Laboratory     
 //
 // ***********************************************************************
 //
 //       Copyright (2014) Battelle Memorial Institute
 //                      All rights reserved.
 //
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions
+// Redistribution and use in source and binary forms, with or without 
+// modification, are permitted provided that the following conditions 
 // are met:
 //
-// 1. Redistributions of source code must retain the above copyright
+// 1. Redistributions of source code must retain the above copyright 
 // notice, this list of conditions and the following disclaimer.
 //
-// 2. Redistributions in binary form must reproduce the above copyright
-// notice, this list of conditions and the following disclaimer in the
+// 2. Redistributions in binary form must reproduce the above copyright 
+// notice, this list of conditions and the following disclaimer in the 
 // documentation and/or other materials provided with the distribution.
 //
-// 3. Neither the name of the copyright holder nor the names of its
-// contributors may be used to endorse or promote products derived from
+// 3. Neither the name of the copyright holder nor the names of its 
+// contributors may be used to endorse or promote products derived from 
 // this software without specific prior written permission.
 //
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
-// FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-// COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-// INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-// BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-// LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-// LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
-// ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS 
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT 
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS 
+// FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE 
+// COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, 
+// INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
+// BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; 
+// LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER 
+// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT 
+// LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN 
+// ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
 // POSSIBILITY OF SUCH DAMAGE.
 //
 // ************************************************************************
@@ -103,7 +103,7 @@ METIS ERROR Indicates some other type of error.
 */
 
 extern "C" {
-#include "metis.h"
+  #include "metis.h"
 }
 
 using namespace std;
@@ -121,71 +121,73 @@ extern "C" {
 }
 #endif
 */
-// METIS Graph Partitioner:
-void MetisGraphPartitioner(graph *G, long *VertexPartitioning, int numParts) {
-  // Get the iterators for the graph:
-  long NV = G->numVertices;
-  long NE = G->numEdges;
-  long *vtxPtr = G->edgeListPtrs;
-  edge *vtxInd = G->edgeList;
+//METIS Graph Partitioner:
+void MetisGraphPartitioner( graph *G, long *VertexPartitioning, int numParts ) {
 
-  idx_t nvtxs = (idx_t)NV;
-  idx_t *xadj = (idx_t *)malloc((NV + 1) * sizeof(idx_t));
+  
+  //Get the iterators for the graph:
+  long   NV        = G->numVertices;  
+  long   NE        = G->numEdges;
+  long   *vtxPtr   = G->edgeListPtrs;
+  edge   *vtxInd   = G->edgeList;  
+
+  idx_t nvtxs = (idx_t) NV;
+  idx_t *xadj = (idx_t *) malloc ((NV+1) * sizeof(idx_t));
   assert(xadj != 0);
 #pragma omp parallel for
-  for (long i = 0; i <= NV; i++) {
-    xadj[i] = (idx_t)vtxPtr[i];
+  for(long i=0; i<=NV; i++) {
+     xadj[i] = (idx_t) vtxPtr[i]; 
   }
 
-  idx_t *adjncy = (idx_t *)malloc(2 * NE * sizeof(idx_t));
+  idx_t *adjncy = (idx_t *) malloc (2*NE * sizeof(idx_t));
   assert(adjncy != 0);
 #pragma omp parallel for
-  for (long i = 0; i < 2 * NE; i++) {
-    adjncy[i] = (idx_t)vtxInd[i].tail;
+  for(long i=0; i<2*NE; i++) {
+     adjncy[i] = (idx_t) vtxInd[i].tail; 
   }
 
-  idx_t *adjwgt = (idx_t *)malloc(2 * NE * sizeof(idx_t));
+  idx_t *adjwgt = (idx_t *) malloc (2*NE * sizeof(idx_t));
   assert(adjwgt != 0);
 #pragma omp parallel for
-  for (long i = 0; i < 2 * NE; i++) {
-    adjwgt[i] = (idx_t)vtxInd[i].weight;
+  for(long i=0; i<2*NE; i++) {
+     adjwgt[i] = (idx_t) vtxInd[i].weight; 
   }
-
-  idx_t nparts = (idx_t)numParts;
-  real_t ubvec = 1.03;
-
+ 
+  idx_t nparts = (idx_t) numParts;
+  real_t ubvec = 1.03; 
+ 
   idx_t options[METIS_NOPTIONS];
   METIS_SetDefaultOptions(options);
 
-  options[METIS_OPTION_OBJTYPE] = METIS_OBJTYPE_CUT;  // Edgecut minimization
-  options[METIS_OPTION_CTYPE] = METIS_CTYPE_SHEM;     // Sorted heavy-edge matching
-  options[METIS_OPTION_NUMBERING] = 0;                // C-style numbering, starting from 0
-  // options[METIS_OPTION_NO2HOP]= 0; //Performs a 2-hop matching -- effective for power-law graphs
-  options[METIS_OPTION_NSEPS] = 10;  // Number of iterations for refinement
-  // options[METIS_OPTION_UFACTOR] = 30;
+  options[METIS_OPTION_OBJTYPE] = METIS_OBJTYPE_CUT; //Edgecut minimization
+  options[METIS_OPTION_CTYPE] = METIS_CTYPE_SHEM; //Sorted heavy-edge matching
+  options[METIS_OPTION_NUMBERING]= 0; //C-style numbering, starting from 0
+  //options[METIS_OPTION_NO2HOP]= 0; //Performs a 2-hop matching -- effective for power-law graphs 
+  options[METIS_OPTION_NSEPS]= 10; //Number of iterations for refinement
+  //options[METIS_OPTION_UFACTOR] = 30;
+  
+  idx_t ncon = 1; //Number of balancing constraints (at least 1)
+  idx_t objval = 0; //Will contain the edgecut (or total communication)
 
-  idx_t ncon = 1;    // Number of balancing constraints (at least 1)
-  idx_t objval = 0;  // Will contain the edgecut (or total communication)
-
-  idx_t *part = (idx_t *)malloc(NV * sizeof(idx_t));  // Partition information
+  idx_t *part = (idx_t *) malloc (NV * sizeof(idx_t)); //Partition information
   assert(part != 0);
 
-  int returnVal =
-      METIS_PartGraphKway(&nvtxs, &ncon, xadj, adjncy, NULL, NULL, adjwgt, &nparts, NULL, NULL, options, &objval, part);
+  int returnVal = METIS_PartGraphKway(&nvtxs, &ncon, xadj, adjncy, NULL, NULL, adjwgt, 
+		                      &nparts, NULL, NULL, options, &objval, part);
 
-  if (returnVal == METIS_OK) else {
-      if (returnVal == METIS_ERROR_MEMORY) else
-    }
-
-#pragma omp parallel for
-  for (long i = 0; i <= NV; i++) {
-    VertexPartitioning[i] = (long)part[i];  // Do explicit typecasts
+  if(returnVal == METIS_OK)
+  else {
+     if(returnVal == METIS_ERROR_MEMORY)
+     else 
   }
 
-  // Cleanup:
-  free(xadj);
-  free(adjncy);
-  free(adjwgt);
+#pragma omp parallel for
+  for(long i=0; i<=NV; i++) {
+     VertexPartitioning[i] = (long) part[i]; //Do explicit typecasts
+  }
+  
+  //Cleanup:
+  free(xadj); free(adjncy); free(adjwgt);
   free(part);
 }
 

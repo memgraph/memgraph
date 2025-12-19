@@ -46,44 +46,45 @@
 
 using namespace std;
 
-void sumVertexDegree(edge *vtxInd, long *vtxPtr, double *vDegree, long NV, Comm *cInfo);
+void sumVertexDegree(edge* vtxInd, long* vtxPtr, double* vDegree, long NV, Comm* cInfo);
 
-double calConstantForSecondTerm(double *vDegree, long NV);
+double calConstantForSecondTerm(double* vDegree, long NV);
 
-void initCommAss(long *pastCommAss, long *currCommAss, long NV);
+void initCommAss(long* pastCommAss, long* currCommAss, long NV);
 
-void initCommAssOpt(long *pastCommAss, long *currCommAss, long NV, mapElement *clusterLocalMap, long *vtxPtr,
-                    edge *vtxInd, Comm *cInfo, double constant, double *vDegree);
+void initCommAssOpt(long* pastCommAss, long* currCommAss, long NV,
+		    mapElement* clusterLocalMap, long* vtxPtr, edge* vtxInd,
+		    Comm* cInfo, double constant, double* vDegree);
 
-double buildLocalMapCounter(long adj1, long adj2, map<long, long> &clusterLocalMap, vector<double> &Counter,
-                            edge *vtxInd, long *currCommAss, long me);
+double buildLocalMapCounter(long adj1, long adj2, map<long, long> &clusterLocalMap,
+						  vector<double> &Counter, edge* vtxInd, long* currCommAss, long me);
 
-double buildLocalMapCounterNoMap(long v, mapElement *clusterLocalMap, long *vtxPtr, edge *vtxInd, long *currCommAss,
-                                 long &numUniqueClusters);
+double buildLocalMapCounterNoMap(long v, mapElement* clusterLocalMap, long* vtxPtr, edge* vtxInd,
+                               long* currCommAss, long &numUniqueClusters);
 
-long max(map<long, long> &clusterLocalMap, vector<double> &Counter, double selfLoop, Comm *cInfo, double degree,
-         long sc, double constant);
+long max(map<long, long> &clusterLocalMap, vector<double> &Counter,
+		 double selfLoop, Comm* cInfo, double degree, long sc, double constant ) ;
 
-long maxNoMap(long v, mapElement *clusterLocalMap, long *vtxPtr, double selfLoop, Comm *cInfo, double degree, long sc,
-              double constant, long numUniqueClusters);
+long maxNoMap(long v, mapElement* clusterLocalMap, long* vtxPtr, double selfLoop, Comm* cInfo, double degree,
+              long sc, double constant, long numUniqueClusters );
 
-void computeCommunityComparisons(vector<long> &C1, long N1, vector<long> &C2, long N2);
+void computeCommunityComparisons(vector<long>& C1, long N1, vector<long>& C2, long N2);
 
 double computeGiniCoefficient(long *colorSize, int numColors);
-double computeMerkinMetric(long *C1, long N1, long *C2, long N2);
-double computeVanDongenMetric(long *C1, long N1, long *C2, long N2);
+double computeMerkinMetric(long* C1, long N1, long* C2, long N2);
+double computeVanDongenMetric(long* C1, long N1, long* C2, long N2);
 
-// Sorting functions:
-void merge(long *arr, long l, long m, long r);
-void mergeSort(long *arr, long l, long r);
+//Sorting functions:
+void merge(long* arr, long l, long m, long r);
+void mergeSort(long* arr, long l, long r);
 void SortNeighborListUsingInsertionAndMergeSort(graph *G);
 long removeEdges(long NV, long NE, edge *edgeList);
 void SortEdgesUndirected(long NV, long NE, edge *list1, edge *list2, long *ptrs);
 void SortNodeEdgesByIndex(long NV, edge *list1, edge *list2, long *ptrs);
 
-double *computeEdgeSimilarityMetrics(graph *G);
-graph *buildSparifiedGraph(graph *Gin, double alpha);
+double* computeEdgeSimilarityMetrics(graph *G);
+graph* buildSparifiedGraph(graph *Gin, double alpha);
 
-void buildOld2NewMap(long N, long *C, long *commIndex);  // Build the reordering map
+void buildOld2NewMap(long N, long *C, long *commIndex); //Build the reordering map
 
 #endif

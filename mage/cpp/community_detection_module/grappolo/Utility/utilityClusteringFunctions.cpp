@@ -43,242 +43,254 @@
 
 using namespace std;
 
-void updateAxForOpt(Comm *cInfo, long *currCommAss, double *vDegree, long NV) {
-#pragma omp parallel for
-  for (long i = 0; i < NV; i++) {
-    if (currCommAss[i] != i) {
-      /*    __sync_fetch_and_sub(&(cInfo[i].degree),vDegree[i]);
-            __sync_fetch_and_sub(&(cInfo[i].size),1);
-            __sync_fetch_and_add(&(cInfo[currCommAss[i]].degree),vDegree[i]);
-            __sync_fetch_and_add(&(cInfo[currCommAss[i]].size),1);
-      */
-#pragma omp atomic update
+void updateAxForOpt(Comm* cInfo, long* currCommAss, double* vDegree, long NV)
+{
+  #pragma omp parallel for
+  for(long i = 0; i < NV; i++)
+  {
+    if(currCommAss[i] != i){
+/*    __sync_fetch_and_sub(&(cInfo[i].degree),vDegree[i]);
+      __sync_fetch_and_sub(&(cInfo[i].size),1);
+      __sync_fetch_and_add(&(cInfo[currCommAss[i]].degree),vDegree[i]);
+      __sync_fetch_and_add(&(cInfo[currCommAss[i]].size),1);
+*/
+      #pragma omp atomic update
       cInfo[i].degree -= vDegree[i];
-#pragma omp atomic update
+      #pragma omp atomic update
       cInfo[i].size -= 1;
-#pragma omp atomic update
+      #pragma omp atomic update
       cInfo[currCommAss[i]].degree += vDegree[i];
-#pragma omp atomic update
+      #pragma omp atomic update
       cInfo[currCommAss[i]].size += 1;
-    }
+   }
   }
 }
 
-void sumVertexDegree(edge *vtxInd, long *vtxPtr, double *vDegree, long NV, Comm *cInfo) {
+void sumVertexDegree(edge* vtxInd, long* vtxPtr, double* vDegree, long NV, Comm* cInfo) {
 #ifdef USE_OMP_DYNAMIC
 #pragma omp parallel for schedule(dynamic)
 #else
 #pragma omp parallel for
 #endif
-  for (long i = 0; i < NV; i++) {
-    long adj1 = vtxPtr[i];      // Begin
-    long adj2 = vtxPtr[i + 1];  // End
+  for (long i=0; i<NV; i++) {
+    long adj1 = vtxPtr[i];	    //Begin
+    long adj2 = vtxPtr[i+1];	//End
     double totalWt = 0;
-    for (long j = adj1; j < adj2; j++) {
+    for(long j=adj1; j<adj2; j++) {
       totalWt += vtxInd[j].weight;
     }
-    vDegree[i] = totalWt;       // Degree of each node
-    cInfo[i].degree = totalWt;  // Initialize the community
+    vDegree[i] = totalWt;	//Degree of each node
+    cInfo[i].degree = totalWt;	//Initialize the community
     cInfo[i].size = 1;
   }
-}  // End of sumVertexDegree()
+}//End of sumVertexDegree()
 
-double calConstantForSecondTerm(double *vDegree, long NV) {
+double calConstantForSecondTerm(double* vDegree, long NV) {
   double totalEdgeWeightTwice = 0;
-#pragma omp parallel for reduction(+ : totalEdgeWeightTwice)
-  for (long i = 0; i < NV; i++) {
-    totalEdgeWeightTwice += vDegree[i];
+  #pragma omp parallel for reduction(+:totalEdgeWeightTwice)
+  for (long i=0; i<NV; i++) {
+      totalEdgeWeightTwice += vDegree[i];
   }
-  return (double)1 / totalEdgeWeightTwice;
-}  // End of calConstantForSecondTerm()
+  return (double)1/totalEdgeWeightTwice;
+}//End of calConstantForSecondTerm()
 
-void initCommAss(long *pastCommAss, long *currCommAss, long NV) {
+void initCommAss(long* pastCommAss, long* currCommAss, long NV) {
 #pragma omp parallel for
-  for (long i = 0; i < NV; i++) {
-    pastCommAss[i] = i;  // Initialize each vertex to its cluster
+  for (long i=0; i<NV; i++) {
+    pastCommAss[i] = i; //Initialize each vertex to its cluster
     currCommAss[i] = i;
   }
-}  // End of initCommAss()
+}//End of initCommAss()
 
-// Smart initialization assuming that each vertex is assigned to its own cluster
-// WARNING: Will ignore duplicate edge entries (multi-graph)
-void initCommAssOpt(long *pastCommAss, long *currCommAss, long NV, mapElement *clusterLocalMap, long *vtxPtr,
-                    edge *vtxInd, Comm *cInfo, double constant, double *vDegree) {
+//Smart initialization assuming that each vertex is assigned to its own cluster
+//WARNING: Will ignore duplicate edge entries (multi-graph)
+void initCommAssOpt(long* pastCommAss, long* currCommAss, long NV,
+		    mapElement* clusterLocalMap, long* vtxPtr, edge* vtxInd,
+		    Comm* cInfo, double constant, double* vDegree) {
+
 #pragma omp parallel for
-  for (long v = 0; v < NV; v++) {
-    long adj1 = vtxPtr[v];
-    long adj2 = vtxPtr[v + 1];
-    long sPosition = vtxPtr[v] + v;  // Starting position of local map for v
+  for (long v=0; v<NV; v++) {
+    long adj1  = vtxPtr[v];
+    long adj2  = vtxPtr[v+1];
+    long sPosition = vtxPtr[v]+v; //Starting position of local map for v
 
-    pastCommAss[v] = v;  // Initialize each vertex to its own cluster
-    // currCommAss[v] = v; //Initialize with a self cluster
+    pastCommAss[v] = v; //Initialize each vertex to its own cluster
+    //currCommAss[v] = v; //Initialize with a self cluster
 
-    // Step-1: Build local map counter (without a map):
+    //Step-1: Build local map counter (without a map):
     long numUniqueClusters = 0;
     double selfLoop = 0;
-    clusterLocalMap[sPosition].cid = v;      // Add itself
-    clusterLocalMap[sPosition].Counter = 0;  // Initialize the count
+    clusterLocalMap[sPosition].cid     = v; //Add itself
+    clusterLocalMap[sPosition].Counter = 0; //Initialize the count
     numUniqueClusters++;
-    // Parse through the neighbors
-    for (long j = adj1; j < adj2; j++) {
-      if (vtxInd[j].tail == v) {  // SelfLoop need to be recorded
-        selfLoop += (long)vtxInd[j].weight;
-        clusterLocalMap[sPosition].Counter = vtxInd[j].weight;  // Initialize the count
+    //Parse through the neighbors
+    for(long j=adj1; j<adj2; j++) {
+      if(vtxInd[j].tail == v) {	// SelfLoop need to be recorded
+	      selfLoop += (long)vtxInd[j].weight;
+        clusterLocalMap[sPosition].Counter = vtxInd[j].weight; //Initialize the count
         continue;
       }
-      // Assume each neighbor is assigned to a separate cluster
-      // Assume no duplicates (only way to improve performance at this step)
-      clusterLocalMap[sPosition + numUniqueClusters].cid = vtxInd[j].tail;        // Add the cluster id (initialized to
-                                                                                  // itself)
-      clusterLocalMap[sPosition + numUniqueClusters].Counter = vtxInd[j].weight;  // Initialize the count
+      //Assume each neighbor is assigned to a separate cluster
+      //Assume no duplicates (only way to improve performance at this step)
+      clusterLocalMap[sPosition + numUniqueClusters].cid     = vtxInd[j].tail; //Add the cluster id (initialized to itself)
+      clusterLocalMap[sPosition + numUniqueClusters].Counter = vtxInd[j].weight; //Initialize the count
       numUniqueClusters++;
-    }  // End of for(j)
+    }//End of for(j)
 
-    // Step 2: Find max:
-    long maxIndex = v;  // Assign the initial value as the current community
+    //Step 2: Find max:
+    long maxIndex = v;	//Assign the initial value as the current community
     double curGain = 0;
     double maxGain = 0;
-    double eix = clusterLocalMap[sPosition].Counter - selfLoop;  // NOT SURE ABOUT THIS.
-    double ax = cInfo[v].degree - vDegree[v];
+    double eix = clusterLocalMap[sPosition].Counter - selfLoop; //NOT SURE ABOUT THIS.
+    double ax  = cInfo[v].degree - vDegree[v];
     double eiy = 0;
-    double ay = 0;
-    for (long k = 0; k < numUniqueClusters; k++) {
-      if (v != clusterLocalMap[sPosition + k].cid) {
-        ay = cInfo[clusterLocalMap[sPosition + k].cid].degree;  // degree of cluster y
-        eiy = clusterLocalMap[sPosition + k].Counter;           // Total edges incident on cluster y
-        curGain = 2 * (eiy - eix) - 2 * vDegree[v] * (ay - ax) * constant;
+    double ay  = 0;
+    for(long k=0; k<numUniqueClusters; k++) {
+      if(v != clusterLocalMap[sPosition + k].cid) {
+        ay = cInfo[clusterLocalMap[sPosition + k].cid].degree; // degree of cluster y
+        eiy = clusterLocalMap[sPosition + k].Counter; 	//Total edges incident on cluster y
+        curGain = 2*(eiy - eix) - 2*vDegree[v]*(ay - ax)*constant;
 
-        if ((curGain > maxGain) ||
-            ((curGain == maxGain) && (curGain != 0) && (clusterLocalMap[sPosition + k].cid < maxIndex))) {
-          maxGain = curGain;
+        if( (curGain > maxGain) || ((curGain==maxGain) && (curGain != 0) && (clusterLocalMap[sPosition + k].cid < maxIndex)) ) {
+          maxGain  = curGain;
           maxIndex = clusterLocalMap[sPosition + k].cid;
         }
       }
-    }  // End of for()
+    }//End of for()
 
-    if (cInfo[maxIndex].size == 1 && cInfo[v].size == 1 && maxIndex > v) {  // Swap protection
+    if(cInfo[maxIndex].size == 1 && cInfo[v].size == 1 && maxIndex > v) { //Swap protection
       maxIndex = v;
     }
-    currCommAss[v] = maxIndex;  // Assign the new community
+    currCommAss[v] = maxIndex; //Assign the new community
   }
 
-  updateAxForOpt(cInfo, currCommAss, vDegree, NV);
-}  // End of initCommAssOpt()
+  updateAxForOpt(cInfo,currCommAss,vDegree,NV);
+}//End of initCommAssOpt()
 
-double buildLocalMapCounter(long adj1, long adj2, map<long, long> &clusterLocalMap, vector<double> &Counter,
-                            edge *vtxInd, long *currCommAss, long me) {
+
+double buildLocalMapCounter(long adj1, long adj2, map<long, long> &clusterLocalMap,
+			 vector<double> &Counter, edge* vtxInd, long* currCommAss, long me) {
+
   map<long, long>::iterator storedAlready;
   long numUniqueClusters = 1;
   double selfLoop = 0;
-  for (long j = adj1; j < adj2; j++) {
-    if (vtxInd[j].tail == me) {  // SelfLoop need to be recorded
+  for(long j=adj1; j<adj2; j++) {
+    if(vtxInd[j].tail == me) {	// SelfLoop need to be recorded
       selfLoop += vtxInd[j].weight;
     }
 
-    storedAlready = clusterLocalMap.find(currCommAss[vtxInd[j].tail]);  // Check if it already exists
-    if (storedAlready != clusterLocalMap.end()) {                       // Already exists
-      Counter[storedAlready->second] += vtxInd[j].weight;               // Increment the counter with weight
+    storedAlready = clusterLocalMap.find(currCommAss[vtxInd[j].tail]); //Check if it already exists
+    if( storedAlready != clusterLocalMap.end() ) {	//Already exists
+      Counter[storedAlready->second]+= vtxInd[j].weight; //Increment the counter with weight
     } else {
-      clusterLocalMap[currCommAss[vtxInd[j].tail]] = numUniqueClusters;  // Does not exist, add to the map
-      Counter.push_back(vtxInd[j].weight);                               // Initialize the count
+      clusterLocalMap[currCommAss[vtxInd[j].tail]] = numUniqueClusters; //Does not exist, add to the map
+      Counter.push_back(vtxInd[j].weight); //Initialize the count
       numUniqueClusters++;
     }
-  }  // End of for(j)
+  }//End of for(j)
 
   return selfLoop;
-}  // End of buildLocalMapCounter()
+}//End of buildLocalMapCounter()
 
-// Build the local-map data structure using vectors
-double buildLocalMapCounterNoMap(long v, mapElement *clusterLocalMap, long *vtxPtr, edge *vtxInd, long *currCommAss,
-                                 long &numUniqueClusters) {
-  long adj1 = vtxPtr[v];
-  long adj2 = vtxPtr[v + 1];
-  long sPosition = vtxPtr[v] + v;  // Starting position of local map for v
+//Build the local-map data structure using vectors
+double buildLocalMapCounterNoMap(long v, mapElement* clusterLocalMap, long* vtxPtr, edge* vtxInd,
+                               long* currCommAss, long &numUniqueClusters) {
+    long adj1  = vtxPtr[v];
+    long adj2  = vtxPtr[v+1];
+    long sPosition = vtxPtr[v]+v; //Starting position of local map for v
 
-  long storedAlready = 0;
-  double selfLoop = 0;
-  for (long j = adj1; j < adj2; j++) {
-    if (vtxInd[j].tail == v) {  // SelfLoop need to be recorded
-      selfLoop += vtxInd[j].weight;
+    long storedAlready = 0;
+    double selfLoop = 0;
+    for(long j=adj1; j<adj2; j++) {
+        if(vtxInd[j].tail == v) {	// SelfLoop need to be recorded
+            selfLoop += vtxInd[j].weight;
+        }
+        bool storedAlready = false; //Initialize to zero
+        for(long k=0; k<numUniqueClusters; k++) { //Check if it already exists
+            if(currCommAss[vtxInd[j].tail] ==  clusterLocalMap[sPosition+k].cid) {
+                storedAlready = true;
+                clusterLocalMap[sPosition + k].Counter += vtxInd[j].weight; //Increment the counter with weight
+                break;
+            }
+        }
+        if( storedAlready == false ) {	//Does not exist, add to the map
+            clusterLocalMap[sPosition + numUniqueClusters].cid     = currCommAss[vtxInd[j].tail];
+            clusterLocalMap[sPosition + numUniqueClusters].Counter = vtxInd[j].weight; //Initialize the count
+            numUniqueClusters++;
+        }
+    }//End of for(j)
+    return selfLoop;
+}//End of buildLocalMapCounter()
+
+long max(map<long, long> &clusterLocalMap, vector<double> &Counter,
+         double selfLoop, Comm* cInfo, double degree, long sc, double constant ) {
+
+    map<long, long>::iterator storedAlready;
+    long maxIndex = sc;	//Assign the initial value as self community
+    double curGain = 0;
+    double maxGain = 0;
+    double eix = Counter[0] - selfLoop;
+    double ax = cInfo[sc].degree - degree;
+    double eiy = 0;
+    double ay = 0;
+
+    storedAlready = clusterLocalMap.begin();
+    do {
+        if(sc != storedAlready->first) {
+            ay = cInfo[storedAlready->first].degree; // degree of cluster y
+            eiy = Counter[storedAlready->second]; 	//Total edges incident on cluster y
+            curGain = 2*(eiy - eix) - 2*degree*(ay - ax)*constant;
+
+            if( (curGain > maxGain) ||
+               ((curGain==maxGain) && (curGain != 0) && (storedAlready->first < maxIndex)) ) {
+                maxGain = curGain;
+                maxIndex = storedAlready->first;
+            }
+        }
+        storedAlready++; //Go to the next cluster
+    } while ( storedAlready != clusterLocalMap.end() );
+
+    if(cInfo[maxIndex].size == 1 && cInfo[sc].size ==1 && maxIndex > sc) { //Swap protection
+        maxIndex = sc;
     }
-    bool storedAlready = false;                     // Initialize to zero
-    for (long k = 0; k < numUniqueClusters; k++) {  // Check if it already exists
-      if (currCommAss[vtxInd[j].tail] == clusterLocalMap[sPosition + k].cid) {
-        storedAlready = true;
-        clusterLocalMap[sPosition + k].Counter += vtxInd[j].weight;  // Increment the counter with weight
-        break;
-      }
+
+    return maxIndex;
+}//End max()
+
+
+
+long maxNoMap(long v, mapElement* clusterLocalMap, long* vtxPtr, double selfLoop, Comm* cInfo, double degree,
+              long sc, double constant, long numUniqueClusters ) {
+
+    long maxIndex = sc;	//Assign the initial value as the current community
+    double curGain = 0;
+    double maxGain = 0;
+    long sPosition = vtxPtr[v]+v; //Starting position of local map for v
+    double eix = clusterLocalMap[sPosition].Counter - selfLoop;
+    double ax  = cInfo[sc].degree - degree;
+    double eiy = 0;
+    double ay  = 0;
+
+    for(long k=0; k<numUniqueClusters; k++) {
+        if(sc != clusterLocalMap[sPosition + k].cid) {
+            ay = cInfo[clusterLocalMap[sPosition + k].cid].degree; // degree of cluster y
+            eiy = clusterLocalMap[sPosition + k].Counter; 	//Total edges incident on cluster y
+            curGain = 2*(eiy - eix) - 2*degree*(ay - ax)*constant;
+
+            if( (curGain > maxGain) ||
+               ((curGain==maxGain) && (curGain != 0) && (clusterLocalMap[sPosition + k].cid < maxIndex)) ) {
+                maxGain  = curGain;
+                maxIndex = clusterLocalMap[sPosition + k].cid;
+            }
+        }
+    }//End of for()
+
+    if(cInfo[maxIndex].size == 1 && cInfo[sc].size ==1 && maxIndex > sc) { //Swap protection
+        maxIndex = sc;
     }
-    if (storedAlready == false) {  // Does not exist, add to the map
-      clusterLocalMap[sPosition + numUniqueClusters].cid = currCommAss[vtxInd[j].tail];
-      clusterLocalMap[sPosition + numUniqueClusters].Counter = vtxInd[j].weight;  // Initialize the count
-      numUniqueClusters++;
-    }
-  }  // End of for(j)
-  return selfLoop;
-}  // End of buildLocalMapCounter()
 
-long max(map<long, long> &clusterLocalMap, vector<double> &Counter, double selfLoop, Comm *cInfo, double degree,
-         long sc, double constant) {
-  map<long, long>::iterator storedAlready;
-  long maxIndex = sc;  // Assign the initial value as self community
-  double curGain = 0;
-  double maxGain = 0;
-  double eix = Counter[0] - selfLoop;
-  double ax = cInfo[sc].degree - degree;
-  double eiy = 0;
-  double ay = 0;
+    return maxIndex;
+}//End maxNoMap()
 
-  storedAlready = clusterLocalMap.begin();
-  do {
-    if (sc != storedAlready->first) {
-      ay = cInfo[storedAlready->first].degree;  // degree of cluster y
-      eiy = Counter[storedAlready->second];     // Total edges incident on cluster y
-      curGain = 2 * (eiy - eix) - 2 * degree * (ay - ax) * constant;
 
-      if ((curGain > maxGain) || ((curGain == maxGain) && (curGain != 0) && (storedAlready->first < maxIndex))) {
-        maxGain = curGain;
-        maxIndex = storedAlready->first;
-      }
-    }
-    storedAlready++;  // Go to the next cluster
-  } while (storedAlready != clusterLocalMap.end());
 
-  if (cInfo[maxIndex].size == 1 && cInfo[sc].size == 1 && maxIndex > sc) {  // Swap protection
-    maxIndex = sc;
-  }
-
-  return maxIndex;
-}  // End max()
-
-long maxNoMap(long v, mapElement *clusterLocalMap, long *vtxPtr, double selfLoop, Comm *cInfo, double degree, long sc,
-              double constant, long numUniqueClusters) {
-  long maxIndex = sc;  // Assign the initial value as the current community
-  double curGain = 0;
-  double maxGain = 0;
-  long sPosition = vtxPtr[v] + v;  // Starting position of local map for v
-  double eix = clusterLocalMap[sPosition].Counter - selfLoop;
-  double ax = cInfo[sc].degree - degree;
-  double eiy = 0;
-  double ay = 0;
-
-  for (long k = 0; k < numUniqueClusters; k++) {
-    if (sc != clusterLocalMap[sPosition + k].cid) {
-      ay = cInfo[clusterLocalMap[sPosition + k].cid].degree;  // degree of cluster y
-      eiy = clusterLocalMap[sPosition + k].Counter;           // Total edges incident on cluster y
-      curGain = 2 * (eiy - eix) - 2 * degree * (ay - ax) * constant;
-
-      if ((curGain > maxGain) ||
-          ((curGain == maxGain) && (curGain != 0) && (clusterLocalMap[sPosition + k].cid < maxIndex))) {
-        maxGain = curGain;
-        maxIndex = clusterLocalMap[sPosition + k].cid;
-      }
-    }
-  }  // End of for()
-
-  if (cInfo[maxIndex].size == 1 && cInfo[sc].size == 1 && maxIndex > sc) {  // Swap protection
-    maxIndex = sc;
-  }
-
-  return maxIndex;
-}  // End maxNoMap()
