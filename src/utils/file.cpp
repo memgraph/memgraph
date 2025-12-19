@@ -61,7 +61,10 @@ auto CreateUniqueDownloadFile(std::filesystem::path const &base_path)
                               base_path.string());
 }
 
-std::filesystem::path GetExecutablePath() { return std::filesystem::read_symlink("/proc/self/exe"); }
+std::filesystem::path GetExecutablePath() {
+  static const auto path = std::filesystem::read_symlink("/proc/self/exe");
+  return path;
+}
 
 std::vector<std::string> ReadLines(const std::filesystem::path &path) noexcept {
   std::vector<std::string> lines;
