@@ -1,0 +1,176 @@
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/opt/toolchain-v7/lib64/libstdc++.so.6...
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/lib/x86_64-linux-gnu/libpython3.12.so.1.0...
+Reading symbols from /home/gareth/.cache/debuginfod_client/544b43311f4e97de6ca929b15f42678ebe9a2aa6/debuginfo...
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/lib/x86_64-linux-gnu/libsasl2.so.2...
+Reading symbols from /home/gareth/.cache/debuginfod_client/9758289ff24f611d3bd1bd7ab1f3a35d553b22ed/debuginfo...
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/home/gareth/checkout/memgraph/build/src/query/libmemgraph_module_support.so...
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/lib/x86_64-linux-gnu/libseccomp.so.2...
+Reading symbols from /home/gareth/.cache/debuginfod_client/ebbca39470299c86d412c32d82a25b2aba80a5f6/debuginfo...
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/opt/toolchain-v7/lib64/libatomic.so.1...
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1...
+(No debugging symbols found in /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1)
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/lib/x86_64-linux-gnu/libm.so.6...
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/usr/lib/debug/.build-id/f8/34d7308d2660218ed4f7486a58e28c8464fe4b.debug...
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/opt/toolchain-v7/lib64/libgcc_s.so.1...
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/lib/x86_64-linux-gnu/libc.so.6...
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/usr/lib/debug/.build-id/27/4eec488d230825a136fa9c4d85370fed7a0a5e.debug...
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/lib64/ld-linux-x86-64.so.2...
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/usr/lib/debug/.build-id/52/0e05878220fb2fc6d28ff46b63b3fd5d48e763.debug...
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/lib/x86_64-linux-gnu/libz.so.1...
+Reading symbols from /home/gareth/.cache/debuginfod_client/bbefe2bbdc367b0c3cfbfcf80c579930496fb963/debuginfo...
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/lib/x86_64-linux-gnu/libexpat.so.1...
+(No debugging symbols found in /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/lib/x86_64-linux-gnu/libexpat.so.1)
+Reading symbols from /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/lib/x86_64-linux-gnu/libcrypto.so.3...
+(No debugging symbols found in /tmp/undodb.2628392.1766089012.6338012.d2f1202a64de4842/debuggee-1-wmi2k2gi/symbol-files/lib/x86_64-linux-gnu/libcrypto.so.3)
+0x00005e9521158500 in _start ()
+
+The debugged program is at the beginning of recorded history. Start debugging
+from here or, to proceed towards the end, use:
+    continue - to replay from the beginning
+    ugo end  - to jump straight to the end of history
+Have reached end of recorded history.
+[New Thread 2618091.2618139]
+[New Thread 2618091.2618145]
+[New Thread 2618091.2618146]
+[New Thread 2618091.2618158]
+[New Thread 2618091.2618159]
+[New Thread 2618091.2618160]
+[New Thread 2618091.2618161]
+[New Thread 2618091.2618177]
+[New Thread 2618091.2618178]
+[New Thread 2618091.2618179]
+[New Thread 2618091.2618210]
+[New Thread 2618091.2618226]
+[New Thread 2618091.2618231]
+[New Thread 2618091.2618232]
+[New Thread 2618091.2618233]
+[New Thread 2618091.2618238]
+[New Thread 2618091.2618239]
+[New Thread 2618091.2618240]
+[New Thread 2618091.2618241]
+[New Thread 2618091.2618242]
+[New Thread 2618091.2618243]
+[New Thread 2618091.2618244]
+[New Thread 2618091.2618245]
+[New Thread 2618091.2618246]
+[New Thread 2618091.2618247]
+[New Thread 2618091.2618248]
+[New Thread 2618091.2618249]
+[New Thread 2618091.2618250]
+[New Thread 2618091.2618251]
+[New Thread 2618091.2618252]
+[New Thread 2618091.2618253]
+[New Thread 2618091.2618254]
+[New Thread 2618091.2618255]
+[New Thread 2618091.2618256]
+[New Thread 2618091.2618257]
+[New Thread 2618091.2618258]
+[New Thread 2618091.2618259]
+[New Thread 2618091.2618260]
+[New Thread 2618091.2618261]
+[New Thread 2618091.2618262]
+[New Thread 2618091.2618263]
+[New Thread 2618091.2618279]
+[New Thread 2618091.2618280]
+[New Thread 2618091.2618281]
+[New Thread 2618091.2618282]
+[New Thread 2618091.2618283]
+[New Thread 2618091.2622425]
+[Switching to Thread 2618091.2618263]
+0x00007880d8098d71 in __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x7880bd1cbad0, op=393, expected=0, futex_word=0x7ffd6364d808) at ./nptl/futex-internal.c:57
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Enable debuginfod for this session? (y or [n]) [answered N; input not from terminal]
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+warning: 57	./nptl/futex-internal.c: No such file or directory
+Going to: time=58,653,451:0xffffffffffffffff: clock_gettime. result=0x0 size=112.
+0x00007ffd636dee40 in clock_gettime ()
+#0  0x00007ffd636dee40 in clock_gettime ()
+#1  0x00007880d80ec96d in __GI___clock_gettime (clock_id=<optimised out>, tp=<optimised out>) at ../sysdeps/unix/sysv/linux/clock_gettime.c:42
+#2  0x00007880d8ee7322 in std::chrono::_V2::system_clock::now () at ../../../../../libstdc++-v3/src/c++11/chrono.cc:59
+#3  0x00005e952137e827 in memgraph::utils::Scheduler::ThreadRun (this=0x7ffd6364d768, service_name="sched_mon", f=..., token=...) at ../src/utils/scheduler.cpp:164
+#4  0x00005e952137f38f in memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0::operator()(std::stop_token) (this=<optimised out>, token=...) at ../src/utils/scheduler.cpp:42
+#5  std::__invoke_impl<void, memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0, std::stop_token>(std::__invoke_other, memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0&&, std::stop_token&&) (__f=..., __args=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/invoke.h:63
+#6  std::__invoke<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0, std::stop_token>(memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0&&, std::stop_token&&) (__fn=..., __args=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/invoke.h:98
+#7  std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> >::_M_invoke<0ul, 1ul> (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:303
+#8  std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> >::operator() (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:310
+#9  std::thread::_State_impl<std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> > >::_M_run (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:255
+#10 0x00007880d8ef2964 in std::execute_native_thread_routine (__p=0x7880cf7ee340) at ../../../../../libstdc++-v3/src/c++11/thread.cc:104
+#11 0x00007880d809caa4 in start_thread (arg=<optimised out>) at ./nptl/pthread_create.c:447
+#12 0x00007880d8129c6c in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:78
+Going to: time=58,653,392:0xffffffffffffffff: clock_gettime. result=0x0 size=112.
+0x00007ffd636dee40 in clock_gettime ()
+#0  0x00007ffd636dee40 in clock_gettime ()
+#1  0x00007880d80ec96d in __GI___clock_gettime (clock_id=<optimised out>, tp=<optimised out>) at ../sysdeps/unix/sysv/linux/clock_gettime.c:42
+#2  0x00007880d8ee7322 in std::chrono::_V2::system_clock::now () at ../../../../../libstdc++-v3/src/c++11/chrono.cc:59
+#3  0x00005e952137eaa9 in std::condition_variable::__wait_until_impl<std::chrono::duration<long, std::ratio<1l, 1000000000l> > > (this=0x7ffd6364d7e0, __lock=..., __atime=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/condition_variable:228
+#4  std::condition_variable::wait_until<std::chrono::duration<long, std::ratio<1l, 1000000000l> > > (this=0x7ffd6364d7e0, __lock=..., __atime=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/condition_variable:122
+#5  std::_V2::condition_variable_any::wait_until<std::unique_lock<std::mutex>, std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> >, memgraph::utils::Scheduler::ThreadRun(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::function<void ()>, std::stop_token)::$_0>(std::unique_lock<std::mutex>&, std::stop_token, std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> > > const&, memgraph::utils::Scheduler::ThreadRun(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::function<void ()>, std::stop_token)::$_0) (this=0x7ffd6364d7e0, __lock=..., __stoken=..., __p=..., __abs_time=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/condition_variable:421
+#6  memgraph::utils::Scheduler::ThreadRun (this=0x7ffd6364d768, service_name="sched_mon", f=..., token=...) at ../src/utils/scheduler.cpp:175
+#7  0x00005e952137f38f in memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0::operator()(std::stop_token) (this=<optimised out>, token=...) at ../src/utils/scheduler.cpp:42
+#8  std::__invoke_impl<void, memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0, std::stop_token>(std::__invoke_other, memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0&&, std::stop_token&&) (__f=..., __args=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/invoke.h:63
+#9  std::__invoke<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0, std::stop_token>(memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0&&, std::stop_token&&) (__fn=..., __args=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/invoke.h:98
+#10 std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> >::_M_invoke<0ul, 1ul> (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:303
+#11 std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> >::operator() (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:310
+#12 std::thread::_State_impl<std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> > >::_M_run (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:255
+#13 0x00007880d8ef2964 in std::execute_native_thread_routine (__p=0x7880cf7ee340) at ../../../../../libstdc++-v3/src/c++11/thread.cc:104
+#14 0x00007880d809caa4 in start_thread (arg=<optimised out>) at ./nptl/pthread_create.c:447
+#15 0x00007880d8129c6c in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:78
+Going to: time=58,653,345:0xffffffffffffffff: clock_gettime. result=0x0 size=112.
+[Switching to Thread 2618091.2618159]
+0x00007ffd636dee40 in clock_gettime ()
+#0  0x00007ffd636dee40 in clock_gettime ()
+#1  0x00007880d80ec96d in __GI___clock_gettime (clock_id=<optimised out>, tp=<optimised out>) at ../sysdeps/unix/sysv/linux/clock_gettime.c:42
+#2  0x00007880d8ee7322 in std::chrono::_V2::system_clock::now () at ../../../../../libstdc++-v3/src/c++11/chrono.cc:59
+#3  0x00005e952137e827 in memgraph::utils::Scheduler::ThreadRun (this=0x7ffd6364df80, service_name="Memory check", f=..., token=...) at ../src/utils/scheduler.cpp:164
+#4  0x00005e952137f38f in memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0::operator()(std::stop_token) (this=<optimised out>, token=...) at ../src/utils/scheduler.cpp:42
+#5  std::__invoke_impl<void, memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0, std::stop_token>(std::__invoke_other, memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0&&, std::stop_token&&) (__f=..., __args=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/invoke.h:63
+#6  std::__invoke<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0, std::stop_token>(memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0&&, std::stop_token&&) (__fn=..., __args=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/invoke.h:98
+#7  std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> >::_M_invoke<0ul, 1ul> (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:303
+#8  std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> >::operator() (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:310
+#9  std::thread::_State_impl<std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> > >::_M_run (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:255
+#10 0x00007880d8ef2964 in std::execute_native_thread_routine (__p=0x7880d9084280) at ../../../../../libstdc++-v3/src/c++11/thread.cc:104
+#11 0x00007880d809caa4 in start_thread (arg=<optimised out>) at ./nptl/pthread_create.c:447
+#12 0x00007880d8129c6c in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:78
+Going to: time=58,650,802:0xffffffffffffffff: clock_gettime. result=0x0 size=112.
+0x00007ffd636dee40 in clock_gettime ()
+#0  0x00007ffd636dee40 in clock_gettime ()
+#1  0x00007880d80ec96d in __GI___clock_gettime (clock_id=<optimised out>, tp=<optimised out>) at ../sysdeps/unix/sysv/linux/clock_gettime.c:42
+#2  0x00007880d8ee7322 in std::chrono::_V2::system_clock::now () at ../../../../../libstdc++-v3/src/c++11/chrono.cc:59
+#3  0x00005e952137eaa9 in std::condition_variable::__wait_until_impl<std::chrono::duration<long, std::ratio<1l, 1000000000l> > > (this=0x7ffd6364dff8, __lock=..., __atime=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/condition_variable:228
+#4  std::condition_variable::wait_until<std::chrono::duration<long, std::ratio<1l, 1000000000l> > > (this=0x7ffd6364dff8, __lock=..., __atime=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/condition_variable:122
+#5  std::_V2::condition_variable_any::wait_until<std::unique_lock<std::mutex>, std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> >, memgraph::utils::Scheduler::ThreadRun(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::function<void ()>, std::stop_token)::$_0>(std::unique_lock<std::mutex>&, std::stop_token, std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> > > const&, memgraph::utils::Scheduler::ThreadRun(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::function<void ()>, std::stop_token)::$_0) (this=0x7ffd6364dff8, __lock=..., __stoken=..., __p=..., __abs_time=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/condition_variable:421
+#6  memgraph::utils::Scheduler::ThreadRun (this=0x7ffd6364df80, service_name="Memory check", f=..., token=...) at ../src/utils/scheduler.cpp:175
+#7  0x00005e952137f38f in memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0::operator()(std::stop_token) (this=<optimised out>, token=...) at ../src/utils/scheduler.cpp:42
+#8  std::__invoke_impl<void, memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0, std::stop_token>(std::__invoke_other, memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0&&, std::stop_token&&) (__f=..., __args=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/invoke.h:63
+#9  std::__invoke<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0, std::stop_token>(memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0&&, std::stop_token&&) (__fn=..., __args=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/invoke.h:98
+#10 std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> >::_M_invoke<0ul, 1ul> (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:303
+#11 std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> >::operator() (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:310
+#12 std::thread::_State_impl<std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> > >::_M_run (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:255
+#13 0x00007880d8ef2964 in std::execute_native_thread_routine (__p=0x7880d9084280) at ../../../../../libstdc++-v3/src/c++11/thread.cc:104
+#14 0x00007880d809caa4 in start_thread (arg=<optimised out>) at ./nptl/pthread_create.c:447
+#15 0x00007880d8129c6c in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:78
+Going to: time=58,650,755:0xffffffffffffffff: clock_gettime. result=0x0 size=112.
+[Switching to Thread 2618091.2618263]
+0x00007ffd636dee40 in clock_gettime ()
+#0  0x00007ffd636dee40 in clock_gettime ()
+#1  0x00007880d80ec96d in __GI___clock_gettime (clock_id=<optimised out>, tp=<optimised out>) at ../sysdeps/unix/sysv/linux/clock_gettime.c:42
+#2  0x00007880d8ee7322 in std::chrono::_V2::system_clock::now () at ../../../../../libstdc++-v3/src/c++11/chrono.cc:59
+#3  0x00005e952137e827 in memgraph::utils::Scheduler::ThreadRun (this=0x7ffd6364d768, service_name="sched_mon", f=..., token=...) at ../src/utils/scheduler.cpp:164
+#4  0x00005e952137f38f in memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0::operator()(std::stop_token) (this=<optimised out>, token=...) at ../src/utils/scheduler.cpp:42
+#5  std::__invoke_impl<void, memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0, std::stop_token>(std::__invoke_other, memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0&&, std::stop_token&&) (__f=..., __args=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/invoke.h:63
+#6  std::__invoke<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0, std::stop_token>(memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0&&, std::stop_token&&) (__fn=..., __args=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/invoke.h:98
+#7  std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> >::_M_invoke<0ul, 1ul> (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:303
+#8  std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> >::operator() (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:310
+#9  std::thread::_State_impl<std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> > >::_M_run (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:255
+#10 0x00007880d8ef2964 in std::execute_native_thread_routine (__p=0x7880cf7ee340) at ../../../../../libstdc++-v3/src/c++11/thread.cc:104
+#11 0x00007880d809caa4 in start_thread (arg=<optimised out>) at ./nptl/pthread_create.c:447
+#12 0x00007880d8129c6c in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:78
+A debugging session is active.
+
+	Inferior 1 [process 2618091] will be detached.
+
+Quit anyway? (y or n) [answered Y; input not from terminal]
+[Inferior 1 (process 2618091) detached]

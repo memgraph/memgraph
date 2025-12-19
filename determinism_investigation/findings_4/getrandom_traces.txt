@@ -1,0 +1,158 @@
+Reading symbols from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/opt/toolchain-v7/lib64/libstdc++.so.6...
+Reading symbols from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libpython3.12.so.1.0...
+Reading symbols from /home/gareth/.cache/debuginfod_client/544b43311f4e97de6ca929b15f42678ebe9a2aa6/debuginfo...
+Reading symbols from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libsasl2.so.2...
+Reading symbols from /home/gareth/.cache/debuginfod_client/9758289ff24f611d3bd1bd7ab1f3a35d553b22ed/debuginfo...
+Reading symbols from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/home/gareth/checkout/memgraph/build/src/query/libmemgraph_module_support.so...
+Reading symbols from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libseccomp.so.2...
+Reading symbols from /home/gareth/.cache/debuginfod_client/ebbca39470299c86d412c32d82a25b2aba80a5f6/debuginfo...
+Reading symbols from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/opt/toolchain-v7/lib64/libatomic.so.1...
+Reading symbols from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1...
+(No debugging symbols found in /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1)
+Reading symbols from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libm.so.6...
+Reading symbols from /usr/lib/debug/.build-id/f8/34d7308d2660218ed4f7486a58e28c8464fe4b.debug...
+Reading symbols from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/opt/toolchain-v7/lib64/libgcc_s.so.1...
+Reading symbols from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libc.so.6...
+Reading symbols from /usr/lib/debug/.build-id/27/4eec488d230825a136fa9c4d85370fed7a0a5e.debug...
+Reading symbols from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib64/ld-linux-x86-64.so.2...
+Reading symbols from /usr/lib/debug/.build-id/52/0e05878220fb2fc6d28ff46b63b3fd5d48e763.debug...
+Reading symbols from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libz.so.1...
+Reading symbols from /home/gareth/.cache/debuginfod_client/bbefe2bbdc367b0c3cfbfcf80c579930496fb963/debuginfo...
+Reading symbols from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libexpat.so.1...
+(No debugging symbols found in /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libexpat.so.1)
+Reading symbols from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libcrypto.so.3...
+(No debugging symbols found in /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libcrypto.so.3)
+0x00005e9521158500 in _start ()
+
+The debugged program is at the beginning of recorded history. Start debugging
+from here or, to proceed towards the end, use:
+    continue - to replay from the beginning
+    ugo end  - to jump straight to the end of history
+0x00005e9521158500 in _start ()
+time=7,754:0xffffffffffffffff: getrandom. result=0x10 size=112.
+time=3,786,693:0xffffffffffffffff: getrandom. result=0x18 size=120.
+time=7,634,695:0xffffffffffffffff: getrandom. result=0x10 size=112.
+time=8,321,981:0xffffffffffffffff: getrandom. result=0x10 size=112.
+time=8,944,018:0xffffffffffffffff: getrandom. result=0x10 size=112.
+time=9,722,444:0xffffffffffffffff: getrandom. result=0x10 size=112.
+time=10,452,331:0xffffffffffffffff: getrandom. result=0x10 size=112.
+time=12,099,964:0xffffffffffffffff: getrandom. result=0x10 size=112.
+time=33,013,509:0xffffffffffffffff: getrandom. result=0x20 size=128.
+[Looking at event 55601: time=38,514,009:0xffffffffffffffff: clock_gettime. result=0x0 size=112.]
+time=40,942,114:0xffffffffffffffff: getrandom. result=0x30 size=144.
+time=51,627,051:0xffffffffffffffff: getrandom. result=0x10 size=112.
+time=54,562,917:0xffffffffffffffff: getrandom. result=0x10 size=112.
+time=54,616,808:0xffffffffffffffff: getrandom. result=0x10 size=112.
+time=54,674,536:0xffffffffffffffff: getrandom. result=0x10 size=112.
+time=55,471,200:0xffffffffffffffff: getrandom. result=0x10 size=112.
+time=55,597,766:0xffffffffffffffff: getrandom. result=0x10 size=112.
+time=56,922,430:0xffffffffffffffff: getrandom. result=0x10 size=112.
+Going to: time=7,754:0xffffffffffffffff: getrandom. result=0x10 size=112.
+0x00007880d804889b in __GI___getrandom (flags=1, length=16, buffer=0x7ffd636ce770) at ../sysdeps/unix/sysv/linux/getrandom.c:29
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Enable debuginfod for this session? (y or [n]) [answered N; input not from terminal]
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+warning: 29	../sysdeps/unix/sysv/linux/getrandom.c: No such file or directory
+#0  0x00007880d804889b in __GI___getrandom (flags=1, length=16, buffer=0x7ffd636ce770) at ../sysdeps/unix/sysv/linux/getrandom.c:29
+#1  __GI___getrandom (buffer=0x7ffd636ce770, length=16, flags=1) at ../sysdeps/unix/sysv/linux/getrandom.c:27
+#2  0x00007880d90bb20b in ?? () from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1
+#3  0x00007880d90bda3d in __uuid_generate_random () from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1
+#4  0x00007880d90bdb4f in uuid_generate () from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1
+#5  0x00005e95214a64ca in memgraph::utils::GenerateUUID[abi:cxx11]() () at ../src/utils/uuid.cpp:34
+#6  0x00005e95215cba75 in __cxx_global_var_init () at ../src/glue/run_id.cpp:15
+#7  0x00005e95215cba75 in _GLOBAL__sub_I_run_id.cpp ()
+#8  0x00007880d802a304 in call_init (env=<optimised out>, argv=0x7ffd636ce8f8, argc=27) at ../csu/libc-start.c:145
+#9  __libc_start_main_impl (main=0x5e95211585f0 <main(int, char**)>, argc=27, argv=0x7ffd636ce8f8, init=<optimised out>, fini=<optimised out>, rtld_fini=<optimised out>, stack_end=0x7ffd636ce8e8) at ../csu/libc-start.c:347
+#10 0x00005e9521158525 in _start ()
+Going to: time=3,786,693:0xffffffffffffffff: getrandom. result=0x18 size=120.
+[New Thread 2618091.2618139]
+[New Thread 2618091.2618145]
+[New Thread 2618091.2618146]
+0x00007880d804889b in __GI___getrandom (flags=1, length=24, buffer=0x7880d8ca4330 <_Py_HashSecret>) at ../sysdeps/unix/sysv/linux/getrandom.c:29
+29	in ../sysdeps/unix/sysv/linux/getrandom.c
+#0  0x00007880d804889b in __GI___getrandom (flags=1, length=24, buffer=0x7880d8ca4330 <_Py_HashSecret>) at ../sysdeps/unix/sysv/linux/getrandom.c:29
+#1  __GI___getrandom (buffer=buffer@entry=0x7880d8ca4330 <_Py_HashSecret>, length=length@entry=24, flags=flags@entry=1) at ../sysdeps/unix/sysv/linux/getrandom.c:27
+#2  0x00007880d87012e1 in py_getrandom (raise=0, blocking=0, size=24, buffer=0x7880d8ca4330 <_Py_HashSecret>) at ../Python/bootstrap_hash.c:121
+#3  pyurandom (buffer=0x7880d8ca4330 <_Py_HashSecret>, size=size@entry=24, blocking=blocking@entry=0, raise=raise@entry=0) at ../Python/bootstrap_hash.c:498
+#4  0x00007880d8701715 in _Py_HashRandomization_Init (config=config@entry=0x7ffd6364bf30) at ../Python/bootstrap_hash.c:577
+#5  0x00007880d86f5231 in pycore_init_runtime (runtime=0x7880d8c332e0 <_PyRuntime>, config=0x7ffd6364bf30) at ../Python/pylifecycle.c:523
+#6  pyinit_config (runtime=0x7880d8c332e0 <_PyRuntime>, config=0x7ffd6364bf30, tstate_p=0x7ffd6364c128) at ../Python/pylifecycle.c:885
+#7  pyinit_core (src_config=src_config@entry=0x7ffd6364c1e0, tstate_p=tstate_p@entry=0x7ffd6364c128, runtime=0x7880d8c332e0 <_PyRuntime>) at ../Python/pylifecycle.c:1060
+#8  0x00007880d86f5755 in Py_InitializeFromConfig (config=0x7ffd6364c1e0) at ../Python/pylifecycle.c:1282
+#9  Py_InitializeFromConfig (config=0x7ffd6364c1e0) at ../Python/pylifecycle.c:1267
+#10 0x00007880d86f69b0 in Py_InitializeEx (install_sigs=0) at ../Python/pylifecycle.c:1320
+#11 0x00005e95211588d7 in main (argc=12, argv=0x7ffd636ce970) at ../src/memgraph.cpp:202
+Going to: time=7,634,695:0xffffffffffffffff: getrandom. result=0x10 size=112.
+[New Thread 2618091.2618158]
+[New Thread 2618091.2618159]
+[New Thread 2618091.2618160]
+[New Thread 2618091.2618161]
+[New Thread 2618091.2618177]
+[New Thread 2618091.2618178]
+0x00007880d804889b in __GI___getrandom (flags=1, length=16, buffer=0x7ffd6364c330) at ../sysdeps/unix/sysv/linux/getrandom.c:29
+29	in ../sysdeps/unix/sysv/linux/getrandom.c
+#0  0x00007880d804889b in __GI___getrandom (flags=1, length=16, buffer=0x7ffd6364c330) at ../sysdeps/unix/sysv/linux/getrandom.c:29
+#1  __GI___getrandom (buffer=0x7ffd6364c330, length=16, flags=1) at ../sysdeps/unix/sysv/linux/getrandom.c:27
+#2  0x00007880d90bb20b in ?? () from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1
+#3  0x00007880d90bda3d in __uuid_generate_random () from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1
+#4  0x00007880d90bdb4f in uuid_generate () from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1
+#5  0x00005e952115a2b3 in memgraph::utils::UUID::UUID (this=0x7ffd6364c330, this@entry=0x0) at ../src/utils/uuid.hpp:44
+#6  main (argc=12, argv=0x7ffd636ce970) at ../src/memgraph.cpp:394
+Going to: time=8,321,981:0xffffffffffffffff: getrandom. result=0x10 size=112.
+[New Thread 2618091.2618179]
+0x00007880d804889b in __GI___getrandom (flags=1, length=16, buffer=0x7ffd6364c220) at ../sysdeps/unix/sysv/linux/getrandom.c:29
+29	in ../sysdeps/unix/sysv/linux/getrandom.c
+#0  0x00007880d804889b in __GI___getrandom (flags=1, length=16, buffer=0x7ffd6364c220) at ../sysdeps/unix/sysv/linux/getrandom.c:29
+#1  __GI___getrandom (buffer=0x7ffd6364c220, length=16, flags=1) at ../sysdeps/unix/sysv/linux/getrandom.c:27
+#2  0x00007880d90bb20b in ?? () from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1
+#3  0x00007880d90bda3d in __uuid_generate_random () from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1
+#4  0x00007880d90bdb4f in uuid_generate () from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1
+#5  0x00005e9522bb6dca in memgraph::utils::UUID::UUID (this=0x7ffd6364c220) at ../src/utils/uuid.hpp:44
+#6  memgraph::auth::User::User (this=0x7880d5c18790) at ../src/auth/models.hpp:869
+#7  0x00005e952138fea7 in std::__detail::__variant::_Uninitialized<memgraph::auth::User, true>::_Uninitialized<>(std::in_place_index_t<0ul>) (this=0x7880d5c18790) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:229
+#8  std::__detail::__variant::_Variadic_union<false, memgraph::auth::User, memgraph::auth::RoleWUsername>::_Variadic_union<>(std::in_place_index_t<0ul>) (this=0x7880d5c18790) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:404
+#9  std::__detail::__variant::_Variant_storage<false, memgraph::auth::User, memgraph::auth::RoleWUsername>::_Variant_storage<0ul> (this=0x7880d5c18790) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:481
+#10 std::__detail::__variant::_Copy_ctor_base<false, memgraph::auth::User, memgraph::auth::RoleWUsername>::_Variant_storage<0ul> (this=0x7880d5c18790) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:579
+#11 std::__detail::__variant::_Move_ctor_base<false, memgraph::auth::User, memgraph::auth::RoleWUsername>::_Variant_storage<0ul> (this=0x7880d5c18790) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:616
+#12 std::__detail::__variant::_Copy_assign_base<false, memgraph::auth::User, memgraph::auth::RoleWUsername>::_Variant_storage<0ul> (this=0x7880d5c18790) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:654
+#13 std::__detail::__variant::_Move_assign_base<false, memgraph::auth::User, memgraph::auth::RoleWUsername>::_Variant_storage<0ul> (this=0x7880d5c18790) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:706
+#14 std::__detail::__variant::_Variant_base<memgraph::auth::User, memgraph::auth::RoleWUsername>::_Variant_base<0ul> (this=0x7880d5c18790, __i=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:768
+#15 std::__detail::__variant::_Variant_base<memgraph::auth::User, memgraph::auth::RoleWUsername>::_Variant_base (this=0x7880d5c18790) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:763
+#16 _ZNSt7variantIJN8memgraph4auth4UserENS1_13RoleWUsernameEEEC2EvQ26is_default_constructible_vINSt9_Nth_typeILm0EJDpT_EE4typeEE (this=0x7880d5c18790) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:1477
+#17 memgraph::utils::Synchronized<std::variant<memgraph::auth::User, memgraph::auth::RoleWUsername>, memgraph::utils::SpinLock>::Synchronized<>() (this=0x7880d5c18790) at ../src/utils/synchronized.hpp:81
+#18 memgraph::glue::AuthChecker::AuthChecker (this=0x7880d5c18780, auth=<optimised out>) at ../src/glue/auth_checker.cpp:89
+#19 0x00005e952115adda in std::make_unique<memgraph::glue::AuthChecker, memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>*&> (__args=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/unique_ptr.h:1085
+#20 main::$_15::operator() (auth=0x7880d83b7500, this=<optimised out>, ah=..., ac=...) at ../src/memgraph.cpp:481
+#21 main (argc=12, argv=0x7ffd636ce970) at ../src/memgraph.cpp:519
+Going to: time=8,944,018:0xffffffffffffffff: getrandom. result=0x10 size=112.
+0x00007880d804889b in __GI___getrandom (flags=1, length=16, buffer=0x7ffd6364c030) at ../sysdeps/unix/sysv/linux/getrandom.c:29
+29	in ../sysdeps/unix/sysv/linux/getrandom.c
+#0  0x00007880d804889b in __GI___getrandom (flags=1, length=16, buffer=0x7ffd6364c030) at ../sysdeps/unix/sysv/linux/getrandom.c:29
+#1  __GI___getrandom (buffer=0x7ffd6364c030, length=16, flags=1) at ../sysdeps/unix/sysv/linux/getrandom.c:27
+#2  0x00007880d90bb20b in ?? () from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1
+#3  0x00007880d90bda3d in __uuid_generate_random () from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1
+#4  0x00007880d90bdb4f in uuid_generate () from /tmp/undodb.2630280.1766089225.746222.1510194b6ff1b390/debuggee-1-u3px7fzq/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1
+#5  0x00005e95234faef0 in memgraph::utils::UUID::UUID (this=0x7ffd6364c030) at ../src/utils/uuid.hpp:44
+#6  memgraph::replication::RoleMainData::RoleMainData (this=0x7ffd6364dde8) at ../src/replication/include/replication/state.hpp:37
+#7  std::__detail::__variant::_Uninitialized<memgraph::replication::RoleMainData, true>::_Uninitialized<>(std::in_place_index_t<0ul>) (this=0x7ffd6364dde8) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:229
+#8  std::__detail::__variant::_Variadic_union<false, memgraph::replication::RoleMainData, memgraph::replication::RoleReplicaData>::_Variadic_union<>(std::in_place_index_t<0ul>) (this=0x7ffd6364dde8) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:404
+#9  std::__detail::__variant::_Variant_storage<false, memgraph::replication::RoleMainData, memgraph::replication::RoleReplicaData>::_Variant_storage<0ul> (this=0x7ffd6364dde8) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:481
+#10 std::__detail::__variant::_Copy_ctor_base<false, memgraph::replication::RoleMainData, memgraph::replication::RoleReplicaData>::_Variant_storage<0ul> (this=0x7ffd6364dde8) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:579
+#11 std::__detail::__variant::_Move_ctor_base<false, memgraph::replication::RoleMainData, memgraph::replication::RoleReplicaData>::_Variant_storage<0ul> (this=0x7ffd6364dde8) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:616
+#12 std::__detail::__variant::_Copy_assign_base<false, memgraph::replication::RoleMainData, memgraph::replication::RoleReplicaData>::_Variant_storage<0ul> (this=0x7ffd6364dde8) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:654
+#13 std::__detail::__variant::_Move_assign_base<false, memgraph::replication::RoleMainData, memgraph::replication::RoleReplicaData>::_Variant_storage<0ul> (this=0x7ffd6364dde8) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:706
+#14 std::__detail::__variant::_Variant_base<memgraph::replication::RoleMainData, memgraph::replication::RoleReplicaData>::_Variant_base<0ul> (this=0x7ffd6364dde8, __i=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:768
+#15 std::__detail::__variant::_Variant_base<memgraph::replication::RoleMainData, memgraph::replication::RoleReplicaData>::_Variant_base (this=0x7ffd6364dde8) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:763
+#16 _ZNSt7variantIJN8memgraph11replication12RoleMainDataENS1_15RoleReplicaDataEEEC2EvQ26is_default_constructible_vINSt9_Nth_typeILm0EJDpT_EE4typeEE (this=0x7ffd6364dde8) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/variant:1477
+#17 memgraph::replication::ReplicationState::ReplicationState (this=0x7ffd6364dde0, durability_dir=<error reading variable: Cannot access memory at address 0x10>, part_of_ha_cluster=true) at ../src/replication/state.cpp:36
+#18 0x00005e952116425d in memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>::Synchronized<std::optional<std::filesystem::__cxx11::path>, bool> (this=this@entry=0x7ffd6364dde0, args=@0x7ffd6364d260: false, args=@0x7ffd6364d260: false) at ../src/utils/synchronized.hpp:81
+#19 0x00005e952115bb58 in main (argc=12, argv=0x7ffd636ce970) at ../src/memgraph.cpp:588
+A debugging session is active.
+
+	Inferior 1 [process 2618091] will be detached.
+
+Quit anyway? (y or n) [answered Y; input not from terminal]
+[Inferior 1 (process 2618091) detached]

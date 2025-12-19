@@ -1,0 +1,125 @@
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/opt/toolchain-v7/lib64/libstdc++.so.6...
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/lib/x86_64-linux-gnu/libpython3.12.so.1.0...
+Reading symbols from /home/gareth/.cache/debuginfod_client/544b43311f4e97de6ca929b15f42678ebe9a2aa6/debuginfo...
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/lib/x86_64-linux-gnu/libsasl2.so.2...
+Reading symbols from /home/gareth/.cache/debuginfod_client/9758289ff24f611d3bd1bd7ab1f3a35d553b22ed/debuginfo...
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/home/gareth/checkout/memgraph/build/src/query/libmemgraph_module_support.so...
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/lib/x86_64-linux-gnu/libseccomp.so.2...
+Reading symbols from /home/gareth/.cache/debuginfod_client/ebbca39470299c86d412c32d82a25b2aba80a5f6/debuginfo...
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/opt/toolchain-v7/lib64/libatomic.so.1...
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1...
+Downloading separate debug info for /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1...
+(No debugging symbols found in /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1)
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/lib/x86_64-linux-gnu/libm.so.6...
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/usr/lib/debug/.build-id/f8/34d7308d2660218ed4f7486a58e28c8464fe4b.debug...
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/opt/toolchain-v7/lib64/libgcc_s.so.1...
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/lib/x86_64-linux-gnu/libc.so.6...
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/usr/lib/debug/.build-id/27/4eec488d230825a136fa9c4d85370fed7a0a5e.debug...
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/lib64/ld-linux-x86-64.so.2...
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/usr/lib/debug/.build-id/52/0e05878220fb2fc6d28ff46b63b3fd5d48e763.debug...
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/lib/x86_64-linux-gnu/libz.so.1...
+Reading symbols from /home/gareth/.cache/debuginfod_client/bbefe2bbdc367b0c3cfbfcf80c579930496fb963/debuginfo...
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/lib/x86_64-linux-gnu/libexpat.so.1...
+Downloading separate debug info for /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/lib/x86_64-linux-gnu/libexpat.so.1...
+(No debugging symbols found in /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/lib/x86_64-linux-gnu/libexpat.so.1)
+Reading symbols from /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/lib/x86_64-linux-gnu/libcrypto.so.3...
+Downloading separate debug info for /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/lib/x86_64-linux-gnu/libcrypto.so.3...
+(No debugging symbols found in /tmp/undodb.2627515.1766088946.3513064.11f08cda210bf977/debuggee-1-yib9xkwb/symbol-files/lib/x86_64-linux-gnu/libcrypto.so.3)
+Downloading separate debug info for system-supplied DSO at 0x7ffd636de000...
+0x00005e9521158500 in _start ()
+
+The debugged program is at the beginning of recorded history. Start debugging
+from here or, to proceed towards the end, use:
+    continue - to replay from the beginning
+    ugo end  - to jump straight to the end of history
+  Count    %Count    Total size    %Size  Event type
+                        (bytes)
+-------  --------  ------------  -------  -----------------
+ 27,844     20.65     1,559,264     8.36  THREADSWITCH
+ 25,295     18.76     2,833,040    15.19  clock_gettime
+ 20,580     15.26     1,646,400     8.83  futex
+ 18,990     14.08     1,063,440     5.70  WALLCLOCK_TIME
+ 15,616     11.58     3,747,840    20.09  newfstatat
+  7,605      5.64       973,440     5.22  gettimeofday
+  3,555      2.64       284,400     1.52  access
+  2,134      1.58       153,648     0.82  gettid
+  1,549      1.15     2,945,592    15.79  read
+  1,374      1.02       178,780     0.96  mmap
+  1,192      0.88        95,360     0.51  openat
+  1,095      0.81        78,840     0.42  close
+    897      0.67        73,456     0.39  readlink
+    641      0.48        51,744     0.28  poll
+    549      0.41        39,704     0.21  fcntl
+    541      0.40        51,936     0.28  XSAVE
+    468      0.35        45,968     0.25  rt_sigprocmask
+    391      0.29        28,152     0.15  getpid
+    377      0.28        90,480     0.49  fstat
+    350      0.26       112,304     0.60  pread64
+    323      0.24        43,928     0.24  getcpu
+    309      0.23        39,552     0.21  munmap
+    304      0.23        21,888     0.12  madvise
+    302      0.22        21,744     0.12  lseek
+    271      0.20        26,176     0.14  time
+    251      0.19       661,408     3.55  getdents64
+    219      0.16        17,520     0.09  write
+    128      0.09     1,571,840     8.43  NEWTHREAD
+    127      0.09        19,304     0.10  clone3
+    127      0.09         9,144     0.05  set_robust_list
+    114      0.08        14,592     0.08  mprotect
+     93      0.07        14,392     0.08  ioctl
+     90      0.07         8,808     0.05  epoll_wait
+     80      0.06         8,320     0.04  exit
+     76      0.06        16,416     0.09  fstatfs
+     70      0.05         5,040     0.03  fadvise64
+     70      0.05         5,040     0.03  readahead
+     67      0.05        18,704     0.10  recvfrom
+     67      0.05         8,384     0.04  rt_sigaction
+     54      0.04         3,888     0.02  sched_yield
+     52      0.04         3,744     0.02  sync_file_range
+     49      0.04         3,920     0.02  epoll_ctl
+     40      0.03         3,200     0.02  mkdir
+     39      0.03         2,496     0.01  CPUID
+     38      0.03         3,040     0.02  prctl
+     38      0.03         3,040     0.02  sendto
+     33      0.02         2,640     0.01  rename
+     27      0.02         1,944     0.01  fsync
+     23      0.02         1,840     0.01  connect
+     23      0.02         1,840     0.01  setsockopt
+     22      0.02         1,760     0.01  unlink
+     21      0.02         1,512     0.01  fdatasync
+     20      0.01         1,502     0.01  SHMEM_FIXUP
+     20      0.01         1,440     0.01  socket
+     18      0.01         2,256     0.01  getsockname
+     17      0.01         1,960     0.01  getrandom
+     17      0.01         1,360     0.01  accept
+     16      0.01         1,616     0.01  getcwd
+     15      0.01         1,080     0.01  getuid
+     14      0.01         1,008     0.01  getppid
+     12      0.01         2,304     0.01  NDETERM
+     12      0.01           864     0.00  fallocate
+      8      0.01           576     0.00  ftruncate
+      7      0.01           896     0.00  getpeername
+      7      0.01           728     0.00  timer_create
+      7      0.01           672     0.00  timer_settime
+      7      0.01           504     0.00  eventfd2
+      7      0.01           504     0.00  shutdown
+      7      0.01           504     0.00  timer_delete
+      6      0.00         4,672     0.03  recvmsg
+      6      0.00         2,928     0.02  uname
+      5      0.00           400     0.00  bind
+      4      0.00           288     0.00  epoll_create1
+      3      0.00           240     0.00  sched_setaffinity
+      3      0.00           216     0.00  geteuid
+      3      0.00           216     0.00  listen
+      3      0.00           216     0.00  timerfd_create
+      2      0.00           448     0.00  sendmmsg
+      2      0.00           256     0.00  getsockopt
+      1      0.00            80     0.00  faccessat2
+      1      0.00            72     0.00  getegid
+      1      0.00            72     0.00  getgid
+A debugging session is active.
+
+	Inferior 1 [process 2618091] will be detached.
+
+Quit anyway? (y or n) [answered Y; input not from terminal]
+[Inferior 1 (process 2618091) detached]

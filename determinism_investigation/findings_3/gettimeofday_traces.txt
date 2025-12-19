@@ -1,0 +1,135 @@
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/opt/toolchain-v7/lib64/libstdc++.so.6...
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/lib/x86_64-linux-gnu/libpython3.12.so.1.0...
+Reading symbols from /home/gareth/.cache/debuginfod_client/544b43311f4e97de6ca929b15f42678ebe9a2aa6/debuginfo...
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/lib/x86_64-linux-gnu/libsasl2.so.2...
+Reading symbols from /home/gareth/.cache/debuginfod_client/9758289ff24f611d3bd1bd7ab1f3a35d553b22ed/debuginfo...
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/home/gareth/checkout/memgraph/build/src/query/libmemgraph_module_support.so...
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/lib/x86_64-linux-gnu/libseccomp.so.2...
+Reading symbols from /home/gareth/.cache/debuginfod_client/ebbca39470299c86d412c32d82a25b2aba80a5f6/debuginfo...
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/opt/toolchain-v7/lib64/libatomic.so.1...
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1...
+(No debugging symbols found in /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1)
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/lib/x86_64-linux-gnu/libm.so.6...
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/usr/lib/debug/.build-id/f8/34d7308d2660218ed4f7486a58e28c8464fe4b.debug...
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/opt/toolchain-v7/lib64/libgcc_s.so.1...
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/lib/x86_64-linux-gnu/libc.so.6...
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/usr/lib/debug/.build-id/27/4eec488d230825a136fa9c4d85370fed7a0a5e.debug...
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/lib64/ld-linux-x86-64.so.2...
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/usr/lib/debug/.build-id/52/0e05878220fb2fc6d28ff46b63b3fd5d48e763.debug...
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/lib/x86_64-linux-gnu/libz.so.1...
+Reading symbols from /home/gareth/.cache/debuginfod_client/bbefe2bbdc367b0c3cfbfcf80c579930496fb963/debuginfo...
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/lib/x86_64-linux-gnu/libexpat.so.1...
+(No debugging symbols found in /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/lib/x86_64-linux-gnu/libexpat.so.1)
+Reading symbols from /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/lib/x86_64-linux-gnu/libcrypto.so.3...
+(No debugging symbols found in /tmp/undodb.2629223.1766089160.6266034.d351933cbe8931dc/debuggee-1-lk5f1dat/symbol-files/lib/x86_64-linux-gnu/libcrypto.so.3)
+0x00005e9521158500 in _start ()
+
+The debugged program is at the beginning of recorded history. Start debugging
+from here or, to proceed towards the end, use:
+    continue - to replay from the beginning
+    ugo end  - to jump straight to the end of history
+Have reached end of recorded history.
+[New Thread 2618091.2618139]
+[New Thread 2618091.2618145]
+[New Thread 2618091.2618146]
+[New Thread 2618091.2618158]
+[New Thread 2618091.2618159]
+[New Thread 2618091.2618160]
+[New Thread 2618091.2618161]
+[New Thread 2618091.2618177]
+[New Thread 2618091.2618178]
+[New Thread 2618091.2618179]
+[New Thread 2618091.2618210]
+[New Thread 2618091.2618226]
+[New Thread 2618091.2618231]
+[New Thread 2618091.2618232]
+[New Thread 2618091.2618233]
+[New Thread 2618091.2618238]
+[New Thread 2618091.2618239]
+[New Thread 2618091.2618240]
+[New Thread 2618091.2618241]
+[New Thread 2618091.2618242]
+[New Thread 2618091.2618243]
+[New Thread 2618091.2618244]
+[New Thread 2618091.2618245]
+[New Thread 2618091.2618246]
+[New Thread 2618091.2618247]
+[New Thread 2618091.2618248]
+[New Thread 2618091.2618249]
+[New Thread 2618091.2618250]
+[New Thread 2618091.2618251]
+[New Thread 2618091.2618252]
+[New Thread 2618091.2618253]
+[New Thread 2618091.2618254]
+[New Thread 2618091.2618255]
+[New Thread 2618091.2618256]
+[New Thread 2618091.2618257]
+[New Thread 2618091.2618258]
+[New Thread 2618091.2618259]
+[New Thread 2618091.2618260]
+[New Thread 2618091.2618261]
+[New Thread 2618091.2618262]
+[New Thread 2618091.2618263]
+[New Thread 2618091.2618279]
+[New Thread 2618091.2618280]
+[New Thread 2618091.2618281]
+[New Thread 2618091.2618282]
+[New Thread 2618091.2618283]
+[New Thread 2618091.2622425]
+[Switching to Thread 2618091.2618263]
+0x00007880d8098d71 in __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x7880bd1cbad0, op=393, expected=0, futex_word=0x7ffd6364d808) at ./nptl/futex-internal.c:57
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Enable debuginfod for this session? (y or [n]) [answered N; input not from terminal]
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+warning: 57	./nptl/futex-internal.c: No such file or directory
+Going to: time=58,648,755:0xffffffffffffffff: gettimeofday. result=0x0 size=128.
+[Switching to Thread 2618091.2618177]
+0x00007ffd636dee00 in gettimeofday ()
+#0  0x00007ffd636dee00 in gettimeofday ()
+#1  0x00005e95241cc743 in rocksdb::(anonymous namespace)::PosixClock::NowMicros() ()
+#2  0x00005e9523f44c76 in rocksdb::Timer::Run() ()
+#3  0x00007880d8ef2964 in std::execute_native_thread_routine (__p=0x7880d83bf760) at ../../../../../libstdc++-v3/src/c++11/thread.cc:104
+#4  0x00007880d809caa4 in start_thread (arg=<optimised out>) at ./nptl/pthread_create.c:447
+#5  0x00007880d8129c6c in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:78
+Going to: time=58,648,746:0xffffffffffffffff: gettimeofday. result=0x0 size=128.
+0x00007ffd636dee00 in gettimeofday ()
+#0  0x00007ffd636dee00 in gettimeofday ()
+#1  0x00005e95241cc743 in rocksdb::(anonymous namespace)::PosixClock::NowMicros() ()
+#2  0x00005e9523f44f6f in rocksdb::Timer::Run() ()
+#3  0x00007880d8ef2964 in std::execute_native_thread_routine (__p=0x7880d83bf760) at ../../../../../libstdc++-v3/src/c++11/thread.cc:104
+#4  0x00007880d809caa4 in start_thread (arg=<optimised out>) at ./nptl/pthread_create.c:447
+#5  0x00007880d8129c6c in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:78
+Going to: time=58,648,723:0xffffffffffffffff: gettimeofday. result=0x0 size=128.
+0x00007ffd636dee00 in gettimeofday ()
+#0  0x00007ffd636dee00 in gettimeofday ()
+#1  0x00005e95241cc743 in rocksdb::(anonymous namespace)::PosixClock::NowMicros() ()
+#2  0x00005e9523fdf34c in rocksdb::EnvLogger::Flush() ()
+#3  0x00005e9523f44d7f in rocksdb::Timer::Run() ()
+#4  0x00007880d8ef2964 in std::execute_native_thread_routine (__p=0x7880d83bf760) at ../../../../../libstdc++-v3/src/c++11/thread.cc:104
+#5  0x00007880d809caa4 in start_thread (arg=<optimised out>) at ./nptl/pthread_create.c:447
+#6  0x00007880d8129c6c in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:78
+Going to: time=58,648,700:0xffffffffffffffff: gettimeofday. result=0x0 size=128.
+0x00007ffd636dee00 in gettimeofday ()
+#0  0x00007ffd636dee00 in gettimeofday ()
+#1  0x00005e95241cc743 in rocksdb::(anonymous namespace)::PosixClock::NowMicros() ()
+#2  0x00005e9523f44c76 in rocksdb::Timer::Run() ()
+#3  0x00007880d8ef2964 in std::execute_native_thread_routine (__p=0x7880d83bf760) at ../../../../../libstdc++-v3/src/c++11/thread.cc:104
+#4  0x00007880d809caa4 in start_thread (arg=<optimised out>) at ./nptl/pthread_create.c:447
+#5  0x00007880d8129c6c in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:78
+Going to: time=58,647,606:0xffffffffffffffff: gettimeofday. result=0x0 size=128.
+0x00007ffd636dee00 in gettimeofday ()
+#0  0x00007ffd636dee00 in gettimeofday ()
+#1  0x00005e95241cc743 in rocksdb::(anonymous namespace)::PosixClock::NowMicros() ()
+#2  0x00005e9523f44c76 in rocksdb::Timer::Run() ()
+#3  0x00007880d8ef2964 in std::execute_native_thread_routine (__p=0x7880d83bf760) at ../../../../../libstdc++-v3/src/c++11/thread.cc:104
+#4  0x00007880d809caa4 in start_thread (arg=<optimised out>) at ./nptl/pthread_create.c:447
+#5  0x00007880d8129c6c in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:78
+A debugging session is active.
+
+	Inferior 1 [process 2618091] will be detached.
+
+Quit anyway? (y or n) [answered Y; input not from terminal]
+[Inferior 1 (process 2618091) detached]

@@ -1,0 +1,148 @@
+Reading symbols from /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/opt/toolchain-v7/lib64/libstdc++.so.6...
+Reading symbols from /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/lib/x86_64-linux-gnu/libpython3.12.so.1.0...
+Reading symbols from /home/gareth/.cache/debuginfod_client/544b43311f4e97de6ca929b15f42678ebe9a2aa6/debuginfo...
+Reading symbols from /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/lib/x86_64-linux-gnu/libsasl2.so.2...
+Reading symbols from /home/gareth/.cache/debuginfod_client/9758289ff24f611d3bd1bd7ab1f3a35d553b22ed/debuginfo...
+Reading symbols from /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/home/gareth/checkout/memgraph/build/src/query/libmemgraph_module_support.so...
+Reading symbols from /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/lib/x86_64-linux-gnu/libseccomp.so.2...
+Reading symbols from /home/gareth/.cache/debuginfod_client/ebbca39470299c86d412c32d82a25b2aba80a5f6/debuginfo...
+Reading symbols from /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/opt/toolchain-v7/lib64/libatomic.so.1...
+Reading symbols from /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1...
+(No debugging symbols found in /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/lib/x86_64-linux-gnu/libuuid.so.1)
+Reading symbols from /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/lib/x86_64-linux-gnu/libm.so.6...
+Reading symbols from /usr/lib/debug/.build-id/f8/34d7308d2660218ed4f7486a58e28c8464fe4b.debug...
+Reading symbols from /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/opt/toolchain-v7/lib64/libgcc_s.so.1...
+Reading symbols from /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/lib/x86_64-linux-gnu/libc.so.6...
+Reading symbols from /usr/lib/debug/.build-id/27/4eec488d230825a136fa9c4d85370fed7a0a5e.debug...
+Reading symbols from /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/lib64/ld-linux-x86-64.so.2...
+Reading symbols from /usr/lib/debug/.build-id/52/0e05878220fb2fc6d28ff46b63b3fd5d48e763.debug...
+Reading symbols from /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/lib/x86_64-linux-gnu/libz.so.1...
+Reading symbols from /home/gareth/.cache/debuginfod_client/bbefe2bbdc367b0c3cfbfcf80c579930496fb963/debuginfo...
+Reading symbols from /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/lib/x86_64-linux-gnu/libexpat.so.1...
+(No debugging symbols found in /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/lib/x86_64-linux-gnu/libexpat.so.1)
+Reading symbols from /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/lib/x86_64-linux-gnu/libcrypto.so.3...
+(No debugging symbols found in /tmp/undodb.2632929.1766089735.0870032.ff724330fe55e8a1/debuggee-1-1aka5pi0/symbol-files/lib/x86_64-linux-gnu/libcrypto.so.3)
+0x00005e9521158500 in _start ()
+
+The debugged program is at the beginning of recorded history. Start debugging
+from here or, to proceed towards the end, use:
+    continue - to replay from the beginning
+    ugo end  - to jump straight to the end of history
+Have reached end of recorded history.
+[New Thread 2618091.2618139]
+[New Thread 2618091.2618145]
+[New Thread 2618091.2618146]
+[New Thread 2618091.2618158]
+[New Thread 2618091.2618159]
+[New Thread 2618091.2618160]
+[New Thread 2618091.2618161]
+[New Thread 2618091.2618177]
+[New Thread 2618091.2618178]
+[New Thread 2618091.2618179]
+[New Thread 2618091.2618210]
+[New Thread 2618091.2618226]
+[New Thread 2618091.2618231]
+[New Thread 2618091.2618232]
+[New Thread 2618091.2618233]
+[New Thread 2618091.2618238]
+[New Thread 2618091.2618239]
+[New Thread 2618091.2618240]
+[New Thread 2618091.2618241]
+[New Thread 2618091.2618242]
+[New Thread 2618091.2618243]
+[New Thread 2618091.2618244]
+[New Thread 2618091.2618245]
+[New Thread 2618091.2618246]
+[New Thread 2618091.2618247]
+[New Thread 2618091.2618248]
+[New Thread 2618091.2618249]
+[New Thread 2618091.2618250]
+[New Thread 2618091.2618251]
+[New Thread 2618091.2618252]
+[New Thread 2618091.2618253]
+[New Thread 2618091.2618254]
+[New Thread 2618091.2618255]
+[New Thread 2618091.2618256]
+[New Thread 2618091.2618257]
+[New Thread 2618091.2618258]
+[New Thread 2618091.2618259]
+[New Thread 2618091.2618260]
+[New Thread 2618091.2618261]
+[New Thread 2618091.2618262]
+[New Thread 2618091.2618263]
+[New Thread 2618091.2618279]
+[New Thread 2618091.2618280]
+[New Thread 2618091.2618281]
+[New Thread 2618091.2618282]
+[New Thread 2618091.2618283]
+[New Thread 2618091.2622425]
+[Switching to Thread 2618091.2618263]
+0x00007880d8098d71 in __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x7880bd1cbad0, op=393, expected=0, futex_word=0x7ffd6364d808) at ./nptl/futex-internal.c:57
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Enable debuginfod for this session? (y or [n]) [answered N; input not from terminal]
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+warning: 57	./nptl/futex-internal.c: No such file or directory
+Going to: time=58,653,398:0xffffffffffffffff: futex. result=0x0 size=80.
+0x00007880d8098fd5 in __GI___lll_lock_wake (futex=futex@entry=0x7880d7fd2110, private=<optimised out>) at ./nptl/lowlevellock.c:64
+warning: 64	./nptl/lowlevellock.c: No such file or directory
+#0  0x00007880d8098fd5 in __GI___lll_lock_wake (futex=futex@entry=0x7880d7fd2110, private=<optimised out>) at ./nptl/lowlevellock.c:64
+#1  0x00007880d80a1ad2 in lll_mutex_unlock_optimized (mutex=0x7880d7fd2110) at ./nptl/pthread_mutex_unlock.c:43
+#2  __GI___pthread_mutex_unlock_usercnt (decr=1, mutex=0x7880d7fd2110) at ./nptl/pthread_mutex_unlock.c:68
+#3  ___pthread_mutex_unlock (mutex=0x7880d7fd2110) at ./nptl/pthread_mutex_unlock.c:368
+#4  0x00005e952137eacc in __gthread_mutex_unlock (__mutex=0x7880d7fd2110) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/x86_64-linux-gnu/bits/gthr-default.h:825
+#5  std::mutex::unlock (this=0x7880d7fd2110) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_mutex.h:134
+#6  std::unique_lock<std::mutex>::unlock (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/unique_lock.h:203
+#7  std::unique_lock<std::mutex>::~unique_lock (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/unique_lock.h:114
+#8  std::_V2::condition_variable_any::wait_until<std::unique_lock<std::mutex>, std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> >, memgraph::utils::Scheduler::ThreadRun(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::function<void ()>, std::stop_token)::$_0>(std::unique_lock<std::mutex>&, std::stop_token, std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> > > const&, memgraph::utils::Scheduler::ThreadRun(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::function<void ()>, std::stop_token)::$_0) (this=0x7ffd6364d7e0, __lock=..., __stoken=..., __p=..., __abs_time=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/condition_variable:423
+#9  memgraph::utils::Scheduler::ThreadRun (this=0x7ffd6364d768, service_name="sched_mon", f=..., token=...) at ../src/utils/scheduler.cpp:175
+#10 0x00005e952137f38f in memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0::operator()(std::stop_token) (this=<optimised out>, token=...) at ../src/utils/scheduler.cpp:42
+#11 std::__invoke_impl<void, memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0, std::stop_token>(std::__invoke_other, memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0&&, std::stop_token&&) (__f=..., __args=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/invoke.h:63
+#12 std::__invoke<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0, std::stop_token>(memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0&&, std::stop_token&&) (__fn=..., __args=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/invoke.h:98
+#13 std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> >::_M_invoke<0ul, 1ul> (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:303
+#14 std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> >::operator() (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:310
+Going to: time=58,653,372:0xffffffffffffffff: futex. result=-0x6e size=80.
+[Switching to Thread 2618091.2618159]
+0x00007880d8098d6f in __futex_abstimed_wait_common64 (private=30848, cancel=true, abstime=0x7880d11f3ad0, op=393, expected=0, futex_word=0x7ffd6364e020) at ./nptl/futex-internal.c:57
+warning: 57	./nptl/futex-internal.c: No such file or directory
+#0  0x00007880d8098d6f in __futex_abstimed_wait_common64 (private=30848, cancel=true, abstime=0x7880d11f3ad0, op=393, expected=0, futex_word=0x7ffd6364e020) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=30848, abstime=0x7880d11f3ad0, clockid=30848, expected=0, futex_word=0x7ffd6364e020) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7ffd6364e020, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x7880d11f3ad0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007880d809bc8e in __pthread_cond_wait_common (abstime=0x7880d11f3ad0, clockid=0, mutex=0x7880d7fcc9d0, cond=0x7ffd6364dff8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_timedwait64 (cond=0x7ffd6364dff8, mutex=0x7880d7fcc9d0, abstime=0x7880d11f3ad0) at ./nptl/pthread_cond_wait.c:652
+#5  0x00005e952137ea9b in __gthread_cond_timedwait (__cond=0x7ffd6364dff8, __mutex=0x7880d7fcc9d0, __abs_timeout=0x7880d11f3ad0) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/x86_64-linux-gnu/bits/gthr-default.h:918
+#6  std::__condvar::wait_until (this=0x7ffd6364dff8, __m=..., __abs_time=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_mutex.h:180
+#7  std::condition_variable::__wait_until_impl<std::chrono::duration<long, std::ratio<1l, 1000000000l> > > (this=0x7ffd6364dff8, __lock=..., __atime=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/condition_variable:226
+#8  std::condition_variable::wait_until<std::chrono::duration<long, std::ratio<1l, 1000000000l> > > (this=0x7ffd6364dff8, __lock=..., __atime=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/condition_variable:122
+#9  std::_V2::condition_variable_any::wait_until<std::unique_lock<std::mutex>, std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> >, memgraph::utils::Scheduler::ThreadRun(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::function<void ()>, std::stop_token)::$_0>(std::unique_lock<std::mutex>&, std::stop_token, std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> > > const&, memgraph::utils::Scheduler::ThreadRun(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::function<void ()>, std::stop_token)::$_0) (this=0x7ffd6364dff8, __lock=..., __stoken=..., __p=..., __abs_time=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/condition_variable:421
+#10 memgraph::utils::Scheduler::ThreadRun (this=0x7ffd6364df80, service_name="Memory check", f=..., token=...) at ../src/utils/scheduler.cpp:175
+#11 0x00005e952137f38f in memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0::operator()(std::stop_token) (this=<optimised out>, token=...) at ../src/utils/scheduler.cpp:42
+#12 std::__invoke_impl<void, memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0, std::stop_token>(std::__invoke_other, memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0&&, std::stop_token&&) (__f=..., __args=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/invoke.h:63
+#13 std::__invoke<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0, std::stop_token>(memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0&&, std::stop_token&&) (__fn=..., __args=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/invoke.h:98
+#14 std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> >::_M_invoke<0ul, 1ul> (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:303
+Going to: time=58,650,808:0xffffffffffffffff: futex. result=0x0 size=80.
+0x00007880d8098fd5 in __GI___lll_lock_wake (futex=futex@entry=0x7880d7fcc9d0, private=<optimised out>) at ./nptl/lowlevellock.c:64
+warning: 64	./nptl/lowlevellock.c: No such file or directory
+#0  0x00007880d8098fd5 in __GI___lll_lock_wake (futex=futex@entry=0x7880d7fcc9d0, private=<optimised out>) at ./nptl/lowlevellock.c:64
+#1  0x00007880d80a1ad2 in lll_mutex_unlock_optimized (mutex=0x7880d7fcc9d0) at ./nptl/pthread_mutex_unlock.c:43
+#2  __GI___pthread_mutex_unlock_usercnt (decr=1, mutex=0x7880d7fcc9d0) at ./nptl/pthread_mutex_unlock.c:68
+#3  ___pthread_mutex_unlock (mutex=0x7880d7fcc9d0) at ./nptl/pthread_mutex_unlock.c:368
+#4  0x00005e952137eacc in __gthread_mutex_unlock (__mutex=0x7880d7fcc9d0) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/x86_64-linux-gnu/bits/gthr-default.h:825
+#5  std::mutex::unlock (this=0x7880d7fcc9d0) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_mutex.h:134
+#6  std::unique_lock<std::mutex>::unlock (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/unique_lock.h:203
+#7  std::unique_lock<std::mutex>::~unique_lock (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/unique_lock.h:114
+#8  std::_V2::condition_variable_any::wait_until<std::unique_lock<std::mutex>, std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> >, memgraph::utils::Scheduler::ThreadRun(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::function<void ()>, std::stop_token)::$_0>(std::unique_lock<std::mutex>&, std::stop_token, std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> > > const&, memgraph::utils::Scheduler::ThreadRun(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::function<void ()>, std::stop_token)::$_0) (this=0x7ffd6364dff8, __lock=..., __stoken=..., __p=..., __abs_time=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/condition_variable:423
+#9  memgraph::utils::Scheduler::ThreadRun (this=0x7ffd6364df80, service_name="Memory check", f=..., token=...) at ../src/utils/scheduler.cpp:175
+#10 0x00005e952137f38f in memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0::operator()(std::stop_token) (this=<optimised out>, token=...) at ../src/utils/scheduler.cpp:42
+#11 std::__invoke_impl<void, memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0, std::stop_token>(std::__invoke_other, memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0&&, std::stop_token&&) (__f=..., __args=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/invoke.h:63
+#12 std::__invoke<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0, std::stop_token>(memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void ()> const&)::$_0&&, std::stop_token&&) (__fn=..., __args=...) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/invoke.h:98
+#13 std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> >::_M_invoke<0ul, 1ul> (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:303
+#14 std::thread::_Invoker<std::tuple<memgraph::utils::Scheduler::Run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::function<void()> const&)::$_0, std::stop_token> >::operator() (this=<optimised out>) at /opt/toolchain-v7/bin/../lib/gcc/x86_64-linux-gnu/15.1.0/../../../../include/c++/15.1.0/bits/std_thread.h:310
+A debugging session is active.
+
+	Inferior 1 [process 2618091] will be detached.
+
+Quit anyway? (y or n) [answered Y; input not from terminal]
+[Inferior 1 (process 2618091) detached]
