@@ -201,7 +201,7 @@ jobs:
           echo "MEMGRAPH_DOWNLOAD_LINK=${mg_url}" >> $GITHUB_ENV
 
       - name: Download memgraph binary
-        run: curl -L --retry 5 --retry-delay 20 --retry-max-time 120 $MEMGRAPH_DOWNLOAD_LINK > memgraph-$ARCH.deb
+        run: curl -L --retry 5 --retry-delay 20 --retry-max-time 120 $MEMGRAPH_DOWNLOAD_LINK > mage/memgraph-$ARCH.deb
 
       - name: Probe fastest mirror
         run: |
