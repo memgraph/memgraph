@@ -34,6 +34,15 @@ struct TaskState {
   std::atomic<bool> stopped{false};
   std::atomic<bool> trigger_now{false};
 
+  // Pointer to timer backend for waking the dispatcher
+  ITimerBackend *timer_backend{nullptr};
+
+  void WakeDispatcher() const {
+    if (timer_backend) {
+      timer_backend->UpdateDeadline(std::chrono::steady_clock::now());
+    }
+  }
+
   /// Comparison for priority queue (min-heap: earliest time, then highest priority)
   bool operator>(const TaskState &other) const {
     if (next_execution != other.next_execution) {
@@ -98,7 +107,7 @@ void TaskHandle::Pause() {
 void TaskHandle::Resume() {
   if (auto state = state_.lock()) {
     state->paused.store(false, std::memory_order_release);
-    // Note: We'd need to wake the dispatcher here in a full implementation
+    state->WakeDispatcher();
   }
 }
 
@@ -112,7 +121,7 @@ void TaskHandle::Stop() {
 void TaskHandle::TriggerNow() {
   if (auto state = state_.lock()) {
     state->trigger_now.store(true, std::memory_order_release);
-    // Note: We'd need to wake the dispatcher here in a full implementation
+    state->WakeDispatcher();
   }
 }
 
@@ -120,6 +129,7 @@ void TaskHandle::SetSchedule(const ScheduleSpec &new_schedule) {
   if (auto state = state_.lock()) {
     state->schedule = new_schedule;
     state->next_execution = std::chrono::steady_clock::now() + new_schedule.interval;
+    state->WakeDispatcher();
   }
 }
 
@@ -159,6 +169,7 @@ TaskHandle ConsolidatedScheduler::Register(TaskConfig config, std::function<void
   task->schedule = config.schedule;
   task->priority = config.priority;
   task->callback = std::move(callback);
+  task->timer_backend = impl_->timer_backend_.get();
 
   auto now = std::chrono::steady_clock::now();
   if (config.schedule.execute_immediately) {
