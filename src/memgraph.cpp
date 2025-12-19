@@ -33,6 +33,7 @@
 #include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "flags/log_level.hpp"
+#include "flags/memory_limit.hpp"
 #include "glue/MonitoringServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
@@ -189,6 +190,12 @@ int main(int argc, char **argv) {
   // even if
   // `--also-log-to-stderr` is set to false.
   memgraph::flags::InitializeLogger();
+
+  // Configure jemalloc scheduler-controlled decay if enabled.
+  // This reduces non-deterministic clock_gettime calls during malloc/free.
+  if (memgraph::flags::GetMemoryDecayInterval().count() > 0) {
+    memgraph::memory::DisableInternalDecay();
+  }
 
   // Unhandled exception handler init.
   std::set_terminate(&memgraph::utils::TerminateHandler);
@@ -416,6 +423,19 @@ int main(int argc, char **argv) {
   auto jemalloc_purge_handle = memgraph::utils::ConsolidatedScheduler::Global().Register(
       "Jemalloc purge", std::chrono::seconds(FLAGS_storage_gc_cycle_sec), [] { memgraph::memory::PurgeUnusedMemory(); },
       memgraph::utils::SchedulerPriority::HIGH);
+
+  // Register scheduler-controlled memory decay if enabled.
+  // When enabled, we disable jemalloc's internal decay timing (which causes many
+  // clock_gettime calls) and instead call DecayUnusedMemory() on our own schedule.
+  // DecayUnusedMemory temporarily enables decay, triggers it, then disables again.
+  auto decay_interval = memgraph::flags::GetMemoryDecayInterval();
+  memgraph::utils::TaskHandle jemalloc_decay_handle;
+  if (decay_interval.count() > 0) {
+    jemalloc_decay_handle = memgraph::utils::ConsolidatedScheduler::Global().Register(
+        "MemDecay", decay_interval, [] { memgraph::memory::DecayUnusedMemory(); },
+        memgraph::utils::SchedulerPriority::HIGH);
+    spdlog::info("Scheduler-controlled jemalloc decay enabled with interval {}ms", decay_interval.count());
+  }
 
   using namespace std::chrono_literals;
   using enum memgraph::storage::StorageMode;

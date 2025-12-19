@@ -13,8 +13,26 @@
 
 namespace memgraph::memory {
 
+/// Disable jemalloc's internal decay timing (call at startup before SetHooks).
+/// This prevents clock_gettime calls during malloc/free operations.
+/// After calling this, you should use DecayUnusedMemory() periodically to return
+/// memory to the OS.
+void DisableInternalDecay();
+
+/// Trigger decay-based purging on all arenas.
+/// This is gentler than PurgeUnusedMemory() - it uses jemalloc's decay curve
+/// rather than immediately purging all unused pages.
+/// Call this periodically from a scheduler to return memory to the OS.
+void DecayUnusedMemory();
+
+/// Immediately purge all unused dirty pages from all arenas.
+/// This is more aggressive than DecayUnusedMemory().
 void PurgeUnusedMemory();
+
+/// Install custom extent hooks for memory tracking.
 void SetHooks();
+
+/// Restore original extent hooks.
 void UnsetHooks();
 
 }  // namespace memgraph::memory

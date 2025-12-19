@@ -241,6 +241,50 @@ void UnsetHooks() {
 #endif
 }
 
+void DisableInternalDecay() {
+#if USE_JEMALLOC
+  // Get number of arenas
+  unsigned n_arenas{0};
+  size_t sz = sizeof(unsigned);
+  int err = je_mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
+
+  if (err) {
+    spdlog::warn("Failed to get jemalloc arena count for decay configuration");
+    return;
+  }
+
+  // Disable internal decay for all existing arenas by setting decay_ms to -1
+  // This prevents clock_gettime calls during malloc/free operations
+  ssize_t disable_decay = -1;
+  for (unsigned i = 0; i < n_arenas; i++) {
+    std::string dirty_name = "arena." + std::to_string(i) + ".dirty_decay_ms";
+    std::string muzzy_name = "arena." + std::to_string(i) + ".muzzy_decay_ms";
+
+    je_mallctl(dirty_name.c_str(), nullptr, nullptr, &disable_decay, sizeof(disable_decay));
+    je_mallctl(muzzy_name.c_str(), nullptr, nullptr, &disable_decay, sizeof(disable_decay));
+  }
+
+  // Also set the default for any new arenas that might be created
+  je_mallctl("arenas.dirty_decay_ms", nullptr, nullptr, &disable_decay, sizeof(disable_decay));
+  je_mallctl("arenas.muzzy_decay_ms", nullptr, nullptr, &disable_decay, sizeof(disable_decay));
+
+  spdlog::info("Disabled jemalloc internal decay timing for {} arenas", n_arenas);
+#endif
+}
+
+void DecayUnusedMemory() {
+#if USE_JEMALLOC
+  // When internal decay is disabled (decay_ms=-1), calling arena.decay is a no-op.
+  // Since we disable internal decay to eliminate clock_gettime calls, we use purge
+  // instead which immediately returns all unused dirty pages to the OS.
+  // This is more aggressive than the gradual decay curve but achieves our goal
+  // of deterministic, scheduled memory return.
+  je_mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+#else
+  malloc_trim(0);
+#endif
+}
+
 void PurgeUnusedMemory() {
 #if USE_JEMALLOC
   je_mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);

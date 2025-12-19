@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,8 +10,15 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 
 namespace memgraph::flags {
+
 int64_t GetMemoryLimit();
+
+/// Get the memory decay interval for scheduler-controlled jemalloc decay.
+/// Returns 0ms if scheduler-controlled decay is disabled.
+std::chrono::milliseconds GetMemoryDecayInterval();
+
 }  // namespace memgraph::flags
