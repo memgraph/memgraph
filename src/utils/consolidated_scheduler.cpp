@@ -655,6 +655,11 @@ void ConsolidatedScheduler::PoolWorkerLoop(const std::string &pool_name) {
   }
 }
 
-void ConsolidatedScheduler::WakeDispatcher() { impl_->timer_backend_.UpdateDeadline(std::chrono::steady_clock::now()); }
+void ConsolidatedScheduler::WakeDispatcher() {
+  // Use epoch (time_point{}) to trigger immediate wake
+  // With TFD_TIMER_ABSTIME, a deadline in the past (epoch = 0) fires immediately
+  // This avoids calling steady_clock::now() which would trigger clock_gettime
+  impl_->timer_backend_.UpdateDeadline(time_point{});
+}
 
 }  // namespace memgraph::utils

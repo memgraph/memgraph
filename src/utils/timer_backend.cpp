@@ -74,19 +74,26 @@ void TimerBackend::Cancel() {
 }
 
 void TimerBackend::SetTimerDeadline(time_point deadline) {
-  auto now = std::chrono::steady_clock::now();
-  auto duration = deadline - now;
+  // Convert steady_clock::time_point directly to timespec for absolute time
+  // steady_clock uses CLOCK_MONOTONIC on Linux, same clock as our timerfd
+  // This avoids calling steady_clock::now() which would trigger clock_gettime
+  auto ns = deadline.time_since_epoch();
+  auto secs = std::chrono::duration_cast<std::chrono::seconds>(ns);
+  auto nsecs = std::chrono::duration_cast<std::chrono::nanoseconds>(ns - secs);
 
   struct itimerspec its {};
-  if (duration.count() > 0) {
-    auto secs = std::chrono::duration_cast<std::chrono::seconds>(duration);
-    auto nsecs = std::chrono::duration_cast<std::chrono::nanoseconds>(duration - secs);
-    its.it_value.tv_sec = secs.count();
-    its.it_value.tv_nsec = nsecs.count();
-  } else {
+  its.it_value.tv_sec = secs.count();
+  its.it_value.tv_nsec = nsecs.count();
+
+  // IMPORTANT: With timerfd, setting it_value = {0, 0} DISARMS the timer!
+  // If deadline is epoch (0), use 1 nanosecond instead to trigger immediate fire
+  if (its.it_value.tv_sec == 0 && its.it_value.tv_nsec == 0) {
     its.it_value.tv_nsec = 1;
   }
-  timerfd_settime(timer_fd_, 0, &its, nullptr);
+
+  // Use TFD_TIMER_ABSTIME - deadline is interpreted as absolute CLOCK_MONOTONIC time
+  // If deadline is in the past, timer fires immediately
+  timerfd_settime(timer_fd_, TFD_TIMER_ABSTIME, &its, nullptr);
 }
 
 #else
