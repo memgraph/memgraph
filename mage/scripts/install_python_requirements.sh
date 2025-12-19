@@ -62,9 +62,9 @@ elif [[ "$DEB_PACKAGE" == "true" ]]; then
     python3 -m pip install --no-cache-dir -r "/usr/lib/memgraph/mage-requirements.txt"
     python3 -m pip install --no-cache-dir -r "/usr/lib/memgraph/auth_module/requirements.txt"
 else
-    # for installing locally, from within the mage repo
+    # for installing locally, from within the memgraph repo, under the mage directory
     python3 -m pip install --no-cache-dir -r "$(pwd)/python/${requirements_file}"
-    python3 -m pip install --no-cache-dir -r "$(pwd)/cpp/memgraph/src/auth/reference_modules/requirements.txt"
+    python3 -m pip install --no-cache-dir -r "$(pwd)/../src/auth/reference_modules/requirements.txt"
 fi
 
 if [ "$ARCH" = "arm64" ]; then

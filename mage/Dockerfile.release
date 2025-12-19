@@ -41,7 +41,7 @@ RUN tar -xzvf /tmp/mage.tar.gz -C /usr/lib/memgraph/ && rm /tmp/mage.tar.gz
 COPY make-dev-container.sh /make-dev-container.sh
 COPY python/requirements.txt /tmp/requirements.txt
 COPY python/requirements-gpu.txt /tmp/requirements-gpu.txt
-COPY cpp/memgraph/src/auth/reference_modules/requirements.txt /tmp/auth_module-requirements.txt
+COPY auth-module-requirements.txt /tmp/auth_module-requirements.txt
 
 USER memgraph
 COPY --chown=memgraph:memgraph ./scripts/install_python_requirements.sh /home/memgraph/install_python_requirements.sh
