@@ -59,12 +59,15 @@ void Scheduler::SetInterval_(std::chrono::milliseconds pause,
                              std::optional<std::chrono::system_clock::time_point> start_time) {
   DMG_ASSERT(pause > std::chrono::milliseconds(0), "Pause is invalid. Expected > 0, got {}.", pause.count());
 
-  // Setup
-  std::chrono::system_clock::time_point next_execution;
-  const auto now = std::chrono::system_clock::now();
+  // Setup using steady_clock for deterministic timing
+  time_point next_execution;
+  const auto now = std::chrono::steady_clock::now();
   if (start_time) {
-    while (*start_time < now) *start_time += pause;
-    next_execution = *start_time;
+    // Convert wall-clock start_time to steady_clock by computing delta
+    const auto system_now = std::chrono::system_clock::now();
+    while (*start_time < system_now) *start_time += pause;
+    const auto delta = *start_time - system_now;
+    next_execution = now + delta;
   } else {
     next_execution = now;
   }
@@ -84,15 +87,20 @@ void Scheduler::SetInterval_(std::chrono::milliseconds pause,
 }
 
 void Scheduler::SetInterval_(std::string_view cron_expr) {
-  *find_next_.Lock() = [cron = cron::make_cron(cron_expr)](const auto &now, bool /* unused */) {
-    auto tm_now = LocalDateTime{now}.tm();
+  *find_next_.Lock() = [cron = cron::make_cron(cron_expr)](const auto &steady_now, bool /* unused */) {
+    // Cron expressions need wall-clock time for calculation
+    const auto system_now = std::chrono::system_clock::now();
+    auto tm_now = LocalDateTime{system_now}.tm();
     // Hack to force the mktime to reinterpret the time as is in the system tz
     tm_now.tm_gmtoff = 0;
     tm_now.tm_isdst = -1;
     tm_now.tm_zone = nullptr;
     const auto tm_next = cron::cron_next(cron, tm_now);
     // LocalDateTime reads only the date and time values, ignoring the system tz
-    return LocalDateTime{tm_next}.us_since_epoch_;
+    const auto system_next = LocalDateTime{tm_next}.us_since_epoch_;
+    // Convert to steady_clock by computing delta from wall-clock
+    const auto delta = system_next - system_now;
+    return steady_now + delta;
   };
 }
 
@@ -161,7 +169,8 @@ void Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std
     // the program start we let him log first and we make sure by first
     // waiting that function f will not log before it.
     // Check for pause also.
-    const auto now = std::chrono::system_clock::now();
+    // Use steady_clock for deterministic timing (no WALLCLOCK_TIME events)
+    const auto now = std::chrono::steady_clock::now();
     time_point next{};
     {
       auto find_locked = find_next_.Lock();

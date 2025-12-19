@@ -87,10 +87,10 @@ class Scheduler {
 
   void SpinOnce();
 
-  using time_point = std::chrono::system_clock::time_point;
+  using time_point = std::chrono::steady_clock::time_point;
   std::optional<time_point> NextExecution() {
     if (is_paused_) return {};
-    const auto next = find_next_.WithLock([](auto &f) { return f(std::chrono::system_clock::now(), false); });
+    const auto next = find_next_.WithLock([](auto &f) { return f(std::chrono::steady_clock::now(), false); });
     return next != time_point::max() ? std::make_optional(next) : std::nullopt;
   }
 
