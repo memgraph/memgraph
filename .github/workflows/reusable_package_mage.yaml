@@ -465,7 +465,7 @@ jobs:
 
   RunSmokeTests:
     needs: [BuildAndPush, SetupSmokeTest]
-    uses: ./.github/workflows/reusable_smoke_tests.yml
+    uses: ./.github/workflows/reusable_smoke_test_mage.yml
     with:
       arch: "${{ inputs.arch }}"
       next_version: "${{ needs.BuildAndPush.outputs.s3_package_url }}"
