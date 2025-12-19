@@ -261,19 +261,25 @@ std::vector<TextEdgeIndexSpec> TextEdgeIndex::ListIndices() const {
 }
 
 void TextEdgeIndex::Clear() {
-  std::vector<TextEdgeIndexSpec> index_specs_to_recover;
-  index_specs_to_recover.reserve(index_.size());
+  // Collect all index specs before modifying the map -> we will need to recover them if we fail to drop any of them
+  std::vector<TextEdgeIndexSpec> all_index_specs;
+  all_index_specs.reserve(index_.size());
   for (const auto &[index_name, index_data] : index_) {
+    all_index_specs.emplace_back(index_name, index_data.scope, index_data.properties);
+  }
+
+  std::vector<TextEdgeIndexSpec> successfully_dropped;
+  successfully_dropped.reserve(all_index_specs.size());
+  for (const auto &index_spec : all_index_specs) {
     try {
-      // We have to keep this order of operations because DropIndex removes the index from the map
-      index_specs_to_recover.emplace_back(index_name, index_data.scope, index_data.properties);
-      DropIndex(index_name);
+      DropIndex(index_spec.index_name);
+      successfully_dropped.push_back(index_spec);
     } catch (const std::exception &e) {
-      // Recover indices that were dropped before (we can pop last entry since it was already recovered in DropIndex)
-      index_specs_to_recover.pop_back();
-      for (const auto &index_spec : index_specs_to_recover) {
-        CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, index_spec.index_name), index_spec);
+      // Recover indices that were successfully dropped before this failure
+      for (const auto &dropped_spec : successfully_dropped) {
+        CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, dropped_spec.index_name), dropped_spec);
       }
+      throw;
     }
   }
 }
