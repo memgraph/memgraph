@@ -161,10 +161,10 @@ jobs:
 
       - name: Create wheels directory and fetch wheels if available
         run: |
-          mkdir -p wheels
+          mkdir -p mage/wheels
           if [ "$CACHE_PRESENT" = "true" ]; then
             echo "Cache is present. Fetching wheels..."
-            wget -r -np -nH --cut-dirs=1 -P wheels "http://mgdeps-cache:8000/wheels/"
+            wget -r -np -nH --cut-dirs=1 -P mage/wheels "http://mgdeps-cache:8000/wheels/"
           else
             echo "Cache is not present. Skipping wheel fetch."
           fi
