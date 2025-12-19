@@ -53,11 +53,11 @@ trap exit_handler ERR EXIT
 echo -e "${GREEN_BOLD}Running tests in container: $CONTAINER_NAME${RESET}"
 
 echo -e "${GREEN_BOLD}Running Rust tests${RESET}"
-docker exec -i -u mg $CONTAINER_NAME bash -c "source /opt/toolchain-v7/activate && source \$HOME/.cargo/env && cd \$HOME/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
+docker exec -i -u mg $CONTAINER_NAME bash -c "source /opt/toolchain-v7/activate && source \$HOME/.cargo/env && cd \$HOME/memgraph/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
 
 
 echo -e "${GREEN_BOLD}Running C++ tests${RESET}"
-docker exec -i -u mg $CONTAINER_NAME bash -c "cd \$HOME/mage/cpp/build/ && ctest --output-on-failure -j\$(nproc)"
+docker exec -i -u mg $CONTAINER_NAME bash -c "cd \$HOME/memgraph/mage/cpp/build/ && ctest --output-on-failure -j\$(nproc)"
 
 
 echo -e "${GREEN_BOLD}Running Python tests${RESET}"
@@ -68,7 +68,7 @@ else
 fi
 docker cp python/$requirements_file $CONTAINER_NAME:/tmp/$requirements_file
 docker cp cpp/memgraph/src/auth/reference_modules/requirements.txt $CONTAINER_NAME:/tmp/auth_module-requirements.txt
-docker exec -i -u mg $CONTAINER_NAME bash -c "cd \$HOME/mage/ && \
+docker exec -i -u mg $CONTAINER_NAME bash -c "cd \$HOME/memgraph/mage/ && \
   ./scripts/install_python_requirements.sh --ci --cache-present $CACHE_PRESENT --cuda $CUDA --arch $ARCH && \
-  pip install -r \$HOME/mage/python/tests/requirements.txt --break-system-packages"
-docker exec -i -u mg $CONTAINER_NAME bash -c "cd \$HOME/mage/python/ && python3 -m pytest ."
+  pip install -r \$HOME/memgraph/mage/python/tests/requirements.txt --break-system-packages"
+docker exec -i -u mg $CONTAINER_NAME bash -c "cd \$HOME/memgraph/mage/python/ && python3 -m pytest ."

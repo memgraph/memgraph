@@ -9,7 +9,7 @@ docker exec -i -u root $CONTAINER_NAME bash -c "apt-get update && apt-get instal
 
 docker exec -i -u root $CONTAINER_NAME bash -c "mkdir -p /tmp/heaptrack && chown mg:mg /tmp/heaptrack"
 
-docker exec -u mg $CONTAINER_NAME bash -c "$ACTIVATE_TOOLCHAIN && cd \$HOME/mage && ./scripts/build-heaptrack.sh"
+docker exec -u mg $CONTAINER_NAME bash -c "$ACTIVATE_TOOLCHAIN && cd \$HOME/memgraph/mage && ./scripts/build-heaptrack.sh"
 
 mkdir -p heaptrack
 docker cp $CONTAINER_NAME:/tmp/heaptrack .

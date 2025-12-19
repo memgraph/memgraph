@@ -60,14 +60,14 @@ docker run -d --rm -v $CONAN_CACHE_DIR:/home/mg/.conan2 --name $CONTAINER_NAME $
 
 echo -e "${GREEN_BOLD}Copying repo into container${RESET}"
 docker exec -i -u mg $CONTAINER_NAME mkdir -p /home/mg/mage
-docker cp . $CONTAINER_NAME:/home/mg/mage
-docker exec -i -u root $CONTAINER_NAME bash -c "chown -R mg:mg /home/mg/mage"
+docker cp . $CONTAINER_NAME:/home/mg/memgraph
+docker exec -i -u root $CONTAINER_NAME bash -c "chown -R mg:mg /home/mg/memgraph"
 
 echo -e "${GREEN_BOLD}Building inside container${RESET}"
-docker exec -i $CONTAINER_NAME bash -c "cd /home/mg/mage && ./scripts/build.sh $BUILD_TYPE"
+docker exec -i $CONTAINER_NAME bash -c "cd /home/mg/memgraph/mage && ./scripts/build.sh $BUILD_TYPE"
 
 echo -e "${GREEN_BOLD}Compressing query modules${RESET}"
-docker exec -i $CONTAINER_NAME bash -c "cd /home/mg/mage && ./scripts/compress.sh"
+docker exec -i $CONTAINER_NAME bash -c "cd /home/mg/memgraph/mage && ./scripts/compress.sh"
 
 echo -e "${GREEN_BOLD}Copying compressed query modules${RESET}"
 docker cp $CONTAINER_NAME:/home/mg/mage.tar.gz .
