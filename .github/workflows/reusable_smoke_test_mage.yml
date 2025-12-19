@@ -1,0 +1,149 @@
+name: Reusable Smoke Test MAGE
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        type: string
+        description: "Architecture to build the image for (amd64/arm64)"
+        required: true
+      next_version:
+        type: string
+        required: false
+        description: "Version (x.y.z), daily build date (YYYYMMDD), or URL to Docker image: Default - latest daily build"
+      last_version:
+        type: string
+        required: false
+        description: "Version (x.y.z), daily build date (YYYYMMDD), or URL to Docker image: Default - latest release"
+      malloc:
+        type: boolean
+        default: false
+        description: "Used if next_type or last_type is of 'date'"
+
+env:
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+
+jobs:
+  smoke-test-image:
+    runs-on: ${{ (inputs.arch == 'arm64') && fromJSON('["self-hosted", "ARM64"]') || fromJSON('["self-hosted", "X64"]') }}
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log into AWS
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Determine Input Types
+        run: |
+          # default to latest daily build (from the previous day)
+          if [ -z "${{ inputs.next_version }}" ]; then
+            next_version="$(date -d "yesterday" +%Y%m%d)"
+          else
+            next_version="${{ inputs.next_version }}"
+          fi
+
+          # default to latest release version
+          if [ -z "${{ inputs.last_version }}" ]; then
+            tag="$( git tag | grep -v rc | tail -n 1)"
+            last_version="${tag#v}"
+          else
+            last_version="${{ inputs.last_version }}"
+          fi
+
+          read next_type next_image < <(python3 mage/scripts/workflow_image_setup.py "${next_version}" "${{ inputs.arch }}" "${{ inputs.malloc }}")
+          echo "NEXT_IMAGE=${next_image}" >> $GITHUB_ENV
+          echo "NEXT_TYPE=${next_type}" >> $GITHUB_ENV
+          read last_type last_image < <(python3 mage/scripts/workflow_image_setup.py "${last_version}" "${{ inputs.arch }}" "${{ inputs.malloc }}")
+          echo "LAST_IMAGE=${last_image}" >> $GITHUB_ENV
+          echo "LAST_TYPE=${last_type}" >> $GITHUB_ENV
+
+      - name: Load Next Image (Docker)
+        if: ${{ env.NEXT_TYPE == 'docker' }}
+        run: |
+          docker pull "$NEXT_IMAGE"
+          echo "MEMGRAPH_NEXT_DOCKERHUB_IMAGE=${{ env.NEXT_IMAGE }}" >> $GITHUB_ENV
+
+      - name: Load Next Image (URL)
+        if: ${{ env.NEXT_TYPE == 'url' }}
+        run: |
+          curl -L ${{ env.NEXT_IMAGE }} > next.tar.gz
+          load_output=$(docker load -i next.tar.gz)
+
+          # grab each repo:tag, drop the ":latest" one, pick the first real tag
+          repo_tag=$(echo "$load_output" \
+            | awk -F': ' '/Loaded image:/ {print $2}' \
+            | grep -v ':latest$' \
+            | head -n1)
+
+          echo "MEMGRAPH_NEXT_DOCKERHUB_IMAGE=${repo_tag}" >> $GITHUB_ENV
+          rm next.tar.gz
+
+      - name: Load Last Image (Docker)
+        if: ${{ env.LAST_TYPE == 'docker' }}
+        run: |
+          docker pull "$LAST_IMAGE"
+          echo "MEMGRAPH_LAST_DOCKERHUB_IMAGE=${{ env.LAST_IMAGE }}" >> $GITHUB_ENV
+
+      - name: Load Last Image (URL)
+        if: ${{ env.LAST_TYPE == 'url' }}
+        run: |
+          curl -L ${{ env.LAST_IMAGE }} > last.tar.gz
+          load_output=$(docker load -i last.tar.gz)
+
+          # grab each repo:tag, drop the ":latest" one, pick the first real tag
+          repo_tag=$(echo "$load_output" \
+            | awk -F': ' '/Loaded image:/ {print $2}' \
+            | grep -v ':latest$' \
+            | head -n1)
+
+          echo "MEMGRAPH_LAST_DOCKERHUB_IMAGE=${repo_tag}" >> $GITHUB_ENV
+          rm last.tar.gz
+
+      - name: Init Tests
+        run: |
+          cd mage/smoke-release-testing
+          ./init_workflow.bash
+
+      - name: Install Python Dependencies
+        run: |
+          python3 -m venv env
+          source env/bin/activate
+          pip install -r mage/smoke-release-testing/requirements.txt --break-system-packages
+
+      - name: Run Tests
+        env:
+          MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+          MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+        run: |
+          source env/bin/activate
+          cd mage/smoke-release-testing
+          ./test_single_mage.bash
+
+      - name: clean up Python environment
+        if: always()
+        run: |
+          rm -rf env || true
+
+      - name: Clean up Go environment
+        if: always()
+        run: |
+          rm -rf $HOME/go-install || true
+
+      - name: Clean up Docker images
+        if: always()
+        run: |
+          ./tools/docker_cleanup.sh

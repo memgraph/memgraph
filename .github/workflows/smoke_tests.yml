@@ -1,0 +1,84 @@
+name: "Smoke Testing MAGE"
+concurrency:
+  group: smoke-tests-${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      next_version:
+        type: string
+        required: false
+        description: "Version (x.y.z), daily build date (YYYYMMDD), or URL to Docker image: Default - latest daily build"
+      last_version:
+        type: string
+        required: false
+        description: "Version (x.y.z), daily build date (YYYYMMDD), or URL to Docker image: Default - latest release"
+      arch:
+        type: choice
+        default: "amd64"
+        options:
+        - "all"
+        - "arm64"
+        - "amd64"
+        required: false
+        description: "Architecture to build the image for (amd64/arm64)"
+      malloc:
+        type: boolean
+        default: false
+        description: "Test malloc build"
+
+jobs:
+  smoke-release-tests-setup:
+    runs-on: ubuntu-latest
+    outputs:
+      run_all: ${{ steps.determine.outputs.run_all }}
+    steps:
+      - name: Determine whether to run “all” or “single”
+        id: determine
+        shell: bash
+        env:
+          NEXT_VERSION: ${{ github.event.inputs.next_version }}
+          LAST_VERSION: ${{ github.event.inputs.last_version }}
+          ARCH:         ${{ github.event.inputs.arch }}
+        run: |
+          # if either version is a URL, or arch != "all", we only run the "single" path
+          if [[ "$NEXT_VERSION" =~ ^https?:// ]] \
+             || [[ "$LAST_VERSION" =~ ^https?:// ]] \
+             || [[ "$ARCH" != "all" ]]; then
+            echo "run_all=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_all=true"  >> "$GITHUB_OUTPUT"
+          fi
+
+
+  smoke-release-single:
+    needs: smoke-release-tests-setup
+    if: ${{ needs.smoke-release-tests-setup.outputs.run_all == 'false' }}
+    uses: ./.github/workflows/reusable_smoke_test_mage.yml
+    with:
+      arch: "${{ inputs.arch }}"
+      next_version: "${{ inputs.next_version }}"
+      last_version: "${{ inputs.last_version }}"
+      malloc: ${{ inputs.malloc }}
+    secrets: inherit
+
+
+  smoke-release-all:
+    needs: smoke-release-tests-setup
+    if: ${{ needs.smoke-release-tests-setup.outputs.run_all == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ["amd64", "arm64"]
+        malloc: [false]
+        include:
+        - arch: "amd64"
+          malloc: true
+    uses: ./.github/workflows/reusable_smoke_test_mage.yml
+    with:
+      arch: "${{ matrix.arch }}"
+      next_version: "${{ inputs.next_version }}"
+      last_version: "${{ inputs.last_version }}"
+      malloc: ${{ matrix.malloc }}
+    secrets: inherit
