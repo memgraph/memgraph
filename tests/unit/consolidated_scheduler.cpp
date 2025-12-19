@@ -328,3 +328,63 @@ TEST(ConsolidatedSchedulerStandalone, ZeroWorkersInlineExecution) {
 
   // RAII handles cleanup
 }
+
+/// Test 13: One-shot task runs exactly once
+TEST(ConsolidatedSchedulerStandalone, OneShotTask) {
+  ConsolidatedScheduler scheduler;
+
+  std::atomic<int> counter{0};
+
+  // Schedule a one-shot task to run after 50ms
+  auto handle = scheduler.ScheduleAfter("one-shot", 50ms, [&counter]() { ++counter; });
+
+  EXPECT_TRUE(handle.IsValid());
+
+  // Wait for task to execute
+  std::this_thread::sleep_for(100ms);
+  EXPECT_EQ(counter.load(), 1);
+
+  // Wait longer - should NOT execute again
+  std::this_thread::sleep_for(200ms);
+  EXPECT_EQ(counter.load(), 1);  // Still 1, not rescheduled
+}
+
+/// Test 14: ScheduleNow runs immediately once
+TEST(ConsolidatedSchedulerStandalone, ScheduleNowRunsOnce) {
+  ConsolidatedScheduler scheduler;
+
+  std::atomic<int> counter{0};
+
+  // Schedule to run as soon as possible, once
+  auto handle = scheduler.ScheduleNow("immediate-once", [&counter]() { ++counter; });
+
+  EXPECT_TRUE(handle.IsValid());
+
+  // Should execute almost immediately
+  std::this_thread::sleep_for(100ms);
+  EXPECT_EQ(counter.load(), 1);
+
+  // Should NOT execute again
+  std::this_thread::sleep_for(200ms);
+  EXPECT_EQ(counter.load(), 1);
+}
+
+/// Test 15: One-shot via ScheduleSpec::After
+TEST(ConsolidatedSchedulerStandalone, OneShotViaScheduleSpec) {
+  ConsolidatedScheduler scheduler;
+
+  std::atomic<int> counter{0};
+
+  TaskConfig config{"delayed-once", ScheduleSpec::After(50ms), SchedulerPriority::NORMAL};
+  auto handle = scheduler.Register(config, [&counter]() { ++counter; });
+
+  EXPECT_TRUE(handle.IsValid());
+
+  // Wait for execution
+  std::this_thread::sleep_for(100ms);
+  EXPECT_EQ(counter.load(), 1);
+
+  // Verify it doesn't repeat
+  std::this_thread::sleep_for(150ms);
+  EXPECT_EQ(counter.load(), 1);
+}

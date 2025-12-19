@@ -245,15 +245,24 @@ TaskHandle ConsolidatedScheduler::Register(TaskConfig config, std::function<void
   std::weak_ptr<TaskState> weak_task = task;
   task->reschedule_task = [this, weak_task](std::shared_ptr<TaskState>) {
     if (auto t = weak_task.lock()) {
-      if (!t->stopped.load(std::memory_order_acquire)) {
-        auto now = std::chrono::steady_clock::now();
-        t->next_execution = now + t->schedule.interval;
-        {
-          std::lock_guard lock(impl_->mutex_);
-          impl_->task_queue_.push(t);
-        }
-        WakeDispatcher();
+      if (t->stopped.load(std::memory_order_acquire)) {
+        return;  // Already stopped
       }
+
+      // One-shot tasks stop after single execution
+      if (t->schedule.one_shot) {
+        t->stopped.store(true, std::memory_order_release);
+        return;
+      }
+
+      // Reschedule periodic task
+      auto now = std::chrono::steady_clock::now();
+      t->next_execution = now + t->schedule.interval;
+      {
+        std::lock_guard lock(impl_->mutex_);
+        impl_->task_queue_.push(t);
+      }
+      WakeDispatcher();
     }
   };
 
@@ -364,6 +373,9 @@ void ConsolidatedScheduler::DispatcherLoop() {
         }
 
         if (top->trigger_now.load(std::memory_order_acquire) || top->next_execution <= now) {
+          // Advance next_execution to prevent re-dispatch before execution starts
+          // (task stays in all_tasks_ but won't be "due" when queue is rebuilt)
+          top->next_execution = now + top->schedule.interval;
           tasks_to_dispatch.push_back(top);
           impl_->task_queue_.pop();
           continue;  // Keep looking for more due tasks

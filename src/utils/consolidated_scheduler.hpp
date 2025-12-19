@@ -37,12 +37,22 @@ enum class SchedulerPriority : uint8_t {
 struct ScheduleSpec {
   std::chrono::milliseconds interval{0};  ///< Fixed interval scheduling
   bool execute_immediately{false};        ///< Run task once at registration
+  bool one_shot{false};                   ///< If true, task runs once then stops (no reschedule)
 
-  /// Create a fixed-interval schedule
+  /// Create a fixed-interval schedule (repeating)
   template <typename Rep, typename Period>
   static constexpr ScheduleSpec Interval(std::chrono::duration<Rep, Period> duration, bool immediate = false) {
-    return ScheduleSpec{std::chrono::duration_cast<std::chrono::milliseconds>(duration), immediate};
+    return ScheduleSpec{std::chrono::duration_cast<std::chrono::milliseconds>(duration), immediate, false};
   }
+
+  /// Create a one-shot timer (runs once after delay)
+  template <typename Rep, typename Period>
+  static constexpr ScheduleSpec After(std::chrono::duration<Rep, Period> delay) {
+    return ScheduleSpec{std::chrono::duration_cast<std::chrono::milliseconds>(delay), false, true};
+  }
+
+  /// Create an immediate one-shot (runs as soon as possible, once)
+  static constexpr ScheduleSpec Once() { return ScheduleSpec{std::chrono::milliseconds{1}, true, true}; }
 
   /// Check if schedule is valid (non-zero interval)
   constexpr explicit operator bool() const { return interval.count() > 0; }
@@ -141,6 +151,20 @@ class ConsolidatedScheduler {
                                     std::function<void()> callback,
                                     SchedulerPriority priority = SchedulerPriority::NORMAL) {
     return Register(TaskConfig{std::move(name), ScheduleSpec::Interval(interval), priority}, std::move(callback));
+  }
+
+  /// Schedule a one-shot task to run after a delay
+  template <typename Rep, typename Period>
+  [[nodiscard]] TaskHandle ScheduleAfter(std::string name, std::chrono::duration<Rep, Period> delay,
+                                         std::function<void()> callback,
+                                         SchedulerPriority priority = SchedulerPriority::NORMAL) {
+    return Register(TaskConfig{std::move(name), ScheduleSpec::After(delay), priority}, std::move(callback));
+  }
+
+  /// Schedule a one-shot task to run as soon as possible
+  [[nodiscard]] TaskHandle ScheduleNow(std::string name, std::function<void()> callback,
+                                       SchedulerPriority priority = SchedulerPriority::NORMAL) {
+    return Register(TaskConfig{std::move(name), ScheduleSpec::Once(), priority}, std::move(callback));
   }
 
   /// Shutdown the scheduler and stop all tasks
