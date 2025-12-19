@@ -239,9 +239,12 @@ int main(int argc, char **argv) {
                                                    "https://memgr.ph/python"));
   }
 
-  memgraph::utils::Scheduler python_gc_scheduler;
-  python_gc_scheduler.SetInterval(std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec));
-  python_gc_scheduler.Run("Python GC", [] { memgraph::query::procedure::PyCollectGarbage(); });
+  memgraph::utils::TaskHandle python_gc_handle;
+  if (FLAGS_storage_python_gc_cycle_sec > 0) {
+    python_gc_handle = memgraph::utils::ConsolidatedScheduler::Global().Register(
+        "Python GC", std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec),
+        [] { memgraph::query::procedure::PyCollectGarbage(); }, memgraph::utils::SchedulerPriority::LOW);
+  }
 
   // Initialize the communication library.
   memgraph::communication::SSLInit sslInit;
@@ -826,7 +829,7 @@ int main(int argc, char **argv) {
   } catch (memgraph::query::QueryException &) {
     spdlog::warn("Failed to unload query modules while shutting down.");
   }
-  python_gc_scheduler.Stop();
+  python_gc_handle.Stop();
   Py_END_ALLOW_THREADS;
   // Shutdown Python
   Py_Finalize();
