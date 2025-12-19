@@ -11,8 +11,10 @@
 
 #pragma once
 
+#include <sys/eventfd.h>
+#include <unistd.h>
+
 #include <atomic>
-#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -137,8 +139,8 @@ class PriorityThreadPool {
   // Single worker implementation
   class Worker {
    public:
-    Worker() = default;
-    ~Worker() = default;
+    Worker();
+    ~Worker();
 
     Worker(const Worker &) = delete;
     Worker &operator=(const Worker &) = delete;
@@ -160,7 +162,7 @@ class PriorityThreadPool {
 
    private:
     mutable std::mutex mtx_;
-    std::condition_variable cv_;
+    int eventfd_{-1};  // For wake signaling (replaces condition_variable)
     std::priority_queue<Work> work_;
 
     // Stats

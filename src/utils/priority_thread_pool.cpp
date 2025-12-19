@@ -12,7 +12,6 @@
 #include "utils/priority_thread_pool.hpp"
 
 #include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -26,7 +25,6 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/priorities.hpp"
 #include "utils/thread.hpp"
-#include "utils/yielder.hpp"
 
 namespace {
 constexpr memgraph::utils::PriorityThreadPool::TaskID kMaxLowPriorityId = std::numeric_limits<int64_t>::max();
@@ -168,6 +166,12 @@ void PriorityThreadPool::ShutDown() {
   }
 }
 
+PriorityThreadPool::Worker::Worker() : eventfd_(eventfd(0, EFD_SEMAPHORE | EFD_CLOEXEC)) {}
+
+PriorityThreadPool::Worker::~Worker() {
+  if (eventfd_ >= 0) close(eventfd_);
+}
+
 void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority priority) {
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
     return;
@@ -194,7 +198,8 @@ void PriorityThreadPool::Worker::push(TaskSignature new_task, TaskID id) {
     work_.emplace(id, std::move(new_task));
   }
   has_pending_work_ = true;
-  cv_.notify_one();
+  uint64_t val = 1;
+  [[maybe_unused]] auto _ = write(eventfd_, &val, sizeof(val));
 }
 
 void PriorityThreadPool::Worker::stop() {
@@ -202,7 +207,8 @@ void PriorityThreadPool::Worker::stop() {
     auto l = std::unique_lock{mtx_};
     run_ = false;
   }
-  cv_.notify_one();
+  uint64_t val = 1;
+  [[maybe_unused]] auto _ = write(eventfd_, &val, sizeof(val));
 }
 
 template <Priority ThreadPriority>
@@ -296,30 +302,36 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
       continue;
     }
 
-    // Phase 3 - spin for a while waiting on work
-    {
-      const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(1);
-      yielder y;  // NOLINT (misc-const-correctness)
-      while (std::chrono::steady_clock::now() < end) {
-        if (y([this] { return has_pending_work_.load(std::memory_order_acquire); }, 1024U, 0U)) break;
-      }
-    }
+    // Phase 3 removed - eventfd provides efficient wake-up, no spin needed
 
-    // Phase 4A - reset hot mask
+    // Phase 4A - reset hot mask before sleeping
     if constexpr (ThreadPriority != Priority::HIGH) {
       hot_threads.Reset(worker_id);
     }
-    // Phase 4B - check if work available (sleep or spin)
+
+    // Phase 4B - wait for work via eventfd
     {
-      auto l = std::unique_lock{mtx_};
-      cv_.wait(l, [this, &pop_task] {
-        // Under lock, check if there is work waiting
+      // Check without blocking first
+      {
+        auto l = std::unique_lock{mtx_};
         if (!work_.empty()) {
           pop_task();
-          return true;  // Spin to phase 1A and execute task
+          continue;
         }
-        return !run_;  // Return and shutdown
-      });
+        if (!run_) break;
+      }
+
+      // Block on eventfd - wakes when push() or stop() signals
+      uint64_t val;
+      [[maybe_unused]] auto _ = read(eventfd_, &val, sizeof(val));
+
+      // After wake, check and get work
+      if (!run_.load(std::memory_order_acquire)) break;
+
+      auto l = std::unique_lock{mtx_};
+      if (!work_.empty()) {
+        pop_task();
+      }
     }
   }
 }
