@@ -66,16 +66,17 @@ int main(int argc, char **argv) {
                                                            &auth_handler, &auth_checker);
 
 #ifdef MG_ENTERPRISE
-  std::optional<CoordinatorState> coord_state;
-  coord_state.emplace(CoordinatorInstanceInitConfig{.coordinator_id = 1,
-                                                    .coordinator_port = 20000,
-                                                    .bolt_port = 7689,
-                                                    .management_port = 10000,
-                                                    .durability_dir = "coord_state_dir",
-                                                    .coordinator_hostname = "localhost",
-                                                    .nuraft_log_file = "test.log",
-                                                    .instance_down_timeout_sec = std::chrono::seconds(5),
-                                                    .instance_health_check_frequency_sec = std::chrono::seconds(1)});
+  std::shared_ptr<CoordinatorState> coord_state;
+  coord_state = std::make_shared<CoordinatorState>(
+      CoordinatorInstanceInitConfig{.coordinator_id = 1,
+                                    .coordinator_port = 20000,
+                                    .bolt_port = 7689,
+                                    .management_port = 10000,
+                                    .durability_dir = "coord_state_dir",
+                                    .coordinator_hostname = "localhost",
+                                    .nuraft_log_file = "test.log",
+                                    .instance_down_timeout_sec = std::chrono::seconds(5),
+                                    .instance_health_check_frequency_sec = std::chrono::seconds(1)});
 #endif
 
   memgraph::requests::Init();

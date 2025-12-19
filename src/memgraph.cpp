@@ -529,7 +529,7 @@ int main(int argc, char **argv) {
   using memgraph::coordination::CoordinatorInstanceInitConfig;
   using memgraph::coordination::CoordinatorState;
   using memgraph::coordination::ReplicationInstanceInitConfig;
-  std::optional<CoordinatorState> coordinator_state{std::nullopt};
+  std::shared_ptr<CoordinatorState> coordinator_state{};
   auto const is_valid_data_instance =
       coordination_setup.management_port && !coordination_setup.coordinator_port && !coordination_setup.coordinator_id;
   auto const is_valid_coordinator_instance = coordination_setup.management_port &&
@@ -556,7 +556,7 @@ int main(int argc, char **argv) {
       constexpr auto kRaftDataDir = "/high_availability/raft_data";
       auto const high_availability_data_dir = FLAGS_data_directory + kRaftDataDir;
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
-      coordinator_state.emplace(CoordinatorInstanceInitConfig{
+      coordinator_state = std::make_shared<CoordinatorState>(CoordinatorInstanceInitConfig{
           .coordinator_id = coordination_setup.coordinator_id,
           .coordinator_port = coordination_setup.coordinator_port,
           .bolt_port = extracted_bolt_port,
@@ -567,7 +567,8 @@ int main(int argc, char **argv) {
           .instance_down_timeout_sec = std::chrono::seconds(FLAGS_instance_down_timeout_sec),
           .instance_health_check_frequency_sec = std::chrono::seconds(FLAGS_instance_health_check_frequency_sec)});
     } else {
-      coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
+      coordinator_state = std::make_shared<CoordinatorState>(
+          ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
     }
   };
 
@@ -586,7 +587,7 @@ int main(int argc, char **argv) {
       ReplicationStateRootPath(db_config)
 #ifdef MG_ENTERPRISE
           ,
-      coordinator_state.has_value() && coordinator_state->IsDataInstance()
+      coordinator_state && coordinator_state->IsDataInstance()
 #endif
   };
 
@@ -768,7 +769,7 @@ int main(int argc, char **argv) {
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
     metrics_server.Shutdown();
-    if (coordinator_state.has_value() && coordinator_state->IsCoordinator()) {
+    if (coordinator_state && coordinator_state->IsCoordinator()) {
       // Coordinator instance destruction will handle the complete shutdown
       coordinator_state.reset();
     }
