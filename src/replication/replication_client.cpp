@@ -30,7 +30,7 @@ ReplicationClient::ReplicationClient(const ReplicationClientConfig &config)
       mode_{config.mode} {}
 
 void ReplicationClient::Shutdown() {
-  replica_checker_.Stop();
+  replica_checker_handle_.Stop();
   thread_pool_.ShutDown();
 }
 
@@ -41,7 +41,7 @@ ReplicationClient::~ReplicationClient() {
   } catch (...) {
     // Logging can throw. Not a big deal, just ignore.
   }
-  replica_checker_.Stop();
+  replica_checker_handle_.Stop();
   thread_pool_.ShutDown();
 }
 

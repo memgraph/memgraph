@@ -14,10 +14,10 @@
 #include "replication/config.hpp"
 #include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
+#include "utils/consolidated_scheduler.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/metrics_timer.hpp"
 #include "utils/rw_lock.hpp"
-#include "utils/scheduler.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
 
@@ -50,29 +50,30 @@ struct ReplicationClient {
   void StartFrequentCheck(FS &&success_callback, FF &&fail_callback) {
     // Help the user to get the most accurate replica state possible.
     if (replica_check_frequency_ > std::chrono::seconds(0)) {
-      replica_checker_.SetInterval(replica_check_frequency_);
-      replica_checker_.Run("Replica Checker",
-                           [this, succ_cb = std::forward<FS>(success_callback),
-                            fail_cb = std::forward<FF>(fail_callback), failed_attempts = 0UL]() mutable {
-                             // Measure callbacks also to see how long it takes between scheduled runs
-                             utils::MetricsTimer const timer{metrics::FrequentHeartbeatRpc_us};
-                             try {
-                               {
-                                 auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
-                                 stream.SendAndWait();
-                               }
-                               succ_cb(*this);
-                               failed_attempts = 0U;
-                             } catch (const rpc::RpcFailedException &) {
-                               // Nothing to do...wait for a reconnect
-                               // NOTE: Here we are communicating with the instance connection.
-                               //       We don't have access to the underlying client; so the only thing we can do it
-                               //       tell the callback that this is a reconnection and to check the state
-                               if (constexpr auto kFailureAfterN = 3UL; ++failed_attempts == kFailureAfterN) {
-                                 fail_cb(*this);
-                               }
-                             }
-                           });
+      replica_checker_handle_ = utils::ConsolidatedScheduler::Global().Register(
+          utils::TaskConfig{"Replica Checker", utils::ScheduleSpec::Interval(replica_check_frequency_),
+                            utils::SchedulerPriority::NORMAL, utils::ConsolidatedScheduler::kIoPool},
+          [this, succ_cb = std::forward<FS>(success_callback), fail_cb = std::forward<FF>(fail_callback),
+           failed_attempts = 0UL]() mutable {
+            // Measure callbacks also to see how long it takes between scheduled runs
+            utils::MetricsTimer const timer{metrics::FrequentHeartbeatRpc_us};
+            try {
+              {
+                auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
+                stream.SendAndWait();
+              }
+              succ_cb(*this);
+              failed_attempts = 0U;
+            } catch (const rpc::RpcFailedException &) {
+              // Nothing to do...wait for a reconnect
+              // NOTE: Here we are communicating with the instance connection.
+              //       We don't have access to the underlying client; so the only thing we can do it
+              //       tell the callback that this is a reconnection and to check the state
+              if (constexpr auto kFailureAfterN = 3UL; ++failed_attempts == kFailureAfterN) {
+                fail_cb(*this);
+              }
+            }
+          });
     }
   }
 
@@ -149,6 +150,6 @@ struct ReplicationClient {
   //    Not having multiple possible threads in the same client allows us
   //    to ignore concurrency problems inside the client.
   utils::ThreadPool thread_pool_{1};
-  utils::Scheduler replica_checker_;
+  utils::TaskHandle replica_checker_handle_;
 };
 }  // namespace memgraph::replication
