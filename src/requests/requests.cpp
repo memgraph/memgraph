@@ -91,7 +91,7 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
   CURL *curl = nullptr;
   CURLcode res = CURLE_UNSUPPORTED_PROTOCOL;
 
-  auto response_code = 0;
+  long response_code = 0;
   struct curl_slist *headers = nullptr;
   std::string payload = data.dump();
   std::string user_agent = fmt::format("memgraph/{}", gflags::VersionString());
