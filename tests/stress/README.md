@@ -266,3 +266,16 @@ The EKS deployment uses configuration files in `deployments/eks/`:
 | `CLUSTER_REGION` | `eu-west-1` | AWS region |
 | `HELM_RELEASE_NAME` | `mem-ha-test` | Helm release name |
 | `POD_READY_TIMEOUT` | `600` | Timeout in seconds for pods to be ready |
+| `ENABLE_MONITORING` | `true` | Install kube-prometheus-stack for monitoring |
+
+### Exporting Metrics
+
+To export Prometheus metrics to a JSON file:
+
+```sh
+# Export to timestamped file (e.g., metrics_20251219_143052.json)
+./eks_ha.sh export-metrics
+
+# Export to specific file
+./eks_ha.sh export-metrics my_metrics.json
+```

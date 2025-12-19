@@ -843,21 +843,126 @@ restart_instance() {
     log_info "Pod $pod_name deleted (will be recreated by StatefulSet)"
 }
 
+export_metrics() {
+    # Export all Memgraph metrics from Prometheus to a JSON file
+    local output_file=${1:-"metrics_$(date +%Y%m%d_%H%M%S).json"}
+    local local_port=9090
+    local pf_pid=""
+
+    if [[ "$ENABLE_MONITORING" != "true" ]]; then
+        log_error "Monitoring is not enabled. Set ENABLE_MONITORING=true and redeploy."
+        return 1
+    fi
+
+    log_info "Exporting Prometheus metrics to: $output_file"
+
+    # Check if Prometheus is available
+    if ! kubectl get svc -n "$PROMETHEUS_NAMESPACE" kube-prometheus-stack-prometheus &>/dev/null; then
+        log_error "Prometheus service not found in namespace $PROMETHEUS_NAMESPACE"
+        return 1
+    fi
+
+    # Start port-forward in background
+    log_info "Setting up port-forward to Prometheus..."
+    kubectl port-forward -n "$PROMETHEUS_NAMESPACE" svc/kube-prometheus-stack-prometheus $local_port:9090 &>/dev/null &
+    pf_pid=$!
+
+    # Wait for port-forward to be ready
+    sleep 3
+
+    # Check if port-forward is still running
+    if ! kill -0 $pf_pid 2>/dev/null; then
+        log_error "Failed to establish port-forward to Prometheus"
+        return 1
+    fi
+
+    # Cleanup function
+    cleanup_pf() {
+        if [[ -n "$pf_pid" ]]; then
+            kill $pf_pid 2>/dev/null || true
+        fi
+    }
+    trap cleanup_pf EXIT
+
+    log_info "Querying Prometheus for Memgraph metrics..."
+
+    # Query all memgraph metrics using Prometheus API
+    # First, get the list of metric names that match memgraph_*
+    local metric_names
+    metric_names=$(curl -s "http://localhost:$local_port/api/v1/label/__name__/values" 2>/dev/null | \
+        jq -r '.data[]' 2>/dev/null | grep -E '^memgraph_' || true)
+
+    if [[ -z "$metric_names" ]]; then
+        log_warn "No Memgraph metrics found. The exporter might not be running yet."
+        # Try to get all metrics as fallback
+        log_info "Fetching all available metrics..."
+        # Use --data-urlencode to properly encode the regex query
+        curl -s -G "http://localhost:$local_port/api/v1/query" \
+            --data-urlencode 'query={__name__=~".+"}' 2>/dev/null | \
+            jq '.' > "$output_file"
+    else
+        log_info "Found Memgraph metrics: $(echo "$metric_names" | wc -l | tr -d ' ') metric names"
+
+        # Create a combined query for all memgraph metrics
+        local result='{"timestamp": "'$(date -Iseconds)'", "cluster": "'$CLUSTER_NAME'", "metrics": []}'
+
+        # Query each metric and combine results
+        local tmp_file=$(mktemp)
+        echo '[]' > "$tmp_file"
+
+        for metric in $metric_names; do
+            local metric_data
+            metric_data=$(curl -s "http://localhost:$local_port/api/v1/query?query=$metric" 2>/dev/null)
+
+            if [[ -n "$metric_data" ]]; then
+                # Append to results
+                jq --arg name "$metric" --argjson data "$metric_data" \
+                    '. += [{"name": $name, "data": $data}]' "$tmp_file" > "${tmp_file}.new"
+                mv "${tmp_file}.new" "$tmp_file"
+            fi
+        done
+
+        # Build final output
+        jq -n \
+            --arg timestamp "$(date -Iseconds)" \
+            --arg cluster "$CLUSTER_NAME" \
+            --slurpfile metrics "$tmp_file" \
+            '{timestamp: $timestamp, cluster: $cluster, metrics: $metrics[0]}' > "$output_file"
+
+        rm -f "$tmp_file"
+    fi
+
+    # Cleanup port-forward
+    cleanup_pf
+    trap - EXIT
+
+    if [[ -f "$output_file" ]]; then
+        local file_size=$(du -h "$output_file" | cut -f1)
+        log_info "Metrics exported successfully!"
+        log_info "  File: $output_file"
+        log_info "  Size: $file_size"
+    else
+        log_error "Failed to export metrics"
+        return 1
+    fi
+}
+
 print_usage() {
-    echo "Usage: $0 {start|stop|destroy|status|upgrade|restart|logs|exec|port-forward} [options]"
+    echo "Usage: $0 {start|stop|destroy|status|upgrade|restart|export-metrics|logs|exec|port-forward} [options]"
     echo ""
     echo "Commands:"
-    echo "  start              - Create EKS cluster and deploy Memgraph HA"
-    echo "  stop               - Uninstall Memgraph HA (keeps cluster)"
-    echo "  destroy            - Delete entire EKS cluster"
-    echo "  status             - Check deployment status"
-    echo "  upgrade [flags]    - Upgrade Helm release with optional flags"
-    echo "  restart <instance> - Restart an instance (delete pod)"
-    echo "  get-ip <service>   - Get external IP for a LoadBalancer service"
-    echo "  wait-ip <service>  - Wait for external IP and return it"
-    echo "  logs <pod>         - Follow logs for a pod"
-    echo "  exec <pod>         - Open shell in a pod"
-    echo "  port-forward [svc] - Port forward to a service (default: coordinator)"
+    echo "  start               - Create EKS cluster and deploy Memgraph HA"
+    echo "  stop                - Uninstall Memgraph HA (keeps cluster)"
+    echo "  destroy             - Delete entire EKS cluster"
+    echo "  status              - Check deployment status"
+    echo "  upgrade [flags]     - Upgrade Helm release with optional flags"
+    echo "  restart <instance>  - Restart an instance (delete pod)"
+    echo "  export-metrics [f]  - Export Prometheus metrics to JSON file"
+    echo "  get-ip <service>    - Get external IP for a LoadBalancer service"
+    echo "  wait-ip <service>   - Wait for external IP and return it"
+    echo "  logs <pod>          - Follow logs for a pod"
+    echo "  exec <pod>          - Open shell in a pod"
+    echo "  port-forward [svc]  - Port forward to a service (default: coordinator)"
     echo ""
     echo "Configuration files (in eks/ directory):"
     echo "  cluster.yaml       - EKS cluster configuration"
@@ -865,12 +970,12 @@ print_usage() {
     echo "  gp3-sc.yaml        - GP3 storage class configuration"
     echo ""
     echo "Environment variables:"
-    echo "  CLUSTER_NAME                - EKS cluster name (default: test-cluster-ha)"
-    echo "  CLUSTER_REGION              - AWS region (default: eu-west-1)"
-    echo "  HELM_RELEASE_NAME           - Helm release name (default: mem-ha-test)"
-    echo "  HELM_CHART_PATH             - Path to Helm chart (default: memgraph/memgraph-high-availability)"
-    echo "  POD_READY_TIMEOUT           - Timeout for pods to be ready in seconds (default: 600)"
-    echo "  ENABLE_MONITORING           - Install kube-prometheus-stack (default: false)"
+    echo "  CLUSTER_NAME                  - EKS cluster name (default: test-cluster-ha)"
+    echo "  CLUSTER_REGION                - AWS region (default: eu-west-1)"
+    echo "  HELM_RELEASE_NAME             - Helm release name (default: mem-ha-test)"
+    echo "  HELM_CHART_PATH               - Path to Helm chart (default: memgraph/memgraph-high-availability)"
+    echo "  POD_READY_TIMEOUT             - Timeout for pods to be ready in seconds (default: 600)"
+    echo "  ENABLE_MONITORING             - Install kube-prometheus-stack (default: true)"
     echo ""
     echo "Note: Set MEMGRAPH_ENTERPRISE_LICENSE and MEMGRAPH_ORGANIZATION_NAME in eks/values.yaml"
     echo "      When ENABLE_MONITORING=true, also set prometheus.enabled=true in values.yaml"
@@ -879,6 +984,8 @@ print_usage() {
     echo "  $0 start                           # Create cluster and deploy"
     echo "  $0 status                          # Check status"
     echo "  $0 restart data_1                  # Restart data instance 1"
+    echo "  $0 export-metrics                  # Export metrics to timestamped file"
+    echo "  $0 export-metrics results.json     # Export metrics to specific file"
     echo "  $0 port-forward coordinator 7687   # Port forward coordinator"
     echo "  $0 logs mem-ha-test-data-0         # View pod logs"
     echo "  $0 upgrade --set key=value         # Upgrade with custom values"
@@ -906,6 +1013,9 @@ case "$1" in
         ;;
     restart)
         restart_instance "$2"
+        ;;
+    export-metrics)
+        export_metrics "$2"
         ;;
     get-ip)
         get_service_ip "$2"
