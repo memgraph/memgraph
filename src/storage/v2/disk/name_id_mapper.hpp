@@ -72,6 +72,12 @@ class DiskNameIdMapper final : public NameIdMapper {
       return maybe_name.value();
     }
 
+    std::lock_guard<std::mutex> const lock{name_id_maps_mutex_};
+    maybe_name = NameIdMapper::MaybeIdToName(id);
+    if (maybe_name) {
+      return maybe_name.value();
+    }
+
     auto maybe_name_from_disk = id_to_name_storage_->Get(std::to_string(id));
     MG_ASSERT(maybe_name_from_disk.has_value(), "Trying to get a name from disk for an invalid ID!");
 
