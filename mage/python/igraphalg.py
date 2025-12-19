@@ -3,14 +3,14 @@ from typing import Dict, List
 
 import mgp
 from mgp_igraph import (
-  CommunityDetectionObjectiveFunctionOptions,
-  InvalidCommunityDetectionObjectiveFunctionException,
-  InvalidPageRankImplementationOption,
-  InvalidTopologicalSortingModeException,
-  MemgraphIgraph,
-  PageRankImplementationOptions,
-  TopologicalSortException,
-  TopologicalSortingModes,
+    CommunityDetectionObjectiveFunctionOptions,
+    InvalidCommunityDetectionObjectiveFunctionException,
+    InvalidPageRankImplementationOption,
+    InvalidTopologicalSortingModeException,
+    MemgraphIgraph,
+    PageRankImplementationOptions,
+    TopologicalSortException,
+    TopologicalSortingModes,
 )
 
 

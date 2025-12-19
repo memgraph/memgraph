@@ -6,16 +6,8 @@ from typing import Dict, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
-from mage.tgn.constants import (
-  MemoryUpdaterType,
-  MessageAggregatorType,
-  MessageFunctionType,
-  TGNLayerType,
-)
-from mage.tgn.definitions.layers import (
-  TGNLayerGraphAttentionEmbedding,
-  TGNLayerGraphSumEmbedding,
-)
+from mage.tgn.constants import MemoryUpdaterType, MessageAggregatorType, MessageFunctionType, TGNLayerType
+from mage.tgn.definitions.layers import TGNLayerGraphAttentionEmbedding, TGNLayerGraphSumEmbedding
 from mage.tgn.definitions.tgn import TGN
 
 

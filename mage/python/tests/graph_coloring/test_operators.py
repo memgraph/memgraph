@@ -2,13 +2,13 @@ import random
 
 import pytest
 from mage.graph_coloring_module import (
-  Graph,
-  Individual,
-  MISMutation,
-  MultipleMutation,
-  Parameter,
-  RandomMutation,
-  SimpleMutation,
+    Graph,
+    Individual,
+    MISMutation,
+    MultipleMutation,
+    Parameter,
+    RandomMutation,
+    SimpleMutation,
 )
 
 

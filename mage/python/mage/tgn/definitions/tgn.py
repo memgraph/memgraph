@@ -3,39 +3,13 @@ from typing import Dict, List, Tuple, Union
 import numpy as np
 import torch
 import torch.nn as nn
-from mage.tgn.constants import (
-  MemoryUpdaterType,
-  MessageAggregatorType,
-  MessageFunctionType,
-  TGNLayerType,
-)
-from mage.tgn.definitions.events import (
-  Event,
-  InteractionEvent,
-  NodeEvent,
-  create_interaction_events,
-)
+from mage.tgn.constants import MemoryUpdaterType, MessageAggregatorType, MessageFunctionType, TGNLayerType
+from mage.tgn.definitions.events import Event, InteractionEvent, NodeEvent, create_interaction_events
 from mage.tgn.definitions.memory import Memory
-from mage.tgn.definitions.memory_updater import (
-  MemoryUpdater,
-  MemoryUpdaterGRU,
-  MemoryUpdaterRNN,
-)
-from mage.tgn.definitions.message_aggregator import (
-  LastMessageAggregator,
-  MeanMessageAggregator,
-  MessageAggregator,
-)
-from mage.tgn.definitions.message_function import (
-  MessageFunction,
-  MessageFunctionIdentity,
-  MessageFunctionMLP,
-)
-from mage.tgn.definitions.messages import (
-  InteractionRawMessage,
-  NodeRawMessage,
-  RawMessage,
-)
+from mage.tgn.definitions.memory_updater import MemoryUpdater, MemoryUpdaterGRU, MemoryUpdaterRNN
+from mage.tgn.definitions.message_aggregator import LastMessageAggregator, MeanMessageAggregator, MessageAggregator
+from mage.tgn.definitions.message_function import MessageFunction, MessageFunctionIdentity, MessageFunctionMLP
+from mage.tgn.definitions.messages import InteractionRawMessage, NodeRawMessage, RawMessage
 from mage.tgn.definitions.raw_message_store import RawMessageStore
 from mage.tgn.definitions.temporal_neighborhood import TemporalNeighborhood
 from mage.tgn.definitions.time_encoding import TimeEncoder

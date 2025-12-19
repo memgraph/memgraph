@@ -3,12 +3,7 @@ from collections import defaultdict
 from typing import List
 
 import mgp
-from mage.constraint_programming import (
-  GekkoMatchingProblem,
-  GekkoMPSolver,
-  GreedyMatchingProblem,
-  GreedyMPSolver,
-)
+from mage.constraint_programming import GekkoMatchingProblem, GekkoMPSolver, GreedyMatchingProblem, GreedyMPSolver
 
 
 @mgp.read_proc

@@ -1,12 +1,5 @@
 import pytest
-from mage.graph_coloring_module import (
-  ChainPopulation,
-  ConflictError,
-  ConvergenceCallback,
-  Graph,
-  Individual,
-  Parameter,
-)
+from mage.graph_coloring_module import ChainPopulation, ConflictError, ConvergenceCallback, Graph, Individual, Parameter
 
 
 @pytest.fixture

@@ -2,13 +2,7 @@ import math
 import random
 
 import pytest
-from mage.graph_coloring_module import (
-  ChainPopulation,
-  ConflictError,
-  Graph,
-  Individual,
-  Parameter,
-)
+from mage.graph_coloring_module import ChainPopulation, ConflictError, Graph, Individual, Parameter
 
 
 @pytest.fixture

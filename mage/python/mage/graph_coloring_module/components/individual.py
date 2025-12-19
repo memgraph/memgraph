@@ -1,11 +1,7 @@
 from random import choice
 from typing import List, Set, Tuple
 
-from mage.graph_coloring_module.exceptions import (
-  IllegalColorException,
-  IllegalNodeException,
-  WrongColoringException,
-)
+from mage.graph_coloring_module.exceptions import IllegalColorException, IllegalNodeException, WrongColoringException
 from mage.graph_coloring_module.graph import Graph
 
 

@@ -6,14 +6,7 @@ import dgl
 import numpy as np
 import torch
 from mage.link_prediction.constants import Context, Metrics
-from sklearn.metrics import (
-  accuracy_score,
-  confusion_matrix,
-  f1_score,
-  precision_score,
-  recall_score,
-  roc_auc_score,
-)
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score, roc_auc_score
 
 # Function for obtaining reverse_relation naming given original relation
 reverse_relation = (

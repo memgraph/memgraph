@@ -1,9 +1,5 @@
 import pytest
-from mage.geography import (
-  InvalidCoordinatesException,
-  InvalidMetricException,
-  calculate_distance_between_points,
-)
+from mage.geography import InvalidCoordinatesException, InvalidMetricException, calculate_distance_between_points
 
 
 @pytest.fixture

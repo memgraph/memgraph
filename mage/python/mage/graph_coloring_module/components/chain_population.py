@@ -1,8 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from mage.graph_coloring_module.components.correlation_population import (
-  CorrelationPopulation,
-)
+from mage.graph_coloring_module.components.correlation_population import CorrelationPopulation
 from mage.graph_coloring_module.components.individual import Individual
 from mage.graph_coloring_module.components.population import Population
 from mage.graph_coloring_module.graph import Graph

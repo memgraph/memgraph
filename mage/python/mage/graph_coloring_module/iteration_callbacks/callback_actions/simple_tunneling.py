@@ -3,9 +3,7 @@ from typing import Any, Dict
 
 from mage.graph_coloring_module.components.population import Population
 from mage.graph_coloring_module.graph import Graph
-from mage.graph_coloring_module.iteration_callbacks.callback_actions.action import (
-  Action,
-)
+from mage.graph_coloring_module.iteration_callbacks.callback_actions.action import Action
 from mage.graph_coloring_module.parameters import Parameter
 from mage.graph_coloring_module.utils.parameters_utils import param_value
 from mage.graph_coloring_module.utils.validation import validate

@@ -1,12 +1,7 @@
 from typing import List
 
 import mgp
-from mage.geography import (
-  create_distance_matrix,
-  solve_1_5_approx,
-  solve_2_approx,
-  solve_greedy,
-)
+from mage.geography import create_distance_matrix, solve_1_5_approx, solve_2_approx, solve_greedy
 
 DEFAULT_SOLVING_METHOD = "1.5_approx"
 tsp_solving_methods = {

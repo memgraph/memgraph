@@ -70,17 +70,12 @@ import mgp
 import numpy as np
 import torch
 import torch.nn as nn
-from mage.tgn.constants import (
-  MemoryUpdaterType,
-  MessageAggregatorType,
-  MessageFunctionType,
-  TGNLayerType,
-)
+from mage.tgn.constants import MemoryUpdaterType, MessageAggregatorType, MessageFunctionType, TGNLayerType
 from mage.tgn.definitions.instances import (
-  TGNGraphAttentionEdgeSelfSupervised,
-  TGNGraphAttentionSupervised,
-  TGNGraphSumEdgeSelfSupervised,
-  TGNGraphSumSupervised,
+    TGNGraphAttentionEdgeSelfSupervised,
+    TGNGraphAttentionSupervised,
+    TGNGraphSumEdgeSelfSupervised,
+    TGNGraphSumSupervised,
 )
 from mage.tgn.definitions.tgn import TGN
 from mage.tgn.helper.simple_mlp import MLP

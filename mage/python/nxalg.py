@@ -17,12 +17,7 @@ except ImportError as import_error:
     raise import_error
 # Imported last because it also depends on networkx.
 from mgp_networkx import MemgraphDiGraph  # noqa: E402
-from mgp_networkx import (
-  MemgraphGraph,
-  MemgraphMultiDiGraph,
-  MemgraphMultiGraph,
-  PropertiesDictionary,
-)
+from mgp_networkx import MemgraphGraph, MemgraphMultiDiGraph, MemgraphMultiGraph, PropertiesDictionary
 
 
 # networkx.algorithms.approximation.connectivity.node_connectivity
