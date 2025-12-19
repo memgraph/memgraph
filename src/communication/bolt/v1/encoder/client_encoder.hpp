@@ -152,7 +152,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessageReset() {
+  constexpr bool MessageReset() {
     WriteRAW(std::to_underlying(Marker::TinyStruct));
     WriteRAW(std::to_underlying(Signature::Reset));
     // Try to flush all remaining data in the buffer, but tell it that we will

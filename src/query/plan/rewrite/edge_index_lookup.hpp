@@ -767,7 +767,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     return candidate_indices;
   }
 
-  std::vector<CandidateIndex> GetCandidatePropertyIndicesFromFilter(const Symbol &symbol) {
+  constexpr std::vector<CandidateIndex> GetCandidatePropertyIndicesFromFilter(const Symbol &symbol) {
     std::vector<CandidateIndex> candidate_indices{};
     for (const auto &filter : filters_.PropertyFilters(symbol)) {
       if (filter.property_filter->is_symbol_in_value_) {
@@ -788,7 +788,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     return candidate_indices;
   }
 
-  std::vector<CandidateIndex> GetCandidateIndicesFromRelationship(
+  constexpr std::vector<CandidateIndex> GetCandidateIndicesFromRelationship(
       const Symbol &symbol, const std::optional<storage::EdgeTypeId> edge_type_from_relationship) {
     std::vector<CandidateIndex> candidate_indices{};
     for (const auto &filter : filters_.PropertyFilters(symbol)) {
@@ -820,7 +820,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
   }
 
-  std::vector<CandidateIndex> GetCandidatePropertyIndices(const Symbol &symbol) {
+  constexpr std::vector<CandidateIndex> GetCandidatePropertyIndices(const Symbol &symbol) {
     return GetCandidatePropertyIndicesFromFilter(symbol);
   }
 

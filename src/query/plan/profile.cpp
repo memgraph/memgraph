@@ -34,8 +34,8 @@ constexpr double RelativeTime(unsigned long long num_cycles, unsigned long long 
   return static_cast<double>(num_cycles) / total_cycles;
 }
 
-double AbsoluteTime(unsigned long long num_cycles, unsigned long long total_cycles,
-                    std::chrono::duration<double> total_time) {
+constexpr double AbsoluteTime(unsigned long long num_cycles, unsigned long long total_cycles,
+                              std::chrono::duration<double> total_time) {
   return (RelativeTime(num_cycles, total_cycles) * static_cast<std::chrono::duration<double, std::milli>>(total_time))
       .count();
 }
@@ -69,7 +69,7 @@ class ProfilingStatsToTableHelper {
     }
   }
 
-  std::vector<std::vector<TypedValue>> rows() { return rows_; }
+  constexpr std::vector<std::vector<TypedValue>> rows() { return rows_; }
 
  private:
   void Branch(const ProfilingStats &cumulative_stats) {

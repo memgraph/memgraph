@@ -97,7 +97,8 @@ constexpr std::vector<std::pair<Identifier, TriggerIdentifierTag>> TagsToIdentif
   return identifiers;
 };
 
-std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifiers(const TriggerEventType event_type) {
+constexpr std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifiers(
+    const TriggerEventType event_type) {
   using IdentifierTag = TriggerIdentifierTag;
   using EventType = TriggerEventType;
 

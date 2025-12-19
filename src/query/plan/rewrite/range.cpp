@@ -24,7 +24,7 @@ struct ComparisonFilterInfo {
   Identifier *ident{};
   Expression *rhs{};
 
-  bool Compatible(const ComparisonFilterInfo &rhs) const {
+  constexpr bool Compatible(const ComparisonFilterInfo &rhs) const {
     if (*this && rhs && type != rhs.type) {
       return prop_lookup->property_ == rhs.prop_lookup->property_ && ident->symbol_pos_ == rhs.ident->symbol_pos_;
     }

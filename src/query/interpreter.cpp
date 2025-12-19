@@ -7246,7 +7246,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   }
 
   // helper methods
-  auto cypher_access_type() const -> storage::StorageAccessType {
+  constexpr auto cypher_access_type() const -> storage::StorageAccessType {
     using enum storage::StorageAccessType;
     if (is_schema_assert_query_) {
       return UNIQUE;

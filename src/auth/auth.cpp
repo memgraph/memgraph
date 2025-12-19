@@ -127,7 +127,7 @@ DEFINE_VALIDATED_HIDDEN_string(
     });
 namespace memgraph::auth {
 
-const Auth::Epoch Auth::kStartEpoch = 1;
+constexpr Auth::Epoch Auth::kStartEpoch = 1;
 
 namespace {
 #ifdef MG_ENTERPRISE

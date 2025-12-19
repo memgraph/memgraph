@@ -32,7 +32,7 @@ class DataQueue {
   bool done_{false};
   std::size_t maxSize_;
 
-  bool full() const {
+  constexpr bool full() const {
     DMG_ASSERT(!mutex_.try_lock(), "Lock should be taken before full() is invoked");
 
     if (maxSize_ == 0) {

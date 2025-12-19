@@ -80,7 +80,8 @@ class JStringFormatter final {
   }
 
  private:
-  void ReplaceFormatSpecifier(TString &str, std::size_t pos, char format_specifier, TTypedValueLike current_arg) const {
+  constexpr void ReplaceFormatSpecifier(TString &str, std::size_t pos, char format_specifier,
+                                        TTypedValueLike current_arg) const {
     std::string replacement_str;
     switch (format_specifier) {
       case 'd':

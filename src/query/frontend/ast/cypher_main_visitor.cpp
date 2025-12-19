@@ -107,9 +107,9 @@ constexpr std::string JoinTokens(const auto &tokens, const auto &string_projecti
   return utils::Join(tokens_string, separator);
 }
 
-std::string JoinSymbolicNames(antlr4::tree::ParseTreeVisitor *visitor,
-                              const std::vector<MemgraphCypher::SymbolicNameContext *> symbolicNames,
-                              const std::string &separator = ".") {
+constexpr std::string JoinSymbolicNames(antlr4::tree::ParseTreeVisitor *visitor,
+                                        const std::vector<MemgraphCypher::SymbolicNameContext *> symbolicNames,
+                                        const std::string &separator = ".") {
   return JoinTokens(
       symbolicNames, [&](auto *token) { return std::any_cast<std::string>(token->accept(visitor)); }, separator);
 }

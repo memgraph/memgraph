@@ -255,7 +255,7 @@ class Writer {
 
   constexpr Writer(uint8_t *data, uint32_t size) : data_(data), size_(size) {}
 
-  std::optional<MetadataHandle> WriteMetadata() {
+  constexpr std::optional<MetadataHandle> WriteMetadata() {
     if (data_ && pos_ + 1 > size_) return std::nullopt;
     MetadataHandle handle;
     if (data_) handle = MetadataHandle(&data_[pos_]);
@@ -361,7 +361,7 @@ class Reader {
     DMG_ASSERT(other.size_ - offset >= size);
   }
 
-  std::optional<Metadata> ReadMetadata() {
+  constexpr std::optional<Metadata> ReadMetadata() {
     if (pos_ + 1 > size_) return std::nullopt;
     uint8_t value = data_[pos_++];
     Metadata metadata;
@@ -496,15 +496,15 @@ class Reader {
     return VerifyBytes(reinterpret_cast<const uint8_t *>(data), size);
   }
 
-  bool SkipBytes(uint32_t size) {
+  constexpr bool SkipBytes(uint32_t size) {
     if (pos_ + size > size_) return false;
     pos_ += size;
     return true;
   }
 
-  uint32_t GetPosition() const { return pos_; }
+  constexpr uint32_t GetPosition() const { return pos_; }
 
-  void SetPosition(uint32_t pos) { pos_ = pos; }
+  constexpr void SetPosition(uint32_t pos) { pos_ = pos; }
 
  private:
   template <typename T>
@@ -2146,7 +2146,7 @@ constexpr DecodedBuffer SetupLocalBuffer(std::array<uint8_t, 12> &buffer) {
       .storage_mode = StorageMode::LOCAL,
   };
 }
-DecodedBuffer SetupExternalBuffer(uint32_t size) {
+constexpr DecodedBuffer SetupExternalBuffer(uint32_t size) {
   auto alloc_size = ToMultipleOf8(size);
   auto *alloc_data = new uint8_t[alloc_size];
 
@@ -2343,7 +2343,7 @@ auto PropertyStore::WithReader(Func &&func) const {
 template <typename GetFunc, typename ApplyFunc, typename MissingValue>
 struct SafeReader {
   template <typename GetFuncCtr, typename ApplyFuncCtr>
-  SafeReader(Reader &reader, GetFuncCtr &&get_result, ApplyFuncCtr &&apply_result, MissingValue missing_value)
+  constexpr SafeReader(Reader &reader, GetFuncCtr &&get_result, ApplyFuncCtr &&apply_result, MissingValue missing_value)
       : reader_(reader),
         get_result_(std::forward<GetFunc>(get_result)),
         apply_result_(std::forward<ApplyFunc>(apply_result)),

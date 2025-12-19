@@ -123,7 +123,7 @@ constexpr inline void TrackMemory(std::size_t size, const std::align_val_t align
 #endif
 }
 
-inline bool TrackMemoryNoExcept(const std::size_t size) {
+constexpr inline bool TrackMemoryNoExcept(const std::size_t size) {
   try {
     TrackMemory(size);
   } catch (...) {
@@ -133,7 +133,7 @@ inline bool TrackMemoryNoExcept(const std::size_t size) {
   return true;
 }
 
-inline bool TrackMemoryNoExcept(const std::size_t size, const std::align_val_t align) {
+constexpr inline bool TrackMemoryNoExcept(const std::size_t size, const std::align_val_t align) {
   try {
     TrackMemory(size, align);
   } catch (...) {
