@@ -272,6 +272,20 @@ void DisableInternalDecay() {
 #endif
 }
 
+void DisableBackgroundThread() {
+#if USE_JEMALLOC
+  // Disable jemalloc's background thread which periodically calls clock_gettime/gettimeofday
+  // for decay timing checks. This improves determinism by eliminating these syscalls.
+  bool enabled = false;
+  int ret = je_mallctl("background_thread", nullptr, nullptr, &enabled, sizeof(enabled));
+  if (ret != 0) {
+    spdlog::warn("Failed to disable jemalloc background thread: {}", ret);
+  } else {
+    spdlog::info("Disabled jemalloc background thread");
+  }
+#endif
+}
+
 void DecayUnusedMemory() {
 #if USE_JEMALLOC
   // When internal decay is disabled (decay_ms=-1), calling arena.decay is a no-op.

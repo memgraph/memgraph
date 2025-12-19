@@ -29,6 +29,11 @@ void DecayUnusedMemory();
 /// This is more aggressive than DecayUnusedMemory().
 void PurgeUnusedMemory();
 
+/// Disable jemalloc's background thread.
+/// This eliminates non-deterministic clock_gettime/gettimeofday calls from the
+/// background thread that periodically checks decay timing.
+void DisableBackgroundThread();
+
 /// Install custom extent hooks for memory tracking.
 void SetHooks();
 

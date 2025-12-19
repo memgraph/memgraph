@@ -166,6 +166,7 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
 
 int main(int argc, char **argv) {
   memgraph::memory::SetHooks();
+  memgraph::memory::DisableBackgroundThread();
   google::SetUsageMessage("Memgraph database server");
   gflags::SetVersionString(version_string);
 
