@@ -59,28 +59,30 @@ auto ReplicationInstanceClient::ReplicationSocketAddress() const -> std::string 
 }
 
 void ReplicationInstanceClient::StartStateCheck() {
-  if (instance_checker_.IsRunning()) {
+  if (instance_checker_handle_.IsValid()) {
     return;
   }
 
   MG_ASSERT(instance_health_check_frequency_sec_ > std::chrono::seconds(0),
             "Health check frequency must be greater than 0");
 
-  instance_checker_.SetInterval(instance_health_check_frequency_sec_);
-  instance_checker_.Run(config_.instance_name, [this, instance_name = config_.instance_name] {
-    spdlog::trace("Sending state check message to instance {} on {}.", instance_name,
-                  config_.ManagementSocketAddress());
-    if (auto const maybe_res = SendStateCheckRpc()) {
-      coord_instance_->InstanceSuccessCallback(instance_name, *maybe_res);
-    } else {
-      coord_instance_->InstanceFailCallback(instance_name);
-    }
-  });
+  instance_checker_handle_ = utils::ConsolidatedScheduler::Global().Register(
+      utils::TaskConfig{config_.instance_name, utils::ScheduleSpec::Interval(instance_health_check_frequency_sec_),
+                        utils::SchedulerPriority::NORMAL, utils::ConsolidatedScheduler::kIoPool},
+      [this, instance_name = config_.instance_name] {
+        spdlog::trace("Sending state check message to instance {} on {}.", instance_name,
+                      config_.ManagementSocketAddress());
+        if (auto const maybe_res = SendStateCheckRpc()) {
+          coord_instance_->InstanceSuccessCallback(instance_name, *maybe_res);
+        } else {
+          coord_instance_->InstanceFailCallback(instance_name);
+        }
+      });
 }
 
-void ReplicationInstanceClient::StopStateCheck() { instance_checker_.Stop(); }
-void ReplicationInstanceClient::PauseStateCheck() { instance_checker_.Pause(); }
-void ReplicationInstanceClient::ResumeStateCheck() { instance_checker_.Resume(); }
+void ReplicationInstanceClient::StopStateCheck() { instance_checker_handle_.Stop(); }
+void ReplicationInstanceClient::PauseStateCheck() { instance_checker_handle_.Pause(); }
+void ReplicationInstanceClient::ResumeStateCheck() { instance_checker_handle_.Resume(); }
 auto ReplicationInstanceClient::GetReplicationClientInfo() const -> ReplicationClientInfo {
   return config_.replication_client_info;
 }

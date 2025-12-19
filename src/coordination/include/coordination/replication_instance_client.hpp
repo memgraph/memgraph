@@ -18,9 +18,9 @@
 #include "coordination/instance_state.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/client.hpp"
+#include "utils/consolidated_scheduler.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/metrics_timer.hpp"
-#include "utils/scheduler.hpp"
 
 namespace memgraph::metrics {
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -124,7 +124,7 @@ class ReplicationInstanceClient {
   CoordinatorInstance *coord_instance_;
 
   std::chrono::seconds instance_health_check_frequency_sec_{1};
-  utils::Scheduler instance_checker_;
+  utils::TaskHandle instance_checker_handle_;
 };
 
 }  // namespace memgraph::coordination
