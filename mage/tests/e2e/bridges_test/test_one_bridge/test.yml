@@ -1,0 +1,8 @@
+query: >
+    CALL bridges.get() YIELD node_from, node_to
+    RETURN node_from.id AS from_id, node_to.id AS to_id
+    ORDER BY from_id, to_id
+
+output:
+    - from_id: 1
+      to_id: 6

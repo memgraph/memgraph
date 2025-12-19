@@ -1,0 +1,5 @@
+query: >
+  RETURN map.flatten({a:{b:{c:{d:[1,2,3]},e:[1,2,3]}},e:[1,2,3]}) AS result;
+
+output:
+  - result: {"a.b.c.d": [1,2,3],"a.b.e": [1,2,3],"e": [1,2,3]}

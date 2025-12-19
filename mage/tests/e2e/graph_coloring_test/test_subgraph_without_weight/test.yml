@@ -1,0 +1,10 @@
+query: >
+    MATCH (a:Cell)-[e:Edge]->(b:Cell)
+    WITH collect(a) as nodes, collect (e) as edges
+    CALL graph_coloring.color_subgraph(nodes, edges)
+    YIELD node, color
+    RETURN COUNT(node) AS node_count, COUNT(color) AS color_count;
+
+output:
+    - node_count: 5
+      color_count: 5

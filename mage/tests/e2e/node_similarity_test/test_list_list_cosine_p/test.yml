@@ -1,0 +1,21 @@
+query: >
+        MATCH (m)
+        WHERE m.id > 2 AND m.id < 5
+        WITH collect(m) as nodes1
+
+        MATCH (n)
+        WHERE n.id < 2
+        WITH collect(n) as nodes2, nodes1
+
+        CALL node_similarity.cosine_pairwise("score", nodes1, nodes2) YIELD *
+
+        RETURN node1.id as node1, node2.id as node2, similarity
+
+output:
+    - node1: 3
+      node2: 0
+      similarity: 0.7072
+
+    - node1: 4
+      node2: 1
+      similarity: 0.5774

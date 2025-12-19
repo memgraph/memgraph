@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT xml_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.xml_col) AS xml_col_type, toString(row.xml_col) AS xml_col
+
+output:
+  - xml_col_type: 'STRING'
+    xml_col: '<root><item>test</item></root>'

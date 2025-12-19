@@ -1,0 +1,5 @@
+memgraph_query: >
+  MATCH ()-[rel:Friends]->(n) CALL refactor.to(rel, n) YIELD relationship RETURN relationship;
+
+neo4j_query: >
+  MATCH ()-[rel:Friends]->(n) CALL apoc.refactor.to(rel, n) YIELD input RETURN input;

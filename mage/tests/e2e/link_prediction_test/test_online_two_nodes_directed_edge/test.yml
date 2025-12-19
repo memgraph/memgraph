@@ -1,0 +1,6 @@
+# User must specify that he/she doesn't want validation set, otherwise it will fail.
+- query: >-
+    CALL link_prediction.train()
+    YIELD training_results, validation_results
+    RETURN training_results, validation_results;
+  exception: "Graph too small to have a validation dataset. "

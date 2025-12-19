@@ -1,0 +1,8 @@
+query: >
+    CALL periodic.delete({labels:"Node", batch_size: 10}) YIELD * RETURN *;
+
+output:
+    - number_of_deleted_nodes: 15
+      number_of_deleted_relationships: 0
+      number_of_executed_batches: 3
+      success: true

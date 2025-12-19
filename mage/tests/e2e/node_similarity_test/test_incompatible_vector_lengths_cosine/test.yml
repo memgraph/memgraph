@@ -1,0 +1,13 @@
+query: >
+        MATCH (m {id: 2})
+        WITH collect(m) as src_nodes
+        MATCH (n)
+        WHERE n.id < 5
+        WITH collect(n) as dst_nodes, src_nodes
+
+        CALL node_similarity.cosine("score") YIELD *
+        RETURN node1.id as node1, node2.id as node2, similarity
+
+
+exception: >
+        Incompatible vector sizes

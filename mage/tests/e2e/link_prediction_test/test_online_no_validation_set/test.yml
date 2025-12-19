@@ -1,0 +1,7 @@
+# User can specify to have only training set by setting split_ratio to 1.0 value
+- query: >-
+    CALL link_prediction.train()
+    YIELD training_results, validation_results
+    RETURN validation_results;
+  output:
+    - validation_results: []

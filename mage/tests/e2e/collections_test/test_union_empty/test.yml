@@ -1,0 +1,6 @@
+query: >
+    RETURN collections.union([], []) AS union
+
+
+output:
+    - union: []

@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.mysql('SELECT bit_col FROM dummy_table', {
+      host: 'mysql_test',
+      port: 3306,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.bit_col) AS bit_col_type, row.bit_col AS bit_col
+
+output:
+  - bit_col_type: 'INTEGER'
+    bit_col: 170

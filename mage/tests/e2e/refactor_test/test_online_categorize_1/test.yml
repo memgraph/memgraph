@@ -1,0 +1,51 @@
+- query: >-
+    CALL refactor.categorize('genre', 'GENRE', false, "Genre", "name") YIELD status RETURN status;
+  output:
+      - status: "success"
+
+- query: >-
+    MATCH (a)-[r]->(b) RETURN a, r, b
+  output:
+      - a:
+          labels:
+            - Genre
+          properties:
+            name: Drama
+        r:
+          label: GENRE
+          properties: {}
+        b:
+          labels:
+            - Movie
+          properties:
+            name: MovieName
+            id: 0
+      - a:
+          labels:
+            - Genre
+          properties:
+            name: Drama
+        r:
+          label: GENRE
+          properties: {}
+        b:
+          labels:
+            - Book
+          properties:
+            propertyToCopy: copy me
+            name: BookName1
+            id: 1
+      - a:
+          labels:
+            - Genre
+          properties:
+            name: Romance
+        r:
+          label: GENRE
+          properties: {}
+        b:
+          labels:
+            - Book
+          properties:
+            name: BookName2
+            id: 2

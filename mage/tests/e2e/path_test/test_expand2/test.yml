@@ -1,0 +1,54 @@
+query: >
+  MATCH (d:Dog) CALL path.expand(d,[],["-Human","/Cat"],0,3) YIELD result RETURN
+  result;
+output:
+  - result:
+      nodes:
+        - labels:
+            - Dog
+          properties:
+            name: Rex
+        - labels:
+            - Cat
+          properties:
+            name: Tom
+      relationships:
+        - label: HUNTS
+          properties: {}
+  - result:
+      nodes:
+        - labels:
+            - Dog
+          properties:
+            name: Rex
+        - labels:
+            - Cat
+          properties:
+            name: Rinko
+      relationships:
+        - label: BEST_FRIENDS
+          properties: {}
+  - result:
+      nodes:
+        - labels:
+            - Dog
+          properties:
+            name: Rex
+        - labels:
+            - Zadar
+          properties: {}
+        - labels:
+            - Mouse
+          properties:
+            name: Squiggles
+        - labels:
+            - Cat
+          properties:
+            name: Tom
+      relationships:
+        - label: LIVES
+          properties: {}
+        - label: RUNS_THROUGH
+          properties: {}
+        - label: CATCHES
+          properties: {}

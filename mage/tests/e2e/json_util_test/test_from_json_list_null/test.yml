@@ -1,0 +1,4 @@
+query: >
+  RETURN json_util.from_json_list(null) AS result;
+output:
+  - result: null

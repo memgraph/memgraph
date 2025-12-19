@@ -1,0 +1,4 @@
+query: >
+    CALL llm_util.schema('raw') YIELD schema WITH schema.rel_props AS properties RETURN size(properties) AS num_of_properties;
+output:
+  - num_of_properties: 1

@@ -1,0 +1,41 @@
+query: >
+  CALL knn.get({nodeProperties: ["embedding"], sampleRate: 1.0, topK: 2, randomSeed: 42}) YIELD node, neighbour, similarity
+  RETURN node.id as node_id, neighbour.id as neighbour_id, similarity ORDER BY node_id, similarity DESC, neighbour_id
+
+output:
+  - node_id: 1
+    neighbour_id: 2
+    similarity: 1
+  - node_id: 1
+    neighbour_id: 3
+    similarity: 1
+  - node_id: 2
+    neighbour_id: 1
+    similarity: 1
+  - node_id: 2
+    neighbour_id: 3
+    similarity: 1
+  - node_id: 3
+    neighbour_id: 1
+    similarity: 1
+  - node_id: 3
+    neighbour_id: 2
+    similarity: 1
+  - node_id: 4
+    neighbour_id: 5
+    similarity: 1
+  - node_id: 4
+    neighbour_id: 6
+    similarity: 1
+  - node_id: 5
+    neighbour_id: 4
+    similarity: 1
+  - node_id: 5
+    neighbour_id: 6
+    similarity: 1
+  - node_id: 6
+    neighbour_id: 4
+    similarity: 1
+  - node_id: 6
+    neighbour_id: 5
+    similarity: 1

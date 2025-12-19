@@ -1,0 +1,4 @@
+memgraph_query: >
+  MATCH (n) CALL refactor.normalize_as_boolean(n, 'property', [], []);
+neo4j_query: >
+  MATCH (n) CALL apoc.refactor.normalizeAsBoolean(n, 'property', [], []);

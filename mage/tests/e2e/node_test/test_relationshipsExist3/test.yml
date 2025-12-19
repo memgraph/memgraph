@@ -1,0 +1,5 @@
+query: >
+    MATCH (h:Human)
+    CALL node.relationships_exist(h, ["Loves>","chases>"]) YIELD result RETURN result;
+output:
+  - result: {"Loves>": false,"chases>": true}

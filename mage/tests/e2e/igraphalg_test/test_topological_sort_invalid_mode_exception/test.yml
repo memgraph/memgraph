@@ -1,0 +1,7 @@
+query: >
+    CALL igraphalg.topological_sort("invalid")
+    YIELD *
+    RETURN *;
+
+exception: >
+        Mode can only be either "out" or "in"

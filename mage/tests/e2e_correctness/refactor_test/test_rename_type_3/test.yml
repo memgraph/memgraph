@@ -1,0 +1,8 @@
+memgraph_query: >
+  MATCH ()-[r]-() WHERE r.id = 0
+  WITH collect(distinct(r)) AS rels
+  CALL refactor.rename_type("Drives", "Glides", rels) YIELD relationships_changed RETURN relationships_changed;
+neo4j_query: >
+  MATCH ()-[r]-() WHERE r.id = 0
+  WITH collect(distinct(r)) AS rels
+  CALL apoc.refactor.rename.type("Drives","Glides", rels) YIELD total RETURN total;

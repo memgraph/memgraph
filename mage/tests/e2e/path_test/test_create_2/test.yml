@@ -1,0 +1,19 @@
+query: >
+  MATCH (country:Country) OPTIONAL MATCH
+  (country)<-[inCountry:IN_COUNTRY]-(:City) CALL path.create(country,
+  {rel:[inCountry]}) YIELD path return path;
+output:
+  - path:
+      nodes:
+        - labels:
+          - Country
+          properties:
+            name: Croatia
+      relationships: []
+  - path:
+      nodes:
+        - labels:
+          - Country
+          properties:
+            name: Spain
+      relationships: []

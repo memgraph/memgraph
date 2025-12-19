@@ -1,0 +1,6 @@
+memgraph_query: >
+  MATCH (d:Dog)-[l:LOVES]->(h:Human)
+  CALL refactor.invert(l) YIELD input, output RETURN input, output;
+neo4j_query: >
+  MATCH (d:Dog)-[l:LOVES]->(h:Human)
+  CALL apoc.refactor.invert(l) YIELD input,output RETURN input,output;

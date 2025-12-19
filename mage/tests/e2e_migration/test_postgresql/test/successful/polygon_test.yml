@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT polygon_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.polygon_col) AS polygon_col_type, toString(row.polygon_col) AS polygon_col
+
+output:
+  - polygon_col_type: 'STRING'
+    polygon_col: '((1,2),(3,4),(5,6),(1,2))'

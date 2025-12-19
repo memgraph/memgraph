@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.mysql('SELECT mediumint_col FROM dummy_table', {
+      host: 'mysql_test',
+      port: 3306,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.mediumint_col) AS mediumint_col_type, row.mediumint_col AS mediumint_col
+
+output:
+  - mediumint_col_type: 'INTEGER'
+    mediumint_col: 8388607

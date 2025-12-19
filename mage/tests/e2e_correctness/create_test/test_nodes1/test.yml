@@ -1,0 +1,11 @@
+memgraph_query: >
+  WITH ["Human","Star"] AS labels,
+  [{id: 1, name: "Josko Cagalj Jole", placeOfBirth: "Split, Croatia"},
+  {id: 2, name: "Mladen Grdovic", placeOfBirth: "Zadar, Croatia"}] AS properties
+
+  CALL create.nodes(labels,properties) YIELD node RETURN node;
+neo4j_query: >
+  WITH ["Human","Star"] AS labels,
+  [{id: 1, name: "Josko Cagalj Jole", placeOfBirth: "Split, Croatia"},
+  {id: 2, name: "Mladen Grdovic", placeOfBirth: "Zadar, Croatia"}] AS properties
+  CALL apoc.create.nodes(labels,properties) YIELD node RETURN node;

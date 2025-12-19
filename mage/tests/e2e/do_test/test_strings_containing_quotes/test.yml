@@ -1,0 +1,8 @@
+query: >
+    CALL do.case([TRUE, "MATCH (n {message: \"say \\\"something 'nice'\\\" here\"}) RETURN n;"],
+                "")
+    YIELD value
+    RETURN value.n.id AS nice_id;
+
+output:
+  - nice_id: 0

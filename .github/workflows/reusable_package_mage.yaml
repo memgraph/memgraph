@@ -323,7 +323,7 @@ jobs:
           python3 -m venv env
           source env/bin/activate
           pip install -r python/tests/requirements.txt --break-system-packages
-          cd e2e/ && python3 -m pytest . -k "not cugraph and not embeddings_test-test_cuda_compute"
+          cd tests/e2e/ && python3 -m pytest . -k "not cugraph and not embeddings_test-test_cuda_compute"
 
       - name: Wait for e2e Docker images to be available
         if: ${{ inputs.run_tests == true }}
@@ -334,10 +334,10 @@ jobs:
       - name: Run End-to-end correctness tests
         if: ${{ inputs.run_tests == true }}
         env:
-          PYTHONPATH: "$PWD/e2e"
+          PYTHONPATH: "$PWD/tests/e2e"
         run: |
-          cd mage
-          source env/bin/activate
+          cd mage/tests
+          source ../env/bin/activate
           ./run_e2e_correctness_tests.sh $MEMGRAPH_PORT $NEO4J_PORT $NEO4J_CONTAINER $MAGE_CONTAINER $MEMGRAPH_NETWORK
 
       - name: Cleanup after correctness tests
@@ -351,8 +351,8 @@ jobs:
         env:
           PYTHONPATH: "$PWD/e2e"
         run: |
-          cd mage
-          source env/bin/activate
+          cd mage/tests
+          source ../env/bin/activate
           ./run_e2e_migration_tests.sh --mage-container $MAGE_CONTAINER --mysql-container $MYSQL_CONTAINER --postgresql-container $POSTGRESQL_CONTAINER
 
       - name: Cleanup after migration tests
@@ -437,7 +437,7 @@ jobs:
       - name: Memgraph Docker Cleanup
         if: always()
         run: |
-          ./cpp/memgraph/tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh
 
   # SetupSmokeTest:
   #   runs-on: [self-hosted]

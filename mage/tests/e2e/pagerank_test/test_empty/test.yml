@@ -1,0 +1,6 @@
+query: >
+    CALL pagerank.get() YIELD node, rank
+    RETURN node.id AS node, rank
+    ORDER BY node ASC
+
+output: []

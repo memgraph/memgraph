@@ -1,0 +1,11 @@
+query: >
+    CALL collections.split([2, 4, "0", 9, 0], 0) YIELD splitted
+    RETURN splitted
+
+output:
+    - splitted: [
+   2,
+   4,
+   "0",
+   9
+]

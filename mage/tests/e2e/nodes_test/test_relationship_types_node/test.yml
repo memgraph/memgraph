@@ -1,0 +1,12 @@
+query: >
+  MATCH (n:Intern {name:"Ivan"}) CALL nodes.relationship_types(n, ["KNOWS>"])
+  YIELD relationship_types RETURN relationship_types;
+output:
+  - relationship_types:
+      - node:
+          labels:
+            - Intern
+          properties:
+            name: Ivan
+        types:
+          - KNOWS

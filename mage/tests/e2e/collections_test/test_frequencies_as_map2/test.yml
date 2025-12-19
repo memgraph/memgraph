@@ -1,0 +1,5 @@
+query: >
+  RETURN  collections.frequencies_as_map(['a','b','a','c','b','a']) AS result;
+
+output:
+  - result: {"a": 3, "b": 2, "c": 1}

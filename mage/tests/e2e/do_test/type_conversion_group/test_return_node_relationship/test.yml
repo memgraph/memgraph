@@ -1,0 +1,13 @@
+query: >
+    CALL do.case([TRUE, "MATCH (m)-[r]-(n) WHERE n.id = 0 AND m.id <= 2 RETURN m, r;"], "MATCH (n) RETURN n;")
+    YIELD value
+    WITH
+        collect(value.m) AS nodes,
+        collect(value.r) AS relationships
+    RETURN
+        size(nodes) AS n_nodes,
+        size(relationships) AS n_relationships;
+
+output:
+  - n_nodes: 2
+    n_relationships: 2

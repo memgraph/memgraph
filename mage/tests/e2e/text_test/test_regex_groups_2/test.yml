@@ -1,0 +1,4 @@
+query: >
+  CALL text.regexGroups("abc <link xxx1>yyy1</link> def <link xxx2>yyy2</link>", "<link (\\w+)>(\\w+)</link>") YIELD results RETURN results;
+output:
+  - results: [["<link xxx1>yyy1</link>", "xxx1", "yyy1"], ["<link xxx2>yyy2</link>", "xxx2", "yyy2"]]

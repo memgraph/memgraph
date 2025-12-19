@@ -1,0 +1,8 @@
+
+query: >
+    MATCH p = ()-[*]->()
+    WITH collect(p) AS paths
+    MATCH q = (:Dog)-[*]->(:Human)
+    RETURN collections.contains(paths, q) AS output;
+output:
+  - output: true
