@@ -210,8 +210,7 @@ jobs:
 
       - name: Build Query Modules in MGBUILD container
         run: |
-          cd mage
-          ./scripts/container-build.sh \
+          ./mage/scripts/container-build.sh \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
             --container-name $CONTAINER_NAME
@@ -219,8 +218,7 @@ jobs:
       - name: Build DEB package in MGBUILD container
         if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.PACKAGE_DEB == 'true' }}
         run: |
-          cd mage
-          ./scripts/container-package-deb.sh \
+          ./mage/scripts/container-package-deb.sh \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
             --container-name $CONTAINER_NAME \
@@ -243,14 +241,12 @@ jobs:
       - name: Build heaptrack
         if: ${{ inputs.mage_build_type == 'RelWithDebInfo' }}
         run: |
-          cd mage
-          ./scripts/container-build-heaptrack.sh $CONTAINER_NAME
+          ./mage/scripts/container-build-heaptrack.sh $CONTAINER_NAME
 
       - name: Run tests
         if: ${{ inputs.run_tests == true }}
         run: |
-          cd mage
-          ./scripts/container-test.sh \
+          ./mage/scripts/container-test.sh \
             --container-name $CONTAINER_NAME \
             --ci \
             --cache-present $CACHE_PRESENT \
