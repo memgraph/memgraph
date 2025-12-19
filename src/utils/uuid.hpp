@@ -59,7 +59,7 @@ struct UUID {
     }
   }
 
-  explicit operator arr_t() const { return uuid; }
+  constexpr explicit operator arr_t() const { return uuid; }
 
   friend bool operator==(UUID const &, UUID const &) = default;
   friend bool operator==(UUID const &lhs, std::string_view rhs) { return std::string(lhs) == rhs; };
@@ -68,7 +68,7 @@ struct UUID {
   friend void to_json(nlohmann::json &j, const UUID &uuid);
   friend void from_json(const nlohmann::json &j, UUID &uuid);
   friend void ::memgraph::slk::Load(UUID *self, slk::Reader *reader);
-  explicit UUID(arr_t const &arr) : uuid(arr) {}
+  constexpr explicit UUID(arr_t const &arr) : uuid(arr) {}
 
   arr_t uuid;
 };

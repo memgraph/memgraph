@@ -22,12 +22,12 @@ struct FinalizeSystemTxReq {
   static constexpr utils::TypeInfo kType{
       .id = utils::TypeId::REP_FINALIZE_SYS_TX_REQ, .name = "FinalizeSystemTxReq", .superclass = nullptr};
   static constexpr uint64_t kVersion{1};
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  constexpr static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
   static void Load(FinalizeSystemTxReq *self, memgraph::slk::Reader *reader);
   static void Save(const FinalizeSystemTxReq &self, memgraph::slk::Builder *builder);
   FinalizeSystemTxReq() = default;
-  FinalizeSystemTxReq(const utils::UUID &main_uuid, uint64_t expected_ts, uint64_t new_ts)
+  constexpr FinalizeSystemTxReq(const utils::UUID &main_uuid, uint64_t expected_ts, uint64_t new_ts)
       : main_uuid(main_uuid), expected_group_timestamp{expected_ts}, new_group_timestamp{new_ts} {}
 
   utils::UUID main_uuid;
@@ -43,7 +43,7 @@ struct FinalizeSystemTxRes {
   static void Load(FinalizeSystemTxRes *self, memgraph::slk::Reader *reader);
   static void Save(const FinalizeSystemTxRes &self, memgraph::slk::Builder *builder);
   FinalizeSystemTxRes() = default;
-  explicit FinalizeSystemTxRes(bool const success) : success{success} {}
+  constexpr explicit FinalizeSystemTxRes(bool const success) : success{success} {}
 
   bool success;
 };

@@ -26,7 +26,7 @@ constexpr uint64_t FNV_PRIME = 1099511628211UL;
 
 export namespace memgraph::utils {
 
-inline uint64_t Fnv(const std::string_view s) {
+constexpr inline uint64_t Fnv(const std::string_view s) {
   // fnv1a is recommended so use it as the default implementation.
   uint64_t hash = detail::FNV_OFFSET_BASIS;
   for (const auto &ch : s) {
@@ -54,7 +54,7 @@ inline uint64_t Fnv(const std::string_view s) {
  */
 template <typename TIterable, typename TElement, typename THash = std::hash<TElement>>
 struct FnvCollection {
-  size_t operator()(const TIterable &iterable) const {
+  constexpr size_t operator()(const TIterable &iterable) const {
     uint64_t hash = detail::FNV_OFFSET_BASIS;
     THash element_hash;
     for (const TElement &element : iterable) {
@@ -71,7 +71,7 @@ struct FnvCollection {
  */
 template <typename TA, typename TB, typename TAHash = std::hash<TA>, typename TBHash = std::hash<TB>>
 struct HashCombine {
-  size_t operator()(const TA &a, const TB &b) const {
+  constexpr size_t operator()(const TA &a, const TB &b) const {
     size_t ret = detail::FNV_OFFSET_BASIS;
     ret ^= TAHash()(a);
     ret *= detail::FNV_PRIME;

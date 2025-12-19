@@ -9,18 +9,34 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include "utils/terminate_handler.hpp"
 
-#include <span>
-#include <vector>
+#include <cstdlib>
+#include <exception>
+#include <iostream>
+
+#include <spdlog/spdlog.h>
+
+#include "utils/stacktrace.hpp"
 
 namespace memgraph::utils {
-template <typename T>
-struct LessContainerCompare {
-  using is_transparent = void;  // Enable heterogeneous compare
-  constexpr bool operator()(std::span<T const> lhs, std::span<T const> rhs) const { return lhs < rhs; }
-  constexpr bool operator()(std::vector<T> const &lhs, std::vector<T> const &rhs) const { return lhs < rhs; }
-  constexpr bool operator()(std::vector<T> const &lhs, std::span<T const> rhs) const { return lhs < rhs; }
-  constexpr bool operator()(std::span<T const> lhs, std::vector<T> const &rhs) const { return lhs < rhs; }
-};
+
+void TerminateHandler(std::ostream &stream) noexcept {
+  if (auto exc = std::current_exception()) {
+    try {
+      std::rethrow_exception(exc);
+    } catch (std::exception &ex) {
+      stream << ex.what() << std::endl << std::endl;
+      utils::Stacktrace stacktrace;
+      stacktrace.dump(stream);
+    }
+  }
+
+  // Flush all the logs
+  spdlog::shutdown();
+  std::abort();
+}
+
+void TerminateHandler() noexcept { TerminateHandler(std::cout); }
+
 }  // namespace memgraph::utils

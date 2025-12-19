@@ -49,7 +49,7 @@ class UserProfileQuery : public memgraph::query::Query {
       } quantity;
     };
 
-    bool operator==(const auto &other) const {
+    constexpr bool operator==(const auto &other) const {
       if (type != other.type) return false;
       switch (type) {
         case Type::UNLIMITED:

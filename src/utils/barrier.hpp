@@ -16,7 +16,7 @@ namespace memgraph::utils {
 // std::barrier seems to have a bug which leads to missed notifications and some threads block forever
 class SimpleBarrier {
  public:
-  explicit SimpleBarrier(size_t n) : phase1_{n}, phase2_{n} {}
+  constexpr explicit SimpleBarrier(size_t n) : phase1_{n}, phase2_{n} {}
 
   ~SimpleBarrier() { wait(); }
 

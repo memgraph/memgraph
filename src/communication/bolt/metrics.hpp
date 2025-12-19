@@ -48,7 +48,7 @@ inline void UpdateNewSession(TSession &session, Value &metadata) {
 }
 
 template <typename TSession>
-inline void IncrementQueryMetrics(TSession &session) {
+inline constexpr void IncrementQueryMetrics(TSession &session) {
   ++session.metrics_.value()->queries;
 }
 

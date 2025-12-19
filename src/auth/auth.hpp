@@ -53,7 +53,7 @@ using UserOrRole = std::variant<User, RoleWUsername>;
 class Auth final {
  public:
   struct Config {
-    Config() {}
+    constexpr Config() {}
     Config(std::string name_regex, std::string password_regex, bool password_permit_null)
         : name_regex_str{std::move(name_regex)},
           password_regex_str{std::move(password_regex)},
@@ -76,10 +76,10 @@ class Auth final {
   };
 
   struct Epoch {
-    Epoch() : epoch_{0} {}
-    Epoch(unsigned e) : epoch_{e} {}
+    constexpr Epoch() : epoch_{0} {}
+    constexpr Epoch(unsigned e) : epoch_{e} {}
 
-    Epoch operator++() { return ++epoch_; }
+    constexpr Epoch operator++() { return ++epoch_; }
     bool operator==(const Epoch &rhs) const = default;
 
    private:

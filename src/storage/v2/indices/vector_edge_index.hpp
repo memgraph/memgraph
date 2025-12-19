@@ -70,11 +70,11 @@ class VectorEdgeIndex {
     Vertex *to_vertex;
     Edge *edge;
 
-    friend bool operator<(EdgeIndexEntry const &lhs, EdgeIndexEntry const &rhs) {
+    constexpr friend bool operator<(EdgeIndexEntry const &lhs, EdgeIndexEntry const &rhs) {
       return std::tie(lhs.edge, lhs.from_vertex, lhs.to_vertex) < std::tie(rhs.edge, rhs.from_vertex, rhs.to_vertex);
     }
 
-    friend bool operator==(EdgeIndexEntry const &lhs, EdgeIndexEntry const &rhs) {
+    constexpr friend bool operator==(EdgeIndexEntry const &lhs, EdgeIndexEntry const &rhs) {
       return std::tie(lhs.edge, lhs.from_vertex, lhs.to_vertex) == std::tie(rhs.edge, rhs.from_vertex, rhs.to_vertex);
     }
   };

@@ -70,7 +70,7 @@ void *MgpAlignedAllocImpl(memgraph::utils::MemoryResource &memory, const size_t 
   // Simplify alignment by always using values greater or equal to max_align.
   const size_t alloc_align = std::max(alignment, alignof(std::max_align_t));
   // Allocate space for header containing size & alignment info.
-  const size_t header_size = sizeof(size_in_bytes) + sizeof(alloc_align);
+  constexpr size_t header_size = sizeof(size_in_bytes) + sizeof(alloc_align);
   // We need to return the `data` pointer aligned to the requested alignment.
   // Since we request the initial memory to be aligned to `alloc_align`, we can
   // just allocate an additional multiple of `alloc_align` of bytes such that
@@ -101,7 +101,7 @@ void MgpFreeImpl(memgraph::utils::MemoryResource &memory, void *const p) noexcep
     // Reconstruct how many bytes we allocated on top of the original request.
     // We need not check allocation request overflow, since we did so already in
     // mgp_aligned_alloc.
-    const size_t header_size = sizeof(size_in_bytes) + sizeof(alloc_align);
+    constexpr size_t header_size = sizeof(size_in_bytes) + sizeof(alloc_align);
     const size_t bytes_for_header = *memgraph::utils::RoundUint64ToMultiple(header_size, alloc_align);
     const size_t alloc_size = bytes_for_header + size_in_bytes;
     // Get the original ptr we allocated.
@@ -157,12 +157,12 @@ template <typename TFunc>
 concept ReturnsVoid = ReturnsType<TFunc, void>;
 
 template <ReturnsVoid TFunc>
-void WrapExceptionsHelper(TFunc &&func) {
+constexpr void WrapExceptionsHelper(TFunc &&func) {
   std::forward<TFunc>(func)();
 }
 
 template <typename TFunc, typename TReturn = std::invoke_result_t<TFunc>>
-void WrapExceptionsHelper(TFunc &&func, TReturn *result) {
+constexpr void WrapExceptionsHelper(TFunc &&func, TReturn *result) {
   *result = {};
   *result = std::forward<TFunc>(func)();
 }
@@ -224,7 +224,7 @@ template <typename TFunc, typename... Args>
 }
 
 // Graph mutations
-bool MgpGraphIsMutable(const mgp_graph &graph) noexcept {
+constexpr bool MgpGraphIsMutable(const mgp_graph &graph) noexcept {
   return graph.view == memgraph::storage::View::NEW && graph.ctx != nullptr;
 }
 
@@ -277,18 +277,18 @@ void mgp_global_free(void *const p) {
 namespace {
 
 template <class U, class... TArgs>
-U *NewRawMgpObject(memgraph::utils::Allocator<U> allocator, TArgs &&...args) {
+constexpr U *NewRawMgpObject(memgraph::utils::Allocator<U> allocator, TArgs &&...args) {
   return allocator.template new_object<U>(std::forward<TArgs>(args)...);
 }
 
 template <class U, class... TArgs>
-U *NewRawMgpObject(memgraph::utils::MemoryResource *memory, TArgs &&...args) {
+constexpr U *NewRawMgpObject(memgraph::utils::MemoryResource *memory, TArgs &&...args) {
   memgraph::utils::Allocator<U> allocator(memory);
   return allocator.template new_object<U>(std::forward<TArgs>(args)...);
 }
 
 template <class U, class... TArgs>
-U *NewRawMgpObject(mgp_memory *memory, TArgs &&...args) {
+constexpr U *NewRawMgpObject(mgp_memory *memory, TArgs &&...args) {
   return NewRawMgpObject<U, TArgs...>(memory->impl, std::forward<TArgs>(args)...);
 }
 
@@ -306,7 +306,7 @@ void DeleteRawMgpObject(T *ptr) noexcept {
 }
 
 template <class U, class... TArgs>
-MgpUniquePtr<U> NewMgpObject(mgp_memory *memory, TArgs &&...args) {
+constexpr MgpUniquePtr<U> NewMgpObject(mgp_memory *memory, TArgs &&...args) {
   return MgpUniquePtr<U>(NewRawMgpObject<U>(memory->impl, std::forward<TArgs>(args)...), &DeleteRawMgpObject<U>);
 }
 
@@ -360,16 +360,16 @@ bool IsDeleted(const mgp_vertex *vertex) { return vertex->getImpl().impl_.vertex
 
 bool IsDeleted(const mgp_edge *edge) { return edge->impl.IsDeleted(); }
 
-bool ContainsDeleted(const mgp_path *path) {
+constexpr bool ContainsDeleted(const mgp_path *path) {
   return std::ranges::any_of(path->vertices, [](const auto &vertex) { return IsDeleted(&vertex); }) ||
          std::ranges::any_of(path->edges, [](const auto &edge) { return IsDeleted(&edge); });
 }
 
-bool ContainsDeleted(const mgp_list *list) {
+constexpr bool ContainsDeleted(const mgp_list *list) {
   return std::ranges::any_of(list->elems, [](const auto &elem) { return ContainsDeleted(&elem); });
 }
 
-bool ContainsDeleted(const mgp_map *map) {
+constexpr bool ContainsDeleted(const mgp_map *map) {
   return std::visit(
       [](const auto &items) {
         return std::ranges::any_of(items, [](const auto &item) { return ContainsDeleted(&item.second); });
@@ -4435,7 +4435,7 @@ mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **res
 /// allocations done for types.
 
 namespace {
-void NoOpCypherTypeDeleter(CypherType * /*type*/) {}
+constexpr void NoOpCypherTypeDeleter(CypherType * /*type*/) {}
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -4824,7 +4824,7 @@ class InvalidMessageFunction : public std::invalid_argument {
                                           StreamSourceTypeToString(type))} {}
 };
 
-StreamSourceType MessageToStreamSourceType(const mgp_message::KafkaMessage & /*msg*/) {
+constexpr StreamSourceType MessageToStreamSourceType(const mgp_message::KafkaMessage & /*msg*/) {
   return StreamSourceType::KAFKA;
 }
 
@@ -4832,7 +4832,7 @@ StreamSourceType MessageToStreamSourceType(const mgp_message::PulsarMessage & /*
   return StreamSourceType::PULSAR;
 }
 
-mgp_source_type StreamSourceTypeToMgpSourceType(const StreamSourceType type) {
+constexpr mgp_source_type StreamSourceTypeToMgpSourceType(const StreamSourceType type) {
   switch (type) {
     case StreamSourceType::KAFKA:
       return mgp_source_type::KAFKA;

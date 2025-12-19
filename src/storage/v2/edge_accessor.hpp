@@ -30,8 +30,8 @@ class EdgeAccessor final {
   friend class Storage;
 
  public:
-  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Storage *storage,
-               Transaction *transaction, bool for_deleted = false)
+  constexpr EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Storage *storage,
+                         Transaction *transaction, bool for_deleted = false)
       : edge_(edge),
         from_vertex_(from_vertex),
         to_vertex_(to_vertex),
@@ -61,7 +61,7 @@ class EdgeAccessor final {
   /// for_deleted_ flag will in this case be updated properly
   VertexAccessor DeletedEdgeToVertex() const;
 
-  EdgeTypeId EdgeType() const { return edge_type_; }
+  constexpr EdgeTypeId EdgeType() const { return edge_type_; }
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
@@ -92,16 +92,16 @@ class EdgeAccessor final {
   Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
                                                                       View view) const;
 
-  auto GidPropertiesOnEdges() const -> Gid { return edge_.ptr->gid; }
-  auto GidNoPropertiesOnEdges() const -> Gid { return edge_.gid; }
+  constexpr auto GidPropertiesOnEdges() const -> Gid { return edge_.ptr->gid; }
+  constexpr auto GidNoPropertiesOnEdges() const -> Gid { return edge_.gid; }
   Gid Gid() const noexcept;
 
-  bool IsCycle() const { return from_vertex_ == to_vertex_; }
+  constexpr bool IsCycle() const { return from_vertex_ == to_vertex_; }
 
-  bool operator==(const EdgeAccessor &other) const noexcept {
+  constexpr bool operator==(const EdgeAccessor &other) const noexcept {
     return edge_ == other.edge_ && transaction_ == other.transaction_;
   }
-  bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
+  constexpr bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
 
   EdgeRef edge_;
   Vertex *from_vertex_;

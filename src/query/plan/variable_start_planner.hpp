@@ -49,7 +49,7 @@ class CartesianProduct {
   using TElement = typename decltype(begin_->begin())::value_type;
 
  public:
-  explicit CartesianProduct(std::vector<TSet> sets)
+  constexpr explicit CartesianProduct(std::vector<TSet> sets)
       : original_sets_(std::move(sets)), begin_(original_sets_.begin()), end_(original_sets_.end()) {}
 
   class iterator {
@@ -60,7 +60,7 @@ class CartesianProduct {
     using reference = const std::vector<TElement> &;
     using pointer = const std::vector<TElement> *;
 
-    explicit iterator(CartesianProduct *self, bool is_done) : self_(self), is_done_(is_done) {
+    constexpr explicit iterator(CartesianProduct *self, bool is_done) : self_(self), is_done_(is_done) {
       if (is_done || self->begin_ == self->end_) {
         is_done_ = true;
         return;
@@ -81,7 +81,7 @@ class CartesianProduct {
       }
     }
 
-    iterator &operator++() {
+    constexpr iterator &operator++() {
       if (is_done_) return *this;
       // Increment the leftmost set iterator.
       auto sets_it = sets_.begin();
@@ -112,17 +112,17 @@ class CartesianProduct {
       return *this;
     }
 
-    bool operator==(const iterator &other) const {
+    constexpr bool operator==(const iterator &other) const {
       if (self_->begin_ != other.self_->begin_ || self_->end_ != other.self_->end_) return false;
       return (is_done_ && other.is_done_) || (sets_ == other.sets_);
     }
 
-    bool operator!=(const iterator &other) const { return !(*this == other); }
+    constexpr bool operator!=(const iterator &other) const { return !(*this == other); }
 
     // Iterator interface says that dereferencing a past-the-end iterator is
     // undefined, so don't bother checking if we are done.
-    reference operator*() const { return current_product_; }
-    pointer operator->() const { return &current_product_; }
+    constexpr reference operator*() const { return current_product_; }
+    constexpr pointer operator->() const { return &current_product_; }
 
    private:
     // Pointer instead of reference to auto generate copy constructor and
@@ -138,8 +138,8 @@ class CartesianProduct {
     bool is_done_ = false;
   };
 
-  auto begin() { return iterator(this, false); }
-  auto end() { return iterator(this, true); }
+  constexpr auto begin() { return iterator(this, false); }
+  constexpr auto end() { return iterator(this, true); }
 
  private:
   friend class iterator;
@@ -148,7 +148,7 @@ class CartesianProduct {
 /// Convenience function for creating CartesianProduct by deducing template
 /// arguments from function arguments.
 template <typename TSet>
-auto MakeCartesianProduct(std::vector<TSet> sets) {
+constexpr auto MakeCartesianProduct(std::vector<TSet> sets) {
   return CartesianProduct<TSet>(std::move(sets));
 }
 
@@ -365,7 +365,7 @@ class VariableStartPlanner {
   }
 
  public:
-  explicit VariableStartPlanner(TPlanningContext *context) : context_(context) {}
+  constexpr explicit VariableStartPlanner(TPlanningContext *context) : context_(context) {}
 
   /// @brief Generate multiple plans by varying the order of graph traversal.
   auto Plan(const QueryParts &query_parts) {

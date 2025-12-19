@@ -207,7 +207,7 @@ class Socket {
   bool WaitForReadyWrite(std::optional<int> timeout_ms = std::nullopt) const;
 
  private:
-  Socket(int fd, Endpoint endpoint) : socket_(fd), endpoint_(std::move(endpoint)) {}
+  constexpr Socket(int fd, Endpoint endpoint) : socket_(fd), endpoint_(std::move(endpoint)) {}
 
   static void Close(int sfd, std::string_view socket_addr);
 

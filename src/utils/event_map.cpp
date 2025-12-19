@@ -15,14 +15,14 @@
 
 namespace {
 template <typename T, typename K>
-int NameToId(const T &names, const K &name) {
+constexpr int NameToId(const T &names, const K &name) {
   const auto &id = std::find(names.begin(), names.end(), name);
   if (id == names.end()) return -1;
   return std::distance(names.begin(), id);
 }
 
 template <typename T, typename K>
-int NameToId(T &names, const K &name, uint64_t &free) {
+constexpr int NameToId(T &names, const K &name, uint64_t &free) {
   const auto id = NameToId(names, name);
   if (id != -1) return id;
   // Add new name

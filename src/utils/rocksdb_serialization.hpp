@@ -24,12 +24,12 @@ struct StartEndPositions {
   size_t start;
   size_t end;
 
-  size_t Size() const { return end - start; }
-  bool Valid() const { return start != std::string::npos && start <= end; }
+  constexpr size_t Size() const { return end - start; }
+  constexpr bool Valid() const { return start != std::string::npos && start <= end; }
 };
 
 template <typename T>
-inline std::string_view FindPartOfStringView(const std::string_view str, const char delim, T partNumber) {
+inline constexpr std::string_view FindPartOfStringView(const std::string_view str, const char delim, T partNumber) {
   StartEndPositions startEndPos{0, 0};
   for (int i = 0; i < partNumber; ++i) {
     startEndPos.start = startEndPos.end;
@@ -46,7 +46,7 @@ inline std::string_view FindPartOfStringView(const std::string_view str, const c
   return startEndPos.Valid() ? str.substr(startEndPos.start, startEndPos.Size()) : str;
 }
 
-inline bool SerializedVertexHasLabels(std::string_view labels) { return !labels.empty(); }
+constexpr inline bool SerializedVertexHasLabels(std::string_view labels) { return !labels.empty(); }
 
 template <typename T>
 concept WithSize = requires(const T value) {
@@ -54,7 +54,7 @@ concept WithSize = requires(const T value) {
 };
 
 template <WithSize TCollection>
-inline std::vector<std::string> TransformIDsToString(const TCollection &col) {
+inline constexpr std::vector<std::string> TransformIDsToString(const TCollection &col) {
   std::vector<std::string> transformed_col;
   transformed_col.reserve(col.size());
   for (const auto &elem : col) {
@@ -72,12 +72,15 @@ inline std::vector<storage::LabelId> TransformFromStringLabels(std::vector<std::
   return transformed_labels;
 }
 
-inline std::string SerializeLabels(const std::vector<std::string> &labels) { return utils::Join(labels, ","); }
+constexpr inline std::string SerializeLabels(const std::vector<std::string> &labels) {
+  return utils::Join(labels, ",");
+}
 
 inline std::string SerializeProperties(const storage::PropertyStore &properties) { return properties.StringBuffer(); }
 
-inline std::string PutIndexingLabelAndPropertyFirst(std::string_view indexing_label, std::string_view indexing_property,
-                                                    const std::vector<std::string> &vertex_labels) {
+constexpr inline std::string PutIndexingLabelAndPropertyFirst(std::string_view indexing_label,
+                                                              std::string_view indexing_property,
+                                                              const std::vector<std::string> &vertex_labels) {
   std::string result;
   result += indexing_label;
   result += ",";
@@ -92,8 +95,8 @@ inline std::string PutIndexingLabelAndPropertyFirst(std::string_view indexing_la
   return result;
 }
 
-inline std::string PutIndexingLabelAndPropertiesFirst(std::string_view target_label,
-                                                      const std::vector<std::string> &target_properties) {
+constexpr inline std::string PutIndexingLabelAndPropertiesFirst(std::string_view target_label,
+                                                                const std::vector<std::string> &target_properties) {
   std::string result = std::string(target_label);
   for (const auto &target_property : target_properties) {
     result += ",";
@@ -114,7 +117,7 @@ inline storage::EdgeTypeId ExtractEdgeTypeIdFromEdgeValue(const std::string_view
   return storage::EdgeTypeId::FromString(FindPartOfStringView(value, '|', 3));
 }
 
-inline std::string_view GetPropertiesFromEdgeValue(const std::string_view value) {
+constexpr inline std::string_view GetPropertiesFromEdgeValue(const std::string_view value) {
   return FindPartOfStringView(value, '|', 4);
 }
 
@@ -149,7 +152,7 @@ inline std::string SerializeVertexAsValueForAuxiliaryStorages(storage::LabelId l
   return result + SerializeProperties(property_store);
 }
 
-inline std::string_view ExtractGidFromKey(std::string_view key) { return FindPartOfStringView(key, '|', 2); }
+constexpr inline std::string_view ExtractGidFromKey(std::string_view key) { return FindPartOfStringView(key, '|', 2); }
 
 inline storage::PropertyStore DeserializePropertiesFromAuxiliaryStorages(std::string_view value) {
   return storage::PropertyStore::CreateFromBuffer(FindPartOfStringView(value, '|', 2));
@@ -168,7 +171,7 @@ inline std::vector<storage::LabelId> DeserializeLabelsFromMainDiskStorage(std::s
   return {};
 }
 
-inline std::vector<std::string> ExtractLabelsFromMainDiskStorage(std::string_view key) {
+constexpr inline std::vector<std::string> ExtractLabelsFromMainDiskStorage(std::string_view key) {
   return utils::Split(FindPartOfStringView(key, '|', 1), ",");
 }
 
@@ -176,9 +179,11 @@ inline storage::PropertyStore DeserializePropertiesFromMainDiskStorage(const std
   return storage::PropertyStore::CreateFromBuffer(value);
 }
 
-inline std::string_view ExtractGidFromMainDiskStorage(std::string_view key) { return ExtractGidFromKey(key); }
+constexpr inline std::string_view ExtractGidFromMainDiskStorage(std::string_view key) { return ExtractGidFromKey(key); }
 
-inline std::string_view ExtractGidFromUniqueConstraintStorage(std::string_view key) { return ExtractGidFromKey(key); }
+constexpr inline std::string_view ExtractGidFromUniqueConstraintStorage(std::string_view key) {
+  return ExtractGidFromKey(key);
+}
 
 inline std::string GetKeyForUniqueConstraintsDurability(storage::LabelId label,
                                                         const std::set<storage::PropertyId> &properties) {
@@ -217,7 +222,7 @@ inline storage::PropertyStore DeserializePropertiesFromUniqueConstraintStorage(s
   return DeserializePropertiesFromAuxiliaryStorages(value);
 }
 
-inline std::string SerializeVertexAsKeyForLabelIndex(std::string_view indexing_label, std::string_view gid) {
+constexpr inline std::string SerializeVertexAsKeyForLabelIndex(std::string_view indexing_label, std::string_view gid) {
   std::string result;
   result.reserve(indexing_label.size() + 1 + gid.size());
   result += indexing_label;
@@ -230,7 +235,9 @@ inline std::string SerializeVertexAsKeyForLabelIndex(storage::LabelId label, sto
   return SerializeVertexAsKeyForLabelIndex(label.ToString(), gid.ToString());
 }
 
-inline std::string_view ExtractGidFromLabelIndexStorage(std::string_view key) { return ExtractGidFromKey(key); }
+constexpr inline std::string_view ExtractGidFromLabelIndexStorage(std::string_view key) {
+  return ExtractGidFromKey(key);
+}
 
 inline std::string SerializeVertexAsValueForLabelIndex(storage::LabelId indexing_label,
                                                        std::span<storage::LabelId const> vertex_labels,
@@ -255,8 +262,9 @@ inline storage::PropertyStore DeserializePropertiesFromLabelIndexStorage(std::st
   return DeserializePropertiesFromAuxiliaryStorages(value);
 }
 
-inline std::string SerializeVertexAsKeyForLabelPropertyIndex(std::string_view indexing_label,
-                                                             std::string_view indexing_property, std::string_view gid) {
+constexpr inline std::string SerializeVertexAsKeyForLabelPropertyIndex(std::string_view indexing_label,
+                                                                       std::string_view indexing_property,
+                                                                       std::string_view gid) {
   std::string result;
   result.reserve(indexing_label.size() + 2 + indexing_property.size() + gid.size());
   result += indexing_label;
@@ -278,7 +286,7 @@ inline std::string SerializeVertexAsValueForLabelPropertyIndex(storage::LabelId 
   return SerializeVertexAsValueForAuxiliaryStorages(indexing_label, vertex_labels, property_store);
 }
 
-inline std::string ExtractGidFromLabelPropertyIndexStorage(std::string_view key) {
+constexpr inline std::string ExtractGidFromLabelPropertyIndexStorage(std::string_view key) {
   return std::string(FindPartOfStringView(key, '|', 3));
 }
 

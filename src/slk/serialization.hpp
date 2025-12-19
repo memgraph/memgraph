@@ -111,7 +111,7 @@ template <typename T>
 void Load(std::optional<T> *obj, Reader *reader);
 
 template <typename T>
-void Save(const std::shared_ptr<T> &obj, Builder *builder, std::vector<T *> *saved);
+constexpr void Save(const std::shared_ptr<T> &obj, Builder *builder, std::vector<T *> *saved);
 template <typename T>
 void Save(const std::shared_ptr<T> &obj, Builder *builder, std::vector<T *> *saved,
           const std::function<void(const T &, Builder *builder)> &save);
@@ -437,13 +437,13 @@ inline void Load(std::optional<T> *obj, Reader *reader) {
 }
 
 template <typename A, typename B>
-inline void Save(const std::pair<A, B> &obj, Builder *builder) {
+inline constexpr void Save(const std::pair<A, B> &obj, Builder *builder) {
   Save(obj.first, builder);
   Save(obj.second, builder);
 }
 
 template <typename A, typename B>
-inline void Load(std::pair<A, B> *obj, Reader *reader) {
+inline constexpr void Load(std::pair<A, B> *obj, Reader *reader) {
   A first;
   B second;
   Load(&first, reader);
@@ -454,7 +454,7 @@ inline void Load(std::pair<A, B> *obj, Reader *reader) {
 // Implementation of three argument serialization for complex types.
 
 template <typename T>
-inline void Save(const std::shared_ptr<T> &obj, Builder *builder, std::vector<T *> *saved) {
+inline constexpr void Save(const std::shared_ptr<T> &obj, Builder *builder, std::vector<T *> *saved) {
   Save<T>(obj, builder, saved, [](const auto &elem, auto *builder) { Save(elem, builder); });
 }
 
@@ -595,12 +595,12 @@ inline void Load(utils::TypeId *obj, Reader *reader) {
 }
 
 template <utils::Enum T>
-void Save(const T &enum_value, slk::Builder *builder) {
+constexpr void Save(const T &enum_value, slk::Builder *builder) {
   slk::Save(std::to_underlying(enum_value), builder);
 }
 
 template <utils::Enum T>
-void Load(T *enum_value, slk::Reader *reader) {
+constexpr void Load(T *enum_value, slk::Reader *reader) {
   using UnderlyingType = std::underlying_type_t<T>;
   UnderlyingType value;
   slk::Load(&value, reader);

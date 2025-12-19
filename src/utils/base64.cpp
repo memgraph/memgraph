@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -75,7 +75,7 @@ unsigned int pos_of_char(const unsigned char chr) {
   throw std::runtime_error("Input is not valid base64-encoded data.");
 }
 
-std::string insert_linebreaks(std::string str, size_t distance) {
+constexpr std::string insert_linebreaks(std::string str, size_t distance) {
   //
   // Provided by https://github.com/JomaCorpFX, adapted by me.
   //
@@ -94,17 +94,17 @@ std::string insert_linebreaks(std::string str, size_t distance) {
 }
 
 template <typename String, unsigned int line_length>
-std::string encode_with_line_breaks(String s) {
+constexpr std::string encode_with_line_breaks(String s) {
   return insert_linebreaks(base64_encode(s, false), line_length);
 }
 
 template <typename String>
-std::string encode_pem(String s) {
+constexpr std::string encode_pem(String s) {
   return encode_with_line_breaks<String, 64>(s);
 }
 
 template <typename String>
-std::string encode_mime(String s) {
+constexpr std::string encode_mime(String s) {
   return encode_with_line_breaks<String, 76>(s);
 }
 

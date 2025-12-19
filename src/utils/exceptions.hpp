@@ -69,7 +69,7 @@ class BasicException : public std::exception {
    * @param args Arguments for format string.
    */
   template <class... Args>
-  explicit BasicException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit BasicException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : msg_(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   /**
@@ -124,7 +124,7 @@ class StacktraceException : public std::exception {
    * @param args Arguments for format string.
    */
   template <class... Args>
-  explicit StacktraceException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit StacktraceException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : StacktraceException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   /**
@@ -163,7 +163,7 @@ class NotYetImplemented final : public BasicException {
   explicit NotYetImplemented(const std::string &what) noexcept : BasicException("Not yet implemented: " + what) {}
 
   template <class... Args>
-  explicit NotYetImplemented(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit NotYetImplemented(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : NotYetImplemented(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(NotYetImplemented)
@@ -175,7 +175,7 @@ class ParseException final : public BasicException {
       : BasicException("Parsing failed for string: " + std::string(what)) {}
 
   template <class... Args>
-  explicit ParseException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit ParseException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : ParseException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(ParseException)

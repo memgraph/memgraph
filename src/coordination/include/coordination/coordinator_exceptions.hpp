@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@ class CoordinatorRegisterInstanceException final : public utils::BasicException 
       : BasicException("Failed to create instance: " + std::string(what)) {}
 
   template <class... Args>
-  explicit CoordinatorRegisterInstanceException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit CoordinatorRegisterInstanceException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : CoordinatorRegisterInstanceException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(CoordinatorRegisterInstanceException)
@@ -33,7 +33,7 @@ class RaftServerStartException final : public utils::BasicException {
   explicit RaftServerStartException(std::string_view what) noexcept : BasicException(what) {}
 
   template <class... Args>
-  explicit RaftServerStartException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit RaftServerStartException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : RaftServerStartException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(RaftServerStartException)
@@ -44,7 +44,7 @@ class RaftRemoveServerException final : public utils::BasicException {
   explicit RaftRemoveServerException(std::string_view what) noexcept : BasicException(what) {}
 
   template <class... Args>
-  explicit RaftRemoveServerException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit RaftRemoveServerException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : RaftRemoveServerException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(RaftRemoveServerException)
@@ -55,7 +55,7 @@ class RaftAddServerException final : public utils::BasicException {
   explicit RaftAddServerException(std::string_view what) noexcept : BasicException(what) {}
 
   template <class... Args>
-  explicit RaftAddServerException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit RaftAddServerException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : RaftAddServerException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(RaftAddServerException)
@@ -66,7 +66,7 @@ class RaftBecomeLeaderException final : public utils::BasicException {
   explicit RaftBecomeLeaderException(std::string_view what) noexcept : BasicException(what) {}
 
   template <class... Args>
-  explicit RaftBecomeLeaderException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit RaftBecomeLeaderException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : RaftBecomeLeaderException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(RaftBecomeLeaderException)
@@ -77,7 +77,7 @@ class RaftCouldNotFindEntryException final : public utils::BasicException {
   explicit RaftCouldNotFindEntryException(std::string_view what) noexcept : BasicException(what) {}
 
   template <class... Args>
-  explicit RaftCouldNotFindEntryException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit RaftCouldNotFindEntryException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : RaftCouldNotFindEntryException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(RaftCouldNotFindEntryException)
@@ -88,7 +88,7 @@ class RaftCouldNotParseFlagsException final : public utils::BasicException {
   explicit RaftCouldNotParseFlagsException(std::string_view what) noexcept : BasicException(what) {}
 
   template <class... Args>
-  explicit RaftCouldNotParseFlagsException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit RaftCouldNotParseFlagsException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : RaftCouldNotParseFlagsException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(RaftCouldNotParseFlagsException)
@@ -99,7 +99,7 @@ class InvalidRoutingTableException final : public utils::BasicException {
   explicit InvalidRoutingTableException(std::string_view what) noexcept : BasicException(what) {}
 
   template <class... Args>
-  explicit InvalidRoutingTableException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit InvalidRoutingTableException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : InvalidRoutingTableException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(InvalidRoutingTableException)
@@ -110,7 +110,7 @@ class StoreSnapshotToDiskException final : public utils::BasicException {
   explicit StoreSnapshotToDiskException(std::string_view what) noexcept : BasicException(what) {}
 
   template <class... Args>
-  explicit StoreSnapshotToDiskException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit StoreSnapshotToDiskException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : StoreSnapshotToDiskException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(StoreSnapshotToDiskException)
@@ -121,7 +121,7 @@ class NoSnapshotOnDiskException final : public utils::BasicException {
   explicit NoSnapshotOnDiskException(std::string_view what) noexcept : BasicException(what) {}
 
   template <class... Args>
-  explicit NoSnapshotOnDiskException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit NoSnapshotOnDiskException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : NoSnapshotOnDiskException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(NoSnapshotOnDiskException)
@@ -132,7 +132,7 @@ class DeleteSnapshotFromDiskException final : public utils::BasicException {
   explicit DeleteSnapshotFromDiskException(std::string_view what) noexcept : BasicException(what) {}
 
   template <class... Args>
-  explicit DeleteSnapshotFromDiskException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit DeleteSnapshotFromDiskException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : DeleteSnapshotFromDiskException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(DeleteSnapshotFromDiskException)
@@ -143,7 +143,7 @@ class StoreClusterConfigException final : public utils::BasicException {
   explicit StoreClusterConfigException(std::string_view what) noexcept : BasicException(what) {}
 
   template <class... Args>
-  explicit StoreClusterConfigException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit StoreClusterConfigException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : DeleteSnapshotFromDiskException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(StoreClusterConfigException)
@@ -154,7 +154,7 @@ class VersionMigrationException final : public utils::BasicException {
   explicit VersionMigrationException(std::string_view what) noexcept : BasicException(what) {}
 
   template <class... Args>
-  explicit VersionMigrationException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit VersionMigrationException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : VersionMigrationException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(VersionMigrationException)
@@ -165,7 +165,8 @@ class CoordinatorStateMachineVersionMigrationException final : public utils::Bas
   explicit CoordinatorStateMachineVersionMigrationException(std::string_view what) noexcept : BasicException(what) {}
 
   template <class... Args>
-  explicit CoordinatorStateMachineVersionMigrationException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit CoordinatorStateMachineVersionMigrationException(fmt::format_string<Args...> fmt,
+                                                                      Args &&...args) noexcept
       : CoordinatorStateMachineVersionMigrationException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(CoordinatorStateMachineVersionMigrationException)

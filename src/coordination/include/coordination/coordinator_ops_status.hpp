@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #ifdef MG_ENTERPRISE
 
 namespace memgraph::coordination {

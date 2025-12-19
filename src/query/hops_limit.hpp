@@ -21,16 +21,16 @@ struct HopsLimit {
   int64_t hops_counter{0};
   bool limit_reached{false};
 
-  bool IsUsed() const { return limit.has_value(); }
+  constexpr bool IsUsed() const { return limit.has_value(); }
 
-  int64_t GetLimit() const { return *limit; }
-  int64_t GetHopsCounter() const { return hops_counter; }
+  constexpr int64_t GetLimit() const { return *limit; }
+  constexpr int64_t GetHopsCounter() const { return hops_counter; }
 
-  bool IsLimitReached() const { return limit_reached; }
+  constexpr bool IsLimitReached() const { return limit_reached; }
 
-  int64_t LeftHops() const { return *limit - hops_counter; }
+  constexpr int64_t LeftHops() const { return *limit - hops_counter; }
 
-  void IncrementHopsCount(int64_t increment) {
+  constexpr void IncrementHopsCount(int64_t increment) {
     if (limit) {
       hops_counter += increment;
       limit_reached = hops_counter > *limit;

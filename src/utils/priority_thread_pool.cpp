@@ -40,7 +40,7 @@ struct TmpHotElement {
   uint8_t id;
   uint64_t new_mask;
 
-  static inline TmpHotElement Get(uint64_t state) {
+  constexpr static inline TmpHotElement Get(uint64_t state) {
     uint8_t hot_id = std::countr_zero(state);       // Get first hot thread in group
     uint64_t new_state = state & ~(1UL << hot_id);  // Update group to reflect thread reservation
     return {hot_id, new_state};

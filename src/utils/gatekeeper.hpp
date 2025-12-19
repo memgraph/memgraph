@@ -30,10 +30,10 @@ struct EvalResult;
 template <>
 struct EvalResult<void> {
   template <typename Func, typename T>
-  EvalResult(run_t /* marker */, Func &&func, T &arg) : was_run{true} {
+  constexpr EvalResult(run_t /* marker */, Func &&func, T &arg) : was_run{true} {
     std::invoke(std::forward<Func>(func), arg);
   }
-  EvalResult(not_run_t /* marker */) : was_run{false} {}
+  constexpr EvalResult(not_run_t /* marker */) : was_run{false} {}
 
   ~EvalResult() = default;
 
@@ -42,7 +42,7 @@ struct EvalResult<void> {
   EvalResult &operator=(EvalResult const &) = delete;
   EvalResult &operator=(EvalResult &&) = delete;
 
-  explicit operator bool() const { return was_run; }
+  constexpr explicit operator bool() const { return was_run; }
 
  private:
   bool was_run;
@@ -51,8 +51,9 @@ struct EvalResult<void> {
 template <typename Ret>
 struct EvalResult {
   template <typename Func, typename T>
-  EvalResult(run_t /* marker */, Func &&func, T &arg) : return_result{std::invoke(std::forward<Func>(func), arg)} {}
-  EvalResult(not_run_t /* marker */) {}
+  constexpr EvalResult(run_t /* marker */, Func &&func, T &arg)
+      : return_result{std::invoke(std::forward<Func>(func), arg)} {}
+  constexpr EvalResult(not_run_t /* marker */) {}
 
   ~EvalResult() = default;
 
@@ -61,7 +62,7 @@ struct EvalResult {
   EvalResult &operator=(EvalResult const &) = delete;
   EvalResult &operator=(EvalResult &&) = delete;
 
-  explicit operator bool() const { return return_result.has_value(); }
+  constexpr explicit operator bool() const { return return_result.has_value(); }
 
   constexpr const Ret &value() const & { return return_result.value(); }
   constexpr Ret &value() & { return return_result.value(); }
@@ -78,7 +79,7 @@ EvalResult(run_t, Func &&, T &) -> EvalResult<std::invoke_result_t<Func, T &>>;
 template <typename T>
 struct GKInternals {
   template <typename... Args>
-  explicit GKInternals(Args &&...args) : value_{std::in_place, std::forward<Args>(args)...} {}
+  constexpr explicit GKInternals(Args &&...args) : value_{std::in_place, std::forward<Args>(args)...} {}
 
   std::optional<T> value_;
   uint64_t count_ = 0;
@@ -90,7 +91,8 @@ struct GKInternals {
 template <typename T>
 struct Gatekeeper {
   template <typename... Args>
-  explicit Gatekeeper(Args &&...args) : pimpl_(std::make_unique<GKInternals<T>>(std::forward<Args>(args)...)) {}
+  constexpr explicit Gatekeeper(Args &&...args)
+      : pimpl_(std::make_unique<GKInternals<T>>(std::forward<Args>(args)...)) {}
 
   Gatekeeper(Gatekeeper const &) = delete;
   Gatekeeper(Gatekeeper &&) noexcept = default;
@@ -101,17 +103,17 @@ struct Gatekeeper {
     friend Gatekeeper;
 
    private:
-    explicit Accessor(Gatekeeper *owner) : owner_{owner->pimpl_.get()} { ++owner_->count_; }
+    constexpr explicit Accessor(Gatekeeper *owner) : owner_{owner->pimpl_.get()} { ++owner_->count_; }
 
    public:
-    Accessor(Accessor const &other) : owner_{other.owner_} {
+    constexpr Accessor(Accessor const &other) : owner_{other.owner_} {
       if (owner_) {
         auto guard = std::unique_lock{owner_->mutex_};
         ++owner_->count_;
       }
     };
-    Accessor(Accessor &&other) noexcept : owner_{std::exchange(other.owner_, nullptr)} {};
-    Accessor &operator=(Accessor const &other) {
+    constexpr Accessor(Accessor &&other) noexcept : owner_{std::exchange(other.owner_, nullptr)} {};
+    constexpr Accessor &operator=(Accessor const &other) {
       // no change assignment
       if (owner_ == other.owner_) {
         return *this;
@@ -133,7 +135,7 @@ struct Gatekeeper {
       owner_ = other.owner_;
       return *this;
     };
-    Accessor &operator=(Accessor &&other) noexcept {
+    constexpr Accessor &operator=(Accessor &&other) noexcept {
       // self assignment
       if (&other == this) return *this;
 
@@ -148,9 +150,9 @@ struct Gatekeeper {
       return *this;
     }
 
-    [[nodiscard]] bool is_marked_for_deletion() const { return owner_ && owner_->is_marked_for_deletion; }
+    [[nodiscard]] constexpr bool is_marked_for_deletion() const { return owner_ && owner_->is_marked_for_deletion; }
 
-    void prepare_for_deletion() {
+    constexpr void prepare_for_deletion() {
       if (owner_) {
         owner_->is_marked_for_deletion = true;
       }
@@ -158,25 +160,25 @@ struct Gatekeeper {
 
     ~Accessor() { reset(); }
 
-    auto get() -> T * {
+    constexpr auto get() -> T * {
       if (owner_ == nullptr) return nullptr;
       return std::addressof(*owner_->value_);
     }
-    auto get() const -> const T * {
+    constexpr auto get() const -> const T * {
       if (owner_ == nullptr) return nullptr;
       return std::addressof(*owner_->value_);
     }
-    T *operator->() {
+    constexpr T *operator->() {
       if (owner_ == nullptr) return nullptr;
       return std::addressof(*owner_->value_);
     }
-    const T *operator->() const {
+    constexpr const T *operator->() const {
       if (owner_ == nullptr) return nullptr;
       return std::addressof(*owner_->value_);
     }
 
     template <typename Func>
-    [[nodiscard]] auto try_exclusively(Func &&func) -> EvalResult<std::invoke_result_t<Func, T &>> {
+    [[nodiscard]] constexpr auto try_exclusively(Func &&func) -> EvalResult<std::invoke_result_t<Func, T &>> {
       if (!owner_) return {not_run_t{}};
       // Prevent new access
       auto guard = std::unique_lock{owner_->mutex_};
@@ -190,8 +192,8 @@ struct Gatekeeper {
 
     // Completely invalidated the accessor if return true
     template <typename Func = decltype([](T &) { return true; })>
-    [[nodiscard]] bool try_delete(std::chrono::milliseconds timeout = std::chrono::milliseconds(100),
-                                  Func &&predicate = {}) {
+    [[nodiscard]] constexpr bool try_delete(std::chrono::milliseconds timeout = std::chrono::milliseconds(100),
+                                            Func &&predicate = {}) {
       if (!owner_) return false;
       // Prevent new access
       auto guard = std::unique_lock{owner_->mutex_};
@@ -206,12 +208,12 @@ struct Gatekeeper {
       return true;
     }
 
-    explicit operator bool() const {
+    constexpr explicit operator bool() const {
       return owner_ != nullptr                    // we have access
              && !owner_->is_marked_for_deletion;  // AND we are allowed to use it
     }
 
-    void reset() {
+    constexpr void reset() {
       if (owner_) {
         {
           auto guard = std::unique_lock{owner_->mutex_};
@@ -222,7 +224,7 @@ struct Gatekeeper {
       owner_ = nullptr;
     }
 
-    friend bool operator==(Accessor const &lhs, Accessor const &rhs) { return lhs.owner_ == rhs.owner_; }
+    constexpr friend bool operator==(Accessor const &lhs, Accessor const &rhs) { return lhs.owner_ == rhs.owner_; }
 
    private:
     GKInternals<T> *owner_ = nullptr;

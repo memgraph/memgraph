@@ -86,12 +86,13 @@ struct EdgeWithVertices {
   const Vertex *from_vertex;
   const Vertex *to_vertex;
 
-  EdgeWithVertices(const Edge *e, const Vertex *from, const Vertex *to) : edge(e), from_vertex(from), to_vertex(to) {}
+  constexpr EdgeWithVertices(const Edge *e, const Vertex *from, const Vertex *to)
+      : edge(e), from_vertex(from), to_vertex(to) {}
 
-  friend bool operator==(const EdgeWithVertices &a, const EdgeWithVertices &b) { return a.edge == b.edge; }
+  constexpr friend bool operator==(const EdgeWithVertices &a, const EdgeWithVertices &b) { return a.edge == b.edge; }
 
   template <typename H>
-  friend H AbslHashValue(H h, const EdgeWithVertices &edge_with_vertices) {
+  friend constexpr H AbslHashValue(H h, const EdgeWithVertices &edge_with_vertices) {
     return H::combine(std::move(h), edge_with_vertices.edge);
   }
 };

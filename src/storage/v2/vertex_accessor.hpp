@@ -44,7 +44,7 @@ class VertexAccessor final {
                                         query::HopsLimit *hops_limit, EdgeDirection direction) const;
 
  public:
-  VertexAccessor(Vertex *vertex, Storage *storage, Transaction *transaction, bool for_deleted = false)
+  constexpr VertexAccessor(Vertex *vertex, Storage *storage, Transaction *transaction, bool for_deleted = false)
       : vertex_(vertex), storage_(storage), transaction_(transaction), for_deleted_(for_deleted) {}
 
   static std::optional<VertexAccessor> Create(Vertex *vertex, Storage *storage, Transaction *transaction, View view);
@@ -125,12 +125,12 @@ class VertexAccessor final {
 
   Result<size_t> OutDegree(View view) const;
 
-  Gid Gid() const noexcept { return vertex_->gid; }
+  constexpr Gid Gid() const noexcept { return vertex_->gid; }
 
-  bool operator==(const VertexAccessor &other) const noexcept {
+  constexpr bool operator==(const VertexAccessor &other) const noexcept {
     return vertex_ == other.vertex_ && transaction_ == other.transaction_;
   }
-  bool operator!=(const VertexAccessor &other) const noexcept { return !(*this == other); }
+  constexpr bool operator!=(const VertexAccessor &other) const noexcept { return !(*this == other); }
 
   Vertex *vertex_;
   Storage *storage_;

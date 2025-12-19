@@ -69,9 +69,9 @@ struct EGraphBase {
  */
 template <typename Symbol, typename Analysis>
 struct EGraph : private detail::EGraphBase {
-  EGraph() : EGraph(256 /*an ok default capacity*/) {}
+  constexpr EGraph() : EGraph(256 /*an ok default capacity*/) {}
 
-  explicit EGraph(size_t capacity) {
+  constexpr explicit EGraph(size_t capacity) {
     classes_.reserve(capacity);
     hashcons_.reserve(capacity);
   }
@@ -100,19 +100,19 @@ struct EGraph : private detail::EGraphBase {
    * Allows inline specification of children without explicit vector construction.
    * Example: egraph.emplace(Symbol::Plus, {a, b})
    */
-  auto emplace(Symbol symbol, std::initializer_list<EClassId> children) -> EClassId {
+  constexpr auto emplace(Symbol symbol, std::initializer_list<EClassId> children) -> EClassId {
     return emplace(std::move(symbol), utils::small_vector(children));
   }
 
   /**
    * @brief Merge two e-classes
    */
-  auto merge(EClassId a, EClassId b) -> EClassId;
+  constexpr auto merge(EClassId a, EClassId b) -> EClassId;
 
   /**
    * @brief Get e-class by canonical ID
    */
-  auto eclass(EClassId id) -> EClass<Analysis> & { return *classes_.find(id)->second; }
+  constexpr auto eclass(EClassId id) -> EClass<Analysis> & { return *classes_.find(id)->second; }
 
   /**
    * @brief Check if an e-class exists and is canonical
@@ -122,12 +122,12 @@ struct EGraph : private detail::EGraphBase {
   /**
    * @brief Get the number of distinct e-classes
    */
-  auto num_classes() const -> size_t { return classes_.size(); }
+  constexpr auto num_classes() const -> size_t { return classes_.size(); }
 
   /**
    * @brief Check if the e-graph contains no e-classes
    */
-  auto empty() const -> bool { return classes_.empty(); }
+  constexpr auto empty() const -> bool { return classes_.empty(); }
 
   /**
    * @brief Remove all e-classes and reset to empty state
@@ -137,12 +137,12 @@ struct EGraph : private detail::EGraphBase {
   /**
    * @brief Get range of all canonical e-class IDs
    */
-  auto canonical_class_ids() const { return classes_ | ranges::views::keys; }
+  constexpr auto canonical_class_ids() const { return classes_ | ranges::views::keys; }
 
   /**
    * @brief Get range of all canonical e-classes
    */
-  auto canonical_classes() const {
+  constexpr auto canonical_classes() const {
     return ranges::views::transform(
         classes_, [](const auto &pair) { return std::make_pair(pair.first, std::cref(*pair.second)); });
   }
@@ -150,7 +150,7 @@ struct EGraph : private detail::EGraphBase {
   /**
    * @brief Reserve capacity for expected number of e-classes
    */
-  void reserve(size_t num_classes) {
+  constexpr void reserve(size_t num_classes) {
     classes_.reserve(num_classes);
     hashcons_.reserve(num_classes);
   }
@@ -158,7 +158,7 @@ struct EGraph : private detail::EGraphBase {
   /**
    * @brief Get e-node by ID with reference access
    */
-  auto get_enode(ENodeId id) -> ENode<Symbol> & {
+  constexpr auto get_enode(ENodeId id) -> ENode<Symbol> & {
     assert(id < enode_storage_.size());
     return enode_storage_[id];
   }
@@ -171,18 +171,18 @@ struct EGraph : private detail::EGraphBase {
   /**
    * @brief Checks that congruence has been maintained post rebuild. Only used in test code.
    */
-  bool ValidateCongruenceClosure();
+  constexpr bool ValidateCongruenceClosure();
 
  protected:
-  void repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id);
+  constexpr void repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id);
 
-  void repair_hashcons_enode(ENode<Symbol> &enode, EClassId eclass_id);
+  constexpr void repair_hashcons_enode(ENode<Symbol> &enode, EClassId eclass_id);
 
-  void process_parents(EClass<Analysis> const &eclass, ProcessingContext<Symbol> &ctx);
+  constexpr void process_parents(EClass<Analysis> const &eclass, ProcessingContext<Symbol> &ctx);
 
-  void merge_eclasses(EClass<Analysis> &destination, EClassId other_id);
+  constexpr void merge_eclasses(EClass<Analysis> &destination, EClassId other_id);
 
-  auto intern_enode(ENode<Symbol> enode) -> ENodeRef<Symbol>;
+  constexpr auto intern_enode(ENode<Symbol> enode) -> ENodeRef<Symbol>;
 
   boost::unordered_flat_map<EClassId, std::unique_ptr<EClass<Analysis>>> classes_;
   boost::unordered_flat_map<ENodeRef<Symbol>, EClassId> hashcons_;
@@ -248,12 +248,12 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
 }
 
 template <typename Symbol, typename Analysis>
-auto EGraph<Symbol, Analysis>::intern_enode(ENode<Symbol> enode) -> ENodeRef<Symbol> {
+constexpr auto EGraph<Symbol, Analysis>::intern_enode(ENode<Symbol> enode) -> ENodeRef<Symbol> {
   return ENodeRef{enode_storage_.emplace_back(std::move(enode))};
 }
 
 template <typename Symbol, typename Analysis>
-auto EGraph<Symbol, Analysis>::merge(EClassId a, EClassId b) -> EClassId {
+constexpr auto EGraph<Symbol, Analysis>::merge(EClassId a, EClassId b) -> EClassId {
   EClassId canonical_a = union_find_.Find(a);
   EClassId canonical_b = union_find_.Find(b);
 
@@ -336,14 +336,14 @@ void EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) {
 }
 
 template <typename Symbol, typename Analysis>
-void EGraph<Symbol, Analysis>::repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id) {
+constexpr void EGraph<Symbol, Analysis>::repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id) {
   for (const auto &enode_id : eclass.nodes()) {
     repair_hashcons_enode(get_enode(enode_id), eclass_id);
   }
 }
 
 template <typename Symbol, typename Analysis>
-void EGraph<Symbol, Analysis>::repair_hashcons_enode(ENode<Symbol> &enode, EClassId eclass_id) {
+constexpr void EGraph<Symbol, Analysis>::repair_hashcons_enode(ENode<Symbol> &enode, EClassId eclass_id) {
   // NOTE: the node maybe non-canonicalize, if so it will not be found
   auto it = hashcons_.find(ENodeRef{enode});
 
@@ -361,7 +361,8 @@ void EGraph<Symbol, Analysis>::repair_hashcons_enode(ENode<Symbol> &enode, EClas
 }
 
 template <typename Symbol, typename Analysis>
-void EGraph<Symbol, Analysis>::process_parents(EClass<Analysis> const &eclass, ProcessingContext<Symbol> &ctx) {
+constexpr void EGraph<Symbol, Analysis>::process_parents(EClass<Analysis> const &eclass,
+                                                         ProcessingContext<Symbol> &ctx) {
   auto &canonical_to_parents = ctx.rebuild_enode_to_parents_container();
 
   // Step 1: Group by canonical
@@ -406,7 +407,7 @@ void EGraph<Symbol, Analysis>::process_parents(EClass<Analysis> const &eclass, P
 }
 
 template <typename Symbol, typename Analysis>
-void EGraph<Symbol, Analysis>::merge_eclasses(EClass<Analysis> &destination, EClassId other_id) {
+constexpr void EGraph<Symbol, Analysis>::merge_eclasses(EClass<Analysis> &destination, EClassId other_id) {
   auto it = classes_.find(other_id);
   assert(it != classes_.end());
   destination.merge_with(std::move(*it->second));
@@ -418,7 +419,7 @@ void EGraph<Symbol, Analysis>::merge_eclasses(EClass<Analysis> &destination, ECl
 // ========================================================================================
 
 template <typename Symbol, typename Analysis>
-bool EGraph<Symbol, Analysis>::ValidateCongruenceClosure() {
+constexpr bool EGraph<Symbol, Analysis>::ValidateCongruenceClosure() {
   std::unordered_map<ENode<Symbol>, EClassId> canonical_forms;
 
   for (auto const &[class_id, eclass] : canonical_classes()) {

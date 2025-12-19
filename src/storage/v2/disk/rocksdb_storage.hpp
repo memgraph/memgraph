@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,7 +39,7 @@ struct RocksDBStorage {
   RocksDBStorage(RocksDBStorage &&) = delete;
   RocksDBStorage &operator=(RocksDBStorage &&) = delete;
 
-  ~RocksDBStorage() {
+  constexpr ~RocksDBStorage() {
     delete db_;
     db_ = nullptr;
     delete options_.comparator;
@@ -61,7 +61,7 @@ class ComparatorWithU64TsImpl : public rocksdb::Comparator {
  public:
   explicit ComparatorWithU64TsImpl();
 
-  static const char *kClassName() { return "be"; }
+  constexpr static const char *kClassName() { return "be"; }
 
   const char *Name() const override { return kClassName(); }
 

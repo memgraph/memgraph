@@ -87,7 +87,7 @@ auto ToQueryExtras(const memgraph::glue::bolt_value_t &extra) -> memgraph::query
 template <typename TEncoder>
 class TypedValueResultStream {
  public:
-  TypedValueResultStream(TEncoder *encoder, memgraph::storage::Storage *storage)
+  constexpr TypedValueResultStream(TEncoder *encoder, memgraph::storage::Storage *storage)
       : storage_{storage}, encoder_(encoder) {}
 
   void Result(const std::vector<memgraph::query::TypedValue> &values) {

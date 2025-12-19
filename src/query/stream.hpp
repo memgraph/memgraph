@@ -33,7 +33,7 @@ namespace memgraph::query {
 class AnyStream final {
  public:
   template <class TStream>
-  AnyStream(TStream *stream, utils::MemoryResource *memory_resource)
+  constexpr AnyStream(TStream *stream, utils::MemoryResource *memory_resource)
       : content_{
             utils::Allocator<GenericWrapper<TStream>>{memory_resource}.template new_object<GenericWrapper<TStream>>(
                 stream),
@@ -52,7 +52,7 @@ class AnyStream final {
 
   template <class TStream>
   struct GenericWrapper final : public Wrapper {
-    explicit GenericWrapper(TStream *stream) : stream_{stream} {}
+    constexpr explicit GenericWrapper(TStream *stream) : stream_{stream} {}
 
     void Result(const std::vector<TypedValue> &values) override { stream_->Result(values); }
 

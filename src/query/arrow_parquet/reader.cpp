@@ -461,7 +461,7 @@ namespace memgraph::query {
 class BatchIterator {
  public:
   BatchIterator() = default;
-  explicit BatchIterator(std::unique_ptr<arrow::RecordBatchReader> rbr, int const num_columns)
+  constexpr explicit BatchIterator(std::unique_ptr<arrow::RecordBatchReader> rbr, int const num_columns)
       : num_columns_(num_columns), rbr_(std::move(rbr)) {}
   ~BatchIterator() = default;
 

@@ -35,7 +35,7 @@ extern const Event DeletedEdges;
 
 namespace {
 template <typename T>
-int GetPart(auto &current) {
+constexpr int GetPart(auto &current) {
   const int whole_part = std::chrono::duration_cast<T>(current).count();
   current -= T{whole_part};
   return whole_part;

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,7 @@ TResult Call(TFunc func, TArgs... args) {
 }
 
 template <typename TFunc, typename... TArgs>
-bool CallBool(TFunc func, TArgs... args) {
+constexpr bool CallBool(TFunc func, TArgs... args) {
   return Call<int>(func, args...) != 0;
 }
 
@@ -42,7 +42,7 @@ template <typename TObj>
 using MgpUniquePtr = std::unique_ptr<TObj, MgpRawObjectDeleter<TObj>>;
 
 template <typename TObj, typename TFunc, typename... TArgs>
-mgp_error CreateMgpObject(MgpUniquePtr<TObj> &obj, TFunc func, TArgs &&...args) {
+constexpr mgp_error CreateMgpObject(MgpUniquePtr<TObj> &obj, TFunc func, TArgs &&...args) {
   TObj *raw_obj{nullptr};
   const auto err = func(std::forward<TArgs>(args)..., &raw_obj);
   obj.reset(raw_obj);

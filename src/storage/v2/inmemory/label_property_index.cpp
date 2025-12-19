@@ -51,7 +51,7 @@ auto PropertyValuesUpdate_ActionMethod(PropertiesPermutationHelper const &helper
  */
 [[maybe_unused]] // Currently only used in DMG_ASSERT, maybe_unused to get rid of warning
 auto JoinPropertiesAsString(std::span<PropertyPath const> properties) -> std::string {
-  auto const make_nested = [](std::span<PropertyId const> path) {
+  auto constexpr make_nested = [](std::span<PropertyId const> path) {
     return utils::Join(path | ranges::views::transform(&PropertyId::AsUint) |
                            ranges::views::transform([](uint64_t id) { return std::to_string(id); }),
                        ".");
@@ -190,10 +190,10 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
   });
 }
 
-void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex, auto &current_vertex_accessor,
-                        auto *storage, auto *transaction, auto view, auto label, const auto &lower_bound,
-                        const auto &upper_bound, bool &skip_lower_bound_check, auto &permutation_helper,
-                        bool use_cache = true) {
+constexpr void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex,
+                                  auto &current_vertex_accessor, auto *storage, auto *transaction, auto view,
+                                  auto label, const auto &lower_bound, const auto &upper_bound,
+                                  bool &skip_lower_bound_check, auto &permutation_helper, bool use_cache = true) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->vertex == current_vertex) {
       continue;
@@ -212,8 +212,8 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
 
     enum class InBoundResult : uint8_t { UNDER, IN_BOUNDS, IN_BOUNDS_AT_UB, OVER };
 
-    auto const value_within_upper_bounds = [](std::optional<utils::Bound<PropertyValue>> const &ub,
-                                              PropertyValue const &cmp_value) -> InBoundResult {
+    auto constexpr value_within_upper_bounds = [](std::optional<utils::Bound<PropertyValue>> const &ub,
+                                                  PropertyValue const &cmp_value) -> InBoundResult {
       if (ub) {
         auto ub_cmp_res = cmp_value <=> ub->value();
         if (is_gt(ub_cmp_res)) {

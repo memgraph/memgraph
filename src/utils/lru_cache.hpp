@@ -24,9 +24,9 @@ namespace memgraph::utils {
 template <class TKey, class TVal>
 class LRUCache {
  public:
-  explicit LRUCache(int cache_size_) : cache_size(cache_size_){};
+  constexpr explicit LRUCache(int cache_size_) : cache_size(cache_size_){};
 
-  void put(const TKey &key, const TVal &val) {
+  constexpr void put(const TKey &key, const TVal &val) {
     auto it = item_map.find(key);
     if (it != item_map.end()) {
       item_list.erase(it->second);
@@ -37,7 +37,7 @@ class LRUCache {
     try_clean();
   };
 
-  std::optional<TVal> get(const TKey &key) {
+  constexpr std::optional<TVal> get(const TKey &key) {
     auto const it = item_map.find(key);
     if (it == item_map.end()) {
       return std::nullopt;
@@ -46,7 +46,7 @@ class LRUCache {
     return it->second->second;
   }
 
-  void invalidate(const TKey &key) {
+  constexpr void invalidate(const TKey &key) {
     auto const it = item_map.find(key);
     if (it != item_map.end()) {
       item_list.erase(it->second);
@@ -54,15 +54,15 @@ class LRUCache {
     }
   }
 
-  void reset() {
+  constexpr void reset() {
     item_list.clear();
     item_map.clear();
   };
 
-  std::size_t size() const { return item_map.size(); }
+  constexpr std::size_t size() const { return item_map.size(); }
 
  private:
-  void try_clean() {
+  constexpr void try_clean() {
     while (item_map.size() > cache_size) {
       auto last = std::prev(item_list.end());
       item_map.erase(last->first);

@@ -125,7 +125,7 @@ class TypedValue {
   storage::PropertyValue ToPropertyValue(storage::NameIdMapper *name_id_mapper) const;
 
   /** Construct a Null value with default utils::NewDeleteResource(). */
-  TypedValue() : type_(Type::Null) {}
+  constexpr TypedValue() : type_(Type::Null) {}
 
   /** Construct a Null value with given utils::MemoryResource. */
   explicit TypedValue(utils::MemoryResource *res) : alloc_(res), type_(Type::Null) {}

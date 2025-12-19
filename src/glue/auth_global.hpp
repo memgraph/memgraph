@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #pragma once
+
+#include <string_view>
 
 namespace memgraph::glue {
 inline constexpr std::string_view kDefaultUserRoleRegex = "[a-zA-Z0-9_.+-@]+";

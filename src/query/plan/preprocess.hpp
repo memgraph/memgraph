@@ -466,23 +466,23 @@ class PropertyFilter {
 struct PointFilter {
   enum class Function : uint8_t { DISTANCE, WITHINBBOX };
 
-  PointFilter(Symbol symbol, PropertyIx property, Expression *cmp_value, PointDistanceCondition boundary_condition,
-              Expression *boundary_value)
+  constexpr PointFilter(Symbol symbol, PropertyIx property, Expression *cmp_value,
+                        PointDistanceCondition boundary_condition, Expression *boundary_value)
       : symbol_(std::move(symbol)),
         property_(std::move(property)),
         function_(Function::DISTANCE),
         distance_{
             .cmp_value_ = cmp_value, .boundary_value_ = boundary_value, .boundary_condition_ = boundary_condition} {}
 
-  PointFilter(Symbol symbol, PropertyIx property, Expression *bottom_left, Expression *top_right,
-              WithinBBoxCondition condition)
+  constexpr PointFilter(Symbol symbol, PropertyIx property, Expression *bottom_left, Expression *top_right,
+                        WithinBBoxCondition condition)
       : symbol_(std::move(symbol)),
         property_(std::move(property)),
         function_(Function::WITHINBBOX),
         withinbbox_{.bottom_left_ = bottom_left, .top_right_ = top_right, .condition_ = condition} {}
 
-  PointFilter(Symbol symbol, PropertyIx property, Expression *bottom_left, Expression *top_right,
-              Expression *boundary_value)
+  constexpr PointFilter(Symbol symbol, PropertyIx property, Expression *bottom_left, Expression *top_right,
+                        Expression *boundary_value)
       : symbol_(std::move(symbol)),
         property_(std::move(property)),
         function_(Function::WITHINBBOX),
@@ -577,19 +577,19 @@ class Filters final {
   using iterator = std::vector<FilterInfo>::iterator;
   using const_iterator = std::vector<FilterInfo>::const_iterator;
 
-  auto begin() -> iterator { return all_filters_.begin(); }
-  auto begin() const -> const_iterator { return all_filters_.begin(); }
-  auto end() -> iterator { return all_filters_.end(); }
-  auto end() const -> const_iterator { return all_filters_.end(); }
+  constexpr auto begin() -> iterator { return all_filters_.begin(); }
+  constexpr auto begin() const -> const_iterator { return all_filters_.begin(); }
+  constexpr auto end() -> iterator { return all_filters_.end(); }
+  constexpr auto end() const -> const_iterator { return all_filters_.end(); }
 
-  auto empty() const -> bool { return all_filters_.empty(); }
+  constexpr auto empty() const -> bool { return all_filters_.empty(); }
 
-  auto erase(iterator pos) -> iterator;
-  auto erase(const_iterator pos) -> iterator;
-  auto erase(iterator first, iterator last) -> iterator;
-  auto erase(const_iterator first, const_iterator last) -> iterator;
+  constexpr auto erase(iterator pos) -> iterator;
+  constexpr auto erase(const_iterator pos) -> iterator;
+  constexpr auto erase(iterator first, iterator last) -> iterator;
+  constexpr auto erase(const_iterator first, const_iterator last) -> iterator;
 
-  void SetFilters(std::vector<FilterInfo> &&all_filters) { all_filters_ = std::move(all_filters); }
+  constexpr void SetFilters(std::vector<FilterInfo> &&all_filters) { all_filters_ = std::move(all_filters); }
 
   auto FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx>;
   auto FilteredOrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>>;
@@ -613,12 +613,12 @@ class Filters final {
                           std::vector<Expression *> *removed_filters = nullptr);
 
   /// Returns a vector of FilterInfo for properties.
-  auto PropertyFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
+  constexpr auto PropertyFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
 
-  auto PointFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
+  constexpr auto PointFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
 
   /// Return a vector of FilterInfo for ID equality filtering.
-  auto IdFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
+  constexpr auto IdFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
 
   /// Collects filtering information from a pattern.
   ///
@@ -690,12 +690,12 @@ struct FilterMatching : Matching {
   std::shared_ptr<QueryParts> subquery;
 };
 
-inline auto Filters::erase(Filters::iterator pos) -> iterator { return all_filters_.erase(pos); }
-inline auto Filters::erase(Filters::const_iterator pos) -> iterator { return all_filters_.erase(pos); }
-inline auto Filters::erase(Filters::iterator first, Filters::iterator last) -> iterator {
+constexpr inline auto Filters::erase(Filters::iterator pos) -> iterator { return all_filters_.erase(pos); }
+constexpr inline auto Filters::erase(Filters::const_iterator pos) -> iterator { return all_filters_.erase(pos); }
+constexpr inline auto Filters::erase(Filters::iterator first, Filters::iterator last) -> iterator {
   return all_filters_.erase(first, last);
 }
-inline auto Filters::erase(Filters::const_iterator first, Filters::const_iterator last) -> iterator {
+constexpr inline auto Filters::erase(Filters::const_iterator first, Filters::const_iterator last) -> iterator {
   return all_filters_.erase(first, last);
 }
 
@@ -731,7 +731,7 @@ inline auto Filters::FilteredProperties(const Symbol &symbol) const -> std::set<
   return properties;
 }
 
-inline auto Filters::PropertyFilters(const Symbol &symbol) const -> std::vector<FilterInfo> {
+constexpr inline auto Filters::PropertyFilters(const Symbol &symbol) const -> std::vector<FilterInfo> {
   std::vector<FilterInfo> filters;
   for (const auto &filter : all_filters_) {
     if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
@@ -741,7 +741,7 @@ inline auto Filters::PropertyFilters(const Symbol &symbol) const -> std::vector<
   return filters;
 }
 
-inline auto Filters::PointFilters(const Symbol &symbol) const -> std::vector<FilterInfo> {
+constexpr inline auto Filters::PointFilters(const Symbol &symbol) const -> std::vector<FilterInfo> {
   std::vector<FilterInfo> filters;
   for (const auto &filter : all_filters_) {
     if (filter.type == FilterInfo::Type::Point && filter.point_filter->symbol_ == symbol) {
@@ -751,7 +751,7 @@ inline auto Filters::PointFilters(const Symbol &symbol) const -> std::vector<Fil
   return filters;
 }
 
-inline auto Filters::IdFilters(const Symbol &symbol) const -> std::vector<FilterInfo> {
+constexpr inline auto Filters::IdFilters(const Symbol &symbol) const -> std::vector<FilterInfo> {
   std::vector<FilterInfo> filters;
   for (const auto &filter : all_filters_) {
     if (filter.type == FilterInfo::Type::Id && filter.id_filter->symbol_ == symbol) {

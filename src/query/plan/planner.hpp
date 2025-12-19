@@ -42,7 +42,7 @@ namespace plan {
 
 // Custom pipe operator to chain functions
 template <typename T, typename F>
-auto operator|(T &&value, F &&func) -> decltype(func(std::forward<T>(value))) {
+constexpr auto operator|(T &&value, F &&func) -> decltype(func(std::forward<T>(value))) {
   return func(std::forward<T>(value));
 }
 
@@ -54,14 +54,14 @@ class PostProcessor final {
 
   using ProcessedPlan = std::unique_ptr<LogicalOperator>;
 
-  explicit PostProcessor(Parameters parameters) : parameters_(std::move(parameters)) {}
+  constexpr explicit PostProcessor(Parameters parameters) : parameters_(std::move(parameters)) {}
 
   template <class TDbAccessor>
-  PostProcessor(Parameters parameters, std::vector<IndexHint> index_hints, TDbAccessor *db)
+  constexpr PostProcessor(Parameters parameters, std::vector<IndexHint> index_hints, TDbAccessor *db)
       : parameters_(std::move(parameters)), index_hints_(IndexHints(index_hints, db)) {}
 
   template <class TPlanningContext>
-  std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
+  constexpr std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
     auto &ast = context->ast_storage;
     auto &symbol_table = context->symbol_table;
     auto &db = context->db;
@@ -97,7 +97,7 @@ class PostProcessor final {
 /// @sa RuleBasedPlanner
 /// @sa VariableStartPlanner
 template <template <class> class TPlanner, class TDbAccessor>
-auto MakeLogicalPlanForSingleQuery(QueryParts query_parts, PlanningContext<TDbAccessor> *context) {
+constexpr auto MakeLogicalPlanForSingleQuery(QueryParts query_parts, PlanningContext<TDbAccessor> *context) {
   context->bound_symbols.clear();
   return TPlanner<PlanningContext<TDbAccessor>>(context).Plan(query_parts);
 }
@@ -184,7 +184,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
 }
 
 template <class TPlanningContext>
-auto MakeLogicalPlan(TPlanningContext *context, const Parameters &parameters, bool use_variable_planner) {
+constexpr auto MakeLogicalPlan(TPlanningContext *context, const Parameters &parameters, bool use_variable_planner) {
   PostProcessor post_processor(parameters, context->query->pre_query_directives_.index_hints_, context->db);
   return MakeLogicalPlan(context, &post_processor, use_variable_planner);
 }

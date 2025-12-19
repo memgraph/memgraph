@@ -43,7 +43,7 @@ struct ParsingContext {
 
 class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
  public:
-  explicit CypherMainVisitor(ParsingContext context, AstStorage *storage, Parameters *parameters)
+  constexpr explicit CypherMainVisitor(ParsingContext context, AstStorage *storage, Parameters *parameters)
       : context_(context), storage_(storage), parameters_(parameters) {}
 
  private:

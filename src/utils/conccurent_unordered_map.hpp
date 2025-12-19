@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -47,7 +47,7 @@ class ConcurrentUnorderedMap {
   }
 
   template <typename TAnyKey>
-  T &operator[](const TAnyKey &key) {
+  constexpr T &operator[](const TAnyKey &key) {
     return get_or_insert(key);
   }
 
@@ -110,7 +110,7 @@ class ConcurrentUnorderedMap {
     using difference_type = std::ptrdiff_t;
 
     Iterator(auto itr, auto lock) : itr_{std::move(itr)}, lock_{std::move(lock)} {}
-    Iterator(auto itr) : itr_{std::move(itr)} {}
+    constexpr Iterator(auto itr) : itr_{std::move(itr)} {}
 
     auto operator++() -> Iterator & {
       ++itr_;
@@ -121,7 +121,7 @@ class ConcurrentUnorderedMap {
 
     auto *operator->() const { return &*itr_; }
 
-    friend bool operator==(Iterator const &lhs, Iterator const &rhs) { return lhs.itr_ == rhs.itr_; }
+    constexpr friend bool operator==(Iterator const &lhs, Iterator const &rhs) { return lhs.itr_ == rhs.itr_; }
 
    private:
     std::unordered_map<K, T>::iterator itr_;
@@ -137,7 +137,7 @@ class ConcurrentUnorderedMap {
     using difference_type = std::ptrdiff_t;
 
     ConstIterator(auto itr, auto lock) : itr_{std::move(itr)}, lock_{std::move(lock)} {}
-    ConstIterator(auto itr) : itr_{std::move(itr)} {}
+    constexpr ConstIterator(auto itr) : itr_{std::move(itr)} {}
 
     auto operator++() -> ConstIterator & {
       ++itr_;
@@ -148,7 +148,9 @@ class ConcurrentUnorderedMap {
 
     const auto *operator->() const { return &*itr_; }
 
-    friend bool operator==(ConstIterator const &lhs, ConstIterator const &rhs) { return lhs.itr_ == rhs.itr_; }
+    constexpr friend bool operator==(ConstIterator const &lhs, ConstIterator const &rhs) {
+      return lhs.itr_ == rhs.itr_;
+    }
 
    private:
     std::unordered_map<K, T>::const_iterator itr_;
@@ -160,14 +162,14 @@ class ConcurrentUnorderedMap {
     return ConstIterator{map_.begin(), std::move(lock)};
   }
 
-  ConstIterator end() const { return ConstIterator{map_.end()}; }
+  constexpr ConstIterator end() const { return ConstIterator{map_.end()}; }
 
   Iterator begin() {
     auto lock = std::unique_lock{mtx_};
     return Iterator{map_.begin(), std::move(lock)};
   }
 
-  Iterator end() { return Iterator{map_.end()}; }
+  constexpr Iterator end() { return Iterator{map_.end()}; }
 
  private:
   std::unordered_map<K, T> map_;

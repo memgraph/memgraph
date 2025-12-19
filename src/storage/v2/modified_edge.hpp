@@ -20,7 +20,8 @@
 namespace memgraph::storage {
 
 struct ModifiedEdgeInfo {
-  ModifiedEdgeInfo(DeltaAction delta, Gid from_vertex, Gid to_vertex, EdgeTypeId edge_type, const EdgeRef &edge)
+  constexpr ModifiedEdgeInfo(DeltaAction delta, Gid from_vertex, Gid to_vertex, EdgeTypeId edge_type,
+                             const EdgeRef &edge)
       : delta_action(delta),
         src_vertex_gid(from_vertex),
         dest_vertex_gid(to_vertex),

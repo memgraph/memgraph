@@ -18,10 +18,10 @@
 
 namespace memgraph::utils {
 struct SafeString {
-  SafeString() {}
-  SafeString(std::string str) : str_(std::move(str)) {}
-  SafeString(std::string_view str) : str_(str) {}
-  SafeString(char const *str) : str_(str) {}
+  constexpr SafeString() {}
+  constexpr SafeString(std::string str) : str_(std::move(str)) {}
+  constexpr SafeString(std::string_view str) : str_(str) {}
+  constexpr SafeString(char const *str) : str_(str) {}
 
   SafeString(SafeString const &other) : str_(other.str()) {}
   SafeString(SafeString &&other) noexcept : str_(other.str()) {}

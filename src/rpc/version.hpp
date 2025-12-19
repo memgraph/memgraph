@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace memgraph::rpc {
 
 // Extend this enum when changing protocol and if you need ProtocolMessageHeader

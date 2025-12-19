@@ -192,7 +192,7 @@ void AddExpansionsToMatching(std::vector<Expansion> &expansions, Matching &match
   }
 }
 
-auto MatchesIdentifier(Identifier *identifier) {
+constexpr auto MatchesIdentifier(Identifier *identifier) {
   return [identifier](FilterInfo const &existing) {
     auto *existing_label_test = dynamic_cast<LabelsTest *>(existing.expression);
     if (!existing_label_test) return false;

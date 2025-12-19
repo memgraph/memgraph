@@ -99,7 +99,8 @@ class FileRetainer {
     FileLocker &operator=(FileLocker &&) = default;
 
    private:
-    explicit FileLocker(FileRetainer *retainer, size_t locker_id) : file_retainer_{retainer}, locker_id_{locker_id} {}
+    constexpr explicit FileLocker(FileRetainer *retainer, size_t locker_id)
+        : file_retainer_{retainer}, locker_id_{locker_id} {}
 
     FileRetainer *file_retainer_;
     size_t locker_id_;

@@ -185,7 +185,7 @@ struct TrackingInfo {
   }
 
   template <template <class...> class TOtherContainer>
-  TrackingInfo &operator+=(const TrackingInfo<TOtherContainer> &rhs) {
+  constexpr TrackingInfo &operator+=(const TrackingInfo<TOtherContainer> &rhs) {
     n += rhs.n;
     for (const auto &[id, val] : rhs.properties) {
       auto &prop = properties[id];
@@ -273,7 +273,8 @@ class hash<memgraph::storage::SchemaInfoEdge> {
 template <>
 class equal_to<memgraph::storage::SchemaInfoEdge> {
  public:
-  bool operator()(const memgraph::storage::SchemaInfoEdge &lhs, const memgraph::storage::SchemaInfoEdge &rhs) const {
+  constexpr bool operator()(const memgraph::storage::SchemaInfoEdge &lhs,
+                            const memgraph::storage::SchemaInfoEdge &rhs) const {
     // Edge ref is a pointer or gid, both are unique and should completely define the edge
     return lhs.edge_ref == rhs.edge_ref;
   }

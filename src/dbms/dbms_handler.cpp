@@ -234,7 +234,7 @@ DbmsHandler::DbmsHandler(storage::Config config,
 }
 
 struct DropDatabase : memgraph::system::ISystemAction {
-  explicit DropDatabase(utils::UUID uuid) : uuid_{uuid} {}
+  constexpr explicit DropDatabase(utils::UUID uuid) : uuid_{uuid} {}
   void DoDurability() override { /* Done during DBMS execution */
   }
 

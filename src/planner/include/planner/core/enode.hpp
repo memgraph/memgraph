@@ -27,7 +27,7 @@ namespace detail {
 
 struct ENodeBase {
   explicit ENodeBase(utils::small_vector<EClassId> children) : children_(std::move(children)) {}
-  explicit ENodeBase(uint64_t disambiguator) : disambiguator_(disambiguator) {}
+  constexpr explicit ENodeBase(uint64_t disambiguator) : disambiguator_(disambiguator) {}
 
   friend bool operator==(ENodeBase const &lhs, ENodeBase const &rhs) = default;
 
@@ -79,12 +79,12 @@ struct ENodeBase {
 template <typename Symbol>
 requires ENodeSymbol<Symbol>
 struct ENode : private detail::ENodeBase {
-  ENode(Symbol sym, uint64_t disambig) : ENodeBase{disambig}, symbol_(std::move(sym)) {}
+  constexpr ENode(Symbol sym, uint64_t disambig) : ENodeBase{disambig}, symbol_(std::move(sym)) {}
 
   ENode(Symbol sym, utils::small_vector<EClassId> kids) : ENodeBase(std::move(kids)), symbol_(std::move(sym)) {}
 
   // Convenience constructor with initializer_list for easier construction
-  ENode(Symbol sym, std::initializer_list<EClassId> kids)
+  constexpr ENode(Symbol sym, std::initializer_list<EClassId> kids)
       : ENodeBase(utils::small_vector<EClassId>(kids)), symbol_(std::move(sym)) {}
 
   ENode(ENode const &other) = default;
@@ -115,9 +115,9 @@ struct ENode : private detail::ENodeBase {
 
   /// @return Pre-computed hash value (computed once at construction)
   /// @note Hash uses non-canonical children; canonicalize first for hash-consing
-  [[nodiscard]] auto hash() const -> std::size_t { return hash_value_; }
+  [[nodiscard]] constexpr auto hash() const -> std::size_t { return hash_value_; }
 
-  auto symbol() const -> Symbol const & { return symbol_; }
+  constexpr auto symbol() const -> Symbol const & { return symbol_; }
 
  private:
   ENode(Symbol sym, ENodeBase base) : ENodeBase(std::move(base)), symbol_(sym) {}
@@ -140,17 +140,17 @@ struct ENode : private detail::ENodeBase {
 template <typename Symbol>
 struct ENodeRef {
   // Constructor needs to be public for hashcons to create ENodeRef instances
-  explicit ENodeRef(ENode<Symbol> const &enode) : ptr_(&enode) {}
+  constexpr explicit ENodeRef(ENode<Symbol> const &enode) : ptr_(&enode) {}
 
-  auto value() const -> const ENode<Symbol> & { return *ptr_; }
+  constexpr auto value() const -> const ENode<Symbol> & { return *ptr_; }
 
-  friend bool operator==(const ENodeRef &rhs, const ENodeRef &lhs) { return *rhs.ptr_ == *lhs.ptr_; }
+  constexpr friend bool operator==(const ENodeRef &rhs, const ENodeRef &lhs) { return *rhs.ptr_ == *lhs.ptr_; }
 
-  friend bool operator==(const ENodeRef &rhs, const ENode<Symbol> &lhs) { return *rhs.ptr_ == lhs; }
+  constexpr friend bool operator==(const ENodeRef &rhs, const ENode<Symbol> &lhs) { return *rhs.ptr_ == lhs; }
 
-  friend bool operator==(const ENode<Symbol> &rhs, const ENodeRef &lhs) { return rhs == *lhs.ptr_; }
+  constexpr friend bool operator==(const ENode<Symbol> &rhs, const ENodeRef &lhs) { return rhs == *lhs.ptr_; }
 
-  [[nodiscard]] auto hash() const -> std::size_t { return ptr_->hash(); }
+  [[nodiscard]] constexpr auto hash() const -> std::size_t { return ptr_->hash(); }
 
  private:
   ENode<Symbol> const *ptr_;
@@ -159,7 +159,7 @@ struct ENodeRef {
 // Boost hash support via ADL (Argument Dependent Lookup)
 // Boost expects a free function named hash_value in the same namespace
 template <typename Symbol>
-std::size_t hash_value(const ENodeRef<Symbol> &node_ref) {
+constexpr std::size_t hash_value(const ENodeRef<Symbol> &node_ref) {
   return node_ref.hash();
 }
 
@@ -168,12 +168,14 @@ std::size_t hash_value(const ENodeRef<Symbol> &node_ref) {
 namespace std {
 template <typename Symbol>
 struct hash<memgraph::planner::core::ENode<Symbol>> {
-  std::size_t operator()(memgraph::planner::core::ENode<Symbol> const &node) const noexcept { return node.hash(); }
+  constexpr std::size_t operator()(memgraph::planner::core::ENode<Symbol> const &node) const noexcept {
+    return node.hash();
+  }
 };
 
 template <typename Symbol>
 struct hash<memgraph::planner::core::ENodeRef<Symbol>> {
-  std::size_t operator()(memgraph::planner::core::ENodeRef<Symbol> const &node_ref) const noexcept {
+  constexpr std::size_t operator()(memgraph::planner::core::ENodeRef<Symbol> const &node_ref) const noexcept {
     return node_ref.hash();
   }
 };

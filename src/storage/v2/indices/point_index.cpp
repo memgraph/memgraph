@@ -428,7 +428,7 @@ struct PointIterable::impl {
   impl &operator=(impl const &) = delete;
   impl &operator=(impl &&) = delete;
 
-  ~impl() {
+  constexpr ~impl() {
     switch (crs_) {
       case CoordinateReferenceSystem::WGS84_2d:
         std::destroy_at(&wgs84_2d_);
@@ -521,13 +521,13 @@ PointIterable::PointIterable(Storage *storage, Transaction *transaction, PointIn
 
 namespace {
 
-double toRadians(double degrees) { return degrees * M_PI / 180.0; }
+constexpr double toRadians(double degrees) { return degrees * M_PI / 180.0; }
 
-double toDegrees(double radians) { return radians * 180.0 / M_PI; }
+constexpr double toDegrees(double radians) { return radians * 180.0 / M_PI; }
 
 template <typename point_type>
 requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::cartesian>
-auto create_bounding_box(const point_type &center_point, double boundary) -> bg::model::box<point_type> {
+constexpr auto create_bounding_box(const point_type &center_point, double boundary) -> bg::model::box<point_type> {
   constexpr auto n_dimensions = bg::traits::dimension<point_type>::value;
   return [&]<auto... I>(std::index_sequence<I...>) {
     auto const min_corner = point_type{(bg::get<I>(center_point) - boundary)...};

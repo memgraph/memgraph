@@ -40,7 +40,7 @@ class ExistenceConstraints {
         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
   };
 
-  bool empty() const { return constraints_.empty(); }
+  constexpr bool empty() const { return constraints_.empty(); }
 
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
                                                                                      const LabelId &label,

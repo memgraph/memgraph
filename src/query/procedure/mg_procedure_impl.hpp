@@ -132,7 +132,7 @@ struct mgp_value {
   };
 };
 
-inline memgraph::utils::DateParameters MapDateParameters(const mgp_date_parameters *parameters) {
+constexpr inline memgraph::utils::DateParameters MapDateParameters(const mgp_date_parameters *parameters) {
   return {.year = parameters->year, .month = parameters->month, .day = parameters->day};
 }
 
@@ -177,7 +177,8 @@ struct mgp_date {
   memgraph::utils::Date date;
 };
 
-inline memgraph::utils::LocalTimeParameters MapLocalTimeParameters(const mgp_local_time_parameters *parameters) {
+constexpr inline memgraph::utils::LocalTimeParameters MapLocalTimeParameters(
+    const mgp_local_time_parameters *parameters) {
   return {.hour = parameters->hour,
           .minute = parameters->minute,
           .second = parameters->second,
@@ -332,7 +333,7 @@ struct mgp_zoned_date_time {
   memgraph::utils::ZonedDateTime zoned_date_time;
 };
 
-inline memgraph::utils::DurationParameters MapDurationParameters(const mgp_duration_parameters *parameters) {
+constexpr inline memgraph::utils::DurationParameters MapDurationParameters(const mgp_duration_parameters *parameters) {
   return {.day = parameters->day,
           .hour = parameters->hour,
           .minute = parameters->minute,
@@ -419,7 +420,7 @@ struct mgp_map {
     using is_transparent = void;
 
     template <class LHS, class RHS>
-    bool operator()(const LHS &lhs, const RHS &rhs) const noexcept {
+    constexpr bool operator()(const LHS &lhs, const RHS &rhs) const noexcept {
       return std::less<>()(std::string_view(lhs), std::string_view(rhs));
     }
   };
@@ -438,7 +439,7 @@ struct mgp_map {
     using is_transparent = void;
 
     template <class LHS, class RHS>
-    bool operator()(const LHS &lhs, const RHS &rhs) const noexcept {
+    constexpr bool operator()(const LHS &lhs, const RHS &rhs) const noexcept {
       return std::string_view(lhs) == rhs;
     }
   };
@@ -740,7 +741,7 @@ struct mgp_result {
 };
 
 struct mgp_func_result {
-  mgp_func_result() {}
+  constexpr mgp_func_result() {}
   /// Return Magic function result. If user forgets it, the error is raised
   std::optional<memgraph::query::TypedValue> value;
   /// Return Magic function result with potential error

@@ -37,7 +37,7 @@ namespace impl {
 template <class TDbAccessor>
 class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  EdgeIndexRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
+  constexpr EdgeIndexRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
       : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
@@ -710,24 +710,24 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     FilterInfo filter;
   };
 
-  storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edge_type) { return db_->NameToEdgeType(edge_type.name); }
+  constexpr storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edge_type) { return db_->NameToEdgeType(edge_type.name); }
   storage::EdgeTypeId GetEdgeType(const LabelIx &edge_type) {
     return storage::EdgeTypeId::FromUint(db_->NameToLabel(edge_type.name).AsUint());
   }
-  storage::EdgeTypeId GetEdgeType(const EdgeTypePropertyIndexInfo &info) {
+  constexpr storage::EdgeTypeId GetEdgeType(const EdgeTypePropertyIndexInfo &info) {
     return info.edge_type_from_filter.has_value() ? GetEdgeType(info.edge_type_from_filter.value())
                                                   : info.edge_type_from_relationship.value();
   }
-  storage::EdgeTypeId GetEdgeType(const CandidateIndex &candidate) {
+  constexpr storage::EdgeTypeId GetEdgeType(const CandidateIndex &candidate) {
     return candidate.edge_type_from_filter.has_value() ? GetEdgeType(candidate.edge_type_from_filter.value())
                                                        : candidate.edge_type_from_relationship.value();
   }
 
-  bool FoundIndexWithFilteredLabel(const EdgeTypePropertyIndexInfo &info) {
+  constexpr bool FoundIndexWithFilteredLabel(const EdgeTypePropertyIndexInfo &info) {
     return info.edge_type_from_filter.has_value();
   }
 
-  EdgeTypePropertyIndexInfo ConstructEdgeTypePropertyIndexInfo(CandidateIndex candidate, int64_t edge_count) {
+  constexpr EdgeTypePropertyIndexInfo ConstructEdgeTypePropertyIndexInfo(CandidateIndex candidate, int64_t edge_count) {
     if (candidate.edge_type_from_relationship.has_value()) {
       return EdgeTypePropertyIndexInfo{.edge_type_from_relationship = candidate.edge_type_from_relationship,
                                        .filter = candidate.filter,
@@ -738,11 +738,11 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         .edge_type_from_filter = candidate.edge_type_from_filter, .filter = candidate.filter, .edge_count = edge_count};
   }
 
-  EdgePropertyIndexInfo ConstructEdgePropertyIndexInfo(CandidateIndex candidate, int64_t edge_count) {
+  constexpr EdgePropertyIndexInfo ConstructEdgePropertyIndexInfo(CandidateIndex candidate, int64_t edge_count) {
     return EdgePropertyIndexInfo{.filter = candidate.filter, .edge_count = edge_count};
   }
 
-  storage::PropertyId GetProperty(const PropertyIx &prop) { return db_->NameToProperty(prop.name); }
+  constexpr storage::PropertyId GetProperty(const PropertyIx &prop) { return db_->NameToProperty(prop.name); }
 
   std::vector<CandidateIndex> GetCandidateIndicesFromFilter(const Symbol &symbol) {
     std::vector<CandidateIndex> candidate_indices{};
@@ -767,7 +767,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     return candidate_indices;
   }
 
-  std::vector<CandidateIndex> GetCandidatePropertyIndicesFromFilter(const Symbol &symbol) {
+  constexpr std::vector<CandidateIndex> GetCandidatePropertyIndicesFromFilter(const Symbol &symbol) {
     std::vector<CandidateIndex> candidate_indices{};
     for (const auto &filter : filters_.PropertyFilters(symbol)) {
       if (filter.property_filter->is_symbol_in_value_) {
@@ -788,7 +788,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     return candidate_indices;
   }
 
-  std::vector<CandidateIndex> GetCandidateIndicesFromRelationship(
+  constexpr std::vector<CandidateIndex> GetCandidateIndicesFromRelationship(
       const Symbol &symbol, const std::optional<storage::EdgeTypeId> edge_type_from_relationship) {
     std::vector<CandidateIndex> candidate_indices{};
     for (const auto &filter : filters_.PropertyFilters(symbol)) {
@@ -820,7 +820,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
   }
 
-  std::vector<CandidateIndex> GetCandidatePropertyIndices(const Symbol &symbol) {
+  constexpr std::vector<CandidateIndex> GetCandidatePropertyIndices(const Symbol &symbol) {
     return GetCandidatePropertyIndicesFromFilter(symbol);
   }
 

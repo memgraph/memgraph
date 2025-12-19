@@ -15,7 +15,7 @@
 
 namespace memgraph::storage {
 
-const uint64_t kTimestampInitialId = 0;
-const uint64_t kTransactionInitialId = 1ULL << 63U;
+constexpr uint64_t kTimestampInitialId = 0;
+constexpr uint64_t kTransactionInitialId = 1ULL << 63U;
 
 }  // namespace memgraph::storage

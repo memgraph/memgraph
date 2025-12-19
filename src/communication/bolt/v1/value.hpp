@@ -38,23 +38,23 @@ class Id {
   Id() = default;
 
   /** Construct Id from uint64_t */
-  static Id FromUint(uint64_t id) { return Id(std::bit_cast<int64_t>(id)); }
+  constexpr static Id FromUint(uint64_t id) { return Id(std::bit_cast<int64_t>(id)); }
 
   /** Construct Id from int64_t */
-  static Id FromInt(int64_t id) { return Id(id); }
+  constexpr static Id FromInt(int64_t id) { return Id(id); }
 
-  int64_t AsInt() const { return id_; }
-  uint64_t AsUint() const { return std::bit_cast<uint64_t>(id_); }
+  constexpr int64_t AsInt() const { return id_; }
+  constexpr uint64_t AsUint() const { return std::bit_cast<uint64_t>(id_); }
 
  private:
-  explicit Id(int64_t id) : id_(id) {}
+  constexpr explicit Id(int64_t id) : id_(id) {}
 
   int64_t id_;
 };
 
-inline bool operator==(const Id &id1, const Id &id2) { return id1.AsInt() == id2.AsInt(); }
+constexpr inline bool operator==(const Id &id1, const Id &id2) { return id1.AsInt() == id2.AsInt(); }
 
-inline bool operator!=(const Id &id1, const Id &id2) { return !(id1 == id2); }
+constexpr inline bool operator!=(const Id &id1, const Id &id2) { return !(id1 == id2); }
 
 /**
  * Structure used when reading a Vertex with the decoder.
@@ -100,7 +100,7 @@ struct UnboundedEdge {
 struct Path {
   Path() = default;
 
-  Path(const std::vector<Vertex> &vertices, const std::vector<Edge> &edges) {
+  constexpr Path(const std::vector<Vertex> &vertices, const std::vector<Edge> &edges) {
     // Helper function. Looks for the given element in the collection. If found,
     // puts its index into `indices`. Otherwise emplaces the given element
     // into the collection and puts that index into `indices`. A multiplier is
@@ -147,7 +147,7 @@ struct Point3d : storage::Point3d {};
 class Value {
  public:
   /** Default constructor, makes Null */
-  Value() : type_(Type::Null) {}
+  constexpr Value() : type_(Type::Null) {}
 
   /** Types that can be stored in a Value. */
   enum class Type : unsigned {
@@ -172,43 +172,49 @@ class Value {
   };
 
   // constructors for primitive types
-  Value(bool value) : type_(Type::Bool) { bool_v = value; }
-  Value(int value) : type_(Type::Int) { int_v = value; }
-  Value(int64_t value) : type_(Type::Int) { int_v = value; }
-  Value(double value) : type_(Type::Double) { double_v = value; }
+  constexpr Value(bool value) : type_(Type::Bool) { bool_v = value; }
+  constexpr Value(int value) : type_(Type::Int) { int_v = value; }
+  constexpr Value(int64_t value) : type_(Type::Int) { int_v = value; }
+  constexpr Value(double value) : type_(Type::Double) { double_v = value; }
 
   // constructors for non-primitive types
-  Value(const std::string &value) : type_(Type::String) { new (&string_v) std::string(value); }
-  Value(const char *value) : Value(std::string(value)) {}
-  Value(std::string_view value) : Value(std::string(value)) {}
-  Value(const std::vector<Value> &value) : type_(Type::List) { new (&list_v) std::vector<Value>(value); }
+  constexpr Value(const std::string &value) : type_(Type::String) { new (&string_v) std::string(value); }
+  constexpr Value(const char *value) : Value(std::string(value)) {}
+  constexpr Value(std::string_view value) : Value(std::string(value)) {}
+  constexpr Value(const std::vector<Value> &value) : type_(Type::List) { new (&list_v) std::vector<Value>(value); }
   Value(const map_t &value) : type_(Type::Map) { new (&map_v) map_t(value); }
   Value(const Vertex &value) : type_(Type::Vertex) { new (&vertex_v) Vertex(value); }
   Value(const Edge &value) : type_(Type::Edge) { new (&edge_v) Edge(value); }
   Value(const UnboundedEdge &value) : type_(Type::UnboundedEdge) { new (&unbounded_edge_v) UnboundedEdge(value); }
-  Value(const Path &value) : type_(Type::Path) { new (&path_v) Path(value); }
+  constexpr Value(const Path &value) : type_(Type::Path) { new (&path_v) Path(value); }
   Value(const utils::Date &date) : type_(Type::Date) { new (&date_v) utils::Date(date); }
   Value(const utils::LocalTime &time) : type_(Type::LocalTime) { new (&local_time_v) utils::LocalTime(time); }
-  Value(const utils::LocalDateTime &date_time) : type_(Type::LocalDateTime) {
+  constexpr Value(const utils::LocalDateTime &date_time) : type_(Type::LocalDateTime) {
     new (&local_date_time_v) utils::LocalDateTime(date_time);
   }
   Value(const utils::Duration &dur) : type_(Type::Duration) { new (&duration_v) utils::Duration(dur); }
   Value(const utils::ZonedDateTime &zoned_date_time) : type_(Type::ZonedDateTime) {
     new (&zoned_date_time_v) utils::ZonedDateTime(zoned_date_time);
   }
-  Value(const storage::Point2d &point_2d) : type_(Type::Point2d) { new (&point_2d_v) storage::Point2d(point_2d); }
-  Value(const storage::Point3d &point_3d) : type_(Type::Point3d) { new (&point_3d_v) storage::Point3d(point_3d); }
+  constexpr Value(const storage::Point2d &point_2d) : type_(Type::Point2d) {
+    new (&point_2d_v) storage::Point2d(point_2d);
+  }
+  constexpr Value(const storage::Point3d &point_3d) : type_(Type::Point3d) {
+    new (&point_3d_v) storage::Point3d(point_3d);
+  }
 
   // move constructors for non-primitive values
-  Value(std::string &&value) noexcept : type_(Type::String) { new (&string_v) std::string(std::move(value)); }
-  Value(std::vector<Value> &&value) noexcept : type_(Type::List) { new (&list_v) std::vector<Value>(std::move(value)); }
+  constexpr Value(std::string &&value) noexcept : type_(Type::String) { new (&string_v) std::string(std::move(value)); }
+  constexpr Value(std::vector<Value> &&value) noexcept : type_(Type::List) {
+    new (&list_v) std::vector<Value>(std::move(value));
+  }
   Value(map_t &&value) noexcept : type_(Type::Map) { new (&map_v) map_t(std::move(value)); }
   Value(Vertex &&value) noexcept : type_(Type::Vertex) { new (&vertex_v) Vertex(std::move(value)); }
   Value(Edge &&value) noexcept : type_(Type::Edge) { new (&edge_v) Edge(std::move(value)); }
   Value(UnboundedEdge &&value) noexcept : type_(Type::UnboundedEdge) {
     new (&unbounded_edge_v) UnboundedEdge(std::move(value));
   }
-  Value(Path &&value) noexcept : type_(Type::Path) { new (&path_v) Path(std::move(value)); }
+  constexpr Value(Path &&value) noexcept : type_(Type::Path) { new (&path_v) Path(std::move(value)); }
 
   Value &operator=(const Value &other);
   Value &operator=(Value &&other) noexcept;

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@ namespace impl {
 template <class TDbAccessor>
 class PeriodicDeleteRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  PeriodicDeleteRewriter(SymbolTable *symbolTable, AstStorage *astStorage, TDbAccessor *db)
+  constexpr PeriodicDeleteRewriter(SymbolTable *symbolTable, AstStorage *astStorage, TDbAccessor *db)
       : symbol_table(symbolTable), ast_storage(astStorage), db(db) {}
 
   ~PeriodicDeleteRewriter() override = default;

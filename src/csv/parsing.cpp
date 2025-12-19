@@ -49,7 +49,7 @@ auto DetectCompressionMethod(std::istream &is) -> CompressionMethod {
   auto const next_byte = [&](std::byte &b) { return bool(is.get(reinterpret_cast<char &>(b))); };
   if (!next_byte(c)) return CompressionMethod::NONE;
 
-  auto const as_bytes = []<typename... Args>(Args... args) {
+  auto constexpr as_bytes = []<typename... Args>(Args... args) {
     return std::array<std::byte, sizeof...(Args)>{std::byte(args)...};
   };
 

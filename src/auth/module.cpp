@@ -39,23 +39,23 @@ namespace {
 // Constants used for starting and communicating with the target process.
 /////////////////////////////////////////////////////////////////////////
 
-const int kPipeReadEnd = 0;
-const int kPipeWriteEnd = 1;
+constexpr int kPipeReadEnd = 0;
+constexpr int kPipeWriteEnd = 1;
 
-const int kCommunicationToModuleFd = 1000;
-const int kCommunicationFromModuleFd = 1001;
+constexpr int kCommunicationToModuleFd = 1000;
+constexpr int kCommunicationFromModuleFd = 1001;
 
-const int kTerminateTimeoutSec = 5;
+constexpr int kTerminateTimeoutSec = 5;
 
 ///////////////////////////////////////////
 // char** wrapper used for C library calls.
 ///////////////////////////////////////////
 
-const int kCharppMaxElements = 4096;
+constexpr int kCharppMaxElements = 4096;
 
 class CharPP final {
  public:
-  CharPP() { data_.fill(nullptr); }
+  constexpr CharPP() { data_.fill(nullptr); }
 
   ~CharPP() {
     for (size_t i = 0; i < size_; ++i) {

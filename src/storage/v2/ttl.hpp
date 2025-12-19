@@ -61,8 +61,8 @@ struct TtlInfo {
 
   TtlInfo() = default;
 
-  TtlInfo(std::optional<std::chrono::microseconds> period,
-          std::optional<std::chrono::system_clock::time_point> start_time, bool should_run_edge_ttl)
+  constexpr TtlInfo(std::optional<std::chrono::microseconds> period,
+                    std::optional<std::chrono::system_clock::time_point> start_time, bool should_run_edge_ttl)
       : period{period}, start_time{start_time}, should_run_edge_ttl{should_run_edge_ttl} {}
 
   TtlInfo(std::string_view period_sv, std::string_view start_time_sv, bool should_run_edge_ttl)
@@ -124,10 +124,10 @@ struct TtlInfo {
    */
   static std::string StringifyStartTime(std::chrono::system_clock::time_point st);
 
-  explicit operator bool() const { return period || start_time; }
+  constexpr explicit operator bool() const { return period || start_time; }
 };
 
-inline bool operator==(const TtlInfo &lhs, const TtlInfo &rhs) {
+constexpr inline bool operator==(const TtlInfo &lhs, const TtlInfo &rhs) {
   return lhs.period == rhs.period && lhs.start_time == rhs.start_time;
 }
 
@@ -141,7 +141,7 @@ inline bool operator==(const TtlInfo &lhs, const TtlInfo &rhs) {
  */
 class TTL final {
  public:
-  explicit TTL(Storage *storage_ptr) : storage_ptr_(storage_ptr) {}
+  constexpr explicit TTL(Storage *storage_ptr) : storage_ptr_(storage_ptr) {}
   ~TTL() = default;
 
   TTL(const TTL &) = delete;
@@ -170,7 +170,9 @@ class TTL final {
    *
    * @return TtlInfo
    */
-  TtlInfo Config() const { /*TODO what is !enabled_? should we return a pair?*/ return info_; }
+  TtlInfo Config() const { /*TODO what is !enabled_? should we return a pair?*/
+    return info_;
+  }
 
   /**
    * @brief Shutdown TTL (stop background job)

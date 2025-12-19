@@ -180,7 +180,7 @@ bool DiskLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label, std::span<
 
 auto DiskLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const
     -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> {
-  auto const convert = [](auto &&index) -> std::pair<LabelId, std::vector<PropertyPath>> {
+  auto constexpr convert = [](auto &&index) -> std::pair<LabelId, std::vector<PropertyPath>> {
     auto [label, property] = index;
     return {label, {PropertyPath{property}}};
   };

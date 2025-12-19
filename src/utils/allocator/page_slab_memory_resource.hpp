@@ -53,7 +53,7 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
 
  private:
   struct header {
-    explicit header(header *next, std::align_val_t alignment) : next(next), alignment{alignment} {}
+    constexpr explicit header(header *next, std::align_val_t alignment) : next(next), alignment{alignment} {}
     header *next = nullptr;
     std::align_val_t alignment;
   };

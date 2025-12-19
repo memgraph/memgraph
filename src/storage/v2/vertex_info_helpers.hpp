@@ -28,17 +28,17 @@ struct DeltaAction_tag {};
 template <DeltaAction A, typename Method>
 struct ActionMethodImpl : Method {
   // Uses tag dispatch to ensure method is only called for the correct action
-  void operator()(DeltaAction_tag<A> /*unused*/, Delta const &delta) { Method::operator()(delta); }
+  constexpr void operator()(DeltaAction_tag<A> /*unused*/, Delta const &delta) { Method::operator()(delta); }
 };
 
 template <DeltaAction A, typename Method>
-auto ActionMethod(Method &&func) {
+constexpr auto ActionMethod(Method &&func) {
   return ActionMethodImpl<A, Method>{std::forward<Method>(func)};
 }
 
 /// Converts runtime DeltaAction into compile time tag, this allows us to dispatch to the correct overload
 template <typename Func>
-void DeltaDispatch(Delta const &delta, Func &&func) {
+constexpr void DeltaDispatch(Delta const &delta, Func &&func) {
   // clang-format off
 #define dispatch(E) case E: return func(DeltaAction_tag<E>{}, delta); // NOLINT
   // clang-format on
@@ -58,7 +58,7 @@ void DeltaDispatch(Delta const &delta, Func &&func) {
 #undef dispatch
 }
 
-inline auto Exists_ActionMethod(bool &exists) {
+constexpr inline auto Exists_ActionMethod(bool &exists) {
   using enum DeltaAction;
   // clang-format off
   return utils::Overloaded{
@@ -68,7 +68,7 @@ inline auto Exists_ActionMethod(bool &exists) {
   // clang-format on
 }
 
-inline auto Deleted_ActionMethod(bool &deleted) {
+constexpr inline auto Deleted_ActionMethod(bool &deleted) {
   using enum DeltaAction;
   return ActionMethod<RECREATE_OBJECT>([&](Delta const & /*unused*/) { deleted = false; });
 }
@@ -255,7 +255,7 @@ auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, Edg
 }
 
 template <EdgeDirection dir>
-auto Degree_ActionMethod(size_t &degree) {
+constexpr auto Degree_ActionMethod(size_t &degree) {
   using enum DeltaAction;
   // clang-format off
   return utils::Overloaded{

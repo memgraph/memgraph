@@ -41,7 +41,7 @@ class Where : public memgraph::query::Tree, public utils::Visitable<Hierarchical
   }
 
  protected:
-  explicit Where(Expression *expression) : expression_(expression) {}
+  constexpr explicit Where(Expression *expression) : expression_(expression) {}
 
  private:
   friend class AstStorage;

@@ -31,7 +31,7 @@ struct PointIndexContext;
 struct TrackedChanges {
   TrackedChanges() = default;
   template <typename It>
-  TrackedChanges(It b, It e) : data(b, e) {}
+  constexpr TrackedChanges(It b, It e) : data(b, e) {}
 
   bool AnyChanges() const {
     auto all_tracked_changes = data | std::views::values;

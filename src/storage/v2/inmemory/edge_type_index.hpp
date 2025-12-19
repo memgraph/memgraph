@@ -37,12 +37,12 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
     uint64_t timestamp;
 
-    friend bool operator<(Entry const &lhs, Entry const &rhs) {
+    constexpr friend bool operator<(Entry const &lhs, Entry const &rhs) {
       return std::tie(lhs.edge, lhs.from_vertex, lhs.to_vertex, lhs.timestamp) <
              std::tie(rhs.edge, rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
     }
 
-    friend bool operator==(Entry const &lhs, Entry const &rhs) {
+    constexpr friend bool operator==(Entry const &lhs, Entry const &rhs) {
       return std::tie(lhs.edge, lhs.from_vertex, lhs.to_vertex, lhs.timestamp) ==
              std::tie(rhs.edge, rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
     }

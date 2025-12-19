@@ -31,28 +31,28 @@ namespace memgraph::storage {
  */
 struct PropertyPath {
   PropertyPath() = default;
-  PropertyPath(std::vector<PropertyId> properties) : properties_{std::move(properties)} {}
-  PropertyPath(std::initializer_list<PropertyId> properties) : properties_{properties} {}
-  PropertyPath(PropertyId property) : properties_{{property}} {}
+  constexpr PropertyPath(std::vector<PropertyId> properties) : properties_{std::move(properties)} {}
+  constexpr PropertyPath(std::initializer_list<PropertyId> properties) : properties_{properties} {}
+  constexpr PropertyPath(PropertyId property) : properties_{{property}} {}
 
   using const_iterator = std::vector<PropertyId>::const_iterator;
 
-  auto operator[](std::size_t pos) const -> PropertyId const & { return properties_[pos]; }
-  auto size() const noexcept -> std::size_t { return properties_.size(); }
-  bool empty() const { return properties_.empty(); };
-  auto begin() const -> const_iterator { return properties_.begin(); }
-  auto end() const -> const_iterator { return properties_.end(); }
-  auto cbegin() const -> const_iterator { return properties_.cbegin(); }
-  auto cend() const -> const_iterator { return properties_.cend(); }
-  void insert(PropertyId property_id) { properties_.push_back(property_id); }
-  void reserve(std::size_t size) { properties_.reserve(size); }
-  auto as_span() const -> std::span<PropertyId const> { return std::span{properties_}; }
+  constexpr auto operator[](std::size_t pos) const -> PropertyId const & { return properties_[pos]; }
+  constexpr auto size() const noexcept -> std::size_t { return properties_.size(); }
+  constexpr bool empty() const { return properties_.empty(); };
+  constexpr auto begin() const -> const_iterator { return properties_.begin(); }
+  constexpr auto end() const -> const_iterator { return properties_.end(); }
+  constexpr auto cbegin() const -> const_iterator { return properties_.cbegin(); }
+  constexpr auto cend() const -> const_iterator { return properties_.cend(); }
+  constexpr void insert(PropertyId property_id) { properties_.push_back(property_id); }
+  constexpr void reserve(std::size_t size) { properties_.reserve(size); }
+  constexpr auto as_span() const -> std::span<PropertyId const> { return std::span{properties_}; }
 
   friend bool operator==(PropertyPath const &lhs, PropertyPath const &rhs) = default;
   friend auto operator<=>(PropertyPath const &lhs, PropertyPath const &rhs) = default;
 
-  PropertyId front() const { return properties_.front(); }
-  PropertyId back() const { return properties_.back(); }
+  constexpr PropertyId front() const { return properties_.front(); }
+  constexpr PropertyId back() const { return properties_.back(); }
 
  private:
   std::vector<PropertyId> properties_;
@@ -64,10 +64,10 @@ using PropertiesPaths = std::vector<PropertyPath>;
  * which must provide `PropertyToName(PropertyId)`
  */
 template <typename Context>
-  requires requires(Context *context, PropertyId prop) {
-    { context->PropertyToName(prop) } -> std::convertible_to<std::string>;
-  }
-std::string ToString(PropertyPath const &path, Context *context) {
+requires requires(Context *context, PropertyId prop) {
+  { context->PropertyToName(prop) } -> std::convertible_to<std::string>;
+}
+constexpr std::string ToString(PropertyPath const &path, Context *context) {
   return utils::Join(
       path | std::ranges::views::transform([&](PropertyId prop) { return context->PropertyToName(prop); }), ".");
 }

@@ -311,7 +311,7 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> query::Unre
   try {
     auto locked_repl_state = repl_state_.TryLock();
 
-    auto const replica_handler = [](RoleReplicaData const &) -> query::UnregisterReplicaResult {
+    auto constexpr replica_handler = [](RoleReplicaData const &) -> query::UnregisterReplicaResult {
       return query::UnregisterReplicaResult::NOT_MAIN;
     };
     auto const main_handler = [this, name,

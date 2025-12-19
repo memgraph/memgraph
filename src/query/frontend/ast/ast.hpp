@@ -68,7 +68,7 @@ class UnaryOperator : public Expression {
   UnaryOperator *Clone(AstStorage *storage) const override = 0;
 
  protected:
-  explicit UnaryOperator(Expression *expression) : expression_(expression) {}
+  constexpr explicit UnaryOperator(Expression *expression) : expression_(expression) {}
 
  private:
   friend class AstStorage;
@@ -767,7 +767,7 @@ class ListSlicingOperator : public Expression {
   }
 
  protected:
-  ListSlicingOperator(Expression *list, Expression *lower_bound, Expression *upper_bound)
+  constexpr ListSlicingOperator(Expression *list, Expression *lower_bound, Expression *upper_bound)
       : list_(list), lower_bound_(lower_bound), upper_bound_(upper_bound) {}
 
  private:
@@ -807,7 +807,7 @@ class IfOperator : public Expression {
   }
 
  protected:
-  IfOperator(Expression *condition, Expression *then_expression, Expression *else_expression)
+  constexpr IfOperator(Expression *condition, Expression *then_expression, Expression *else_expression)
       : condition_(condition), then_expression_(then_expression), else_expression_(else_expression) {}
 
  private:
@@ -854,9 +854,9 @@ class PrimitiveLiteral : public memgraph::query::BaseLiteral {
 
  protected:
   template <typename T>
-  explicit PrimitiveLiteral(T value) : value_(value) {}
+  constexpr explicit PrimitiveLiteral(T value) : value_(value) {}
   template <typename T>
-  PrimitiveLiteral(T value, int token_position) : value_(value), token_position_(token_position) {}
+  constexpr PrimitiveLiteral(T value, int token_position) : value_(value), token_position_(token_position) {}
 
  private:
   friend class AstStorage;
@@ -893,7 +893,7 @@ class ListLiteral : public memgraph::query::BaseLiteral {
   }
 
  protected:
-  explicit ListLiteral(const std::vector<Expression *> &elements) : elements_(elements) {}
+  constexpr explicit ListLiteral(const std::vector<Expression *> &elements) : elements_(elements) {}
 
  private:
   friend class AstStorage;
@@ -1009,7 +1009,7 @@ class PropertyLookup : public Expression {
       : expression_(expression), property_path_(std::move(property_path)) {
     MG_ASSERT(property_path_.size() > 0, "Property path is empty!");
   }
-  PropertyLookup(Expression *expression, PropertyIx property)
+  constexpr PropertyLookup(Expression *expression, PropertyIx property)
       : expression_(expression), property_(property), property_path_{property} {}
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
@@ -1078,7 +1078,7 @@ class AllPropertiesLookup : public Expression {
   }
 
  protected:
-  explicit AllPropertiesLookup(Expression *expression) : expression_(expression) {}
+  constexpr explicit AllPropertiesLookup(Expression *expression) : expression_(expression) {}
 
  private:
   friend class AstStorage;
@@ -1127,7 +1127,7 @@ class LabelsTest : public Expression {
   }
 
  protected:
-  LabelsTest(Expression *expression, std::vector<LabelIx> labels, bool label_expression = false)
+  constexpr LabelsTest(Expression *expression, std::vector<LabelIx> labels, bool label_expression = false)
       : expression_(expression) {
     if (!label_expression) {
       labels_ = std::move(labels);
@@ -1179,7 +1179,7 @@ class EdgeTypesTest : public Expression {
   }
 
  protected:
-  EdgeTypesTest(Expression *expression, std::vector<EdgeTypeIx> valid_edgetypes)
+  constexpr EdgeTypesTest(Expression *expression, std::vector<EdgeTypeIx> valid_edgetypes)
       : expression_(expression), valid_edgetypes_(std::move(valid_edgetypes)) {}
 
  private:
@@ -1291,8 +1291,8 @@ class Reduce : public Expression {
   }
 
  protected:
-  Reduce(Identifier *accumulator, Expression *initializer, Identifier *identifier, Expression *list,
-         Expression *expression)
+  constexpr Reduce(Identifier *accumulator, Expression *initializer, Identifier *identifier, Expression *list,
+                   Expression *expression)
       : accumulator_(accumulator),
         initializer_(initializer),
         identifier_(identifier),
@@ -1336,7 +1336,7 @@ class Coalesce : public Expression {
   }
 
  private:
-  explicit Coalesce(const std::vector<Expression *> &expressions) : expressions_(expressions) {}
+  constexpr explicit Coalesce(const std::vector<Expression *> &expressions) : expressions_(expressions) {}
 
   friend class AstStorage;
 };
@@ -1375,7 +1375,7 @@ class Extract : public Expression {
   }
 
  protected:
-  Extract(Identifier *identifier, Expression *list, Expression *expression)
+  constexpr Extract(Identifier *identifier, Expression *list, Expression *expression)
       : identifier_(identifier), list_(list), expression_(expression) {}
 
  private:
@@ -1413,7 +1413,7 @@ class All : public Expression {
   }
 
  protected:
-  All(Identifier *identifier, Expression *list_expression, Where *where)
+  constexpr All(Identifier *identifier, Expression *list_expression, Where *where)
       : identifier_(identifier), list_expression_(list_expression), where_(where) {}
 
  private:
@@ -1451,7 +1451,7 @@ class Single : public Expression {
   }
 
  protected:
-  Single(Identifier *identifier, Expression *list_expression, Where *where)
+  constexpr Single(Identifier *identifier, Expression *list_expression, Where *where)
       : identifier_(identifier), list_expression_(list_expression), where_(where) {}
 
  private:
@@ -1489,7 +1489,7 @@ class Any : public Expression {
   }
 
  protected:
-  Any(Identifier *identifier, Expression *list_expression, Where *where)
+  constexpr Any(Identifier *identifier, Expression *list_expression, Where *where)
       : identifier_(identifier), list_expression_(list_expression), where_(where) {}
 
  private:
@@ -1527,7 +1527,7 @@ class None : public Expression {
   }
 
  protected:
-  None(Identifier *identifier, Expression *list_expression, Where *where)
+  constexpr None(Identifier *identifier, Expression *list_expression, Where *where)
       : identifier_(identifier), list_expression_(list_expression), where_(where) {}
 
  private:
@@ -1578,7 +1578,7 @@ class ListComprehension : public Expression {
   }
 
  protected:
-  ListComprehension(Identifier *identifier, Expression *list, Where *where, Expression *expression)
+  constexpr ListComprehension(Identifier *identifier, Expression *list, Where *where, Expression *expression)
       : identifier_(identifier), list_(list), where_(where), expression_(expression) {}
 
  private:
@@ -1609,7 +1609,7 @@ class ParameterLookup : public Expression {
   }
 
  protected:
-  explicit ParameterLookup(int token_position) : token_position_(token_position) {}
+  constexpr explicit ParameterLookup(int token_position) : token_position_(token_position) {}
 
  private:
   friend class AstStorage;
@@ -1645,7 +1645,7 @@ class RegexMatch : public Expression {
 
  private:
   friend class AstStorage;
-  RegexMatch(Expression *string_expr, Expression *regex) : string_expr_(string_expr), regex_(regex) {}
+  constexpr RegexMatch(Expression *string_expr, Expression *regex) : string_expr_(string_expr), regex_(regex) {}
 };
 
 class NodeAtom : public memgraph::query::PatternAtom {
@@ -1727,7 +1727,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
   /// Lambda for use in filtering or weight calculation during variable expand.
   struct Lambda {
     static const utils::TypeInfo kType;
-    const utils::TypeInfo &GetTypeInfo() const { return kType; }
+    constexpr const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
     /// Argument identifier for the edge currently being traversed.
     memgraph::query::Identifier *inner_edge{nullptr};
@@ -1779,7 +1779,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
     return visitor.PostVisit(*this);
   }
 
-  bool IsVariable() const {
+  constexpr bool IsVariable() const {
     switch (type_) {
       case Type::DEPTH_FIRST:
       case Type::BREADTH_FIRST:
@@ -1846,11 +1846,12 @@ class EdgeAtom : public memgraph::query::PatternAtom {
 
  protected:
   using PatternAtom::PatternAtom;
-  EdgeAtom(Identifier *identifier, Type type, Direction direction)
+  constexpr EdgeAtom(Identifier *identifier, Type type, Direction direction)
       : PatternAtom(identifier), type_(type), direction_(direction) {}
 
   // Creates an edge atom for a SINGLE expansion with the given .
-  EdgeAtom(Identifier *identifier, Type type, Direction direction, const std::vector<QueryEdgeType> &edge_types)
+  constexpr EdgeAtom(Identifier *identifier, Type type, Direction direction,
+                     const std::vector<QueryEdgeType> &edge_types)
       : PatternAtom(identifier), type_(type), direction_(direction), edge_types_(edge_types) {}
 
  private:
@@ -1938,8 +1939,8 @@ class CypherUnion : public memgraph::query::Tree, public utils::Visitable<Hierar
   }
 
  protected:
-  explicit CypherUnion(bool distinct) : distinct_(distinct) {}
-  CypherUnion(bool distinct, SingleQuery *single_query, std::vector<Symbol> union_symbols)
+  constexpr explicit CypherUnion(bool distinct) : distinct_(distinct) {}
+  constexpr CypherUnion(bool distinct, SingleQuery *single_query, std::vector<Symbol> union_symbols)
       : single_query_(single_query), distinct_(distinct), union_symbols_(union_symbols) {}
 
  private:
@@ -1947,12 +1948,12 @@ class CypherUnion : public memgraph::query::Tree, public utils::Visitable<Hierar
 };
 
 struct PropertyIxPath {
-  PropertyIxPath(std::vector<memgraph::query::PropertyIx> path) : path{std::move(path)} {}
-  PropertyIxPath(std::initializer_list<memgraph::query::PropertyIx> path) : path{std::move(path)} {}
+  constexpr PropertyIxPath(std::vector<memgraph::query::PropertyIx> path) : path{std::move(path)} {}
+  constexpr PropertyIxPath(std::initializer_list<memgraph::query::PropertyIx> path) : path{std::move(path)} {}
 
   std::vector<memgraph::query::PropertyIx> path;
 
-  auto AsPathString() const -> std::string {
+  constexpr auto AsPathString() const -> std::string {
     return utils::Join(path | ranges::views::transform(&PropertyIx::name), ".");
   }
   auto Clone(AstStorage *storage) const -> PropertyIxPath;
@@ -1963,7 +1964,7 @@ struct PropertyIxPath {
 
 struct IndexHint {
   static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  constexpr const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   enum class IndexType { LABEL, LABEL_PROPERTIES, POINT };
 
@@ -1977,7 +1978,7 @@ struct IndexHint {
 
 struct PreQueryDirectives {
   static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  constexpr const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   /// Index hints
   std::vector<memgraph::query::IndexHint> index_hints_;
@@ -2116,7 +2117,7 @@ class IndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  IndexQuery(Action action, LabelIx label, std::vector<PropertyIxPath> properties)
+  constexpr IndexQuery(Action action, LabelIx label, std::vector<PropertyIxPath> properties)
       : action_(action), label_(std::move(label)), properties_(std::move(properties)) {}
 
  private:
@@ -2152,7 +2153,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  EdgeIndexQuery(Action action, EdgeTypeIx edge_type, std::vector<memgraph::query::PropertyIx> properties)
+  constexpr EdgeIndexQuery(Action action, EdgeTypeIx edge_type, std::vector<memgraph::query::PropertyIx> properties)
       : action_(action), edge_type_(edge_type), properties_(std::move(properties)) {}
 
  private:
@@ -2183,7 +2184,7 @@ class PointIndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  PointIndexQuery(Action action, LabelIx label, PropertyIx property)
+  constexpr PointIndexQuery(Action action, LabelIx label, PropertyIx property)
       : action_(action), label_(std::move(label)), property_(std::move(property)) {}
 
  private:
@@ -2216,7 +2217,7 @@ class TextIndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  TextIndexQuery(Action action, LabelIx label, std::string index_name)
+  constexpr TextIndexQuery(Action action, LabelIx label, std::string index_name)
       : action_(action), label_(std::move(label)), index_name_(index_name) {}
 
  private:
@@ -2245,7 +2246,7 @@ class CreateTextEdgeIndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  CreateTextEdgeIndexQuery(EdgeTypeIx edge_type, std::vector<PropertyIx> properties, std::string index_name)
+  constexpr CreateTextEdgeIndexQuery(EdgeTypeIx edge_type, std::vector<PropertyIx> properties, std::string index_name)
       : edge_type_(std::move(edge_type)), properties_(std::move(properties)), index_name_(std::move(index_name)) {}
 
  private:
@@ -2359,7 +2360,7 @@ class Create : public memgraph::query::Clause {
   }
 
  protected:
-  explicit Create(std::vector<Pattern *> patterns) : patterns_(patterns) {}
+  constexpr explicit Create(std::vector<Pattern *> patterns) : patterns_(patterns) {}
 
  private:
   friend class AstStorage;
@@ -2464,8 +2465,8 @@ class Match : public memgraph::query::Clause {
   }
 
  protected:
-  explicit Match(bool optional) : optional_(optional) {}
-  Match(bool optional, Where *where, std::vector<Pattern *> patterns)
+  constexpr explicit Match(bool optional) : optional_(optional) {}
+  constexpr Match(bool optional, Where *where, std::vector<Pattern *> patterns)
       : patterns_(patterns), where_(where), optional_(optional) {}
 
  private:
@@ -2474,7 +2475,7 @@ class Match : public memgraph::query::Clause {
 
 struct SortItem {
   static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  constexpr const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   memgraph::query::Ordering ordering;
   memgraph::query::Expression *expression;
@@ -2490,7 +2491,7 @@ struct SortItem {
 /// Contents common to @c Return and @c With clauses.
 struct ReturnBody {
   static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  constexpr const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   /// True if distinct results should be produced.
   bool distinct{false};
@@ -2562,7 +2563,7 @@ class Return : public memgraph::query::Clause {
   }
 
  protected:
-  explicit Return(ReturnBody &body) : body_(body) {}
+  constexpr explicit Return(ReturnBody &body) : body_(body) {}
 
  private:
   friend class AstStorage;
@@ -2610,7 +2611,7 @@ class With : public memgraph::query::Clause {
   }
 
  protected:
-  With(ReturnBody &body, Where *where) : body_(body), where_(where) {}
+  constexpr With(ReturnBody &body, Where *where) : body_(body), where_(where) {}
 
  private:
   friend class AstStorage;
@@ -2646,7 +2647,7 @@ class Delete : public memgraph::query::Clause {
   }
 
  protected:
-  Delete(bool detach, std::vector<Expression *> expressions) : expressions_(expressions), detach_(detach) {}
+  constexpr Delete(bool detach, std::vector<Expression *> expressions) : expressions_(expressions), detach_(detach) {}
 
  private:
   friend class AstStorage;
@@ -2677,7 +2678,7 @@ class SetProperty : public memgraph::query::Clause {
   }
 
  protected:
-  SetProperty(PropertyLookup *property_lookup, Expression *expression)
+  constexpr SetProperty(PropertyLookup *property_lookup, Expression *expression)
       : property_lookup_(property_lookup), expression_(expression) {}
 
  private:
@@ -2711,7 +2712,7 @@ class SetProperties : public memgraph::query::Clause {
   }
 
  protected:
-  SetProperties(Identifier *identifier, Expression *expression, bool update = false)
+  constexpr SetProperties(Identifier *identifier, Expression *expression, bool update = false)
       : identifier_(identifier), expression_(expression), update_(update) {}
 
  private:
@@ -2750,7 +2751,7 @@ class SetLabels : public memgraph::query::Clause {
   }
 
  protected:
-  SetLabels(Identifier *identifier, std::vector<QueryLabelType> labels)
+  constexpr SetLabels(Identifier *identifier, std::vector<QueryLabelType> labels)
       : identifier_(identifier), labels_(std::move(labels)) {}
 
  private:
@@ -2780,7 +2781,7 @@ class RemoveProperty : public memgraph::query::Clause {
   }
 
  protected:
-  explicit RemoveProperty(PropertyLookup *property_lookup) : property_lookup_(property_lookup) {}
+  constexpr explicit RemoveProperty(PropertyLookup *property_lookup) : property_lookup_(property_lookup) {}
 
  private:
   friend class AstStorage;
@@ -2818,7 +2819,7 @@ class RemoveLabels : public memgraph::query::Clause {
   }
 
  protected:
-  RemoveLabels(Identifier *identifier, std::vector<QueryLabelType> labels)
+  constexpr RemoveLabels(Identifier *identifier, std::vector<QueryLabelType> labels)
       : identifier_(identifier), labels_(std::move(labels)) {}
 
  private:
@@ -2874,7 +2875,7 @@ class Merge : public memgraph::query::Clause {
   }
 
  protected:
-  Merge(Pattern *pattern, std::vector<Clause *> on_match, std::vector<Clause *> on_create)
+  constexpr Merge(Pattern *pattern, std::vector<Clause *> on_match, std::vector<Clause *> on_create)
       : pattern_(pattern), on_match_(on_match), on_create_(on_create) {}
 
  private:
@@ -2904,7 +2905,7 @@ class Unwind : public memgraph::query::Clause {
   }
 
  protected:
-  explicit Unwind(NamedExpression *named_expression) : named_expression_(named_expression) {
+  constexpr explicit Unwind(NamedExpression *named_expression) : named_expression_(named_expression) {
     DMG_ASSERT(named_expression, "Unwind cannot take nullptr for named_expression");
   }
 
@@ -2950,7 +2951,7 @@ class SystemInfoQuery : public memgraph::query::Query {
 
 struct Constraint {
   static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  constexpr const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   enum class Type { EXISTS, UNIQUE, NODE_KEY, TYPE };
 
@@ -2959,7 +2960,7 @@ struct Constraint {
   memgraph::query::LabelIx label;
   std::vector<memgraph::query::PropertyIx> properties;
 
-  Constraint Clone(AstStorage *storage) const {
+  constexpr Constraint Clone(AstStorage *storage) const {
     Constraint object;
     object.type = type;
     object.type_constraint = type_constraint;
@@ -3263,8 +3264,8 @@ class LoadCsv : public memgraph::query::Clause {
   }
 
  protected:
-  explicit LoadCsv(Expression *file, bool with_header, bool ignore_bad, Expression *delimiter, Expression *quote,
-                   Expression *nullif, Identifier *row_var)
+  constexpr explicit LoadCsv(Expression *file, bool with_header, bool ignore_bad, Expression *delimiter,
+                             Expression *quote, Expression *nullif, Identifier *row_var)
       : file_(file),
         with_header_(with_header),
         ignore_bad_(ignore_bad),
@@ -3308,7 +3309,7 @@ class LoadParquet : public Clause {
   }
 
  protected:
-  explicit LoadParquet(Expression *file, Identifier *row_var) : file_(file), row_var_(row_var) {
+  constexpr explicit LoadParquet(Expression *file, Identifier *row_var) : file_(file), row_var_(row_var) {
     DMG_ASSERT(row_var, "LoadParquet cannot take nullptr for identifier");
   }
 
@@ -3345,7 +3346,7 @@ class LoadJsonl : public Clause {
   }
 
  protected:
-  explicit LoadJsonl(Expression *file, Identifier *row_var) : file_(file), row_var_(row_var) {
+  constexpr explicit LoadJsonl(Expression *file, Identifier *row_var) : file_(file), row_var_(row_var) {
     DMG_ASSERT(row_var, "LoadJsonl cannot take nullptr for identifier");
   }
 
@@ -3660,7 +3661,7 @@ class Foreach : public memgraph::query::Clause {
   }
 
  protected:
-  Foreach(NamedExpression *expression, std::vector<Clause *> clauses)
+  constexpr Foreach(NamedExpression *expression, std::vector<Clause *> clauses)
       : named_expression_(expression), clauses_(clauses) {}
 
  private:
@@ -3862,7 +3863,7 @@ class EnumValueAccess : public Expression {
 
   EnumValueAccess() = default;
 
-  EnumValueAccess(std::string enum_name, std::string enum_value)
+  constexpr EnumValueAccess(std::string enum_name, std::string enum_value)
       : enum_name_(std::move(enum_name)), enum_value_(std::move(enum_value)) {}
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
@@ -4050,7 +4051,7 @@ class fmt::formatter<memgraph::query::PropertyIxPath> {
   constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
-  auto format(const memgraph::query::PropertyIxPath &wrapper, FormatContext &ctx) const {
+  constexpr auto format(const memgraph::query::PropertyIxPath &wrapper, FormatContext &ctx) const {
     auto out = ctx.out();
 
     if (!wrapper.path.empty()) {

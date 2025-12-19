@@ -19,7 +19,7 @@ namespace rv = r::views;
 namespace memgraph::storage {
 namespace {
 
-auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
+constexpr auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
     -> PropertiesPermutationHelper::permutation_cycles {
   auto const n = permutation_index.size();
 
@@ -119,7 +119,7 @@ auto PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties,
 size_t PropertyValueRange::hash() const noexcept {
   auto const lower{lower_ ? lower_->value() : PropertyValue{}};
   auto const upper{upper_ ? upper_->value() : PropertyValue{}};
-  auto const prop_value_hash = std::hash<PropertyValue>{};
+  auto constexpr prop_value_hash = std::hash<PropertyValue>{};
 
   std::size_t seed = 0;
   boost::hash_combine(seed, static_cast<size_t>(type_));

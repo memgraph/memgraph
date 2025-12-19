@@ -31,7 +31,7 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
   std::string GetDefaultDB() const override;
 #endif
 
-  explicit QueryUserOrRole(auth::SynchedAuth *auth) : query::QueryUserOrRole{{}, {}}, auth_{auth} {}
+  constexpr explicit QueryUserOrRole(auth::SynchedAuth *auth) : query::QueryUserOrRole{{}, {}}, auth_{auth} {}
 
   QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_or_role);
 

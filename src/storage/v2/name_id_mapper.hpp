@@ -26,22 +26,22 @@ class NameIdMapper {
     std::string name;
     uint64_t id;
 
-    bool operator<(const MapNameToId &other) const { return name < other.name; }
-    bool operator==(const MapNameToId &other) const { return name == other.name; }
+    constexpr bool operator<(const MapNameToId &other) const { return name < other.name; }
+    constexpr bool operator==(const MapNameToId &other) const { return name == other.name; }
 
-    bool operator<(const std::string_view other) const { return name < other; }
-    bool operator==(const std::string_view other) const { return name == other; }
+    constexpr bool operator<(const std::string_view other) const { return name < other; }
+    constexpr bool operator==(const std::string_view other) const { return name == other; }
   };
 
   struct MapIdToName {
     uint64_t id;
     std::string name;
 
-    bool operator<(const MapIdToName &other) const { return id < other.id; }
-    bool operator==(const MapIdToName &other) const { return id == other.id; }
+    constexpr bool operator<(const MapIdToName &other) const { return id < other.id; }
+    constexpr bool operator==(const MapIdToName &other) const { return id == other.id; }
 
-    bool operator<(uint64_t other) const { return id < other; }
-    bool operator==(uint64_t other) const { return id == other; }
+    constexpr bool operator<(uint64_t other) const { return id < other; }
+    constexpr bool operator==(uint64_t other) const { return id == other; }
   };
 
  public:

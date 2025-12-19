@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,8 +12,8 @@
 
 #include "utils/flag_validation.hpp"
 
-const uint64_t kBufferSizeDefault = 100'000;
-const uint64_t kBufferFlushIntervalMillisDefault = 200;
+constexpr uint64_t kBufferSizeDefault = 100'000;
+constexpr uint64_t kBufferFlushIntervalMillisDefault = 200;
 
 // Audit logging flags.
 #ifdef MG_ENTERPRISE

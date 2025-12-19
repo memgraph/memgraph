@@ -84,10 +84,10 @@ struct CachedQuery {
 };
 
 struct QueryCacheEntry {
-  bool operator==(const QueryCacheEntry &other) const { return first == other.first; }
-  bool operator<(const QueryCacheEntry &other) const { return first < other.first; }
-  bool operator==(const uint64_t &other) const { return first == other; }
-  bool operator<(const uint64_t &other) const { return first < other; }
+  constexpr bool operator==(const QueryCacheEntry &other) const { return first == other.first; }
+  constexpr bool operator<(const QueryCacheEntry &other) const { return first < other.first; }
+  constexpr bool operator==(const uint64_t &other) const { return first == other; }
+  constexpr bool operator<(const uint64_t &other) const { return first < other; }
 
   uint64_t first;
   // TODO: Maybe store the query string here and use it as a key with the hash

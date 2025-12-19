@@ -81,7 +81,7 @@ auto DownloadProgressCb(void *clientp, curl_off_t dltotal, curl_off_t dlnow, cur
   return kContinueTransferReturnCode;
 }
 
-size_t CurlWriteCallback(char * /*ptr*/, size_t /*size*/, size_t nmemb, void * /*userdata*/) { return nmemb; }
+constexpr size_t CurlWriteCallback(char * /*ptr*/, size_t /*size*/, size_t nmemb, void * /*userdata*/) { return nmemb; }
 
 }  // namespace
 

@@ -34,7 +34,7 @@ struct PatternComprehensionData {
   PatternComprehensionData(std::shared_ptr<LogicalOperator> lop, Symbol res_symbol)
       : op(std::move(lop)), result_symbol(res_symbol) {}
 
-  PatternComprehensionData(PatternComprehension *pc, Symbol res_symbol)
+  constexpr PatternComprehensionData(PatternComprehension *pc, Symbol res_symbol)
       : pattern_comprehension(pc), result_symbol(res_symbol) {}
 
   PatternComprehension *pattern_comprehension = nullptr;
@@ -71,7 +71,8 @@ struct PlanningContext {
 };
 
 template <class TDbAccessor>
-auto MakePlanningContext(AstStorage *ast_storage, SymbolTable *symbol_table, CypherQuery *query, TDbAccessor *db) {
+constexpr auto MakePlanningContext(AstStorage *ast_storage, SymbolTable *symbol_table, CypherQuery *query,
+                                   TDbAccessor *db) {
   return PlanningContext<TDbAccessor>{symbol_table, ast_storage, query, db};
 }
 
@@ -175,7 +176,7 @@ std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::
                                           std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table);
 
 template <class TBoolOperator>
-Expression *BoolJoin(AstStorage &storage, Expression *expr1, Expression *expr2) {
+constexpr Expression *BoolJoin(AstStorage &storage, Expression *expr1, Expression *expr2) {
   if (expr1 && expr2) {
     return storage.Create<TBoolOperator>(expr1, expr2);
   }
@@ -190,7 +191,7 @@ Expression *BoolJoin(AstStorage &storage, Expression *expr1, Expression *expr2) 
 template <class TPlanningContext>
 class RuleBasedPlanner {
  public:
-  explicit RuleBasedPlanner(TPlanningContext *context) : context_(context) {}
+  constexpr explicit RuleBasedPlanner(TPlanningContext *context) : context_(context) {}
 
   /// @brief The result of plan generation is the root of the generated operator
   /// tree.
@@ -327,10 +328,10 @@ class RuleBasedPlanner {
  private:
   TPlanningContext *context_;
 
-  storage::LabelId GetLabel(const LabelIx &label) { return context_->db->NameToLabel(label.name); }
+  constexpr storage::LabelId GetLabel(const LabelIx &label) { return context_->db->NameToLabel(label.name); }
 
-  storage::PropertyId GetProperty(const PropertyIx &prop) { return context_->db->NameToProperty(prop.name); }
-  std::vector<storage::PropertyId> GetProperties(const std::vector<PropertyIx> &props) {
+  constexpr storage::PropertyId GetProperty(const PropertyIx &prop) { return context_->db->NameToProperty(prop.name); }
+  constexpr std::vector<storage::PropertyId> GetProperties(const std::vector<PropertyIx> &props) {
     std::vector<storage::PropertyId> property_ids;
     property_ids.reserve(props.size());
     for (const auto &prop : props) {
@@ -339,7 +340,9 @@ class RuleBasedPlanner {
     return property_ids;
   }
 
-  storage::EdgeTypeId GetEdgeType(EdgeTypeIx edge_type) { return context_->db->NameToEdgeType(edge_type.name); }
+  constexpr storage::EdgeTypeId GetEdgeType(EdgeTypeIx edge_type) {
+    return context_->db->NameToEdgeType(edge_type.name);
+  }
 
   std::vector<storage::EdgeTypeId> GetEdgeTypes(const std::vector<QueryEdgeType> &edge_types) {
     std::vector<storage::EdgeTypeId> transformed_edge_types;
@@ -360,7 +363,7 @@ class RuleBasedPlanner {
     return transformed_edge_types;
   }
 
-  std::vector<StorageLabelType> GetLabelIds(const std::vector<QueryLabelType> &labels) {
+  constexpr std::vector<StorageLabelType> GetLabelIds(const std::vector<QueryLabelType> &labels) {
     std::vector<StorageLabelType> label_ids;
     label_ids.reserve(labels.size());
     for (const auto &label : labels) {
@@ -373,7 +376,7 @@ class RuleBasedPlanner {
     return label_ids;
   }
 
-  std::vector<StorageEdgeType> GetEdgeIds(const std::vector<QueryEdgeType> &edge_types) {
+  constexpr std::vector<StorageEdgeType> GetEdgeIds(const std::vector<QueryEdgeType> &edge_types) {
     std::vector<StorageEdgeType> edge_ids;
     edge_ids.reserve(edge_types.size());
     for (const auto &edge_type : edge_types) {

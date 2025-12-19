@@ -35,12 +35,12 @@ namespace memgraph::storage {
 namespace {
 
 template <typename Key, typename Tp, typename Predicate>
-inline auto erase_if(memgraph::utils::ConcurrentUnorderedMap<Key, Tp> &cont, Predicate &&pred) {
+inline constexpr auto erase_if(memgraph::utils::ConcurrentUnorderedMap<Key, Tp> &cont, Predicate &&pred) {
   return cont.erase_if(std::forward<Predicate>(pred));
 }
 
 template <typename Key, typename Tp, typename Predicate>
-inline auto erase_if(std::unordered_map<Key, Tp> &cont, Predicate &&pred) {
+inline constexpr auto erase_if(std::unordered_map<Key, Tp> &cont, Predicate &&pred) {
   return std::erase_if(cont, std::forward<Predicate>(pred));
 }
 
@@ -126,8 +126,8 @@ struct Labels {
 };
 
 // Cache needs to be reference stable because we are using it as a key
-inline Labels GetLabels(const Vertex *from, const Vertex *to, uint64_t start_timestamp, uint64_t commit_timestamp,
-                        auto &cache) {
+inline constexpr Labels GetLabels(const Vertex *from, const Vertex *to, uint64_t start_timestamp,
+                                  uint64_t commit_timestamp, auto &cache) {
   const auto from_res = GetLabels(from, start_timestamp, commit_timestamp, cache);
   const auto to_res = GetLabels(to, start_timestamp, commit_timestamp, cache);
   return {from_res.first, to_res.first, from_res.second || to_res.second};
@@ -139,7 +139,8 @@ struct LabelsDiff {
 };
 
 // Cache needs to be reference stable because we are using it as a key
-inline LabelsDiff GetLabelsDiff(const Vertex *v, State state, uint64_t timestamp, auto &cache, auto &post_cache) {
+inline constexpr LabelsDiff GetLabelsDiff(const Vertex *v, State state, uint64_t timestamp, auto &cache,
+                                          auto &post_cache) {
   // NO CHANGES
   if (state == NO_CHANGE) return {&v->labels, &v->labels};
 

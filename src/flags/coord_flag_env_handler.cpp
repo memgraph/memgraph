@@ -56,7 +56,7 @@ void SetFinalCoordinationSetup() {
 
   bool const any_envs_set = std::ranges::any_of(maybe_coord_envs, [](char const *env) { return env != nullptr; });
 
-  auto const is_flag_set = []<typename T>(T const &flag) { return flag != T{}; };
+  auto constexpr is_flag_set = []<typename T>(T const &flag) { return flag != T{}; };
 
   bool const any_flags_set = is_flag_set(FLAGS_management_port) || is_flag_set(FLAGS_coordinator_port) ||
                              is_flag_set(FLAGS_coordinator_id) || is_flag_set(FLAGS_nuraft_log_file) ||
@@ -73,12 +73,12 @@ void SetFinalCoordinationSetup() {
       return CoordinationSetup{};
     }
 
-    auto const trim = [](char const *flag) -> std::optional<std::string> {
+    auto constexpr trim = [](char const *flag) -> std::optional<std::string> {
       if (flag == nullptr) {
         return std::nullopt;
       }
 
-      auto const is_space = [](auto c) { return c == ' '; };
+      auto constexpr is_space = [](auto c) { return c == ' '; };
 
       return std::string_view{flag} | ranges::views::drop_while(is_space) |
              ranges::views::take_while(std::not_fn(is_space)) | ranges::to<std::string>;

@@ -39,7 +39,7 @@ class NamedExpression : public memgraph::query::Tree,
   DECLARE_VISITABLE(ExpressionVisitor<void>);
   DECLARE_VISITABLE(HierarchicalTreeVisitor);
 
-  NamedExpression *MapTo(const Symbol &symbol) {
+  constexpr NamedExpression *MapTo(const Symbol &symbol) {
     symbol_pos_ = symbol.position();
     return this;
   }
@@ -65,9 +65,9 @@ class NamedExpression : public memgraph::query::Tree,
   }
 
  protected:
-  explicit NamedExpression(const std::string &name) : name_(name) {}
-  NamedExpression(const std::string &name, Expression *expression) : name_(name), expression_(expression) {}
-  NamedExpression(const std::string &name, Expression *expression, int token_position)
+  constexpr explicit NamedExpression(const std::string &name) : name_(name) {}
+  constexpr NamedExpression(const std::string &name, Expression *expression) : name_(name), expression_(expression) {}
+  constexpr NamedExpression(const std::string &name, Expression *expression, int token_position)
       : name_(name), expression_(expression), token_position_(token_position) {}
 
  private:

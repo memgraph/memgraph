@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -70,5 +70,26 @@ class IntGenerator {
   std::mt19937 rng_;
   std::uniform_int_distribution<int> dist_;
 };
+
+/// Polls until a predicate returns true, or timeout is reached.
+/// @param predicate Function that returns true when condition is met
+/// @param timeout Maximum duration to wait
+/// @param poll_interval Time between polling attempts
+/// @return true if predicate succeeded, false if timeout
+template <typename Predicate>
+bool WaitForCondition(Predicate predicate, std::chrono::milliseconds timeout = std::chrono::milliseconds(5000),
+                      std::chrono::milliseconds poll_interval = std::chrono::milliseconds(200)) {
+  const auto start = std::chrono::steady_clock::now();
+  while (true) {
+    if (predicate()) {
+      return true;
+    }
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    if (elapsed >= timeout) {
+      return false;
+    }
+    std::this_thread::sleep_for(poll_interval);
+  }
+}
 
 }  // namespace mg::e2e::replication

@@ -310,7 +310,7 @@ constexpr bool isValidMarkerValue(uint8_t v) {
   return validMarkerBitMaps[v >> 6UL] & (1UL << (v & 0x3FUL));
 }
 
-std::optional<Marker> CastToMarker(uint8_t value) {
+constexpr std::optional<Marker> CastToMarker(uint8_t value) {
   if (isValidMarkerValue(value)) return static_cast<Marker>(value);
   return std::nullopt;
 }

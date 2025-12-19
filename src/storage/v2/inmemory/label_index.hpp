@@ -33,8 +33,10 @@ class InMemoryLabelIndex : public LabelIndex {
     Vertex *vertex;
     uint64_t timestamp;
 
-    bool operator<(const Entry &rhs) { return std::tie(vertex, timestamp) < std::tie(rhs.vertex, rhs.timestamp); }
-    bool operator==(const Entry &rhs) const {
+    constexpr bool operator<(const Entry &rhs) {
+      return std::tie(vertex, timestamp) < std::tie(rhs.vertex, rhs.timestamp);
+    }
+    constexpr bool operator==(const Entry &rhs) const {
       return std::tie(vertex, timestamp) == std::tie(rhs.vertex, rhs.timestamp);
     }
   };

@@ -21,7 +21,7 @@ namespace impl {
 template <class TDbAccessor>
 class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
  public:
-  ExpressionEnumAccessRewriter(TDbAccessor *dba, AstStorage *storage) : dba_(dba), storage_(storage) {}
+  constexpr ExpressionEnumAccessRewriter(TDbAccessor *dba, AstStorage *storage) : dba_(dba), storage_(storage) {}
 
  private:
   void Visit(EnumValueAccess &enum_value_access) override {
@@ -34,7 +34,7 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
   }
 
   // Helper method to maintain the previous expressions
-  void AcceptExpression(Expression *&expr) {
+  constexpr void AcceptExpression(Expression *&expr) {
     prev_expressions_.emplace_back(expr);
     expr->Accept(*this);
     // If modified, then replace the expression
@@ -188,7 +188,7 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
 template <class TDbAccessor>
 class EnumAccessRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  EnumAccessRewriter(SymbolTable *symbolTable, AstStorage *astStorage, TDbAccessor *db)
+  constexpr EnumAccessRewriter(SymbolTable *symbolTable, AstStorage *astStorage, TDbAccessor *db)
       : symbol_table(symbolTable), ast_storage(astStorage), db(db) {}
 
   ~EnumAccessRewriter() override = default;

@@ -53,9 +53,9 @@ class PreviousPtr {
 
   struct Pointer {
     Pointer() = default;
-    explicit Pointer(Delta *delta) : type(Type::DELTA), delta(delta) {}
-    explicit Pointer(Vertex *vertex) : type(Type::VERTEX), vertex(vertex) {}
-    explicit Pointer(Edge *edge) : type(Type::EDGE), edge(edge) {}
+    constexpr explicit Pointer(Delta *delta) : type(Type::DELTA), delta(delta) {}
+    constexpr explicit Pointer(Vertex *vertex) : type(Type::VERTEX), vertex(vertex) {}
+    constexpr explicit Pointer(Edge *edge) : type(Type::EDGE), edge(edge) {}
 
     Type type{Type::NULL_PTR};
     union {
@@ -65,7 +65,7 @@ class PreviousPtr {
     };
   };
 
-  PreviousPtr() : storage_(0) {}
+  constexpr PreviousPtr() : storage_(0) {}
 
   PreviousPtr(const PreviousPtr &other) noexcept : storage_(other.storage_.load(std::memory_order_acquire)) {}
 
@@ -108,7 +108,7 @@ class PreviousPtr {
   std::atomic<uintptr_t> storage_;
 };
 
-inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer &b) {
+constexpr inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer &b) {
   if (a.type != b.type) return false;
   switch (a.type) {
     case PreviousPtr::Type::VERTEX:
@@ -179,16 +179,16 @@ struct Delta {
         command_id(0),
         old_disk_key{.value = opt_str{old_disk_key, res}} {}
 
-  Delta(DeleteObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  constexpr Delta(DeleteObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp), command_id(command_id), action(Action::DELETE_OBJECT) {}
 
-  Delta(RecreateObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  constexpr Delta(RecreateObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp), command_id(command_id), action(Action::RECREATE_OBJECT) {}
 
-  Delta(AddLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  constexpr Delta(AddLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp), command_id(command_id), label{.action = Action::ADD_LABEL, .value = label} {}
 
-  Delta(RemoveLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  constexpr Delta(RemoveLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp), command_id(command_id), label{.action = Action::REMOVE_LABEL, .value = label} {}
 
   Delta(SetPropertyTag /*tag*/, PropertyId key, PropertyValue const &value, std::atomic<uint64_t> *timestamp,
@@ -208,26 +208,26 @@ struct Delta {
                  .value = std::pmr::polymorphic_allocator<Delta>{res}.new_object<pmr::PropertyValue>(std::move(value)),
                  .out_vertex = out_vertex} {}
 
-  Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id)
+  constexpr Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge,
+                  std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::ADD_IN_EDGE, .edge_type = edge_type, vertex, edge} {}
 
-  Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id)
+  constexpr Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge,
+                  std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::ADD_OUT_EDGE, .edge_type = edge_type, vertex, edge} {}
 
-  Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id)
+  constexpr Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge,
+                  std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::REMOVE_IN_EDGE, .edge_type = edge_type, vertex, edge} {}
 
-  Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id)
+  constexpr Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge,
+                  std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::REMOVE_OUT_EDGE, .edge_type = edge_type, vertex, edge} {}

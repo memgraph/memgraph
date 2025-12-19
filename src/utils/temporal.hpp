@@ -38,7 +38,7 @@ constexpr auto GetAndSubtractDuration(TSecond &base_duration) {
 }
 
 template <typename TType>
-bool Overflows(const TType &lhs, const TType &rhs) {
+constexpr bool Overflows(const TType &lhs, const TType &rhs) {
   if (lhs > 0 && rhs > 0 && lhs > (std::numeric_limits<TType>::max() - rhs)) [[unlikely]] {
     return true;
   }
@@ -46,7 +46,7 @@ bool Overflows(const TType &lhs, const TType &rhs) {
 }
 
 template <typename TType>
-bool Underflows(const TType &lhs, const TType &rhs) {
+constexpr bool Underflows(const TType &lhs, const TType &rhs) {
   if (lhs < 0 && rhs < 0 && lhs < (std::numeric_limits<TType>::min() - rhs)) [[unlikely]] {
     return true;
   }
@@ -266,7 +266,7 @@ struct LocalDateTime {
   explicit LocalDateTime(int64_t offset_epoch_us);
 
   template <typename TClock, typename TDuration>
-  explicit LocalDateTime(const std::chrono::time_point<TClock, TDuration> &time_point)
+  constexpr explicit LocalDateTime(const std::chrono::time_point<TClock, TDuration> &time_point)
       : us_since_epoch_(std::chrono::duration_cast<std::chrono::microseconds>(time_point.time_since_epoch())) {}
 
   explicit LocalDateTime(std::tm tm);
@@ -394,10 +394,10 @@ class Timezone {
 
  public:
   explicit Timezone(const std::chrono::minutes offset);
-  explicit Timezone(const std::chrono::time_zone *timezone) : offset_{timezone} {}
+  constexpr explicit Timezone(const std::chrono::time_zone *timezone) : offset_{timezone} {}
   explicit Timezone(std::string_view timezone_name) : offset_{std::chrono::locate_zone(timezone_name)} {}
 
-  const Timezone *operator->() const { return this; }
+  constexpr const Timezone *operator->() const { return this; }
 
   bool operator==(const Timezone &) const = default;
 
@@ -405,10 +405,10 @@ class Timezone {
   // (standard vs. daylight saving time)
   auto operator<=>(const Timezone &other) const { return TimezoneName() <=> other.TimezoneName(); }
 
-  std::variant<std::chrono::minutes, const std::chrono::time_zone *> GetOffset() const { return offset_; }
+  constexpr std::variant<std::chrono::minutes, const std::chrono::time_zone *> GetOffset() const { return offset_; }
 
   template <class DurationT>
-  std::chrono::minutes OffsetDuration(std::chrono::sys_time<DurationT> time_point) const {
+  constexpr std::chrono::minutes OffsetDuration(std::chrono::sys_time<DurationT> time_point) const {
     if (std::holds_alternative<std::chrono::minutes>(offset_)) {
       return std::get<std::chrono::minutes>(offset_);
     }
@@ -418,7 +418,7 @@ class Timezone {
   }
 
   template <class DurationT>
-  std::chrono::sys_info get_info(std::chrono::sys_time<DurationT> time_point) const {
+  constexpr std::chrono::sys_info get_info(std::chrono::sys_time<DurationT> time_point) const {
     if (std::holds_alternative<std::chrono::minutes>(offset_)) {
       const auto offset = std::get<std::chrono::minutes>(offset_);
       return std::chrono::sys_info{
@@ -433,7 +433,7 @@ class Timezone {
   }
 
   template <class DurationT>
-  auto to_local(std::chrono::sys_time<DurationT> time_point) const {
+  constexpr auto to_local(std::chrono::sys_time<DurationT> time_point) const {
     if (std::holds_alternative<std::chrono::minutes>(offset_)) {
       using local_time = std::chrono::local_time<std::common_type_t<DurationT, std::chrono::minutes>>;
       return local_time{(time_point + OffsetDuration(time_point)).time_since_epoch()};
@@ -442,8 +442,8 @@ class Timezone {
   }
 
   template <class DurationT>
-  auto to_sys(std::chrono::local_time<DurationT> time_point,
-              std::chrono::choose choice = std::chrono::choose::earliest) const {
+  constexpr auto to_sys(std::chrono::local_time<DurationT> time_point,
+                        std::chrono::choose choice = std::chrono::choose::earliest) const {
     if (std::holds_alternative<std::chrono::minutes>(offset_)) {
       using sys_time = std::chrono::sys_time<std::common_type_t<DurationT, std::chrono::minutes>>;
       return sys_time{(time_point - std::get<std::chrono::minutes>(offset_)).time_since_epoch()};
@@ -451,7 +451,7 @@ class Timezone {
     return std::get<const std::chrono::time_zone *>(offset_)->to_sys(time_point, choice);
   }
 
-  bool InTzDatabase() const { return std::holds_alternative<const std::chrono::time_zone *>(offset_); }
+  constexpr bool InTzDatabase() const { return std::holds_alternative<const std::chrono::time_zone *>(offset_); }
 
   std::string_view TimezoneName() const {
     if (!InTzDatabase()) {

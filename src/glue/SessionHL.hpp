@@ -34,7 +34,7 @@ struct ParseRes {
 #ifdef MG_ENTERPRISE
 class RuntimeConfig {
  public:
-  explicit RuntimeConfig(SessionHL *session) : session_(session) {}
+  constexpr explicit RuntimeConfig(SessionHL *session) : session_(session) {}
 
   void Configure(const bolt_map_t &run_time_info, bool in_explicit_tx);
 

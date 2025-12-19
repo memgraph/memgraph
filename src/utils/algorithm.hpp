@@ -28,8 +28,8 @@ namespace memgraph::utils {
  * @param transformation Function which accepts an item and returns a derived value.
  */
 template <typename TTransformation = std::identity>
-inline std::string IterableToString(std::ranges::input_range auto const &iterable, std::string_view delim = ", ",
-                                    TTransformation transformation = {}) {
+inline constexpr std::string IterableToString(std::ranges::input_range auto const &iterable,
+                                              std::string_view delim = ", ", TTransformation transformation = {}) {
   auto first = iterable.begin();
   auto const last = iterable.end();
   std::string representation;
@@ -58,8 +58,8 @@ inline std::string IterableToString(std::ranges::input_range auto const &iterabl
  *  item to the stream.
  */
 template <typename TStream, typename TIterator, typename TStreamer>
-inline void PrintIterable(TStream *stream, TIterator first, TIterator last, const std::string &delim = ", ",
-                          TStreamer streamer = {}) {
+inline constexpr void PrintIterable(TStream *stream, TIterator first, TIterator last, const std::string &delim = ", ",
+                                    TStreamer streamer = {}) {
   if (first != last) {
     streamer(*stream, *first);
     ++first;
@@ -81,8 +81,8 @@ inline void PrintIterable(TStream *stream, TIterator first, TIterator last, cons
  *  streams the item to the stream.
  */
 template <typename TStream, typename TIterable, typename TStreamer>
-inline void PrintIterable(TStream &stream, const TIterable &iterable, const std::string &delim = ", ",
-                          TStreamer streamer = {}) {
+inline constexpr void PrintIterable(TStream &stream, const TIterable &iterable, const std::string &delim = ", ",
+                                    TStreamer streamer = {}) {
   PrintIterable(&stream, iterable.begin(), iterable.end(), delim, streamer);
 }
 
@@ -95,7 +95,7 @@ inline void PrintIterable(TStream &stream, const TIterable &iterable, const std:
  * @param delim Delimiter that is put between items.
  */
 template <typename TStream, typename TIterable>
-inline void PrintIterable(TStream &stream, const TIterable &iterable, const std::string &delim = ", ") {
+inline constexpr void PrintIterable(TStream &stream, const TIterable &iterable, const std::string &delim = ", ") {
   PrintIterable(stream, iterable, delim, [](auto &stream, const auto &item) { stream << item; });
 }
 
@@ -109,7 +109,7 @@ inline void PrintIterable(TStream &stream, const TIterable &iterable, const std:
  * map.
  */
 template <class TMap, class TKey, class TVal>
-inline std::pair<TVal, bool> FindOr(const TMap &map, const TKey &key, TVal &&or_value) {
+inline constexpr std::pair<TVal, bool> FindOr(const TMap &map, const TKey &key, TVal &&or_value) {
   auto it = map.find(key);
   if (it != map.end()) return {it->second, true};
   return {std::forward<TVal>(or_value), false};
@@ -136,7 +136,7 @@ inline auto First(TIterable &&iterable) {
  * @return The first element of the `iterable` or the `empty_value`.
  */
 template <class TVal, class TIterable>
-inline TVal First(TIterable &&iterable, TVal &&empty_value) {
+inline constexpr TVal First(TIterable &&iterable, TVal &&empty_value) {
   if (iterable.begin() != iterable.end()) return *iterable.begin();
   return empty_value;
 }
@@ -146,7 +146,7 @@ inline TVal First(TIterable &&iterable, TVal &&empty_value) {
  * The copy is allocated using the default allocator.
  */
 template <class TCollection>
-TCollection Reversed(const TCollection &collection) {
+constexpr TCollection Reversed(const TCollection &collection) {
   return TCollection(std::rbegin(collection), std::rend(collection));
 }
 
@@ -155,7 +155,7 @@ TCollection Reversed(const TCollection &collection) {
  * The copy is allocated with the given `alloc`.
  */
 template <class TCollection, class TAllocator>
-TCollection Reversed(const TCollection &collection, const TAllocator &alloc) {
+constexpr TCollection Reversed(const TCollection &collection, const TAllocator &alloc) {
   return TCollection(std::rbegin(collection), std::rend(collection), alloc);
 }
 
@@ -166,10 +166,10 @@ TCollection Reversed(const TCollection &collection, const TAllocator &alloc) {
 template <typename TIterator>
 class Iterable {
  public:
-  Iterable(TIterator &&begin, TIterator &&end) : begin_(std::move(begin)), end_(std::move(end)) {}
+  constexpr Iterable(TIterator &&begin, TIterator &&end) : begin_(std::move(begin)), end_(std::move(end)) {}
 
-  auto begin() { return begin_; };
-  auto end() { return end_; };
+  constexpr auto begin() { return begin_; };
+  constexpr auto end() { return end_; };
 
  private:
   TIterator begin_;
@@ -183,7 +183,7 @@ class Iterable {
  * for [1, 3], [1, 4], [2, 3], [2, 4].
  */
 template <typename T, typename CallbackFn>
-void cartesian_product(const std::vector<std::vector<T>> &vecs, CallbackFn callback) {
+constexpr void cartesian_product(const std::vector<std::vector<T>> &vecs, CallbackFn callback) {
   if (vecs.empty()) return;
 
   std::function<void(std::size_t, std::vector<T> &)> const cartesian_product_impl = [&](size_t depth,

@@ -29,7 +29,7 @@ class HotMask {
  public:
   static constexpr auto kMaxElements = 1024U;
 
-  explicit HotMask(uint16_t n_elements)
+  constexpr explicit HotMask(uint16_t n_elements)
       :
 #ifndef NDEBUG
         n_elements_{n_elements},
@@ -56,7 +56,7 @@ class HotMask {
   // Get element's group
   static constexpr uint16_t GetGroup(const uint64_t id) { return id / kGroupSize; }
   // Get number of groups
-  static inline uint16_t GetNumGroups(const uint64_t n_elements) { return (n_elements - 1) / kGroupSize + 1; }
+  constexpr static inline uint16_t GetNumGroups(const uint64_t n_elements) { return (n_elements - 1) / kGroupSize + 1; }
   // Mask as seen by the appropriate group
   static constexpr uint64_t GroupMask(const uint64_t id) { return 1UL << (id & kGroupMask); }
 
@@ -103,7 +103,7 @@ class TaskCollection {
 
   void WaitOrSteal();
 
-  size_t Size() const { return tasks_.size(); }
+  constexpr size_t Size() const { return tasks_.size(); }
 
  private:
   std::vector<Task> tasks_;

@@ -57,7 +57,7 @@ const std::string kWalMagic{"MGwl"};
 static_assert(std::is_same_v<uint8_t, unsigned char>);
 
 // Checks whether the loaded snapshot/WAL version is supported.
-inline bool IsVersionSupported(uint64_t const version) {
+constexpr inline bool IsVersionSupported(uint64_t const version) {
   return version >= kOldestSupportedVersion && version <= kVersion;
 }
 

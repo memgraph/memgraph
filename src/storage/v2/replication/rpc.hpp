@@ -29,8 +29,8 @@ struct FinalizeCommitReq {
   static void Save(const FinalizeCommitReq &self, slk::Builder *builder);
   FinalizeCommitReq() = default;
 
-  FinalizeCommitReq(bool const decision_arg, const utils::UUID &main_uuid_arg, const utils::UUID &storage_uuid_arg,
-                    uint64_t const durability_commit_timestamp_arg)
+  constexpr FinalizeCommitReq(bool const decision_arg, const utils::UUID &main_uuid_arg,
+                              const utils::UUID &storage_uuid_arg, uint64_t const durability_commit_timestamp_arg)
       : decision(decision_arg),
         main_uuid(main_uuid_arg),
         storage_uuid(storage_uuid_arg),
@@ -51,7 +51,7 @@ struct FinalizeCommitRes {
   static void Save(const FinalizeCommitRes &self, slk::Builder *builder);
   FinalizeCommitRes() = default;
 
-  explicit FinalizeCommitRes(bool const success_arg) : success(success_arg) {}
+  constexpr explicit FinalizeCommitRes(bool const success_arg) : success(success_arg) {}
 
   bool success;
 };
@@ -65,9 +65,9 @@ struct PrepareCommitReq {
   static void Load(PrepareCommitReq *self, slk::Reader *reader);
   static void Save(const PrepareCommitReq &self, slk::Builder *builder);
   PrepareCommitReq() = default;
-  PrepareCommitReq(const utils::UUID &main_uuid_arg, const utils::UUID &storage_uuid_arg,
-                   uint64_t const previous_commit_timestamp_arg, bool const two_phase_commit_arg,
-                   uint64_t const durability_commit_timestamp_arg)
+  constexpr PrepareCommitReq(const utils::UUID &main_uuid_arg, const utils::UUID &storage_uuid_arg,
+                             uint64_t const previous_commit_timestamp_arg, bool const two_phase_commit_arg,
+                             uint64_t const durability_commit_timestamp_arg)
       : main_uuid{main_uuid_arg},
         storage_uuid{storage_uuid_arg},
         previous_commit_timestamp(previous_commit_timestamp_arg),
@@ -89,7 +89,7 @@ struct PrepareCommitRes {
   static void Save(const PrepareCommitRes &self, slk::Builder *builder);
   PrepareCommitRes() = default;
 
-  explicit PrepareCommitRes(bool const success) : success(success) {}
+  constexpr explicit PrepareCommitRes(bool const success) : success(success) {}
 
   bool success;
 };
@@ -111,8 +111,8 @@ struct HeartbeatReq {
   static void Load(HeartbeatReq *self, memgraph::slk::Reader *reader);
   static void Save(const HeartbeatReq &self, memgraph::slk::Builder *builder);
   HeartbeatReq() = default;
-  HeartbeatReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t main_commit_timestamp,
-               std::string epoch_id)
+  constexpr HeartbeatReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t main_commit_timestamp,
+                         std::string epoch_id)
       : main_uuid(main_uuid), uuid{uuid}, main_commit_timestamp(main_commit_timestamp), epoch_id(std::move(epoch_id)) {}
 
   utils::UUID main_uuid;
@@ -128,8 +128,8 @@ struct HeartbeatRes {
   static void Load(HeartbeatRes *self, slk::Reader *reader);
   static void Save(const HeartbeatRes &self, slk::Builder *builder);
   HeartbeatRes() = default;
-  HeartbeatRes(bool const success, uint64_t const current_commit_timestamp, std::string epoch_id,
-               uint64_t const num_txns_committed)
+  constexpr HeartbeatRes(bool const success, uint64_t const current_commit_timestamp, std::string epoch_id,
+                         uint64_t const num_txns_committed)
       : success_(success),
         current_commit_timestamp_(current_commit_timestamp),
         epoch_id_(std::move(epoch_id)),
@@ -150,7 +150,7 @@ struct SnapshotReq {
   static void Load(SnapshotReq *self, memgraph::slk::Reader *reader);
   static void Save(const SnapshotReq &self, memgraph::slk::Builder *builder);
   SnapshotReq() = default;
-  explicit SnapshotReq(const utils::UUID &main_uuid, const utils::UUID &storage_uuid)
+  constexpr explicit SnapshotReq(const utils::UUID &main_uuid, const utils::UUID &storage_uuid)
       : main_uuid{main_uuid}, storage_uuid{storage_uuid} {}
 
   utils::UUID main_uuid;
@@ -165,7 +165,8 @@ struct SnapshotRes {
   static void Save(const SnapshotRes &self, slk::Builder *builder);
   SnapshotRes() = default;
 
-  explicit SnapshotRes(std::optional<uint64_t> const current_commit_timestamp, uint64_t const num_txns_committed)
+  constexpr explicit SnapshotRes(std::optional<uint64_t> const current_commit_timestamp,
+                                 uint64_t const num_txns_committed)
       : current_commit_timestamp_(current_commit_timestamp), num_txns_committed_(num_txns_committed) {}
 
   std::optional<uint64_t> current_commit_timestamp_;
@@ -181,8 +182,8 @@ struct WalFilesReq {
   static void Load(WalFilesReq *self, slk::Reader *reader);
   static void Save(const WalFilesReq &self, slk::Builder *builder);
   WalFilesReq() = default;
-  explicit WalFilesReq(uint64_t const file_number, const utils::UUID &main_uuid, const utils::UUID &storage_uuid,
-                       bool const reset_needed)
+  constexpr explicit WalFilesReq(uint64_t const file_number, const utils::UUID &main_uuid,
+                                 const utils::UUID &storage_uuid, bool const reset_needed)
       : file_number(file_number), main_uuid{main_uuid}, uuid{storage_uuid}, reset_needed{reset_needed} {}
 
   uint64_t file_number;
@@ -198,7 +199,8 @@ struct WalFilesRes {
   static void Load(WalFilesRes *self, memgraph::slk::Reader *reader);
   static void Save(const WalFilesRes &self, memgraph::slk::Builder *builder);
   WalFilesRes() = default;
-  explicit WalFilesRes(std::optional<uint64_t> const current_commit_timestamp, uint64_t const num_txns_committed)
+  constexpr explicit WalFilesRes(std::optional<uint64_t> const current_commit_timestamp,
+                                 uint64_t const num_txns_committed)
       : current_commit_timestamp_(current_commit_timestamp), num_txns_committed_(num_txns_committed) {}
 
   std::optional<uint64_t> current_commit_timestamp_;
@@ -214,7 +216,7 @@ struct CurrentWalReq {
   static void Load(CurrentWalReq *self, memgraph::slk::Reader *reader);
   static void Save(const CurrentWalReq &self, memgraph::slk::Builder *builder);
   CurrentWalReq() = default;
-  explicit CurrentWalReq(const utils::UUID &main_uuid, const utils::UUID &uuid, bool const reset_needed)
+  constexpr explicit CurrentWalReq(const utils::UUID &main_uuid, const utils::UUID &uuid, bool const reset_needed)
       : main_uuid(main_uuid), uuid{uuid}, reset_needed{reset_needed} {}
 
   utils::UUID main_uuid;
@@ -229,7 +231,8 @@ struct CurrentWalRes {
   static void Load(CurrentWalRes *self, memgraph::slk::Reader *reader);
   static void Save(const CurrentWalRes &self, memgraph::slk::Builder *builder);
   CurrentWalRes() = default;
-  explicit CurrentWalRes(std::optional<uint64_t> const current_commit_timestamp, uint64_t const num_txns_committed)
+  constexpr explicit CurrentWalRes(std::optional<uint64_t> const current_commit_timestamp,
+                                   uint64_t const num_txns_committed)
       : current_commit_timestamp_(current_commit_timestamp), num_txns_committed_(num_txns_committed) {}
 
   std::optional<uint64_t> current_commit_timestamp_;

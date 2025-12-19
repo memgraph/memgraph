@@ -288,7 +288,7 @@ class Once : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  Once(std::vector<Symbol> symbols = {}) : symbols_{std::move(symbols)} {}
+  constexpr Once(std::vector<Symbol> symbols = {}) : symbols_{std::move(symbols)} {}
   DEFVISITABLE(HierarchicalLogicalOperatorVisitor);
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override { return symbols_; }
@@ -320,18 +320,18 @@ using StorageEdgeType = std::variant<storage::EdgeTypeId, Expression *>;
 
 struct NodeCreationInfo {
   static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  constexpr const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   NodeCreationInfo() = default;
 
-  NodeCreationInfo(Symbol symbol, std::vector<StorageLabelType> labels,
-                   std::variant<PropertiesMapList, ParameterLookup *> properties)
+  constexpr NodeCreationInfo(Symbol symbol, std::vector<StorageLabelType> labels,
+                             std::variant<PropertiesMapList, ParameterLookup *> properties)
       : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{std::move(properties)} {};
 
-  NodeCreationInfo(Symbol symbol, std::vector<StorageLabelType> labels, PropertiesMapList properties)
+  constexpr NodeCreationInfo(Symbol symbol, std::vector<StorageLabelType> labels, PropertiesMapList properties)
       : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{std::move(properties)} {};
 
-  NodeCreationInfo(Symbol symbol, std::vector<StorageLabelType> labels, ParameterLookup *properties)
+  constexpr NodeCreationInfo(Symbol symbol, std::vector<StorageLabelType> labels, ParameterLookup *properties)
       : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{properties} {};
 
   Symbol symbol;
@@ -392,19 +392,20 @@ class CreateNode : public memgraph::query::plan::LogicalOperator {
 
 struct EdgeCreationInfo {
   static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  constexpr const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   EdgeCreationInfo() = default;
 
-  EdgeCreationInfo(Symbol symbol, std::variant<PropertiesMapList, ParameterLookup *> properties,
-                   StorageEdgeType edge_type, EdgeAtom::Direction direction)
+  constexpr EdgeCreationInfo(Symbol symbol, std::variant<PropertiesMapList, ParameterLookup *> properties,
+                             StorageEdgeType edge_type, EdgeAtom::Direction direction)
       : symbol{std::move(symbol)}, properties{std::move(properties)}, edge_type{edge_type}, direction{direction} {};
 
-  EdgeCreationInfo(Symbol symbol, PropertiesMapList properties, StorageEdgeType edge_type,
-                   EdgeAtom::Direction direction)
+  constexpr EdgeCreationInfo(Symbol symbol, PropertiesMapList properties, StorageEdgeType edge_type,
+                             EdgeAtom::Direction direction)
       : symbol{std::move(symbol)}, properties{std::move(properties)}, edge_type{edge_type}, direction{direction} {};
 
-  EdgeCreationInfo(Symbol symbol, ParameterLookup *properties, StorageEdgeType edge_type, EdgeAtom::Direction direction)
+  constexpr EdgeCreationInfo(Symbol symbol, ParameterLookup *properties, StorageEdgeType edge_type,
+                             EdgeAtom::Direction direction)
       : symbol{std::move(symbol)}, properties{properties}, edge_type{edge_type}, direction{direction} {};
 
   Symbol symbol;
@@ -554,7 +555,7 @@ class ScanAllByLabel : public memgraph::query::plan::ScanAll {
 
 struct ScanByEdgeCommon {
   static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  constexpr const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   Symbol edge_symbol;
   Symbol node1_symbol;
@@ -890,7 +891,7 @@ class ScanAllByPointWithinbbox : public memgraph::query::plan::ScanAll {
 
 struct ExpandCommon {
   static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  constexpr const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   /// Symbol pointing to the node to be expanded.
   /// This is where the new node will be stored.
@@ -1001,7 +1002,7 @@ class Expand : public memgraph::query::plan::LogicalOperator {
 
 struct ExpansionLambda {
   static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  constexpr const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   /// Currently expanded edge symbol.
   Symbol inner_edge_symbol;
@@ -1734,7 +1735,7 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
   ///        type of aggregation, output symbol, distinct)
   struct Element {
     static const utils::TypeInfo kType;
-    const utils::TypeInfo &GetTypeInfo() const { return kType; }
+    constexpr const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
     Expression *arg1;
     Expression *arg2;

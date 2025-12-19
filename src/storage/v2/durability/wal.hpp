@@ -74,7 +74,7 @@ struct VersionDependantUpgradable {};
 // Common structures used by more than one WAL Delta
 
 using CompositeStr = std::vector<std::string>;
-inline auto UpgradeForCompositeIndices(std::string v) -> CompositeStr { return std::vector{std::move(v)}; };
+constexpr inline auto UpgradeForCompositeIndices(std::string v) -> CompositeStr { return std::vector{std::move(v)}; };
 using UpgradableSingleProperty = VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string,
                                                             CompositeStr, UpgradeForCompositeIndices>;
 
@@ -248,7 +248,8 @@ struct WalTextIndexCreate {
   std::optional<std::vector<std::string>> properties;  //!< Optional properties, if not set, no properties are indexed
 };
 
-inline auto UpgradeDropTextIndexRemoveLabel(std::pair<std::string, std::string> name_and_label) -> std::string {
+constexpr inline auto UpgradeDropTextIndexRemoveLabel(std::pair<std::string, std::string> name_and_label)
+    -> std::string {
   return name_and_label.first;  // Extract only the index_name, discard the label
 };
 using UpgradableDropTextIndex =
@@ -334,7 +335,7 @@ struct WalTtlOperation {
 
 /// Structure used to return loaded WAL delta data.
 struct WalDeltaData {
-  friend bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
+  constexpr friend bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
     return std::visit(utils::Overloaded{
                           []<typename T>(T const &lhs, T const &rhs) { return lhs == rhs; },
                           [](auto const &, auto const &) { return false; },
@@ -597,7 +598,8 @@ class fmt::formatter<memgraph::storage::durability::CompositePropertyPaths> {
   constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
-  auto format(const memgraph::storage::durability::CompositePropertyPaths &wrapper, FormatContext &ctx) const {
+  constexpr auto format(const memgraph::storage::durability::CompositePropertyPaths &wrapper,
+                        FormatContext &ctx) const {
     auto out = ctx.out();
     bool first_path = true;
 

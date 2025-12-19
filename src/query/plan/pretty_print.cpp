@@ -29,7 +29,7 @@ namespace {
 
 //////////////////////////// HELPER FUNCTIONS /////////////////////////////////
 // TODO: It would be nice to have enum->string functions auto-generated.
-std::string ToString(EdgeAtom::Direction dir) {
+constexpr std::string ToString(EdgeAtom::Direction dir) {
   switch (dir) {
     case EdgeAtom::Direction::BOTH:
       return "both";
@@ -40,7 +40,7 @@ std::string ToString(EdgeAtom::Direction dir) {
   }
 }
 
-std::string ToString(EdgeAtom::Type type) {
+constexpr std::string ToString(EdgeAtom::Type type) {
   switch (type) {
     case EdgeAtom::Type::BREADTH_FIRST:
       return "bfs";
@@ -57,7 +57,7 @@ std::string ToString(EdgeAtom::Type type) {
   }
 }
 
-std::string ToString(Ordering ord) {
+constexpr std::string ToString(Ordering ord) {
   switch (ord) {
     case Ordering::ASC:
       return "asc";

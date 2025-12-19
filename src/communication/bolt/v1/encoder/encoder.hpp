@@ -34,7 +34,7 @@ class Encoder : private BaseEncoder<Buffer> {
   using BaseEncoder<Buffer>::buffer_;
 
  public:
-  explicit Encoder(Buffer &buffer) : BaseEncoder<Buffer>(buffer) {}
+  constexpr explicit Encoder(Buffer &buffer) : BaseEncoder<Buffer>(buffer) {}
 
   using BaseEncoder<Buffer>::UpdateVersion;
 
@@ -49,7 +49,7 @@ class Encoder : private BaseEncoder<Buffer> {
    * @param values the fields list object that should be sent
    */
 
-  void MessageRecordHeader(size_t n_values) {
+  constexpr void MessageRecordHeader(size_t n_values) {
     WriteRAW(std::to_underlying(Marker::TinyStruct1));
     WriteRAW(std::to_underlying(Signature::Record));
     WriteTypeSize(n_values, MarkerList);
@@ -57,7 +57,7 @@ class Encoder : private BaseEncoder<Buffer> {
 
   void MessageRecordAppendValue(const Value &value) { WriteValue(value); }
 
-  bool MessageRecordFinalize() {
+  constexpr bool MessageRecordFinalize() {
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
     if (buffer_.HasData() && !buffer_.Flush(true)) return false;
@@ -105,7 +105,7 @@ class Encoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client,
    *          false otherwise
    */
-  bool MessageSuccess() {
+  constexpr bool MessageSuccess() {
     map_t metadata;
     return MessageSuccess(metadata);
   }
@@ -141,7 +141,7 @@ class Encoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client,
    *          false otherwise
    */
-  bool MessageIgnored() {
+  constexpr bool MessageIgnored() {
     WriteRAW(std::to_underlying(Marker::TinyStruct));
     WriteRAW(std::to_underlying(Signature::Ignored));
     // Try to flush all remaining data in the buffer, but tell it that we will

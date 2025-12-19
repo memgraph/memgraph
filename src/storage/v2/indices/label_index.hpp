@@ -36,7 +36,7 @@ class LabelIndex {
 
   struct AbortProcessor {
     explicit AbortProcessor() = default;
-    explicit AbortProcessor(std::vector<LabelId> label) : label_(std::move(label)) {}
+    constexpr explicit AbortProcessor(std::vector<LabelId> label) : label_(std::move(label)) {}
 
     void CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
       if (std::binary_search(label_.begin(), label_.end(), label)) {

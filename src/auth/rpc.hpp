@@ -59,7 +59,7 @@ struct UpdateAuthDataRes {
   static void Load(UpdateAuthDataRes *self, memgraph::slk::Reader *reader);
   static void Save(const UpdateAuthDataRes &self, memgraph::slk::Builder *builder);
   UpdateAuthDataRes() = default;
-  explicit UpdateAuthDataRes(bool success) : success{success} {}
+  constexpr explicit UpdateAuthDataRes(bool success) : success{success} {}
 
   bool success;
 };
@@ -76,8 +76,8 @@ struct DropAuthDataReq {
 
   enum class DataType : uint8_t { USER, ROLE, PROFILE, /* Leave at end */ N };
 
-  DropAuthDataReq(const utils::UUID &main_uuid, uint64_t const expected_ts, uint64_t const new_ts, DataType const type,
-                  std::string_view const name)
+  constexpr DropAuthDataReq(const utils::UUID &main_uuid, uint64_t const expected_ts, uint64_t const new_ts,
+                            DataType const type, std::string_view const name)
       : main_uuid(main_uuid),
         expected_group_timestamp{expected_ts},
         new_group_timestamp{new_ts},
@@ -98,7 +98,7 @@ struct DropAuthDataRes {
   static void Load(DropAuthDataRes *self, memgraph::slk::Reader *reader);
   static void Save(const DropAuthDataRes &self, memgraph::slk::Builder *builder);
   DropAuthDataRes() = default;
-  explicit DropAuthDataRes(bool const success) : success{success} {}
+  constexpr explicit DropAuthDataRes(bool const success) : success{success} {}
 
   bool success;
 };

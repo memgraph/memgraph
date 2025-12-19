@@ -43,7 +43,7 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
                         std::map<std::string, std::map<std::string, int64_t>> const &replicas_lag) -> RoutingTable {
   auto res = RoutingTable{};
 
-  auto const repl_instance_to_bolt = [](auto const &instance) {
+  auto constexpr repl_instance_to_bolt = [](auto const &instance) {
     return instance.config.BoltSocketAddress();  // non-resolved IP
   };
 
@@ -95,7 +95,7 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
     res.emplace_back(std::move(readers), "READ");
   }
 
-  auto const get_bolt_server = [](CoordinatorInstanceContext const &context) { return context.bolt_server; };
+  auto constexpr get_bolt_server = [](CoordinatorInstanceContext const &context) { return context.bolt_server; };
 
   auto routers = coord_servers | ranges::views::transform(get_bolt_server) | ranges::to_vector;
   spdlog::trace("ROUTERS:");

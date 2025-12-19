@@ -33,7 +33,7 @@ struct UnionFindContext {
  private:
   friend struct UnionFind;
 
-  auto GetReusableVector(std::size_t n) -> std::vector<uint32_t> & {
+  constexpr auto GetReusableVector(std::size_t n) -> std::vector<uint32_t> & {
     roots_.clear();
     roots_.reserve(n);
     return roots_;

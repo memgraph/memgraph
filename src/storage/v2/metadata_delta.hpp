@@ -129,73 +129,76 @@ struct MetadataDelta {
   static constexpr struct TtlOperation {
   } ttl_operation;
 
-  MetadataDelta(LabelIndexCreate /*tag*/, LabelId label) : action(Action::LABEL_INDEX_CREATE), label(label) {}
+  constexpr MetadataDelta(LabelIndexCreate /*tag*/, LabelId label) : action(Action::LABEL_INDEX_CREATE), label(label) {}
 
-  MetadataDelta(LabelIndexDrop /*tag*/, LabelId label) : action(Action::LABEL_INDEX_DROP), label(label) {}
+  constexpr MetadataDelta(LabelIndexDrop /*tag*/, LabelId label) : action(Action::LABEL_INDEX_DROP), label(label) {}
 
-  MetadataDelta(LabelIndexStatsSet /*tag*/, LabelId label, LabelIndexStats stats)
+  constexpr MetadataDelta(LabelIndexStatsSet /*tag*/, LabelId label, LabelIndexStats stats)
       : action(Action::LABEL_INDEX_STATS_SET), label_stats{label, stats} {}
 
-  MetadataDelta(LabelIndexStatsClear /*tag*/, LabelId label) : action(Action::LABEL_INDEX_STATS_CLEAR), label{label} {}
+  constexpr MetadataDelta(LabelIndexStatsClear /*tag*/, LabelId label)
+      : action(Action::LABEL_INDEX_STATS_CLEAR), label{label} {}
 
-  MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label, std::vector<storage::PropertyPath> properties)
+  constexpr MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label,
+                          std::vector<storage::PropertyPath> properties)
       : action(Action::LABEL_PROPERTIES_INDEX_CREATE), label_ordered_properties{label, std::move(properties)} {}
 
-  MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, std::vector<storage::PropertyPath> properties)
+  constexpr MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, std::vector<storage::PropertyPath> properties)
       : action(Action::LABEL_PROPERTIES_INDEX_DROP), label_ordered_properties{label, std::move(properties)} {}
 
-  MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, std::vector<PropertyPath> properties,
-                LabelPropertyIndexStats const &stats)
+  constexpr MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, std::vector<PropertyPath> properties,
+                          LabelPropertyIndexStats const &stats)
       : action(Action::LABEL_PROPERTIES_INDEX_STATS_SET), label_property_stats{label, std::move(properties), stats} {}
 
-  MetadataDelta(LabelPropertyIndexStatsClear /*tag*/, LabelId label)
+  constexpr MetadataDelta(LabelPropertyIndexStatsClear /*tag*/, LabelId label)
       : action(Action::LABEL_PROPERTIES_INDEX_STATS_CLEAR), label{label} {}
 
-  MetadataDelta(EdgeIndexCreate /*tag*/, EdgeTypeId edge_type)
+  constexpr MetadataDelta(EdgeIndexCreate /*tag*/, EdgeTypeId edge_type)
       : action(Action::EDGE_INDEX_CREATE), edge_type(edge_type) {}
 
-  MetadataDelta(EdgeIndexDrop /*tag*/, EdgeTypeId edge_type) : action(Action::EDGE_INDEX_DROP), edge_type(edge_type) {}
+  constexpr MetadataDelta(EdgeIndexDrop /*tag*/, EdgeTypeId edge_type)
+      : action(Action::EDGE_INDEX_DROP), edge_type(edge_type) {}
 
-  MetadataDelta(EdgePropertyIndexCreate /*tag*/, EdgeTypeId edge_type, PropertyId property)
+  constexpr MetadataDelta(EdgePropertyIndexCreate /*tag*/, EdgeTypeId edge_type, PropertyId property)
       : action(Action::EDGE_PROPERTY_INDEX_CREATE), edge_type_property{edge_type, property} {}
 
-  MetadataDelta(EdgePropertyIndexDrop /*tag*/, EdgeTypeId edge_type, PropertyId property)
+  constexpr MetadataDelta(EdgePropertyIndexDrop /*tag*/, EdgeTypeId edge_type, PropertyId property)
       : action(Action::EDGE_PROPERTY_INDEX_DROP), edge_type_property{edge_type, property} {}
 
-  MetadataDelta(GlobalEdgePropertyIndexCreate /*tag*/, PropertyId property)
+  constexpr MetadataDelta(GlobalEdgePropertyIndexCreate /*tag*/, PropertyId property)
       : action(Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE), edge_property{property} {}
 
-  MetadataDelta(GlobalEdgePropertyIndexDrop /*tag*/, PropertyId property)
+  constexpr MetadataDelta(GlobalEdgePropertyIndexDrop /*tag*/, PropertyId property)
       : action(Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP), edge_property{property} {}
 
-  MetadataDelta(TextIndexCreate /*tag*/, TextIndexSpec text_index_info)
+  constexpr MetadataDelta(TextIndexCreate /*tag*/, TextIndexSpec text_index_info)
       : action(Action::TEXT_INDEX_CREATE), text_index(std::move(text_index_info)) {}
 
-  MetadataDelta(TextEdgeIndexCreate /*tag*/, TextEdgeIndexSpec text_edge_index_info)
+  constexpr MetadataDelta(TextEdgeIndexCreate /*tag*/, TextEdgeIndexSpec text_edge_index_info)
       : action(Action::TEXT_EDGE_INDEX_CREATE), text_edge_index(std::move(text_edge_index_info)) {}
 
-  MetadataDelta(TextIndexDrop /*tag*/, std::string index_name)
+  constexpr MetadataDelta(TextIndexDrop /*tag*/, std::string index_name)
       : action(Action::TEXT_INDEX_DROP), index_name{std::move(index_name)} {}
 
-  MetadataDelta(PointIndexCreate /*tag*/, LabelId label, PropertyId property)
+  constexpr MetadataDelta(PointIndexCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::POINT_INDEX_CREATE), label_property{label, property} {}
 
-  MetadataDelta(PointIndexDrop /*tag*/, LabelId label, PropertyId property)
+  constexpr MetadataDelta(PointIndexDrop /*tag*/, LabelId label, PropertyId property)
       : action(Action::POINT_INDEX_DROP), label_property{label, property} {}
 
-  MetadataDelta(VectorIndexCreate /*tag*/, VectorIndexSpec spec)
+  constexpr MetadataDelta(VectorIndexCreate /*tag*/, VectorIndexSpec spec)
       : action(Action::VECTOR_INDEX_CREATE), vector_index_spec(std::move(spec)) {}
 
-  MetadataDelta(VectorIndexDrop /*tag*/, std::string_view index_name)
+  constexpr MetadataDelta(VectorIndexDrop /*tag*/, std::string_view index_name)
       : action(Action::VECTOR_INDEX_DROP), index_name{index_name} {}
 
-  MetadataDelta(VectorEdgeIndexCreate /*tag*/, VectorEdgeIndexSpec spec)
+  constexpr MetadataDelta(VectorEdgeIndexCreate /*tag*/, VectorEdgeIndexSpec spec)
       : action(Action::VECTOR_EDGE_INDEX_CREATE), vector_edge_index_spec(std::move(spec)) {}
 
-  MetadataDelta(ExistenceConstraintCreate /*tag*/, LabelId label, PropertyId property)
+  constexpr MetadataDelta(ExistenceConstraintCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::EXISTENCE_CONSTRAINT_CREATE), label_property{label, property} {}
 
-  MetadataDelta(ExistenceConstraintDrop /*tag*/, LabelId label, PropertyId property)
+  constexpr MetadataDelta(ExistenceConstraintDrop /*tag*/, LabelId label, PropertyId property)
       : action(Action::EXISTENCE_CONSTRAINT_DROP), label_property{label, property} {}
 
   MetadataDelta(UniqueConstraintCreate /*tag*/, LabelId label, std::set<PropertyId> properties)
@@ -204,27 +207,28 @@ struct MetadataDelta {
   MetadataDelta(UniqueConstraintDrop /*tag*/, LabelId label, std::set<PropertyId> properties)
       : action(Action::UNIQUE_CONSTRAINT_DROP), label_unordered_properties{label, std::move(properties)} {}
 
-  MetadataDelta(TypeConstraintCreate /*tag*/, LabelId label, PropertyId property, TypeConstraintKind type)
+  constexpr MetadataDelta(TypeConstraintCreate /*tag*/, LabelId label, PropertyId property, TypeConstraintKind type)
       : action(Action::TYPE_CONSTRAINT_CREATE), label_property_type{label, property, type} {}
 
-  MetadataDelta(TypeConstraintDrop /*tag*/, LabelId label, PropertyId property, TypeConstraintKind type)
+  constexpr MetadataDelta(TypeConstraintDrop /*tag*/, LabelId label, PropertyId property, TypeConstraintKind type)
       : action(Action::TYPE_CONSTRAINT_DROP), label_property_type{label, property, type} {}
 
-  MetadataDelta(EnumCreate /*tag*/, EnumTypeId etype) : action(Action::ENUM_CREATE), enum_create_info{.etype = etype} {}
+  constexpr MetadataDelta(EnumCreate /*tag*/, EnumTypeId etype)
+      : action(Action::ENUM_CREATE), enum_create_info{.etype = etype} {}
 
-  MetadataDelta(EnumAlterAdd /*tag*/, Enum value)
+  constexpr MetadataDelta(EnumAlterAdd /*tag*/, Enum value)
       : action(Action::ENUM_ALTER_ADD), enum_alter_add_info{.value = value} {}
 
-  MetadataDelta(EnumAlterUpdate /*tag*/, Enum value, std::string old_value)
+  constexpr MetadataDelta(EnumAlterUpdate /*tag*/, Enum value, std::string old_value)
       : action(Action::ENUM_ALTER_UPDATE), enum_alter_update_info{.value = value, .old_value = std::move(old_value)} {}
 
-  MetadataDelta(TtlOperation /*tag*/, durability::TtlOperationType operation_type)
+  constexpr MetadataDelta(TtlOperation /*tag*/, durability::TtlOperationType operation_type)
       : action(Action::TTL_OPERATION),
         ttl_operation_info{.operation_type = operation_type, .should_run_edge_ttl = false} {}
 
-  MetadataDelta(TtlOperation /*tag*/, durability::TtlOperationType operation_type,
-                std::optional<std::chrono::microseconds> period,
-                std::optional<std::chrono::system_clock::time_point> start_time, bool should_run_edge_ttl)
+  constexpr MetadataDelta(TtlOperation /*tag*/, durability::TtlOperationType operation_type,
+                          std::optional<std::chrono::microseconds> period,
+                          std::optional<std::chrono::system_clock::time_point> start_time, bool should_run_edge_ttl)
       : action(Action::TTL_OPERATION),
         ttl_operation_info{.operation_type = operation_type,
                            .period = period,
@@ -236,7 +240,7 @@ struct MetadataDelta {
   MetadataDelta &operator=(const MetadataDelta &) = delete;
   MetadataDelta &operator=(MetadataDelta &&) = delete;
 
-  ~MetadataDelta() {
+  constexpr ~MetadataDelta() {
     switch (action) {
       using enum memgraph::storage::MetadataDelta::Action;
       case LABEL_INDEX_CREATE:

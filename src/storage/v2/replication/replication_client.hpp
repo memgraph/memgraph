@@ -76,8 +76,8 @@ class ReplicaStream {
 
 class ReplicaStreamExecutor {
  public:
-  explicit ReplicaStreamExecutor(std::optional<ReplicaStream> stream) : stream_(std::move(stream)) {}
-  void operator()() const {}
+  constexpr explicit ReplicaStreamExecutor(std::optional<ReplicaStream> stream) : stream_(std::move(stream)) {}
+  constexpr void operator()() const {}
 
  private:
   std::optional<ReplicaStream> stream_;

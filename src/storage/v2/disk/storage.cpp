@@ -556,8 +556,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   const auto gids = disk_storage->MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
       &transaction_, label, property, view, index_deltas, indexed_vertices.get(), label_property_filter);
 
-  const auto disk_label_property_filter = [](std::string_view key, std::string_view label_property_prefix,
-                                             const std::unordered_set<Gid> &gids, Gid curr_gid) -> bool {
+  constexpr auto disk_label_property_filter = [](std::string_view key, std::string_view label_property_prefix,
+                                                 const std::unordered_set<Gid> &gids, Gid curr_gid) -> bool {
     return key.starts_with(label_property_prefix) && !gids.contains(curr_gid);
   };
 
