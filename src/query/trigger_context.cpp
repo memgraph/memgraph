@@ -600,7 +600,7 @@ void TriggerContextCollector::MergeFrom(const TriggerContextCollector &other) {
     }
     if (auto it = label_changes_.find(key); it != label_changes_.end()) {
       // Combine the changes
-      it->second = std::clamp(it->second + label_state, -1, 1);
+      it->second = static_cast<signed char>(std::clamp(it->second + label_state, -1, 1));
     } else {
       // Add the change from other
       label_changes_.emplace(key, label_state);

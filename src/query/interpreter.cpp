@@ -2613,11 +2613,10 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 {
   ctx_.profile_execution_time = std::chrono::duration<double>(0.0);
   if (hops_limit) {
-    int64_t batch = 0;
 #ifdef MG_ENTERPRISE
-    if (parallel_execution) {
-      batch = (int64_t)(parallel_execution.value() * 4);
-    }
+    const int64_t batch = parallel_execution ? static_cast<int64_t>(parallel_execution.value() * 4) : 0;
+#else
+    const int64_t batch = 0;
 #endif
     ctx_.hops_limit = HopsLimit(*hops_limit, batch);
   }

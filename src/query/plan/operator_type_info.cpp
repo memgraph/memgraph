@@ -45,8 +45,9 @@ constexpr utils::TypeInfo query::plan::ScanAllById::kType{utils::TypeId::SCAN_AL
 constexpr utils::TypeInfo query::plan::ScanAllByEdge::kType{utils::TypeId::SCAN_ALL_BY_EDGE, "ScanAllByEdge",
                                                             &query::plan::ScanAll::kType};
 
-constexpr utils::TypeInfo query::plan::ScanAllByEdgeType::kType{
-    utils::TypeId::SCAN_ALL_BY_EDGE_TYPE, "ScanAllByEdgeType", &query::plan::ScanAllByEdge::kType};
+constexpr utils::TypeInfo query::plan::ScanAllByEdgeType::kType{.id = utils::TypeId::SCAN_ALL_BY_EDGE_TYPE,
+                                                                .name = "ScanAllByEdgeType",
+                                                                .superclass = &query::plan::ScanAllByEdge::kType};
 
 constexpr utils::TypeInfo query::plan::ScanAllByEdgeTypeProperty::kType{
     utils::TypeId::SCAN_ALL_BY_EDGE_TYPE_PROPERTY, "ScanAllByEdgeTypeProperty", &query::plan::ScanAllByEdge::kType};
@@ -191,56 +192,72 @@ constexpr utils::TypeInfo query::plan::ScanAllByPointWithinbbox::kType{utils::Ty
                                                                        "ScanAllByPointWithinbbox",
                                                                        &query::plan::ScanAllByPointWithinbbox::kType};
 
-constexpr utils::TypeInfo query::plan::ScanChunk::kType{utils::TypeId::SCAN_CHUNK, "ScanChunk",
-                                                        &query::plan::ScanAll::kType};
+constexpr utils::TypeInfo query::plan::ScanChunk::kType{
+    .id = utils::TypeId::SCAN_CHUNK, .name = "ScanChunk", .superclass = &query::plan::ScanAll::kType};
 
-constexpr utils::TypeInfo query::plan::ScanChunkByEdge::kType{utils::TypeId::SCAN_CHUNK_BY_EDGE, "ScanChunkByEdge",
-                                                              &query::plan::ScanAllByEdge::kType};
+constexpr utils::TypeInfo query::plan::ScanChunkByEdge::kType{.id = utils::TypeId::SCAN_CHUNK_BY_EDGE,
+                                                              .name = "ScanChunkByEdge",
+                                                              .superclass = &query::plan::ScanAllByEdge::kType};
 
-constexpr utils::TypeInfo query::plan::ScanParallel::kType{utils::TypeId::SCAN_PARALLEL, "ScanParallel",
-                                                           &query::plan::ScanAll::kType};
+constexpr utils::TypeInfo query::plan::ScanParallel::kType{
+    .id = utils::TypeId::SCAN_PARALLEL, .name = "ScanParallel", .superclass = &query::plan::ScanAll::kType};
 
-constexpr utils::TypeInfo query::plan::ScanParallelByLabel::kType{
-    utils::TypeId::SCAN_PARALLEL_BY_LABEL, "ScanParallelByLabel", &query::plan::ScanParallel::kType};
+constexpr utils::TypeInfo query::plan::ScanParallelByLabel::kType{.id = utils::TypeId::SCAN_PARALLEL_BY_LABEL,
+                                                                  .name = "ScanParallelByLabel",
+                                                                  .superclass = &query::plan::ScanParallel::kType};
 
 constexpr utils::TypeInfo query::plan::ScanParallelByLabelProperties::kType{
-    utils::TypeId::SCAN_PARALLEL_BY_LABEL_PROPERTIES, "ScanParallelByLabelProperties",
-    &query::plan::ScanParallel::kType};
+    .id = utils::TypeId::SCAN_PARALLEL_BY_LABEL_PROPERTIES,
+    .name = "ScanParallelByLabelProperties",
+    .superclass = &query::plan::ScanParallel::kType};
 
 constexpr utils::TypeInfo query::plan::ScanParallelByPointDistance::kType{
-    utils::TypeId::SCAN_PARALLEL_BY_POINT_DISTANCE, "ScanParallelByPointDistance", &query::plan::ScanParallel::kType};
+    .id = utils::TypeId::SCAN_PARALLEL_BY_POINT_DISTANCE,
+    .name = "ScanParallelByPointDistance",
+    .superclass = &query::plan::ScanParallel::kType};
 
 constexpr utils::TypeInfo query::plan::ScanParallelByWithinbbox::kType{
-    utils::TypeId::SCAN_PARALLEL_BY_POINT_WITHINBBOX, "ScanParallelByWithinbbox", &query::plan::ScanParallel::kType};
+    .id = utils::TypeId::SCAN_PARALLEL_BY_POINT_WITHINBBOX,
+    .name = "ScanParallelByWithinbbox",
+    .superclass = &query::plan::ScanParallel::kType};
 
-constexpr utils::TypeInfo query::plan::ScanParallelByEdge::kType{
-    utils::TypeId::SCAN_PARALLEL_BY_EDGE, "ScanParallelByEdge", &query::plan::ScanParallel::kType};
+constexpr utils::TypeInfo query::plan::ScanParallelByEdge::kType{.id = utils::TypeId::SCAN_PARALLEL_BY_EDGE,
+                                                                 .name = "ScanParallelByEdge",
+                                                                 .superclass = &query::plan::ScanParallel::kType};
 
-constexpr utils::TypeInfo query::plan::ScanParallelByEdgeType::kType{
-    utils::TypeId::SCAN_PARALLEL_BY_EDGE_TYPE, "ScanParallelByEdgeType", &query::plan::ScanParallel::kType};
+constexpr utils::TypeInfo query::plan::ScanParallelByEdgeType::kType{.id = utils::TypeId::SCAN_PARALLEL_BY_EDGE_TYPE,
+                                                                     .name = "ScanParallelByEdgeType",
+                                                                     .superclass = &query::plan::ScanParallel::kType};
 
 constexpr utils::TypeInfo query::plan::ScanParallelByEdgeTypeProperty::kType{
-    utils::TypeId::SCAN_PARALLEL_BY_EDGE_TYPE_PROPERTY, "ScanParallelByEdgeTypeProperty",
-    &query::plan::ScanParallel::kType};
+    .id = utils::TypeId::SCAN_PARALLEL_BY_EDGE_TYPE_PROPERTY,
+    .name = "ScanParallelByEdgeTypeProperty",
+    .superclass = &query::plan::ScanParallel::kType};
 
 constexpr utils::TypeInfo query::plan::ScanParallelByEdgeTypePropertyValue::kType{
-    utils::TypeId::SCAN_PARALLEL_BY_EDGE_TYPE_PROPERTY_VALUE, "ScanParallelByEdgeTypePropertyValue",
-    &query::plan::ScanParallel::kType};
+    .id = utils::TypeId::SCAN_PARALLEL_BY_EDGE_TYPE_PROPERTY_VALUE,
+    .name = "ScanParallelByEdgeTypePropertyValue",
+    .superclass = &query::plan::ScanParallel::kType};
 
 constexpr utils::TypeInfo query::plan::ScanParallelByEdgeTypePropertyRange::kType{
-    utils::TypeId::SCAN_PARALLEL_BY_EDGE_TYPE_PROPERTY_RANGE, "ScanParallelByEdgeTypePropertyRange",
-    &query::plan::ScanParallel::kType};
+    .id = utils::TypeId::SCAN_PARALLEL_BY_EDGE_TYPE_PROPERTY_RANGE,
+    .name = "ScanParallelByEdgeTypePropertyRange",
+    .superclass = &query::plan::ScanParallel::kType};
 
 constexpr utils::TypeInfo query::plan::ScanParallelByEdgeProperty::kType{
-    utils::TypeId::SCAN_PARALLEL_BY_EDGE_PROPERTY, "ScanParallelByEdgeProperty", &query::plan::ScanParallel::kType};
+    .id = utils::TypeId::SCAN_PARALLEL_BY_EDGE_PROPERTY,
+    .name = "ScanParallelByEdgeProperty",
+    .superclass = &query::plan::ScanParallel::kType};
 
 constexpr utils::TypeInfo query::plan::ScanParallelByEdgePropertyValue::kType{
-    utils::TypeId::SCAN_PARALLEL_BY_EDGE_PROPERTY_VALUE, "ScanParallelByEdgePropertyValue",
-    &query::plan::ScanParallel::kType};
+    .id = utils::TypeId::SCAN_PARALLEL_BY_EDGE_PROPERTY_VALUE,
+    .name = "ScanParallelByEdgePropertyValue",
+    .superclass = &query::plan::ScanParallel::kType};
 
 constexpr utils::TypeInfo query::plan::ScanParallelByEdgePropertyRange::kType{
-    utils::TypeId::SCAN_PARALLEL_BY_EDGE_PROPERTY_RANGE, "ScanParallelByEdgePropertyRange",
-    &query::plan::ScanParallel::kType};
+    .id = utils::TypeId::SCAN_PARALLEL_BY_EDGE_PROPERTY_RANGE,
+    .name = "ScanParallelByEdgePropertyRange",
+    .superclass = &query::plan::ScanParallel::kType};
 
 constexpr utils::TypeInfo query::plan::ParallelMerge::kType{
     .id = utils::TypeId::PARALLEL_MERGE, .name = "ParallelMerge", .superclass = &query::plan::LogicalOperator::kType};

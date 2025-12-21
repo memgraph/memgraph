@@ -67,7 +67,7 @@ std::optional<QuotaCoordinator::QuotaHandle> QuotaCoordinator::Acquire(int64_t d
     }
     // Quota is 0. Check completion or Wait.
     // 1. Snapshot the epoch BEFORE checking conditions.
-    uint32_t epoch = epoch_.load(std::memory_order_acquire);
+    const uint32_t epoch = epoch_.load(std::memory_order_acquire);
     // 2. Check termination condition
     if (active_holders_.load(std::memory_order_acquire) == 0) {
       // Re-read quota to ensure we didn't miss a last-second return

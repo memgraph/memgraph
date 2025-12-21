@@ -289,7 +289,7 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
   bool do_is_equal(const MemoryResource &other) const noexcept override { return this == &other; }
 
   // Local methods
-  ThreadLocalState &thread_local_state();
+  ThreadLocalState &thread_local_state() const;
   Block *allocate_new_block(ThreadLocalState &state, size_t min_size, size_t alignment);
 
  public:
@@ -391,7 +391,7 @@ class ThreadSafePool {
   void *carve_block();
 
   // Helper to get the full state struct
-  ThreadLocalState *thread_state();
+  ThreadLocalState *thread_state() const;
 
  public:
   explicit ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks = 1024,

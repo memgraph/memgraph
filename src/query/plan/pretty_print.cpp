@@ -342,6 +342,7 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
 
 PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out) : dba_(dba), out_(out) {}
 
+// NOLINTBEGIN(bugprone-macro-parentheses,cppcoreguidelines-macro-usage)
 #define PRE_VISIT(TOp)                                                       \
   bool PlanPrinter::PreVisit(TOp &) {                                        \
     WithPrintLn([this](auto &out) { out << StartSymbol() << " " << #TOp; }); \
@@ -364,6 +365,7 @@ PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out) : dba_(dba), 
 
 #define PRE_VISIT_IGNORE(TOp) \
   bool PlanPrinter::PreVisit(TOp &) { return true; }
+// NOLINTEND(bugprone-macro-parentheses,cppcoreguidelines-macro-usage)
 
 PRE_VISIT(CreateNode);
 PRE_VISIT_DBA_TS(CreateExpand);
@@ -397,7 +399,7 @@ std::string ScanChunkToString(const auto &op, const DbAccessor *dba) {
   auto name = node->ToString();
   node->dba_ = nullptr;
   name.replace(name.find("Parallel"), strlen("Parallel"), "All");
-  name.insert(name.find("(") + 1, op.output_symbol_.name() + ", ");
+  name.insert(name.find('(') + 1, op.output_symbol_.name() + ", ");
   return name;
 }
 }  // namespace
@@ -426,21 +428,21 @@ PRE_VISIT_IGNORE(ScanParallelByEdgeProperty);
 PRE_VISIT_IGNORE(ScanParallelByEdgePropertyValue);
 PRE_VISIT_IGNORE(ScanParallelByEdgePropertyRange);
 
-bool PlanPrinter::PreVisit(AggregateParallel &) {
+bool PlanPrinter::PreVisit(AggregateParallel & /*unused*/) {
   // Hinding in the plan, since it is an implementation detail
   // Next operator is always going to be Aggregate, so no information is lost
   is_parallel_ = true;  // Start of parallel execution
   return true;
 }
 
-bool PlanPrinter::PreVisit(OrderByParallel &) {
+bool PlanPrinter::PreVisit(OrderByParallel & /*unused*/) {
   // Hinding in the plan, since it is an implementation detail
   // Next operator is always going to be OrderBy, so no information is lost
   is_parallel_ = true;  // Start of parallel execution
   return true;
 }
 
-bool PlanPrinter::PreVisit(ParallelMerge &) {
+bool PlanPrinter::PreVisit(ParallelMerge & /*unused*/) {
   // Hinding in the plan, since it is a backend connector, not a logical operator
   is_parallel_ = false;  // End of parallel execution
   return true;
