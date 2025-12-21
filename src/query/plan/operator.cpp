@@ -10445,6 +10445,7 @@ UniqueCursorPtr AggregateParallel::MakeCursor(utils::MemoryResource *mem) const 
   }
   return MakeUniqueCursorPtr<AggregateParallelCursor>(mem, *this, mem);
 #else
+  (void)mem;
   throw QueryRuntimeException("AggregateParallel is not supported in the community edition");
 #endif
 }
@@ -10563,6 +10564,7 @@ UniqueCursorPtr OrderByParallel::MakeCursor(utils::MemoryResource *mem) const {
   }
   return MakeUniqueCursorPtr<OrderByParallelCursor>(mem, *this, mem);
 #else
+  (void)mem;
   throw QueryRuntimeException("OrderByParallel is not supported in the community edition");
 #endif
 }
