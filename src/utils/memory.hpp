@@ -212,16 +212,16 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
       blocks_.emplace_front(initial_block);
     }
 
-    // Create pthread key for thread-local storage
-    if (pthread_key_create(&thread_local_block_key_, nullptr) != 0) {
+    // Create pthread key for thread-local storage with destructor for cleanup when threads exit
+    if (pthread_key_create(&thread_local_block_key_, thread_local_state_destructor) != 0) {
       throw BadAlloc("Failed to create pthread key for thread-local storage");
     }
   }
 
   explicit ThreadSafeMonotonicBufferResource(size_t initial_size = 1024, MemoryResource *memory = NewDeleteResource())
       : memory_(memory), blocks_(memory), initial_buffer_size_(initial_size), id_(resource_id_.fetch_add(1)) {
-    // Create pthread key for thread-local storage
-    if (pthread_key_create(&thread_local_block_key_, nullptr) != 0) {
+    // Create pthread key for thread-local storage with destructor for cleanup when threads exit
+    if (pthread_key_create(&thread_local_block_key_, thread_local_state_destructor) != 0) {
       throw BadAlloc("Failed to create pthread key for thread-local storage");
     }
   }
@@ -229,8 +229,6 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
   /// Destructor - releases all allocated memory
   ~ThreadSafeMonotonicBufferResource() override {
     Release();
-    auto *ptr = static_cast<ThreadLocalState *>(pthread_getspecific(thread_local_block_key_));
-    delete ptr;
     pthread_key_delete(thread_local_block_key_);
   }
 
@@ -278,7 +276,7 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
   mutable std::mutex blocks_mutex_;                        // For managing global block list
   std::forward_list<Block *, Allocator<Block *>> blocks_;  // Global list of all blocks for cleanup
   const size_t initial_buffer_size_{1024};                 // Initial buffer size for new threads
-  const uint64_t id_;
+  uint64_t id_;
   pthread_key_t thread_local_block_key_;  // Instance-specific pthread key
 
   // Resource methods
@@ -291,6 +289,9 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
   // Local methods
   ThreadLocalState &thread_local_state() const;
   Block *allocate_new_block(ThreadLocalState &state, size_t min_size, size_t alignment);
+
+  // Destructor callback for pthread thread-local storage cleanup
+  static void thread_local_state_destructor(void *ptr);
 
  public:
   static constexpr size_t block_size = sizeof(Block);
@@ -392,6 +393,9 @@ class ThreadSafePool {
 
   // Helper to get the full state struct
   ThreadLocalState *thread_state() const;
+
+  // Destructor callback for pthread thread-local storage cleanup
+  static void thread_local_state_destructor(void *ptr);
 
  public:
   explicit ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks = 1024,

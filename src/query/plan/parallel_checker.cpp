@@ -12,12 +12,12 @@
 #include "query/plan/parallel_checker.hpp"
 #ifdef MG_ENTERPRISE
 namespace memgraph::query::plan {
-bool ParallelChecker::PreVisit(AggregateParallel &) {
+bool ParallelChecker::PreVisit(AggregateParallel & /*unused*/) {
   is_parallelized_ = true;
   return false;
 }
 
-bool ParallelChecker::PreVisit(OrderByParallel &) {
+bool ParallelChecker::PreVisit(OrderByParallel & /*unused*/) {
   is_parallelized_ = true;
   return false;
 }

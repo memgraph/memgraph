@@ -452,9 +452,9 @@ class SharedDistinctState {
     std::vector<bool> results;
     results.reserve(rows.size());
     for (const auto &row : rows) {
-      size_t hash = utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>{}(row);
-      size_t shard_idx = hash & (kNumShards - 1);
-      std::lock_guard<std::mutex> lock(shard_mutexes_[shard_idx].mutex);
+      const size_t hash = utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>{}(row);
+      const size_t shard_idx = hash & (kNumShards - 1);
+      const std::lock_guard<std::mutex> lock(shard_mutexes_[shard_idx].mutex);
       auto [it, inserted] = shards_[shard_idx].emplace(std::move(row));
       results.push_back(inserted);
     }
@@ -463,7 +463,7 @@ class SharedDistinctState {
 
   void Clear() {
     for (size_t i = 0; i < kNumShards; ++i) {
-      std::lock_guard<std::mutex> lock(shard_mutexes_[i].mutex);
+      const std::lock_guard<std::mutex> lock(shard_mutexes_[i].mutex);
       shards_[i].clear();
     }
   }
@@ -486,9 +486,9 @@ class SharedDistinctState {
 struct CreationHelper {
   std::shared_ptr<Cursor> cursor_{nullptr};
   std::shared_ptr<utils::CollectionScheduler> collection_scheduler_{nullptr};
-  std::map<const LogicalOperator *, utils::SharedQuota> quotas_{};  // Skip/Limit cursors need to use the same quota
+  std::map<const LogicalOperator *, utils::SharedQuota> quotas_;  // Skip/Limit cursors need to use the same quota
   std::map<const LogicalOperator *, std::shared_ptr<SharedDistinctState>>
-      shared_distinct_states_{};  // Distinct cursors share deduplication state
+      shared_distinct_states_;  // Distinct cursors share deduplication state
 
   utils::SharedQuota GetSharedQuota(const LogicalOperator *op) {
     auto [it, _] = quotas_.try_emplace(op, utils::SharedQuota(utils::SharedQuota::preload));
@@ -505,24 +505,26 @@ struct CreationHelper {
     return it->second;
   }
 };
-static thread_local CreationHelper plan_creation_helper_{nullptr};
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+thread_local CreationHelper plan_creation_helper_{.cursor_ = nullptr};
 
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 struct PlanCreationHelper {
-  PlanCreationHelper(std::shared_ptr<utils::CollectionScheduler> collection_scheduler) {
+  explicit PlanCreationHelper(std::shared_ptr<utils::CollectionScheduler> collection_scheduler) {
     creation_helper_old_ =
         std::exchange(plan_creation_helper_, CreationHelper{.collection_scheduler_ = collection_scheduler});
   }
   ~PlanCreationHelper() { plan_creation_helper_ = std::move(creation_helper_old_); }
 
  private:
-  CreationHelper creation_helper_old_{nullptr};
+  CreationHelper creation_helper_old_{.cursor_ = nullptr};
 };
 
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define SCOPED_PROFILE_OP(name)                                                                    \
-  std::optional<ScopedProfile> profile =                                                           \
+  const std::optional<ScopedProfile> profile =                                                     \
       context.is_profile_query                                                                     \
           ? std::optional<ScopedProfile>(std::in_place, ComputeProfilingKey(this), name, &context) \
           : std::nullopt;
@@ -6060,19 +6062,19 @@ class AggregateCursor : public Cursor {
       size_t offset = 0;
       // Counts (int64_t)
       offset = align_forward(offset, alignof(int64_t));
-      size_t offset_counts = offset;
+      const size_t offset_counts = offset;
       offset += sizeof(int64_t) * num_aggs_;
       // Values (TypedValue)
       offset = align_forward(offset, alignof(TypedValue));
-      size_t offset_values = offset;
+      const size_t offset_values = offset;
       offset += sizeof(TypedValue) * num_aggs_;
       // Remember (TypedValue)
       // Note: reusing alignment of TypedValue
-      size_t offset_remember = offset;
+      const size_t offset_remember = offset;
       offset += sizeof(TypedValue) * num_rem_;
       // Unique Values (TSet)
       offset = align_forward(offset, alignof(TSet));
-      size_t offset_unique = offset;
+      const size_t offset_unique = offset;
       offset += sizeof(TSet) * num_aggs_;
 
       // Allocate ONE block
@@ -6156,11 +6158,11 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::AVG: {
           // calculate AVG aggregations (so far they have only been summed)
           for (auto &kv : aggregation_) {
-            CompactAggregationValue &agg_value = kv.second;
+            const CompactAggregationValue &agg_value = kv.second;
             auto count = agg_value.counts_[pos];
             auto *pull_memory = context->evaluation_context.memory;
             if (count > 0) {
-              agg_value.values_[pos] = agg_value.values_[pos] / TypedValue(static_cast<double>(count), pull_memory);
+              kv.second.values_[pos] = agg_value.values_[pos] / TypedValue(static_cast<double>(count), pull_memory);
             }
           }
           break;
@@ -6168,8 +6170,8 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::COUNT: {
           // Copy counts to be the value
           for (auto &kv : aggregation_) {
-            CompactAggregationValue &agg_value = kv.second;
-            agg_value.values_[pos] = agg_value.counts_[pos];
+            const CompactAggregationValue &agg_value = kv.second;
+            kv.second.values_[pos] = agg_value.counts_[pos];
           }
           break;
         }
@@ -6478,7 +6480,7 @@ class OrderByCursor : public Cursor {
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), cache_(mem), order_by_cache_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
+    const OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!did_pull_all_) [[unlikely]] {
@@ -6916,13 +6918,14 @@ class DistinctParallelCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
+    const OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Distinct");
 
     AbortCheck(context);
 
     if (local_cache_.empty()) {
-      local_cache_.resize(kLocalCacheBatchSize, Frame(frame.elems().size(), shared_state_->GetMemoryResource()));
+      local_cache_.resize(kLocalCacheBatchSize,
+                          Frame(static_cast<int64_t>(frame.elems().size()), shared_state_->GetMemoryResource()));
       local_seen_.reserve(kLocalCacheBatchSize);
     }
 
@@ -9100,7 +9103,7 @@ query::plan::Aggregate::Element query::plan::Aggregate::Element::Clone(query::As
 
 ScanChunk::ScanChunk(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view,
                      Symbol state_symbol)
-    : ScanAll(input, std::move(output_symbol), view), state_symbol_(state_symbol) {
+    : ScanAll(input, std::move(output_symbol), view), state_symbol_(std::move(state_symbol)) {
   DMG_ASSERT(dynamic_cast<ParallelMerge *>(input.get()) != nullptr, "Input must be a ParallelMerge");
 }
 
@@ -9137,7 +9140,7 @@ ScanChunkByEdge::ScanChunkByEdge(const std::shared_ptr<LogicalOperator> &input, 
                                  const std::vector<storage::EdgeTypeId> &edge_types, storage::View view,
                                  Symbol state_symbol)
     : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, edge_types, view),
-      state_symbol_(state_symbol) {}
+      state_symbol_(std::move(state_symbol)) {}
 
 ACCEPT_WITH_INPUT(ScanChunkByEdge)
 
@@ -9188,7 +9191,7 @@ class ScanParallelCursor : public Cursor {
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), get_chunks_(std::move(get_chunks)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
+    const OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
     size_t index = 0;
 
@@ -9203,14 +9206,14 @@ class ScanParallelCursor : public Cursor {
           frame = Frame(context.symbol_table.max_position(), context.evaluation_context.memory);
         }
       }};
-      std::unique_lock lock(mutex_);
+      const std::unique_lock lock(mutex_);
 
       if (all_pulled_) return false;  // Everything was pulled
 
       if (index_ == 0 || index_ >= self_.num_threads_) {
         if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
         chunks_.reset();
-        bool res = input_cursor_->Pull(*frame_, context);
+        const bool res = input_cursor_->Pull(*frame_, context);
         if (!res) {
           all_pulled_ = true;
           return false;
@@ -9232,7 +9235,7 @@ class ScanParallelCursor : public Cursor {
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
-    std::unique_lock lock(mutex_);
+    const std::unique_lock lock(mutex_);
     index_ = 0;
     chunks_.reset();
     frame_.reset();
@@ -9243,10 +9246,10 @@ class ScanParallelCursor : public Cursor {
  private:
   mutable std::mutex mutex_;
   size_t index_{0};
-  std::shared_ptr<typename std::result_of<TChunksFun(Frame &, ExecutionContext &)>::type> chunks_;
-  const ScanParallel &self_;
+  std::shared_ptr<std::invoke_result_t<TChunksFun, Frame &, ExecutionContext &>> chunks_;
+  const ScanParallel &self_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
   std::optional<Frame> frame_{std::nullopt};
-  const UniqueCursorPtr input_cursor_;
+  const UniqueCursorPtr input_cursor_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
   TChunksFun get_chunks_;
   bool all_pulled_{false};
 };
@@ -9254,7 +9257,7 @@ class ScanParallelCursor : public Cursor {
 UniqueCursorPtr ScanParallel::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO
 
-  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+  auto get_chunks = [this](Frame & /*unused*/, ExecutionContext &context) {
     // Make sure chunks is valid for duration of the cursor
     auto *db = context.db_accessor;
     return db->ChunkedVertices(view_, num_threads_);
@@ -9264,7 +9267,7 @@ UniqueCursorPtr ScanParallel::MakeCursor(utils::MemoryResource *mem) const {
 
 ScanParallel::ScanParallel(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
                            Symbol state_symbol)
-    : input_(input), view_(view), num_threads_(num_threads), state_symbol_(state_symbol) {}
+    : input_(input), view_(view), num_threads_(num_threads), state_symbol_(std::move(state_symbol)) {}
 
 ACCEPT_WITH_INPUT(ScanParallel)
 
@@ -9617,7 +9620,7 @@ UniqueCursorPtr ScanParallelByPointDistance::MakeCursor(utils::MemoryResource *m
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
   // Note: PointVertices doesn't have a chunked version, so we fall back to regular vertices with label
   // This is a limitation that should be addressed in the future
-  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+  auto get_chunks = [this](Frame & /*unused*/, ExecutionContext &context) {
     auto *db = context.db_accessor;
     // For now, we can't chunk point distance queries, so we use regular label-based chunking
     // This is not ideal but maintains compatibility
@@ -9661,7 +9664,7 @@ UniqueCursorPtr ScanParallelByWithinbbox::MakeCursor(utils::MemoryResource *mem)
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
   // Note: PointVertices doesn't have a chunked version, so we fall back to regular vertices with label
   // This is a limitation that should be addressed in the future
-  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+  auto get_chunks = [this](Frame & /*unused*/, ExecutionContext &context) {
     auto *db = context.db_accessor;
     // For now, we can't chunk point within bbox queries, so we use regular label-based chunking
     // This is not ideal but maintains compatibility
@@ -9691,10 +9694,10 @@ std::unique_ptr<LogicalOperator> ScanParallelByWithinbbox::Clone(AstStorage *sto
 ScanParallelByEdge::ScanParallelByEdge(const std::shared_ptr<LogicalOperator> &input, storage::View view,
                                        size_t num_threads, Symbol state_symbol, Symbol edge_symbol, Symbol node1_symbol,
                                        Symbol node2_symbol, EdgeAtom::Direction direction)
-    : ScanParallel(input, view, num_threads, state_symbol),
-      edge_symbol_(edge_symbol),
-      node1_symbol_(node1_symbol),
-      node2_symbol_(node2_symbol),
+    : ScanParallel(input, view, num_threads, std::move(state_symbol)),
+      edge_symbol_(std::move(edge_symbol)),
+      node1_symbol_(std::move(node1_symbol)),
+      node2_symbol_(std::move(node2_symbol)),
       direction_(direction) {}
 
 ACCEPT_WITH_INPUT(ScanParallelByEdge)
@@ -9829,7 +9832,7 @@ class ParallelMergeCursor : public Cursor {
   }
 
  private:
-  const ParallelMerge &self_;
+  const ParallelMerge &self_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
   std::shared_ptr<utils::CollectionScheduler> collection_scheduler_{nullptr};
   std::shared_ptr<Cursor> input_cursor_;
   bool scheduled_{false};
@@ -9847,7 +9850,7 @@ class ParallelBranchCursor : public Cursor {
                        utils::MemoryResource *mem)
       : collection_scheduler_(std::make_shared<utils::CollectionScheduler>(nullptr, nullptr)),
         branch_cursors_(std::invoke([&]() {
-          PlanCreationHelper helper{collection_scheduler_};
+          const PlanCreationHelper helper{collection_scheduler_};
           std::vector<UniqueCursorPtr> cursors;
           const auto effective_num_threads = std::min(num_threads, static_cast<size_t>(FLAGS_bolt_num_workers));
           cursors.reserve(effective_num_threads);
@@ -9905,8 +9908,8 @@ class ParallelBranchCursor : public Cursor {
       tasks.AddTask([&, i, context, frame_size = frame.elems().size(), main_thread = std::this_thread::get_id(),
                      post_pull_func,
                      mem_tracking = memgraph::memory::CrossThreadMemoryTracking()](utils::Priority /*unused*/) mutable {
-        OOMExceptionEnabler oom_exception;
-        utils::Timer timer;
+        const OOMExceptionEnabler oom_exception;
+        const utils::Timer timer;
         mem_tracking.StartTracking();  // automatically stops
         // Create parallel operator entry in branch's stats tree
         context.stats_root = nullptr;
@@ -9928,13 +9931,14 @@ class ParallelBranchCursor : public Cursor {
         }
 
         // TODO Try to not allocate since Scan will copy it. Problem if we return before Scan; will crash
-        Frame frame_local(frame_size);
+        Frame frame_local(static_cast<int64_t>(frame_size));
 
         try {
           pre_pull_func(cursor.get());
           pull_result.fetch_add((int)cursor->Pull(frame_local, context));
           // Store the context copy after execution for unification
           // Force state reset (life extended through the context)
+          // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
           const_cast<std::optional<ScopedProfile> &>(profile).reset();
           if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen
             // NOTE: Parallel operators have to PullAll, so no need to worry about switching threads (at the bolt level)
@@ -10002,6 +10006,7 @@ class ParallelBranchCursor : public Cursor {
 
     // Unify context fields from all branches
     plan::ProfilingStats *parallel_stats = context.stats_root;  // save before resetting the profile
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
     const_cast<std::optional<ScopedProfile> &>(profile).reset();
     UnifyContexts(context, branch_contexts, branch_trigger_collectors, branch_frame_collectors, parallel_stats);
 
@@ -10011,10 +10016,10 @@ class ParallelBranchCursor : public Cursor {
   /**
    * Unify context fields from all branches into the main context.
    */
-  void UnifyContexts(ExecutionContext &context, std::vector<ExecutionContext> &branch_contexts,
-                     const std::vector<std::optional<TriggerContextCollector>> &branch_trigger_collectors,
-                     const std::vector<std::optional<FrameChangeCollector>> &branch_frame_collectors,
-                     plan::ProfilingStats *parallel_stats) {
+  static void UnifyContexts(ExecutionContext &context, std::vector<ExecutionContext> &branch_contexts,
+                            const std::vector<std::optional<TriggerContextCollector>> &branch_trigger_collectors,
+                            const std::vector<std::optional<FrameChangeCollector>> &branch_frame_collectors,
+                            plan::ProfilingStats *parallel_stats) {
     // Helper to find all ancestors of a stats node
     auto FindAncestors = [](plan::ProfilingStats &root,
                             plan::ProfilingStats *target) -> std::vector<plan::ProfilingStats *> {
@@ -10112,7 +10117,7 @@ class ParallelBranchCursor : public Cursor {
   }
 
   std::shared_ptr<utils::CollectionScheduler> collection_scheduler_;
-  const std::vector<UniqueCursorPtr> branch_cursors_;
+  const std::vector<UniqueCursorPtr> branch_cursors_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 
 namespace {
@@ -10159,7 +10164,8 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           case Aggregation::Op::COUNT: {
             // Adjust calculation based on how many items were actually merged
             // (Total size of other - duplicates that remained)
-            int64_t moved_count = (int64_t)other_unique_values_size - (int64_t)other_unique_values.size();
+            const int64_t moved_count =
+                static_cast<int64_t>(other_unique_values_size) - static_cast<int64_t>(other_unique_values.size());
             main_value = main_value + TypedValue(moved_count);
             break;
           }
@@ -10320,7 +10326,7 @@ class AggregateParallelCursor : public ParallelBranchCursor {
       : ParallelBranchCursor(self.input_, self.num_threads_, mem), self_(self) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
+    const OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (branch_cursors_.empty()) {
@@ -10341,7 +10347,7 @@ class AggregateParallelCursor : public ParallelBranchCursor {
         // Try to find a free aggregation to reuse
         decltype(main_aggregation_) complete_aggregation = nullptr;
         {
-          std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
+          const std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
           if (!branch_aggregations.empty()) {
             complete_aggregation = branch_aggregations.front();
             branch_aggregations.pop();
@@ -10360,7 +10366,7 @@ class AggregateParallelCursor : public ParallelBranchCursor {
           complete_aggregation = nullptr;
           // Phase 1: find a free aggregation
           {
-            std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
+            const std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
             if (!branch_aggregations.empty()) {
               complete_aggregation = branch_aggregations.front();
               branch_aggregations.pop();
@@ -10375,6 +10381,7 @@ class AggregateParallelCursor : public ParallelBranchCursor {
       };
 
       // Execute branches in parallel and unify context fields (handled by base class)
+      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
       if (!ExecuteBranchesInParallel(frame, context, self_, std::move(profile), pre_pull_func, post_pull_func)) {
         return false;
       }
@@ -10417,7 +10424,7 @@ class AggregateParallelCursor : public ParallelBranchCursor {
   bool initialized_ = false;
   decltype(AggregateCursor::aggregation_) *main_aggregation_;  // Reusing from AggregateCursor
   decltype(AggregateCursor::aggregation_.begin()) aggregation_it_;
-  const AggregateParallel &self_;
+  const AggregateParallel &self_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 #endif
 
@@ -10455,7 +10462,7 @@ class OrderByParallelCursor : public ParallelBranchCursor {
       : ParallelBranchCursor(self.input_, self.num_threads_, mem), self_(self) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
+    const OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (branch_cursors_.empty()) {
@@ -10479,6 +10486,7 @@ class OrderByParallelCursor : public ParallelBranchCursor {
       auto post_pull_func = [](Cursor * /*cursor*/) {};
 
       // Execute branches in parallel - each branch will pull all its data and sort it
+      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
       if (!ExecuteBranchesInParallel(frame, context, self_, std::move(profile), pre_pull_func, post_pull_func)) {
         return false;
       }
@@ -10494,6 +10502,7 @@ class OrderByParallelCursor : public ParallelBranchCursor {
       }
 
       // Build a min-heap based on the compare function
+      // NOLINTNEXTLINE(boost-use-ranges,modernize-use-ranges)
       std::make_heap(branch_iters_.begin(), branch_iters_.end(), heap_cmp);
     }
 
@@ -10502,6 +10511,7 @@ class OrderByParallelCursor : public ParallelBranchCursor {
     AbortCheck(context);
 
     // Pop the smallest element from the heap (based on order_by values
+    // NOLINTNEXTLINE(boost-use-ranges,modernize-use-ranges)
     std::pop_heap(branch_iters_.begin(), branch_iters_.end(), heap_cmp);
     auto &[cache_it, order_by_it, cache_end, order_by_end, branch_idx] = branch_iters_.back();
 
@@ -10517,6 +10527,7 @@ class OrderByParallelCursor : public ParallelBranchCursor {
     ++cache_it;
     ++order_by_it;
     if (cache_it != cache_end) {
+      // NOLINTNEXTLINE(boost-use-ranges,modernize-use-ranges)
       std::push_heap(branch_iters_.begin(), branch_iters_.end(), heap_cmp);
     } else {
       branch_iters_.pop_back();
@@ -10531,7 +10542,7 @@ class OrderByParallelCursor : public ParallelBranchCursor {
   using CacheType = utils::pmr::vector<utils::pmr::vector<TypedValue>>;
   std::vector<std::tuple<CacheType::iterator, CacheType::iterator, CacheType::iterator, CacheType::iterator, size_t>>
       branch_iters_;
-  const OrderByParallel &self_;
+  const OrderByParallel &self_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 #endif
 
@@ -10603,7 +10614,7 @@ Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem)
 }
 
 bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
-  OOMExceptionEnabler oom_exception;
+  const OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Skip");
 
   AbortCheck(context);
@@ -10624,7 +10635,7 @@ bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
       // Single threaded and parallel execution quota setup
       if (self_.parallel_execution_) {
         MG_ASSERT(shared_quota_, "Shared quota should be preset in parallel execution");
-        shared_quota_->Initialize(to_skip_, *self_.parallel_execution_ * 4);
+        shared_quota_->Initialize(to_skip_, static_cast<int64_t>(*self_.parallel_execution_ * 4));
       } else {
         shared_quota_.emplace(to_skip_);
       }
@@ -10683,7 +10694,7 @@ Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem)
 }
 
 bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
-  OOMExceptionEnabler oom_exception;
+  const OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Limit");
 
   AbortCheck(context);
@@ -10706,7 +10717,7 @@ bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
     // Initialize the quota for parallel execution or single threaded execution
     if (self_.parallel_execution_) {
       MG_ASSERT(shared_quota_, "Shared quota should be preset in parallel execution");
-      shared_quota_->Initialize(limit_, *self_.parallel_execution_ * 4);
+      shared_quota_->Initialize(limit_, static_cast<int64_t>(*self_.parallel_execution_ * 4));
     } else {
       shared_quota_.emplace(limit_);
     }

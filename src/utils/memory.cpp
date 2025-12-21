@@ -158,6 +158,10 @@ thread_local ThreadSafeMonotonicBufferResource::ThreadLocalState
 thread_local uint64_t ThreadSafeMonotonicBufferResource::last_resource_id_ = 0;
 std::atomic<uint64_t> ThreadSafeMonotonicBufferResource::resource_id_ = 1;
 
+void ThreadSafeMonotonicBufferResource::thread_local_state_destructor(void *ptr) {
+  delete static_cast<ThreadLocalState *>(ptr);
+}
+
 ThreadSafeMonotonicBufferResource::ThreadLocalState &ThreadSafeMonotonicBufferResource::thread_local_state() const {
   if (last_resource_id_ != id_) {
     last_resource_id_ = id_;
@@ -183,6 +187,15 @@ void ThreadSafeMonotonicBufferResource::Release() {
     memory_->deallocate(block, block->total_size(), block->alignment);
   }
   blocks_.clear();
+
+  // Delete the thread-local state
+  pthread_key_delete(thread_local_block_key_);
+  // Increase id to avoid use-after-free
+  id_ = resource_id_.fetch_add(1);
+  // Create new thread local state
+  if (pthread_key_create(&thread_local_block_key_, thread_local_state_destructor) != 0) {
+    throw BadAlloc("Failed to create pthread key for thread-local storage");
+  }
 }
 
 void *ThreadSafeMonotonicBufferResource::do_allocate(size_t bytes, size_t alignment) {
@@ -348,12 +361,15 @@ void *ThreadSafePool::carve_block() {
   return raw;
 }
 
+void ThreadSafePool::thread_local_state_destructor(void *ptr) { delete static_cast<ThreadLocalState *>(ptr); }
+
 ThreadSafePool::ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks, MemoryResource *chunk_memory)
     : block_size_(block_size),
       blocks_per_chunk_(blocks_per_chunks),
       id_{pool_id_.fetch_add(1)},
       chunk_memory_(chunk_memory) {
-  if (pthread_key_create(&thread_local_key_, nullptr) != 0) {
+  // Create pthread key with destructor for cleanup when threads exit
+  if (pthread_key_create(&thread_local_key_, thread_local_state_destructor) != 0) {
     throw BadAlloc("Failed to create pthread key for thread-local storage");
   }
 }
@@ -365,8 +381,6 @@ ThreadSafePool::~ThreadSafePool() {
     }
     chunks_.clear();
   }
-  auto *ptr = static_cast<ThreadLocalState *>(pthread_getspecific(thread_local_key_));
-  delete ptr;
   pthread_key_delete(thread_local_key_);
   last_pool_ = 0;
   tls_cache_ = nullptr;
