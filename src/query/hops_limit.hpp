@@ -11,8 +11,8 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
-
 #include <optional>
 
 #include "utils/shared_quota.hpp"
@@ -27,7 +27,7 @@ struct HopsLimit {
 
   HopsLimit() = default;
   HopsLimit(int64_t limit, int64_t batch)
-      : limit(limit), batch(batch), shared_quota_{std::in_place, limit, batch > 0 ? batch : 1} {}
+      : limit(limit), batch(batch), shared_quota_{std::in_place, limit, std::max(batch, 1L)} {}
 
   bool IsUsed() const { return limit.has_value(); }
 
@@ -48,7 +48,7 @@ struct HopsLimit {
       if (is_limit_reached) return 0;
 
       if (!shared_quota_) {
-        shared_quota_.emplace(limit.value(), batch > 0 ? batch : 1);
+        shared_quota_.emplace(limit.value(), std::max(batch, 1L));
       }
 
       auto consumed = shared_quota_->Decrement(increment);

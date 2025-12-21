@@ -1871,10 +1871,10 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::Double: {
       // Store whole number doubles as int hashes to be consistent with
       // TypedValue equality in which (2.0 == 2) returns true
-      double double_value = std::trunc(value.ValueDouble());
+      const double double_value = std::trunc(value.ValueDouble());
       double whole_value = 0.0;
-      if (double_value == std::modf(double_value, &whole_value) == 0.0) {
-        return std::hash<int64_t>{}(whole_value);
+      if (std::modf(double_value, &whole_value) == 0.0) {
+        return std::hash<int64_t>{}(static_cast<int64_t>(whole_value));
       }
       return std::hash<double>{}(double_value);
     }

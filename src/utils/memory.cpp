@@ -158,7 +158,7 @@ thread_local ThreadSafeMonotonicBufferResource::ThreadLocalState
 thread_local uint64_t ThreadSafeMonotonicBufferResource::last_resource_id_ = 0;
 std::atomic<uint64_t> ThreadSafeMonotonicBufferResource::resource_id_ = 1;
 
-ThreadSafeMonotonicBufferResource::ThreadLocalState &ThreadSafeMonotonicBufferResource::thread_local_state() {
+ThreadSafeMonotonicBufferResource::ThreadLocalState &ThreadSafeMonotonicBufferResource::thread_local_state() const {
   if (last_resource_id_ != id_) {
     last_resource_id_ = id_;
     thread_local_cache_ = static_cast<ThreadLocalState *>(pthread_getspecific(thread_local_block_key_));
@@ -178,9 +178,8 @@ ThreadSafeMonotonicBufferResource::ThreadLocalState &ThreadSafeMonotonicBufferRe
 /// Release all allocated memory back to the upstream resource
 void ThreadSafeMonotonicBufferResource::Release() {
   // Release all blocks from the global list
-  std::lock_guard<std::mutex> lock(blocks_mutex_);
-  for (auto it = blocks_.begin(); it != blocks_.end(); ++it) {
-    Block *block = *it;
+  const std::lock_guard<std::mutex> lock(blocks_mutex_);
+  for (auto *block : blocks_) {
     memory_->deallocate(block, block->total_size(), block->alignment);
   }
   blocks_.clear();
@@ -254,7 +253,7 @@ ThreadSafeMonotonicBufferResource::Block *ThreadSafeMonotonicBufferResource::all
 
   // Add to global list for cleanup
   {
-    std::lock_guard<std::mutex> lock(blocks_mutex_);
+    const std::lock_guard<std::mutex> lock(blocks_mutex_);
     blocks_.emplace_front(new_block);
   }
 
@@ -320,7 +319,7 @@ thread_local ThreadSafePool::ThreadLocalState *ThreadSafePool::tls_cache_ = null
 thread_local uint64_t ThreadSafePool::last_pool_ = 0;
 std::atomic<uint64_t> ThreadSafePool::pool_id_ = 1;
 
-ThreadSafePool::ThreadLocalState *ThreadSafePool::thread_state() {
+ThreadSafePool::ThreadLocalState *ThreadSafePool::thread_state() const {
   if (last_pool_ != id_) {
     last_pool_ = id_;
     tls_cache_ = static_cast<ThreadLocalState *>(pthread_getspecific(thread_local_key_));
