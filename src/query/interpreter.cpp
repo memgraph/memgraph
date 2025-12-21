@@ -3160,7 +3160,9 @@ PreparedQuery PrepareProfileQuery(
 
   const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->pre_query_directives_.hops_limit_);
 
+#ifdef MG_ENTERPRISE
   auto parallel_execution = EvaluateParallelExecution(cypher_query, evaluator);
+#endif
 
   MG_ASSERT(current_db.execution_db_accessor_, "Profile query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
