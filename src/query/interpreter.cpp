@@ -2941,6 +2941,10 @@ PreparedQuery PrepareCypherQuery(
     spdlog::debug("Running query with hops limit of {}", *hops_limit);
   }
 
+#ifdef MG_ENTERPRISE
+  auto parallel_execution = EvaluateParallelExecution(cypher_query, evaluator);
+#endif
+
   auto clauses = cypher_query->single_query_->clauses_;
   if (std::any_of(clauses.begin(), clauses.end(),
                   [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
@@ -2985,13 +2989,15 @@ PreparedQuery PrepareCypherQuery(
   const auto rw_type = plan->rw_type();
 
 #ifdef MG_ENTERPRISE
-  if (cypher_query->pre_query_directives_.parallel_execution_) {
+  if (parallel_execution) {
     plan::ParallelChecker parallel_checker;
     parallel_checker.CheckParallelized(plan->plan());
     if (parallel_checker.is_parallelized_) {
+      spdlog::trace("Executing query with parallel execution using {} threads.", *parallel_execution);
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PARALLEL_EXECUTION,
                                   "Parallel execution enabled.");
     } else {
+      spdlog::trace("Query was not parallelized. Falling back to single threaded execution.");
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PARALLEL_EXECUTION_FALLBACK,
                                   "Parallel execution fallback to single threaded execution.");
     }
@@ -3021,7 +3027,7 @@ PreparedQuery PrepareCypherQuery(
                                               hops_limit, interpreter_context->worker_pool
 #ifdef MG_ENTERPRISE
                                               ,
-                                              EvaluateParallelExecution(cypher_query, evaluator), user_resource
+                                              parallel_execution, user_resource
 #endif
   );
   return PreparedQuery{
@@ -3154,6 +3160,8 @@ PreparedQuery PrepareProfileQuery(
 
   const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->pre_query_directives_.hops_limit_);
 
+  auto parallel_execution = EvaluateParallelExecution(cypher_query, evaluator);
+
   MG_ASSERT(current_db.execution_db_accessor_, "Profile query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
@@ -3184,9 +3192,8 @@ PreparedQuery PrepareProfileQuery(
                         stopping_context = std::move(stopping_context), db_acc = *current_db.db_acc_, hops_limit,
                         &query_logger = interpreter.query_logger_
 #ifdef MG_ENTERPRISE
-                        ,
-                        parallel_execution = EvaluateParallelExecution(cypher_query, evaluator),
-                        user_resource = std::move(user_resource)
+       ,
+       parallel_execution, user_resource = std::move(user_resource)
 #endif
   ](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
