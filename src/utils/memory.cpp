@@ -181,7 +181,7 @@ void ThreadSafeMonotonicBufferResource::Release() {
   std::lock_guard<std::mutex> lock(blocks_mutex_);
   for (auto it = blocks_.begin(); it != blocks_.end(); ++it) {
     Block *block = *it;
-    memory_->deallocate(block, block->total_size(), alignof(Block));
+    memory_->deallocate(block, block->total_size(), block->alignment);
   }
   blocks_.clear();
 }
@@ -250,7 +250,7 @@ ThreadSafeMonotonicBufferResource::Block *ThreadSafeMonotonicBufferResource::all
   }
 
   // Create new block at the beginning of the allocated memory
-  auto *new_block = new (new_buffer) Block(nullptr, 0, total_size - sizeof(Block));
+  auto *new_block = new (new_buffer) Block(nullptr, 0, total_size - sizeof(Block), align);
 
   // Add to global list for cleanup
   {
