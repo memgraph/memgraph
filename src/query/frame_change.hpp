@@ -22,10 +22,6 @@
 #include "utils/frame_change_id.hpp"
 
 namespace memgraph::query {
-namespace plan {
-class ParallelBranchCursor;
-}  // namespace plan
-
 struct CachedSet {
   using allocator_type = utils::Allocator<CachedSet>;
   using alloc_traits = std::allocator_traits<allocator_type>;

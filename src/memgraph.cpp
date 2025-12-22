@@ -751,7 +751,7 @@ int main(int argc, char **argv) {
     telemetry->AddStorageCollector(dbms_handler, *auth_);
 #ifdef MG_ENTERPRISE
     telemetry->AddDatabaseCollector(dbms_handler);
-    telemetry->AddCoordinatorCollector(coordinator_state);  // Unsafe if coordinator is reset
+    telemetry->AddCoordinatorCollector(coordinator_state);
 #else
     telemetry->AddDatabaseCollector();
 #endif

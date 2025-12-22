@@ -909,7 +909,6 @@ class ScanAllCursor : public Cursor {
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     frame_writer.Write(output_symbol_, *vertices_it_.value());
     ++vertices_it_.value();
-    called_++;
     return true;
   }
 
@@ -945,7 +944,6 @@ class ScanAllCursor : public Cursor {
   std::optional<decltype(vertices_->begin())> vertices_it_;
   std::optional<decltype(vertices_->end())> vertices_end_it_;
   const char *op_name_;
-  int called_{0};
   std::chrono::steady_clock::time_point start_time_;
 };
 template <typename TEdgesFun>
@@ -5481,7 +5479,7 @@ RemoveNestedProperty::RemoveNestedPropertyCursor::RemoveNestedPropertyCursor(con
 
 bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
   const OOMExceptionEnabler oom_exception;
-  const SCOPED_PROFILE_OP("RemoveNestedProperty");
+  SCOPED_PROFILE_OP("RemoveNestedProperty");
 
   AbortCheck(context);
 
@@ -6940,11 +6938,12 @@ class DistinctParallelCursor : public Cursor {
       const auto res = RefillCacheAndPull(frame, context);
       if (res) return true;
       if (pulled_all_) {
-        // Postpone state destruction to another worker thread
-        if (context.worker_pool) {
-          context.worker_pool->ScheduledAddTask([shared_state = std::move(shared_state_)](auto /* unused */) {},
-                                                utils::Priority::LOW);
-        }
+        // NOTE Not safe, because execution memory will be destroyed independent of the worker thread
+        // TODO Postpone state destruction to another worker thread
+        // if (context.worker_pool) {
+        //   context.worker_pool->ScheduledAddTask([shared_state = std::move(shared_state_)](auto /* unused */) {},
+        //                                         utils::Priority::LOW);
+        // }
         return false;
       }
     }
