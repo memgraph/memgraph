@@ -1,0 +1,11 @@
+--- CMakeLists.txt	2025-06-26 12:00:00.000000000 +0000
++++ CMakeLists.txt	2025-06-26 12:01:00.000000000 +0000
+@@ -1 +1 @@
+-cmake_minimum_required(VERSION 3.4)
++cmake_minimum_required(VERSION 3.5)
+
+--- src/CMakeLists.txt	2025-06-26 12:00:00.000000000 +0000
++++ src/CMakeLists.txt	2025-06-26 12:01:00.000000000 +0000
+@@ -1 +1 @@
+-  GIT_TAG v2.2.2
++  GIT_TAG 70c01a642f08734b7bddc9687884844ca117e080
