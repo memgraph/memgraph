@@ -8208,7 +8208,7 @@ void Interpreter::AdvanceCommand() {
 
 void Interpreter::AbortCommand(std::unique_ptr<QueryExecution> *query_execution) {
   if (query_execution) {
-    query_execution->reset(nullptr);
+    thread_pool_.AddTask([query_execution = std::move(*query_execution)]() mutable { query_execution.reset(nullptr); });
   }
   if (in_explicit_transaction_) {
     expect_rollback_ = true;
