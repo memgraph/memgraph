@@ -33,7 +33,7 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
 
     auto accessor = memgraph::storage::VertexAccessor{index_iterator->vertex, storage, transaction};
     auto res = accessor.HasLabel(label, view);
-    if (!res.HasError() and res.GetValue()) {
+    if (res.has_value() and res.value()) {
       current_vertex = accessor.vertex_;
       current_vertex_accessor = accessor;
       break;
@@ -104,7 +104,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, auto &&
     snapshot_info->Update(UpdateType::VERTICES);
   }
 
-  if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+  if (vertex.deleted || !std::ranges::contains(vertex.labels, label)) {
     return;
   }
 
@@ -128,7 +128,7 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_acce
     auto guard = std::shared_lock{vertex.lock};
     deleted = vertex.deleted;
     delta = vertex.delta;
-    has_label = utils::Contains(vertex.labels, label);
+    has_label = std::ranges::contains(vertex.labels, label);
   }
   // Create and drop index will always use snapshot isolation
   if (delta) {
@@ -153,7 +153,7 @@ auto InMemoryLabelIndex::PopulateIndex(
     LabelId label, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx, CheckCancelFunction cancel_check)
-    -> utils::BasicResult<IndexPopulateError> {
+    -> std::expected<void, IndexPopulateError> {
   auto index = GetIndividualIndex(label);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -181,7 +181,7 @@ auto InMemoryLabelIndex::PopulateIndex(
     }
   } catch (const PopulateCancel &) {
     DropIndex(label);
-    return IndexPopulateError::Cancellation;
+    return std::unexpected{IndexPopulateError::Cancellation};
   } catch (const utils::OutOfMemoryException &) {
     DropIndex(label);
     throw;
@@ -201,7 +201,7 @@ bool InMemoryLabelIndex::CreateIndexOnePass(
   auto res = RegisterIndex(label);
   if (!res) return false;
   auto res2 = PopulateIndex(label, std::move(vertices), parallel_exec_info, snapshot_info);
-  if (res2.HasError()) {
+  if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
   return PublishIndex(label, 0);
@@ -233,7 +233,7 @@ bool InMemoryLabelIndex::DropIndex(LabelId label) {
 }
 
 bool InMemoryLabelIndex::ActiveIndices::IndexRegistered(LabelId label) const {
-  return index_container_->find(label) != index_container_->end();
+  return index_container_->contains(label);
 }
 
 bool InMemoryLabelIndex::ActiveIndices::IndexReady(LabelId label) const {

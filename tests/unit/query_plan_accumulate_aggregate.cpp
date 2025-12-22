@@ -102,10 +102,10 @@ TYPED_TEST(QueryPlanTest, Accumulate) {
     auto prop = dba.NameToProperty("x");
 
     auto v1 = dba.InsertVertex();
-    ASSERT_TRUE(v1.SetProperty(prop, memgraph::storage::PropertyValue(0)).HasValue());
+    ASSERT_TRUE(v1.SetProperty(prop, memgraph::storage::PropertyValue(0)).has_value());
     auto v2 = dba.InsertVertex();
-    ASSERT_TRUE(v2.SetProperty(prop, memgraph::storage::PropertyValue(0)).HasValue());
-    ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("T")).HasValue());
+    ASSERT_TRUE(v2.SetProperty(prop, memgraph::storage::PropertyValue(0)).has_value());
+    ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("T")).has_value());
     dba.AdvanceCommand();
 
     SymbolTable symbol_table;
@@ -179,12 +179,12 @@ class QueryPlanAggregateOps : public QueryPlanTest<StorageType> {
     // setup is several nodes most of which have an int property set
     // we will take the sum, avg, min, max and count
     // we won't group by anything
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).HasValue());
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(7)).HasValue());
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(12)).HasValue());
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).HasValue());
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).HasValue());
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(12)).HasValue());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).has_value());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(7)).has_value());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(12)).has_value());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).has_value());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).has_value());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(12)).has_value());
 
     // a missing property (null) gets ignored by all aggregations except
     // COUNT(*)
@@ -340,7 +340,7 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValues) {
   // generate a lot of vertices and set props on them
   auto prop = dba.NameToProperty("prop");
   for (int i = 0; i < 1000; ++i)
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, group_by_vals[i % group_by_vals.size()]).HasValue());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, group_by_vals[i % group_by_vals.size()]).has_value());
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;
@@ -380,9 +380,9 @@ TYPED_TEST(QueryPlanTest, AggregateMultipleGroupBy) {
   auto prop3 = dba.NameToProperty("prop3");
   for (int i = 0; i < 2 * 3 * 5; ++i) {
     auto v = dba.InsertVertex();
-    ASSERT_TRUE(v.SetProperty(prop1, memgraph::storage::PropertyValue(static_cast<bool>(i % 2))).HasValue());
-    ASSERT_TRUE(v.SetProperty(prop2, memgraph::storage::PropertyValue(i % 3)).HasValue());
-    ASSERT_TRUE(v.SetProperty(prop3, memgraph::storage::PropertyValue("value" + std::to_string(i % 5))).HasValue());
+    ASSERT_TRUE(v.SetProperty(prop1, memgraph::storage::PropertyValue(static_cast<bool>(i % 2))).has_value());
+    ASSERT_TRUE(v.SetProperty(prop2, memgraph::storage::PropertyValue(i % 3)).has_value());
+    ASSERT_TRUE(v.SetProperty(prop3, memgraph::storage::PropertyValue("value" + std::to_string(i % 5))).has_value());
   }
   dba.AdvanceCommand();
 
@@ -458,7 +458,7 @@ TYPED_TEST(QueryPlanTest, AggregateCountEdgeCases) {
 
   // one vertex, property set
   for (auto va : dba.Vertices(memgraph::storage::View::OLD))
-    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
   dba.AdvanceCommand();
   EXPECT_EQ(1, count());
 
@@ -469,7 +469,7 @@ TYPED_TEST(QueryPlanTest, AggregateCountEdgeCases) {
 
   // two vertices, both with property set
   for (auto va : dba.Vertices(memgraph::storage::View::OLD))
-    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
   dba.AdvanceCommand();
   EXPECT_EQ(2, count());
 }
@@ -483,9 +483,9 @@ TYPED_TEST(QueryPlanTest, AggregateFirstValueTypes) {
 
   auto v1 = dba.InsertVertex();
   auto prop_string = dba.NameToProperty("string");
-  ASSERT_TRUE(v1.SetProperty(prop_string, memgraph::storage::PropertyValue("johhny")).HasValue());
+  ASSERT_TRUE(v1.SetProperty(prop_string, memgraph::storage::PropertyValue("johhny")).has_value());
   auto prop_int = dba.NameToProperty("int");
-  ASSERT_TRUE(v1.SetProperty(prop_int, memgraph::storage::PropertyValue(12)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(prop_int, memgraph::storage::PropertyValue(12)).has_value());
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;
@@ -534,11 +534,11 @@ TYPED_TEST(QueryPlanTest, AggregateTypes) {
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto p1 = dba.NameToProperty("p1");  // has only string props
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("string")).HasValue());
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("str2")).HasValue());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("string")).has_value());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("str2")).has_value());
   auto p2 = dba.NameToProperty("p2");  // combines int and bool
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(42)).HasValue());
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(true)).HasValue());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(42)).has_value());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(true)).has_value());
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;
@@ -750,7 +750,7 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValuesWithDistinct) {
   // generate a lot of vertices and set props on them
   auto prop = dba.NameToProperty("prop");
   for (int i = 0; i < 1000; ++i)
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, group_by_vals[i % group_by_vals.size()]).HasValue());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, group_by_vals[i % group_by_vals.size()]).has_value());
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;
@@ -793,9 +793,9 @@ TYPED_TEST(QueryPlanTest, AggregateMultipleGroupByWithDistinct) {
   auto prop3 = dba.NameToProperty("prop3");
   for (int i = 0; i < 2 * 3 * 5; ++i) {
     auto v = dba.InsertVertex();
-    ASSERT_TRUE(v.SetProperty(prop1, memgraph::storage::PropertyValue(static_cast<bool>(i % 2))).HasValue());
-    ASSERT_TRUE(v.SetProperty(prop2, memgraph::storage::PropertyValue(i % 3)).HasValue());
-    ASSERT_TRUE(v.SetProperty(prop3, memgraph::storage::PropertyValue("value" + std::to_string(i % 5))).HasValue());
+    ASSERT_TRUE(v.SetProperty(prop1, memgraph::storage::PropertyValue(static_cast<bool>(i % 2))).has_value());
+    ASSERT_TRUE(v.SetProperty(prop2, memgraph::storage::PropertyValue(i % 3)).has_value());
+    ASSERT_TRUE(v.SetProperty(prop3, memgraph::storage::PropertyValue("value" + std::to_string(i % 5))).has_value());
   }
   dba.AdvanceCommand();
 
@@ -872,7 +872,7 @@ TYPED_TEST(QueryPlanTest, AggregateCountEdgeCasesWithDistinct) {
 
   // one vertex, property set
   for (auto va : dba.Vertices(memgraph::storage::View::OLD))
-    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
   dba.AdvanceCommand();
   EXPECT_EQ(1, count());
 
@@ -883,7 +883,7 @@ TYPED_TEST(QueryPlanTest, AggregateCountEdgeCasesWithDistinct) {
 
   // two vertices, both with property set
   for (auto va : dba.Vertices(memgraph::storage::View::OLD))
-    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
   dba.AdvanceCommand();
   EXPECT_EQ(1, count());
 }
@@ -897,9 +897,9 @@ TYPED_TEST(QueryPlanTest, AggregateFirstValueTypesWithDistinct) {
 
   auto v1 = dba.InsertVertex();
   auto prop_string = dba.NameToProperty("string");
-  ASSERT_TRUE(v1.SetProperty(prop_string, memgraph::storage::PropertyValue("johhny")).HasValue());
+  ASSERT_TRUE(v1.SetProperty(prop_string, memgraph::storage::PropertyValue("johhny")).has_value());
   auto prop_int = dba.NameToProperty("int");
-  ASSERT_TRUE(v1.SetProperty(prop_int, memgraph::storage::PropertyValue(12)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(prop_int, memgraph::storage::PropertyValue(12)).has_value());
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;
@@ -948,11 +948,11 @@ TYPED_TEST(QueryPlanTest, AggregateTypesWithDistinct) {
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto p1 = dba.NameToProperty("p1");  // has only string props
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("string")).HasValue());
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("str2")).HasValue());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("string")).has_value());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("str2")).has_value());
   auto p2 = dba.NameToProperty("p2");  // combines int and bool
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(42)).HasValue());
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(true)).HasValue());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(42)).has_value());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(true)).has_value());
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;

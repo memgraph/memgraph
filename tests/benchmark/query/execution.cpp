@@ -70,7 +70,7 @@ class PoolResource final {
 static void AddVertices(memgraph::storage::Storage *db, int vertex_count) {
   auto dba = db->Access();
   for (int i = 0; i < vertex_count; i++) dba->CreateVertex();
-  MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 static const char *kStartLabel = "start";
@@ -79,20 +79,20 @@ static void AddStarGraph(memgraph::storage::Storage *db, int spoke_count, int de
   {
     auto dba = db->Access();
     auto center_vertex = dba->CreateVertex();
-    MG_ASSERT(center_vertex.AddLabel(dba->NameToLabel(kStartLabel)).HasValue());
+    MG_ASSERT(center_vertex.AddLabel(dba->NameToLabel(kStartLabel)).has_value());
     for (int i = 0; i < spoke_count; ++i) {
       auto prev_vertex = center_vertex;
       for (int j = 0; j < depth; ++j) {
         auto dest = dba->CreateVertex();
-        MG_ASSERT(dba->CreateEdge(&prev_vertex, &dest, dba->NameToEdgeType("Type")).HasValue());
+        MG_ASSERT(dba->CreateEdge(&prev_vertex, &dest, dba->NameToEdgeType("Type")).has_value());
         prev_vertex = dest;
       }
     }
-    MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = db->UniqueAccess();
-    MG_ASSERT(!unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).HasError());
+    MG_ASSERT(unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).has_value());
   }
 }
 
@@ -102,7 +102,7 @@ static void AddTree(memgraph::storage::Storage *db, int vertex_count) {
     std::vector<memgraph::storage::VertexAccessor> vertices;
     vertices.reserve(vertex_count);
     auto root = dba->CreateVertex();
-    MG_ASSERT(root.AddLabel(dba->NameToLabel(kStartLabel)).HasValue());
+    MG_ASSERT(root.AddLabel(dba->NameToLabel(kStartLabel)).has_value());
     vertices.push_back(root);
     // NOLINTNEXTLINE(cert-msc32-c,cert-msc51-cpp)
     std::mt19937_64 rg(42);
@@ -110,14 +110,14 @@ static void AddTree(memgraph::storage::Storage *db, int vertex_count) {
       auto v = dba->CreateVertex();
       std::uniform_int_distribution<> dis(0U, vertices.size() - 1U);
       auto &parent = vertices.at(dis(rg));
-      MG_ASSERT(dba->CreateEdge(&parent, &v, dba->NameToEdgeType("Type")).HasValue());
+      MG_ASSERT(dba->CreateEdge(&parent, &v, dba->NameToEdgeType("Type")).has_value());
       vertices.push_back(v);
     }
-    MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = db->UniqueAccess();
-    MG_ASSERT(!unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).HasError());
+    MG_ASSERT(unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).has_value());
   }
 }
 
@@ -464,7 +464,7 @@ static void OrderBy(benchmark::State &state) {
   sort_items.reserve(state.range(0));
   for (int i = 0; i < state.range(0); ++i) {
     symbols.push_back(symbol_table.CreateSymbol(std::to_string(i), false));
-    auto rand_value = memgraph::utils::MemcpyCast<int64_t>(rg());
+    auto rand_value = std::bit_cast<int64_t>(rg());
     sort_items.push_back({memgraph::query::Ordering::ASC, ast.Create<memgraph::query::PrimitiveLiteral>(rand_value)});
   }
   memgraph::query::plan::OrderBy order_by(scan_all, sort_items, symbols);

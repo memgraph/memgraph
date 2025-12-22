@@ -24,7 +24,6 @@
 #include "exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
-#include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::query {
@@ -149,7 +148,7 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
     // clear the old symbols, so do it now. We cannot just call clear, because
     // we've added new symbols.
     for (auto sym_it = scope.symbols.begin(); sym_it != scope.symbols.end();) {
-      if (new_names.find(sym_it->first) == new_names.end()) {
+      if (!new_names.contains(sym_it->first)) {
         sym_it = scope.symbols.erase(sym_it);
       } else {
         sym_it++;
@@ -258,7 +257,7 @@ bool SymbolGenerator::PostVisit(CallSubquery & /*call_sub*/) {
 
   // append symbols returned in from subquery to outer scope
   for (const auto &[symbol_name, symbol] : subquery_scope.symbols) {
-    if (main_query_scope.symbols.find(symbol_name) != main_query_scope.symbols.end()) {
+    if (main_query_scope.symbols.contains(symbol_name)) {
       throw SemanticException("Variable in subquery already declared in outer scope!");
     }
 
@@ -681,11 +680,11 @@ bool SymbolGenerator::PostVisit(SetProperty &set_property) {
 
   auto maybe_symbol = FindSymbolInScope(visitor.base_identifier->name_, scope, Symbol::Type::ANY);
 
-  if (!maybe_symbol.has_value()) {
+  if (!maybe_symbol) {
     throw SemanticException("Symbol not found when setting property, please contact Memgraph support!");
   }
 
-  if (auto type = maybe_symbol.value().type(); type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE) {
+  if (auto type = maybe_symbol->type(); type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE) {
     return true;
   }
 
@@ -711,11 +710,11 @@ bool SymbolGenerator::PostVisit(RemoveProperty &remove_property) {
 
   auto maybe_symbol = FindSymbolInScope(visitor.base_identifier->name_, scope, Symbol::Type::ANY);
 
-  if (!maybe_symbol.has_value()) {
+  if (!maybe_symbol) {
     throw SemanticException("Symbol not found when removing property, please contact Memgraph support!");
   }
 
-  if (auto type = maybe_symbol.value().type(); type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE) {
+  if (auto type = maybe_symbol->type(); type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE) {
     return true;
   }
 

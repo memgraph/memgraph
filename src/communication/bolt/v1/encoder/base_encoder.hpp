@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,11 @@
 
 #pragma once
 
+#include <string_view>
 #include <type_traits>
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/value.hpp"
-#include "utils/cast.hpp"
 #include "utils/endian.hpp"
 
 static_assert(std::is_same_v<std::uint8_t, char> || std::is_same_v<std::uint8_t, unsigned char>,
@@ -51,36 +51,36 @@ class BaseEncoder {
 
   void WriteRAW(const uint8_t data) { WriteRAW(&data, 1); }
 
-  void WriteNull() { WriteRAW(utils::UnderlyingCast(Marker::Null)); }
+  void WriteNull() { WriteRAW(std::to_underlying(Marker::Null)); }
 
   void WriteBool(const bool &value) {
     if (value)
-      WriteRAW(utils::UnderlyingCast(Marker::True));
+      WriteRAW(std::to_underlying(Marker::True));
     else
-      WriteRAW(utils::UnderlyingCast(Marker::False));
+      WriteRAW(std::to_underlying(Marker::False));
   }
 
   void WriteInt(const int64_t &value) {
     if (value >= -16L && value < 128L) {
       WriteRAW(static_cast<uint8_t>(value));
     } else if (value >= -128L && value < -16L) {
-      WriteRAW(utils::UnderlyingCast(Marker::Int8));
+      WriteRAW(std::to_underlying(Marker::Int8));
       WriteRAW(static_cast<uint8_t>(value));
     } else if (value >= -32768L && value < 32768L) {
-      WriteRAW(utils::UnderlyingCast(Marker::Int16));
+      WriteRAW(std::to_underlying(Marker::Int16));
       WritePrimitiveValue(static_cast<int16_t>(value));
     } else if (value >= -2147483648L && value < 2147483648L) {
-      WriteRAW(utils::UnderlyingCast(Marker::Int32));
+      WriteRAW(std::to_underlying(Marker::Int32));
       WritePrimitiveValue(static_cast<int32_t>(value));
     } else {
-      WriteRAW(utils::UnderlyingCast(Marker::Int64));
+      WriteRAW(std::to_underlying(Marker::Int64));
       WritePrimitiveValue(value);
     }
   }
 
   void WriteDouble(const double &value) {
-    WriteRAW(utils::UnderlyingCast(Marker::Float64));
-    uint64_t tmp = utils::MemcpyCast<uint64_t>(value);
+    WriteRAW(std::to_underlying(Marker::Float64));
+    uint64_t tmp = std::bit_cast<uint64_t>(value);
     WritePrimitiveValue(tmp);
   }
 
@@ -88,25 +88,25 @@ class BaseEncoder {
     if (size <= 15) {
       uint8_t len = size;
       len &= 0x0F;
-      WriteRAW(utils::UnderlyingCast(MarkerTiny[typ]) + len);
+      WriteRAW(std::to_underlying(MarkerTiny[typ]) + len);
     } else if (size <= 255) {
       uint8_t len = size;
-      WriteRAW(utils::UnderlyingCast(Marker8[typ]));
+      WriteRAW(std::to_underlying(Marker8[typ]));
       WriteRAW(len);
     } else if (size <= 65535) {
       uint16_t len = size;
-      WriteRAW(utils::UnderlyingCast(Marker16[typ]));
+      WriteRAW(std::to_underlying(Marker16[typ]));
       WritePrimitiveValue(len);
     } else {
       uint32_t len = size;
-      WriteRAW(utils::UnderlyingCast(Marker32[typ]));
+      WriteRAW(std::to_underlying(Marker32[typ]));
       WritePrimitiveValue(len);
     }
   }
 
-  void WriteString(const std::string &value) {
+  void WriteString(std::string_view value) {
     WriteTypeSize(value.size(), MarkerString);
-    WriteRAW(value.c_str(), value.size());
+    WriteRAW(value.data(), value.size());
   }
 
   void WriteList(const std::vector<Value> &value) {
@@ -124,8 +124,8 @@ class BaseEncoder {
 
   void WriteVertex(const Vertex &vertex) {
     int struct_n = 3 + 1 * int(major_v_ > 4);  // element_id introduced from v5
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + struct_n);
-    WriteRAW(utils::UnderlyingCast(Signature::Node));
+    WriteRAW(std::to_underlying(Marker::TinyStruct) + struct_n);
+    WriteRAW(std::to_underlying(Signature::Node));
     WriteInt(vertex.id.AsInt());
 
     // write labels
@@ -149,8 +149,8 @@ class BaseEncoder {
 
   void WriteEdge(const Edge &edge, bool unbound = false) {
     int struct_n = (unbound ? 3 + 1 * int(major_v_ > 4) : 5 + 3 * int(major_v_ > 4));  // element_id introduced from v5
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + struct_n);
-    WriteRAW(utils::UnderlyingCast(unbound ? Signature::UnboundRelationship : Signature::Relationship));
+    WriteRAW(std::to_underlying(Marker::TinyStruct) + struct_n);
+    WriteRAW(std::to_underlying(unbound ? Signature::UnboundRelationship : Signature::Relationship));
 
     WriteInt(edge.id.AsInt());
     if (!unbound) {
@@ -181,8 +181,8 @@ class BaseEncoder {
 
   void WriteEdge(const UnboundedEdge &edge) {
     const int struct_n = 3 + 1 * int(major_v_ > 4);  // element_id introduced from v5
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + struct_n);
-    WriteRAW(utils::UnderlyingCast(Signature::UnboundRelationship));
+    WriteRAW(std::to_underlying(Marker::TinyStruct) + struct_n);
+    WriteRAW(std::to_underlying(Signature::UnboundRelationship));
 
     WriteInt(edge.id.AsInt());
 
@@ -202,8 +202,8 @@ class BaseEncoder {
   }
 
   void WritePath(const Path &path) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + 3);
-    WriteRAW(utils::UnderlyingCast(Signature::Path));
+    WriteRAW(std::to_underlying(Marker::TinyStruct) + 3);
+    WriteRAW(std::to_underlying(Signature::Path));
     WriteTypeSize(path.vertices.size(), MarkerList);
     for (const auto &v : path.vertices) WriteVertex(v);
     WriteTypeSize(path.edges.size(), MarkerList);
@@ -213,28 +213,28 @@ class BaseEncoder {
   }
 
   void WriteDate(const utils::Date &date) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
-    WriteRAW(utils::UnderlyingCast(Signature::Date));
+    WriteRAW(std::to_underlying(Marker::TinyStruct1));
+    WriteRAW(std::to_underlying(Signature::Date));
     WriteInt(date.DaysSinceEpoch());
   }
 
   void WriteLocalTime(const utils::LocalTime &local_time) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
-    WriteRAW(utils::UnderlyingCast(Signature::LocalTime));
+    WriteRAW(std::to_underlying(Marker::TinyStruct1));
+    WriteRAW(std::to_underlying(Signature::LocalTime));
     WriteInt(local_time.NanosecondsSinceEpoch());
   }
 
   void WriteLocalDateTime(const utils::LocalDateTime &local_date_time) {
     // Bolt defines local date time without timezone (as if UTC)
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct2));
-    WriteRAW(utils::UnderlyingCast(Signature::LocalDateTime));
+    WriteRAW(std::to_underlying(Marker::TinyStruct2));
+    WriteRAW(std::to_underlying(Signature::LocalDateTime));
     WriteInt(local_date_time.SecondsSinceEpoch());
     WriteInt(local_date_time.SubSecondsAsNanoseconds());
   }
 
   void WriteDuration(const utils::Duration &duration) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct4));
-    WriteRAW(utils::UnderlyingCast(Signature::Duration));
+    WriteRAW(std::to_underlying(Marker::TinyStruct4));
+    WriteRAW(std::to_underlying(Signature::Duration));
     // This shall always be zero because internally we store microseconds
     // and converting months to microseconds is an approximation. However,
     // for the encoder, we implement ReadInt() to support the neo4j driver.
@@ -245,16 +245,16 @@ class BaseEncoder {
   }
 
   void WritePoint2d(const Point2d &point_2d) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
-    WriteRAW(utils::UnderlyingCast(Signature::Point2d));
+    WriteRAW(std::to_underlying(Marker::TinyStruct3));
+    WriteRAW(std::to_underlying(Signature::Point2d));
     WriteInt(storage::CrsToSrid(point_2d.crs()).value_of());
     WriteDouble(point_2d.x());
     WriteDouble(point_2d.y());
   }
 
   void WritePoint3d(const Point3d &point_3d) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct4));
-    WriteRAW(utils::UnderlyingCast(Signature::Point3d));
+    WriteRAW(std::to_underlying(Marker::TinyStruct4));
+    WriteRAW(std::to_underlying(Signature::Point3d));
     WriteInt(storage::CrsToSrid(point_3d.crs()).value_of());
     WriteDouble(point_3d.x());
     WriteDouble(point_3d.y());
@@ -262,14 +262,14 @@ class BaseEncoder {
   }
 
   void WriteLegacyZonedDateTime(const utils::ZonedDateTime &zoned_date_time) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
+    WriteRAW(std::to_underlying(Marker::TinyStruct3));
     if (zoned_date_time.GetTimezone().InTzDatabase()) {
-      WriteRAW(utils::UnderlyingCast(Signature::LegacyDateTimeZoneId));
+      WriteRAW(std::to_underlying(Signature::LegacyDateTimeZoneId));
       WriteInt((zoned_date_time.SysSecondsSinceEpoch() + zoned_date_time.OffsetDuration()).count());
       WriteInt(zoned_date_time.SysSubSecondsAsNanoseconds().count());
       WriteString(std::string{zoned_date_time.GetTimezone().TimezoneName()});
     } else {
-      WriteRAW(utils::UnderlyingCast(Signature::LegacyDateTime));
+      WriteRAW(std::to_underlying(Signature::LegacyDateTime));
       WriteInt((zoned_date_time.SysSecondsSinceEpoch() + zoned_date_time.OffsetDuration()).count());
       WriteInt(zoned_date_time.SysSubSecondsAsNanoseconds().count());
       WriteInt(zoned_date_time.GetTimezone().DefiningOffsetSeconds());
@@ -277,14 +277,14 @@ class BaseEncoder {
   }
 
   void WriteV5ZonedDateTime(const utils::ZonedDateTime &zoned_date_time) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
+    WriteRAW(std::to_underlying(Marker::TinyStruct3));
     if (zoned_date_time.GetTimezone().InTzDatabase()) {
-      WriteRAW(utils::UnderlyingCast(Signature::DateTimeZoneId));
+      WriteRAW(std::to_underlying(Signature::DateTimeZoneId));
       WriteInt(zoned_date_time.SysSecondsSinceEpoch().count());
       WriteInt(zoned_date_time.SysSubSecondsAsNanoseconds().count());
       WriteString(std::string{zoned_date_time.GetTimezone().TimezoneName()});
     } else {
-      WriteRAW(utils::UnderlyingCast(Signature::DateTime));
+      WriteRAW(std::to_underlying(Signature::DateTime));
       WriteInt(zoned_date_time.SysSecondsSinceEpoch().count());
       WriteInt(zoned_date_time.SysSubSecondsAsNanoseconds().count());
       WriteInt(zoned_date_time.GetTimezone().DefiningOffsetSeconds());

@@ -211,7 +211,7 @@ bool Client::Write(const uint8_t *data, size_t len, bool have_more, const std::o
   return socket_.Write(data, len, have_more, timeout_ms);
 }
 
-bool Client::Write(const std::string &str, bool have_more, const std::optional<int> timeout_ms) {
+bool Client::Write(std::string_view str, bool have_more, const std::optional<int> timeout_ms) {
   return Write(reinterpret_cast<const uint8_t *>(str.data()), str.size(), have_more, timeout_ms);
 }
 
@@ -243,6 +243,6 @@ ClientOutputStream::ClientOutputStream(Client &client) : client_(client) {}
 bool ClientOutputStream::Write(const uint8_t *data, size_t len, bool have_more) {
   return client_.Write(data, len, have_more);
 }
-bool ClientOutputStream::Write(const std::string &str, bool have_more) { return client_.Write(str, have_more); }
+bool ClientOutputStream::Write(std::string_view str, bool have_more) { return client_.Write(str, have_more); }
 
 }  // namespace memgraph::communication

@@ -92,13 +92,13 @@ TYPED_TEST(InfoTest, InfoCheck) {
   {
     {
       auto unique_acc = this->storage->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateExistenceConstraint(lbl, prop).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc->CreateExistenceConstraint(lbl, prop).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto unique_acc = this->storage->UniqueAccess();
-      ASSERT_FALSE(unique_acc->DropExistenceConstraint(lbl, prop).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc->DropExistenceConstraint(lbl, prop).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     auto acc = this->storage->Access();
@@ -108,76 +108,76 @@ TYPED_TEST(InfoTest, InfoCheck) {
     auto v4 = acc->CreateVertex();
     [[maybe_unused]] auto v5 = acc->CreateVertex();
 
-    ASSERT_FALSE(v2.AddLabel(lbl).HasError());
-    ASSERT_FALSE(v3.AddLabel(lbl).HasError());
-    ASSERT_FALSE(v3.SetProperty(prop, PropertyValue(42)).HasError());
-    ASSERT_FALSE(v4.AddLabel(lbl).HasError());
+    ASSERT_TRUE(v2.AddLabel(lbl).has_value());
+    ASSERT_TRUE(v3.AddLabel(lbl).has_value());
+    ASSERT_TRUE(v3.SetProperty(prop, PropertyValue(42)).has_value());
+    ASSERT_TRUE(v4.AddLabel(lbl).has_value());
 
     auto et = acc->NameToEdgeType("et5");
-    ASSERT_FALSE(acc->CreateEdge(&v1, &v2, et).HasError());
-    ASSERT_FALSE(acc->CreateEdge(&v4, &v3, et).HasError());
+    ASSERT_TRUE(acc->CreateEdge(&v1, &v2, et).has_value());
+    ASSERT_TRUE(acc->CreateEdge(&v4, &v3, et).has_value());
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
     auto acc = this->CreateIndexAccessor();
-    ASSERT_FALSE(acc->CreateIndex(lbl).HasError());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->CreateIndex(lbl).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->CreateIndexAccessor();
-    ASSERT_FALSE(acc->CreateIndex(lbl, {prop}).HasError());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->CreateIndex(lbl, {prop}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->CreateIndexAccessor();
-    ASSERT_FALSE(acc->CreateIndex(lbl, {prop2}).HasError());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->CreateIndex(lbl, {prop2}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   if constexpr (!is_using_disk_storage) {
     {
       auto acc = this->CreateIndexAccessor();
-      ASSERT_FALSE(acc->CreateIndex(lbl, {prop, prop2}).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->CreateIndex(lbl, {prop, prop2}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto acc = this->CreateIndexAccessor();
-      ASSERT_FALSE(acc->CreateIndex(lbl, {prop2, prop}).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->CreateIndex(lbl, {prop2, prop}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
   {
     auto acc = this->DropIndexAccessor();
-    ASSERT_FALSE(acc->DropIndex(lbl, {prop}).HasError());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->DropIndex(lbl, {prop}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   if constexpr (!is_using_disk_storage) {
     auto acc = this->DropIndexAccessor();
-    ASSERT_FALSE(acc->DropIndex(lbl, {prop, prop2}).HasError());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->DropIndex(lbl, {prop, prop2}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl, {prop2}).HasError());
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(unique_acc->CreateUniqueConstraint(lbl, {prop2}).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl2, {prop}).HasError());
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(unique_acc->CreateUniqueConstraint(lbl2, {prop}).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl3, {prop}).HasError());
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(unique_acc->CreateUniqueConstraint(lbl3, {prop}).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
     ASSERT_EQ(unique_acc->DropUniqueConstraint(lbl, {prop2}),
               memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   StorageInfo info = this->storage->GetInfo();

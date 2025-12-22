@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,9 +11,9 @@
 
 #pragma once
 
+#include <cstdint>
+#include <expected>
 #include <type_traits>
-
-#include "utils/result.hpp"
 
 namespace memgraph::storage {
 
@@ -28,6 +28,6 @@ enum class Error : uint8_t {
 };
 
 template <class TValue>
-using Result = utils::BasicResult<Error, TValue>;
+using Result = std::expected<TValue, Error>;
 
 }  // namespace memgraph::storage

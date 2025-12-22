@@ -28,7 +28,6 @@ module;
 #include "utils/exceptions.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
-#include "utils/result.hpp"
 
 export module memgraph.csv.parsing;
 
@@ -139,7 +138,7 @@ class Reader {
     std::string message;
   };
 
-  using ParsingResult = utils::BasicResult<ParseError, Row>;
+  using ParsingResult = std::expected<Row, ParseError>;
 
   bool HasHeader() const;
   auto GetHeader() const -> Header const &;

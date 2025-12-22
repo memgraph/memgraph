@@ -173,7 +173,7 @@ FileRetainer::FileLockerAccessor::FileLockerAccessor(FileRetainer *retainer, siz
 FileRetainer::FileLockerAccessor::ret_type FileRetainer::FileLockerAccessor::IsPathLocked(
     const std::filesystem::path &path) {
   if (!std::filesystem::exists(path)) {
-    return Error::NonexistentPath;
+    return std::unexpected{Error::NonexistentPath};
   }
   return file_retainer_->FileLocked(std::filesystem::absolute(path));
 }
@@ -181,7 +181,7 @@ FileRetainer::FileLockerAccessor::ret_type FileRetainer::FileLockerAccessor::IsP
 FileRetainer::FileLockerAccessor::ret_type FileRetainer::FileLockerAccessor::AddPath(
     const std::filesystem::path &path) {
   if (!std::filesystem::exists(path)) {
-    return Error::NonexistentPath;
+    return std::unexpected{Error::NonexistentPath};
   }
   return file_retainer_->lockers_.WithLock([&](auto &lockers) { return lockers[locker_id_].LockPath(path); });
 }
@@ -189,7 +189,7 @@ FileRetainer::FileLockerAccessor::ret_type FileRetainer::FileLockerAccessor::Add
 FileRetainer::FileLockerAccessor::ret_type FileRetainer::FileLockerAccessor::RemovePath(
     const std::filesystem::path &path) {
   if (!std::filesystem::exists(path)) {
-    return Error::NonexistentPath;
+    return std::unexpected{Error::NonexistentPath};
   }
   return file_retainer_->lockers_.WithLock([&](auto &lockers) { return lockers[locker_id_].RemovePath(path); });
 }

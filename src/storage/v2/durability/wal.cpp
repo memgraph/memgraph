@@ -1334,8 +1334,8 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalEnumCreate &data) {
         auto res = enum_store->RegisterEnum(std::move(data.etype), std::move(data.evalues));
-        if (res.HasError()) {
-          switch (res.GetError()) {
+        if (!res) {
+          switch (res.error()) {
             case EnumStorageError::EnumExists:
               throw RecoveryFailure("The enum already exist!");
             case EnumStorageError::InvalidValue:
@@ -1348,8 +1348,8 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalEnumAlterAdd &data) {
         auto res = enum_store->AddValue(std::move(data.etype), std::move(data.evalue));
-        if (res.HasError()) {
-          switch (res.GetError()) {
+        if (!res) {
+          switch (res.error()) {
             case EnumStorageError::InvalidValue:
               throw RecoveryFailure("Enum value already exists.");
             case EnumStorageError::UnknownEnumType:
@@ -1363,8 +1363,8 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalEnumAlterUpdate const &data) {
         auto const &[enum_name, enum_value_old, enum_value_new] = data;
         auto res = enum_store->UpdateValue(enum_name, enum_value_old, enum_value_new);
-        if (res.HasError()) {
-          switch (res.GetError()) {
+        if (!res) {
+          switch (res.error()) {
             case EnumStorageError::InvalidValue:
               throw RecoveryFailure("Enum value {}::{} already exists.", enum_name, enum_value_new);
             case EnumStorageError::UnknownEnumType:
@@ -1427,8 +1427,8 @@ std::optional<RecoveryInfo> LoadWal(
 
   for (uint64_t i = 0; i < info.num_deltas; ++i) {
     // Read WAL delta header to find out the delta timestamp.
-    if (auto timestamp = ReadWalDeltaHeader(&wal);
-        (!last_applied_delta_timestamp || timestamp > *last_applied_delta_timestamp)) {
+    if (auto delta_ts = ReadWalDeltaHeader(&wal);
+        (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp)) {
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal, *version);
 
@@ -1441,11 +1441,11 @@ std::optional<RecoveryInfo> LoadWal(
 
       if (should_commit) {
         // First delta which is not WalTransactionStart -> allocate RecoveryInfo
-        if (!ret.has_value()) {
-          ret.emplace(RecoveryInfo{.next_timestamp = timestamp + 1, .last_durable_timestamp = timestamp});
+        if (!ret) {
+          ret.emplace(RecoveryInfo{.next_timestamp = delta_ts + 1, .last_durable_timestamp = delta_ts});
         } else {
-          ret->next_timestamp = std::max(ret->next_timestamp, timestamp + 1);
-          ret->last_durable_timestamp = timestamp;
+          ret->next_timestamp = std::max(ret->next_timestamp, delta_ts + 1);
+          ret->last_durable_timestamp = delta_ts;
         }
 
         std::visit(delta_apply, delta.data_);
@@ -1596,27 +1596,27 @@ std::pair<const uint8_t *, size_t> WalFile::CurrentFileBuffer() const { return w
 
 void EncodeEnumAlterAdd(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val) {
   auto etype_str = enum_store.ToTypeString(enum_val.type_id());
-  DMG_ASSERT(etype_str.HasValue());
+  DMG_ASSERT(etype_str);
   encoder.WriteString(*etype_str);
   auto value_str = enum_store.ToValueString(enum_val.type_id(), enum_val.value_id());
-  DMG_ASSERT(value_str.HasValue());
+  DMG_ASSERT(value_str);
   encoder.WriteString(*value_str);
 }
 
 void EncodeEnumAlterUpdate(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val,
                            std::string enum_value_old) {
   auto etype_str = enum_store.ToTypeString(enum_val.type_id());
-  DMG_ASSERT(etype_str.HasValue());
+  DMG_ASSERT(etype_str);
   encoder.WriteString(*etype_str);
   encoder.WriteString(enum_value_old);
   auto value_str = enum_store.ToValueString(enum_val.type_id(), enum_val.value_id());
-  DMG_ASSERT(value_str.HasValue());
+  DMG_ASSERT(value_str);
   encoder.WriteString(*value_str);
 }
 
 void EncodeEnumCreate(BaseEncoder &encoder, EnumStore const &enum_store, EnumTypeId etype) {
   auto etype_str = enum_store.ToTypeString(etype);
-  DMG_ASSERT(etype_str.HasValue());
+  DMG_ASSERT(etype_str);
   encoder.WriteString(*etype_str);
   auto const *values = enum_store.ToValuesStrings(etype);
   DMG_ASSERT(values);
@@ -1746,11 +1746,11 @@ void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
                         bool should_run_edge_ttl) {
   encoder.WriteUint(static_cast<uint64_t>(operation_type));
   encoder.WriteBool(period.has_value());
-  if (period.has_value()) {
+  if (period) {
     encoder.WriteUint(static_cast<uint64_t>(period->count()));
   }
   encoder.WriteBool(start_time.has_value());
-  if (start_time.has_value()) {
+  if (start_time) {
     encoder.WriteUint(static_cast<uint64_t>(
         std::chrono::duration_cast<std::chrono::microseconds>(start_time->time_since_epoch()).count()));
   }

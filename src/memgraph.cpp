@@ -275,7 +275,7 @@ int main(int argc, char **argv) {
   std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
 
   const auto vm_max_map_count = memgraph::utils::GetVmMaxMapCount();
-  if (vm_max_map_count.has_value()) {
+  if (vm_max_map_count) {
     if (vm_max_map_count.value() < kMgVmMaxMapCount) {
       std::cout << "Max virtual memory areas vm.max_map_count " << vm_max_map_count.value()
                 << " is too low, increase to at least " << kMgVmMaxMapCount << std::endl;
@@ -393,7 +393,8 @@ int main(int argc, char **argv) {
                         .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update,
                         .property_store_compression_enabled = FLAGS_storage_property_store_compression_enabled},
       .salient.storage_mode = memgraph::flags::ParseStorageMode(),
-      .salient.property_store_compression_level = memgraph::flags::ParseCompressionLevel()};
+      .salient.property_store_compression_level = memgraph::flags::ParseCompressionLevel(),
+      .track_label_counts = FLAGS_telemetry_enabled};
   if (db_config.salient.items.enable_edge_type_index_auto_creation && !db_config.salient.items.properties_on_edges) {
     LOG_FATAL(
         "Automatic index creation on edge-types has been set but properties on edges are disabled. If you wish to use "

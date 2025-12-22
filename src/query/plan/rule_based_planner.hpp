@@ -573,7 +573,7 @@ class RuleBasedPlanner {
     MG_ASSERT(named_paths.empty(), "Expected to generate all named paths");
     // We bound all named path symbols, so just add them to new_symbols.
     for (const auto &named_path : matching.named_paths) {
-      MG_ASSERT(utils::Contains(bound_symbols, named_path.first), "Expected generated named path to have bound symbol");
+      MG_ASSERT(bound_symbols.contains(named_path.first), "Expected generated named path to have bound symbol");
       match_context.new_symbols.emplace_back(named_path.first);
     }
     if (!filters.empty()) {
@@ -854,9 +854,9 @@ class RuleBasedPlanner {
     const auto &node_symbol = symbol_table.at(*expansion.node2->identifier_);
     auto *edge = expansion.edge;
 
-    auto existing_node = utils::Contains(bound_symbols, node_symbol);
+    auto existing_node = bound_symbols.contains(node_symbol);
     const auto &edge_symbol = symbol_table.at(*edge->identifier_);
-    MG_ASSERT(!utils::Contains(bound_symbols, edge_symbol), "Existing edges are not supported");
+    MG_ASSERT(!bound_symbols.contains(edge_symbol), "Existing edges are not supported");
 
     auto edge_types = GetEdgeTypes(edge->edge_types_);
     if (edge->IsVariable()) {
@@ -923,7 +923,7 @@ class RuleBasedPlanner {
       filters.erase(std::remove_if(filters.begin(), filters.end(),
                                    [&inner_symbols](FilterInfo &fi) {
                                      for (const auto &symbol : inner_symbols) {
-                                       if (utils::Contains(fi.used_symbols, symbol)) return true;
+                                       if (fi.used_symbols.contains(symbol)) return true;
                                      }
                                      return false;
                                    }),
@@ -981,12 +981,12 @@ class RuleBasedPlanner {
         // nothing to test edge uniqueness with
         continue;
       }
-      if (edge_symbols.find(edge_symbol) == edge_symbols.end()) {
+      if (!edge_symbols.contains(edge_symbol)) {
         continue;
       }
       std::vector<Symbol> other_symbols;
       for (const auto &symbol : edge_symbols) {
-        if (symbol == edge_symbol || bound_symbols.find(symbol) == bound_symbols.end()) {
+        if (symbol == edge_symbol || !bound_symbols.contains(symbol)) {
           continue;
         }
         other_symbols.push_back(symbol);

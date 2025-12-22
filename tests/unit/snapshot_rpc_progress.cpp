@@ -660,7 +660,7 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedNoVertices) {
   InMemoryUniqueConstraints unique_constraints;
   ASSERT_EQ(
       unique_constraints.CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, std::nullopt, snapshot_info)
-          .GetValue(),
+          .value(),
       InMemoryUniqueConstraints::CreationStatus::SUCCESS);
 }
 
@@ -692,7 +692,7 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedVertices) {
   InMemoryUniqueConstraints unique_constraints;
   ASSERT_EQ(
       unique_constraints.CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, std::nullopt, snapshot_info)
-          .GetValue(),
+          .value(),
       InMemoryUniqueConstraints::CreationStatus::SUCCESS);
 }
 
@@ -728,7 +728,7 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsMultiThreadedVertices) {
   InMemoryUniqueConstraints unique_constraints;
   ASSERT_EQ(unique_constraints
                 .CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, par_schema_info, snapshot_info)
-                .GetValue(),
+                .value(),
             InMemoryUniqueConstraints::CreationStatus::SUCCESS);
 }
 

@@ -12,6 +12,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -174,12 +175,12 @@ class Listener final {
   void WaitAndProcessEvents() {
     // This array can't be global because this function can be called from
     // multiple threads, therefore, it must be on the stack.
-    io::network::Epoll::Event events[kMaxEvents];
+    std::array<io::network::Epoll::Event, kMaxEvents> events;  // intentionally uninitialized
 
     // Waits for an events and returns a maximum of max_events (1)
     // and stores them in the events array. It waits for wait_timeout
     // milliseconds. If wait_timeout is achieved, returns 0.
-    int n = epoll_.Wait(events, kMaxEvents, 200);
+    int n = epoll_.Wait(events.data(), kMaxEvents, 200);
     if (n <= 0) return;
 
     // Process the event.

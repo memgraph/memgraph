@@ -33,7 +33,7 @@ RpcMessageDeliverer::RpcMessageDeliverer(Server *server, io::network::Endpoint c
     : server_(server), input_stream_(input_stream), output_stream_(output_stream) {}
 
 auto RpcMessageDeliverer::GetRemainingFileSize() const -> std::optional<uint64_t> {
-  if (!file_replication_handler_.has_value() || !file_replication_handler_->HasOpenedFile()) {
+  if (!file_replication_handler_ || !file_replication_handler_->HasOpenedFile()) {
     return std::nullopt;
   }
   // If we are here it means that the file is open, hence this check is valid
@@ -82,7 +82,7 @@ void RpcMessageDeliverer::Execute() {
     }
 
     if (ret.status == slk::StreamStatus::NEW_FILE) {
-      if (!file_replication_handler_.has_value()) {
+      if (!file_replication_handler_) {
         // Will be used at the end to construct slk::Reader. Contains message header and request. It is necessary to do
         // this only when initializing FileReplicationHandler
         header_request_ =
@@ -100,7 +100,7 @@ void RpcMessageDeliverer::Execute() {
       // In OpenFile, we process file name, file size and file data contained in this segment
       auto const res = file_replication_handler_->OpenFile(input_stream_->data() + consumed_bytes,
                                                            input_stream_->size() - consumed_bytes);
-      if (!res.has_value()) {
+      if (!res) {
         throw SessionException("Error happened while opening file in RpcMessageDeliverer!");
       }
 
@@ -126,7 +126,7 @@ void RpcMessageDeliverer::Execute() {
   }};
 
   // Writing last segment
-  if (file_replication_handler_.has_value()) {
+  if (file_replication_handler_) {
     file_replication_handler_->WriteToFile(input_stream_->data(), input_stream_->size());
     MG_ASSERT(!file_replication_handler_->HasOpenedFile(), "File should be closed after completing the stream");
   }
@@ -146,7 +146,7 @@ void RpcMessageDeliverer::Execute() {
     }
   });
 
-  if (!maybe_message_header.has_value()) {
+  if (!maybe_message_header) {
     throw SlkRpcFailedException();
   }
 

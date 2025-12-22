@@ -9,6 +9,7 @@
 /// @file
 #pragma once
 
+#include <array>
 #include <filesystem>
 #include <map>
 #include <mutex>
@@ -59,8 +60,8 @@ class Module final {
   std::unique_ptr<uint8_t[]> stack_{new uint8_t[kStackSizeBytes]};
   // The target arguments passed to the new process must be heap allocated.
   std::unique_ptr<TargetArguments> target_arguments_{new TargetArguments()};
-  int pipe_to_module_[2] = {-1, -1};
-  int pipe_from_module_[2] = {-1, -1};
+  std::array<int, 2> pipe_to_module_ = {-1, -1};
+  std::array<int, 2> pipe_from_module_ = {-1, -1};
 };
 
 }  // namespace memgraph::auth

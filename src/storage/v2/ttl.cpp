@@ -269,9 +269,9 @@ void TTL::Configure(bool should_run_edge_ttl) {
               vertices_to_delete_pointers.push_back(&vertex);
             }
             auto result = batch_accessor->DetachDelete(vertices_to_delete_pointers, {}, true);
-            if (result.HasValue() && result.GetValue().has_value()) {
-              n_deleted += result.GetValue()->first.size();
-              n_edges_deleted += result.GetValue()->second.size();
+            if (result.has_value() && result->has_value()) {
+              n_deleted += (*result)->first.size();
+              n_edges_deleted += (*result)->second.size();
             }
           }
 
@@ -298,8 +298,8 @@ void TTL::Configure(bool should_run_edge_ttl) {
               edges_to_delete_pointers.push_back(&edge);
             }
             auto result = batch_accessor->DetachDelete({}, edges_to_delete_pointers, false);
-            if (result.HasValue() && result.GetValue().has_value()) {
-              n_edges_deleted += result.GetValue()->second.size();
+            if (result.has_value() && result->has_value()) {
+              n_edges_deleted += (*result)->second.size();
             }
           }
 
@@ -318,7 +318,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
 
         // Commit the transaction for this batch using the database protector
         auto commit_result = batch_accessor->PrepareForCommitPhase(CommitArgs::make_main(std::move(protector)));
-        if (commit_result.HasError()) {
+        if (!commit_result) {
           // Transaction failed, will retry in next iteration
           // TODO: on sync replication error it should not continue since it commits
           continue;

@@ -24,7 +24,7 @@ auto GetOldDiskKeyOrNull(storage::Delta *head) -> std::optional<std::string_view
 
 template <typename TSkipListAccessor>
 bool ObjectExistsInCache(TSkipListAccessor &accessor, storage::Gid gid) {
-  return accessor.find(gid) != accessor.end();
+  return accessor.contains(gid);
 }
 
 auto GetEarliestTimestamp(storage::Delta *head) -> uint64_t;

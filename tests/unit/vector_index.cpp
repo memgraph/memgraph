@@ -14,6 +14,7 @@
 #include <thread>
 #include <usearch/index_plugins.hpp>
 
+#include "flags/general.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -25,7 +26,7 @@
 using namespace memgraph::storage;
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).HasError())
+#define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
 
 static constexpr std::string_view test_index = "test_index";
 static constexpr std::string_view test_label = "test_label";
@@ -49,10 +50,16 @@ class VectorIndexTest : public testing::Test {
     const auto property = unique_acc->NameToProperty(test_property.data());
 
     // Create a specification for the index
-    const auto spec = VectorIndexSpec{test_index.data(),  label,    property,   metric, dimension,
-                                      resize_coefficient, capacity, scalar_kind};
+    const auto spec = VectorIndexSpec{.index_name = test_index.data(),
+                                      .label_id = label,
+                                      .property = property,
+                                      .metric_kind = metric,
+                                      .dimension = dimension,
+                                      .resize_coefficient = resize_coefficient,
+                                      .capacity = capacity,
+                                      .scalar_kind = scalar_kind};
 
-    EXPECT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
+    EXPECT_FALSE(!unique_acc->CreateVectorIndex(spec).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -60,8 +67,8 @@ class VectorIndexTest : public testing::Test {
                               const PropertyValue &property_value, std::string_view label) {
     VertexAccessor vertex = accessor->CreateVertex();
     // NOLINTBEGIN
-    MG_ASSERT(!vertex.AddLabel(accessor->NameToLabel(label)).HasError());
-    MG_ASSERT(!vertex.SetProperty(accessor->NameToProperty(property), property_value).HasError());
+    MG_ASSERT(vertex.AddLabel(accessor->NameToLabel(label)).has_value());
+    MG_ASSERT(vertex.SetProperty(accessor->NameToProperty(property), property_value).has_value());
     // NOLINTEND
 
     return vertex;
@@ -200,7 +207,7 @@ TEST_F(VectorIndexTest, UpdatePropertyValueTest) {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
     PropertyValue updated_value(std::vector<PropertyValue>{PropertyValue(2.0), PropertyValue(2.0)});
-    MG_ASSERT(!vertex.SetProperty(acc->NameToProperty(test_property), updated_value).HasError());  // NOLINT
+    MG_ASSERT(vertex.SetProperty(acc->NameToProperty(test_property), updated_value).has_value());  // NOLINT
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     // Verify update with search
@@ -220,7 +227,7 @@ TEST_F(VectorIndexTest, DeleteVertexTest) {
 
   // Delete the vertex
   auto maybe_deleted_vertex = acc->DeleteVertex(&vertex);
-  EXPECT_EQ(maybe_deleted_vertex.HasValue(), true);
+  EXPECT_EQ(maybe_deleted_vertex.has_value(), true);
   ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
   // Verify that the vertex was deleted
@@ -264,7 +271,7 @@ TEST_F(VectorIndexTest, MultipleAbortsAndUpdatesTest) {
     acc = this->storage->Access();
     vertex = acc->FindVertex(vertex.Gid(), View::OLD).value();
     vertex_gid = vertex.Gid();
-    MG_ASSERT(!vertex.RemoveLabel(acc->NameToLabel(test_label)).HasError());  // NOLINT
+    MG_ASSERT(vertex.RemoveLabel(acc->NameToLabel(test_label)).has_value());  // NOLINT
     acc->Abort();
 
     // Expect the index to have 1 entry, as the transaction was aborted
@@ -276,7 +283,7 @@ TEST_F(VectorIndexTest, MultipleAbortsAndUpdatesTest) {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
     PropertyValue null_value;
-    MG_ASSERT(!vertex.SetProperty(acc->NameToProperty(test_property), null_value).HasError());  // NOLINT
+    MG_ASSERT(vertex.SetProperty(acc->NameToProperty(test_property), null_value).has_value());  // NOLINT
     acc->Abort();
 
     // Expect the index to have 1 entry, as the transaction was aborted
@@ -287,7 +294,7 @@ TEST_F(VectorIndexTest, MultipleAbortsAndUpdatesTest) {
   {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
-    MG_ASSERT(!vertex.RemoveLabel(acc->NameToLabel(test_label)).HasError());  // NOLINT
+    MG_ASSERT(vertex.RemoveLabel(acc->NameToLabel(test_label)).has_value());  // NOLINT
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     // Expect the index to have 0 entries, as the transaction was committed
@@ -300,7 +307,7 @@ TEST_F(VectorIndexTest, MultipleAbortsAndUpdatesTest) {
   {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
-    MG_ASSERT(!vertex.AddLabel(acc->NameToLabel(test_label)).HasError());  // NOLINT
+    MG_ASSERT(vertex.AddLabel(acc->NameToLabel(test_label)).has_value());  // NOLINT
     acc->Abort();
 
     // Expect the index to have 0 entries, as the transaction was aborted
@@ -311,7 +318,7 @@ TEST_F(VectorIndexTest, MultipleAbortsAndUpdatesTest) {
   {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
-    MG_ASSERT(!vertex.AddLabel(acc->NameToLabel(test_label)).HasError());  // NOLINT
+    MG_ASSERT(vertex.AddLabel(acc->NameToLabel(test_label)).has_value());  // NOLINT
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     // Expect the index to have 1 entry, as the transaction was committed
@@ -324,7 +331,7 @@ TEST_F(VectorIndexTest, MultipleAbortsAndUpdatesTest) {
   {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
-    MG_ASSERT(!vertex.SetProperty(acc->NameToProperty(test_property), null_value).HasError());  // NOLINT
+    MG_ASSERT(vertex.SetProperty(acc->NameToProperty(test_property), null_value).has_value());  // NOLINT
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     // Expect the index to have 0 entries, as the transaction was committed
@@ -337,7 +344,7 @@ TEST_F(VectorIndexTest, MultipleAbortsAndUpdatesTest) {
   {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
-    MG_ASSERT(!vertex.SetProperty(acc->NameToProperty(test_property), properties).HasError());  // NOLINT
+    MG_ASSERT(vertex.SetProperty(acc->NameToProperty(test_property), properties).has_value());  // NOLINT
     acc->Abort();
 
     // Expect the index to have 0 entries, as the transaction was aborted
@@ -362,11 +369,11 @@ TEST_F(VectorIndexTest, RemoveObsoleteEntriesTest) {
     auto acc = this->storage->Access();
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
     auto maybe_deleted_vertex = acc->DeleteVertex(&vertex);
-    EXPECT_EQ(maybe_deleted_vertex.HasValue(), true);
+    EXPECT_EQ(maybe_deleted_vertex.has_value(), true);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  // Expect the index to have 1 entry since gc has not been run
+  // Expect the index to have 1 entry, as gc hasn't run yet
   {
     auto acc = this->storage->Access();
     EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
@@ -415,7 +422,7 @@ TEST_F(VectorIndexTest, DropIndexTest) {
   // Drop the index
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropVectorIndex(test_index.data()).HasError());
+    EXPECT_FALSE(!unique_acc->DropVectorIndex(test_index.data()).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -464,5 +471,115 @@ TEST_F(VectorIndexTest, CreateIndexWhenNodesExistsAlreadyTest) {
   {
     auto acc = this->storage->Access();
     EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+  }
+}
+
+class VectorIndexRecoveryTest : public testing::Test {
+ public:
+  static constexpr std::uint16_t kDimension = 2;
+  static constexpr std::size_t kNumNodes = 100;
+
+  void SetUp() override {
+    auto acc = vertices_.access();
+    for (std::size_t i = 0; i < kNumNodes; i++) {
+      auto [vertex_iter, inserted] = acc.insert(Vertex{Gid::FromUint(i), nullptr});
+      ASSERT_TRUE(inserted);
+      vertex_iter->labels.push_back(LabelId::FromUint(1));
+      PropertyValue property_value(
+          std::vector<PropertyValue>{PropertyValue(static_cast<double>(i)), PropertyValue(static_cast<double>(i + 1))});
+      vertex_iter->properties.SetProperty(PropertyId::FromUint(1), property_value);
+    }
+  }
+
+  static VectorIndexSpec CreateSpec(const std::string &name = "test_index") {
+    return VectorIndexSpec{.index_name = name,
+                           .label_id = LabelId::FromUint(1),
+                           .property = PropertyId::FromUint(1),
+                           .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                           .dimension = kDimension,
+                           .resize_coefficient = 2,
+                           .capacity = kNumNodes,
+                           .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
+  }
+
+  memgraph::utils::SkipList<Vertex> vertices_;
+  VectorIndex vector_index_;
+};
+
+TEST_F(VectorIndexRecoveryTest, RecoverIndexSingleThreadTest) {
+  // Ensure single-threaded recovery
+  FLAGS_storage_parallel_schema_recovery = false;
+
+  auto vertices_acc = vertices_.access();
+  const auto spec = CreateSpec();
+
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(spec, vertices_acc));
+
+  // Verify all nodes are in the index
+  const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
+  EXPECT_EQ(vector_index_info.size(), 1);
+  EXPECT_EQ(vector_index_info[0].size, kNumNodes);
+
+  // Search for each vertex and verify it's found
+  for (auto &vertex : vertices_acc) {
+    const auto vector = vector_index_.GetVectorFromVertex(&vertex, "test_index");
+    EXPECT_EQ(vector.size(), kDimension);
+    EXPECT_EQ(vector[0], static_cast<float>(vertex.gid.AsUint()));
+    EXPECT_EQ(vector[1], static_cast<float>(vertex.gid.AsUint() + 1));
+  }
+}
+
+TEST_F(VectorIndexRecoveryTest, RecoverIndexParallelTest) {
+  // Enable parallel recovery with multiple threads
+  FLAGS_storage_parallel_schema_recovery = true;
+  FLAGS_storage_recovery_thread_count =
+      (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 1;
+
+  auto vertices_acc = vertices_.access();
+  const auto spec = CreateSpec();
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(spec, vertices_acc));
+
+  // Verify all nodes are in the index
+  const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
+  EXPECT_EQ(vector_index_info.size(), 1);
+  EXPECT_EQ(vector_index_info[0].size, kNumNodes);
+
+  // Verify all nodes are in the index
+  for (auto &vertex : vertices_acc) {
+    const auto vector = vector_index_.GetVectorFromVertex(&vertex, "test_index");
+    EXPECT_EQ(vector.size(), kDimension);
+    EXPECT_EQ(vector[0], static_cast<float>(vertex.gid.AsUint()));
+    EXPECT_EQ(vector[1], static_cast<float>(vertex.gid.AsUint() + 1));
+  }
+}
+
+TEST_F(VectorIndexRecoveryTest, ConcurrentAddWithResizeTest) {
+  FLAGS_storage_parallel_schema_recovery = true;
+  FLAGS_storage_recovery_thread_count =
+      (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 4;
+
+  auto vertices_acc = vertices_.access();
+
+  auto spec = VectorIndexSpec{.index_name = "resize_test_index",
+                              .label_id = LabelId::FromUint(1),
+                              .property = PropertyId::FromUint(1),
+                              .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                              .dimension = kDimension,
+                              .resize_coefficient = 2,
+                              .capacity = 10,  // Small capacity to force resize
+                              .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
+
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(spec, vertices_acc));
+
+  const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
+  EXPECT_EQ(vector_index_info.size(), 1);
+  EXPECT_EQ(vector_index_info[0].size, kNumNodes);
+  EXPECT_GE(vector_index_info[0].capacity, kNumNodes);
+
+  for (auto &vertex : vertices_acc) {
+    const auto vector = vector_index_.GetVectorFromVertex(&vertex, "resize_test_index");
+    EXPECT_EQ(vector.size(), kDimension);
+    EXPECT_EQ(vector[0], static_cast<float>(vertex.gid.AsUint()));
+    EXPECT_EQ(vector[1], static_cast<float>(vertex.gid.AsUint() + 1));
   }
 }

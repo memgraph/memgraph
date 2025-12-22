@@ -822,7 +822,7 @@ class User final {
     try {
       for (const auto &role : db_role_map_.at(db_name)) {
         if (const auto &role_obj = roles_.GetRole(role); role_obj) {
-          DMG_ASSERT(role_obj.value().HasAccess(db_name), "Role {} does not have access to database {}", role, db_name);
+          DMG_ASSERT(role_obj->HasAccess(db_name), "Role {} does not have access to database {}", role, db_name);
           roles.insert(role_obj.value());
         }
       }

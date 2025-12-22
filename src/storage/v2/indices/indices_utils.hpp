@@ -65,7 +65,7 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
   const Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{vertex.lock};
-    has_label = utils::Contains(vertex.labels, label);
+    has_label = std::ranges::contains(vertex.labels, label);
     deleted = vertex.deleted;
     delta = vertex.delta;
   }
@@ -529,8 +529,8 @@ inline std::optional<std::vector<PropertyValue>> GenerateBounds(
     const std::vector<std::optional<utils::Bound<PropertyValue>>> &bounds, const PropertyValue &default_value) {
   if (ranges::any_of(bounds, [](auto &&ub) { return ub.has_value(); })) {
     return bounds | ranges::views::transform([&default_value](auto &&bound) -> storage::PropertyValue {
-             if (bound.has_value()) {
-               return bound.value().value();
+             if (bound) {
+               return bound->value();
              }
              return default_value;
            }) |

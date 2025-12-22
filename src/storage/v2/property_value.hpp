@@ -1482,7 +1482,7 @@ struct ExtendedPropertyType {
   TemporalType temporal_type{};
   EnumTypeId enum_type;
 
-  ExtendedPropertyType() {}
+  ExtendedPropertyType() = default;
   explicit ExtendedPropertyType(PropertyValueType type) : type{type} {}
   explicit ExtendedPropertyType(TemporalType temporal_type)
       : type{PropertyValueType::TemporalData}, temporal_type{temporal_type} {}
