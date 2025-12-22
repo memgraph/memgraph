@@ -52,8 +52,6 @@ BENCHMARK_F(MemoryResourceFixture, MonotonicBufferResource_SingleThread)(benchma
     void *ptr = mem.allocate(64, 8);
     benchmark::DoNotOptimize(ptr);
   }
-
-  mem.Release();
 }
 
 BENCHMARK_F(MemoryResourceFixture, ThreadSafeMonotonicBufferResource_SingleThread)(benchmark::State &state) {
@@ -63,8 +61,6 @@ BENCHMARK_F(MemoryResourceFixture, ThreadSafeMonotonicBufferResource_SingleThrea
     void *ptr = mem.allocate(64, 8);
     benchmark::DoNotOptimize(ptr);
   }
-
-  mem.Release();
 }
 
 BENCHMARK_F(MemoryResourceFixture, MonotonicBufferResource_SingleThread_TinyAllocations)(benchmark::State &state) {
@@ -86,8 +82,6 @@ BENCHMARK_F(MemoryResourceFixture, ThreadSafeMonotonicBufferResource_SingleThrea
     void *ptr = mem.allocate(4, 2);
     benchmark::DoNotOptimize(ptr);
   }
-
-  mem.Release();
 }
 
 BENCHMARK_F(MemoryResourceFixture, MonotonicBufferResource_SingleThread_LargeAllocations)(benchmark::State &state) {
@@ -109,8 +103,6 @@ BENCHMARK_F(MemoryResourceFixture, ThreadSafeMonotonicBufferResource_SingleThrea
     void *ptr = mem.allocate(1024, 16);
     benchmark::DoNotOptimize(ptr);
   }
-
-  mem.Release();
 }
 
 BENCHMARK_F(MemoryResourceFixture, MonotonicBufferResource_SingleThread_RandomAllocations)(benchmark::State &state) {
@@ -134,8 +126,6 @@ BENCHMARK_F(MemoryResourceFixture, ThreadSafeMonotonicBufferResource_SingleThrea
     void *ptr = mem.allocate(size, alignment);
     benchmark::DoNotOptimize(ptr);
   }
-
-  mem.Release();
 }
 
 // Mixed workload benchmark (allocations of different sizes)
@@ -171,8 +161,6 @@ static void BM_MixedAllocations(benchmark::State &state) {
 
     benchmark::DoNotOptimize(total_allocations.load());
   }
-
-  mem.Release();
 }
 
 BENCHMARK(BM_MixedAllocations)->RangeMultiplier(2)->Range(1, 8)->UseRealTime()->Unit(benchmark::kMicrosecond);
@@ -206,8 +194,6 @@ static void BM_HighContention(benchmark::State &state) {
 
     benchmark::DoNotOptimize(total_allocations.load());
   }
-
-  mem.Release();
 }
 
 BENCHMARK(BM_HighContention)->RangeMultiplier(2)->Range(2, 16)->UseRealTime()->Unit(benchmark::kMicrosecond);
