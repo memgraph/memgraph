@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,30 +11,23 @@
 
 #include <fmt/format.h>
 
+#include <shared_mutex>
+
 #include "utils/logging.hpp"
 #include "utils/settings.hpp"
 
 namespace memgraph::utils {
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-Settings global_settings;
 
-void Settings::Initialize(std::filesystem::path storage_path) {
+Settings::Settings(std::filesystem::path storage_path) {
   std::lock_guard settings_guard{settings_lock_};
   storage_.emplace(std::move(storage_path));
-}
-
-void Settings::Finalize() {
-  std::lock_guard settings_guard{settings_lock_};
-  storage_.reset();
-  on_change_callbacks_.clear();
-  validations_.clear();
 }
 
 void Settings::RegisterSetting(std::string name, const std::string &default_value, OnChangeCallback callback,
                                Validation validation) {
   std::lock_guard settings_guard{settings_lock_};
-  MG_ASSERT(storage_);
-  MG_ASSERT(!validation(default_value).HasError(), "\"{}\"'s default value does not satisfy the validation condition.",
+  if (!storage_) return;
+  MG_ASSERT(validation(default_value).has_value(), "\"{}\"'s default value does not satisfy the validation condition.",
             name);
 
   if (const auto maybe_value = storage_->Get(name); maybe_value) {
@@ -54,7 +47,7 @@ void Settings::RegisterSetting(std::string name, const std::string &default_valu
 
 std::optional<std::string> Settings::GetValue(const std::string &setting_name) const {
   std::shared_lock settings_guard{settings_lock_};
-  MG_ASSERT(storage_);
+  if (!storage_) return std::nullopt;
   auto maybe_value = storage_->Get(setting_name);
   return maybe_value;
 }
@@ -62,7 +55,7 @@ std::optional<std::string> Settings::GetValue(const std::string &setting_name) c
 bool Settings::SetValue(const std::string &setting_name, const std::string &new_value) {
   const auto settings_change_callback = std::invoke([&, this]() -> std::optional<OnChangeCallback> {
     std::lock_guard settings_guard{settings_lock_};
-    MG_ASSERT(storage_);
+    if (!storage_) return std::nullopt;
 
     if (const auto maybe_value = storage_->Get(setting_name); !maybe_value) {
       return std::nullopt;
@@ -91,8 +84,7 @@ bool Settings::SetValue(const std::string &setting_name, const std::string &new_
 
 std::vector<std::pair<std::string, std::string>> Settings::AllSettings() const {
   std::shared_lock settings_guard{settings_lock_};
-
-  MG_ASSERT(storage_);
+  if (!storage_) return {};
 
   std::vector<std::pair<std::string, std::string>> settings;
   settings.reserve(storage_->Size());

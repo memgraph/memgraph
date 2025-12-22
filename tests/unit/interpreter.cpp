@@ -98,6 +98,7 @@ class InterpreterTest : public ::testing::Test {
 
   memgraph::system::System system_state;
   memgraph::query::InterpreterContext interpreter_context{{},
+                                                          nullptr,
                                                           kNoHandler,
                                                           repl_state,
                                                           system_state
@@ -1172,6 +1173,7 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
         std::nullopt};
     memgraph::system::System system_state;
     memgraph::query::InterpreterContext csv_interpreter_context{{.query = {.allow_load_csv = allow_load_csv}},
+                                                                nullptr,
                                                                 nullptr,
                                                                 repl_state,
                                                                 system_state

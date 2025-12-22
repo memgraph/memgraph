@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 #include <cstdint>
+#include <memory>
 
 #include "license/license.hpp"
 #include "utils/settings.hpp"
@@ -18,13 +19,12 @@
 class LicenseTest : public ::testing::Test {
  public:
   void SetUp() override {
-    settings.emplace();
-    settings->Initialize(settings_directory);
+    settings = std::make_shared<memgraph::utils::Settings>(settings_directory);
 
     license_checker.emplace();
     memgraph::license::RegisterLicenseSettings(*license_checker, *settings);
 
-    license_checker->StartBackgroundLicenseChecker(*settings);
+    license_checker->StartBackgroundLicenseChecker(settings);
   }
 
   void TearDown() override { std::filesystem::remove_all(test_directory); }
@@ -38,7 +38,7 @@ class LicenseTest : public ::testing::Test {
     ASSERT_EQ(license_checker->IsEnterpriseValidFast(), expected_valid);
   }
 
-  std::optional<memgraph::utils::Settings> settings;
+  std::shared_ptr<memgraph::utils::Settings> settings;
   std::optional<memgraph::license::LicenseChecker> license_checker;
 };
 

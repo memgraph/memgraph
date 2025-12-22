@@ -29,7 +29,6 @@
 #include "utils/result.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/scheduler.hpp"
-#include "utils/settings.hpp"
 #include "utils/string.hpp"
 #include "utils/synchronized.hpp"
 
@@ -208,9 +207,9 @@ memgraph::utils::Settings::ValidatorResult ValidBoolStr(std::string_view in) {
   return {};
 }
 
-auto GenHandler(std::string flag, std::string key) {
-  return [key = std::move(key), flag = std::move(flag)]() -> std::string {
-    const auto &val = memgraph::utils::global_settings.GetValue(key);
+auto GenHandler(memgraph::utils::Settings &settings, std::string flag, std::string key) {
+  return [key = std::move(key), flag = std::move(flag), &settings]() -> std::string {
+    const auto &val = settings.GetValue(key);
     MG_ASSERT(val, "Failed to read value at '{}' from settings.", key);
     gflags::SetCommandLineOption(flag.c_str(), val->c_str());
     return *val;
@@ -284,7 +283,8 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
 
 namespace memgraph::flags::run_time {
 
-void Initialize() {
+// NOTE: settings needs to be stable for the duration of the program
+void Initialize(utils::Settings &settings) {
   constexpr bool kRestore = true;  //!< run-time flag is persistent between Memgraph restarts
 
   /**
@@ -306,19 +306,19 @@ void Initialize() {
     gflags::GetCommandLineFlagInfo(flag.c_str(), &info);
 
     // Generate settings callback
-    auto callback = [update = GenHandler(flag, key), post_update = std::move(post_update)] {
+    auto callback = [update = GenHandler(settings, flag, key), post_update = std::move(post_update)] {
       const auto &val = update();
       post_update(val);
     };
     // Register setting
-    memgraph::utils::global_settings.RegisterSetting(key, info.default_value, callback, std::move(validator));
+    settings.RegisterSetting(key, info.default_value, callback, std::move(validator));
 
     if (restore && info.is_default) {
       // No input from the user, restore persistent value from settings
       callback();
     } else {
       // Override with current value - user defined a new value or the run-time flag is not persistent between starts
-      memgraph::utils::global_settings.SetValue(key, info.current_value);
+      settings.SetValue(key, info.current_value);
     }
   };
 
@@ -364,10 +364,10 @@ void Initialize() {
    */
   register_flag(
       kLogToStderrGFlagsKey, kLogToStderrSettingKey, !kRestore,
-      [](const std::string &val) {
+      [&settings](const std::string &val) {
         if (val == "true") {
           // No need to check if ll_val exists, we got here, so the log_level must exist already
-          const auto &ll_val = memgraph::utils::global_settings.GetValue(kLogLevelSettingKey);
+          const auto &ll_val = settings.GetValue(kLogLevelSettingKey);
           LogToStderr(ToLLEnum(*ll_val));
         } else {
           LogToStderr(spdlog::level::off);

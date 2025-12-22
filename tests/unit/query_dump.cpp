@@ -435,6 +435,7 @@ class DumpTest : public ::testing::Test {
   memgraph::system::System system_state;
   memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{},
                                               nullptr,
+                                              nullptr,
                                               repl_state,
                                               system_state
 #ifdef MG_ENTERPRISE
@@ -1180,8 +1181,8 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
       << "Wrong storage mode!";
 
   memgraph::system::System system_state;
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, repl_state,
-                                                          system_state
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, nullptr,
+                                                          repl_state, system_state
 #ifdef MG_ENTERPRISE
                                                           ,
                                                           std::nullopt, nullptr
@@ -1360,8 +1361,8 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
       << "Wrong storage mode!";
 
   memgraph::system::System system_state;
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, repl_state,
-                                                          system_state
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, nullptr,
+                                                          repl_state, system_state
 #ifdef MG_ENTERPRISE
                                                           ,
                                                           std::nullopt, nullptr

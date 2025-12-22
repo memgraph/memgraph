@@ -804,8 +804,8 @@ void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &pa
   } else {
     // Check if compliant with our filter
     if (config_.custom_password_regex) {
-      if (const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
-          license_check_result.HasError()) {
+      if (const auto license_check_result = license::global_license_checker.IsEnterpriseValid();
+          !license_check_result.has_value()) {
         throw AuthException(
             "Custom password regex is a Memgraph Enterprise feature. Please set the config "
             "(\"--auth-password-strength-regex\") to its default value (\"{}\") or remove the flag.\n{}",
@@ -1444,9 +1444,8 @@ void Auth::SetMainDatabase(std::string_view db, Role &role, system::Transaction 
 
 bool Auth::NameRegexMatch(const std::string &user_or_role) const {
   if (config_.custom_name_regex) {
-    if (const auto license_check_result =
-            memgraph::license::global_license_checker.IsEnterpriseValid(memgraph::utils::global_settings);
-        license_check_result.HasError()) {
+    if (const auto license_check_result = memgraph::license::global_license_checker.IsEnterpriseValid();
+        !license_check_result.has_value()) {
       throw memgraph::auth::AuthException(
           "Custom user/role regex is a Memgraph Enterprise feature. Please set the config "
           "(\"--auth-user-or-role-name-regex\") to its default value (\"{}\") or remove the flag.\n{}",
