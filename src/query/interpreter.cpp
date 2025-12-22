@@ -807,7 +807,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 
   Callback callback;
 
-  const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
+  const auto license_check_result = license::global_license_checker.IsEnterpriseValid();
 
   static const std::unordered_set enterprise_only_methods{AuthQuery::Action::CREATE_ROLE,
                                                           AuthQuery::Action::DROP_ROLE,
@@ -2325,7 +2325,8 @@ Callback HandleConfigQuery() {
   return callback;
 }
 
-Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters) {
+Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters,
+                            InterpreterContext *interpreter_context) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   EvaluationContext evaluation_context;
@@ -2347,8 +2348,12 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       }
 
       callback.fn = [setting_name = std::string{setting_name.ValueString()},
-                     setting_value = std::string{setting_value.ValueString()}]() mutable {
-        if (!utils::global_settings.SetValue(setting_name, setting_value)) {
+                     setting_value = std::string{setting_value.ValueString()},
+                     settings = interpreter_context->settings]() mutable {
+        if (!settings) {
+          throw QueryRuntimeException("Settings are not available");
+        }
+        if (!settings->SetValue(setting_name, setting_value)) {
           throw utils::BasicException("Unknown setting name '{}'", setting_name);
         }
         return std::vector<std::vector<TypedValue>>{};
@@ -2362,8 +2367,11 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       }
 
       callback.header = {"setting_value"};
-      callback.fn = [setting_name = std::string{setting_name.ValueString()}] {
-        auto maybe_value = utils::global_settings.GetValue(setting_name);
+      callback.fn = [setting_name = std::string{setting_name.ValueString()}, settings = interpreter_context->settings] {
+        if (!settings) {
+          throw QueryRuntimeException("Settings are not available");
+        }
+        auto maybe_value = settings->GetValue(setting_name);
         if (!maybe_value) {
           throw utils::BasicException("Unknown setting name '{}'", setting_name);
         }
@@ -2381,8 +2389,11 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
     }
     case SettingQuery::Action::SHOW_ALL_SETTINGS: {
       callback.header = {"setting_name", "setting_value"};
-      callback.fn = [] {
-        auto all_settings = utils::global_settings.AllSettings();
+      callback.fn = [settings = interpreter_context->settings] {
+        if (!settings) {
+          throw QueryRuntimeException("Settings are not available");
+        }
+        auto all_settings = settings->AllSettings();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(all_settings.size());
 
@@ -5129,7 +5140,9 @@ PreparedQuery PrepareShowNextSnapshotQuery(ParsedQuery parsed_query, bool in_exp
                        RWType::NONE};
 }
 
-PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction) {
+namespace {
+PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                  InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
   }
@@ -5137,7 +5150,7 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
   auto *setting_query = utils::Downcast<SettingQuery>(parsed_query.query);
   MG_ASSERT(setting_query);
 
-  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters);
+  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters, interpreter_context);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -5155,6 +5168,7 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
   // False positive report for the std::make_shared above
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
+}  // namespace
 
 template <typename Func>
 auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *user_or_role,
@@ -7536,7 +7550,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareShowNextSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       /// SYSTEM PURE
-      prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_);
+      prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);

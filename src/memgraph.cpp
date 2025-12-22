@@ -309,23 +309,20 @@ int main(int argc, char **argv) {
   memgraph::utils::total_memory_tracker.SetMaximumHardLimit(memory_limit);
   memgraph::utils::total_memory_tracker.SetHardLimit(memory_limit);
 
-  memgraph::utils::global_settings.Initialize(data_directory / "settings");
-  memgraph::utils::OnScopeExit settings_finalizer([&] { memgraph::utils::global_settings.Finalize(); });
+  auto settings = std::make_shared<memgraph::utils::Settings>(data_directory / "settings");
 
   // register all runtime settings
-  memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker,
-                                             memgraph::utils::global_settings);
-  memgraph::utils::OnScopeExit global_license_finalizer([] { memgraph::license::global_license_checker.Finalize(); });
+  memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker, *settings);
 
   memgraph::license::global_license_checker.CheckEnvLicense();
   if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
     memgraph::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
   }
 
-  memgraph::license::global_license_checker.StartBackgroundLicenseChecker(memgraph::utils::global_settings);
+  memgraph::license::global_license_checker.StartBackgroundLicenseChecker(settings);
 
   // Has to be initialized after the storage and license startup
-  memgraph::flags::run_time::Initialize();
+  memgraph::flags::run_time::Initialize(*settings);
 
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
@@ -532,7 +529,7 @@ int main(int argc, char **argv) {
   using memgraph::coordination::CoordinatorInstanceInitConfig;
   using memgraph::coordination::CoordinatorState;
   using memgraph::coordination::ReplicationInstanceInitConfig;
-  std::optional<CoordinatorState> coordinator_state{std::nullopt};
+  std::shared_ptr<CoordinatorState> coordinator_state{};
   auto const is_valid_data_instance =
       coordination_setup.management_port && !coordination_setup.coordinator_port && !coordination_setup.coordinator_id;
   auto const is_valid_coordinator_instance = coordination_setup.management_port &&
@@ -559,7 +556,7 @@ int main(int argc, char **argv) {
       constexpr auto kRaftDataDir = "/high_availability/raft_data";
       auto const high_availability_data_dir = FLAGS_data_directory + kRaftDataDir;
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
-      coordinator_state.emplace(CoordinatorInstanceInitConfig{
+      coordinator_state = std::make_shared<CoordinatorState>(CoordinatorInstanceInitConfig{
           .coordinator_id = coordination_setup.coordinator_id,
           .coordinator_port = coordination_setup.coordinator_port,
           .bolt_port = extracted_bolt_port,
@@ -570,7 +567,8 @@ int main(int argc, char **argv) {
           .instance_down_timeout_sec = std::chrono::seconds(FLAGS_instance_down_timeout_sec),
           .instance_health_check_frequency_sec = std::chrono::seconds(FLAGS_instance_health_check_frequency_sec)});
     } else {
-      coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
+      coordinator_state = std::make_shared<CoordinatorState>(
+          ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
     }
   };
 
@@ -589,7 +587,7 @@ int main(int argc, char **argv) {
       ReplicationStateRootPath(db_config)
 #ifdef MG_ENTERPRISE
           ,
-      coordinator_state.has_value() && coordinator_state->IsDataInstance()
+      coordinator_state && coordinator_state->IsDataInstance()
 #endif
   };
 
@@ -624,7 +622,7 @@ int main(int argc, char **argv) {
   auto db_acc = dbms_handler.Get();
 
   memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
-      interp_config, &dbms_handler, repl_state, system,
+      interp_config, settings.get(), &dbms_handler, repl_state, system,
 #ifdef MG_ENTERPRISE
       coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
                         : std::nullopt,
@@ -771,8 +769,9 @@ int main(int argc, char **argv) {
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
     metrics_server.Shutdown();
-    if (coordinator_state.has_value() && coordinator_state->IsCoordinator()) {
-      coordinator_state->ShutDownCoordinator();
+    if (coordinator_state && coordinator_state->IsCoordinator()) {
+      // Coordinator instance destruction will handle the complete shutdown
+      coordinator_state.reset();
     }
 #endif
   };
