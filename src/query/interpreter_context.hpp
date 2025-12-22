@@ -82,6 +82,7 @@ struct InterpreterContext {
   // Used to check active transactions
   // TODO: Have a way to read the current database
   utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
+  utils::ThreadPool thread_pool_{1};  // Used for cleanup tasks (1 thread is probably not enough)
 
   struct {
     auto next() -> uint64_t { return transaction_id++; }

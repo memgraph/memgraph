@@ -227,6 +227,21 @@ std::ostream &operator<<(std::ostream &os, const QueryLogWrapper &qlw) {
 }
 
 namespace memgraph::query {
+void Interpreter::ResetInterpreter() {
+  // Postpone clearing of query_executions_ to a separate thread to avoid blocking the main thread
+  interpreter_context_->thread_pool_.AddTask(
+      [query_executions = std::move(query_executions_)]() mutable { query_executions.clear(); });
+  system_transaction_.reset();
+  transaction_queries_->clear();
+  if (current_db_.db_acc_ && current_db_.db_acc_->is_marked_for_deletion()) {
+    current_db_.db_acc_.reset();
+  }
+}
+
+void Interpreter::MoveQueryExecution(std::unique_ptr<QueryExecution> query_execution) {
+  interpreter_context_->thread_pool_.AddTask(
+      [query_execution = std::move(query_execution)]() mutable { query_execution.reset(nullptr); });
+}
 
 constexpr std::string_view kSchemaAssert = "SCHEMA.ASSERT";
 constexpr int kSystemTxTryMS = 100;  //!< Duration of the unique try_lock_for
@@ -876,17 +891,23 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
               "will have full privileges to access Memgraph database. If you want to ensure privileges are applied, "
               "please add Memgraph Enterprise License and restart Memgraph for the configuration to apply.",
               username);
-          auth->GrantPrivilege(username, kPrivilegesAll
+          auth->GrantPrivilege(
+              username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-                               ,
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE, {query::kAsterisk}},
-                                 {AuthQuery::FineGrainedPrivilege::DELETE, {query::kAsterisk}}}},
-                               {AuthQuery::LabelMatchingMode::ANY},  // matching mode for label privileges
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE, {query::kAsterisk}},
-                                 {AuthQuery::FineGrainedPrivilege::DELETE, {query::kAsterisk}}}}
+              ,
+              {{{AuthQuery::FineGrainedPrivilege::CREATE, {query::kAsterisk}},
+                {AuthQuery::FineGrainedPrivilege::DELETE, {query::kAsterisk}}}},
+              {AuthQuery::LabelMatchingMode::ANY},  // matching mode for label privileges
+              {
+                {
+                  {AuthQuery::FineGrainedPrivilege::CREATE, {query::kAsterisk}}, {
+                    AuthQuery::FineGrainedPrivilege::DELETE, { query::kAsterisk }
+                  }
+                }
+              }
 #endif
-                               ,
-                               &*interpreter->system_transaction_);
+              ,
+              &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -2446,16 +2467,16 @@ struct TxTimeout {
 };
 
 struct PullPlan {
-  explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query,
-                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
-                    TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
-                    std::optional<int64_t> hops_limit = {}
+  explicit PullPlan(
+      std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query, DbAccessor *dba,
+      InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
+      std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
+      storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
+      TriggerContextCollector *trigger_context_collector = nullptr, std::optional<size_t> memory_limit = {},
+      FrameChangeCollector *frame_change_collector_ = nullptr, std::optional<int64_t> hops_limit = {}
 #ifdef MG_ENTERPRISE
-                    ,
-                    std::shared_ptr<utils::UserResources> user_resource = {}
+      ,
+      std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
   );
 
@@ -2507,7 +2528,9 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       query_logger_(query_logger)
 #ifdef MG_ENTERPRISE
       ,
-      user_resource_{std::move(user_resource)}
+      user_resource_ {
+  std::move(user_resource)
+}
 #endif
 {
   ctx_.hops_limit = query::HopsLimit{hops_limit};
@@ -2793,15 +2816,14 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
 
 namespace {
 
-PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-                                 InterpreterContext *interpreter_context, CurrentDB &current_db,
-                                 utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
-                                 std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                                 Interpreter &interpreter, FrameChangeCollector *frame_change_collector = nullptr,
-                                 utils::ThreadPool *thread_pool = nullptr
+PreparedQuery PrepareCypherQuery(
+    ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
+    CurrentDB &current_db, utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
+    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context, Interpreter &interpreter,
+    FrameChangeCollector *frame_change_collector = nullptr
 #ifdef MG_ENTERPRISE
-                                 ,
-                                 std::shared_ptr<utils::UserResources> user_resource = {}
+    ,
+    std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
 ) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -2891,7 +2913,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       .header = std::move(header),
       .privileges = std::move(parsed_query.required_privileges),
       .query_handler = [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary,
-                        thread_pool](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                        thread_pool = &interpreter_context->thread_pool_](
+                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (pull_plan->Pull(stream, n, output_symbols, summary, thread_pool)) {
           return QueryHandlerResult::COMMIT;
         }
@@ -2960,15 +2983,14 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
       .rw_type = RWType::NONE};
 }
 
-PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                  std::map<std::string, TypedValue> *summary, std::vector<Notification> *notifications,
-                                  InterpreterContext *interpreter_context, Interpreter &interpreter,
-                                  CurrentDB &current_db, utils::MemoryResource *execution_memory,
-                                  std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                                  FrameChangeCollector *frame_change_collector
+PreparedQuery PrepareProfileQuery(
+    ParsedQuery parsed_query, bool in_explicit_transaction, std::map<std::string, TypedValue> *summary,
+    std::vector<Notification> *notifications, InterpreterContext *interpreter_context, Interpreter &interpreter,
+    CurrentDB &current_db, utils::MemoryResource *execution_memory, std::shared_ptr<QueryUserOrRole> user_or_role,
+    StoppingContext stopping_context, FrameChangeCollector *frame_change_collector
 #ifdef MG_ENTERPRISE
-                                  ,
-                                  std::shared_ptr<utils::UserResources> user_resource = {}
+    ,
+    std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
 ) {
   const std::string kProfileQueryStart = "profile ";
@@ -3395,11 +3417,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
 
-  std::transform(label_results.begin(), label_results.end(), std::back_inserter(results),
-                 [execution_db_accessor](const auto &label_index) {
-                   return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)),
-                                                  TypedValue("")};
-                 });
+  std::transform(
+      label_results.begin(), label_results.end(), std::back_inserter(results),
+      [execution_db_accessor](const auto &label_index) {
+        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
+      });
 
   auto const prop_path_to_name = [&](storage::PropertyPath const &property_path) {
     return TypedValue{PropertyPathToName(execution_db_accessor, property_path)};
@@ -5082,7 +5104,7 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
       .privileges = std::move(parsed_query.required_privileges),
       .query_handler = [db_acc = *current_db.db_acc_, replication_role, path = std::move(path_value.ValueString()),
                         force = recover_query->force_](AnyStream * /*stream*/, std::optional<int> /*n*/) mutable
-          -> std::optional<QueryHandlerResult> {
+      -> std::optional<QueryHandlerResult> {
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
         if (auto maybe_error = mem_storage->RecoverSnapshot(path, force, replication_role); !maybe_error.has_value()) {
           switch (maybe_error.error()) {
@@ -7270,12 +7292,15 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(IsolationLevelQuery & /*unused*/) override {}
   void Visit(StorageModeQuery & /*unused*/) override {}
   void Visit(CreateSnapshotQuery & /*unused*/)
-      override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/ }
+      override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/
+  }
   void Visit(ShowSnapshotsQuery & /*unused*/) override {}
   void Visit(ShowNextSnapshotQuery & /* unused */) override {}
   void Visit(EdgeImportModeQuery & /*unused*/) override {}
-  void Visit(AlterEnumRemoveValueQuery & /*unused*/) override { /* Not implemented yet */ }
-  void Visit(DropEnumQuery & /*unused*/) override { /* Not implemented yet */ }
+  void Visit(AlterEnumRemoveValueQuery & /*unused*/) override { /* Not implemented yet */
+  }
+  void Visit(DropEnumQuery & /*unused*/) override { /* Not implemented yet */
+  }
   void Visit(SessionTraceQuery & /*unused*/) override {}
 
   // Some queries require an active transaction in order to be prepared.
@@ -7500,7 +7525,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                           current_db_, memory_resource, &query_execution->notifications, user_or_role_,
-                                          make_stopping_context(), *this, &*frame_change_collector_, &thread_pool_
+                                          make_stopping_context(), *this, &*frame_change_collector_
 #ifdef MG_ENTERPRISE
                                           ,
                                           user_resource_
@@ -8208,7 +8233,7 @@ void Interpreter::AdvanceCommand() {
 
 void Interpreter::AbortCommand(std::unique_ptr<QueryExecution> *query_execution) {
   if (query_execution) {
-    thread_pool_.AddTask([query_execution = std::move(*query_execution)]() mutable { query_execution.reset(nullptr); });
+    MoveQueryExecution(std::move(*query_execution));
   }
   if (in_explicit_transaction_) {
     expect_rollback_ = true;

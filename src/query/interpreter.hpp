@@ -25,7 +25,6 @@
 #include "utils/priorities.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
-#include "utils/thread_pool.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "coordination/instance_status.hpp"
@@ -453,15 +452,7 @@ class Interpreter final {
   void LogQueryMessage(std::string message);
 
  private:
-  void ResetInterpreter() {
-    // Postpone clearing of query_executions_ to a separate thread to avoid blocking the main thread
-    thread_pool_.AddTask([query_executions = std::move(query_executions_)]() mutable { query_executions.clear(); });
-    system_transaction_.reset();
-    transaction_queries_->clear();
-    if (current_db_.db_acc_ && current_db_.db_acc_->is_marked_for_deletion()) {
-      current_db_.db_acc_.reset();
-    }
-  }
+  void ResetInterpreter();
 
   struct QueryExecution {
     static constexpr struct ThreadSafe {
@@ -499,6 +490,8 @@ class Interpreter final {
     }
   };
 
+  void MoveQueryExecution(std::unique_ptr<QueryExecution> query_execution);
+
   // Interpreter supports multiple prepared queries at the same time.
   // The client can reference a specific query for pull using an arbitrary qid
   // which is in our case the index of the query in the vector.
@@ -513,7 +506,6 @@ class Interpreter final {
   // TODO Figure out how this would work for multi-database
   // Exists only during a single transaction (for now should be okay as is)
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
-  utils::ThreadPool thread_pool_{1};
 
   // all queries that are run as part of the current transaction
   utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;
@@ -611,13 +603,12 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       } else {
         // We can only clear this execution as some of the queries
         // in the transaction can be in unfinished state
-        thread_pool_.AddTask(
-            [query_execution = std::move(query_execution)]() mutable { query_execution.reset(nullptr); });
+        MoveQueryExecution(std::move(query_execution));
       }
     }
   } catch (const ExplicitTransactionUsageException &e) {
     LogQueryMessage(e.what());
-    thread_pool_.AddTask([query_execution = std::move(query_execution)]() mutable { query_execution.reset(nullptr); });
+    MoveQueryExecution(std::move(query_execution));
     throw;
   } catch (const utils::BasicException &e) {
     LogQueryMessage(e.what());
