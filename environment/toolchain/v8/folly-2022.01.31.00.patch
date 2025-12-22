@@ -1,0 +1,41 @@
+diff -ur a/folly/CMakeLists.txt b/folly/CMakeLists.txt
+--- a/folly/CMakeLists.txt	2021-12-12 23:10:42.000000000 +0100
++++ b/folly/CMakeLists.txt	2022-02-03 15:19:41.349693134 +0100
+@@ -28,7 +28,6 @@
+ )
+
+ add_subdirectory(experimental/exception_tracer)
+-add_subdirectory(logging/example)
+
+ if (PYTHON_EXTENSIONS)
+   # Create tree of symbolic links in structure required for successful
+diff -ur a/folly/experimental/exception_tracer/ExceptionTracerLib.cpp b/folly/experimental/exception_tracer/ExceptionTracerLib.cpp
+--- a/folly/experimental/exception_tracer/ExceptionTracerLib.cpp	2021-12-12 23:10:42.000000000 +0100
++++ b/folly/experimental/exception_tracer/ExceptionTracerLib.cpp	2022-02-03 15:19:11.003368891 +0100
+@@ -96,6 +96,7 @@
+ #define __builtin_unreachable()
+ #endif
+
++#if 0
+ namespace __cxxabiv1 {
+
+ void __cxa_throw(
+@@ -154,5 +155,5 @@
+ }
+
+ } // namespace std
+-
++#endif
+ #endif // defined(__GLIBCXX__)
+diff -ur a/folly/Portability.h b/folly/Portability.h
+--- a/folly/Portability.h	2021-12-12 23:10:42.000000000 +0100
++++ b/folly/Portability.h	2022-02-03 15:19:11.003368891 +0100
+@@ -566,7 +566,7 @@
+ #define FOLLY_HAS_COROUTINES 0
+ #elif (__cpp_coroutines >= 201703L || __cpp_impl_coroutine >= 201902L) && \
+     (__has_include(<coroutine>) || __has_include(<experimental/coroutine>))
+-#define FOLLY_HAS_COROUTINES 1
++#define FOLLY_HAS_COROUTINES 0
+ // This is mainly to workaround bugs triggered by LTO, when stack allocated
+ // variables in await_suspend end up on a coroutine frame.
+ #define FOLLY_CORO_AWAIT_SUSPEND_NONTRIVIAL_ATTRIBUTES FOLLY_NOINLINE
