@@ -8504,6 +8504,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info,
                                memgraph::storage::ttl::TTL *ttl,
                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  utils::Timer timer;
+
   Decoder snapshot;
   const auto version = snapshot.Initialize(path, kSnapshotMagic);
   if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
@@ -8568,8 +8570,11 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    edge_count, config, enum_store, schema_info, ttl, snapshot_info);
     }
     case 31U: {
-      return LoadCurrentVersionSnapshot(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
-                                        edge_count, config, enum_store, schema_info, ttl, snapshot_info);
+      auto res =
+          LoadCurrentVersionSnapshot(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                     edge_count, config, enum_store, schema_info, ttl, snapshot_info);
+      spdlog::trace("Snapshot loaded in: {}s", timer.Elapsed().count());
+      return res;
     }
     default: {
       // `IsVersionSupported` checks that the version is within the supported
