@@ -271,7 +271,7 @@ LicenseCheckResult LicenseChecker::IsEnterpriseValid() const {
   auto locked_previous_license_info_ptr = previous_license_info_.Lock();
   const auto &license_info = *locked_previous_license_info_ptr;
   if (!license_info) {
-    return std::unexpected{LicenseCheckError::NOT_ENTERPRISE_LICENSE};
+    return LicenseCheckError::NOT_ENTERPRISE_LICENSE;
   }
   return IsEnterpriseValid(license_info->license_key, license_info->organization_name);
 }

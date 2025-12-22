@@ -27,7 +27,7 @@ void Settings::RegisterSetting(std::string name, const std::string &default_valu
                                Validation validation) {
   std::lock_guard settings_guard{settings_lock_};
   if (!storage_) return;
-  MG_ASSERT(validation(default_value).has_value(), "\"{}\"'s default value does not satisfy the validation condition.",
+  MG_ASSERT(!validation(default_value).HasError(), "\"{}\"'s default value does not satisfy the validation condition.",
             name);
 
   if (const auto maybe_value = storage_->Get(name); maybe_value) {
