@@ -1790,7 +1790,7 @@ TypedValue Username(const TypedValue * /*args*/, int64_t /*nargs*/, const Functi
 }
 
 TypedValue Roles(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<String>>("roles", args, nargs);
+  FType<Optional<String>>("db_name", args, nargs);
   if (!ctx.user_or_role) {
     return TypedValue(TypedValue::TVector(ctx.memory));
   }
