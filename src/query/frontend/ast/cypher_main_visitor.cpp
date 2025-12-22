@@ -2367,6 +2367,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->COORDINATOR()) return AuthQuery::Privilege::COORDINATOR;
   if (ctx->IMPERSONATE_USER()) return AuthQuery::Privilege::IMPERSONATE_USER;
   if (ctx->PROFILE_RESTRICTION()) return AuthQuery::Privilege::PROFILE_RESTRICTION;
+  if (ctx->PARALLEL_EXECUTION()) return AuthQuery::Privilege::PARALLEL_EXECUTION;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 

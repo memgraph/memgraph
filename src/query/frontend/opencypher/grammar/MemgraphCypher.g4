@@ -138,6 +138,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ON
                       | ON_DISK_TRANSACTIONAL
                       | PARALLEL
+                      | PARALLEL_EXECUTION
                       | PARQUET
                       | PASSWORD
                       | PERIODIC
@@ -517,6 +518,7 @@ privilege : CREATE
           | COORDINATOR
           | IMPERSONATE_USER
           | PROFILE_RESTRICTION
+          | PARALLEL_EXECUTION
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE | ASTERISK ;
