@@ -89,6 +89,7 @@ const std::vector<Permission> kPermissionsAll = {
     Permission::COORDINATOR,
     Permission::IMPERSONATE_USER,
     Permission::PROFILE_RESTRICTION,
+    Permission::PARALLEL_EXECUTION,
 };
 
 #ifdef MG_ENTERPRISE
@@ -173,6 +174,8 @@ std::string PermissionToString(Permission permission) {
       return "IMPERSONATE_USER";
     case Permission::PROFILE_RESTRICTION:
       return "PROFILE_RESTRICTION";
+    case Permission::PARALLEL_EXECUTION:
+      return "PARALLEL_EXECUTION";
   }
 }
 

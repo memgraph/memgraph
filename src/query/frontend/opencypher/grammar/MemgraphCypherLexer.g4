@@ -140,6 +140,7 @@ OFF                     : O F F ;
 ON_DISK_TRANSACTIONAL   : O N UNDERSCORE D I S K UNDERSCORE T R A N S A C T I O N A L ;
 PARQUET                 : P A R Q U E T ;
 PARALLEL                : P A R A L L E L ;
+PARALLEL_EXECUTION      : P A R A L L E L UNDERSCORE E X E C U T I O N ;
 PASSWORD                : P A S S W O R D ;
 PERIODIC                : P E R I O D I C ;
 POINT                   : P O I N T ;
