@@ -22,6 +22,7 @@
 #include <forward_list>
 #include <memory>
 #include <tuple>
+#include "flags/bolt.hpp"
 
 // Although <memory_resource> is in C++17, gcc libstdc++ still needs to
 // implement it fully. It should be available in the next major release
@@ -213,22 +214,35 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
     }
 
     // Create pthread key for thread-local storage with destructor for cleanup when threads exit
-    if (pthread_key_create(&thread_local_block_key_, thread_local_state_destructor) != 0) {
+    if (pthread_key_create(&thread_local_block_key_, nullptr) != 0) {
       throw BadAlloc("Failed to create pthread key for thread-local storage");
     }
+    states_.reserve(FLAGS_bolt_num_workers);
   }
 
   explicit ThreadSafeMonotonicBufferResource(size_t initial_size = 1024, MemoryResource *memory = NewDeleteResource())
-      : memory_(memory), blocks_(memory), initial_buffer_size_(initial_size), id_(resource_id_.fetch_add(1)) {
+      : memory_(memory), initial_buffer_size_(initial_size), blocks_(memory), id_(resource_id_.fetch_add(1)) {
     // Create pthread key for thread-local storage with destructor for cleanup when threads exit
-    if (pthread_key_create(&thread_local_block_key_, thread_local_state_destructor) != 0) {
+    if (pthread_key_create(&thread_local_block_key_, nullptr) != 0) {
       throw BadAlloc("Failed to create pthread key for thread-local storage");
     }
+    states_.reserve(FLAGS_bolt_num_workers);
   }
 
   /// Destructor - releases all allocated memory
   ~ThreadSafeMonotonicBufferResource() override {
-    Release();
+    // Release all blocks from the global list
+    const std::lock_guard<std::mutex> lock(blocks_mutex_);
+    for (auto *block : blocks_) {
+      memory_->deallocate(block, block->total_size(), block->alignment);
+    }
+    blocks_.clear();
+
+    for (auto *state : states_) {
+      delete state;
+    }
+    states_.clear();
+
     pthread_key_delete(thread_local_block_key_);
   }
 
@@ -237,8 +251,6 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
   ThreadSafeMonotonicBufferResource &operator=(const ThreadSafeMonotonicBufferResource &) = delete;
   ThreadSafeMonotonicBufferResource(ThreadSafeMonotonicBufferResource &&other) noexcept = delete;
   ThreadSafeMonotonicBufferResource &operator=(ThreadSafeMonotonicBufferResource &&other) noexcept = delete;
-
-  void Release();  // NOT THREAD SAFE!
 
   /// Get the upstream memory resource
   MemoryResource *GetUpstreamResource() const { return memory_; }
@@ -272,12 +284,13 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
   static thread_local uint64_t last_resource_id_;
   static std::atomic<uint64_t> resource_id_;
 
+  mutable std::mutex blocks_mutex_;  // For managing global block list
   MemoryResource *memory_{NewDeleteResource()};
-  mutable std::mutex blocks_mutex_;                        // For managing global block list
+  const size_t initial_buffer_size_{1024};  // Initial buffer size for new threads
+  std::vector<ThreadLocalState *> states_;
   std::forward_list<Block *, Allocator<Block *>> blocks_;  // Global list of all blocks for cleanup
-  const size_t initial_buffer_size_{1024};                 // Initial buffer size for new threads
+  pthread_key_t thread_local_block_key_;                   // Instance-specific pthread key
   uint64_t id_;
-  pthread_key_t thread_local_block_key_;  // Instance-specific pthread key
 
   // Resource methods
   void *do_allocate(size_t bytes, size_t alignment) override;
@@ -287,11 +300,8 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
   bool do_is_equal(const MemoryResource &other) const noexcept override { return this == &other; }
 
   // Local methods
-  ThreadLocalState &thread_local_state() const;
+  ThreadLocalState &thread_local_state();
   Block *allocate_new_block(ThreadLocalState &state, size_t min_size, size_t alignment);
-
-  // Destructor callback for pthread thread-local storage cleanup
-  static void thread_local_state_destructor(void *ptr);
 
  public:
   static constexpr size_t block_size = sizeof(Block);
@@ -376,14 +386,16 @@ class ThreadSafePool {
   static thread_local uint64_t last_pool_;
   static std::atomic<uint64_t> pool_id_;
 
-  std::mutex mtx_;
-  AList<void *> chunks_;
+  mutable std::mutex mtx_;
 
   const std::size_t block_size_;
   const std::size_t blocks_per_chunk_;
   const uint64_t id_;
   MemoryResource *chunk_memory_;
-  pthread_key_t thread_local_key_;  // Renamed for clarity
+  pthread_key_t thread_local_key_;
+
+  std::vector<ThreadLocalState *> states_;
+  AList<void *> chunks_;
 
   size_t chunk_size() const { return blocks_per_chunk_ * block_size_; }
   size_t chunk_alignment() const { return Ceil2(block_size_); }
@@ -392,10 +404,7 @@ class ThreadSafePool {
   void *carve_block();
 
   // Helper to get the full state struct
-  ThreadLocalState *thread_state() const;
-
-  // Destructor callback for pthread thread-local storage cleanup
-  static void thread_local_state_destructor(void *ptr);
+  ThreadLocalState *thread_state();
 
  public:
   explicit ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks = 1024,
