@@ -4972,36 +4972,35 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       switch (maybe_path.error()) {
         case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
           spdlog::warn("Failed to create snapshot. {}. Please contact support.",
-                       storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.GetError()));
+                       storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
           break;
         case storage::InMemoryStorage::CreateSnapshotError::AbortSnapshot:
           throw utils::BasicException("Failed to create snapshot. {}.",
-                                      storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.GetError()));
+                                      storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
         case storage::InMemoryStorage::CreateSnapshotError::AlreadyRunning:
-          throw utils::BasicException("{}",
-                                      storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.GetError()));
         case storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite:
-          throw utils::BasicException("{}",
-                                      storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.GetError()));
+          throw utils::BasicException("{}", storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
       }
     }
     return std::vector<std::vector<TypedValue>>{{TypedValue{maybe_path.value()}}};
   };
 
-  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
-                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+  return PreparedQuery{
+      .header = std::move(callback.header),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-                         if (!pull_plan) {
-                           auto results = handler();
-                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
-                         }
+        if (!pull_plan) {
+          auto results = handler();
+          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+        }
 
-                         if (pull_plan->Pull(stream, n)) {
-                           return QueryHandlerResult::COMMIT;
-                         }
-                         return std::nullopt;
-                       },
-                       RWType::NONE};
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
 }
 
 PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
@@ -5023,11 +5022,11 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
   auto path_value = recover_query->snapshot_->Accept(evaluator);
 
   return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [db_acc = *current_db.db_acc_, replication_role, path = std::move(path_value.ValueString()),
-       force = recover_query->force_](AnyStream * /*stream*/,
-                                      std::optional<int> /*n*/) mutable -> std::optional<QueryHandlerResult> {
+      .header = {},
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [db_acc = *current_db.db_acc_, replication_role, path = std::move(path_value.ValueString()),
+                        force = recover_query->force_](AnyStream * /*stream*/, std::optional<int> /*n*/) mutable
+      -> std::optional<QueryHandlerResult> {
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
         if (auto maybe_error = mem_storage->RecoverSnapshot(path, force, replication_role); !maybe_error.has_value()) {
           switch (maybe_error.error()) {
@@ -5054,7 +5053,7 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
         }
         return QueryHandlerResult::COMMIT;
       },
-      RWType::NONE};
+      .rw_type = RWType::NONE};
 }
 
 PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db) {
@@ -5083,20 +5082,22 @@ PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explic
     return infos;
   };
 
-  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
-                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+  return PreparedQuery{
+      .header = std::move(callback.header),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-                         if (!pull_plan) {
-                           auto results = handler();
-                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
-                         }
+        if (!pull_plan) {
+          auto results = handler();
+          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+        }
 
-                         if (pull_plan->Pull(stream, n)) {
-                           return QueryHandlerResult::NOTHING;
-                         }
-                         return std::nullopt;
-                       },
-                       RWType::NONE};
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::NOTHING;
+        }
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
 }
 
 PreparedQuery PrepareShowNextSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction,

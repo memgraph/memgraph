@@ -3347,16 +3347,14 @@ void InMemoryStorage::CreateSnapshotHandler(
       switch (maybe_error.error()) {
         case CreateSnapshotError::ReachedMaxNumTries:
           spdlog::warn("Failed to create snapshot. {}. Please contact support.",
-                       CreateSnapshotErrorToString(maybe_error.GetError()));
+                       CreateSnapshotErrorToString(maybe_error.error()));
           break;
         case CreateSnapshotError::AbortSnapshot:
-          spdlog::warn("Failed to create snapshot. {}.", CreateSnapshotErrorToString(maybe_error.GetError()));
+          spdlog::warn("Failed to create snapshot. {}.", CreateSnapshotErrorToString(maybe_error.error()));
           break;
         case CreateSnapshotError::AlreadyRunning:
-          spdlog::info("Skipping snapshot creation. {}.", CreateSnapshotErrorToString(maybe_error.GetError()));
-          break;
         case CreateSnapshotError::NothingNewToWrite:
-          spdlog::info("Skipping snapshot creation. {}.", CreateSnapshotErrorToString(maybe_error.GetError()));
+          spdlog::info("Skipping snapshot creation. {}.", CreateSnapshotErrorToString(maybe_error.error()));
           break;
       }
     }
