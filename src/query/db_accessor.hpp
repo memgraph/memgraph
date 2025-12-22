@@ -347,6 +347,8 @@ class DbAccessor final {
  public:
   explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
 
+  void SetParallelExecution() { accessor_->GetTransaction()->SetParallelExecution(); }
+
   bool CheckIndicesAreReady(storage::IndicesCollection const &required_indices) const {
     return accessor_->CheckIndicesAreReady(required_indices);
   }

@@ -2992,6 +2992,7 @@ PreparedQuery PrepareCypherQuery(
     plan::ParallelChecker parallel_checker;
     parallel_checker.CheckParallelized(plan->plan());
     if (parallel_checker.is_parallelized_) {
+      dba->SetParallelExecution();  // Internal flag
       spdlog::trace("Executing query with parallel execution using {} threads.", *parallel_execution);
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PARALLEL_EXECUTION,
                                   "Parallel execution enabled.");
