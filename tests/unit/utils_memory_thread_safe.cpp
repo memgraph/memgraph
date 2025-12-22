@@ -121,34 +121,6 @@ TEST(ThreadSafeMonotonicBufferResourceTest, ConcurrentAllocationsAndReleases) {
   EXPECT_EQ(total_allocations.load(), num_threads * operations_per_thread);
 }
 
-TEST(ThreadSafeMonotonicBufferResourceTest, Release) {
-  ThreadSafeMonotonicBufferResource resource(1024);
-
-  // Allocate some memory
-  void *ptr1 = resource.allocate(64, 8);
-  void *ptr2 = resource.allocate(128, 16);
-
-  EXPECT_NE(ptr1, nullptr);
-  EXPECT_NE(ptr2, nullptr);
-
-  // Release all memory - this deallocates everything
-  resource.Release();
-
-  // After release, head should be null
-  // Note: We can't directly test this since head_ is private, but we can verify
-  // that the resource is in a clean state by allocating again
-  void *ptr3 = resource.allocate(64, 8);
-  void *ptr4 = resource.allocate(128, 16);
-
-  EXPECT_NE(ptr3, nullptr);
-  EXPECT_NE(ptr4, nullptr);
-
-  // The new allocations should be valid (addresses may or may not be different)
-  // since memory was deallocated and reallocated
-  EXPECT_NE(ptr3, nullptr);
-  EXPECT_NE(ptr4, nullptr);
-}
-
 TEST(ThreadSafeMonotonicBufferResourceTest, LargeAllocations) {
   ThreadSafeMonotonicBufferResource resource(1024);
 

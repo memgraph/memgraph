@@ -21,6 +21,7 @@
 #include <limits>
 #include <type_traits>
 
+#include "flags/bolt.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::utils {
@@ -158,11 +159,7 @@ thread_local ThreadSafeMonotonicBufferResource::ThreadLocalState
 thread_local uint64_t ThreadSafeMonotonicBufferResource::last_resource_id_ = 0;
 std::atomic<uint64_t> ThreadSafeMonotonicBufferResource::resource_id_ = 1;
 
-void ThreadSafeMonotonicBufferResource::thread_local_state_destructor(void *ptr) {
-  delete static_cast<ThreadLocalState *>(ptr);
-}
-
-ThreadSafeMonotonicBufferResource::ThreadLocalState &ThreadSafeMonotonicBufferResource::thread_local_state() const {
+ThreadSafeMonotonicBufferResource::ThreadLocalState &ThreadSafeMonotonicBufferResource::thread_local_state() {
   if (last_resource_id_ != id_) {
     last_resource_id_ = id_;
     thread_local_cache_ = static_cast<ThreadLocalState *>(pthread_getspecific(thread_local_block_key_));
@@ -175,27 +172,12 @@ ThreadSafeMonotonicBufferResource::ThreadLocalState &ThreadSafeMonotonicBufferRe
     state->next_buffer_size = initial_buffer_size_;
     pthread_setspecific(thread_local_block_key_, reinterpret_cast<void *>(state));
     thread_local_cache_ = state;
+    {
+      const auto lock = std::lock_guard<std::mutex>(blocks_mutex_);
+      states_.push_back(state);
+    }
   }
   return *state;
-}
-
-/// Release all allocated memory back to the upstream resource
-void ThreadSafeMonotonicBufferResource::Release() {
-  // Release all blocks from the global list
-  const std::lock_guard<std::mutex> lock(blocks_mutex_);
-  for (auto *block : blocks_) {
-    memory_->deallocate(block, block->total_size(), block->alignment);
-  }
-  blocks_.clear();
-
-  // Delete the thread-local state
-  pthread_key_delete(thread_local_block_key_);
-  // Increase id to avoid use-after-free
-  id_ = resource_id_.fetch_add(1);
-  // Create new thread local state
-  if (pthread_key_create(&thread_local_block_key_, thread_local_state_destructor) != 0) {
-    throw BadAlloc("Failed to create pthread key for thread-local storage");
-  }
 }
 
 void *ThreadSafeMonotonicBufferResource::do_allocate(size_t bytes, size_t alignment) {
@@ -332,7 +314,7 @@ thread_local ThreadSafePool::ThreadLocalState *ThreadSafePool::tls_cache_ = null
 thread_local uint64_t ThreadSafePool::last_pool_ = 0;
 std::atomic<uint64_t> ThreadSafePool::pool_id_ = 1;
 
-ThreadSafePool::ThreadLocalState *ThreadSafePool::thread_state() const {
+ThreadSafePool::ThreadLocalState *ThreadSafePool::thread_state() {
   if (last_pool_ != id_) {
     last_pool_ = id_;
     tls_cache_ = static_cast<ThreadLocalState *>(pthread_getspecific(thread_local_key_));
@@ -343,6 +325,10 @@ ThreadSafePool::ThreadLocalState *ThreadSafePool::thread_state() const {
     state = new ThreadLocalState{};
     pthread_setspecific(thread_local_key_, reinterpret_cast<void *>(state));
     tls_cache_ = state;
+    {
+      const auto lock = std::lock_guard<std::mutex>(mtx_);
+      states_.push_back(state);
+    }
   }
   return state;
 }
@@ -361,17 +347,16 @@ void *ThreadSafePool::carve_block() {
   return raw;
 }
 
-void ThreadSafePool::thread_local_state_destructor(void *ptr) { delete static_cast<ThreadLocalState *>(ptr); }
-
 ThreadSafePool::ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks, MemoryResource *chunk_memory)
     : block_size_(block_size),
       blocks_per_chunk_(blocks_per_chunks),
       id_{pool_id_.fetch_add(1)},
       chunk_memory_(chunk_memory) {
   // Create pthread key with destructor for cleanup when threads exit
-  if (pthread_key_create(&thread_local_key_, thread_local_state_destructor) != 0) {
+  if (pthread_key_create(&thread_local_key_, nullptr) != 0) {
     throw BadAlloc("Failed to create pthread key for thread-local storage");
   }
+  states_.reserve(FLAGS_bolt_num_workers);
 }
 
 ThreadSafePool::~ThreadSafePool() {
@@ -381,6 +366,12 @@ ThreadSafePool::~ThreadSafePool() {
     }
     chunks_.clear();
   }
+
+  for (auto *state : states_) {
+    delete state;
+  }
+  states_.clear();
+
   pthread_key_delete(thread_local_key_);
   last_pool_ = 0;
   tls_cache_ = nullptr;
