@@ -18,6 +18,8 @@
 
 #include "utils/exceptions.hpp"
 
+namespace r = std::ranges;
+
 namespace memgraph::utils {
 
 /**
@@ -28,7 +30,7 @@ namespace memgraph::utils {
  * @param transformation Function which accepts an item and returns a derived value.
  */
 template <typename TTransformation = std::identity>
-inline std::string IterableToString(std::ranges::input_range auto const &iterable, std::string_view delim = ", ",
+inline std::string IterableToString(r::input_range auto const &iterable, std::string_view delim = ", ",
                                     TTransformation transformation = {}) {
   auto first = iterable.begin();
   auto const last = iterable.end();

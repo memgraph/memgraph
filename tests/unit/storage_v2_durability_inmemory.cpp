@@ -603,9 +603,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
                           std::make_pair(base_label_indexed, std::vector{property_path})));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
-          ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
-            return index == vector_index_spec;
-          }));
+          ASSERT_TRUE(r::all_of(info.vector_indices_spec,
+                                [&vector_index_spec](const auto &index) { return index == vector_index_spec; }));
           ASSERT_EQ(info.text_indices.size(), 1);
           ASSERT_EQ(info.text_indices[0], text_index_spec);
           break;
@@ -632,9 +631,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
                                          std::vector{memgraph::storage::PropertyPath{property_count}})));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
-          ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
-            return index == vector_index_spec;
-          }));
+          ASSERT_TRUE(r::all_of(info.vector_indices_spec,
+                                [&vector_index_spec](const auto &index) { return index == vector_index_spec; }));
           ASSERT_EQ(info.text_indices.size(), 1);
           ASSERT_EQ(info.text_indices[0], text_index_spec);
           break;
@@ -650,9 +648,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.edge_type, UnorderedElementsAre(et1));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
-          ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
-            return index == vector_index_spec;
-          }));
+          ASSERT_TRUE(r::all_of(info.vector_indices_spec,
+                                [&vector_index_spec](const auto &index) { return index == vector_index_spec; }));
           ASSERT_EQ(info.text_indices.size(), 1);
           ASSERT_EQ(info.text_indices[0], text_index_spec);
           break;
@@ -668,10 +665,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.edge_type_property, UnorderedElementsAre(std::make_pair(et1, property_id)));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
-          ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
-            return index == vector_index_spec;
-          }));
-          ASSERT_TRUE(std::ranges::any_of(info.vector_edge_indices_spec, [&vector_edge_index_spec](const auto &index) {
+          ASSERT_TRUE(r::all_of(info.vector_indices_spec,
+                                [&vector_index_spec](const auto &index) { return index == vector_index_spec; }));
+          ASSERT_TRUE(r::any_of(info.vector_edge_indices_spec, [&vector_edge_index_spec](const auto &index) {
             return index == vector_edge_index_spec;
           }));
           ASSERT_EQ(info.text_indices.size(), 1);

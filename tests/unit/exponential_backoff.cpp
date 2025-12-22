@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,8 +13,10 @@
 
 #include <gtest/gtest.h>
 #include <chrono>
-#include <range/v3/all.hpp>
+#include <ranges>
 
+namespace r = std::ranges;
+namespace rv = r::views;
 class ExponentialBackoffTest : public ::testing::Test {
  protected:
   void SetUp() override {}
@@ -32,7 +34,7 @@ TEST_F(ExponentialBackoffTest, TestTimings) {
   ASSERT_EQ(std::chrono::milliseconds{5000}, backoff_internals.calculate_delay());
   ASSERT_EQ(std::chrono::milliseconds{5000}, backoff_internals.calculate_delay());
 
-  for (auto const delay : ranges::views::iota(1, 1000) | ranges::views::transform([&backoff_internals](auto /*param*/) {
+  for (auto const delay : rv::iota(1, 1000) | rv::transform([&backoff_internals](auto /*param*/) {
                             return backoff_internals.calculate_delay();
                           })) {
     ASSERT_EQ(delay, backoff_internals.calculate_delay());

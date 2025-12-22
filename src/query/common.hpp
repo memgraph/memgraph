@@ -22,11 +22,13 @@
 #include "query/frontend/ast/ordering.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/typed_value.hpp"
-#include "range/v3/all.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/logging.hpp"
+
+namespace r = std::ranges;
+namespace rv = r::views;
 
 namespace memgraph::query {
 
@@ -145,7 +147,7 @@ class TypedValueVectorCompare final {
   auto lex_cmp() const {
     return [orderings = &orderings_]<typename TAllocator>(const std::vector<TypedValue, TAllocator> &lhs,
                                                           const std::vector<TypedValue, TAllocator> &rhs) {
-      auto rng = ranges::views::zip(*orderings, lhs, rhs);
+      auto rng = rv::zip(*orderings, lhs, rhs);
       for (auto const &[cmp, l, r] : rng) {
         auto res = cmp(l, r);
         if (res == std::partial_ordering::less) return true;

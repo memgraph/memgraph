@@ -44,11 +44,11 @@ class DependantSymbolVisitor : public ExpressionVisitor<void> {
   }
 
   void Visit(ListLiteral &list_literal) override {
-    std::ranges::for_each(list_literal.elements_, [this](auto *arg) { arg->Accept(*this); });
+    r::for_each(list_literal.elements_, [this](auto *arg) { arg->Accept(*this); });
   }
 
   void Visit(MapLiteral &map_literal) override {
-    std::ranges::for_each(map_literal.elements_, [this](const auto &pair) { pair.second->Accept(*this); });
+    r::for_each(map_literal.elements_, [this](const auto &pair) { pair.second->Accept(*this); });
   }
 
   template <typename T>
@@ -107,7 +107,7 @@ class DependantSymbolVisitor : public ExpressionVisitor<void> {
       is_cacheable_ = false;
       return;
     }
-    std::ranges::for_each(func.arguments_, [this](auto *arg) { arg->Accept(*this); });
+    r::for_each(func.arguments_, [this](auto *arg) { arg->Accept(*this); });
   }
 
   void Visit(Aggregation &agg) override {
@@ -209,7 +209,7 @@ class DependantSymbolVisitor : public ExpressionVisitor<void> {
   // Named expressions and other types
   void Visit(NamedExpression &named_expr) override { named_expr.expression_->Accept(*this); }
   void Visit(MapProjectionLiteral &map_proj) override {
-    std::ranges::for_each(map_proj.elements_, [this](const auto &pair) { pair.second->Accept(*this); });
+    r::for_each(map_proj.elements_, [this](const auto &pair) { pair.second->Accept(*this); });
   }
 
   // Primitive literals, parameters - safe to cache

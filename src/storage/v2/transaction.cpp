@@ -18,11 +18,12 @@ AsyncIndexHelper::AsyncIndexHelper(Config const &config, ActiveIndices const &ac
                                    uint64_t start_timestamp) {
   if (config.salient.items.enable_label_index_auto_creation) {
     label_index_.emplace(AsyncIndexHelper::LabelIndexInfo{
-        .existing_ = active_indices.label_->ListIndices(start_timestamp) | ranges::to<absl::flat_hash_set>});
+        .existing_ = active_indices.label_->ListIndices(start_timestamp) | r::to<absl::flat_hash_set<LabelId>>()});
   }
   if (config.salient.items.enable_edge_type_index_auto_creation) {
-    edgetype_index_.emplace(AsyncIndexHelper::EdgeTypeIndexInfo{
-        .existing_ = active_indices.edge_type_->ListIndices(start_timestamp) | ranges::to<absl::flat_hash_set>});
+    edgetype_index_.emplace(
+        AsyncIndexHelper::EdgeTypeIndexInfo{.existing_ = active_indices.edge_type_->ListIndices(start_timestamp) |
+                                                         r::to<absl::flat_hash_set<EdgeTypeId>>()});
   }
 }
 

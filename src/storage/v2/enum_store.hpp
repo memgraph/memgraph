@@ -11,18 +11,13 @@
 
 #pragma once
 
-#include "storage/v2/enum.hpp"
-#include "storage/v2/name_id_mapper.hpp"
-
+#include <expected>
 #include "absl/container/flat_hash_map.h"
-#include "range/v3/all.hpp"
-#include "strong_type/strong_type.hpp"
+#include "storage/v2/enum.hpp"
+#include "utils/logging.hpp"
 
-#include <algorithm>
-#include <cstdint>
-#include <map>
-#include <ranges>
-#include <string>
+namespace r = std::ranges;
+namespace rv = r::views;
 
 namespace memgraph::storage {
 
@@ -35,8 +30,6 @@ struct EnumStore {
 
   auto RegisterEnum(std::string type_str, std::vector<std::string> enum_value_strs)
       -> std::expected<EnumTypeId, EnumStorageError> {
-    namespace rv = ranges::views;
-
     auto new_pos = etype_strs_.size();
     auto new_id = EnumTypeId{new_pos};
 
@@ -79,8 +72,6 @@ struct EnumStore {
 
   auto UpdateValue(EnumTypeId e_type, std::string_view old_value, std::string_view new_value)
       -> std::expected<Enum, EnumStorageError> {
-    namespace rv = ranges::views;
-
     auto e_value = ToEnumValue(e_type, old_value);
     if (!e_value) return std::unexpected(e_value.error());
 
@@ -104,8 +95,6 @@ struct EnumStore {
   }
 
   auto AddValue(EnumTypeId e_type, std::string_view new_value) -> std::expected<Enum, EnumStorageError> {
-    namespace rv = ranges::views;
-
     if (evalue_lookups_.size() <= e_type.value_of()) return std::unexpected{EnumStorageError::UnknownEnumType};
 
     auto &lookup = evalue_lookups_[e_type.value_of()];
@@ -196,7 +185,7 @@ struct EnumStore {
     return std::format("{}::{}", *type_str, *value_str);
   }
 
-  auto AllRegistered() const { return ranges::views::zip(etype_strs_, evalue_strs_); }
+  auto AllRegistered() const { return rv::zip(etype_strs_, evalue_strs_); }
 
  private:
   std::vector<std::string> etype_strs_;

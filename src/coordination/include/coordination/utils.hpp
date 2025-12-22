@@ -17,16 +17,16 @@
 #include "kvstore/kvstore.hpp"
 #include "utils/logging.hpp"
 
-#include <functional>
 #include <map>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <spdlog/spdlog.h>
-#include <range/v3/range/conversion.hpp>
-#include <range/v3/view/filter.hpp>
-#include <range/v3/view/transform.hpp>
+
+namespace r = std::ranges;
+namespace rv = r::views;
 
 #ifdef MG_ENTERPRISE
 
@@ -47,8 +47,8 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
     return instance.config.BoltSocketAddress();  // non-resolved IP
   };
 
-  auto writers = raft_log_data_instances | ranges::views::filter(is_instance_main_func) |
-                 ranges::views::transform(repl_instance_to_bolt) | ranges::to_vector;
+  auto writers = raft_log_data_instances | rv::filter(is_instance_main_func) | rv::transform(repl_instance_to_bolt) |
+                 r::to<std::vector>();
   MG_ASSERT(writers.size() <= 1, "There can be at most one main instance active!");
 
   spdlog::trace("WRITERS");
@@ -74,9 +74,8 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
     return db_it->second < max_replica_read_lag;
   };
 
-  auto readers = raft_log_data_instances | ranges::views::filter(std::not_fn(is_instance_main_func)) |
-                 ranges::views::filter(lag_filter) | ranges::views::transform(repl_instance_to_bolt) |
-                 ranges::to_vector;
+  auto readers = raft_log_data_instances | rv::filter(std::not_fn(is_instance_main_func)) | rv::filter(lag_filter) |
+                 rv::transform(repl_instance_to_bolt) | r::to<std::vector>();
 
   if (enabled_reads_on_main && writers.size() == 1) {
     readers.emplace_back(writers[0]);
@@ -87,17 +86,17 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
     spdlog::trace("  {}", reader);
   }
 
-  if (!std::ranges::empty(writers)) {
+  if (!r::empty(writers)) {
     res.emplace_back(std::move(writers), "WRITE");
   }
 
-  if (!std::ranges::empty(readers)) {
+  if (!r::empty(readers)) {
     res.emplace_back(std::move(readers), "READ");
   }
 
   auto const get_bolt_server = [](CoordinatorInstanceContext const &context) { return context.bolt_server; };
 
-  auto routers = coord_servers | ranges::views::transform(get_bolt_server) | ranges::to_vector;
+  auto routers = coord_servers | rv::transform(get_bolt_server) | r::to<std::vector>();
   spdlog::trace("ROUTERS:");
   for (auto const &server : routers) {
     spdlog::trace("  {}", server);

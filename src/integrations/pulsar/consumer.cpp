@@ -11,7 +11,6 @@
 
 #include "integrations/pulsar/consumer.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <thread>
 
@@ -20,12 +19,12 @@
 
 #include "integrations/constants.hpp"
 #include "integrations/pulsar/exceptions.hpp"
-#include "integrations/pulsar/fmt.hpp"
 #include "utils/concepts.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/thread.hpp"
 
+namespace r = std::ranges;
 namespace memgraph::integrations::pulsar {
 
 namespace {
@@ -71,7 +70,7 @@ std::expected<std::vector<Message>, std::string> GetBatch(TConsumer &consumer, c
         break;
       default:
         spdlog::warn(fmt::format("Unexpected error while consuming message from consumer {}, error: {}",
-                                 info.consumer_name, result));
+                                 info.consumer_name, pulsar_client::strResult(result)));
         return std::unexpected{pulsar_client::strResult(result)};
     }
 
@@ -110,14 +109,15 @@ void TryToConsumeBatch(TConsumer &consumer, const ConsumerInfo &info, const Cons
 
   auto has_message_failed = [&consumer, &info, &last_message_id, &message_getter](const auto &message) {
     if (const auto result = consumer.acknowledge(message_getter(message)); result != pulsar_client::ResultOk) {
-      spdlog::warn("Acknowledging a message of consumer {} failed: {}", info.consumer_name, result);
+      spdlog::warn("Acknowledging a message of consumer {} failed: {}", info.consumer_name,
+                   pulsar_client::strResult(result));
       return true;
     }
     last_message_id = message_getter(message).getMessageId();
     return false;
   };
 
-  if (std::ranges::any_of(batch, has_message_failed)) {
+  if (r::any_of(batch, has_message_failed)) {
     throw ConsumerAcknowledgeMessagesFailedException(info.consumer_name);
   }
 }

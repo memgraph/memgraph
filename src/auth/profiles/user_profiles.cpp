@@ -37,7 +37,7 @@ void from_json(const nlohmann::json &data, memgraph::auth::UserProfiles::limits_
   using up = memgraph::auth::UserProfiles;
   if (!data.is_object()) return;
   for (const auto &[key, val] : data.items()) {
-    const auto *key_it = std::ranges::find(up::kLimits, key);
+    const auto *key_it = r::find(up::kLimits, key);
     if (key_it == up::kLimits.end()) continue;  // unkown key
     const auto key_idx = std::distance(up::kLimits.begin(), key_it);
     if (val.is_null()) {

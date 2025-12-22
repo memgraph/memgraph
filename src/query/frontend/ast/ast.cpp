@@ -18,8 +18,7 @@
 #include "query/frontend/ast/query/user_profile.hpp"
 #include "utils/typeinfo.hpp"
 
-#include "range/v3/all.hpp"
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 namespace memgraph {
@@ -203,7 +202,7 @@ query::IndexHint query::IndexHint::Clone(query::AstStorage *storage) const {
   object.index_type_ = index_type_;
   object.label_ix_ = storage->GetLabelIx(label_ix_.name);
   auto clone_path = [&](PropertyIxPath const &path) { return path.Clone(storage); };
-  object.property_ixs_ = property_ixs_ | rv::transform(clone_path) | r::to_vector;
+  object.property_ixs_ = property_ixs_ | rv::transform(clone_path) | r::to<std::vector>();
   return object;
 }
 

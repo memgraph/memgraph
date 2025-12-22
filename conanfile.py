@@ -81,7 +81,6 @@ class Memgraph(ConanFile):
         self.requires("fmt/11.2.0")
         self.requires("libcurl/8.17.0", override=True)
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
-        self.requires("range-v3/0.12.0")
         self.requires("simdjson/4.2.2")
         self.requires("snappy/1.2.1", override=True)
         self.requires("spdlog/1.15.3")

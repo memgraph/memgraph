@@ -39,10 +39,8 @@
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 
-#include "range/v3/all.hpp"
-
-namespace r = ranges;
-namespace rv = ranges::views;
+namespace r = std::ranges;
+namespace rv = r::views;
 
 namespace memgraph::query {
 
@@ -342,10 +340,10 @@ void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage:
   using namespace std::literals::string_view_literals;
   auto const concat_nested_props = [&](auto &&path) {
     return path | rv::transform([&](auto &&property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
-           rv::join("."sv) | r::to<std::string>();
+           rv::join_with("."sv) | r::to<std::string>();
   };
 
-  auto prop_names = properties | rv::transform(concat_nested_props) | rv::join(", "sv) | r::to<std::string>();
+  auto prop_names = properties | rv::transform(concat_nested_props) | rv::join_with(", "sv) | r::to<std::string>();
 
   *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << prop_names << ");";
 }
@@ -357,7 +355,7 @@ void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const storage::Text
   if (!text_index.properties.empty()) {
     auto prop_names = text_index.properties |
                       rv::transform([&](auto property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
-                      rv::join(", "sv) | r::to<std::string>();
+                      rv::join_with(", "sv) | r::to<std::string>();
     *os << "(" << prop_names << ")";
   }
   *os << ";";
@@ -370,7 +368,7 @@ void DumpTextEdgeIndex(std::ostream *os, query::DbAccessor *dba, const storage::
   if (!text_edge_index.properties.empty()) {
     auto prop_names = text_edge_index.properties |
                       rv::transform([&](auto property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
-                      rv::join(", "sv) | r::to<std::string>();
+                      rv::join_with(", "sv) | r::to<std::string>();
     *os << "(" << prop_names << ")";
   }
   *os << ";";
@@ -527,10 +525,10 @@ PullPlanDump::PullChunk PullPlanDump::CreateEnumsPullChunk() {
   auto enums = dba_->ShowEnums();
   auto to_create = [](auto &&p) {
     // rv::c_str is required! https://github.com/ericniebler/range-v3/issues/1699
-    return fmt::format("CREATE ENUM {} VALUES {{ {} }};", p.first,
-                       p.second | rv::join(rv::c_str(", ")) | r::to<std::string>);
+    return fmt::format("CREATE ENUM {} VALUES {{ {} }};", std::get<0>(p),
+                       std::get<1>(p) | rv::join_with(", "sv) | r::to<std::string>());
   };
-  auto results = enums | rv::transform(to_create) | r::to_vector;
+  auto results = enums | rv::transform(to_create) | r::to<std::vector>();
 
   // Dump all enums
   return [global_index = 0U, results = std::move(results)](AnyStream *stream,

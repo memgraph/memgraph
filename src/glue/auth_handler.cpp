@@ -228,8 +228,8 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
       // easier in tests to check for exact text. This beats having to deal with
       // the n! permutations that a rule description on n labels may take due to
       // them being stored in an unordered_container.
-      std::vector<std::string> sorted_symbols = rule.symbols | ranges::to_vector;
-      ranges::sort(sorted_symbols);
+      std::vector<std::string> sorted_symbols = rule.symbols | r::to<std::vector>();
+      r::sort(sorted_symbols);
 
       auto const *entity_type = (permission_type == "LABEL") ? "NODES CONTAINING LABELS" : "EDGES OF TYPE";
       entity_name = entity_type;

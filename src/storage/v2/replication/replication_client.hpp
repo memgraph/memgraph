@@ -122,7 +122,7 @@ class ReplicationStorageClient {
    * @brief Check the replica state
    *
    * @param storage pointer to the storage associated with the client
-   * @param protector gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param protector gatekeeper access that protects the database; r::any to have separation between dbms and storage
    */
   void Start(Storage *storage, DatabaseProtector const &protector);
 
@@ -130,7 +130,7 @@ class ReplicationStorageClient {
    * @brief Start a new transaction replication (open up a stream)
    *
    * @param storage pointer to the storage associated with the client
-   * @param protector gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param protector gatekeeper access that protects the database; r::any to have separation between dbms and storage
    * @param durability_commit_timestamp LDT with which this txn should be committed
    */
   auto StartTransactionReplication(Storage *storage, DatabaseProtector const &protector,
@@ -193,14 +193,14 @@ class ReplicationStorageClient {
    * @brief Asynchronously try to check the replica state and start a recovery thread if necessary
    *
    * @param main_storage pointer to the storage associated with the client
-   * @param protector gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param protector gatekeeper access that protects the database; r::any to have separation between dbms and storage
    */
   void TryCheckReplicaStateAsync(Storage *main_storage, DatabaseProtector const &protector);
 
   /**
    * @brief Force reset a replica.
    * @param main_storage pointer to the storage associated with the client
-   * @param protector gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param protector gatekeeper access that protects the database; r::any to have separation between dbms and storage
    */
   void ForceRecoverReplica(Storage *main_storage, DatabaseProtector const &protector) const;
 
@@ -220,7 +220,7 @@ class ReplicationStorageClient {
    * @brief Check replica state
    *
    * @param main_storage pointer to the storage associated with the client
-   * @param protector gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param protector gatekeeper access that protects the database; r::any to have separation between dbms and storage
    */
   void UpdateReplicaState(Storage *main_storage, DatabaseProtector const &protector);
 
@@ -234,7 +234,7 @@ class ReplicationStorageClient {
    * @brief Synchronously try to check the replica state and start a recovery thread if necessary
    *
    * @param main_storage pointer to the storage associated with the client
-   * @param protector gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param protector gatekeeper access that protects the database; r::any to have separation between dbms and storage
    */
   void TryCheckReplicaStateSync(Storage *main_storage, DatabaseProtector const &protector);
 

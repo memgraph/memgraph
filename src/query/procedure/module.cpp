@@ -417,8 +417,8 @@ void RegisterMgFunctions(std::map<std::string, std::shared_ptr<Module>, std::les
 namespace {
 bool IsAllowedExtension(const auto &extension) {
   static constexpr std::array<std::string_view, 1> allowed_extensions{".py"};
-  return std::any_of(allowed_extensions.begin(), allowed_extensions.end(),
-                     [&](const auto allowed_extension) { return allowed_extension == extension; });
+  return r::any_of(allowed_extensions.begin(), allowed_extensions.end(),
+                   [&](const auto allowed_extension) { return allowed_extension == extension; });
 }
 
 bool IsSubPath(const auto &base, const auto &destination) {
@@ -1189,8 +1189,7 @@ bool ModuleRegistry::TryEraseModule(std::string_view name) {
 }
 
 bool ModuleRegistry::TryEraseAllModules() {
-  auto const any_used =
-      ranges::any_of(modules_ | ranges::views::values, [](auto const &module) { return module.use_count() != 1; });
+  auto const any_used = r::any_of(modules_ | rv::values, [](auto const &module) { return module.use_count() != 1; });
   if (any_used) {
     spdlog::warn("At least one module was still in use");
     return false;

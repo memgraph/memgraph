@@ -78,7 +78,7 @@ import memgraph.query.jsonl.reader;
 import memgraph.utils.aws;
 import memgraph.utils.fnv;
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 // macro for the default implementation of LogicalOperator::Accept
@@ -193,13 +193,12 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
   auto const to_bounded_property_value = [&](auto &value) -> std::optional<utils::Bound<storage::PropertyValue>> {
     if (value == std::nullopt) {
       return std::nullopt;
-    } else {
-      auto const typed_value = value->value()->Accept(evaluator);
-      if (!typed_value.IsPropertyValue()) {
-        throw QueryRuntimeException("'{}' cannot be used as a property value.", typed_value.type());
-      }
-      return utils::Bound{typed_value.ToPropertyValue(evaluator.GetNameIdMapper()), value->type()};
     }
+    auto const typed_value = value->value()->Accept(evaluator);
+    if (!typed_value.IsPropertyValue()) {
+      throw QueryRuntimeException("'{}' cannot be used as a property value.", typed_value.type());
+    }
+    return utils::Bound{typed_value.ToPropertyValue(evaluator.GetNameIdMapper()), value->type()};
   };
 
   switch (type_) {
@@ -1424,7 +1423,13 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
                                   nullptr, &context.number_of_hops);
 
     auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
-    auto prop_value_ranges = expression_ranges_ | rv::transform(to_property_value_range) | ranges::to_vector;
+    // TODO: ASAN reports an issue on this line, but it's not clear why.
+    // auto prop_value_ranges = expression_ranges_ | rv::transform(to_property_value_range) | r::to<std::vector>();
+    std::vector<storage::PropertyValueRange> prop_value_ranges;
+    prop_value_ranges.reserve(expression_ranges_.size());
+    for (auto &&expression_range : expression_ranges_) {
+      prop_value_ranges.emplace_back(to_property_value_range(expression_range));
+    }
 
     auto const bound_is_null = [](auto &&range) {
       return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
@@ -1432,7 +1437,7 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
 
     // If either upper or lower bounds are `null`, then nothing can satisy the
     // filter.
-    if (ranges::any_of(prop_value_ranges, bound_is_null)) {
+    if (r::any_of(prop_value_ranges, bound_is_null)) {
       return std::nullopt;
     }
 
@@ -1447,7 +1452,7 @@ std::string ScanAllByLabelProperties::ToString() const {
   auto const property_names = properties_ | rv::transform([&](storage::PropertyPath const &property_path) {
                                 return storage::ToString(property_path, dba_);
                               }) |
-                              ranges::to_vector;
+                              r::to<std::vector>();
   auto const properties_stringified = utils::Join(property_names, ", ");
   return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
                      properties_stringified);
@@ -1462,7 +1467,7 @@ std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *sto
   object->properties_ = properties_;
   object->expression_ranges_ = expression_ranges_ |
                                rv::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
-                               ranges::to_vector;
+                               r::to<std::vector>();
   return object;
 }
 
@@ -2094,8 +2099,8 @@ class ExpandVariableCursor : public Cursor {
       auto current_edge = *edges_it_.back()++;
       // Check edge-uniqueness.
       bool found_existing =
-          std::any_of(edges_on_frame.begin(), edges_on_frame.end(),
-                      [&current_edge](const TypedValue &edge) { return current_edge.first == edge.ValueEdge(); });
+          r::any_of(edges_on_frame.begin(), edges_on_frame.end(),
+                    [&current_edge](const TypedValue &edge) { return current_edge.first == edge.ValueEdge(); });
       if (found_existing) return false;
 
       VertexAccessor current_vertex =
@@ -3079,7 +3084,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       // Check if the vertex has already been processed.
       if (found_it != visited_cost_.end()) {
         auto &weights = found_it->second;
-        bool insert = std::ranges::none_of(weights, [&depth, &next_weight](const auto &entry) {
+        bool insert = r::none_of(weights, [&depth, &next_weight](const auto &entry) {
           auto const &[old_weight, old_depth] = entry;
           return old_depth <= depth && (old_weight < next_weight).ValueBool() && !are_equal(old_weight, next_weight);
         });
@@ -4236,10 +4241,9 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
       }
       const auto *filter_expression = static_cast<EdgeTypesTest *>(single_filter.expression);
 
-      auto or_edge_types =
-          filter_expression->valid_edgetypes_ |
-          std::ranges::views::transform([&](EdgeTypeIx const &et) -> std::string const & { return et.name; }) |
-          std::ranges::views::join_with('|') | std::ranges::to<std::string>();
+      auto or_edge_types = filter_expression->valid_edgetypes_ |
+                           r::views::transform([&](EdgeTypeIx const &et) -> std::string const & { return et.name; }) |
+                           r::views::join_with('|') | r::to<std::string>();
       if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
         return fmt::format("[:{}]", or_edge_types);
       }
@@ -4508,10 +4512,10 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
       case TypedValue::Type::Path: {
         auto path = expression_result.ValuePath();
 #ifdef MG_ENTERPRISE
-        auto edges_res = std::any_of(path.edges().cbegin(), path.edges().cend(),
-                                     [&edge_auth_checker](const auto &ea) { return !edge_auth_checker(ea); });
-        auto vertices_res = std::any_of(path.vertices().cbegin(), path.vertices().cend(),
-                                        [&vertex_auth_checker](const auto &va) { return !vertex_auth_checker(va); });
+        auto edges_res = r::any_of(path.edges().cbegin(), path.edges().cend(),
+                                   [&edge_auth_checker](const auto &ea) { return !edge_auth_checker(ea); });
+        auto vertices_res = r::any_of(path.vertices().cbegin(), path.vertices().cend(),
+                                      [&vertex_auth_checker](const auto &va) { return !vertex_auth_checker(va); });
 
         if (edges_res || vertices_res) {
           throw QueryRuntimeException(
@@ -6139,13 +6143,13 @@ class AggregateCursor : public Cursor {
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
    */
   static void ProjectList(TypedValue const &arg1, TypedValue const &arg2, Graph &projectedGraph) {
-    if (arg1.type() != TypedValue::Type::List || !std::ranges::all_of(arg1.ValueList(), [](TypedValue const &each) {
+    if (arg1.type() != TypedValue::Type::List || !r::all_of(arg1.ValueList(), [](TypedValue const &each) {
           return each.type() == TypedValue::Type::Vertex || each.type() == TypedValue::Type::Null;
         })) {
       throw QueryRuntimeException("project() argument 1 must be a list of nodes or nulls.");
     }
 
-    if (arg2.type() != TypedValue::Type::List || !std::ranges::all_of(arg2.ValueList(), [](TypedValue const &each) {
+    if (arg2.type() != TypedValue::Type::List || !r::all_of(arg2.ValueList(), [](TypedValue const &each) {
           return each.type() == TypedValue::Type::Edge || each.type() == TypedValue::Type::Null;
         })) {
       throw QueryRuntimeException("project() argument 2 must be a list of relationships or nulls.");
@@ -6416,7 +6420,7 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(
+      r::sort(
           rv::zip(order_by, output), self_.compare_.lex_cmp(),
           [](auto const &value) -> auto const & { return std::get<0>(value); });
 
@@ -7563,7 +7567,7 @@ namespace {
 auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
                     ExpressionVisitor<TypedValue> &evaluator)
     -> std::optional<std::map<std::string, std::string, std::less<>>> {
-  if (std::ranges::any_of(config_map, [&evaluator](const auto &entry) {
+  if (r::any_of(config_map, [&evaluator](const auto &entry) {
         auto key_expr = entry.first->Accept(evaluator);
         auto value_expr = entry.second->Accept(evaluator);
         return !key_expr.IsString() || !value_expr.IsString();
@@ -7571,13 +7575,11 @@ auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config
     spdlog::error("Config map must contain only string keys and values!");
     return std::nullopt;
   }
-
-  return rv::all(config_map) | rv::transform([&evaluator](const auto &entry) {
-           auto key_expr = entry.first->Accept(evaluator);
-           auto value_expr = entry.second->Accept(evaluator);
-           return std::pair{key_expr.ValueString(), value_expr.ValueString()};
+  return config_map | rv::transform([&evaluator](const auto &entry) {
+           return std::pair{std::string{entry.first->Accept(evaluator).ValueString()},
+                            std::string{entry.second->Accept(evaluator).ValueString()}};
          }) |
-         ranges::to<std::map<std::string, std::string, std::less<>>>;
+         r::to<std::map<std::string, std::string, std::less<>>>();
 }
 
 // copy-pasted from interpreter.cpp

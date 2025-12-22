@@ -143,8 +143,8 @@ storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(stora
 
   std::vector<EdgeAccessor> resulting_edges;
   resulting_edges.reserve(filteredOutEdges.size());
-  std::ranges::transform(filteredOutEdges, std::back_inserter(resulting_edges),
-                         [](auto const &edge) { return EdgeAccessor(edge); });
+  r::transform(filteredOutEdges, std::back_inserter(resulting_edges),
+               [](auto const &edge) { return EdgeAccessor(edge); });
 
   return EdgeVertexAccessorResult{.edges = std::move(resulting_edges), .expanded_count = maybe_edges->expanded_count};
 }
@@ -165,8 +165,8 @@ storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::InEdges(storag
 
   std::vector<EdgeAccessor> resulting_edges;
   resulting_edges.reserve(filteredOutEdges.size());
-  std::ranges::transform(filteredOutEdges, std::back_inserter(resulting_edges),
-                         [](auto const &edge) { return EdgeAccessor(edge); });
+  r::transform(filteredOutEdges, std::back_inserter(resulting_edges),
+               [](auto const &edge) { return EdgeAccessor(edge); });
 
   return EdgeVertexAccessorResult{.edges = std::move(resulting_edges), .expanded_count = maybe_edges->expanded_count};
 }

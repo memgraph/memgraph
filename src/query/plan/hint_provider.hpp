@@ -19,7 +19,6 @@
 #include <vector>
 
 #include <boost/algorithm/string.hpp>
-#include <range/v3/view.hpp>
 
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
@@ -319,7 +318,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   template <typename Func>
   std::string ExtractAndJoin(auto &&collection, Func &&projection) {
-    auto elements = collection | ranges::views::transform(std::forward<Func>(projection));
+    auto elements = collection | rv::transform(std::forward<Func>(projection));
     return utils::Join(elements, ", ");
   }
 };

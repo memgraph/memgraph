@@ -247,7 +247,7 @@ auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
 
                                         ) -> std::shared_ptr<index_t<PointType>> {
     auto modified = [&](Entry<PointType> const &entry) { return changed_vertices.contains(entry.vertex()); };
-    if (changed_values.empty() && !std::ranges::any_of(*index, modified)) {
+    if (changed_values.empty() && !r::any_of(*index, modified)) {
       // was unmodified, no need to rebuild
       return index;
     }

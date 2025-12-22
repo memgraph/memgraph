@@ -36,7 +36,7 @@ struct TrackedChanges {
   bool AnyChanges() const {
     auto all_tracked_changes = data | std::views::values;
     auto has_any_change = [](absl::flat_hash_set<Vertex const *> const &tracked) { return !tracked.empty(); };
-    return std::ranges::any_of(all_tracked_changes, has_any_change);
+    return r::any_of(all_tracked_changes, has_any_change);
   }
 
   void MergeIntoAndClearOther(TrackedChanges &other) {

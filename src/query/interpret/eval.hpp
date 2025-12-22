@@ -591,7 +591,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Edge: {
         const auto edge_type = expression_result.ValueEdge().EdgeType();
-        const auto is_valid = std::ranges::any_of(
+        const auto is_valid = r::any_of(
             edgetype_test.valid_edgetypes_, [=](const storage::EdgeTypeId et_id) { return edge_type == et_id; },
             [&](EdgeTypeIx const &et) { return GetEdgeType(et); });
         return TypedValue(is_valid, ctx_->memory);

@@ -19,7 +19,7 @@
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "utils/synchronized.hpp"
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 namespace memgraph::storage {

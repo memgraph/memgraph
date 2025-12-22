@@ -98,7 +98,7 @@ inline auto Labels_ActionMethod(utils::small_vector<LabelId> &labels) {
   // clang-format off
   return utils::Overloaded{
       ActionMethod<REMOVE_LABEL>([&](Delta const &delta) {
-        auto it = std::ranges::find(labels, delta.label.value);
+        auto it = r::find(labels, delta.label.value);
         DMG_ASSERT(it != labels.end(), "Invalid database state!");
         *it = labels.back();
         labels.pop_back();
@@ -150,7 +150,7 @@ auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, Edg
                         std::vector<EdgeTypeId> const &edge_types, Vertex const *destination) {
   auto const predicate = [&, destination](Delta const &delta) {
     if (destination && delta.vertex_edge.vertex != destination) return false;
-    if (!edge_types.empty() && !std::ranges::contains(edge_types, delta.vertex_edge.edge_type)) return false;
+    if (!edge_types.empty() && !r::contains(edge_types, delta.vertex_edge.edge_type)) return false;
     return true;
   };
 
@@ -165,7 +165,7 @@ auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, Edg
               /// NOTE: For in_memory_storage, link should never exist but for on_disk storage it is possible that
               /// after edge deletion, in the same txn, user requests loading from disk. Then edge will already exist
               /// in out_edges struct.
-              auto link_exists = std::ranges::contains(edges, link);
+              auto link_exists = r::contains(edges, link);
               if (!link_exists) {
                 edges.push_back(link);
               }
@@ -175,7 +175,7 @@ auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, Edg
           [&, predicate](Delta const &delta) {
               if (!predicate(delta)) return;
               // Remove the label because we don't see the addition.
-              auto it = std::ranges::find(edges,
+              auto it = r::find(edges,
                             std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge});
               DMG_ASSERT(it != edges.end(), "Invalid database state!");
               *it = edges.back();
@@ -201,7 +201,7 @@ auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, Edg
               /// NOTE: For in_memory_storage, link should never exist but for on_disk storage it is possible that
               /// after edge deletion, in the same txn, user requests loading from disk. Then edge will already exist
               /// in out_edges struct.
-              auto link_exists = std::ranges::contains(edges, link);
+              auto link_exists = r::contains(edges, link);
               if (!link_exists) {
                 edges.push_back(link);
               }
@@ -211,7 +211,7 @@ auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, Edg
           [&, predicate](Delta const &delta) {
               if (!predicate(delta)) return;
               // Remove the label because we don't see the addition.
-              auto it = std::ranges::find(edges,
+              auto it = r::find(edges,
                             std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge});
               DMG_ASSERT(it != edges.end(), "Invalid database state!");
               *it = edges.back();
@@ -234,7 +234,7 @@ auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, Edg
               /// NOTE: For in_memory_storage, link should never exist but for on_disk storage it is possible that
               /// after edge deletion, in the same txn, user requests loading from disk. Then edge will already exist
               /// in out_edges struct.
-              auto link_exists = std::ranges::contains(edges, link);
+              auto link_exists = r::contains(edges, link);
               if (!link_exists) {
                 edges.push_back(link);
               }
@@ -243,7 +243,7 @@ auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, Edg
       ActionMethod <(dir == EdgeDirection::IN) ? REMOVE_IN_EDGE : REMOVE_OUT_EDGE> (
           [&](Delta const &delta) {
               // Remove the label because we don't see the addition.
-              auto it = std::ranges::find(edges,
+              auto it = r::find(edges,
                             std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge});
               DMG_ASSERT(it != edges.end(), "Invalid database state!");
               *it = edges.back();

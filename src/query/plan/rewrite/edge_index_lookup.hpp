@@ -85,8 +85,8 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
         auto does_modify = [&]() {
           const auto &symbols = input->ModifiedSymbols(*symbol_table_);
-          return std::any_of(symbols.begin(), symbols.end(),
-                             [&modified_symbols](const auto &sym_in) { return modified_symbols.contains(sym_in); });
+          return r::any_of(symbols.begin(), symbols.end(),
+                           [&modified_symbols](const auto &sym_in) { return modified_symbols.contains(sym_in); });
         };
         if (does_modify()) {
           // if we removed something from filter in front of a Cartesian, then we are doing a join from
@@ -1041,8 +1041,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto const id_to_ix = [&](const storage::EdgeTypeId et) -> EdgeTypeIx {
         return ast_storage_->GetEdgeTypeIx(db_->EdgeTypeToName(et));
       };
-      auto valid_edge_types =
-          common.edge_types | std::ranges::views::transform(id_to_ix) | std::ranges::to<std::vector>();
+      auto valid_edge_types = common.edge_types | r::views::transform(id_to_ix) | r::to<std::vector>();
 
       // build new filter
       auto *edge_identifier = ast_storage_->Create<Identifier>(common.edge_symbol.name());

@@ -18,7 +18,8 @@
 #include "utils/rw_spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
-#include <range/v3/view.hpp>
+namespace r = std::ranges;
+namespace rv = r::views;
 
 namespace memgraph::storage {
 
@@ -38,7 +39,7 @@ class TransactionReplication {
 
   template <typename... Args>
   void AppendDelta(Args &&...args) {
-    for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
+    for (auto &&[client, replica_stream] : rv::zip(*locked_clients, streams)) {
       client->IfStreamingTransaction(
           [&...args = std::forward<Args>(args)](auto &stream) { stream.AppendDelta(std::forward<Args>(args)...); },
           replica_stream);
@@ -46,7 +47,7 @@ class TransactionReplication {
   }
 
   void AppendTransactionStart(uint64_t timestamp, bool commit, StorageAccessType access_type) {
-    for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
+    for (auto &&[client, replica_stream] : rv::zip(*locked_clients, streams)) {
       client->IfStreamingTransaction(
           [timestamp, commit, access_type](auto &stream) {
             stream.AppendTransactionStart(timestamp, commit, access_type);
@@ -57,7 +58,7 @@ class TransactionReplication {
 
   template <typename Func>
   void EncodeToReplicas(Func &&func) {
-    for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
+    for (auto &&[client, replica_stream] : rv::zip(*locked_clients, streams)) {
       client->IfStreamingTransaction(
           [&](auto &stream) {
             auto encoder = stream.encoder();

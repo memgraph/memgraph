@@ -11,8 +11,6 @@
 
 #include "storage/v2/inmemory/edge_property_index.hpp"
 
-#include "storage/v2/constraints/constraints.hpp"
-#include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -20,7 +18,7 @@
 #include "storage/v2/property_value_utils.hpp"
 #include "utils/counter.hpp"
 
-namespace r = ranges;
+namespace r = std::ranges;
 namespace rv = r::views;
 
 namespace {
@@ -485,7 +483,7 @@ InMemoryEdgePropertyIndex::ChunkedIterable InMemoryEdgePropertyIndex::ActiveIndi
 }
 
 EdgePropertyIndex::AbortProcessor InMemoryEdgePropertyIndex::ActiveIndices::GetAbortProcessor() const {
-  auto property_ids_filter = index_container_->indices_ | std::views::keys | ranges::to_vector;
+  auto property_ids_filter = index_container_->indices_ | rv::keys | r::to<std::vector>();
   return AbortProcessor{property_ids_filter};
 }
 
@@ -521,7 +519,8 @@ void InMemoryEdgePropertyIndex::CleanupAllIndicies() {
   all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
     auto keep_condition = [](AllIndicesEntry const &entry) { return entry.second.use_count() != 1; };
     if (!r::all_of(*indices, keep_condition)) {
-      indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
+      indices =
+          std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to<std::vector>());
     }
   });
 }
