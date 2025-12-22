@@ -196,12 +196,14 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
   // GenQueryUser always returns a non-null shared_ptr and
   // both creator_ and triggering_user come from GenQueryUser
   if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
+    DMG_ASSERT(creator_, "Creator is null");
     if (!creator_->IsAuthorized(parsed_statements_.required_privileges, db_name, &query::up_to_date_policy)) {
       throw utils::BasicException(
           fmt::format("The owner of trigger '{}' is not authorized to execute the query!", name_));
     }
   } else {
     // no users
+    DMG_ASSERT(triggering_user, "Triggering user is null");
     if (!triggering_user->IsAuthorized(parsed_statements_.required_privileges, db_name, &query::up_to_date_policy)) {
       throw utils::BasicException(
           fmt::format("The user who invoked the trigger '{}' is not authorized to execute the query!", name_));
@@ -240,7 +242,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   ctx.evaluation_context.memory = execution_memory;
   ctx.protector = dbms::DatabaseProtector{db_acc}.clone();
   ctx.is_main = is_main;
-  ctx.user_or_role = triggering_user;
+  ctx.user_or_role = privilege_context_ == TriggerPrivilegeContext::DEFINER ? creator_ : triggering_user;
 
   auto cursor = plan.plan().MakeCursor(execution_memory);
   Frame frame{plan.symbol_table().max_position(), execution_memory};
@@ -263,8 +265,40 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
 namespace {
 // When the format of the persisted trigger is changed, increase this version
 // also update tests/integration/triggers
-inline constexpr uint64_t kDefinerVersion{2};
+inline constexpr uint64_t kDefinerOnlyVersion{2};
 inline constexpr uint64_t kVersion{3};
+
+std::string_view TriggerPrivilegeContextToString(TriggerPrivilegeContext context) {
+  switch (context) {
+    case TriggerPrivilegeContext::INVOKER:
+      return "INVOKER";
+    case TriggerPrivilegeContext::DEFINER:
+      return "DEFINER";
+  }
+  MG_ASSERT(false, "Invalid trigger privilege context");
+}
+
+std::optional<TriggerPrivilegeContext> TriggerPrivilegeContextFromString(const std::string &str) {
+  if (str == "INVOKER") {
+    return TriggerPrivilegeContext::INVOKER;
+  }
+  if (str == "DEFINER") {
+    return TriggerPrivilegeContext::DEFINER;
+  }
+  return std::nullopt;
+}
+
+bool MigrateTriggerData(nlohmann::json &json_data, uint64_t version) {
+  bool needs_update = false;
+
+  if (version == kDefinerOnlyVersion) {
+    json_data["privilege_context"] = TriggerPrivilegeContextToString(TriggerPrivilegeContext::DEFINER);
+    json_data["version"] = kVersion;
+    needs_update = true;
+  }
+
+  return needs_update;
+}
 }  // namespace
 
 TriggerStore::TriggerStore(std::filesystem::path directory) : storage_{std::move(directory)} {}
@@ -287,10 +321,16 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
     return;
   }
   const auto version = json_trigger_data["version"].get<uint64_t>();
-  if (version != kVersion && version != kDefinerVersion) {
+  if (version != kVersion && version != kDefinerOnlyVersion) {
     spdlog::warn(get_failed_message(fmt::format("Invalid version of the trigger data. Expected {} or {}, got {}.",
-                                                kVersion, kDefinerVersion, version)));
+                                                kVersion, kDefinerOnlyVersion, version)));
     return;
+  }
+
+  const bool migration_occurred = MigrateTriggerData(json_trigger_data, version);
+  if (migration_occurred) {
+    // update stored data with migrated version
+    storage_.Put(trigger_name, json_trigger_data.dump());
   }
 
   if (!json_trigger_data["statement"].is_string()) {
@@ -318,7 +358,6 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
   const auto user_parameters = serialization::DeserializeExternalPropertyValueMap(json_trigger_data["user_parameters"],
                                                                                   db_accessor->GetStorageAccessor());
 
-  // TODO: Migration
   const auto owner_json = json_trigger_data["owner"];
   std::optional<std::string> owner{};
   if (owner_json.is_string()) {
@@ -346,27 +385,22 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
     return;
   }
 
-  auto const privilege_context = std::invoke([&]() -> std::optional<TriggerPrivilegeContext> {
-    if (version == kDefinerVersion) {
-      return TriggerPrivilegeContext::DEFINER;
-    }
-
-    const auto privilege_context_json = json_trigger_data["privilege_context"];
-    if (!privilege_context_json.is_number_unsigned()) {
-      return std::nullopt;
-    }
-    return static_cast<TriggerPrivilegeContext>(privilege_context_json.get<uint8_t>());
-  });
-
-  if (!privilege_context) {
+  const auto privilege_context_json = json_trigger_data["privilege_context"];
+  if (!privilege_context_json.is_string()) {
     spdlog::warn(invalid_state_message);
     return;
   }
+  const auto privilege_context_opt = TriggerPrivilegeContextFromString(privilege_context_json.get<std::string>());
+  if (!privilege_context_opt) {
+    spdlog::warn(invalid_state_message);
+    return;
+  }
+  const auto privilege_context = *privilege_context_opt;
 
   std::optional<Trigger> trigger;
   try {
     trigger.emplace(std::string{trigger_name}, statement, user_parameters, event_type, query_cache, db_accessor,
-                    query_config, std::move(user), std::string{db_name}, *privilege_context);
+                    query_config, std::move(user), std::string{db_name}, privilege_context);
   } catch (const utils::BasicException &e) {
     spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
     return;
@@ -425,7 +459,7 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
       serialization::SerializeExternalPropertyValueMap(user_parameters, db_accessor->GetStorageAccessor());
   data["event_type"] = event_type;
   data["phase"] = phase;
-  data["privilege_context"] = static_cast<uint8_t>(privilege_context);
+  data["privilege_context"] = TriggerPrivilegeContextToString(privilege_context);
   data["version"] = kVersion;
 
   const auto &owner_from_trigger = trigger->Creator();

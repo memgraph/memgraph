@@ -4573,11 +4573,10 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
              before_commit = trigger_query->before_commit_, trigger_store, interpreter_context, dba, user_parameters,
              owner = std::move(owner), db_name,
              privilege_context = trigger_query->privilege_context_]() mutable -> std::vector<std::vector<TypedValue>> {
-        trigger_store->AddTrigger(std::move(trigger_name), trigger_statement, user_parameters,
-                                  ToTriggerEventType(event_type),
-                                  before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT,
-                                  &interpreter_context->ast_cache, dba, interpreter_context->config.query,
-                                  std::move(owner), db_name, static_cast<TriggerPrivilegeContext>(privilege_context));
+        trigger_store->AddTrigger(
+            std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
+            before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT, &interpreter_context->ast_cache,
+            dba, interpreter_context->config.query, std::move(owner), db_name, privilege_context);
         memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersCreated);
         return {};
       }};
@@ -8179,7 +8178,7 @@ void Interpreter::Commit() {
   if (trigger_context && db->trigger_store()->AfterCommitTriggers().size() > 0) {
     db->AddTask([db_acc = *current_db_.db_acc_, interpreter_context = interpreter_context_,
                  trigger_context = std::move(*trigger_context), triggering_user = user_or_role_,
-                 user_transaction = std::shared_ptr(std::move(current_db_.db_transactional_accessor_))]() {
+                 user_transaction = std::move(current_db_.db_transactional_accessor_)]() {
       RunTriggersAfterCommit(db_acc, interpreter_context, trigger_context, triggering_user);
       user_transaction->FinalizeTransaction();
       SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)

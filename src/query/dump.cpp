@@ -27,6 +27,7 @@
 #include "query/string_helpers.hpp"
 #include "query/trigger.hpp"
 #include "query/trigger_context.hpp"
+#include "query/trigger_privilege_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"

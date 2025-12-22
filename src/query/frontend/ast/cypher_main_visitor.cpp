@@ -982,8 +982,8 @@ antlrcpp::Any CypherMainVisitor::visitCreateTrigger(MemgraphCypher::CreateTrigge
   auto *trigger_query = storage_->Create<TriggerQuery>();
   trigger_query->action_ = TriggerQuery::Action::CREATE_TRIGGER;
   trigger_query->trigger_name_ = std::any_cast<std::string>(ctx->triggerName()->symbolicName()->accept(this));
-  trigger_query->privilege_context_ = ctx->INVOKER() ? TriggerQuery::PrivilegeContext::INVOKER
-                                                     : TriggerQuery::PrivilegeContext::DEFINER;  // definer is default
+  trigger_query->privilege_context_ =
+      ctx->INVOKER() ? TriggerPrivilegeContext::INVOKER : TriggerPrivilegeContext::DEFINER;  // definer is default
 
   auto *statement = ctx->triggerStatement();
   antlr4::misc::Interval interval{statement->start->getStartIndex(), statement->stop->getStopIndex()};
