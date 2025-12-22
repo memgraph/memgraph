@@ -156,6 +156,62 @@ def test_roles_function_with_user_has_roles(memgraph):
     memgraph.execute("DROP ROLE user_role;")
 
 
+def test_roles_function_multi_tenant(memgraph):
+    memgraph.execute("CREATE USER test_user;")
+    memgraph.execute("CREATE ROLE admin_role;")
+    memgraph.execute("CREATE ROLE user_role;")
+    memgraph.execute("CREATE DATABASE db1;")
+    memgraph.execute("CREATE DATABASE db2;")
+    memgraph.execute("GRANT DATABASE * TO admin_role;")
+    memgraph.execute("GRANT DATABASE * TO user_role;")
+    memgraph.execute("SET ROLE FOR test_user TO admin_role, user_role ON db1;")
+    memgraph.execute("SET ROLE FOR test_user TO user_role ON db2;")
+    memgraph.execute("SET ROLE FOR test_user TO admin_role ON memgraph;")
+
+    memgraph_with_user = Memgraph(username="test_user", password="")
+
+    # test roles() with no argument - should show all roles
+    results = list(memgraph_with_user.execute_and_fetch("RETURN roles() AS roles;"))
+    assert len(results) == 1 and "roles" in results[0]
+    roles = results[0]["roles"]
+    assert isinstance(roles, list) and len(roles) == 2 and "admin_role" in roles and "user_role" in roles
+
+    # test roles() with database argument - should show roles only for that database
+    results = list(memgraph_with_user.execute_and_fetch("RETURN roles('db1') AS roles;"))
+    assert len(results) == 1 and "roles" in results[0]
+    roles = results[0]["roles"]
+    assert isinstance(roles, list) and len(roles) == 2 and "admin_role" in roles and "user_role" in roles
+
+    results = list(memgraph_with_user.execute_and_fetch("RETURN roles('db2') AS roles;"))
+    assert len(results) == 1 and "roles" in results[0]
+    roles = results[0]["roles"]
+    assert isinstance(roles, list) and len(roles) == 1 and "user_role" in roles
+
+    results = list(memgraph_with_user.execute_and_fetch("RETURN roles('memgraph') AS roles;"))
+    assert len(results) == 1 and "roles" in results[0]
+    roles = results[0]["roles"]
+    assert isinstance(roles, list) and len(roles) == 1 and "admin_role" in roles
+
+    # test with non-existent database - should return empty list
+    results = list(memgraph_with_user.execute_and_fetch("RETURN roles('nonexistent') AS roles;"))
+    assert len(results) == 1 and "roles" in results[0]
+    roles = results[0]["roles"]
+    assert isinstance(roles, list) and len(roles) == 0
+
+    # test roles() without argument after switching databases - should still show all roles
+    memgraph_with_user.execute_and_fetch("USE DATABASE memgraph;")
+    results = list(memgraph_with_user.execute_and_fetch("RETURN roles() AS roles;"))
+    assert len(results) == 1 and "roles" in results[0]
+    roles = results[0]["roles"]
+    assert isinstance(roles, list) and len(roles) == 2 and "admin_role" in roles and "user_role" in roles
+
+    memgraph.execute("DROP USER test_user;")
+    memgraph.execute("DROP ROLE admin_role;")
+    memgraph.execute("DROP ROLE user_role;")
+    memgraph.execute("DROP DATABASE db1;")
+    memgraph.execute("DROP DATABASE db2;")
+
+
 def test_username_and_roles_functions_in_trigger(memgraph):
     memgraph.execute("CREATE USER test_user;")
     memgraph.execute("CREATE ROLE admin_role;")

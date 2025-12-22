@@ -1789,14 +1789,19 @@ TypedValue Username(const TypedValue * /*args*/, int64_t /*nargs*/, const Functi
   return TypedValue(*username, ctx.memory);
 }
 
-TypedValue Roles(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
-  FType<void>("roles", /*args*/ nullptr, /*nargs*/ 0);
+TypedValue Roles(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Optional<String>>("roles", args, nargs);
   if (!ctx.user_or_role) {
     return TypedValue(TypedValue::TVector(ctx.memory));
   }
 
-  auto db_name = ctx.db_accessor->DatabaseName();
-  auto const rolenames = ctx.user_or_role->GetRolenames(std::move(db_name));
+  std::optional<std::string> db_name;
+  if (nargs > 0) {
+    db_name.emplace(args[0].ValueString());
+  }
+
+  // nullopt = show all roles
+  auto const rolenames = ctx.user_or_role->GetRolenames(db_name);
   TypedValue::TVector roles_list(ctx.memory);
   roles_list.reserve(rolenames.size());
   for (auto const &rolename : rolenames) {
