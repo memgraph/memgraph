@@ -114,6 +114,21 @@ class InMemoryStorage final : public Storage {
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
   enum class CreateSnapshotError : uint8_t { ReachedMaxNumTries, AbortSnapshot, AlreadyRunning, NothingNewToWrite };
+  static const char *CreateSnapshotErrorToString(CreateSnapshotError error) {
+    switch (error) {
+      using enum CreateSnapshotError;
+      case ReachedMaxNumTries:
+        return "Reached max number of tries";
+      case AbortSnapshot:
+        return "The current snapshot needs to be aborted";
+      case AlreadyRunning:
+        return "Another snapshot creation is already in progress";
+      case NothingNewToWrite:
+        return "Nothing has been written since the last snapshot";
+      default:
+        return "Unknown error";
+    }
+  }
   enum class RecoverSnapshotError : uint8_t {
     DisabledForReplica,
     NonEmptyStorage,
