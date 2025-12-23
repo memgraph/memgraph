@@ -79,7 +79,8 @@ class SharedQuota {
   // Returns the amount that was actually decremented.
   int64_t Decrement(int64_t amount = 1);
   // Increment the local quota. This is useful in cases where we optimistically decremented and need to return it.
-  void Increment(int64_t amount = 1);
+  // IMPORTANT: Increment ONLY works against Dectrements of 1. Otherwise we could lose the handle.
+  void Increment();
   // Reacquire the handler with the desired batch size.
   void Reacquire();
   // Useful for multi-threaded exeucitons where each thread needs to free its left quota.
