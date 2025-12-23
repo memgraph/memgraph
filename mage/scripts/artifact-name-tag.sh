@@ -2,34 +2,24 @@
 set -euo pipefail
 
 MEMGRAPH_VERSION=$1
-MAGE_VERSION=$2
-SHORTEN_TAG=$3
-ARCH=$4
-BUILD_TYPE=$5
-MALLOC=$6
-CUDA=$7
+SHORTEN_TAG=$2
+ARCH=$3
+BUILD_TYPE=$4
+MALLOC=$5
+CUDA=$6
 
 # remove patch version if it's 0
 if [[ $SHORTEN_TAG == "true" ]]; then
     MEMGRAPH_VERSION=${MEMGRAPH_VERSION%%-*}
-    MAGE_VERSION=${MAGE_VERSION%%-*}
     memgraph_patch_version=${MEMGRAPH_VERSION##*.}
-    mage_patch_version=${MAGE_VERSION##*.}
     if [[ "$memgraph_patch_version" == "0" ]]; then
         MEMGRAPH_VERSION=${MEMGRAPH_VERSION%.*}
-    fi
-    if [[ "$mage_patch_version" == "0" ]]; then
-        MAGE_VERSION=${MAGE_VERSION%.*}
     fi
 fi
 
 # if these match, then tag the image with the shortest vesion, e.g. 3.1.1
 # rather than 3.1.1-memgraph-3.1.1
-if [[ "$MAGE_VERSION" == "$MEMGRAPH_VERSION" ]]; then
-    IMAGE_TAG="${MAGE_VERSION}"
-else
-    IMAGE_TAG="${MAGE_VERSION}-memgraph-${MEMGRAPH_VERSION}"
-fi
+IMAGE_TAG="${MEMGRAPH_VERSION}"
 IMAGE_TAG="${IMAGE_TAG//+/_}"
 IMAGE_TAG="${IMAGE_TAG//\~/_}"
 ARTIFACT_NAME="mage-${IMAGE_TAG}"

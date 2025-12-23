@@ -6,18 +6,10 @@ on:
         type: string
         description: "Architecture to build the image for"
         required: true
-      mage_version:
-        type: string
-        description: "Mage version built into this image (format: X.Y.Z)"
-        required: true
       mage_build_type:
         type: string
         description: "Mage build type"
         default: 'Release'
-      memgraph_version:
-        type: string
-        description: "Memgraph version built into this image (format: X.Y.Z)"
-        required: true
       shorten_tag:
         type: boolean
         description: "Make the final tag as short as possible, shortest format is X.Y-memgraph-X.Y"
@@ -77,8 +69,6 @@ env:
   BUILD_TYPE: "${{ inputs.mage_build_type }}"
   MALLOC: "${{ inputs.malloc }}"
   CUDA: "${{ inputs.cuda }}"
-  MAGE_VERSION: "${{ inputs.mage_version }}"
-  MEMGRAPH_VERSION: "${{ inputs.memgraph_version }}"
   CONTAINER_NAME: "mgbuild"
   MAGE_CONTAINER: "mage"
   MEMGRAPH_PORT: 7687
@@ -155,6 +145,12 @@ jobs:
             echo "CACHE_PRESENT=false" >> $GITHUB_ENV
           fi
 
+      - name: Get Memgraph version
+        run: |
+          variant=binary
+          version="$(release/get_version.py --memgraph-root-dir $(pwd) '' '' --variant "$variant")"
+          echo "MEMGRAPH_VERSION=${version}" >> $GITHUB_ENV
+
       - name: Create wheels directory and fetch wheels if available
         run: |
           mkdir -p mage/wheels
@@ -169,7 +165,7 @@ jobs:
         env:
           SHORTEN_TAG: "${{ inputs.shorten_tag }}"
         run: |
-          read IMAGE_TAG ARTIFACT_NAME < <(mage/scripts/artifact-name-tag.sh "$MEMGRAPH_VERSION" "$MAGE_VERSION" "$SHORTEN_TAG" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA")
+          read IMAGE_TAG ARTIFACT_NAME < <(mage/scripts/artifact-name-tag.sh "$MEMGRAPH_VERSION" "$SHORTEN_TAG" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA")
           echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
           echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
 
@@ -304,7 +300,7 @@ jobs:
             --arch $ARCH \
             --build-type $BUILD_TYPE \
             package-mage-deb \
-            --version $MAGE_VERSION \
+            --version $MEMGRAPH_VERSION \
             $PACKAGE_ARGS
 
           DEB_PACKAGE="$(ls output/memgraph-mage*.deb)"
