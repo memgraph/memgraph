@@ -18,10 +18,6 @@ on:
         type: string
         description: "Memgraph version built into this image (format: X.Y.Z)"
         required: true
-      memgraph_download_link:
-        type: string
-        description: "Memgraph package download link. Leave empty to use the official download link."
-        default: ""
       shorten_tag:
         type: boolean
         description: "Make the final tag as short as possible, shortest format is X.Y-memgraph-X.Y"
@@ -93,8 +89,8 @@ env:
   POSTGRESQL_CONTAINER: "postgresql_test"
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-  MEMGRAPH_DOWNLOAD_LINK: "${{ inputs.memgraph_download_link }}"
   GENERATE_SBOM: "${{ inputs.generate_sbom }}"
+  TOOLCHAIN: "v7"
 
 jobs:
   BuildAndPush:
@@ -290,18 +286,22 @@ jobs:
 
       - name: Build Query Modules in MGBUILD container
         run: |
-          ./mage/scripts/container-build.sh \
-            --arch $ARCH \
-            --build-type $BUILD_TYPE \
-            --container-name $CONTAINER_NAME
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          build-mage
 
       - name: Build DEB package in MGBUILD container
         if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.PACKAGE_DEB == 'true' }}
         run: |
-          ./mage/scripts/container-package-deb.sh \
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
-            --container-name $CONTAINER_NAME \
+            package-mage-deb \
             --version $MAGE_VERSION \
             --malloc $MALLOC \
             --cuda $CUDA
@@ -326,12 +326,15 @@ jobs:
       - name: Run tests
         if: ${{ inputs.run_tests == true }}
         run: |
-          ./mage/scripts/container-test.sh \
-            --container-name $CONTAINER_NAME \
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            test-mage \
             --ci \
             --cache-present $CACHE_PRESENT \
-            --cuda $CUDA \
-            --arch $ARCH
+            --cuda $CUDA
 
       - name: Generate SBOM
         if: ${{ inputs.generate_sbom == true }}
