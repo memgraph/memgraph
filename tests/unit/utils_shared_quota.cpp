@@ -520,3 +520,59 @@ TEST(SharedQuotaTest, VariableDecrement) {
 
   ASSERT_EQ(consumed, limit);
 }
+
+// 11. Zero Limit Edge Case for SharedQuota
+TEST(SharedQuotaTest, ZeroLimitInit) {
+  SharedQuota quota(0, 1);
+  ASSERT_EQ(quota.Decrement(1), 0);
+}
+
+// 12. Zero Limit Preload Edge Case
+TEST(SharedQuotaTest, ZeroLimitPreloadInit) {
+  SharedQuota quota(SharedQuota::preload);
+  quota.Initialize(0, 1);
+  ASSERT_EQ(quota.Decrement(1), 0);
+}
+
+// 13. Increment from Zero
+TEST(SharedQuotaTest, IncrementFromZero) {
+  SharedQuota quota(1, 1);
+  ASSERT_EQ(quota.Decrement(), 1);
+
+  quota.Increment();
+  ASSERT_EQ(quota.Decrement(), 1);
+  ASSERT_EQ(quota.Decrement(), 0);
+}
+
+// 14. Wait on Zero with Active Holders
+TEST(SharedQuotaTest, WaitOnZero) {
+  // Start with 10 quota, 1 batch
+  SharedQuota original(10, 1);
+
+  // Thread A: Takes all 10 quota and keeps it for a bit
+  std::latch t1_acquired(1);
+  std::latch t2_waiting(1);
+
+  std::jthread t1([&]() {
+    auto res = original.Decrement();  // Should reserve all quota
+    ASSERT_EQ(res, 1);
+    t1_acquired.count_down();
+    t2_waiting.wait();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    // Quota returns here on destructor or when Free'd
+    original.Free();
+  });
+
+  // Thread B: Tries to decrement when quota is 0 but A is still active
+  std::jthread t2([&]() {
+    SharedQuota copy(original);
+    t1_acquired.wait();
+    t2_waiting.count_down();
+    // This should block until A calls Free()
+    auto res = copy.Decrement(10);
+    ASSERT_EQ(res, 9);
+  });
+
+  t1.join();
+  t2.join();
+}
