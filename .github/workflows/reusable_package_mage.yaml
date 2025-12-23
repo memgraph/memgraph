@@ -71,7 +71,7 @@ on:
 run-name: "Build and test MAGE for ${{ inputs.arch }}"
 
 env:
-  OS: "${{ inputs.arch == 'arm64' && 'ubuntu-24.04-aarch64' || 'ubuntu-24.04' }}${{ inputs.malloc && '-malloc' || '' }}${{ inputs.mage_build_type == 'RelWithDebInfo' && '-relwithdebinfo' || '' }}"
+  OS: "${{ inputs.arch == 'arm' && 'ubuntu-24.04-aarch64' || 'ubuntu-24.04' }}${{ inputs.malloc && '-malloc' || '' }}${{ inputs.mage_build_type == 'RelWithDebInfo' && '-relwithdebinfo' || '' }}"
   ARCH: "${{ inputs.arch }}"
   DOCKER_REPOSITORY_NAME: memgraph/memgraph-mage
   BUILD_TYPE: "${{ inputs.mage_build_type }}"
@@ -94,7 +94,7 @@ env:
 
 jobs:
   BuildAndPush:
-    runs-on: [self-hosted, DockerMgBuild, Linux, "${{ inputs.arch == 'arm64' && 'ARM64' || 'X64' }}"]
+    runs-on: [self-hosted, DockerMgBuild, Linux, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     outputs:
       s3_package_url: ${{ steps.output-url.outputs.s3_url }}
     steps:
@@ -141,7 +141,7 @@ jobs:
 
       - name: Check mgdeps-cache availability
         run: |
-          if [ "$ARCH" == "amd64" ]; then
+          if [ "$ARCH" == "amd" ]; then
             echo "mgdeps-cache is temporary disabled for amd64"
             echo "CACHE_PRESENT=false" >> $GITHUB_ENV
           elif curl --silent --fail "http://mgdeps-cache:8000/wheels/" -o /dev/null; then
@@ -310,7 +310,7 @@ jobs:
           echo "DEB_PACKAGE=${DEB_PACKAGE}" >> $GITHUB_ENV
 
       - name: Build pymgclient in MGBUILD container
-        if: ${{ inputs.arch == 'arm64' }}
+        if: ${{ inputs.arch == 'arm' }}
         run: |
           # This has to be done here, otherwise we will need to build pymgclient from source within
           # docker image build because we currently do not provide an arm64 wheel for Linux.
@@ -365,7 +365,7 @@ jobs:
           fi
           docker buildx build \
           --target $DOCKER_TARGET \
-          --platform linux/$ARCH \
+          --platform linux/${ARCH}64 \
           --tag ${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG \
           --file Dockerfile.release \
           --build-arg BUILD_TYPE=$BUILD_TYPE \

@@ -46,7 +46,7 @@ jobs:
     if: ${{ inputs.run_amd }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
-      arch: amd64
+      arch: amd
       mage_version: 3.7.1
       memgraph_version: 3.7.1
       push_to_github: false
@@ -59,7 +59,7 @@ jobs:
     if: ${{ inputs.run_arm }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
-      arch: arm64
+      arch: arm
       mage_version: 3.7.1
       memgraph_version: 3.7.1
       push_to_github: false
@@ -72,10 +72,11 @@ jobs:
     if: ${{ inputs.run_cuda }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
-      arch: cuda
+      arch: amd
       mage_version: 3.7.1
       memgraph_version: 3.7.1
       push_to_github: false
       push_to_s3: false
       run_tests: true
+      cuda: true
     secrets: inherit
