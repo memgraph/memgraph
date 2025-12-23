@@ -248,8 +248,7 @@ jobs:
           --dest-dir $MG_PACKAGE_ARTIFACT_DIR
 
           # get full file name of the package
-          MEMGRAPH_PACKAGE=$(ls $MG_PACKAGE_ARTIFACT_DIR/memgraph* | head -n 1)
-          echo "MEMGRAPH_PACKAGE=${MEMGRAPH_PACKAGE}" >> $GITHUB_ENV
+          mv -v $MG_PACKAGE_ARTIFACT_DIR/memgraph*.deb mage/memgraph.deb
 
       - name: "Copy SBOM"
         if: ${{ env.GENERATE_SBOM == 'true' }}
@@ -374,7 +373,6 @@ jobs:
           --build-arg MAGE_COMMIT=$MAGE_COMMIT \
           --build-arg CACHE_PRESENT=$CACHE_PRESENT \
           --build-arg CUSTOM_MIRROR=$CUSTOM_MIRROR \
-          --build-arg MEMGRAPH_PACKAGE=$MEMGRAPH_PACKAGE \
           --load .
 
           # print the image size in both SI and IEC units

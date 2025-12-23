@@ -23,13 +23,13 @@ RUN chmod +x /install_runtime_requirements.sh && \
     rm /install_runtime_requirements.sh
 
 # install memgraph
-COPY ${MEMGRAPH_PACKAGE} .
+COPY memgraph.deb .
 
 # fix `memgraph` UID and GID for compatibility with previous Debian releases
 RUN groupadd -g 103 memgraph && \
     useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph && \
-    dpkg -i ${MEMGRAPH_PACKAGE} && \
-    rm ${MEMGRAPH_PACKAGE}
+    dpkg -i memgraph.deb && \
+    rm memgraph.deb
 
 ENV LD_LIBRARY_PATH=/usr/lib/memgraph/query_modules
 
