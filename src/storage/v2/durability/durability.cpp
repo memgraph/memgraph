@@ -355,7 +355,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
     auto vertices_acc = vertices->access();
     for (const auto &recovery_info : indices_metadata.vector_indices) {
-      indices->vector_index_.RecoverIndexEntries(recovery_info, vertices_acc, name_id_mapper);
+      indices->vector_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper, snapshot_info);
     }
     spdlog::info("Vector indices are recreated.");
   }

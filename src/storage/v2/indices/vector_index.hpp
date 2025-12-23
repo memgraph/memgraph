@@ -168,14 +168,8 @@ class VectorIndex {
                    NameIdMapper *name_id_mapper,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-  void RecoverIndexEntries(const VectorIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
-                           NameIdMapper *name_id_mapper);
-
-  /// @brief Recovers a vector index based on the provided specification.
-  /// @param spec The specification for the index to be recovered.
-  /// @param vertices vertices from which to recover the index.
-  /// @param snapshot_info Optional snapshot observer for progress tracking.
-  void RecoverIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+  void RecoverIndex(const VectorIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
+                    NameIdMapper *name_id_mapper,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.
@@ -281,19 +275,6 @@ class VectorIndex {
   /// @throws query::VectorSearchException if the index already exists or creation fails.
   std::pair<mg_vector_index_t, LabelPropKey> CreateIndexStructure(const VectorIndexSpec &spec);
 
-  /// @brief Populates an index with vertices from the skip list (used by both CreateIndex and RecoverIndexEntries).
-  /// @param mg_vector_index The index to populate.
-  /// @param spec The index specification.
-  /// @param vertices Accessor to the vertices skip list.
-  /// @param name_id_mapper Mapper for name/ID conversions.
-  /// @param recovery_entries Optional map of recovery entries (nullptr for create, non-null for recovery).
-  static void PopulateIndexFromVerticesForCreate(mg_vector_index_t &mg_vector_index, const VectorIndexSpec &spec,
-                                                 utils::SkipList<Vertex>::Accessor &vertices,
-                                                 NameIdMapper *name_id_mapper);
-  static void PopulateIndexFromVerticesForRecovery(mg_vector_index_t &mg_vector_index, const VectorIndexSpec &spec,
-                                                   utils::SkipList<Vertex>::Accessor &vertices,
-                                                   NameIdMapper *name_id_mapper,
-                                                   const std::unordered_map<Gid, std::vector<float>> &recovery_entries);
   /// @brief Sets up a new vector index structure without populating it.
   /// @param spec The specification for the index to be created.
   /// @throws query::VectorSearchException if index already exists or creation fails.
@@ -316,6 +297,7 @@ class VectorIndex {
   /// @param spec The index specification.
   /// @param snapshot_info Optional snapshot observer for progress tracking.
   void PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, const VectorIndexSpec &spec,
+                                   NameIdMapper *name_id_mapper,
                                    std::optional<SnapshotObserverInfo> const &snapshot_info);
 
   /// @brief Populates the index with vertices using multiple threads.
@@ -323,6 +305,7 @@ class VectorIndex {
   /// @param spec The index specification.
   /// @param snapshot_info Optional snapshot observer for progress tracking.
   void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, const VectorIndexSpec &spec,
+                                      NameIdMapper *name_id_mapper,
                                       std::optional<SnapshotObserverInfo> const &snapshot_info);
 
   struct Impl;
