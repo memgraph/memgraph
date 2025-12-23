@@ -91,6 +91,9 @@ env:
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   GENERATE_SBOM: "${{ inputs.generate_sbom }}"
   TOOLCHAIN: "v7"
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+  CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+  CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
 
 jobs:
   BuildAndPush:
