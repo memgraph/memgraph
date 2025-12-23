@@ -186,14 +186,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
                       storage::View view, FrameChangeCollector *frame_change_collector = nullptr,
-                      const int64_t *hops_counter = nullptr)
+                      const int64_t *hops_counter = nullptr, std::shared_ptr<QueryUserOrRole> user_or_role = nullptr)
       : frame_(frame),
         symbol_table_(&symbol_table),
         ctx_(&ctx),
         dba_(dba),
         view_(view),
         frame_change_collector_(frame_change_collector),
-        hops_counter_(hops_counter) {}
+        hops_counter_(hops_counter),
+        user_or_role_(std::move(user_or_role)) {}
 
   using ExpressionVisitor<TypedValue>::Visit;
 
@@ -513,7 +514,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         const auto &vertex = expression_result.ValueVertex();
         for (const auto &label : labels_test.labels_) {
           auto has_label = vertex.HasLabel(view_, GetLabel(label));
-          if (has_label.HasError() && has_label.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+          if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
             // This is a very nasty and temporary hack in order to make MERGE
             // work. The old storage had the following logic when returning an
             // `OLD` view: `return old ? old : new`. That means that if the
@@ -523,8 +524,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             // reimplemented.
             has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
           }
-          if (has_label.HasError()) {
-            switch (has_label.GetError()) {
+          if (!has_label) {
+            switch (has_label.error()) {
               case storage::Error::DELETED_OBJECT:
                 throw QueryRuntimeException("Trying to access labels on a deleted node.");
               case storage::Error::NONEXISTENT_OBJECT:
@@ -543,7 +544,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           bool has_at_least_one_label = false;
           for (const auto &label : or_labels_pattern) {
             auto has_label = vertex.HasLabel(view_, GetLabel(label));
-            if (has_label.HasError() && has_label.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+            if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
               // This is a very nasty and temporary hack in order to make MERGE
               // work. The old storage had the following logic when returning an
               // `OLD` view: `return old ? old : new`. That means that if the
@@ -553,8 +554,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
               // reimplemented.
               has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
             }
-            if (has_label.HasError()) {
-              switch (has_label.GetError()) {
+            if (!has_label) {
+              switch (has_label.error()) {
                 case storage::Error::DELETED_OBJECT:
                   throw QueryRuntimeException("Trying to access labels on a deleted node.");
                 case storage::Error::NONEXISTENT_OBJECT:
@@ -676,7 +677,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
-    FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_, GetHopsCounter()};
+    FunctionContext function_ctx{dba_,  ctx_->memory,     ctx_->timestamp, &ctx_->counters,
+                                 view_, GetHopsCounter(), user_or_role_};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.
@@ -986,7 +988,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(EnumValueAccess &enum_value_access) override {
     auto maybe_enum = dba_->GetEnumValue(enum_value_access.enum_name_, enum_value_access.enum_value_);
-    if (maybe_enum.HasError()) [[unlikely]] {
+    if (!maybe_enum) [[unlikely]] {
       throw QueryRuntimeException("Enum value '{}' in enum '{}' not found.", enum_value_access.enum_value_,
                                   enum_value_access.enum_name_);
     }
@@ -996,7 +998,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
-    if (maybe_prop.HasError() && maybe_prop.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+    if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
       // `return old ? old : new`. That means that if the `OLD` view didn't
@@ -1005,8 +1007,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
       maybe_prop = record_accessor.GetProperty(storage::View::NEW, ctx_->properties[prop.ix]);
     }
-    if (maybe_prop.HasError()) {
-      switch (maybe_prop.GetError()) {
+    if (!maybe_prop) {
+      switch (maybe_prop.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get a property from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
@@ -1023,7 +1025,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
     auto maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
-    if (maybe_prop.HasError() && maybe_prop.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+    if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
       // `return old ? old : new`. That means that if the `OLD` view didn't
@@ -1032,8 +1034,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
       maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
     }
-    if (maybe_prop.HasError()) {
-      switch (maybe_prop.GetError()) {
+    if (!maybe_prop) {
+      switch (maybe_prop.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get a property from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
@@ -1051,7 +1053,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   template <class TRecordAccessor>
   std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
     auto maybe_props = record_accessor.Properties(view_);
-    if (maybe_props.HasError() && maybe_props.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+    if (maybe_props == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
       // `return old ? old : new`. That means that if the `OLD` view didn't
@@ -1060,8 +1062,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
       maybe_props = record_accessor.Properties(storage::View::NEW);
     }
-    if (maybe_props.HasError()) {
-      switch (maybe_props.GetError()) {
+    if (!maybe_props) {
+      switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get properties from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
@@ -1090,6 +1092,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
   // use the getter function GetHopsCounter() to handle possible error for segfault
   const int64_t *hops_counter_;
+  std::shared_ptr<QueryUserOrRole> user_or_role_;
 };  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.

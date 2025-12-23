@@ -47,16 +47,16 @@ int main(int argc, char *argv[]) {
         auto acc = storage->Access();
         vertices[0] = acc->CreateVertex().Gid();
         pid = acc->NameToProperty("NEW_PROP");
-        MG_ASSERT(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+        MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       }
 
       for (int iter = 0; iter != FLAGS_num_iterations; ++iter) {
         auto acc = storage->Access();
         auto vertex1 = acc->FindVertex(vertices[0], memgraph::storage::View::OLD);
         for (auto i = 0; i != FLAGS_num_poperties; ++i) {
-          MG_ASSERT(!vertex1.value().SetProperty(pid, memgraph::storage::PropertyValue{i}).HasError());
+          MG_ASSERT(vertex1.value().SetProperty(pid, memgraph::storage::PropertyValue{i}).has_value());
         }
-        MG_ASSERT(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+        MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       }
 
       end_bench = timer.Elapsed();

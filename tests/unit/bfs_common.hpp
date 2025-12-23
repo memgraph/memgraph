@@ -54,7 +54,7 @@ std::vector<std::pair<int, int>> GetEdgeList(const std::vector<std::tuple<int, i
                                              const std::vector<std::string> &edge_types) {
   std::vector<std::pair<int, int>> ret;
   for (const auto &e : edges) {
-    if (edge_types.empty() || memgraph::utils::Contains(edge_types, std::get<2>(e)))
+    if (edge_types.empty() || std::ranges::contains(edge_types, std::get<2>(e)))
       ret.emplace_back(std::get<0>(e), std::get<1>(e));
   }
   switch (dir) {
@@ -251,7 +251,7 @@ void CheckPath(memgraph::query::DbAccessor *dba, const memgraph::query::VertexAc
 
     int from = GetProp(curr, "id", dba).ValueInt();
     int to = GetProp(next, "id", dba).ValueInt();
-    ASSERT_TRUE(memgraph::utils::Contains(edges, std::make_pair(from, to)));
+    ASSERT_TRUE(std::ranges::contains(edges, std::make_pair(from, to)));
 
     curr = next;
   }

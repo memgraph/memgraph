@@ -982,6 +982,8 @@ antlrcpp::Any CypherMainVisitor::visitCreateTrigger(MemgraphCypher::CreateTrigge
   auto *trigger_query = storage_->Create<TriggerQuery>();
   trigger_query->action_ = TriggerQuery::Action::CREATE_TRIGGER;
   trigger_query->trigger_name_ = std::any_cast<std::string>(ctx->triggerName()->symbolicName()->accept(this));
+  trigger_query->privilege_context_ =
+      ctx->INVOKER() ? TriggerPrivilegeContext::INVOKER : TriggerPrivilegeContext::DEFINER;  // definer is default
 
   auto *statement = ctx->triggerStatement();
   antlr4::misc::Interval interval{statement->start->getStartIndex(), statement->stop->getStopIndex()};
@@ -1709,7 +1711,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   for (auto **identifier : anonymous_identifiers) {
     while (true) {
       std::string id_name = kAnonPrefix + std::to_string(id++);
-      if (users_identifiers.find(id_name) == users_identifiers.end()) {
+      if (!users_identifiers.contains(id_name)) {
         *identifier = storage_->Create<Identifier>(id_name, false);
         break;
       }
@@ -4152,8 +4154,7 @@ auto CypherMainVisitor::ExtractOperators(std::vector<antlr4::tree::ParseTree *> 
   for (auto *child : all_children) {
     antlr4::tree::TerminalNode *operator_node = nullptr;
     if ((operator_node = dynamic_cast<antlr4::tree::TerminalNode *>(child))) {
-      if (std::find(allowed_operators.begin(), allowed_operators.end(), operator_node->getSymbol()->getType()) !=
-          allowed_operators.end()) {
+      if (std::ranges::contains(allowed_operators, operator_node->getSymbol()->getType())) {
         operators.push_back(operator_node->getSymbol()->getType());
       }
     }

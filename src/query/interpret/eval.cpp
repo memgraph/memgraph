@@ -132,16 +132,14 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
     case TypedValue::Type::Null:
       return TypedValue(ctx_->memory);
     case TypedValue::Type::Vertex: {
-      for (const auto properties = *expression_result.ValueVertex().Properties(view_);
-           const auto &[property_id, value] : properties) {
+      for (const auto &[property_id, value] : GetAllProperties(expression_result.ValueVertex())) {
         auto typed_value = TypedValue(value, GetNameIdMapper(), ctx_->memory);
         result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), typed_value);
       }
       return {result, ctx_->memory};
     }
     case TypedValue::Type::Edge: {
-      for (const auto properties = *expression_result.ValueEdge().Properties(view_);
-           const auto &[property_id, value] : properties) {
+      for (const auto &[property_id, value] : GetAllProperties(expression_result.ValueEdge())) {
         auto typed_value = TypedValue(value, GetNameIdMapper(), ctx_->memory);
         result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), typed_value);
       }
@@ -310,10 +308,10 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       return TypedValue(zdt.LocalYear(), ctx_->memory);
     }
     if (prop_name == "month") {
-      return TypedValue(utils::MemcpyCast<int64_t>(zdt.LocalMonth()), ctx_->memory);
+      return TypedValue(std::bit_cast<int64_t>(zdt.LocalMonth()), ctx_->memory);
     }
     if (prop_name == "day") {
-      return TypedValue(utils::MemcpyCast<int64_t>(zdt.LocalDay()), ctx_->memory);
+      return TypedValue(std::bit_cast<int64_t>(zdt.LocalDay()), ctx_->memory);
     }
     if (prop_name == "hour") {
       return TypedValue(zdt.LocalHour(), ctx_->memory);

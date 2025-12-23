@@ -28,7 +28,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/result.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
@@ -136,8 +135,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   }
   auto guard = std::unique_lock{vertex_->lock};
 
-  if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
-  if (vertex_->deleted) return Error::DELETED_OBJECT;
+  if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   // Now that the vertex is locked, we can check if it has any edges and if it does, we can upgrade the accessor
   if (schema_acc) {
@@ -148,17 +147,19 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
                  *SchemaInfoUniqueAccessor(storage_, transaction_));
       guard.lock();
       // Need to re-check for serialization errors
-      if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
-      if (vertex_->deleted) return Error::DELETED_OBJECT;
+      if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
+      if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
     }
   }
 
-  if (r::find(vertex_->labels, label) != vertex_->labels.end()) return false;
+  if (std::ranges::contains(vertex_->labels, label)) return false;
 
   utils::AtomicMemoryBlock([transaction = transaction_, vertex = vertex_, &label]() {
     CreateAndLinkDelta(transaction, vertex, Delta::RemoveLabelTag(), label);
     vertex->labels.push_back(label);
   });
+
+  storage_->UpdateLabelCount(label, 1);
 
   if (storage_->constraints_.HasTypeConstraints()) {
     if (auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, label)) {
@@ -207,8 +208,8 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   }
   auto guard = std::unique_lock{vertex_->lock};
 
-  if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
-  if (vertex_->deleted) return Error::DELETED_OBJECT;
+  if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   // Now that the vertex is locked, we can check if it has any edges and if it does, we can upgrade the accessor
   if (schema_acc) {
@@ -219,8 +220,8 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
                  *SchemaInfoUniqueAccessor(storage_, transaction_));
       guard.lock();
       // Need to re-check for serialization errors
-      if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
-      if (vertex_->deleted) return Error::DELETED_OBJECT;
+      if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
+      if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
     }
   }
 
@@ -232,6 +233,8 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
     *it = vertex->labels.back();
     vertex->labels.pop_back();
   });
+
+  storage_->UpdateLabelCount(label, -1);
 
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
@@ -259,7 +262,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    has_label = r::contains(vertex_->labels, label);
+    has_label = std::ranges::contains(vertex_->labels, label);
     delta = vertex_->delta;
   }
 
@@ -271,7 +274,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
       if (auto resLabel = cache.GetHasLabel(view, vertex_, label); resLabel) return {resLabel.value()};
     }
 
@@ -293,8 +296,8 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
     }
   }
 
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return has_label;
 }
 
@@ -318,7 +321,7 @@ Result<utils::small_vector<LabelId>> VertexAccessor::Labels(View view) const {
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
       if (auto resLabels = cache.GetLabels(view, vertex_); resLabels) return {*resLabels};
     }
 
@@ -340,8 +343,8 @@ Result<utils::small_vector<LabelId>> VertexAccessor::Labels(View view) const {
     }
   }
 
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return std::move(labels);
 }
 
@@ -355,9 +358,9 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
-  if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
+  if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-  if (vertex_->deleted) return Error::DELETED_OBJECT;
+  if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   PropertyValue old_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
@@ -428,9 +431,9 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
-  if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
+  if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-  if (vertex_->deleted) return Error::DELETED_OBJECT;
+  if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
   bool result{false};
   utils::AtomicMemoryBlock([&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_,
                             &schema_acc]() {
@@ -485,9 +488,9 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
-  if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
+  if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-  if (vertex_->deleted) return Error::DELETED_OBJECT;
+  if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   const bool skip_duplicate_update = storage_->config_.salient.items.delta_on_identical_property_update;
   using ReturnType = decltype(vertex_->properties.UpdateProperties(properties));
@@ -495,7 +498,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   utils::AtomicMemoryBlock([storage = storage_, transaction = transaction_, vertex = vertex_, &properties,
                             &id_old_new_change, skip_duplicate_update, &schema_acc]() {
     id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
-    if (!id_old_new_change.has_value()) {
+    if (!id_old_new_change) {
       return;
     }
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
@@ -531,7 +534,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     }
   });
 
-  return id_old_new_change.has_value() ? std::move(id_old_new_change.value()) : ReturnType{};
+  return std::move(id_old_new_change).value_or(ReturnType{});
 }
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
@@ -542,16 +545,16 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
-  if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
+  if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-  if (vertex_->deleted) return Error::DELETED_OBJECT;
+  if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   using ReturnType = decltype(vertex_->properties.Properties());
   std::optional<ReturnType> properties;
   utils::AtomicMemoryBlock(
       [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &schema_acc]() {
         properties.emplace(vertex->properties.Properties());
-        if (!properties.has_value()) {
+        if (!properties) {
           return;
         }
         auto new_value = PropertyValue();
@@ -575,7 +578,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
         vertex->properties.ClearProperties();
       });
 
-  return properties.has_value() ? std::move(properties.value()) : ReturnType{};
+  return std::move(properties).value_or(ReturnType{});
 }
 
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
@@ -608,7 +611,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
       if (auto resProperty = cache.GetProperty(view, vertex_, property); resProperty) return {*resProperty};
     }
 
@@ -631,8 +634,8 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     }
   }
 
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return std::move(value);
 }
 
@@ -646,8 +649,8 @@ Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view)
   }
 
   auto property_result = this->GetProperty(property, view);
-  if (property_result.HasError()) {
-    return property_result.GetError();
+  if (!property_result) {
+    return std::unexpected{property_result.error()};
   }
 
   auto property_store = storage::PropertyStore();
@@ -676,7 +679,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
       if (auto resProperties = cache.GetProperties(view, vertex_); resProperties) return {*resProperties};
     }
 
@@ -699,8 +702,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
     }
   }
 
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return std::move(properties);
 }
 
@@ -735,7 +738,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByProperty
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
       // Note: We don't have specific cache for properties by IDs, so we skip caching for now
     }
 
@@ -758,8 +761,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByProperty
     }
   }
 
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return std::move(properties_map);
 }
 
@@ -824,8 +827,8 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   if (transaction_->IsDiskStorage()) [[unlikely]] {
     auto *disk_storage = static_cast<DiskStorage *>(storage_);
     const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
-    if (!exists) return Error::NONEXISTENT_OBJECT;
-    if (deleted) return Error::DELETED_OBJECT;
+    if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+    if (deleted) return std::unexpected{Error::DELETED_OBJECT};
     bool edges_modified_in_tx = !vertex_->in_edges.empty();
 
     disk_edges = disk_storage->InEdges(this, edge_types, destination, transaction_, view, hops_limit);
@@ -860,7 +863,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
       if (auto resInEdges = cache.GetInEdges(view, vertex_, destination_vertex, edge_types); resInEdges)
         return EdgesVertexAccessorResult{.edges = BuildResultInEdges(*resInEdges), .expanded_count = expanded_count};
     }
@@ -886,9 +889,9 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   }
 
   if (!exists) [[unlikely]]
-    return Error::NONEXISTENT_OBJECT;
+    return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (deleted) [[unlikely]]
-    return Error::DELETED_OBJECT;
+    return std::unexpected{Error::DELETED_OBJECT};
 
   if (transaction_->IsDiskStorage()) [[unlikely]] {
     return EdgesVertexAccessorResult{.edges = BuildResultWithDisk(in_edges, disk_edges, view, "IN"),
@@ -909,8 +912,8 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   if (transaction_->IsDiskStorage()) [[unlikely]] {
     auto *disk_storage = static_cast<DiskStorage *>(storage_);
     const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
-    if (!exists) return Error::NONEXISTENT_OBJECT;
-    if (deleted) return Error::DELETED_OBJECT;
+    if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+    if (deleted) return std::unexpected{Error::DELETED_OBJECT};
     bool edges_modified_in_tx = !vertex_->out_edges.empty();
 
     disk_edges = disk_storage->OutEdges(this, edge_types, destination, transaction_, view, hops_limit);
@@ -947,7 +950,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
       if (auto resOutEdges = cache.GetOutEdges(view, vertex_, dst_vertex, edge_types); resOutEdges)
         return EdgesVertexAccessorResult{.edges = BuildResultOutEdges(*resOutEdges), .expanded_count = expanded_count};
     }
@@ -972,9 +975,9 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   }
 
   if (!exists) [[unlikely]]
-    return Error::NONEXISTENT_OBJECT;
+    return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (deleted) [[unlikely]]
-    return Error::DELETED_OBJECT;
+    return std::unexpected{Error::DELETED_OBJECT};
 
   if (transaction_->IsDiskStorage()) [[unlikely]] {
     return EdgesVertexAccessorResult{.edges = BuildResultWithDisk(out_edges, disk_edges, view, "OUT"),
@@ -988,10 +991,10 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
   std::vector<EdgeAccessor> disk_edges{};
   if (transaction_->IsDiskStorage()) {
     auto res = InEdges(view);
-    if (res.HasValue()) {
+    if (res) {
       return res->edges.size();
     }
-    return res.GetError();
+    return std::unexpected{res.error()};
   }
 
   bool exists = true;
@@ -1013,7 +1016,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
       if (auto resInDegree = cache.GetInDegree(view, vertex_); resInDegree) return {*resInDegree};
     }
 
@@ -1036,18 +1039,18 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
     }
   }
 
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return degree;
 }
 
 Result<size_t> VertexAccessor::OutDegree(View view) const {
   if (transaction_->IsDiskStorage()) {
     auto res = OutEdges(view);
-    if (res.HasValue()) {
+    if (res) {
       return res->edges.size();
     }
-    return res.GetError();
+    return std::unexpected{res.error()};
   }
 
   bool exists = true;
@@ -1069,7 +1072,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
       if (auto resOutDegree = cache.GetOutDegree(view, vertex_); resOutDegree) return {*resOutDegree};
     }
 
@@ -1092,8 +1095,8 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
     }
   }
 
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return degree;
 }
 
@@ -1133,7 +1136,7 @@ int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
     }
     expanded_count++;
     if (destination && vertex != destination->vertex_) continue;
-    if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end()) continue;
+    if (!edge_types.empty() && !std::ranges::contains(edge_types, edge_type)) continue;
     result_edges.emplace_back(edge_type, vertex, edge);
   }
   return expanded_count;

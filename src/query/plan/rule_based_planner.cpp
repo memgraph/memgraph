@@ -23,7 +23,6 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
-#include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
@@ -289,7 +288,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
   bool Visit(Identifier &ident) override {
     const auto &symbol = symbol_table_.at(ident);
-    if (!utils::Contains(output_symbols_, symbol)) {
+    if (!std::ranges::contains(output_symbols_, symbol)) {
       // Don't pick up new symbols, even though they may be used in ORDER BY or
       // WHERE.
       used_symbols_.insert(symbol);
@@ -664,7 +663,7 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
                                                std::unordered_map<Symbol, std::vector<Symbol>> &named_paths) {
   auto all_are_bound = [&bound_symbols](const std::vector<Symbol> &syms) {
     for (const auto &sym : syms)
-      if (bound_symbols.find(sym) == bound_symbols.end()) return false;
+      if (!bound_symbols.contains(sym)) return false;
     return true;
   };
   for (auto named_path_it = named_paths.begin(); named_path_it != named_paths.end();) {

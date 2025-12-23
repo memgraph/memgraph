@@ -95,18 +95,16 @@ class Cursor {
 
 /// unique_ptr to Cursor managed with a custom deleter.
 /// This allows us to use utils::MemoryResource for allocation.
-using UniqueCursorPtr = std::unique_ptr<Cursor, std::function<void(Cursor *)>>;
+using UniqueCursorPtr = std::unique_ptr<Cursor, std::move_only_function<void(Cursor *)>>;
 
 template <class TCursor, class... TArgs>
-std::unique_ptr<Cursor, std::function<void(Cursor *)>> MakeUniqueCursorPtr(utils::Allocator<TCursor> allocator,
-                                                                           TArgs &&...args) {
+UniqueCursorPtr MakeUniqueCursorPtr(utils::Allocator<TCursor> allocator, TArgs &&...args) {
   auto *cursor = allocator.template new_object<TCursor>(std::forward<TArgs>(args)...);
   auto dtr = [allocator](Cursor *base_ptr) mutable {
     auto *p = static_cast<TCursor *>(base_ptr);
     allocator.delete_object(p);
   };
-  // TODO: not std::function
-  return std::unique_ptr<Cursor, std::function<void(Cursor *)>>(cursor, std::move(dtr));
+  return UniqueCursorPtr(cursor, std::move(dtr));
 }
 
 class Once;

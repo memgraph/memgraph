@@ -297,14 +297,14 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
 
-  if (!current_main_uuid.has_value() || req.main_uuid != *current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::HeartbeatReq::kType.name);
     const storage::replication::HeartbeatRes res{false, 0, "", 0};
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
-  if (!db_acc.has_value()) {
+  if (!db_acc) {
     spdlog::warn("No database accessor");
     storage::replication::HeartbeatRes const res{false, 0, "", 0};
     rpc::SendFinalResponse(res, request_version, res_builder);
@@ -334,7 +334,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   storage::replication::PrepareCommitReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::PrepareCommitReq::kType.name);
     const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, request_version, res_builder);
@@ -390,7 +390,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
                                                 /*two_phase_commit*/ req.two_phase_commit, /*loading_wal*/ false);
 
   storage::replication::PrepareCommitRes res{false};
-  if (deltas_res.has_value()) {
+  if (deltas_res) {
     two_pc_cache_.commit_accessor_ = std::move(deltas_res->commit_acc);
     two_pc_cache_.durability_commit_timestamp_ = req.durability_commit_timestamp;
     res.success = true;
@@ -405,7 +405,7 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   storage::replication::FinalizeCommitReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::FinalizeCommitReq::kType.name);
     storage::replication::FinalizeCommitRes const res(false);
     rpc::SendFinalResponse(res, request_version, res_builder);
@@ -497,7 +497,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
     rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
     return;
@@ -612,7 +612,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   auto snapshots_to_move = curr_snapshot_files | rv::filter(not_recovery_snapshot) | r::to_vector;
 
   auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
-  if (!maybe_backup_dirs.has_value()) {
+  if (!maybe_backup_dirs) {
     spdlog::error("Couldn't create backup directories. Replica won't be recovered.");
     const storage::replication::SnapshotRes res{std::nullopt, 0};
     rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
@@ -647,7 +647,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
     rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder);
     return;
@@ -727,7 +727,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
 
   if (req.reset_needed) {
     auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
-    if (!maybe_backup_dirs.has_value()) {
+    if (!maybe_backup_dirs) {
       spdlog::error("Couldn't create backup directories. Replica won't be recovered.");
       rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder,
                              storage->name());
@@ -759,7 +759,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
     return;
   }
 
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
     rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
     return;
@@ -825,7 +825,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
 
   if (req.reset_needed) {
     auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
-    if (!maybe_backup_dirs.has_value()) {
+    if (!maybe_backup_dirs) {
       spdlog::error("Couldn't create backup directories. Replica won't be recovered for db {}.", storage->name());
       rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
       return;
@@ -913,7 +913,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
     auto const deltas_res =
         ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, /*two_phase_commit*/ false,
                                     /*loading_wal*/ true, local_batch_counter);
-    if (deltas_res.has_value()) {
+    if (deltas_res) {
       local_delta_idx += deltas_res->current_delta_idx;
       local_batch_counter = deltas_res->current_batch_counter;
       num_txns_committed += deltas_res->num_txns_committed;
@@ -1032,7 +1032,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto const gid = data.gid.AsUint();
           spdlog::trace("  Delta {}. Create vertex {}", current_delta_idx, gid);
           auto *transaction = get_replication_accessor(delta_timestamp);
-          if (!transaction->CreateVertexEx(data.gid).has_value()) {
+          if (!transaction->CreateVertexEx(data.gid)) {
             throw utils::BasicException("Vertex with gid {} already exists at replica.", gid);
           }
         },
@@ -1045,7 +1045,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             throw utils::BasicException("Vertex with gid {} couldn't be found while trying to delete vertex.", gid);
           }
           auto ret = transaction->DeleteVertex(&*vertex);
-          if (ret.HasError() || !ret.GetValue()) {
+          if (!ret || !ret.value()) {
             throw utils::BasicException("Deleting vertex with gid {} failed.", gid);
           }
         },
@@ -1058,7 +1058,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             throw utils::BasicException("Couldn't find vertex {} when adding label.", gid);
           }
           auto ret = vertex->AddLabel(transaction->NameToLabel(data.label));
-          if (ret.HasError() || !ret.GetValue()) {
+          if (!ret || !ret.value()) {
             throw utils::BasicException("Failed to add label to vertex {}.", gid);
           }
         },
@@ -1069,7 +1069,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto vertex = transaction->FindVertex(data.gid, View::NEW);
           if (!vertex) throw utils::BasicException("Failed to find vertex {} when removing label.", gid);
           auto ret = vertex->RemoveLabel(transaction->NameToLabel(data.label));
-          if (ret.HasError() || !ret.GetValue()) {
+          if (!ret || !ret.value()) {
             throw utils::BasicException("Failed to remove label from vertex {}.", gid);
           }
         },
@@ -1083,9 +1083,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           if (!vertex) {
             throw utils::BasicException("Failed to find vertex {} when setting property.", gid);
           }
-          auto value = ToPropertyValue(data.value, mapper);
-          auto ret = vertex->SetProperty(transaction->NameToProperty(data.property), value);
-          if (ret.HasError()) {
+          auto ret =
+              vertex->SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
+          if (!ret) {
             throw utils::BasicException("Failed to set property label from vertex {}.", gid);
           }
         },
@@ -1106,7 +1106,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
           auto edge = transaction->CreateEdgeEx(&*from_vertex, &*to_vertex, transaction->NameToEdgeType(data.edge_type),
                                                 data.gid);
-          if (edge.HasError()) {
+          if (!edge) {
             throw utils::BasicException("Failed to add edge {} between vertices {} and {}.", edge_gid, from_vertex_gid,
                                         to_vertex_gid);
           }
@@ -1131,7 +1131,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           if (!edge) {
             throw utils::BasicException("Couldn't find edge {} when deleting edge.", edge_gid);
           }
-          if (auto ret = transaction->DeleteEdge(&*edge); ret.HasError()) {
+          if (auto ret = transaction->DeleteEdge(&*edge); !ret.has_value()) {
             throw utils::BasicException("Failed to delete edge {} between vertices {} and {}.", edge_gid,
                                         from_vertex_gid, to_vertex_gid);
           }
@@ -1227,7 +1227,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
           auto ea = EdgeAccessor{edge_ref, edge_type, from_vertex, vertex_to, storage, &transaction->GetTransaction()};
           auto ret = ea.SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
-          if (ret.HasError()) {
+          if (!ret) {
             throw utils::BasicException("Setting property on edge {} failed.", edge_gid);
           }
         },
@@ -1257,7 +1257,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto const ret = commit_accessor->PrepareForCommitPhase(
               storage::CommitArgs::make_replica_write(commit_timestamp, two_phase_commit, std::move(in_progress_cb)));
 
-          if (ret.HasError()) {
+          if (!ret) {
             throw utils::BasicException("Committing failed while trying to prepare for commit on replica.");
           }
           // If not STRICT SYNC replica, reset the commit accessor immediately because the txn is considered committed
@@ -1273,13 +1273,13 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           spdlog::trace("   Delta {}. Create label index on :{}", current_delta_idx, data.label);
           // Need to send the timestamp
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (transaction->CreateIndex(storage->NameToLabel(data.label)).HasError())
+          if (!transaction->CreateIndex(storage->NameToLabel(data.label)))
             throw utils::BasicException("Failed to create label index on :{}.", data.label);
         },
         [&](WalLabelIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop label index on :{}", current_delta_idx, data.label);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (transaction->DropIndex(storage->NameToLabel(data.label)).HasError())
+          if (!transaction->DropIndex(storage->NameToLabel(data.label)))
             throw utils::BasicException("Failed to drop label index on :{}.", data.label);
         },
         [&](WalLabelIndexStatsSet const &data) {
@@ -1306,8 +1306,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                         data.composite_property_paths);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto property_paths = data.composite_property_paths.convert(mapper);
-          if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(property_paths)).HasError())
-
+          if (!transaction->CreateIndex(storage->NameToLabel(data.label), std::move(property_paths)))
             throw utils::BasicException("Failed to create label+property index on :{} ({}).", data.label,
                                         data.composite_property_paths);
         },
@@ -1317,7 +1316,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto property_paths = data.composite_property_paths.convert(mapper);
 
-          if (transaction->DropIndex(storage->NameToLabel(data.label), std::move(property_paths)).HasError()) {
+          if (!transaction->DropIndex(storage->NameToLabel(data.label), std::move(property_paths))) {
             throw utils::BasicException("Failed to drop label+property index on :{} ({}).", data.label,
                                         data.composite_property_paths);
           }
@@ -1343,22 +1342,22 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalEdgeTypeIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create edge index on :{}", current_delta_idx, data.edge_type);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (transaction->CreateIndex(storage->NameToEdgeType(data.edge_type)).HasError()) {
+          if (!transaction->CreateIndex(storage->NameToEdgeType(data.edge_type))) {
             throw utils::BasicException("Failed to create edge index on :{}.", data.edge_type);
           }
         },
         [&](WalEdgeTypeIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop edge index on :{}", current_delta_idx, data.edge_type);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (transaction->DropIndex(storage->NameToEdgeType(data.edge_type)).HasError()) {
+          if (!transaction->DropIndex(storage->NameToEdgeType(data.edge_type))) {
             throw utils::BasicException("Failed to drop edge index on :{}.", data.edge_type);
           }
         },
         [&](WalEdgeTypePropertyIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create edge index on :{}({})", current_delta_idx, data.edge_type, data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (transaction->CreateIndex(storage->NameToEdgeType(data.edge_type), storage->NameToProperty(data.property))
-                  .HasError()) {
+          if (!transaction->CreateIndex(storage->NameToEdgeType(data.edge_type), storage->NameToProperty(data.property))
+                   .has_value()) {
             throw utils::BasicException("Failed to create edge property index on :{}({}).", data.edge_type,
                                         data.property);
           }
@@ -1366,8 +1365,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalEdgeTypePropertyIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop edge index on :{}({})", current_delta_idx, data.edge_type, data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (transaction->DropIndex(storage->NameToEdgeType(data.edge_type), storage->NameToProperty(data.property))
-                  .HasError()) {
+          if (!transaction->DropIndex(storage->NameToEdgeType(data.edge_type), storage->NameToProperty(data.property))
+                   .has_value()) {
             throw utils::BasicException("Failed to drop edge property index on :{}({}).", data.edge_type,
                                         data.property);
           }
@@ -1375,14 +1374,14 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalEdgePropertyIndexCreate const &data) {
           spdlog::trace("       Create global edge index on ({})", data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (transaction->CreateGlobalEdgeIndex(storage->NameToProperty(data.property)).HasError()) {
+          if (!transaction->CreateGlobalEdgeIndex(storage->NameToProperty(data.property))) {
             throw utils::BasicException("Failed to create global edge property index on ({}).", data.property);
           }
         },
         [&](WalEdgePropertyIndexDrop const &data) {
           spdlog::trace("       Drop global edge index on ({})", data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (transaction->DropGlobalEdgeIndex(storage->NameToProperty(data.property)).HasError()) {
+          if (!transaction->DropGlobalEdgeIndex(storage->NameToProperty(data.property))) {
             throw utils::BasicException("Failed to drop global edge property index on ({}).", data.property);
           }
         },
@@ -1406,7 +1405,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                    r::to_vector;
           });
           auto ret = transaction->CreateTextIndex(storage::TextIndexSpec{data.index_name, label_id, prop_ids});
-          if (ret.HasError()) {
+          if (!ret) {
             throw utils::BasicException("Failed to create text search index {} on {}.", data.index_name, data.label);
           }
         },
@@ -1426,7 +1425,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                           r::to_vector;
           const auto ret =
               transaction->CreateTextEdgeIndex(storage::TextEdgeIndexSpec{data.index_name, edge_type, prop_ids});
-          if (ret.HasError()) {
+          if (!ret) {
             throw utils::BasicException("Failed to create text search index {} on {}.", data.index_name,
                                         data.edge_type);
           }
@@ -1434,7 +1433,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalTextIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop text search index {}.", current_delta_idx, data.index_name);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (transaction->DropTextIndex(data.index_name).HasError()) {
+          if (!transaction->DropTextIndex(data.index_name)) {
             throw utils::BasicException("Failed to drop text search index {}.", data.index_name);
           }
         },
@@ -1444,7 +1443,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto ret = transaction->CreateExistenceConstraint(storage->NameToLabel(data.label),
                                                             storage->NameToProperty(data.property));
-          if (ret.HasError()) {
+          if (!ret) {
             throw utils::BasicException("Failed to create existence constraint on :{} ({}).", data.label,
                                         data.property);
           }
@@ -1453,9 +1452,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           spdlog::trace("   Delta {}. Drop existence constraint on :{} ({})", current_delta_idx, data.label,
                         data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (transaction
-                  ->DropExistenceConstraint(storage->NameToLabel(data.label), storage->NameToProperty(data.property))
-                  .HasError()) {
+          if (!transaction
+                   ->DropExistenceConstraint(storage->NameToLabel(data.label), storage->NameToProperty(data.property))
+                   .has_value()) {
             throw utils::BasicException("Failed to drop existence constraint on :{} ({}).", data.label, data.property);
           }
         },
@@ -1469,7 +1468,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto ret = transaction->CreateUniqueConstraint(storage->NameToLabel(data.label), properties);
-          if (!ret.HasValue() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
+          if (!ret || ret.value() != UniqueConstraints::CreationStatus::SUCCESS) {
             throw utils::BasicException("Failed to create unique constraint on :{} ({}).", data.label, ss.str());
           }
         },
@@ -1494,7 +1493,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto ret = transaction->CreateTypeConstraint(storage->NameToLabel(data.label),
                                                        storage->NameToProperty(data.property), data.kind);
-          if (ret.HasError()) {
+          if (!ret) {
             throw utils::BasicException("Failed to create IS TYPED {} constraint on :{} ({}).",
                                         TypeConstraintKindToString(data.kind), data.label, data.property);
           }
@@ -1506,7 +1505,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto ret = transaction->DropTypeConstraint(storage->NameToLabel(data.label),
                                                      storage->NameToProperty(data.property), data.kind);
-          if (ret.HasError()) {
+          if (!ret) {
             throw utils::BasicException("Failed to drop IS TYPED {} constraint on :{} ({}).",
                                         TypeConstraintKindToString(data.kind), data.label, data.property);
           }
@@ -1517,7 +1516,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           spdlog::trace("   Delta {}. Create enum {} with values {}", current_delta_idx, data.etype, ss.str());
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto res = transaction->CreateEnum(data.etype, data.evalues);
-          if (res.HasError()) {
+          if (!res) {
             throw utils::BasicException("Failed to create enum {} with values {}.", data.etype, ss.str());
           }
         },
@@ -1525,7 +1524,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           spdlog::trace("   Delta {}. Alter enum {} add value {}", current_delta_idx, data.etype, data.evalue);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto res = transaction->EnumAlterAdd(data.etype, data.evalue);
-          if (res.HasError()) {
+          if (!res) {
             throw utils::BasicException("Failed to alter enum {} add value {}.", data.etype, data.evalue);
           }
         },
@@ -1534,7 +1533,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                         data.evalue_new);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto res = transaction->EnumAlterUpdate(data.etype, data.evalue_old, data.evalue_new);
-          if (res.HasError()) {
+          if (!res) {
             throw utils::BasicException("Failed to alter enum {} update {} to {}.", data.etype, data.evalue_old,
                                         data.evalue_new);
           }
@@ -1545,7 +1544,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto labelId = storage->NameToLabel(data.label);
           auto propId = storage->NameToProperty(data.property);
           auto res = transaction->CreatePointIndex(labelId, propId);
-          if (res.HasError()) {
+          if (!res) {
             throw utils::BasicException("Failed to create point index on :{}({})", data.label, data.property);
           }
         },
@@ -1555,7 +1554,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto labelId = storage->NameToLabel(data.label);
           auto propId = storage->NameToProperty(data.property);
           auto res = transaction->DropPointIndex(labelId, propId);
-          if (res.HasError()) {
+          if (!res) {
             throw utils::BasicException("Failed to drop point index on :{}({})", data.label, data.property);
           }
         },
@@ -1578,7 +1577,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               .capacity = data.capacity,
               .scalar_kind = scalar_kind,
           });
-          if (res.HasError()) {
+          if (!res) {
             throw utils::BasicException("Failed to create vector index on :{}({})", data.label, data.property);
           }
         },
@@ -1600,7 +1599,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               .capacity = data.capacity,
               .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind),
           });
-          if (res.HasError()) {
+          if (!res) {
             throw utils::BasicException("Failed to create vector index on :{}({})", data.edge_type, data.property);
           }
         },
@@ -1608,7 +1607,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           spdlog::trace("   Delta {}. Drop vector index {} ", current_delta_idx, data.index_name);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto res = transaction->DropVectorIndex(data.index_name);
-          if (res.HasError()) {
+          if (!res) {
             throw utils::BasicException("Failed to drop vector index {}", data.index_name);
           }
         },

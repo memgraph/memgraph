@@ -15,7 +15,6 @@
 #include <optional>
 #include <string>
 
-#include "utils/result.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
 #include "utils/spin_lock.hpp"
@@ -76,7 +75,7 @@ enum class LicenseCheckError : uint8_t {
 
 std::string LicenseCheckErrorToString(LicenseCheckError error, std::string_view feature);
 
-using LicenseCheckResult = utils::BasicResult<LicenseCheckError, void>;
+using LicenseCheckResult = std::expected<void, LicenseCheckError>;
 
 struct LicenseChecker {
  public:
@@ -93,10 +92,12 @@ struct LicenseChecker {
   void EnableTesting(LicenseType license_type = LicenseType::ENTERPRISE);
   void DisableTesting();
   // Checks if license is valid and if enterprise is enabled
+  LicenseCheckResult IsEnterpriseValid(std::string_view license_key, std::string_view organization_name) const;
   LicenseCheckResult IsEnterpriseValid(const utils::Settings &settings) const;
+  LicenseCheckResult IsEnterpriseValid() const;
   bool IsEnterpriseValidFast() const;
 
-  void StartBackgroundLicenseChecker(const utils::Settings &settings);
+  void StartBackgroundLicenseChecker(std::weak_ptr<utils::Settings> settings);
 
   utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &GetLicenseInfo();
   DetailedLicenseInfo GetDetailedLicenseInfo();
@@ -109,7 +110,7 @@ struct LicenseChecker {
   void RevalidateLicense(const std::string &license_key, const std::string &organization_name);
 
   std::optional<std::pair<std::string, std::string>> license_info_override_;
-  utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> previous_license_info_{std::nullopt};
+  mutable utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> previous_license_info_{std::nullopt};
   bool enterprise_enabled_{false};
   std::atomic<bool> is_valid_{false};
   LicenseType license_type_;

@@ -1875,10 +1875,10 @@ TYPED_TEST(TestPlanner, MatchExpandVariableTotalWeightSymbol) {
   std::transform(nes.begin(), nes.end(), names.begin(), [](const auto *ne) { return ne->name_; });
 
   EXPECT_TRUE(root->named_expressions_.size() == 4);
-  EXPECT_TRUE(memgraph::utils::Contains(names, "m"));
-  EXPECT_TRUE(memgraph::utils::Contains(names, "n"));
-  EXPECT_TRUE(memgraph::utils::Contains(names, "r"));
-  EXPECT_TRUE(memgraph::utils::Contains(names, "total_weight"));
+  EXPECT_TRUE(std::ranges::contains(names, "m"));
+  EXPECT_TRUE(std::ranges::contains(names, "n"));
+  EXPECT_TRUE(std::ranges::contains(names, "r"));
+  EXPECT_TRUE(std::ranges::contains(names, "total_weight"));
 }
 
 TYPED_TEST(TestPlanner, UnwindMatchVariable) {
@@ -1960,7 +1960,7 @@ TYPED_TEST(TestPlanner, ReturnAsteriskOmitsLambdaSymbols) {
   // We expect `*` expanded to `n`, `r` and `m`.
   EXPECT_EQ(outputs.size(), 3);
   for (const auto &name : {"n", "r", "m"}) {
-    EXPECT_TRUE(memgraph::utils::Contains(outputs, name));
+    EXPECT_TRUE(std::ranges::contains(outputs, name));
   }
 }
 

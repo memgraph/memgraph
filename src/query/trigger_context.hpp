@@ -27,6 +27,7 @@
 #include "utils/concepts.hpp"
 
 namespace memgraph::query {
+
 namespace detail {
 template <typename T>
 concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;

@@ -133,7 +133,7 @@ void LabelPropertyIndex::AbortProcessor::CollectOnPropertyChange(PropertyId prop
   if (it == p2l.end()) return;
 
   for (auto const &[label, index_info] : it->second) {
-    if (!utils::Contains(vertex->labels, label)) continue;
+    if (!std::ranges::contains(vertex->labels, label)) continue;
     for (auto const &[properties, helper] : index_info) {
       auto current_values = helper->Extract(vertex->properties);
       // Only if current_values has at least one non-null value do we need to cleanup its index entry

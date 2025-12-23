@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -47,7 +48,7 @@ inline void LoadConfig(const std::string &product_name) {
     }
 
   int custom_argc = static_cast<int>(flagfile_arguments.size()) + 1;
-  char **custom_argv = new char *[custom_argc];
+  auto custom_argv = std::make_unique<char *[]>(custom_argc);
 
   custom_argv[0] = strdup(product_name.c_str());
   for (int i = 0; i < static_cast<int>(flagfile_arguments.size()); ++i) {
@@ -55,12 +56,12 @@ inline void LoadConfig(const std::string &product_name) {
   }
 
   // setup flags from config flags
-  gflags::ParseCommandLineFlags(&custom_argc, &custom_argv, false);
+  auto *argv_ptr = custom_argv.get();
+  gflags::ParseCommandLineFlags(&custom_argc, &argv_ptr, false);
 
   // unconsumed arguments have to be freed to avoid memory leak since they are
   // strdup-ed.
   for (int i = 0; i < custom_argc; ++i) free(custom_argv[i]);
-  delete[] custom_argv;
 }
 
 inline std::pair<std::string, std::string> LoadUsernameAndPassword(const std::string &pass_file) {

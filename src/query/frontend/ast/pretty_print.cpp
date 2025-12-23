@@ -175,7 +175,7 @@ void PrintObject(std::ostream *out, EnumValueAccess op) { *out << op.enum_name_ 
 
 void PrintObject(std::ostream *out, const DbAccessor *dba, storage::Enum value) {
   auto enum_str_value = dba->EnumToName(value);
-  if (enum_str_value.HasValue()) {
+  if (enum_str_value) {
     *out << *enum_str_value;
   } else {
     *out << "<null>";

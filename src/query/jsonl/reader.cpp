@@ -109,7 +109,7 @@ void IterateObject(simdjson::ondemand::object &obj, auto &out, memgraph::utils::
     // NOLINTNEXTLINE
     TypedValue::TString key{key_view, resource};
 
-    auto val = field.value().value();
+    auto val = field->value();
     auto typed_val = ToTypedValue(val, resource);
     out.emplace(std::move(key), std::move(typed_val));
   }

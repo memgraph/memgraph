@@ -324,6 +324,7 @@ def _verify_storage_fields(storage_data: dict) -> bool:
         ("triggers", int),  # Sum of triggers in every database
         ("streams", int),  # Sum of streams in every database
         ("users", int),  # Number of defined users
+        ("roles", int),  # Number of defined roles
         ("databases", int),  # Number of isolated databases
         ("indices", int),  # Sum of indices in every database
         ("constraints", int),  # Sum of constraints in every database
@@ -332,11 +333,22 @@ def _verify_storage_fields(storage_data: dict) -> bool:
         ("durability", dict),  # Durability settings
         ("property_store_compression_enabled", int),  # Number of databases with compression enabled
         ("property_store_compression_level", dict),  # Number of databases with each compression level
+        ("label_node_count_histogram", dict),  # Histogram of number of labels having 1-9, 10-99, ..., 10M+ nodes
     ]
 
     durability_fields = [
         ("snapshot_enabled", int),  # Number of databases with snapshots enabled
         ("WAL_enabled", int),  # Number of databases with WAL enabled
+    ]
+
+    label_histogram_buckets = [
+        ("1-9", int),
+        ("10-99", int),
+        ("100-999", int),
+        ("1K-9.99K", int),
+        ("10K-99.9K", int),
+        ("100K-999K", int),
+        ("1M+", int),
     ]
 
     valid_storage_modes = {"IN_MEMORY_TRANSACTIONAL", "IN_MEMORY_ANALYTICAL", "ON_DISK_TRANSACTIONAL"}
@@ -357,6 +369,13 @@ def _verify_storage_fields(storage_data: dict) -> bool:
         assert isinstance(
             storage_data["durability"][field], expected_type
         ), f"Invalid type for durability.{field}: expected {expected_type}, got {type(storage_data['durability'][field])}"
+
+    # Verify label_node_count_histogram buckets
+    for bucket, expected_type in label_histogram_buckets:
+        assert bucket in storage_data["label_node_count_histogram"], f"Missing '{bucket}' bucket in histogram"
+        assert isinstance(
+            storage_data["label_node_count_histogram"][bucket], expected_type
+        ), f"Invalid type for histogram[{bucket}]: expected {expected_type}, got {type(storage_data['label_node_count_histogram'][bucket])}"
 
     # Verify storage_modes enum values
     for mode, count in storage_data["storage_modes"].items():

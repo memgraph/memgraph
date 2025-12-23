@@ -16,7 +16,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 
-namespace r = ranges;
 namespace memgraph::storage {
 
 void TextEdgeIndex::CreateTantivyIndex(const std::string &index_path, const TextEdgeIndexSpec &index_info) {
@@ -29,6 +28,7 @@ void TextEdgeIndex::CreateTantivyIndex(const std::string &index_path, const Text
 
     auto [_, success] = index_.try_emplace(
         index_info.index_name,
+        // If index already exists, it will be loaded and reused.
         mgcxx::text_search::create_index(index_path, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
         index_info.edge_type, index_info.properties);
     if (!success) {
@@ -116,12 +116,12 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
 
   auto &index_data = index_.at(index_info.index_name);
   for (const auto &vertex : vertices) {
-    const auto edges_accessor = vertex.OutEdges(View::NEW, {index_info.edge_type}).GetValue();
+    const auto edges_accessor = vertex.OutEdges(View::NEW, {index_info.edge_type}).value();
     for (const auto &edge : edges_accessor.edges) {
       // If properties are specified, we serialize only those properties; otherwise, all properties of the edge.
       auto edge_properties = index_info.properties.empty()
-                                 ? edge.Properties(View::NEW).GetValue()
-                                 : edge.PropertiesByPropertyIds(index_info.properties, View::NEW).GetValue();
+                                 ? edge.Properties(View::NEW).value()
+                                 : edge.PropertiesByPropertyIds(index_info.properties, View::NEW).value();
       TextEdgeIndex::AddEdgeToTextIndex(edge.Gid().AsInt(), edge.FromVertex().Gid().AsInt(),
                                         edge.ToVertex().Gid().AsInt(),
                                         SerializeProperties(edge_properties, name_id_mapper),
@@ -135,9 +135,48 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
   }
 }
 
-void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info,
+void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::SkipList<Vertex>::Accessor vertices,
+                                 NameIdMapper *name_id_mapper,
                                  std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, index_info.index_name), index_info);
+  const auto index_path = MakeIndexPath(text_index_storage_dir_, index_info.index_name);
+  const auto index_directory_already_exists = std::filesystem::exists(index_path);
+  CreateTantivyIndex(index_path, index_info);
+
+  if (!index_directory_already_exists) {
+    // If index didn't exist, we need to index all edges. (This happens if we recover only from the snapshot)
+    auto &context = index_.at(index_info.index_name).context;
+    std::vector<PropertyId> properties_to_index;
+    properties_to_index.reserve(index_info.properties.size());
+
+    for (const auto &vertex : vertices) {
+      for (const auto &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
+        if (edge_type != index_info.edge_type) continue;
+
+        auto *edge = edge_ref.ptr;
+        auto edge_properties = edge->properties.ExtractPropertyIds();
+        properties_to_index.clear();
+        if (index_info.properties.empty()) {
+          properties_to_index = std::move(edge_properties);
+        } else {
+          std::ranges::copy_if(index_info.properties, std::back_inserter(properties_to_index),
+                               [&](auto property) { return std::ranges::contains(edge_properties, property); });
+        }
+        if (properties_to_index.empty()) continue;
+
+        auto properties_to_index_map = ExtractProperties(edge->properties, properties_to_index);
+        TextEdgeIndex::AddEdgeToTextIndex(edge->gid.AsInt(), vertex.gid.AsInt(), to_vertex->gid.AsInt(),
+                                          SerializeProperties(properties_to_index_map, name_id_mapper),
+                                          StringifyProperties(properties_to_index_map), context);
+      }
+    }
+
+    try {
+      mgcxx::text_search::commit(context);
+    } catch (const std::exception &e) {
+      throw query::TextSearchException("Text index commit error: {}", e.what());
+    }
+  }
+
   if (snapshot_info) {
     snapshot_info->Update(UpdateType::TEXT_IDX);
   }
@@ -222,15 +261,27 @@ std::vector<TextEdgeIndexSpec> TextEdgeIndex::ListIndices() const {
 }
 
 void TextEdgeIndex::Clear() {
-  if (!index_.empty()) {
-    std::error_code ec;
-    std::filesystem::remove_all(text_index_storage_dir_, ec);
-    if (ec) {
-      spdlog::error("Error removing text edge index directory '{}': {}", text_index_storage_dir_, ec.message());
-      return;
+  // Collect all index specs before modifying the map -> we will need to recover them if we fail to drop any of them
+  std::vector<TextEdgeIndexSpec> all_index_specs;
+  all_index_specs.reserve(index_.size());
+  for (const auto &[index_name, index_data] : index_) {
+    all_index_specs.emplace_back(index_name, index_data.scope, index_data.properties);
+  }
+
+  std::vector<TextEdgeIndexSpec> successfully_dropped;
+  successfully_dropped.reserve(all_index_specs.size());
+  for (const auto &index_spec : all_index_specs) {
+    try {
+      DropIndex(index_spec.index_name);
+      successfully_dropped.push_back(index_spec);
+    } catch (const std::exception &e) {
+      // Recover indices that were successfully dropped before this failure
+      for (const auto &dropped_spec : successfully_dropped) {
+        CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, dropped_spec.index_name), dropped_spec);
+      }
+      throw;
     }
   }
-  index_.clear();
 }
 
 std::optional<uint64_t> TextEdgeIndex::ApproximateEdgesTextCount(std::string_view index_name) const {

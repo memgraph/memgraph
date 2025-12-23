@@ -234,7 +234,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   auto PopulateIndex(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
-      -> utils::BasicResult<IndexPopulateError>;
+      -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(PropertyId property, uint64_t commit_timestamp);
 
   /// Returns false if there was no index to drop

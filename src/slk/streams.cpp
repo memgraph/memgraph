@@ -185,7 +185,7 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
     // This block handles 2 situations. The first one is if the whole buffer should be written into the file. In that
     // case remaining_file_size_val will be >= size, and we return FILE_DATA/ If not whole buffer should be written into
     // the file, then we remember the pos, increment found_segments and data_size and fallthrough
-    if (remaining_file_size.has_value()) {
+    if (remaining_file_size) {
       auto const remaining_file_size_val = *remaining_file_size;
       if (remaining_file_size_val == 0) {
         return {.status = StreamStatus::INVALID, .stream_size = 0, .encoded_data_size = 0, .pos = pos};

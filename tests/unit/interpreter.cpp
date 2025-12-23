@@ -99,6 +99,7 @@ class InterpreterTest : public ::testing::Test {
 
   memgraph::system::System system_state;
   memgraph::query::InterpreterContext interpreter_context{{},
+                                                          nullptr,
                                                           kNoHandler,
                                                           repl_state,
                                                           system_state
@@ -372,9 +373,9 @@ TYPED_TEST(InterpreterTest, Bfs) {
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto add_node = [&](int level, bool reachable) {
       auto node = dba.InsertVertex();
-      MG_ASSERT(node.SetProperty(dba.NameToProperty(kId), memgraph::storage::PropertyValue(id++)).HasValue());
+      MG_ASSERT(node.SetProperty(dba.NameToProperty(kId), memgraph::storage::PropertyValue(id++)).has_value());
       MG_ASSERT(
-          node.SetProperty(dba.NameToProperty(kReachable), memgraph::storage::PropertyValue(reachable)).HasValue());
+          node.SetProperty(dba.NameToProperty(kReachable), memgraph::storage::PropertyValue(reachable)).has_value());
       levels[level].push_back(node);
       return node;
     };
@@ -382,7 +383,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
     auto add_edge = [&](auto &v1, auto &v2, bool reachable) {
       auto edge = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge"));
       MG_ASSERT(
-          edge->SetProperty(dba.NameToProperty(kReachable), memgraph::storage::PropertyValue(reachable)).HasValue());
+          edge->SetProperty(dba.NameToProperty(kReachable), memgraph::storage::PropertyValue(reachable)).has_value());
     };
 
     // Add source node.
@@ -420,7 +421,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
       add_edge(node1, node2, false);
     }
 
-    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto stream = this->Interpret(
@@ -1173,6 +1174,7 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
         std::nullopt};
     memgraph::system::System system_state;
     memgraph::query::InterpreterContext csv_interpreter_context{{.query = {.allow_load_csv = allow_load_csv}},
+                                                                nullptr,
                                                                 nullptr,
                                                                 repl_state,
                                                                 system_state

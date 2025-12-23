@@ -48,7 +48,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
     system.emplace();
     auth_checker.emplace();
-    interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr, repl_state.value(), *system
+    interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr, nullptr, repl_state.value(), *system
 #ifdef MG_ENTERPRISE
                                 ,
                                 std::nullopt, nullptr
@@ -63,18 +63,18 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
       // the fixed part is one vertex expanding to 1000 others
       auto start = dba->CreateVertex();
-      MG_ASSERT(start.AddLabel(label).HasValue());
+      MG_ASSERT(start.AddLabel(label).has_value());
       auto edge_type = dba->NameToEdgeType("edge_type");
       for (int i = 0; i < 1000; i++) {
         auto dest = dba->CreateVertex();
-        MG_ASSERT(dba->CreateEdge(&start, &dest, edge_type).HasValue());
+        MG_ASSERT(dba->CreateEdge(&start, &dest, edge_type).has_value());
       }
-      MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     {
       auto unique_acc = db_acc->UniqueAccess();
-      MG_ASSERT(!unique_acc->CreateIndex(label).HasError());
+      MG_ASSERT(unique_acc->CreateIndex(label).has_value());
     }
 
     interpreter.emplace(&*interpreter_context, std::move(db_acc));

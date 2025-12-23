@@ -55,7 +55,7 @@ void KafkaStream::Check(std::optional<std::chrono::milliseconds> timeout, std::o
   consumer_->Check(timeout, batch_limit, std::move(consumer_function));
 }
 
-utils::BasicResult<std::string> KafkaStream::SetStreamOffset(const int64_t offset) {
+std::expected<void, std::string> KafkaStream::SetStreamOffset(const int64_t offset) {
   return consumer_->SetConsumerOffsets(offset);
 }
 

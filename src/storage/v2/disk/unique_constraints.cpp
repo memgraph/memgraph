@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/algorithm.hpp"
 #include "utils/disk_utils.hpp"
 #include "utils/file.hpp"
 namespace memgraph::storage {
@@ -28,7 +27,8 @@ namespace {
 
 bool IsVertexUnderConstraint(const Vertex &vertex, const LabelId &constraint_label,
                              const std::set<PropertyId> &constraint_properties) {
-  return utils::Contains(vertex.labels, constraint_label) && vertex.properties.HasAllProperties(constraint_properties);
+  return std::ranges::contains(vertex.labels, constraint_label) &&
+         vertex.properties.HasAllProperties(constraint_properties);
 }
 
 bool IsDifferentVertexWithSameConstraintLabel(const std::string &key, const Gid gid, const LabelId constraint_label) {
@@ -121,7 +121,7 @@ bool DiskUniqueConstraints::VertexIsUnique(const std::vector<PropertyValue> &pro
                                            const std::vector<std::vector<PropertyValue>> &unique_storage,
                                            const LabelId &constraint_label,
                                            const std::set<PropertyId> &constraint_properties, const Gid gid) const {
-  if (utils::Contains(unique_storage, property_values)) {
+  if (std::ranges::contains(unique_storage, property_values)) {
     return false;
   }
 
@@ -250,7 +250,7 @@ DiskUniqueConstraints::CreationStatus DiskUniqueConstraints::CheckIfConstraintCa
   if (properties.size() > kUniqueConstraintsMaxProperties) {
     return CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED;
   }
-  if (utils::Contains(constraints_, std::make_pair(label, properties))) {
+  if (constraints_.contains(std::make_pair(label, properties))) {
     return CreationStatus::ALREADY_EXISTS;
   }
   return CreationStatus::SUCCESS;
@@ -269,7 +269,7 @@ DiskUniqueConstraints::DeletionStatus DiskUniqueConstraints::DropConstraint(Labe
 }
 
 bool DiskUniqueConstraints::ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const {
-  return utils::Contains(constraints_, std::make_pair(label, properties));
+  return constraints_.contains(std::make_pair(label, properties));
 }
 
 void DiskUniqueConstraints::UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,

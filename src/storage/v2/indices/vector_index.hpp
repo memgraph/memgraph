@@ -171,6 +171,13 @@ class VectorIndex {
   void RecoverIndexEntries(const VectorIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
                            NameIdMapper *name_id_mapper);
 
+  /// @brief Recovers a vector index based on the provided specification.
+  /// @param spec The specification for the index to be recovered.
+  /// @param vertices vertices from which to recover the index.
+  /// @param snapshot_info Optional snapshot observer for progress tracking.
+  void RecoverIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
   /// @return true if the index was dropped successfully, false otherwise.
@@ -257,6 +264,14 @@ class VectorIndex {
   /// @return A map of label ids to index names.
   std::unordered_map<LabelId, std::string> GetLabels(PropertyId property) const;
 
+  /// @brief Returns the vector from a vertex for a given index.
+  /// @param vertex The vertex to get the vector from.
+  /// @param index_name The name of the index to get the vector from.
+  /// @return The vector from the vertex.
+  /// NOTE: Currently used only in the tests but we will use it in the future when we'll store vectors only in the
+  /// index.
+  std::vector<float> GetVectorFromVertex(Vertex *vertex, std::string_view index_name) const;
+
  private:
   void RemoveVertexFromIndex(Vertex *vertex, std::string_view index_name);
 
@@ -279,6 +294,36 @@ class VectorIndex {
                                                    utils::SkipList<Vertex>::Accessor &vertices,
                                                    NameIdMapper *name_id_mapper,
                                                    const std::unordered_map<Gid, std::vector<float>> &recovery_entries);
+  /// @brief Sets up a new vector index structure without populating it.
+  /// @param spec The specification for the index to be created.
+  /// @throws query::VectorSearchException if index already exists or creation fails.
+  void SetupIndex(const VectorIndexSpec &spec);
+
+  /// @brief Cleans up index structures after a failed index creation.
+  /// @param spec The specification of the failed index.
+  void CleanupFailedIndex(const VectorIndexSpec &spec);
+
+  /// @brief Adds a vertex to an existing index.
+  /// @param vertex The vertex to be added.
+  /// @param label_prop The label and property key for the index.
+  /// @param value The value of the property (optional, if null will be fetched from vertex).
+  /// @return true if the vertex was added, false if property is null.
+  /// @throws query::VectorSearchException on validation errors.
+  bool UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr);
+
+  /// @brief Populates the index with vertices on a single thread.
+  /// @param vertices Accessor to the vertices to scan.
+  /// @param spec The index specification.
+  /// @param snapshot_info Optional snapshot observer for progress tracking.
+  void PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, const VectorIndexSpec &spec,
+                                   std::optional<SnapshotObserverInfo> const &snapshot_info);
+
+  /// @brief Populates the index with vertices using multiple threads.
+  /// @param vertices Accessor to the vertices to scan.
+  /// @param spec The index specification.
+  /// @param snapshot_info Optional snapshot observer for progress tracking.
+  void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, const VectorIndexSpec &spec,
+                                      std::optional<SnapshotObserverInfo> const &snapshot_info);
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;
