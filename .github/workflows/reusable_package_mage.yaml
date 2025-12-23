@@ -248,8 +248,7 @@ jobs:
           --dest-dir $MG_PACKAGE_ARTIFACT_DIR
 
           # get full file name of the package
-          PACKAGE_FILE_NAME=$(ls $MG_PACKAGE_ARTIFACT_DIR/memgraph* | head -n 1)
-          MEMGRAPH_PACKAGE="${MG_PACKAGE_ARTIFACT_DIR}/${PACKAGE_FILE_NAME}"
+          MEMGRAPH_PACKAGE=$(ls $MG_PACKAGE_ARTIFACT_DIR/memgraph* | head -n 1)
           echo "MEMGRAPH_PACKAGE=${MEMGRAPH_PACKAGE}" >> $GITHUB_ENV
 
       - name: "Copy SBOM"
