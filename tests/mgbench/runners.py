@@ -611,7 +611,8 @@ class Memgraph(BaseRunner):
     def __init__(self, benchmark_context: BenchmarkContext):
         super().__init__(benchmark_context=benchmark_context)
         self._memgraph_binary = benchmark_context.vendor_binary
-        self._bolt_num_workers = benchmark_context.num_workers_for_benchmark
+        # Use database_workers instead of num_workers_for_benchmark to allow separation
+        self._bolt_num_workers = benchmark_context.database_workers
         self._performance_tracking = benchmark_context.performance_tracking
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._vendor_args = benchmark_context.vendor_args
