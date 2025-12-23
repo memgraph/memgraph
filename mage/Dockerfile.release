@@ -12,6 +12,7 @@ ENV MAGE_COMMIT=${MAGE_COMMIT}
 ARG CUSTOM_MIRROR="https://archive.ubuntu.com/ubuntu"
 ARG CUDA=false
 ARG CACHE_PRESENT=false
+ARG MEMGRAPH_PACKAGE
 
 # Install runtime requirements for MAGE
 COPY scripts/install_runtime_requirements.sh /install_runtime_requirements.sh
@@ -22,13 +23,13 @@ RUN chmod +x /install_runtime_requirements.sh && \
     rm /install_runtime_requirements.sh
 
 # install memgraph
-COPY memgraph-${TARGETARCH}.deb .
+COPY ${MEMGRAPH_PACKAGE} .
 
 # fix `memgraph` UID and GID for compatibility with previous Debian releases
 RUN groupadd -g 103 memgraph && \
     useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph && \
-    dpkg -i memgraph-${TARGETARCH}.deb && \
-    rm memgraph-${TARGETARCH}.deb
+    dpkg -i ${MEMGRAPH_PACKAGE} && \
+    rm ${MEMGRAPH_PACKAGE}
 
 ENV LD_LIBRARY_PATH=/usr/lib/memgraph/query_modules
 

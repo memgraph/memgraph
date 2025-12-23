@@ -62,14 +62,6 @@ on:
         type: boolean
         description: "Run tests"
         default: false
-      memgraph_ref:
-        type: string
-        description: "Memgraph submodule branch to build query modules from"
-        default: 'master'
-      memgraph_ref_update:
-        type: boolean
-        description: "Update Memgraph submodule to the latest commit"
-        default: true
       package_deb:
         type: string
         description: "Build deb package (true|false|default)"
@@ -118,11 +110,16 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: "Log in to Docker Hub"
+        uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Pull e2e Docker images in background
         if: ${{ inputs.run_tests == true }}
         run: |
           ./mage/scripts/pull-e2e-docker-images.sh &
-
 
       - name: Check package deb build
         env:
@@ -181,27 +178,110 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         run: echo "CI_BRANCH=${{ github.event.pull_request.head.ref }}" >> $GITHUB_ENV
 
-      - name: Get Current MAGE Commit/Tag
-        env:
-          INPUT_REF: "${{ inputs.ref }}"
+      - name: "Set artifact name and dir"
         run: |
-          ./mage/scripts/get_mage_commit.sh "$INPUT_REF" "$CI_BRANCH" "$GITHUB_REF"
-
-      - name: Set up and check memgraph download link
-        run: |
-          if [[ -z "$MEMGRAPH_DOWNLOAD_LINK" ]]; then
-            echo "Using official download link"
-            mg_url="https://download.memgraph.com/memgraph/v$MEMGRAPH_VERSION/$OS/memgraph_$MEMGRAPH_VERSION-1_$ARCH.deb"
-          else
-            echo "Using custom download link"
-            mg_url=$MEMGRAPH_DOWNLOAD_LINK
+          artifact_name="$OS"
+          artifact_dir='build/output'
+          if [[ "$ADDITIONAL_BUILD_ARGS" == *"--for-docker"* ]]; then
+            artifact_name='docker'
+            echo "FOR_DOCKER=true" >> $GITHUB_ENV
+            echo "DOCKER_ARTIFACT_DIR=${artifact_dir}/docker" >> $GITHUB_ENV
           fi
+          if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
+            artifact_name="${artifact_name}-malloc"
+          fi
+          if [[ "$ARCH" == 'arm' ]]; then
+            artifact_name="${artifact_name}-aarch64"
+          fi
+          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' ]]; then
+            artifact_name="${artifact_name}-relwithdebinfo"
+          fi
+          echo "MG_ARTIFACT_NAME=$artifact_name" >> $GITHUB_ENV
+          echo "MG_PACKAGE_ARTIFACT_DIR=${artifact_dir}/package" >> $GITHUB_ENV
 
-          ./mage/scripts/verify_download_url.sh "$mg_url"
-          echo "MEMGRAPH_DOWNLOAD_LINK=${mg_url}" >> $GITHUB_ENV
+      - name: Set Additional Build Args
+        run: |
+          if [[ -z "$ADDITIONAL_BUILD_ARGS" ]]; then
+            args="--disable-testing"
+          else
+            args="$ADDITIONAL_BUILD_ARGS --disable-testing"
+          fi
+          echo "ADDITIONAL_BUILD_ARGS=$args" >> $GITHUB_ENV
+          echo "Final build args: $args"
 
-      - name: Download memgraph binary
-        run: curl -L --retry 5 --retry-delay 20 --retry-max-time 120 $MEMGRAPH_DOWNLOAD_LINK > mage/memgraph-$ARCH.deb
+      - name: "Spin up mgbuild container"
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          run
+
+      - name: "Build Memgraph binaries"
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          build-memgraph $ADDITIONAL_BUILD_ARGS \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
+
+      - name: "Make package"
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          package-memgraph
+
+      - name: "Copy package"
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          copy \
+          --package \
+          --dest-dir $MG_PACKAGE_ARTIFACT_DIR
+
+          # get full file name of the package
+          PACKAGE_FILE_NAME=$(ls $MG_PACKAGE_ARTIFACT_DIR/memgraph* | head -n 1)
+          MEMGRAPH_PACKAGE="${MG_PACKAGE_ARTIFACT_DIR}/${PACKAGE_FILE_NAME}"
+          echo "MEMGRAPH_PACKAGE=${MEMGRAPH_PACKAGE}" >> $GITHUB_ENV
+
+      - name: "Copy SBOM"
+        if: ${{ env.GENERATE_SBOM == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          copy \
+          --sbom
+
+      - name: "Build heaptrack"
+        if: ${{ inputs.build_type == 'RelWithDebInfo' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          build-heaptrack
+
+      - name: "Copy heaptrack"
+        if: ${{ inputs.build_type == 'RelWithDebInfo' }}
+        run: |
+          mkdir -p release/docker
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          copy-heaptrack \
+          --dest-dir "$(pwd)/release/docker"
 
       - name: Probe fastest mirror
         run: |
@@ -238,10 +318,10 @@ jobs:
           package_name=$(docker exec -i -u mg $CONTAINER_NAME bash -c "ls /home/mg/mage/scripts/pymgclient/dist/")
           docker cp $CONTAINER_NAME:/home/mg/mage/scripts/pymgclient/dist/$package_name wheels/
 
-      - name: Build heaptrack
-        if: ${{ inputs.mage_build_type == 'RelWithDebInfo' }}
-        run: |
-          ./mage/scripts/container-build-heaptrack.sh $CONTAINER_NAME
+      # - name: Build heaptrack
+      #   if: ${{ inputs.mage_build_type == 'RelWithDebInfo' }}
+      #   run: |
+      #     ./mage/scripts/container-build-heaptrack.sh $CONTAINER_NAME
 
       - name: Run tests
         if: ${{ inputs.run_tests == true }}
@@ -261,10 +341,14 @@ jobs:
           cd mage
           ./scripts/sbom/mgbuild-container-sbom.sh $CONTAINER_NAME
 
-      - name: Remove mgbbuild container
+      - name: "Stop mgbuild container"
         if: always()
         run: |
-          docker stop $CONTAINER_NAME || true
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          stop --remove
 
       - name: Build image
         run: |
@@ -285,6 +369,7 @@ jobs:
           --build-arg MAGE_COMMIT=$MAGE_COMMIT \
           --build-arg CACHE_PRESENT=$CACHE_PRESENT \
           --build-arg CUSTOM_MIRROR=$CUSTOM_MIRROR \
+          --build-arg MEMGRAPH_PACKAGE=$MEMGRAPH_PACKAGE \
           --load .
 
           # print the image size in both SI and IEC units
