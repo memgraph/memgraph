@@ -1242,7 +1242,7 @@ package_mage_deb() {
   echo -e "${GREEN_BOLD}Packaging MAGE DEB package${RESET}"
   docker exec -i -u root $build_container bash -c "apt-get update && apt-get install -y debhelper"
 
-  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/mage/scripts/package && ./build-deb.sh $arch $build_type $version $malloc $cuda"
+  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/mage/scripts/package && ./build-deb.sh '${arch}64' $build_type $version $malloc $cuda"
 
   package_name="$(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/mage/scripts/package/memgraph-mage*.deb")"
   mkdir -pv output
@@ -1292,7 +1292,7 @@ test_mage() {
   docker cp mage/python/$requirements_file $build_container:/tmp/$requirements_file
   docker cp src/auth/reference_modules/requirements.txt $build_container:/tmp/auth_module-requirements.txt
   docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/ && \
-    ./scripts/install_python_requirements.sh --ci --cache-present $CACHE_PRESENT --cuda $CUDA --arch $ARCH && \
+    ./scripts/install_python_requirements.sh --ci --cache-present $cache_present --cuda $cuda --arch $arch && \
     pip install -r \$HOME/memgraph/mage/python/tests/requirements.txt --break-system-packages"
   docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/python/ && python3 -m pytest ."
 }

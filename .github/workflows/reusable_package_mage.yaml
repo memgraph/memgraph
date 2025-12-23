@@ -299,6 +299,7 @@ jobs:
       - name: Build DEB package in MGBUILD container
         if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.PACKAGE_DEB == 'true' }}
         run: |
+          PACKAGE_ARGS="${{ inputs.malloc && '--malloc' || '' }}${{ inputs.cuda && ' --cuda' || '' }}"
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \
@@ -306,8 +307,7 @@ jobs:
             --build-type $BUILD_TYPE \
             package-mage-deb \
             --version $MAGE_VERSION \
-            --malloc $MALLOC \
-            --cuda $CUDA
+            $PACKAGE_ARGS
 
           DEB_PACKAGE="$(ls output/memgraph-mage*.deb)"
           echo "DEB_PACKAGE=${DEB_PACKAGE}" >> $GITHUB_ENV
@@ -329,6 +329,7 @@ jobs:
       - name: Run tests
         if: ${{ inputs.run_tests == true }}
         run: |
+          TEST_ARGS="${{ inputs.malloc && '--malloc' || '' }}${{ inputs.cuda && ' --cuda' || '' }}${{ env.CACHE_PRESENT == 'true' && ' --cache-present' || '' }}"
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \
@@ -336,8 +337,7 @@ jobs:
             --build-type $BUILD_TYPE \
             test-mage \
             --ci \
-            --cache-present $CACHE_PRESENT \
-            --cuda $CUDA
+            $TEST_ARGS
 
       - name: Generate SBOM
         if: ${{ inputs.generate_sbom == true }}
