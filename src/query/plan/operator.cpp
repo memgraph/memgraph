@@ -6089,7 +6089,9 @@ class AggregateCursor : public Cursor {
       // Construct Objects (Placement New)
       // Initialize counts to 0
       std::uninitialized_fill_n(counts_, num_aggs_, 0);
-      // NOTE: We defer construction of 'values_' and 'remember_' to EnsureInitialized
+      // Initialize TypedValue arrays with Nulls so they are safe to destruct
+      for (size_t i = 0; i < num_aggs_; ++i) new (&values_[i]) TypedValue(mem);
+      for (size_t i = 0; i < num_rem_; ++i) new (&remember_[i]) TypedValue(mem);
       // Construct Sets (Must pass the allocator!)
       for (size_t i = 0; i < num_aggs_; ++i) new (&unique_values_[i]) TSet(mem);
     }
@@ -6216,7 +6218,7 @@ class AggregateCursor : public Cursor {
     auto *mem = agg_value->mem_resource_;
     size_t idx = 0;
     for (const auto &agg_elem : self_.aggregations_) {
-      new (&agg_value->values_[idx++]) TypedValue(DefaultAggregationOpValue(agg_elem, mem));
+      agg_value->values_[idx++] = DefaultAggregationOpValue(agg_elem, mem);
       // unique_values_ sets are already constructed and empty from constructor
     }
     // counts_ are already 0 from constructor
@@ -6224,7 +6226,7 @@ class AggregateCursor : public Cursor {
     size_t rem_idx = 0;
     for (const Symbol &remember_sym : self_.remember_) {
       // Copy value from frame
-      new (&agg_value->remember_[rem_idx++]) TypedValue(frame[remember_sym]);
+      agg_value->remember_[rem_idx++] = frame[remember_sym];
     }
   }
 
@@ -6484,7 +6486,7 @@ class OrderByCursor : public Cursor {
     if (!did_pull_all_) [[unlikely]] {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD, nullptr, &context.number_of_hops, context.user_or_role);
-      //auto *pull_mem = context.evaluation_context.memory;
+      // auto *pull_mem = context.evaluation_context.memory;
       auto *query_mem = cache_.get_allocator().resource();
 
       utils::pmr::vector<utils::pmr::vector<TypedValue>> order_by(query_mem);  // Cached for parallel merge
