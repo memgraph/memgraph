@@ -4979,7 +4979,7 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
                                       storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
         case storage::InMemoryStorage::CreateSnapshotError::AlreadyRunning:
         case storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite:
-          throw utils::BasicException("{}", storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
+          throw utils::BasicException(storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
       }
     }
     return std::vector<std::vector<TypedValue>>{{TypedValue{maybe_path.value()}}};
