@@ -91,7 +91,7 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
   CURL *curl = nullptr;
   CURLcode res = CURLE_UNSUPPORTED_PROTOCOL;
 
-  auto response_code = 0;
+  long response_code = 0;  // NOLINT(google-runtime-int) - curl_easy_getinfo requires long*
   struct curl_slist *headers = nullptr;
   std::string payload = data.dump();
   std::string user_agent = fmt::format("memgraph/{}", gflags::VersionString());
@@ -117,6 +117,7 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
   res = curl_easy_perform(curl);
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
   curl_easy_cleanup(curl);
+  curl_slist_free_all(headers);
 
   if (res != CURLE_OK) {
     SPDLOG_WARN("Couldn't perform request: {}", curl_easy_strerror(res));

@@ -186,14 +186,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
                       storage::View view, FrameChangeCollector *frame_change_collector = nullptr,
-                      const int64_t *hops_counter = nullptr)
+                      const int64_t *hops_counter = nullptr, std::shared_ptr<QueryUserOrRole> user_or_role = nullptr)
       : frame_(frame),
         symbol_table_(&symbol_table),
         ctx_(&ctx),
         dba_(dba),
         view_(view),
         frame_change_collector_(frame_change_collector),
-        hops_counter_(hops_counter) {}
+        hops_counter_(hops_counter),
+        user_or_role_(std::move(user_or_role)) {}
 
   using ExpressionVisitor<TypedValue>::Visit;
 
@@ -676,7 +677,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
-    FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_, GetHopsCounter()};
+    FunctionContext function_ctx{dba_,  ctx_->memory,     ctx_->timestamp, &ctx_->counters,
+                                 view_, GetHopsCounter(), user_or_role_};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.
@@ -1090,6 +1092,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
   // use the getter function GetHopsCounter() to handle possible error for segfault
   const int64_t *hops_counter_;
+  std::shared_ptr<QueryUserOrRole> user_or_role_;
 };  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.

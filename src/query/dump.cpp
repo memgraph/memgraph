@@ -25,7 +25,9 @@
 #include "query/exceptions.hpp"
 #include "query/stream.hpp"
 #include "query/string_helpers.hpp"
+#include "query/trigger.hpp"
 #include "query/trigger_context.hpp"
+#include "query/trigger_privilege_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -1057,8 +1059,13 @@ PullPlanDump::PullChunk PullPlanDump::CreateTriggersPullChunk() {
     for (const auto &trigger : triggers) {
       std::ostringstream os;
       auto trigger_statement_copy = trigger.statement;
-      std::replace(trigger_statement_copy.begin(), trigger_statement_copy.end(), '\n', ' ');
+      std::ranges::replace(trigger_statement_copy, '\n', ' ');
       os << "CREATE TRIGGER " << trigger.name;
+      if (trigger.privilege_context == TriggerPrivilegeContext::INVOKER) {
+        os << " SECURITY INVOKER";
+      } else {
+        os << " SECURITY DEFINER";
+      }
       if (trigger.event_type != TriggerEventType::ANY) {
         os << " ON " << memgraph::query::TriggerEventTypeToString(trigger.event_type);
       }
