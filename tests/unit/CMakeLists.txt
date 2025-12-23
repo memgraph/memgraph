@@ -558,6 +558,11 @@ add_unit_test(storage_v2_chunk_iterator
     LINK_TARGETS mg-query storage_test_utils
 )
 
+add_unit_test(db_accessor_chunked_test
+    SOURCES db_accessor_chunked_test.cpp
+    LINK_TARGETS mg-query storage_test_utils
+)
+
 add_unit_test(storage_v2_delta_container
     SOURCES storage_v2_delta_container.cpp
     LINK_TARGETS mg::storage
