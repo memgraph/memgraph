@@ -169,13 +169,9 @@ int64_t SharedQuota::Decrement(int64_t amount) {
   return total_consumed;
 }
 
-void SharedQuota::Increment(int64_t amount) {
-  if (!handle_) {
-    Reacquire();
-    // Silently fail if we failed to acquire a quota
-    if (!handle_) return;
-  }
-  handle_->Increment(amount);
+void SharedQuota::Increment() {
+  DMG_ASSERT(handle_, "Incrementing on a destroyed handle.");
+  handle_->Increment(1U);
 }
 
 void SharedQuota::Reacquire() {
