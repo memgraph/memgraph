@@ -2993,13 +2993,21 @@ PreparedQuery PrepareCypherQuery(
     parallel_checker.CheckParallelized(plan->plan());
     if (parallel_checker.is_parallelized_) {
       dba->SetParallelExecution();  // Internal flag
+      if (interpreter_context->worker_pool == nullptr) {
+        spdlog::trace(
+            R"(Parallel execution is not supported while using "asio" scheduler. Please switch to "priority_queue" scheduler "
+            "and try again. Falling back to single threaded execution.)");
+        notifications->emplace_back(
+            SeverityLevel::INFO, NotificationCode::PARALLEL_EXECUTION_FALLBACK,
+            R"(Parallel execution is not supported while using "asio" scheduler. Falling back to single threaded execution.)");
+      }
       spdlog::trace("Executing query with parallel execution using {} threads.", *parallel_execution);
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PARALLEL_EXECUTION,
                                   "Parallel execution enabled.");
     } else {
       spdlog::trace("Query was not parallelized. Falling back to single threaded execution.");
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PARALLEL_EXECUTION_FALLBACK,
-                                  "Parallel execution fallback to single threaded execution.");
+                                  "Plan was not successfully parallelized. Falling back to single threaded execution.");
     }
   }
 #endif
@@ -3194,8 +3202,8 @@ PreparedQuery PrepareProfileQuery(
                         stopping_context = std::move(stopping_context), db_acc = *current_db.db_acc_, hops_limit,
                         &query_logger = interpreter.query_logger_
 #ifdef MG_ENTERPRISE
-       ,
-       parallel_execution, user_resource = std::move(user_resource)
+                        ,
+                        parallel_execution, user_resource = std::move(user_resource)
 #endif
   ](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
