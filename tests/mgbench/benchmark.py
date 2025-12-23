@@ -675,6 +675,7 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
     log.info("Executing database index setup")
     start_time = time.time()
     import_results = None
+    time.sleep(10)
     if generated_queries:
         client.execute(queries=workload.indexes_generator(), num_workers=1)
         log.info("Finished setting up indexes.")

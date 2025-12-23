@@ -203,11 +203,14 @@ void PriorityThreadPool::Worker::stop() {
   cv_.notify_one();
 }
 
+thread_local uint64_t PriorityThreadPool::Worker::worker_id_{std::numeric_limits<uint64_t>::max()};
+
 template <Priority ThreadPriority>
 void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
                                             const std::vector<std::unique_ptr<Worker>> &workers_pool,
                                             HotMask &hot_threads) {
   utils::ThreadSetName(ThreadPriority == Priority::HIGH ? "high prior." : "low prior.");
+  worker_id_ = worker_id + kMaxWorkers * (ThreadPriority == Priority::HIGH);  // set visible worker id
 
   // Both mixed and high priority worker only steal from mixed worker
   const auto other_workers = std::invoke([&workers_pool, ptr = this]() mutable {

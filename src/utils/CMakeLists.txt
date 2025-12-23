@@ -56,6 +56,7 @@ target_sources(mg-utils
     compile_time.hpp
     resource_monitoring.hpp
     safe_string.hpp
+    gc_offloader.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)
