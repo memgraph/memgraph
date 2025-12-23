@@ -229,8 +229,9 @@ std::ostream &operator<<(std::ostream &os, const QueryLogWrapper &qlw) {
 namespace memgraph::query {
 void Interpreter::ResetInterpreter() {
   // Postpone clearing of query_executions_ to a separate thread to avoid blocking the main thread
-  interpreter_context_->thread_pool_.AddTask(
-      [query_executions = std::move(query_executions_)]() mutable { query_executions.clear(); });
+  interpreter_context_->thread_pool_.ScheduledAddTask(
+      [query_executions = std::move(query_executions_)](auto /*unused*/) mutable { query_executions.clear(); },
+      utils::Priority::HIGH);
   system_transaction_.reset();
   transaction_queries_->clear();
   if (current_db_.db_acc_ && current_db_.db_acc_->is_marked_for_deletion()) {
@@ -239,8 +240,9 @@ void Interpreter::ResetInterpreter() {
 }
 
 void Interpreter::MoveQueryExecution(std::unique_ptr<QueryExecution> query_execution) {
-  interpreter_context_->thread_pool_.AddTask(
-      [query_execution = std::move(query_execution)]() mutable { query_execution.reset(nullptr); });
+  interpreter_context_->thread_pool_.ScheduledAddTask(
+      [query_execution = std::move(query_execution)](auto /*unused*/) mutable { query_execution.reset(nullptr); },
+      utils::Priority::HIGH);
 }
 
 constexpr std::string_view kSchemaAssert = "SCHEMA.ASSERT";
@@ -2483,7 +2485,7 @@ struct PullPlan {
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
                                                         std::map<std::string, TypedValue> *summary,
-                                                        utils::ThreadPool *thread_pool = nullptr);
+                                                        utils::PriorityThreadPool *thread_pool = nullptr);
 
  private:
   std::shared_ptr<PlanWrapper> plan_ = nullptr;
@@ -2566,7 +2568,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary,
-                                                                utils::ThreadPool *thread_pool) {
+                                                                utils::PriorityThreadPool *thread_pool) {
   auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
   // Single query memory limit
   memory_tracker.SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
@@ -2665,9 +2667,11 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   }
   if (thread_pool) {
     // Memory will be moved to the thread pool later on (safe since FIFO queue is used)
-    thread_pool->AddTask([cursor = std::move(cursor_)] {
-      if (cursor) cursor->Shutdown();
-    });
+    thread_pool->ScheduledAddTask(
+        [cursor = std::move(cursor_)](auto /*unused*/) {
+          if (cursor) cursor->Shutdown();
+        },
+        utils::Priority::HIGH);
   } else {
     cursor_->Shutdown();
   }
