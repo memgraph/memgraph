@@ -34,10 +34,9 @@ if [ "$exists" = "false" ]; then
 fi
 
 docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/openssl/build.sh ${CONAN_REMOTE}"
+docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/openssl/build-openssl-deb.sh"
+docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/openssl/build-libssl3-deb.sh"
 
-# copy required files from the container to the host
-mkdir -pv build/openssl
-docker cp "$CONTAINER_NAME:/home/mg/memgraph/build/openssl/libcrypto.so" build/openssl/
-docker cp "$CONTAINER_NAME:/home/mg/memgraph/build/openssl/libcrypto.so.3" build/openssl/
-docker cp "$CONTAINER_NAME:/home/mg/memgraph/build/openssl/libssl.so" build/openssl/
-docker cp "$CONTAINER_NAME:/home/mg/memgraph/build/openssl/libssl.so.3" build/openssl/
+ARCH="$(dpkg --print-architecture)"
+docker cp "$CONTAINER_NAME:/home/mg/memgraph/build/openssl_3.5.4-0ubuntu0custom1_${ARCH}.deb" build/openssl_3.5.4-0ubuntu0custom1_${ARCH}.deb
+docker cp "$CONTAINER_NAME:/home/mg/memgraph/build/libssl3t64_3.5.4-0ubuntu0custom1_${ARCH}.deb" build/libssl3t64_3.5.4-0ubuntu0custom1_${ARCH}.deb

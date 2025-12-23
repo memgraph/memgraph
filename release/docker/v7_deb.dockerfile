@@ -6,7 +6,12 @@ ARG EXTENSION
 ARG TARGETARCH
 ARG CUSTOM_MIRROR
 
-COPY openssl/* /usr/lib/memgraph/
+COPY openssl/* /tmp/
+RUN apt-get update && apt-get install -y \
+  /tmp/openssl*.deb \
+  /tmp/libssl3t64*.deb \
+  --no-install-recommends && \
+  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # If CUSTOM_MIRROR is set, replace the default archive.ubuntu.com
 # and security.ubuntu.com URIs in your .sources file
