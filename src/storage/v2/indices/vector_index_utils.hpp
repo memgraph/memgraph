@@ -11,15 +11,26 @@
 
 #pragma once
 
+#include <string_view>
+#include <vector>
+
+#include <fmt/core.h>
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
+#include "range/v3/algorithm/remove.hpp"
+#include "range/v3/range/conversion.hpp"
+#include "range/v3/view/transform.hpp"
+#include "spdlog/spdlog.h"
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
+
+namespace rv = ranges::views;
 
 /// @enum VectorIndexType
 /// @brief Represents the type of vector index.
@@ -31,7 +42,6 @@ enum class VectorIndexType : uint8_t {
 /// @brief Converts a VectorIndexType to a string representation.
 /// @param type The VectorIndexType to convert.
 /// @return A string representation of the VectorIndexType.
-/// @throws query::VectorSearchException if the type is unsupported.
 constexpr const char *VectorIndexTypeToString(VectorIndexType type) {
   switch (type) {
     case VectorIndexType::ON_NODES:
@@ -131,12 +141,6 @@ inline unum::usearch::metric_kind_t MetricFromName(std::string_view name) {
 /// @throws query::VectorSearchException if the scalar kind is unsupported.
 inline const char *NameFromScalar(unum::usearch::scalar_kind_t scalar) {
   switch (scalar) {
-    case unum::usearch::scalar_kind_t::b1x8_k:
-      return "b1x8";
-    case unum::usearch::scalar_kind_t::u40_k:
-      return "u40";
-    case unum::usearch::scalar_kind_t::uuid_k:
-      return "uuid";
     case unum::usearch::scalar_kind_t::bf16_k:
       return "bf16";
     case unum::usearch::scalar_kind_t::f64_k:
@@ -165,7 +169,7 @@ inline const char *NameFromScalar(unum::usearch::scalar_kind_t scalar) {
       return "i8";
     default:
       throw query::VectorSearchException(
-          "Unsupported scalar kind. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
+          "Unsupported scalar kind. Supported scalars are bf16, f64, f32, f16, f8, "
           "u64, u32, u16, u8, i64, i32, i16, and i8.");
   }
 }
@@ -175,15 +179,6 @@ inline const char *NameFromScalar(unum::usearch::scalar_kind_t scalar) {
 /// @return The corresponding scalar kind.
 /// @throws query::VectorSearchException if the scalar name is unsupported.
 inline unum::usearch::scalar_kind_t ScalarFromName(std::string_view name) {
-  if (name == "b1x8" || name == "binary") {
-    return unum::usearch::scalar_kind_t::b1x8_k;
-  }
-  if (name == "u40") {
-    return unum::usearch::scalar_kind_t::u40_k;
-  }
-  if (name == "uuid") {
-    return unum::usearch::scalar_kind_t::uuid_k;
-  }
   if (name == "bf16" || name == "bfloat16") {
     return unum::usearch::scalar_kind_t::bf16_k;
   }
@@ -225,7 +220,7 @@ inline unum::usearch::scalar_kind_t ScalarFromName(std::string_view name) {
   }
 
   throw query::VectorSearchException(
-      fmt::format("Unsupported scalar name: {}. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
+      fmt::format("Unsupported scalar name: {}. Supported scalars are bf16, f64, f32, f16, f8, "
                   "u64, u32, u16, u8, i64, i32, i16, and i8.",
                   name));
 }
@@ -257,6 +252,40 @@ inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double
   }
 }
 
+/// @brief Converts a PropertyValue list to a vector of floats.
+/// @param value The PropertyValue to convert. Must be a list of numeric values (floats or integers).
+/// @return A vector of float values.
+/// @throws query::VectorSearchException if the value is not a list or contains non-numeric values.
+inline std::vector<float> ListToVector(const PropertyValue &value) {
+  if (value.IsNull()) {
+    return {};
+  }
+  if (value.IsAnyList()) {
+    const auto list_size = value.ListSize();
+    std::vector<float> vector;
+    vector.reserve(list_size);
+    for (auto i = 0; i < list_size; i++) {
+      const auto numeric_value = GetNumericValueAt(value, i);
+      if (!numeric_value) {
+        throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+      }
+      const auto float_value =
+          std::visit([](const auto &val) -> float { return static_cast<float>(val); }, *numeric_value);
+      vector.push_back(float_value);
+    }
+    return vector;
+  }
+  throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+}
+
+/// @brief Converts a vector of floats to a vector of doubles (for PropertyValue storage).
+/// @param vector The vector of floats to convert.
+/// @return A vector of double values.
+inline std::vector<double> FloatVectorToDoubleVector(const std::vector<float> &vector) {
+  return vector | rv::transform([](float value) { return static_cast<double>(value); }) |
+         ranges::to<std::vector<double>>();
+}
+
 /// @brief Converts a property value to a float vector for vector index operations.
 /// @param property The property value to convert (must be a list of numeric values).
 /// @param expected_dimension The expected dimension of the vector.
@@ -285,10 +314,143 @@ inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double
   return vector;
 }
 
+/// @brief Validates that a vector has the expected dimension.
+/// @param vector The vector to validate.
+/// @param expected_dimension The expected dimension.
+/// @throws query::VectorSearchException if dimensions don't match.
+inline void ValidateVectorDimension(const std::vector<float> &vector, std::uint16_t expected_dimension) {
+  if (vector.size() != expected_dimension) {
+    throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
+  }
+}
+
+/// @brief Restores a vector property on a vertex by setting it as a PropertyValue with double values.
+/// @param vertex The vertex to restore the property on.
+/// @param property_id The property ID to restore.
+/// @param vector The vector of float values to restore.
+inline void RestoreVectorOnVertex(Vertex *vertex, PropertyId property_id, const std::vector<float> &vector) {
+  auto double_vector = FloatVectorToDoubleVector(vector);
+  vertex->properties.SetProperty(property_id, PropertyValue(std::move(double_vector)));
+}
+
+/// @brief Creates a PropertyValue from a vector and index IDs for vector index storage.
+/// @param vector The vector of float values (unused, kept for API compatibility).
+/// @param index_ids The index IDs associated with this vector.
+/// @return A PropertyValue containing the vector index ID and vector data.
+inline PropertyValue CreateVectorIndexIdProperty(const std::vector<float> & /*vector*/,
+                                                 const utils::small_vector<uint64_t> &index_ids) {
+  return PropertyValue(index_ids, std::vector<float>{});
+}
+
+/// @brief Removes an index ID from a property's vector index ID list.
+/// @param property_value The property value to modify (must be a VectorIndexId).
+/// @param index_id The index ID to remove.
+/// @return true if the property should be restored (no more index IDs), false otherwise.
+inline bool RemoveIndexIdFromProperty(PropertyValue &property_value, uint64_t index_id) {
+  if (!property_value.IsVectorIndexId()) {
+    return true;  // Not a vector index ID, should restore
+  }
+  auto &ids = property_value.ValueVectorIndexIds();
+  ids.erase(ranges::remove(ids, index_id), ids.end());
+  return ids.empty();  // Return true if should restore (no more IDs)
+}
+
+/// @brief Retrieves a vector from a USearch index using the get method and returns it as a PropertyValue of type
+/// double.
+/// @tparam IndexType The type of the USearch index (e.g., mg_vector_index_t or mg_vector_edge_index_t).
+/// @tparam KeyType The type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
+/// @param index The USearch index to retrieve the vector from.
+/// @param key The key to look up in the index.
+/// @return A PropertyValue containing the vector as a list of double values.
+/// @throws query::VectorSearchException if the key is not found in the index or if retrieval fails.
+template <typename IndexType, typename KeyType>
+PropertyValue GetVectorAsPropertyValue(const std::shared_ptr<utils::Synchronized<IndexType, std::shared_mutex>> &index,
+                                       KeyType key) {
+  auto locked_index = index->ReadLock();
+  const auto dimension = locked_index->dimensions();
+  std::vector<double> vector(dimension);
+  const auto retrieved_count = locked_index->get(key, vector.data());
+  if (retrieved_count == 0) {
+    return {};
+  }
+  std::vector<PropertyValue> double_values;
+  double_values.reserve(dimension);
+  for (const auto &value : vector) {
+    double_values.emplace_back(static_cast<double>(value));
+  }
+  return PropertyValue(std::move(double_values));
+}
+
+/// @brief Retrieves a vector from a USearch index using the get method and returns it as a list of float values.
+/// @tparam IndexType The type of the USearch index (e.g., mg_vector_index_t or mg_vector_edge_index_t).
+/// @tparam KeyType The type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
+/// @param index The USearch index to retrieve the vector from.
+/// @param key The key to look up in the index.
+/// @return A list of float values representing the vector.
+/// @throws query::VectorSearchException if the key is not found in the index or if retrieval fails.
+template <typename IndexType, typename KeyType>
+std::vector<float> GetVector(const std::shared_ptr<utils::Synchronized<IndexType, std::shared_mutex>> &index,
+                             KeyType key) {
+  auto locked_index = index->ReadLock();
+  const auto dimension = locked_index->dimensions();
+  std::vector<unum::usearch::f32_t> vector(dimension);
+  const auto retrieved_count = locked_index->get(key, vector.data(), 1);
+  if (retrieved_count == 0) {
+    return {};
+  }
+  return vector;
+}
+
 /// @brief Returns the maximum number of concurrent threads for vector index operations.
 inline std::size_t GetVectorIndexThreadCount() {
   return std::max(static_cast<std::size_t>(FLAGS_bolt_num_workers),
                   static_cast<std::size_t>(FLAGS_storage_recovery_thread_count));
+}
+
+/// @brief Updates a single vector index with a vector (common logic for vertex and edge indices).
+/// @tparam IndexItemType Type of the index item (must have mg_index and spec members).
+/// @tparam KeyType Type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
+/// @param index_item The index item containing the synchronized index and spec.
+/// @param key The key to add/update in the index.
+/// @param vector The vector data to add.
+/// @param update_capacity Whether to update the spec.capacity after resizing (default: true).
+/// @throws query::VectorSearchException if dimension mismatch or resize fails.
+template <typename IndexItemType, typename KeyType>
+void UpdateSingleVectorIndex(IndexItemType &index_item, KeyType key, const std::vector<float> &vector,
+                             bool update_capacity = true) {
+  auto &[mg_index, spec] = index_item;
+  bool is_index_full = false;
+  {
+    auto locked_index = mg_index->MutableSharedLock();
+    if (locked_index->contains(key)) {
+      locked_index->remove(key);
+    }
+    is_index_full = locked_index->size() == locked_index->capacity();
+  }
+
+  if (is_index_full) {
+    spdlog::warn("Vector index is full, resizing...");
+    auto exclusively_locked_index = mg_index->Lock();
+    const auto new_size = spec.resize_coefficient * exclusively_locked_index->capacity();
+    const unum::usearch::index_limits_t new_limits(new_size, FLAGS_bolt_num_workers);
+    if (!exclusively_locked_index->try_reserve(new_limits)) {
+      throw query::VectorSearchException("Failed to resize vector index.");
+    }
+    if (update_capacity) {
+      spec.capacity = exclusively_locked_index->capacity();  // capacity might be larger than the requested capacity
+    }
+  }
+
+  if (vector.empty()) {
+    return;
+  }
+
+  if (spec.dimension != vector.size()) {
+    throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
+  }
+
+  auto locked_index = mg_index->MutableSharedLock();
+  locked_index->add(key, vector.data());
 }
 
 /// @brief Adds an entry to the vector index with automatic resize if the index is full.
@@ -331,48 +493,38 @@ void AddToVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, S
 }
 
 /// @brief Populates a vector index by iterating over vertices on a single thread.
-/// @tparam SyncIndex The synchronized index wrapper type.
-/// @tparam Spec The index specification type.
-/// @tparam ProcessFunc Callable with signature void(SyncIndex&, Spec&, Vertex&, const
-/// std::optional<SnapshotObserverInfo>&, std::optional<std::size_t> thread_id).
-/// @param mg_index The synchronized index wrapper.
-/// @param spec The index specification (may be modified if resize occurs).
+/// @tparam ProcessFunc Callable that receives (Vertex&, Args..., thread_id).
+/// @tparam Args Additional argument types to forward to the process function.
 /// @param vertices The vertices accessor to iterate over.
-/// @param snapshot_info Optional snapshot observer info.
 /// @param process The function to call for each vertex.
-template <typename SyncIndex, typename Spec, typename ProcessFunc>
-void PopulateVectorIndexSingleThreaded(SyncIndex &mg_index, Spec &spec, utils::SkipList<Vertex>::Accessor &vertices,
-                                       std::optional<SnapshotObserverInfo> const &snapshot_info,
-                                       const ProcessFunc &process) {
+/// @param args Arguments to forward to the process function (before thread_id).
+template <typename ProcessFunc, typename... Args>
+void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertices, const ProcessFunc &process,
+                                       Args &&...args) {
   for (auto &vertex : vertices) {
-    process(mg_index, spec, vertex, snapshot_info, std::nullopt);
+    process(vertex, std::forward<Args>(args)..., std::nullopt);
   }
 }
 
 /// @brief Populates a vector index by iterating over vertices using multiple threads.
-/// @tparam SyncIndex The synchronized index wrapper type.
-/// @tparam Spec The index specification type (must have resize_coefficient and capacity).
-/// @tparam ProcessFunc Callable with signature void(SyncIndex&, Spec&, Vertex&, const
-/// std::optional<SnapshotObserverInfo>&, std::optional<std::size_t> thread_id).
-/// @param mg_index The synchronized index wrapper.
-/// @param spec The index specification (may be modified if resize occurs).
+/// @tparam ProcessFunc Callable that receives (Vertex&, Args..., thread_id).
+/// @tparam Args Additional argument types to forward to the process function.
 /// @param vertices The vertices accessor to iterate over.
-/// @param snapshot_info Optional snapshot observer info.
 /// @param process The function to call for each vertex.
-template <typename SyncIndex, typename Spec, typename ProcessFunc>
-void PopulateVectorIndexMultiThreaded(SyncIndex &mg_index, Spec &spec, utils::SkipList<Vertex>::Accessor &vertices,
-                                      std::optional<SnapshotObserverInfo> const &snapshot_info,
-                                      const ProcessFunc &process) {
+/// @param args Arguments to forward to the process function (before thread_id).
+template <typename ProcessFunc, typename... Args>
+void PopulateVectorIndexMultiThreaded(utils::SkipList<Vertex>::Accessor &vertices, const ProcessFunc &process,
+                                      Args... args) {
   const auto thread_count = FLAGS_storage_recovery_thread_count;
   auto vertices_chunks = vertices.create_chunks(thread_count);
   std::vector<std::jthread> threads;
   threads.reserve(thread_count);
 
   for (std::size_t i = 0; i < thread_count; ++i) {
-    threads.emplace_back([&, i]() {
+    threads.emplace_back([&vertices_chunks, &process, args..., i]() {
       auto &chunk = vertices_chunks[i];
       for (auto &vertex : chunk) {
-        process(mg_index, spec, vertex, snapshot_info, i);
+        process(vertex, args..., i);
       }
     });
   }

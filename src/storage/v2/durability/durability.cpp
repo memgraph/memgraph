@@ -354,10 +354,8 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   {
     spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
     auto vertices_acc = vertices->access();
-    for (const auto &spec : indices_metadata.vector_indices) {
-      indices->vector_index_.RecoverIndex(spec, vertices_acc, snapshot_info);
-      spdlog::info("Vector index on :{}({}) is recreated from metadata",
-                   name_id_mapper->IdToName(spec.label_id.AsUint()), name_id_mapper->IdToName(spec.property.AsUint()));
+    for (const auto &recovery_info : indices_metadata.vector_indices) {
+      indices->vector_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper, snapshot_info);
     }
     spdlog::info("Vector indices are recreated.");
   }
@@ -619,7 +617,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
-                            edge_count, config.salient.items, enum_store, schema_info, find_edge, ttl);
+                            edge_count, config.salient.items, enum_store, schema_info, find_edge, ttl, indices);
         // Update recovery info data only if WAL file was used and its deltas loaded
 
         bool wal_contains_changes{false};

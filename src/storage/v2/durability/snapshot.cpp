@@ -3882,10 +3882,10 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (r::any_of(indices_constraints.indices.vector_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
-          throw RecoveryFailure("The vector index already exists!");
-        }
+        // if (r::any_of(indices_constraints.indices.vector_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
+        //   throw RecoveryFailure("The vector index already exists!");
+        // }
 
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read vector index label!");
@@ -3904,10 +3904,10 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        indices_constraints.indices.vector_indices.emplace_back(
-            std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
-            static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
-            ScalarFromName(query::kDefaultScalarKind));
+        // indices_constraints.indices.vector_indices.emplace_back(
+        //     std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
+        //     static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
+        //     ScalarFromName(query::kDefaultScalarKind));
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -4466,10 +4466,10 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (r::any_of(indices_constraints.indices.vector_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
-          throw RecoveryFailure("The vector index already exists!");
-        }
+        // if (r::any_of(indices_constraints.indices.vector_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
+        //   throw RecoveryFailure("The vector index already exists!");
+        // }
 
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read vector index label!");
@@ -4488,10 +4488,10 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        indices_constraints.indices.vector_indices.emplace_back(
-            std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
-            static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
-            ScalarFromName(query::kDefaultScalarKind));
+        // indices_constraints.indices.vector_indices.emplace_back(
+        //     std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
+        //     static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
+        //     ScalarFromName(query::kDefaultScalarKind));
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -5042,10 +5042,10 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (r::any_of(indices_constraints.indices.vector_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
-          throw RecoveryFailure("The vector index already exists!");
-        }
+        // if (r::any_of(indices_constraints.indices.vector_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
+        //   throw RecoveryFailure("The vector index already exists!");
+        // }
 
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read vector index label!");
@@ -5064,10 +5064,10 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        indices_constraints.indices.vector_indices.emplace_back(
-            std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
-            static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
-            ScalarFromName(query::kDefaultScalarKind));
+        // indices_constraints.indices.vector_indices.emplace_back(
+        //     std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
+        //     static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
+        //     ScalarFromName(query::kDefaultScalarKind));
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -5618,10 +5618,10 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (r::any_of(indices_constraints.indices.vector_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
-          throw RecoveryFailure("The vector index already exists!");
-        }
+        // if (r::any_of(indices_constraints.indices.vector_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
+        //   throw RecoveryFailure("The vector index already exists!");
+        // }
 
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read vector index label!");
@@ -5642,10 +5642,10 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        indices_constraints.indices.vector_indices.emplace_back(
-            std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
-            static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
-            static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
+        // indices_constraints.indices.vector_indices.emplace_back(
+        //     std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
+        //     static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
+        //     static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -6196,12 +6196,12 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (r::any_of(indices_constraints.indices.vector_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
-            r::any_of(indices_constraints.indices.vector_edge_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
-          throw RecoveryFailure("The vector index with the same name already exists!");
-        }
+        // if (r::any_of(indices_constraints.indices.vector_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
+        //     r::any_of(indices_constraints.indices.vector_edge_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
+        //   throw RecoveryFailure("The vector index with the same name already exists!");
+        // }
 
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read vector index label!");
@@ -6222,10 +6222,10 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        indices_constraints.indices.vector_indices.emplace_back(
-            std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
-            static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
-            static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
+        // indices_constraints.indices.vector_indices.emplace_back(
+        //     std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
+        //     static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
+        //     static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -6241,12 +6241,12 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (r::any_of(indices_constraints.indices.vector_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
-            r::any_of(indices_constraints.indices.vector_edge_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
-          throw RecoveryFailure("The vector index with the same name already exists!");
-        }
+        // if (r::any_of(indices_constraints.indices.vector_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
+        //     r::any_of(indices_constraints.indices.vector_edge_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
+        //   throw RecoveryFailure("The vector index with the same name already exists!");
+        // }
 
         auto edge_type = snapshot.ReadUint();
         if (!edge_type) throw RecoveryFailure("Couldn't read vector index edge type!");
@@ -6267,10 +6267,10 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
                      name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        indices_constraints.indices.vector_edge_indices.emplace_back(
-            std::move(index_name.value()), get_edge_type_from_id(*edge_type), get_property_from_id(*property),
-            metric_kind, static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
-            static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
+        //  indices_constraints.indices.vector_edge_indices.emplace_back(
+        //     std::move(index_name.value()), get_edge_type_from_id(*edge_type), get_property_from_id(*property),
+        //     metric_kind, static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
+        //     static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -6821,12 +6821,12 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (r::any_of(indices_constraints.indices.vector_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
-            r::any_of(indices_constraints.indices.vector_edge_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
-          throw RecoveryFailure("The vector index with the same name already exists!");
-        }
+        // if (r::any_of(indices_constraints.indices.vector_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
+        //     r::any_of(indices_constraints.indices.vector_edge_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
+        //   throw RecoveryFailure("The vector index with the same name already exists!");
+        // }
 
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read vector index label!");
@@ -6847,10 +6847,10 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        indices_constraints.indices.vector_indices.emplace_back(
-            std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
-            static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
-            static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
+        // indices_constraints.indices.vector_indices.emplace_back(
+        //     std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
+        //     static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
+        //     static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -6866,12 +6866,12 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (r::any_of(indices_constraints.indices.vector_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
-            r::any_of(indices_constraints.indices.vector_edge_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
-          throw RecoveryFailure("The vector index with the same name already exists!");
-        }
+        // if (r::any_of(indices_constraints.indices.vector_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
+        //     r::any_of(indices_constraints.indices.vector_edge_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
+        //   throw RecoveryFailure("The vector index with the same name already exists!");
+        // }
 
         auto edge_type = snapshot.ReadUint();
         if (!edge_type) throw RecoveryFailure("Couldn't read vector index edge type!");
@@ -7456,12 +7456,12 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (r::any_of(indices_constraints.indices.vector_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
-            r::any_of(indices_constraints.indices.vector_edge_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
-          throw RecoveryFailure("The vector index with the same name already exists!");
-        }
+        // if (r::any_of(indices_constraints.indices.vector_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
+        //     r::any_of(indices_constraints.indices.vector_edge_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
+        //   throw RecoveryFailure("The vector index with the same name already exists!");
+        // }
 
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read vector index label!");
@@ -7482,10 +7482,10 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        indices_constraints.indices.vector_indices.emplace_back(
-            std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
-            static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
-            static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
+        // indices_constraints.indices.vector_indices.emplace_back(
+        //     std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
+        //     static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
+        //     static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -7501,12 +7501,12 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (r::any_of(indices_constraints.indices.vector_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
-            r::any_of(indices_constraints.indices.vector_edge_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
-          throw RecoveryFailure("The vector index with the same name already exists!");
-        }
+        // if (r::any_of(indices_constraints.indices.vector_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
+        //     r::any_of(indices_constraints.indices.vector_edge_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
+        //   throw RecoveryFailure("The vector index with the same name already exists!");
+        // }
 
         auto edge_type = snapshot.ReadUint();
         if (!edge_type) throw RecoveryFailure("Couldn't read vector index edge type!");
@@ -8155,12 +8155,12 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (r::any_of(indices_constraints.indices.vector_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
-            r::any_of(indices_constraints.indices.vector_edge_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
-          throw RecoveryFailure("The vector index with the same name already exists!");
-        }
+        // if (r::any_of(indices_constraints.indices.vector_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
+        //     r::any_of(indices_constraints.indices.vector_edge_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
+        //   throw RecoveryFailure("The vector index with the same name already exists!");
+        // }
 
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read vector index label!");
@@ -8181,10 +8181,10 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        indices_constraints.indices.vector_indices.emplace_back(
-            std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
-            static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
-            static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
+        // indices_constraints.indices.vector_indices.emplace_back(
+        //     std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
+        //     static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
+        //     static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -8200,12 +8200,12 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (r::any_of(indices_constraints.indices.vector_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
-            r::any_of(indices_constraints.indices.vector_edge_indices,
-                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
-          throw RecoveryFailure("The vector index with the same name already exists!");
-        }
+        // if (r::any_of(indices_constraints.indices.vector_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
+        //     r::any_of(indices_constraints.indices.vector_edge_indices,
+        //               [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
+        //   throw RecoveryFailure("The vector index with the same name already exists!");
+        // }
 
         auto edge_type = snapshot.ReadUint();
         if (!edge_type) throw RecoveryFailure("Couldn't read vector index edge type!");

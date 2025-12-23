@@ -331,6 +331,8 @@ class DiskStorage final : public Storage {
 
     std::expected<void, storage::StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name) override;
 
+    utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) override;
+
     std::expected<void, storage::StorageIndexDefinitionError> CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) override;
 
     std::expected<void, StorageExistenceConstraintDefinitionError> CreateExistenceConstraint(
