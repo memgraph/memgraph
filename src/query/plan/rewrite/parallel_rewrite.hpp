@@ -988,8 +988,15 @@ std::unique_ptr<LogicalOperator> RewriteParallelExecution(
         if (!value.IsInt() || value.ValueInt() < 0) {
           throw QueryException("Number of threads must be a non-negative integer");
         }
-        return static_cast<size_t>(value.ValueInt());
+        const auto threads = static_cast<size_t>(value.ValueInt());
+        if (threads > FLAGS_bolt_num_workers) {
+          spdlog::trace("Requesting {} threads, more than available. Forcing {} threads.", threads,
+                        FLAGS_bolt_num_workers);
+          return FLAGS_bolt_num_workers;
+        }
+        return threads;
       }
+      // Default value
       return FLAGS_bolt_num_workers;
     };
     // We need to switch from unique to shared pointer to allow the rewriter to modify the tree
