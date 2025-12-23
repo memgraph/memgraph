@@ -47,8 +47,6 @@ jobs:
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: amd
-      mage_version: 3.7.1
-      memgraph_version: 3.7.1
       push_to_github: false
       push_to_s3: false
       run_tests: true
@@ -60,8 +58,6 @@ jobs:
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: arm
-      mage_version: 3.7.1
-      memgraph_version: 3.7.1
       push_to_github: false
       push_to_s3: false
       run_tests: true
@@ -73,8 +69,6 @@ jobs:
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: amd
-      mage_version: 3.7.1
-      memgraph_version: 3.7.1
       push_to_github: false
       push_to_s3: false
       run_tests: true
