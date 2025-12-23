@@ -192,7 +192,7 @@ bool InputFile::Open(const std::filesystem::path &path) {
 
   if (fd_ == -1) return false;
 
-  posix_fadvise(fd_, 0, 0, POSIX_FADV_SEQUENTIAL);
+  // posix_fadvise(fd_, 0, 0, POSIX_FADV_SEQUENTIAL);
 
   // Get file size.
   auto size = SetPosition(Position::RELATIVE_TO_END, 0);
