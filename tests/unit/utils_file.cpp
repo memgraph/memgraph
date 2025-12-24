@@ -267,6 +267,76 @@ TEST_F(InputFileSetPositionTest, RepeatedSeekAndReadCycle) {
   }
 }
 
+// This test exposes a bug in the SetPosition buffer optimization:
+// When seeking within the buffer, lseek() moves the fd position, but the buffer is reused.
+// Later, when the buffer is exhausted and LoadBuffer() is called, it reads from the
+// wrong fd position (where lseek moved it) instead of from buffer_start_ + buffer_size_.
+TEST_F(InputFileSetPositionTest, SeekWithinBufferThenExhaustBuffer) {
+  // Create a file larger than kFileBufferSize (262144 bytes)
+  constexpr size_t kLargeFileSize = memgraph::utils::kFileBufferSize + 100000;
+  auto large_file = test_dir_ / "large_file.bin";
+
+  // Fill with sequential bytes (mod 256 to fit in uint8_t)
+  {
+    std::ofstream ofs(large_file, std::ios::binary);
+    for (size_t i = 0; i < kLargeFileSize; ++i) {
+      uint8_t byte = static_cast<uint8_t>(i % 256);
+      ofs.write(reinterpret_cast<char *>(&byte), 1);
+    }
+    ofs.close();
+  }
+
+  memgraph::utils::InputFile file;
+  ASSERT_TRUE(file.Open(large_file));
+
+  // Step 1: Read a small amount to trigger buffer load
+  // This loads kFileBufferSize bytes into buffer, fd moves to kFileBufferSize
+  uint8_t initial_read[100];
+  ASSERT_TRUE(file.Read(initial_read, 100));
+
+  // Verify initial read is correct
+  for (int i = 0; i < 100; ++i) {
+    EXPECT_EQ(initial_read[i], static_cast<uint8_t>(i % 256));
+  }
+
+  // Current state:
+  // - buffer contains bytes [0, kFileBufferSize)
+  // - buffer_position_ = 100
+  // - fd position = kFileBufferSize (after LoadBuffer)
+
+  // Step 2: Seek backward within the buffer (e.g., to position 50)
+  // With the buggy optimization:
+  // - lseek() moves fd to 50
+  // - But buffer is reused, buffer_position_ = 50
+  auto pos = file.SetPosition(memgraph::utils::InputFile::Position::SET, 50);
+  ASSERT_TRUE(pos.has_value());
+  EXPECT_EQ(*pos, 50);
+
+  // Step 3: Read enough data to exhaust the buffer and require LoadBuffer
+  // We're at position 50 in the buffer, buffer has kFileBufferSize bytes
+  // So we have (kFileBufferSize - 50) bytes left in buffer
+  // Read more than that to force LoadBuffer
+  size_t bytes_left_in_buffer = memgraph::utils::kFileBufferSize - 50;
+  size_t read_size = bytes_left_in_buffer + 1000;  // Read past buffer end
+
+  std::vector<uint8_t> large_read(read_size);
+  ASSERT_TRUE(file.Read(large_read.data(), read_size));
+
+  // Step 4: Verify the data
+  // Correct behavior: bytes 50 through (50 + read_size - 1)
+  // Buggy behavior: first (kFileBufferSize - 50) bytes are correct,
+  //                 then LoadBuffer reads from fd position 50 (wrong!)
+  //                 so we'd get bytes 50-... again instead of kFileBufferSize-...
+
+  for (size_t i = 0; i < read_size; ++i) {
+    size_t expected_file_pos = 50 + i;
+    uint8_t expected_byte = static_cast<uint8_t>(expected_file_pos % 256);
+    EXPECT_EQ(large_read[i], expected_byte)
+        << "Mismatch at index " << i << " (file position " << expected_file_pos << "): "
+        << "expected " << static_cast<int>(expected_byte) << ", got " << static_cast<int>(large_read[i]);
+  }
+}
+
 // Tests for OutputFile::SetPosition
 class OutputFileSetPositionTest : public ::testing::Test {
  protected:

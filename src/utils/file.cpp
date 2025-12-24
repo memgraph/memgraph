@@ -257,6 +257,15 @@ std::optional<size_t> InputFile::SetPosition(Position position, ssize_t offset) 
     position = Position::SET;
   }
 
+  // Optimization if the new position fits within the old buffer
+  if (position == Position::SET && buffer_start_.has_value()) {
+    auto target = static_cast<size_t>(offset);
+    if (target >= *buffer_start_ && target < *buffer_start_ + buffer_size_) {
+      buffer_position_ = target - *buffer_start_;
+      return target;
+    }
+  }
+
   int whence = 0;
   switch (position) {
     case Position::SET:
@@ -276,8 +285,6 @@ std::optional<size_t> InputFile::SetPosition(Position position, ssize_t offset) 
     }
     if (pos < 0) return std::nullopt;
     file_position_ = pos;
-
-    // Optimization if the new position fits within the old buffer
 
     buffer_start_ = std::nullopt;
     buffer_size_ = 0;
