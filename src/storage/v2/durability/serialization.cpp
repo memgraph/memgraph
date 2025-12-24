@@ -799,4 +799,6 @@ std::optional<uint64_t> Decoder::GetPosition() { return file_.GetPosition(); }
 
 bool Decoder::SetPosition(uint64_t position) { return !!file_.SetPosition(utils::InputFile::Position::SET, position); }
 
+void Decoder::EvictFromPageCache(size_t offset, size_t length) { file_.EvictFromPageCache(offset, length); }
+
 }  // namespace memgraph::storage::durability

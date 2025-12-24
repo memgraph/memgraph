@@ -192,6 +192,8 @@ bool InputFile::Open(const std::filesystem::path &path) {
 
   if (fd_ == -1) return false;
 
+  // posix_fadvise(fd_, 0, 0, POSIX_FADV_SEQUENTIAL);
+
   // Get file size.
   auto size = SetPosition(Position::RELATIVE_TO_END, 0);
   if (!size || !SetPosition(Position::SET, 0)) {
@@ -302,6 +304,11 @@ void InputFile::Close() noexcept {
   path_ = "";
 }
 
+void InputFile::EvictFromPageCache(size_t offset, size_t length) {
+  if (!IsOpen()) return;
+  posix_fadvise(fd_, static_cast<off_t>(offset), static_cast<off_t>(length), POSIX_FADV_DONTNEED);
+}
+
 bool InputFile::LoadBuffer() {
   buffer_start_ = std::nullopt;
   buffer_size_ = 0;
@@ -330,6 +337,7 @@ bool InputFile::LoadBuffer() {
   }
 
   buffer_start_ = file_position_;
+  posix_fadvise(fd_, static_cast<int64_t>(file_position_), static_cast<int64_t>(buffer_size_), POSIX_FADV_DONTNEED);
   file_position_ += buffer_size_;
 
   return true;
