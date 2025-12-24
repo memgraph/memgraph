@@ -9,14 +9,19 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "coordination/coordinator_state_manager.hpp"
-#include "coordination/coordinator_communication_config.hpp"
-#include "coordination/logger.hpp"
+#include "kvstore/kvstore.hpp"
 
 #include <gtest/gtest.h>
 #include <libnuraft/nuraft.hxx>
 #include <nlohmann/json.hpp>
 #include <range/v3/view.hpp>
+
+import memgraph.coordination.constants;
+import memgraph.coordination.logger;
+import memgraph.coordination.logger_wrapper;
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_instance_aux;
+import memgraph.coordination.coordinator_state_manager;
 
 using memgraph::coordination::CoordinatorInstanceAux;
 using memgraph::coordination::CoordinatorStateManager;

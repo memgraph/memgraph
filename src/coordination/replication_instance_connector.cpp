@@ -9,14 +9,19 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
-
-#include "coordination/replication_instance_connector.hpp"
+module;
 
 #include "replication_coordination_glue/handler.hpp"
 
 #include <chrono>
 #include <string>
+
+module memgraph.coordination.replication_instance_connector;
+
+#ifdef MG_ENTERPRISE
+
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.instance_state;
 
 namespace memgraph::coordination {
 
@@ -45,10 +50,12 @@ auto TimedFailureDetector::Restore() -> void {
 }
 
 ReplicationInstanceConnector::ReplicationInstanceConnector(
-    DataInstanceConfig const &config, CoordinatorInstance *coord_instance,
-    const std::chrono::seconds instance_down_timeout_sec,
+    DataInstanceConfig const &config,
+    std::function<void(std::string_view instance_name, InstanceState const &instance_state)> succ_cb,
+    std::function<void(std::string_view instance_name)> fail_cb, std::chrono::seconds instance_down_timeout_sec,
     const std::chrono::seconds instance_health_check_frequency_sec)
-    : client_(ReplicationInstanceClient(config, coord_instance, instance_health_check_frequency_sec)),
+    : client_(ReplicationInstanceClient(config, std::move(succ_cb), std::move(fail_cb),
+                                        instance_health_check_frequency_sec)),
       timed_failure_detector_(instance_down_timeout_sec) {}
 
 void ReplicationInstanceConnector::OnSuccessPing() { timed_failure_detector_.Restore(); }
