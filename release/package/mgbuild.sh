@@ -140,6 +140,7 @@ print_help () {
   echo -e "  --conan-remote string         Specify conan remote (optional)"
   echo -e "  --conan-username string       Specify conan username (optional, but required for uploading to remote)"
   echo -e "  --conan-password string       Specify conan password (optional, but required for uploading to remote)"
+  echo -e "  --version string              Specify OpenSSL version (default \"3.5.4\")"
 
   echo -e "\ncopy options (default \"--binary\"):"
   echo -e "  --artifact-name string        Specify a custom name for the copied artifact"
@@ -1214,6 +1215,7 @@ build_ssl() {
   local conan_remote=""
   local conan_username=""
   local conan_password=""
+  local ssl_version="3.5.4"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --conan-remote)
@@ -1228,6 +1230,10 @@ build_ssl() {
         conan_password=$2
         shift 2
       ;;
+      --version)
+        ssl_version=$2
+        shift 2
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -1236,15 +1242,15 @@ build_ssl() {
     esac
   done
 
-  echo "Building OpenSSL in $build_container..."
+  echo "Building OpenSSL $ssl_version in $build_container..."
   local conan_remote_flag=""
   if [[ -n "$conan_remote" ]]; then
     conan_remote_flag="--conan-remote $conan_remote"
   fi
-  ./tools/openssl/container-build.sh $build_container $conan_remote_flag
+  ./tools/openssl/container-build.sh $build_container $conan_remote_flag --version $ssl_version
 
   if [[ -n "$conan_username" ]] && [[ -n "$conan_password" ]]; then
-    upload_conan_cache $conan_username $conan_password "openssl/*"
+    upload_conan_cache $conan_username $conan_password "openssl/$ssl_version"
   fi
 
   echo "OpenSSL built and uploaded to conan cache"

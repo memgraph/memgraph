@@ -198,11 +198,20 @@ jobs:
       - name: "Build OpenSSL"
         if: ${{ env.FOR_DOCKER == 'true' }}
         run: |
+          # This step is necessary so that we can build custom packages of OpenSSL and libssl3 for
+          # the Docker images. These packages will be installed by apt, and as long as the remote
+          # version provided by Ubuntu is less than our version, our package will not be overwritten.
+          # This means that anything within the container that depends on OpenSSL should use our
+          # version.
           ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os "$OS" \
-          --arch $ARCH \
-          build-ssl
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            build-ssl \
+            --version "3.5.4" \
+            --conan-remote $CONAN_REMOTE \
+            --conan-username $CONAN_USERNAME \
+            --conan-password $CONAN_PASSWORD
 
       - name: "Stop mgbuild container"
         if: always()

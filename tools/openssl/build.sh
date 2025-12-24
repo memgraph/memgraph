@@ -1,11 +1,24 @@
 #!/bin/bash
 
-# build OpenSSL using conan for use in the Docker containers
+VERSION="3.5.4"
 CONAN_REMOTE=""
-if [[ $# -gt 0 ]]; then
-    CONAN_REMOTE=$1
-    shift 1
-fi
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --version)
+            VERSION=$2
+            shift 2
+        ;;
+        --conan-remote)
+            CONAN_REMOTE=$2
+            shift 2
+        ;;
+        *)
+            echo "Error: Unknown option '$1'"
+            exit 1
+        ;;
+    esac
+done
 
 # check if python environment exists
 create_env=false
@@ -49,7 +62,7 @@ fi
 
 conan install   \
   --lockfile="" \
-  --requires=openssl/3.5.4  \
+  --requires=openssl/$VERSION  \
   --requires=zlib/1.3.1 \
   --build=missing \
   -o openssl/*:shared=True \

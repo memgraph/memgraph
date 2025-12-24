@@ -1,3 +1,6 @@
+# NOTE: this config file is taken directly from Ubuntu's packaged OpenSSL. No
+# changes have been made to it, so that it can be used within the Ubuntu
+# Docker images.
 #
 # OpenSSL example configuration file.
 # See doc/man5/config.pod for more info.

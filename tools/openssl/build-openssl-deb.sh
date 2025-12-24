@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+VERSION="$1"
 OUT=build/openssl
 STAGE=build/debstage
 PKGROOT="$STAGE/openssl"
@@ -24,7 +25,7 @@ ln -s /etc/ssl/certs/ca-certificates.crt "$PKGROOT/usr/lib/cert.pem"
 
 cat > "$PKGROOT/DEBIAN/control" <<EOF
 Package: openssl
-Version: 3.5.4-0ubuntu0custom1
+Version: $VERSION-0ubuntu0custom1
 Section: utils
 Priority: optional
 Architecture: $ARCH
@@ -33,7 +34,7 @@ Conflicts: openssl
 Replaces: openssl
 Provides: openssl
 Depends: libssl3t64
-Description: Custom OpenSSL CLI from OpenSSL 3.5.4 (Conan build)
+Description: Custom OpenSSL CLI from OpenSSL $VERSION (Conan build)
 EOF
 
-dpkg-deb --build "$PKGROOT" "build/openssl_3.5.4-0ubuntu0custom1_${ARCH}.deb"
+dpkg-deb --build "$PKGROOT" "build/openssl_${VERSION}-0ubuntu0custom1_${ARCH}.deb"

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 function print_help() {
-    echo "Usage: $0 <container_name> [--conan-remote <conan_remote>]"
+    echo "Usage: $0 <container_name> [--conan-remote <conan_remote>] [--version <version>]"
     exit 1
 }
 
@@ -11,11 +11,15 @@ if [ -z "$CONTAINER_NAME" ]; then
 fi
 shift 1
 CONAN_REMOTE=""
-
+VERSION="3.5.4"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --conan-remote)
             CONAN_REMOTE=$2
+            shift 2
+        ;;
+        --version)
+            VERSION=$2
             shift 2
         ;;
         *)
@@ -33,10 +37,10 @@ if [ "$exists" = "false" ]; then
     docker exec -u root "$CONTAINER_NAME" bash -c "chown -R mg:mg /home/mg/memgraph"
 fi
 
-docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/openssl/build.sh ${CONAN_REMOTE}"
-docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/openssl/build-openssl-deb.sh"
-docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/openssl/build-libssl3-deb.sh"
+docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/openssl/build.sh --version $VERSION --conan-remote $CONAN_REMOTE"
+docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/openssl/build-openssl-deb.sh $VERSION"
+docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/openssl/build-libssl3-deb.sh $VERSION"
 
 ARCH="$(dpkg --print-architecture)"
-docker cp "$CONTAINER_NAME:/home/mg/memgraph/build/openssl_3.5.4-0ubuntu0custom1_${ARCH}.deb" build/openssl_3.5.4-0ubuntu0custom1_${ARCH}.deb
-docker cp "$CONTAINER_NAME:/home/mg/memgraph/build/libssl3t64_3.5.4-0ubuntu0custom1_${ARCH}.deb" build/libssl3t64_3.5.4-0ubuntu0custom1_${ARCH}.deb
+docker cp "$CONTAINER_NAME:/home/mg/memgraph/build/openssl_${VERSION}-0ubuntu0custom1_${ARCH}.deb" build/openssl_${VERSION}-0ubuntu0custom1_${ARCH}.deb
+docker cp "$CONTAINER_NAME:/home/mg/memgraph/build/libssl3t64_${VERSION}-0ubuntu0custom1_${ARCH}.deb" build/libssl3t64_${VERSION}-0ubuntu0custom1_${ARCH}.deb
