@@ -196,12 +196,6 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
 
-  auto check_authorization = [&](std::shared_ptr<QueryUserOrRole> user, std::string error_msg) {
-    if (!user->IsAuthorized(parsed_statements_.required_privileges, db_name, &query::up_to_date_policy)) {
-      throw utils::BasicException(std::move(error_msg));
-    }
-  };
-
   // GenQueryUser always returns a non-null shared_ptr and
   // both creator_ and triggering_user come from GenQueryUser
   if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
@@ -236,7 +230,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
 
   // Determine which user to use for fine-grained auth based on privilege context
   std::shared_ptr<QueryUserOrRole> auth_user =
-      (privilege_context_ == PrivilegeContext::DEFINER) ? creator_ : triggering_user;
+      privilege_context_ == TriggerPrivilegeContext::DEFINER ? creator_ : triggering_user;
 
   ExecutionContext ctx;
   ctx.db_accessor = dba;
@@ -281,7 +275,8 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
     frame_writer.Write(plan.symbol_table().at(identifier), context.GetTypedValue(tag, dba));
   }
 
-  while (cursor->Pull(frame, ctx));
+  while (cursor->Pull(frame, ctx))
+    ;
 
   cursor->Shutdown();
   memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersExecuted);
@@ -425,7 +420,7 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
   std::optional<Trigger> trigger;
   try {
     trigger.emplace(std::string{trigger_name}, statement, user_parameters, event_type, query_cache, db_accessor,
-                    query_config, std::move(user), std::string{db_name}, *privilege_context);
+                    query_config, std::move(user), std::string{db_name}, privilege_context);
   } catch (const utils::BasicException &e) {
     spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
     return;
