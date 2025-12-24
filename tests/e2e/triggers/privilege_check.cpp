@@ -67,11 +67,6 @@ void DenySet(mg::Client &client, std::string_view username) {
   client.DiscardAll();
 }
 
-void GrantAllOnLabel(mg::Client &client, std::string_view username, std::string_view label) {
-  client.Execute(fmt::format("GRANT READ, CREATE ON NODES CONTAINING LABELS :{} TO {};", label, username));
-  client.DiscardAll();
-}
-
 void CreateTrigger(mg::Client &client, std::string_view trigger_name, const std::string &phase,
                    std::string_view security_mode = "") {
   std::string security_clause = security_mode.empty() ? "" : fmt::format("SECURITY {}", security_mode);
