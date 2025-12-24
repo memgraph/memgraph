@@ -228,10 +228,6 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   MG_ASSERT(trigger_plan, "Invalid trigger plan received");
   auto &[plan, identifiers] = *trigger_plan;
 
-  // Determine which user to use for fine-grained auth based on privilege context
-  std::shared_ptr<QueryUserOrRole> auth_user =
-      privilege_context_ == TriggerPrivilegeContext::DEFINER ? creator_ : triggering_user;
-
   ExecutionContext ctx;
   ctx.db_accessor = dba;
   ctx.symbol_table = plan.symbol_table();
@@ -249,11 +245,12 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   ctx.evaluation_context.memory = execution_memory;
   ctx.protector = dbms::DatabaseProtector{db_acc}.clone();
   ctx.is_main = is_main;
-  ctx.user_or_role = privilege_context_ == TriggerPrivilegeContext::DEFINER ? creator_ : auth_user;
+  ctx.user_or_role = privilege_context_ == TriggerPrivilegeContext::DEFINER ? creator_ : triggering_user;
 
 #ifdef MG_ENTERPRISE
-  if (license::global_license_checker.IsEnterpriseValidFast() && auth_checker && auth_user && *auth_user && dba) {
-    auto fine_grained_checker = auth_checker->GetFineGrainedAuthChecker(auth_user, dba);
+  if (license::global_license_checker.IsEnterpriseValidFast() && auth_checker && ctx.user_or_role &&
+      *ctx.user_or_role && dba) {
+    auto fine_grained_checker = auth_checker->GetFineGrainedAuthChecker(ctx.user_or_role, dba);
     if (!fine_grained_checker->HasAllGlobalPrivilegesOnVertices() ||
         !fine_grained_checker->HasAllGlobalPrivilegesOnEdges()) {
       ctx.auth_checker = std::move(fine_grained_checker);
