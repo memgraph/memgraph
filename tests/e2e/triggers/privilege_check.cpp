@@ -342,13 +342,32 @@ TEST_P(PrivilegeCheckTest, DefinerFineGrainedSet) {
 
 TEST_P(PrivilegeCheckTest, DefinerFineGrainedNoSet) {
   const std::string &phase = GetParam();
+  const bool is_after = (phase == "AFTER");
 
   auto definer_fg_no_set_client = ConnectWithUser(kDefinerWithoutFineGrainedSet);
+  auto invoker_client = ConnectWithUser(kInvokerUser);
 
-  // definer without SET cannot create trigger with DEFINER mode
-  EXPECT_THROW({ CreateTrigger(*definer_fg_no_set_client, "DefinerFGNoSet", phase, "DEFINER"); },
-               mg::TransientException)
-      << "Creating DEFINER trigger without SET privilege should fail";
+  // Definer without SET on label creates trigger with DEFINER mode (creation succeeds)
+  CreateTrigger(*definer_fg_no_set_client, "DefinerFGNoSet", phase, "DEFINER");
+
+  // Trigger execution fails because definer lacks SET privilege
+  if (!is_after) {
+    // BEFORE COMMIT: transaction should fail
+    EXPECT_THROW({ CreateVertex(*invoker_client, kVertexId); }, mg::TransientException)
+        << "BEFORE COMMIT trigger should fail transaction when definer lacks SET privilege";
+    EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_client) == 0; }))
+        << "Vertex count should be 0";
+  } else {
+    // AFTER COMMIT: transaction succeeds but trigger fails, property not set
+    CreateVertex(*invoker_client, kVertexId);
+    EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_client) == 1; }))
+        << "Vertex count should be 1";
+    EXPECT_FALSE(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty))
+        << "Vertex should not have trigger property set when definer lacks SET on VERTEX label";
+  }
+
+  CleanupVertices(*admin_client_);
+  DropTrigger(*admin_client_, "DefinerFGNoSet");
 }
 
 INSTANTIATE_TEST_SUITE_P(TriggerPhases, PrivilegeCheckTest, testing::Values("BEFORE", "AFTER"),
