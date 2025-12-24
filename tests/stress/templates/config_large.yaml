@@ -1,6 +1,6 @@
 memgraph:
   deployment:
-    # Script needs to be located in stress/configurations/deployments
+    # Script needs to be located in stress/deployments
     script: "binary_standalone.sh"
   args:
     - "--telemetry-enabled=false"

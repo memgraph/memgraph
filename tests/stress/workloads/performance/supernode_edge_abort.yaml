@@ -1,6 +1,6 @@
 memgraph:
   deployment:
-    # Script needs to be located in stress/configurations/deployments
+    # Script needs to be located in stress/deployments
     script: "binary_standalone.sh"
   args: [] # Any additional flags you need
 
@@ -13,7 +13,7 @@ dataset:
 
 customWorkloads:
   tests:
-    # Copied from configurations/workloads/performance/supernode_edge_abort.yaml
+    # Copied from workloads/performance/supernode_edge_abort.yaml
     - name: supernode-edge-abort
       memgraph_args: ["--memory-limit=4000"]
       querying:

@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: 'Memgraph Dashboards'
+    orgId: 1
+    folder: 'Memgraph'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
