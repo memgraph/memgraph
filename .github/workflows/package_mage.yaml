@@ -7,10 +7,10 @@ on:
       mage_build_arch:
         type: choice
         description: "Mage build architecture"
-        default: 'amd64'
+        default: 'amd'
         options:
-          - "amd64"
-          - "arm64"
+          - "amd"
+          - "arm"
       mage_build_type:
         type: choice
         description: "Mage build type"
@@ -52,7 +52,7 @@ jobs:
     if: ${{ !inputs.matrix_build }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
-      arch: ${{ github.event.inputs.mage_build_arch || 'amd64' }}
+      arch: ${{ github.event.inputs.mage_build_arch || 'amd' }}
       mage_build_type: ${{ github.event.inputs.mage_build_type || 'Release' }}
       memgraph_download_link: ${{ github.event.inputs.memgraph_download_link || '' }}
       s3_dest_dir: ${{ inputs.s3_dest_dir }}
@@ -61,7 +61,7 @@ jobs:
       push_to_s3: ${{ inputs.push_to_s3 }}
       malloc: ${{ inputs.malloc }}
       run_smoke_tests: ${{ inputs.run_smoke_tests }}
-      generate_sbom: ${{ inputs.mage_build_arch == 'amd64' && inputs.mage_build_type == 'Release' }}
+      generate_sbom: ${{ inputs.mage_build_arch == 'amd' && inputs.mage_build_type == 'Release' }}
     secrets: inherit
 
   # New matrix build job, runs only when matrix_build is true
@@ -72,16 +72,16 @@ jobs:
       fail-fast: false
       matrix:
         build_type: ["Release", "RelWithDebInfo"]
-        build_arch: ["amd64", "arm64"]
+        build_arch: ["amd", "arm"]
         malloc: [false]
         cuda: [false]
         include:
           - build_type: "Release"
-            build_arch: "amd64"
+            build_arch: "amd"
             malloc: true
             cuda: false
           - build_type: "RelWithDebInfo"
-            build_arch: "amd64"
+            build_arch: "amd"
             cuda: true
             malloc: false
 
@@ -95,7 +95,7 @@ jobs:
       push_to_s3: ${{ inputs.push_to_s3 }}
       malloc: ${{ matrix.malloc }}
       run_smoke_tests: ${{ inputs.run_smoke_tests }}
-      generate_sbom: ${{ matrix.build_arch == 'amd64' && matrix.build_type == 'Release' && !matrix.malloc }}
+      generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc }}
     secrets: inherit
 
 
@@ -105,16 +105,16 @@ jobs:
       fail-fast: false
       matrix:
         build_type: ["Release", "RelWithDebInfo"]
-        build_arch: ["amd64", "arm64"]
+        build_arch: ["amd", "arm"]
         malloc: [false]
         cuda: [false]
         include:
           - build_type: "Release"
-            build_arch: "amd64"
+            build_arch: "amd"
             malloc: true
             cuda: false
           - build_type: "RelWithDebInfo"
-            build_arch: "amd64"
+            build_arch: "amd"
             cuda: true
             malloc: false
     uses: ./.github/workflows/reusable_package_mage.yaml
@@ -129,6 +129,6 @@ jobs:
       malloc: ${{ matrix.malloc }}
       run_tests: true
       package_deb: true
-      generate_sbom: ${{ matrix.build_arch == 'amd64' && matrix.build_type == 'Release' && !matrix.malloc && !matrix.cuda }}
+      generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc && !matrix.cuda }}
       run_smoke_tests: false
     secrets: inherit
