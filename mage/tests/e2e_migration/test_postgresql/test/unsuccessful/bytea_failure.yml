@@ -1,0 +1,12 @@
+query: |
+  CALL migrate.postgresql('SELECT bytea_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.bytea_col) AS bytea_col_type, row.bytea_col AS bytea_col
+
+exception: true

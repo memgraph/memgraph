@@ -1,0 +1,9 @@
+memgraph_query: >
+  MATCH (:Station)-[journey:JOURNEY]->(:Station)
+  CALL create.set_rel_property(journey, "duration", "2") YIELD relationship
+  RETURN relationship;
+
+neo4j_query: >
+  MATCH (:Station)-[journey:JOURNEY]->(:Station)
+  CALL apoc.create.setRelProperty(journey, "duration", "2") YIELD rel
+  RETURN rel;

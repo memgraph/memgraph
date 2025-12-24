@@ -1,0 +1,7 @@
+query: >
+    CALL graph_coloring.color_graph() YIELD node, color
+    RETURN COUNT(node.id) AS id_count, COUNT(color) AS color_count;
+
+output:
+    - id_count: 200
+      color_count: 200

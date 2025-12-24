@@ -1,0 +1,16 @@
+- query: CALL meta.stats_online(false) YIELD stats RETURN stats;
+  output:
+    - stats:
+        labelCount: 1
+        labels:
+          Node: 6
+        nodeCount: 6
+        propertyKeyCount: 1
+        relationshipCount: 6
+        relationshipTypeCount: 1
+        relationshipTypes:
+          '(:Node)-[:Relation]->()': 6
+          '()-[:Relation]->()': 6
+          '()-[:Relation]->(:Node)': 6
+        relationshipTypesCount:
+          Relation: 6

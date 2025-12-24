@@ -1,0 +1,9 @@
+query: >
+    MATCH (n)
+    WITH collect(n) as nodes
+    CALL graph_util.connect_nodes(nodes) YIELD connections
+    UNWIND connections AS connection
+    RETURN connection.id AS id;
+
+output:
+    - id: 1

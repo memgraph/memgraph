@@ -1,0 +1,6 @@
+query: >
+    CALL temporal.format(duration({minute: 127}), "%H:%M:%S") YIELD formatted
+    RETURN formatted
+
+output:
+    - formatted: "02:07:00"

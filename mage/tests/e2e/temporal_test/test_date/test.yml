@@ -1,0 +1,6 @@
+query: >
+    CALL temporal.format(date({year: 2018, month: 2, day: 4}), "ISO") YIELD formatted
+    RETURN formatted
+
+output:
+    - formatted: "2018-02-04"

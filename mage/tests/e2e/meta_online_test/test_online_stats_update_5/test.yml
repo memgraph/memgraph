@@ -1,0 +1,37 @@
+- query: CALL meta.stats_online(true) YIELD * RETURN null;
+  output:
+    - 'null': null
+- query: CALL meta.stats_online(false) YIELD stats RETURN stats;
+  output:
+    - stats:
+        labelCount: 2
+        labels:
+          Node: 3
+          node: 3
+        nodeCount: 6
+        propertyKeyCount: 4
+        relationshipCount: 3
+        relationshipTypeCount: 1
+        relationshipTypes:
+          '(:node)-[:Relation]->()': 3
+          '()-[:Relation]->()': 3
+          '()-[:Relation]->(:node)': 3
+        relationshipTypesCount:
+          Relation: 3
+- query: CALL meta.stats_online(false) YIELD stats RETURN stats;
+  output:
+    - stats:
+        labelCount: 2
+        labels:
+          Node: 2
+          node: 3
+        nodeCount: 5
+        propertyKeyCount: 4
+        relationshipCount: 3
+        relationshipTypeCount: 1
+        relationshipTypes:
+          '(:node)-[:Relation]->()': 3
+          '()-[:Relation]->()': 3
+          '()-[:Relation]->(:node)': 3
+        relationshipTypesCount:
+          Relation: 3

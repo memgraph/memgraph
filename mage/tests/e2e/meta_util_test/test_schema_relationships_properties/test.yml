@@ -1,0 +1,11 @@
+query: >
+    CALL meta_util.schema(true) YIELD nodes, relationships UNWIND relationships AS relationship RETURN relationship.properties.count AS count, relationship.properties.properties_count.from AS from ORDER BY relationship.id DESC;
+output:
+  - count: 1
+    from:
+  - count: 2
+    from: 1
+  - count: 1
+    from:
+  - count: 1
+    from:

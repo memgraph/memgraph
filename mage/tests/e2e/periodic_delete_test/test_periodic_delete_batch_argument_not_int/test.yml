@@ -1,0 +1,5 @@
+query: >
+    CALL periodic.delete({batch_size: "a"}) YIELD * RETURN *;
+
+exception: >
+    Batch size needs to be an integer!

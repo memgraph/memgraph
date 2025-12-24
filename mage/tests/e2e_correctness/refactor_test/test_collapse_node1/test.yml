@@ -1,0 +1,6 @@
+memgraph_query: >
+  MATCH (g:Gym),(g2:Gym_in_Greece)
+  CALL refactor.collapse_node([id(g2), g], "LIFT_AND_NAKE_NOISE") YIELD id_collapsed, new_relationship RETURN id_collapsed, new_relationship;
+neo4j_query: >
+  MATCH (g:Gym),(g2:Gym_in_Greece)
+  CALL apoc.refactor.collapseNode([g, g2], "LIFT_AND_NAKE_NOISE") YIELD input, output, error RETURN input, output, error;

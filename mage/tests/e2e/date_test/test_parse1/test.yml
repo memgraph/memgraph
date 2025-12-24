@@ -1,0 +1,6 @@
+query: >
+    CALL date.parse("2023/08/03 14:30:00", "h", "%Y/%m/%d %H:%M:%S", "Europe/Zagreb") YIELD parsed
+    RETURN parsed
+
+output:
+    - parsed: 469740

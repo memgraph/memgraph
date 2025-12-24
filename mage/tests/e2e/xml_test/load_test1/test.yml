@@ -1,0 +1,7 @@
+query: >
+    WITH "https://www.w3schools.com/xml/note.xml" AS xmlUrl
+    CALL xml_module.load(xmlUrl, false, "", "", {}) YIELD output_map as file
+    RETURN file
+
+output:
+    - file: {"_children": [{"_text": "Tove","_type": "to"},{"_text": "Jani","_type": "from"},{"_text": "Reminder","_type": "heading"},{"_text": "Don't forget me this weekend!","_type": "body"}],"_type": "note"}

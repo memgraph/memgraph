@@ -1,0 +1,5 @@
+query: >
+    RETURN text.regreplace("Hello World!", "W[a-z]+", "Memgraph") AS output;
+
+output:
+  - output: "Hello Memgraph!"

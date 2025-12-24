@@ -1,0 +1,5 @@
+memgraph_query: >
+  MATCH (movie:Movie) CALL nodes.delete(id(movie));
+
+neo4j_query: >
+  MATCH (movie:Movie) CALL apoc.nodes.delete(id(movie), 2) YIELD value RETURN value;

@@ -1,0 +1,6 @@
+query: >
+    MATCH (d:Dog)
+    CALL algo.cover([d]) YIELD rel RETURN rel;
+
+output:
+    - rel: {'label': 'SELF_REL','properties': {}}

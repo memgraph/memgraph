@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.mysql('SELECT date_col FROM dummy_table', {
+      host: 'mysql_test',
+      port: 3306,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.date_col) AS date_col_type, toString(row.date_col) AS date_col
+
+output:
+  - date_col_type: 'STRING'
+    date_col: '2023-12-25'

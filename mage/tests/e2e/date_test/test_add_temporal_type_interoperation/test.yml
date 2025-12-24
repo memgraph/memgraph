@@ -1,0 +1,9 @@
+query: >
+    WITH localTime("09:00:00") AS sometime
+    WITH localTime({hour: toInteger(date.add(sometime.hour, "h", 1, "h"))}) AS sum
+    RETURN sum.hour AS hour, sum.minute AS minute, sum.second AS second;
+
+output:
+    - hour: 10
+      minute: 0
+      second: 0

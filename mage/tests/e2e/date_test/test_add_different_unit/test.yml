@@ -1,0 +1,5 @@
+query: >
+    RETURN date.add(100, "d", 24, "h") AS sum;
+
+output:
+    - sum: 101

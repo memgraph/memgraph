@@ -1,0 +1,5 @@
+memgraph_query: >
+  CALL merge.node(["Human"],{name: "Senior"},{},{name:"Boss"}) YIELD node RETURN node;
+
+neo4j_query: >
+  CALL apoc.merge.node(["Human"],{name: "Senior"},{},{name: "Boss"}) YIELD node;

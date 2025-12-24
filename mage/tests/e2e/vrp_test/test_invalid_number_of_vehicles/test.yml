@@ -1,0 +1,7 @@
+query: >
+    MATCH (d:Depot)
+    CALL vrp.route(d, -1) YIELD from_vertex, to_vertex
+    RETURN from_vertex, to_vertex
+
+exception: >
+    Number of vehicles can not be negative

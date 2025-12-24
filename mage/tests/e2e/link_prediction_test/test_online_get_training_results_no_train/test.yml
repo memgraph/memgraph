@@ -1,0 +1,6 @@
+# It should fail because model wasn't trained nor loaded.
+- query: >-
+    CALL link_prediction.get_training_results()
+    YIELD training_results, validation_results
+    RETURN training_results, validation_results;
+  exception: "Training results are outdates or train method wasn't called. "

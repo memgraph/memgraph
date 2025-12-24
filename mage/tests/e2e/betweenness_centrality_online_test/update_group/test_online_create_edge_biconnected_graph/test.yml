@@ -1,0 +1,22 @@
+- query: >-
+    CALL betweenness_centrality_online.get(false)
+    YIELD node, betweenness_centrality
+    RETURN node.id AS node_id, betweenness_centrality
+    ORDER BY node_id;
+  output:
+    - node_id: 0
+      betweenness_centrality: 1.7333333333333334
+    - node_id: 1
+      betweenness_centrality: 0.8333333333333333
+    - node_id: 2
+      betweenness_centrality: 4.766666666666667
+    - node_id: 3
+      betweenness_centrality: 9.966666666666667
+    - node_id: 4
+      betweenness_centrality: 1.3666666666666667
+    - node_id: 5
+      betweenness_centrality: 1.7333333333333334
+    - node_id: 6
+      betweenness_centrality: 0.8333333333333333
+    - node_id: 7
+      betweenness_centrality: 4.766666666666667

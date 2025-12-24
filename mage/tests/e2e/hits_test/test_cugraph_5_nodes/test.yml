@@ -1,0 +1,21 @@
+query: >
+  CALL cugraph.hits.get() YIELD authorities, hubs, node
+  RETURN authorities, hubs, node.id as node_id
+  ORDER BY node_id ASC;
+
+output:
+  - authorities: 0.5
+    hubs: -0.0
+    node_id: 0
+  - authorities: 0.0
+    hubs: 0.5
+    node_id: 1
+  - authorities: 0.25
+    hubs: 0.0
+    node_id: 2
+  - authorities: 0.25
+    hubs: -0.0
+    node_id: 3
+  - authorities: -0.0
+    hubs: 0.5
+    node_id: 4

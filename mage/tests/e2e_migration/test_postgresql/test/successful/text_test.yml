@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT text_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.text_col) AS text_col_type, row.text_col AS text_col
+
+output:
+  - text_col_type: 'STRING'
+    text_col: 'This is a text field'

@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # install requirements as user memgraph
+        CUDA=@CUDA@
+        su - memgraph -c "/usr/lib/memgraph/install_python_requirements.sh --deb-package --cuda $CUDA"
+        systemctl restart memgraph.service
+    ;;
+esac
+
+exit 0

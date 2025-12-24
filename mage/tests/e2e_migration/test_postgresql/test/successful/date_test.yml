@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT date_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.date_col) AS date_col_type, toString(row.date_col) AS date_col
+
+output:
+  - date_col_type: 'DATE'
+    date_col: '2023-12-25'

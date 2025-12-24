@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: debug-pod
+spec:
+  containers:
+  - name: my-container
+    image: memgraph/memgraph:3.2.0-relwithdebinfo # Update to the latest.
+    securityContext:
+      runAsUser: 0  # Runs the container as the root user.
+      privileged: true
+      capabilities:
+        add: ["SYS_PTRACE"]
+      allowPrivilegeEscalation: true
+    command: ["sleep"]
+    args: ["infinity"]
+    stdin: true
+    tty: true

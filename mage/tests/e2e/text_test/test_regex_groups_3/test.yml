@@ -1,0 +1,5 @@
+query: >
+  CALL text.regexGroups("Michael: 1234\nJennifer: 5678", "(\\w+): (\\d+)") YIELD results RETURN results;
+
+output:
+  - results: [["Michael: 1234", "Michael", "1234"], ["Jennifer: 5678", "Jennifer", "5678"]]

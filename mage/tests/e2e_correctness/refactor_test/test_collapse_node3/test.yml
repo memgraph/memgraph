@@ -1,0 +1,6 @@
+memgraph_query: >
+  MATCH (p:path)
+  CALL refactor.collapse_node([p],"yeah") YIELD id_collapsed, new_relationship RETURN id_collapsed, new_relationship;
+neo4j_query: >
+  MATCH (p:path)
+  CALL apoc.refactor.collapseNode([p],"yeah") YIELD input, output, error RETURN input, output, error;

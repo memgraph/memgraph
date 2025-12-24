@@ -1,0 +1,6 @@
+query: >
+    CALL date.format(74976, "h", "%Y/%m/%d %H:%M:%S %Z", "Mexico/BajaNorte") YIELD formatted
+    RETURN formatted
+
+output:
+    - formatted: "1978/07/21 17:00:00 PDT"

@@ -1,0 +1,5 @@
+memgraph_query: >
+  CALL merge.node(["Dog"],{name: "Rico"},{height:199, id:9},{}) YIELD node RETURN node;
+
+neo4j_query: >
+  CALL apoc.merge.node(["Dog"],{name: "Rico"},{height:199, id:9},{}) YIELD node;

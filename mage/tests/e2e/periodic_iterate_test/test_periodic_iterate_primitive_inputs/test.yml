@@ -1,0 +1,8 @@
+query: >
+    MATCH (n {copy: true}) RETURN n.boolean as boolean, n.integer as integer, n.float as float, n.string as string
+
+output:
+    - boolean: true
+      integer: 1
+      float: 2.0
+      string: "abcd"

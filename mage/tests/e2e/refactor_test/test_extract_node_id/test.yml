@@ -1,0 +1,24 @@
+query: >
+  MATCH ()-[rel]->() CALL refactor.extract_node(id(rel), ["NewLabel"],
+  "OutRelationship", "InRelationship") YIELD output RETURN output ORDER BY output.id ASC
+output:
+  - output:
+      labels:
+        - NewLabel
+      properties:
+        id: 1
+  - output:
+      labels:
+        - NewLabel
+      properties:
+        id: 2
+  - output:
+      labels:
+        - NewLabel
+      properties:
+        id: 3
+  - output:
+      labels:
+        - NewLabel
+      properties:
+        id: 4

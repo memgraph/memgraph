@@ -1,0 +1,4 @@
+memgraph_query: >
+  MATCH (:Person)-[rel:FRIENDS]->(:Person) CALL create.remove_rel_properties(id(rel), ["since", "until"]) YIELD relationship return relationship;
+neo4j_query: >
+  MATCH (:Person)-[r:FRIENDS]->(:Person) CALL apoc.create.removeRelProperties(id(r), ["since", "until"]) YIELD rel return rel;

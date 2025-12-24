@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pvc-debug
+spec:
+  containers:
+    - name: shell
+      image: busybox #  NOTE: Use `kubectl exec -it <pod-name> -- sh` to inspect.
+      command: [ "sh", "-c", "sleep infinity" ]
+      volumeMounts:
+        - mountPath: /mnt
+          name: pvc
+  volumes:
+    - name: pvc
+      persistentVolumeClaim:
+        claimName: <your-pvc-name>
+  restartPolicy: Never

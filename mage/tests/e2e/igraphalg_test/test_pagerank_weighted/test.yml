@@ -1,0 +1,22 @@
+query: >
+    CALL igraphalg.pagerank(0.85,"weight",False) YIELD node, rank
+    RETURN node.id as node_id, rank
+    ORDER BY node_id ASC
+
+output:
+    - node_id: 0
+      rank: 0.4695
+    - node_id: 1
+      rank:  0.0757
+    - node_id: 2
+      rank: 0.0757
+    - node_id: 3
+      rank: 0.0757
+    - node_id: 4
+      rank: 0.0757
+    - node_id: 5
+      rank: 0.0757
+    - node_id: 6
+      rank: 0.0757
+    - node_id: 7
+      rank: 0.0757

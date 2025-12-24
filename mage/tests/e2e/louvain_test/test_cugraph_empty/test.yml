@@ -1,0 +1,5 @@
+query: >
+  CALL cugraph.louvain.get()
+  YIELD *;
+
+output: []

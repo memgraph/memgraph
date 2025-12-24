@@ -1,0 +1,10 @@
+memgraph_query: >
+  MATCH (node1:Node {name: 'Node 1'}), (node4:Node {name: 'Node 4'}), (node6:Node {name: 'Node 6'})
+  MATCH path1 = (node1)-[:CONNECTED*3]->(node4)
+  MATCH path2 = (node4)-[:CONNECTED*2]->(node6)
+  RETURN path.combine(path1, path2) AS result;
+neo4j_query: >
+  MATCH (node1:Node {name: 'Node 1'}), (node4:Node {name: 'Node 4'}), (node6:Node {name: 'Node 6'})
+  MATCH path1 = (node1)-[:CONNECTED*3]->(node4)
+  MATCH path2 = (node4)-[:CONNECTED*2]->(node6)
+  RETURN apoc.path.combine(path1, path2) AS result;

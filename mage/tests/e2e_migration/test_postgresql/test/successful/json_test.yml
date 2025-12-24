@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT json_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.json_col) AS json_col_type, row.json_col AS json_col
+
+output:
+  - json_col_type: 'MAP'
+    json_col: {'key': 'value', 'number': 42}

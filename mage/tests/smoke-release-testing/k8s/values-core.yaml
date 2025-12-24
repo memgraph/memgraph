@@ -1,0 +1,195 @@
+image:
+  repository: memgraph/memgraph
+  # Overrides the image tag whose default is v{{ .Chart.AppVersion }}
+  # It is a bad practice to set the image tag name to latest as it can trigger automatic upgrade of the charts
+  # With some of the pullPolicy values. Please consider fixing the tag to a specific Memgraph version
+  tag: 3.2.1-relwithdebinfo
+  pullPolicy: IfNotPresent
+
+## Override the default imagePullSecrets
+useImagePullSecrets: false
+imagePullSecrets:
+- name: regcred
+
+replicaCount: 1
+
+## Node Affinity Preferred
+# By setting theses parameters the PREFERRED deployment will be done first on the match LABELS with key and value then on other nodes.
+# nodeKey: "nodegroup" give the name of a key
+# Operator is In
+# nodeValue: "memgraph" give the value of the key
+affinity:
+  nodeKey:
+  nodeValue:
+
+nodeSelector: {}
+
+tolerations: []
+
+service:
+  ## ClusterIP, NodePort, LoadBalancer
+  # ClusterIP keep the service inside the cluster makes it secure
+  # NodePort would create a external port change port: between 30000-32767 accessible to all the nodes and Public IPs if not in a VPC
+  # LoadBalancer is compabile with Cloud Providers on port: 80 without SSL redirected to the 7687
+  type: ClusterIP
+
+  # Bolt Port
+  enableBolt: true
+  boltPort: 7687  # NOTE: Make sure to change port in probes if you change this value.
+
+  # Websocket Monitoring
+  enableWebsocketMonitoring: false
+  websocketPortMonitoring: 7444
+
+  # HTTP Monitoring
+  enableHttpMonitoring: false
+  httpPortMonitoring: 9091
+  annotations: {}
+  labels: {}
+
+persistentVolumeClaim:
+  ## createStoragePVC `true` will create for each statefulset server a Persistant Volume Claim
+  ## `false` will let you choose an existing Persistant Volume Claim or will create one with an existing volume
+  createStorageClaim: true
+  ## Using a Storage Class Name with policy `retain` will keep the Persistant Volume Claim and the Volume until you manually delete it
+  ## If you use a Storage Class Name with policy `delete` the Persistant Volume Claim and Volume will be deleted when the helm release is deleted
+  storageClassName:
+  ## Storage Size must me at minimum 4x the maximum size of your Dataset for Snapshots
+  ## See documentation for choosing the right size depending on the number of Snapshots you want to keep
+  ## Default is 3 snapshots and you need space to create a new one and WAL files
+  storageSize: 10Gi
+
+  ## if `createStoragePVC` is `false` you can choose to use an existing Persistant Volume Claim
+  ## Write the name and exising Persistant Volume Claim
+  existingClaim: memgraph-0
+  ## If you want to create a Persistant Volume Claim for an existing Volume
+  storageVolumeName:
+
+  ## Create a Persistant Volume Claim for Logs, if you use a Storage Class Name with policy `retain` the logs will be kept until you manually delete them
+  # `false` will only write logs to stdout / stderr
+  createLogStorage: true
+  logStorageClassName:
+  logStorageSize: 1Gi
+
+  ## Create a Dynamic Persistant Volume Claim for Configs, Certificates (e.g. Bolt cert ) and rest of User related files
+  createUserClaim: false
+  userStorageClassName:
+  userStorageSize: 1Gi
+  userStorageAccessMode: "ReadWriteOnce"
+  userMountPath:
+
+  ## Create a Persistant Volume Claims for Core Dumps
+  createCoreDumpsClaim: true
+  coreDumpsStorageClassName:
+  coreDumpsStorageSize: 10Gi
+  coreDumpsMountPath: /var/core/memgraph
+
+# Default Storage Class for data and logs, defaults are for Minikube, make sure to change it for production deployments
+# Examples provisioner: Minikube(k8s.io/minikube-hostpath) AWS (ebs.csi.aws.com), GCP (pd.csi.storage.gke.io), Azure (disk.csi.azure.com)
+# Examples storageType: Minikube(hostPath) AWS (gp2), GCP (pd-standard), Azure (StandardSSD_LRS)
+
+storageClass:
+  create: false
+  name: memgraph-generic-storage-class
+  provisioner: "k8s.io/minikube-hostpath"
+  storageType: "hostPath"
+  fsType: ext4
+  reclaimPolicy: Retain
+  volumeBindingMode: Immediate
+
+memgraphConfig:
+# If setting the --memory-limit flag, check that the amount of resources that a pod has been given is more than the actual memory limit you give to Memgraph
+# Setting the Memgraph's memory limit to more than the available resources can trigger pod eviction and restarts before Memgraph can make a query exception and continue running
+# the pod. For further information, check the `resources` section in this file about setting pod memory and cpu limits.
+- "--also-log-to-stderr=true"
+- "--telemetry-enabled=False"
+
+# The explicit user and group setup is required because at the init container
+# time, there is not yet a user created. This seems fine because under both
+# Memgraph and Mage images we actually hard-code the user and group id. The
+# config is used to chown user storage and core dumps claims' month paths.
+memgraphUserGroupId: "101:103"
+
+secrets:
+  enabled: false
+  name: memgraph-secrets
+  userKey: USER
+  passwordKey: PASSWORD
+
+## Memgraph Enterprise Licence
+# memgraphEnterpriseLicense: "<your-license>"
+# memgraphOrganizationName: "<your-organization-name>"
+
+memgraphEnterpriseLicense:
+memgraphOrganizationName:
+
+# Annotations to add to the statefulSet
+statefulSetAnnotations: {}
+# Annotations to add to the Pod
+podAnnotations: {}
+
+resources: {}
+# We usually recommend not to specify default resources and to leave this as a conscious
+# choice for the user. This also increases chances charts run on environments with little
+# resources, such as Minikube. If you do want to specify resources, uncomment the following
+# lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+# limits:
+#   cpu: 100m
+#   memory: 128Mi
+# requests:
+#   cpu: 100m
+#   memory: 128Mi
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  # If set to false and the name is provided, this service account must exist
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+container:
+  terminationGracePeriodSeconds: 1800
+  # When a container is ready to be used. Disabled until startupProbe succeeds.
+  readinessProbe:
+    tcpSocket:
+      port: 7687
+    failureThreshold: 20
+    timeoutSeconds: 10
+    periodSeconds: 5
+  # To know when a container needs to be restarted.
+  # Disabled until startupProbe succeeds.
+  livenessProbe:
+    tcpSocket:
+      port: 7687
+    failureThreshold: 20
+    timeoutSeconds: 10
+    periodSeconds: 5
+  # When restoring Memgraph from a backup, it is important to give enough time app to start. Here, we set it to 2h by default.
+  startupProbe:
+    tcpSocket:
+      port: 7687
+    failureThreshold: 1440
+    periodSeconds: 5
+
+# List of custom query modules to be mounted into the app.
+# These will be loaded automatically, on startup.
+# Each module must be exposed by a ConfigMap under a specific file name.
+customQueryModules: []
+
+#   Must be an existing ConfigMap
+# - volume: ""
+#   Must be present in the ConfigMap referenced with `volume`
+#   file: ""
+
+# If you are experiencing issues with the sysctlInitContainer, you can disable it here.
+# This is made to increase the max_map_count, necessary for high memory loads in Memgraph
+# If you are experiencing crashing pod with the: Max virtual memory areas vm.max_map_count is too low
+# you can increase the maxMapCount value.
+# You can see what's the proper value for this parameter by reading
+# https://memgraph.com/docs/database-management/system-configuration#recommended-values-for-the-vmmax_map_count-parameter
+sysctlInitContainer:
+  enabled: true
+  maxMapCount: 262144

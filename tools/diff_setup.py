@@ -29,8 +29,10 @@ class DiffSetup:
                             self._gh_context["event"]["inputs"][f"release_{test}"] = "false"
                     else:
                         for test in ["core", "benchmark", "e2e", "stress", "query_modules"]:
-                            self._gh_context["event"]["inputs"][f"release_{test}"] = "true" if test in release else "false"
-                    
+                            self._gh_context["event"]["inputs"][f"release_{test}"] = (
+                                "true" if test in release else "false"
+                            )
+
                     # reformat coverage key
                     coverage = inputs.pop("coverage", "")
                     # Check for "none" to skip all coverage tests
@@ -39,7 +41,19 @@ class DiffSetup:
                             self._gh_context["event"]["inputs"][f"coverage_{test}"] = "false"
                     else:
                         for test in ["core", "clang_tidy"]:
-                            self._gh_context["event"]["inputs"][f"coverage_{test}"] = "true" if test in coverage else "false"
+                            self._gh_context["event"]["inputs"][f"coverage_{test}"] = (
+                                "true" if test in coverage else "false"
+                            )
+
+                    # reformat mage key
+                    mage = inputs.pop("mage", "")
+                    # Check for "none" to skip all mage tests
+                    if mage.lower() == "none":
+                        for arch in ["amd", "arm", "cuda"]:
+                            self._gh_context["event"]["inputs"][f"mage_{arch}"] = "false"
+                    else:
+                        for arch in ["amd", "arm", "cuda"]:
+                            self._gh_context["event"]["inputs"][f"mage_{arch}"] = "true" if arch in mage else "false"
 
         except FileNotFoundError:
             print(f"Error: file not found {self._gh_context_path}")
@@ -71,6 +85,7 @@ class DiffSetup:
             "jepsen": {"core": value},
             "release": {"core": value, "benchmark": value, "e2e": value, "stress": value, "query_modules": value},
             "malloc": {"build": value},
+            "mage": {"amd": value, "arm": value, "cuda": False},
         }
 
     def _check_diff_workflow(self) -> bool:

@@ -1,0 +1,1 @@
+CREATE (:Node {name: 'Node 1', id:1})-[:CONNECTED {id:1}]->(:Node {name: 'Node 2', id:2})-[:CONNECTED {id:2}]->(:Node {name: 'Node 3', id:3})-[:CONNECTED {id:3}]->(:Node {name: 'Node 4', id:4})-[:CONNECTED {id:4}]->(:Node {name: 'Node 5', id:5})-[:CONNECTED {id:5}]->(:Node {name: 'Node 6', id:6});

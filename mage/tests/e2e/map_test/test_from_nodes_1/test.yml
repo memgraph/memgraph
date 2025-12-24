@@ -1,0 +1,6 @@
+query: >
+  CALL map.from_nodes("Dog", "name") YIELD map
+  RETURN map["Rex"]["properties"]["age"] AS age;
+
+output:
+  - age: 50

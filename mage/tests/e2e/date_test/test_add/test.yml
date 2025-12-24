@@ -1,0 +1,5 @@
+query: >
+    RETURN date.add(100, "d", 30, "d") AS sum;
+
+output:
+    - sum: 130

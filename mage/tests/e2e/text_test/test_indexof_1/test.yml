@@ -1,0 +1,4 @@
+query: >
+  RETURN text.indexOf("Hello World", "Hello") AS output;
+output:
+  - output: 0

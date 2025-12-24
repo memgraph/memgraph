@@ -1,0 +1,11 @@
+- query: >-
+        CALL node_classification.train(5) YIELD epoch RETURN epoch;
+  output:
+        - epoch: 5
+
+- query: |
+        MATCH (n {id:19})
+        CALL node_classification.predict(n) YIELD *
+        RETURN assert(predicted_class = 1 or predicted_class=2) as result;
+  output:
+        - result: true
