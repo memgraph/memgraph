@@ -252,11 +252,8 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   ctx.user_or_role = privilege_context_ == TriggerPrivilegeContext::DEFINER ? creator_ : auth_user;
 
 #ifdef MG_ENTERPRISE
-  // Set up fine-grained auth checker for label/edge-type based permissions
   if (license::global_license_checker.IsEnterpriseValidFast() && auth_checker && auth_user && *auth_user && dba) {
     auto fine_grained_checker = auth_checker->GetFineGrainedAuthChecker(auth_user, dba);
-    // Only set auth_checker if user doesn't have all global privileges
-    // (if they have all global privileges, fine-grained checks aren't needed)
     if (!fine_grained_checker->HasAllGlobalPrivilegesOnVertices() ||
         !fine_grained_checker->HasAllGlobalPrivilegesOnEdges()) {
       ctx.auth_checker = std::move(fine_grained_checker);
