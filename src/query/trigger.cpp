@@ -230,7 +230,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
 
   // Determine which user to use for fine-grained auth based on privilege context
   std::shared_ptr<QueryUserOrRole> auth_user =
-      (privilege_context_ == PrivilegeContext::DEFINER) ? creator_ : triggering_user;
+      privilege_context_ == TriggerPrivilegeContext::DEFINER ? creator_ : triggering_user;
 
   ExecutionContext ctx;
   ctx.db_accessor = dba;
