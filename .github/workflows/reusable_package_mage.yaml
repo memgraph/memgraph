@@ -59,6 +59,10 @@ on:
         type: boolean
         description: "Generate SBOM"
         default: false
+      memgraph_package:
+        type: string
+        description: "Memgraph package download URL"
+        default: ''
 
 run-name: "Build and test MAGE for ${{ inputs.arch }}"
 
@@ -173,6 +177,12 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         run: echo "CI_BRANCH=${{ github.event.pull_request.head.ref }}" >> $GITHUB_ENV
 
+      - name: Download Memgraph package
+        if: ${{ inputs.memgraph_package != '' }}
+        run: |
+          wget -O mage/memgraph.deb ${{ inputs.memgraph_package }}
+          echo "Memgraph package downloaded"
+
       - name: "Set artifact name and dir"
         run: |
           artifact_name="$OS"
@@ -195,6 +205,7 @@ jobs:
           echo "MG_PACKAGE_ARTIFACT_DIR=${artifact_dir}/package" >> $GITHUB_ENV
 
       - name: Set Additional Build Args
+        if: ${{ inputs.memgraph_package == '' }}
         run: |
           if [[ -z "$ADDITIONAL_BUILD_ARGS" ]]; then
             args="--disable-testing"
@@ -213,6 +224,7 @@ jobs:
           run
 
       - name: "Build Memgraph binaries"
+        if: ${{ inputs.memgraph_package == '' }}
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -225,6 +237,7 @@ jobs:
           --conan-password $CONAN_PASSWORD
 
       - name: "Make package"
+        if: ${{ inputs.memgraph_package == '' }}
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -234,6 +247,7 @@ jobs:
           package-memgraph
 
       - name: "Copy package"
+        if: ${{ inputs.memgraph_package == '' }}
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -247,7 +261,7 @@ jobs:
           mv -v $MG_PACKAGE_ARTIFACT_DIR/memgraph*.deb mage/memgraph.deb
 
       - name: "Copy SBOM"
-        if: ${{ env.GENERATE_SBOM == 'true' }}
+        if: ${{ env.GENERATE_SBOM == 'true' && inputs.memgraph_package == '' }}
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -334,7 +348,7 @@ jobs:
             $TEST_ARGS
 
       - name: Generate SBOM
-        if: ${{ inputs.generate_sbom == true }}
+        if: ${{ inputs.generate_sbom == true && inputs.memgraph_package == '' }}
         env:
           CONAN_REMOTE: "${{ secrets.CONAN_REMOTE }}"
         run: |
