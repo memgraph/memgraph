@@ -36,11 +36,6 @@ struct QueryCacheEntry;
 enum class TransactionStatus;
 
 struct Trigger {
-  enum class PrivilegeContext : uint8_t {
-    INVOKER = 0,  // trigger is executed with the permissions of the user who invoked the trigger
-    DEFINER = 1   // trigger is executed with the permissions of the user who defined the trigger
-  };
-
   explicit Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                    TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                    const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
