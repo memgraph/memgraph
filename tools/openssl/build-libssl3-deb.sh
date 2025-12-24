@@ -14,8 +14,8 @@ mkdir -p "$PKGROOT/usr/lib/$MULTIARCH" "$PKGROOT/DEBIAN"
 # Copy libs from your Conan deploy output; adjust if needed
 cp -a "$OUT/"libssl.so.3* "$PKGROOT/usr/lib/$MULTIARCH/"
 cp -a "$OUT/"libcrypto.so.3* "$PKGROOT/usr/lib/$MULTIARCH/"
-cp -a "$OUT/engines-3 /usr/lib/$MULTIARCH/"
-cp -a "$OUT/ossl_modules /usr/lib/$MULTIARCH/"
+cp -a "$OUT/"engines-3 "$PKGROOT/usr/lib/$MULTIARCH/"
+cp -a "$OUT/"ossl-modules "$PKGROOT/usr/lib/$MULTIARCH/"
 
 strip --strip-unneeded "$PKGROOT/usr/lib/$MULTIARCH/"libssl.so.3 "$PKGROOT/usr/lib/$MULTIARCH/"libcrypto.so.3 || true
 
