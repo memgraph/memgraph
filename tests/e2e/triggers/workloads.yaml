@@ -76,6 +76,12 @@ workloads:
     args: ["triggers/triggers_properties_false.py"]
     <<: *storage_properties_edges_false_in_memory_cluster
 
+  - name: "SHOW TRIGGERS"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/triggers/procedures/"
+    args: ["triggers/show_triggers.py"]
+    <<: *storage_properties_edges_true_in_memory_cluster
+
   - name: "ON CREATE Triggers for disk storage"
     binary: "tests/e2e/triggers/memgraph__e2e__triggers__on_create"
     args: ["--bolt-port", *bolt_port]

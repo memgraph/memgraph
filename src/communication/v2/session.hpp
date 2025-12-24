@@ -471,7 +471,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         socket_);
 
     // Update metrics
-    if (ssl_context_.has_value()) {
+    if (ssl_context_) {
       memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveSSLSessions);
     } else {
       memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTCPSessions);

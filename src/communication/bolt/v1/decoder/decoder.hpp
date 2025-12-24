@@ -18,7 +18,6 @@
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "storage/v2/point.hpp"
-#include "utils/cast.hpp"
 #include "utils/endian.hpp"
 #include "utils/logging.hpp"
 #include "utils/temporal.hpp"
@@ -179,11 +178,11 @@ class Decoder {
         }
       }
       default:
-        if ((value & 0xF0) == utils::UnderlyingCast(Marker::TinyString)) {
+        if ((value & 0xF0) == std::to_underlying(Marker::TinyString)) {
           return ReadString(marker, data);
-        } else if ((value & 0xF0) == utils::UnderlyingCast(Marker::TinyList)) {
+        } else if ((value & 0xF0) == std::to_underlying(Marker::TinyList)) {
           return ReadList(marker, data);
-        } else if ((value & 0xF0) == utils::UnderlyingCast(Marker::TinyMap)) {
+        } else if ((value & 0xF0) == std::to_underlying(Marker::TinyMap)) {
           return ReadMap(marker, data);
         } else {
           return ReadInt(marker, data);
@@ -257,7 +256,7 @@ class Decoder {
   }
 
   bool ReadInt(const Marker &marker, Value *data) {
-    uint8_t value = utils::UnderlyingCast(marker);
+    uint8_t value = std::to_underlying(marker);
     int64_t ret;
     if (value >= 240 || value <= 127) {
       ret = value;
@@ -300,14 +299,14 @@ class Decoder {
       return false;
     }
     value = utils::BigEndianToHost(value);
-    ret = utils::MemcpyCast<double>(value);
+    ret = std::bit_cast<double>(value);
     *data = Value(ret);
     return true;
   }
 
   int64_t ReadTypeSize(const Marker &marker, const uint8_t type) {
-    uint8_t value = utils::UnderlyingCast(marker);
-    if ((value & 0xF0) == utils::UnderlyingCast(MarkerTiny[type])) {
+    uint8_t value = std::to_underlying(marker);
+    if ((value & 0xF0) == std::to_underlying(MarkerTiny[type])) {
       return value & 0x0F;
     } else if (marker == Marker8[type]) {
       uint8_t tmp;

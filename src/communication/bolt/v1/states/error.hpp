@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,6 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/states/handlers.hpp"
 #include "communication/bolt/v1/value.hpp"
-#include "utils/cast.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 
@@ -63,11 +62,11 @@ State StateErrorRun(TSession &session, State state) {
     return HandleReset(session, marker);
   }
 
-  uint8_t value = utils::UnderlyingCast(marker);
+  uint8_t value = std::to_underlying(marker);
 
   // All bolt client messages have less than 15 parameters so if we receive
   // anything than a TinyStruct it's an error.
-  if ((value & 0xF0U) != utils::UnderlyingCast(Marker::TinyStruct)) {
+  if ((value & 0xF0U) != std::to_underlying(Marker::TinyStruct)) {
     spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!", value);
     return State::Close;
   }

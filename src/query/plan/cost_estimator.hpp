@@ -137,7 +137,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(ScanAllByLabel &scan_all_by_label) override {
     auto index_stats = db_accessor_->GetIndexStats(scan_all_by_label.label_);
-    if (index_stats.has_value()) {
+    if (index_stats) {
       SaveStatsFor(scan_all_by_label.output_symbol_, index_stats.value());
     }
 
@@ -152,7 +152,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(ScanAllByLabelProperties &logical_op) override {
     auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.properties_);
-    if (index_stats.has_value()) {
+    if (index_stats) {
       SaveStatsFor(logical_op.output_symbol_, index_stats.value());
     }
 
@@ -338,8 +338,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     auto card_param = CardParam::kExpand;
     auto stats = GetStatsFor(expand.input_symbol_);
 
-    if (stats.has_value()) {
-      card_param = stats.value().degree;
+    if (stats) {
+      card_param = stats->degree;
     }
 
     cardinality_ *= card_param;
@@ -425,9 +425,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // translate all the stats to the scope outside the return
     for (const auto &symbol : op.ModifiedSymbols(table_)) {
       auto stats = GetStatsFor(symbol);
-      if (stats.has_value()) {
-        scope.symbol_stats[symbol.name()] =
-            SymbolStatistics{.count = stats.value().count, .degree = stats.value().degree};
+      if (stats) {
+        scope.symbol_stats[symbol.name()] = SymbolStatistics{.count = stats->count, .degree = stats->degree};
       }
     }
 

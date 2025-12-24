@@ -95,8 +95,8 @@ class TypedValueResultStream {
     encoder_->MessageRecordHeader(values.size());
     for (const auto &v : values) {
       auto maybe_value = memgraph::glue::ToBoltValue(v, storage_, memgraph::storage::View::NEW);
-      if (maybe_value.HasError()) {
-        switch (maybe_value.GetError()) {
+      if (!maybe_value) {
+        switch (maybe_value.error()) {
           case memgraph::storage::Error::DELETED_OBJECT:
             throw memgraph::communication::bolt::ClientError("Returning a deleted object as a result.");
           case memgraph::storage::Error::NONEXISTENT_OBJECT:
@@ -107,7 +107,7 @@ class TypedValueResultStream {
             throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming results.");
         }
       }
-      encoder_->MessageRecordAppendValue(maybe_value.GetValue());
+      encoder_->MessageRecordAppendValue(maybe_value.value());
     }
     if (!encoder_->MessageRecordFinalize()) {
       throw memgraph::communication::bolt::ClientError("Failed to send result to client!");
@@ -252,14 +252,14 @@ void SessionHL::TryDefaultDB() {
 }
 
 // This is called on connection establishment
-utils::BasicResult<communication::bolt::AuthFailure> SessionHL::Authenticate(const std::string &username,
-                                                                             const std::string &password) {
+std::expected<void, communication::bolt::AuthFailure> SessionHL::Authenticate(const std::string &username,
+                                                                              const std::string &password) {
   interpreter_.ResetUser();
   {
     auto locked_auth = auth_->Lock();
     if (locked_auth->AccessControlled()) {
       const auto user_or_role = locked_auth->Authenticate(username, password);
-      if (!user_or_role.has_value()) return communication::bolt::AuthFailure::kGeneric;  // Failed to authenticate
+      if (!user_or_role) return std::unexpected{communication::bolt::AuthFailure::kGeneric};  // Failed to authenticate
       session_user_or_role_ = AuthChecker::GenQueryUser(auth_, user_or_role);
       DMG_ASSERT(session_user_or_role_, "Session user or role should be set after authentication, but it is not set!");
 #ifdef MG_ENTERPRISE
@@ -268,15 +268,12 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::Authenticate(con
       try {
         interpreter_.SetUser(session_user_or_role_, user_resource_);
       } catch (const auth::AuthException & /*unused*/) {
-        return communication::bolt::AuthFailure::kResourceBound;
+        return std::unexpected{communication::bolt::AuthFailure::kResourceBound};
       }
 #else
       interpreter_.SetUser(session_user_or_role_);
 #endif
-      interpreter_.SetSessionInfo(
-          UUID(),
-          interpreter_.user_or_role_->username().has_value() ? interpreter_.user_or_role_->username().value() : "",
-          GetLoginTimestamp());
+      interpreter_.SetSessionInfo(UUID(), interpreter_.user_or_role_->username().value_or(""), GetLoginTimestamp());
     } else {
       // No access control -> give empty user
       session_user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
@@ -290,18 +287,18 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::Authenticate(con
   }
 
   TryDefaultDB();
-  return {/* success */};
+  return {};
 }
 
-utils::BasicResult<communication::bolt::AuthFailure> SessionHL::SSOAuthenticate(
+std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate(
     const std::string &scheme, const std::string &identity_provider_response) {
   interpreter_.ResetUser();
 
   auto locked_auth = auth_->Lock();
 
   const auto user_or_role = locked_auth->SSOAuthenticate(scheme, identity_provider_response);
-  if (!user_or_role.has_value()) {
-    return communication::bolt::AuthFailure::kGeneric;  // Failed to authenticate
+  if (!user_or_role) {
+    return std::unexpected{communication::bolt::AuthFailure::kGeneric};  // Failed to authenticate
   }
 
   session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
@@ -313,16 +310,14 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::SSOAuthenticate(
   try {
     interpreter_.SetUser(session_user_or_role_, user_resource_);
   } catch (const auth::AuthException & /*unused*/) {
-    return communication::bolt::AuthFailure::kResourceBound;
+    return std::unexpected{communication::bolt::AuthFailure::kResourceBound};
   }
 #else
   interpreter_.SetUser(session_user_or_role_);
 #endif
-  interpreter_.SetSessionInfo(
-      UUID(), session_user_or_role_->username().has_value() ? session_user_or_role_->username().value() : "",
-      GetLoginTimestamp());
+  interpreter_.SetSessionInfo(UUID(), session_user_or_role_->username().value_or(""), GetLoginTimestamp());
   TryDefaultDB();
-  return {/* success */};
+  return {};
 }
 
 void SessionHL::LogOff() {
@@ -442,7 +437,7 @@ auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const
                                [](auto const &pair) { return std::pair(pair.first, pair.second.ValueString()); }) |
       ranges::to<std::map<std::string, std::string>>();
 
-  if (db.has_value()) {
+  if (db) {
     spdlog::trace("Handling routing request for the database: {}", *db);
   }
 
@@ -462,7 +457,7 @@ auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const
   bolt_map_t communication_res;
   communication_res["ttl"] = bolt_value_t{routing_table_res.ttl};
   // Needed for routing from coordinators to data instances
-  if (db.has_value()) {
+  if (db) {
     communication_res["db"] = bolt_value_t{*db};
   } else {
     communication_res["db"] = bolt_value_t{};
@@ -569,8 +564,8 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
   bolt_map_t decoded_summary;
   for (const auto &kv : summary) {
     auto maybe_value = ToBoltValue(kv.second, storage, memgraph::storage::View::NEW);
-    if (maybe_value.HasError()) {
-      switch (maybe_value.GetError()) {
+    if (!maybe_value) {
+      switch (maybe_value.error()) {
         case memgraph::storage::Error::DELETED_OBJECT:
         case memgraph::storage::Error::SERIALIZATION_ERROR:
         case memgraph::storage::Error::VERTEX_HAS_EDGES:

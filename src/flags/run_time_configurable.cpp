@@ -11,7 +11,6 @@
 
 #include "flags/run_time_configurable.hpp"
 
-#include <exception>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -26,10 +25,8 @@
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 #include "utils/observer.hpp"
-#include "utils/result.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/scheduler.hpp"
-#include "utils/settings.hpp"
 #include "utils/string.hpp"
 #include "utils/synchronized.hpp"
 
@@ -211,14 +208,14 @@ auto ToLLEnum(std::string_view val) {
 memgraph::utils::Settings::ValidatorResult ValidBoolStr(std::string_view in) {
   const auto lc = memgraph::utils::ToLowerCase(in);
   if (lc != "false" && lc != "true") {
-    return {"Boolean value supports only 'false' or 'true' as the input."};
+    return std::unexpected{"Boolean value supports only 'false' or 'true' as the input."};
   }
   return {};
 }
 
-auto GenHandler(std::string flag, std::string key) {
-  return [key = std::move(key), flag = std::move(flag)]() -> std::string {
-    const auto &val = memgraph::utils::global_settings.GetValue(key);
+auto GenHandler(memgraph::utils::Settings &settings, std::string flag, std::string key) {
+  return [key = std::move(key), flag = std::move(flag), &settings]() -> std::string {
+    const auto &val = settings.GetValue(key);
     MG_ASSERT(val, "Failed to read value at '{}' from settings.", key);
     gflags::SetCommandLineOption(flag.c_str(), val->c_str());
     return *val;
@@ -292,7 +289,8 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
 
 namespace memgraph::flags::run_time {
 
-void Initialize() {
+// NOTE: settings needs to be stable for the duration of the program
+void Initialize(utils::Settings &settings) {
   constexpr bool kRestore = true;  //!< run-time flag is persistent between Memgraph restarts
 
   /**
@@ -314,19 +312,19 @@ void Initialize() {
     gflags::GetCommandLineFlagInfo(flag.c_str(), &info);
 
     // Generate settings callback
-    auto callback = [update = GenHandler(flag, key), post_update = std::move(post_update)] {
+    auto callback = [update = GenHandler(settings, flag, key), post_update = std::move(post_update)] {
       const auto &val = update();
       post_update(val);
     };
     // Register setting
-    memgraph::utils::global_settings.RegisterSetting(key, info.default_value, callback, std::move(validator));
+    settings.RegisterSetting(key, info.default_value, callback, std::move(validator));
 
     if (restore && info.is_default) {
       // No input from the user, restore persistent value from settings
       callback();
     } else {
       // Override with current value - user defined a new value or the run-time flag is not persistent between starts
-      memgraph::utils::global_settings.SetValue(key, info.current_value);
+      settings.SetValue(key, info.current_value);
     }
   };
 
@@ -361,8 +359,8 @@ void Initialize() {
       },
       [](auto in) -> utils::Settings::ValidatorResult {
         if (!memgraph::flags::ValidLogLevel(in)) {
-          return {"Unsupported log level. Log level must be defined as one of the following strings: " +
-                  memgraph::flags::GetAllowedLogLevels()};
+          return std::unexpected{"Unsupported log level. Log level must be defined as one of the following strings: " +
+                                 memgraph::flags::GetAllowedLogLevels()};
         }
         return {};
       });
@@ -372,10 +370,10 @@ void Initialize() {
    */
   register_flag(
       kLogToStderrGFlagsKey, kLogToStderrSettingKey, !kRestore,
-      [](const std::string &val) {
+      [&settings](const std::string &val) {
         if (val == "true") {
           // No need to check if ll_val exists, we got here, so the log_level must exist already
-          const auto &ll_val = memgraph::utils::global_settings.GetValue(kLogLevelSettingKey);
+          const auto &ll_val = settings.GetValue(kLogLevelSettingKey);
           LogToStderr(ToLLEnum(*ll_val));
         } else {
           LogToStderr(spdlog::level::off);
@@ -414,7 +412,8 @@ void Initialize() {
       },
       [](auto in) -> utils::Settings::ValidatorResult {
         if (!ValidTimezone(in)) {
-          return {"Timezone names must follow the IANA standard. Please note that the names are case-sensitive."};
+          return std::unexpected{
+              "Timezone names must follow the IANA standard. Please note that the names are case-sensitive."};
         }
         return {};
       });
@@ -455,7 +454,7 @@ void Initialize() {
       },
       [](auto in) -> utils::Settings::ValidatorResult {
         if (!ValidPeriodicSnapshot<false>(in)) {
-          return {
+          return std::unexpected{
               "Snapshot interval can be defined as an integer period in seconds or as a 6-field cron expression. "
               "Please note that a valid license is needed in order to use cron expressions."};
         }
@@ -478,7 +477,7 @@ void Initialize() {
           utils::ParseStringToUint64(in);
           return {};
         } catch (utils::ParseException const &e) {
-          return {"Input for file_download_connection_timeout_sec cannot be parsed as uint64_t"};
+          return std::unexpected{"Input for file_download_connection_timeout_sec cannot be parsed as uint64_t"};
         }
       }
 

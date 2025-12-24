@@ -408,7 +408,7 @@ bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
   auto res = RegisterIndex(label, properties);
   if (!res) return false;
   auto res2 = PopulateIndex(label, properties, std::move(vertices), parallel_exec_info, snapshot_info);
-  if (res2.HasError()) {
+  if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
   return PublishIndex(label, properties, 0);
@@ -446,7 +446,7 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx, CheckCancelFunction cancel_check)
-    -> utils::BasicResult<IndexPopulateError> {
+    -> std::expected<void, IndexPopulateError> {
   auto index = GetIndividualIndex(label, properties);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -472,7 +472,7 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
     }
   } catch (const PopulateCancel &) {
     DropIndex(label, properties);
-    return IndexPopulateError::Cancellation;
+    return std::unexpected{IndexPopulateError::Cancellation};
   } catch (const utils::OutOfMemoryException &) {
     DropIndex(label, properties);
     throw;

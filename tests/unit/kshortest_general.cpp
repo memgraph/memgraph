@@ -64,8 +64,8 @@ class VertexDb : public Database {
       auto vertex = dba->InsertVertex();
       MG_ASSERT(
           vertex.SetProperty(dba->NameToProperty("id"), memgraph::storage::PropertyValue(static_cast<int64_t>(id)))
-              .HasValue());
-      MG_ASSERT(vertex.AddLabel(dba->NameToLabel(std::to_string(id))).HasValue());
+              .has_value());
+      MG_ASSERT(vertex.AddLabel(dba->NameToLabel(std::to_string(id))).has_value());
       vertex_addr.push_back(vertex);
     }
 
@@ -76,8 +76,8 @@ class VertexDb : public Database {
       auto &from = vertex_addr[u];
       auto &to = vertex_addr[v];
       auto edge = dba->InsertEdge(&from, &to, dba->NameToEdgeType(type));
-      MG_ASSERT(edge->SetProperty(dba->NameToProperty("from"), memgraph::storage::PropertyValue(u)).HasValue());
-      MG_ASSERT(edge->SetProperty(dba->NameToProperty("to"), memgraph::storage::PropertyValue(v)).HasValue());
+      MG_ASSERT(edge->SetProperty(dba->NameToProperty("from"), memgraph::storage::PropertyValue(u)).has_value());
+      MG_ASSERT(edge->SetProperty(dba->NameToProperty("to"), memgraph::storage::PropertyValue(v)).has_value());
       edge_addr.push_back(*edge);
     }
 

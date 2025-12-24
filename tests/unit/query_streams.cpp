@@ -128,6 +128,7 @@ class StreamsTestFixture : public ::testing::Test {
   memgraph::query::AllowEverythingAuthChecker auth_checker;
   memgraph::query::InterpreterContext interpreter_context_{memgraph::query::InterpreterConfig{},
                                                            nullptr,
+                                                           nullptr,
                                                            repl_state,
                                                            system_state,
 #ifdef MG_ENTERPRISE

@@ -60,7 +60,7 @@ std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size
 }
 
 bool FileReplicationHandler::ValidateFilename(std::optional<std::string> const &maybe_filename) {
-  if (!maybe_filename.has_value()) {
+  if (!maybe_filename) {
     spdlog::error("Filename missing for the received file over the RPC");
     return false;
   }
@@ -80,7 +80,7 @@ bool FileReplicationHandler::ValidateFilename(std::optional<std::string> const &
 }
 
 bool FileReplicationHandler::ValidateFileSize(std::optional<uint64_t> const &maybe_filesize) {
-  if (!maybe_filesize.has_value()) {
+  if (!maybe_filesize) {
     spdlog::error("Failed to read file size");
     return false;
   }

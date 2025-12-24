@@ -110,7 +110,7 @@ nlohmann::json SerializeExternalPropertyValue(const storage::ExternalPropertyVal
       data.emplace("type", static_cast<uint64_t>(ObjectType::ENUM));
       auto enum_val = property_value.ValueEnum();
       auto enum_str = storage_acc->GetEnumStoreShared().ToString(enum_val);
-      MG_ASSERT(enum_str.HasValue(), "Unknown enum");
+      MG_ASSERT(enum_str.has_value(), "Unknown enum");
       data.emplace("value", *std::move(enum_str));
       return data;
     }
@@ -204,7 +204,7 @@ storage::ExternalPropertyValue DeserializeExternalPropertyValue(const nlohmann::
                                      utils::Timezone(std::chrono::minutes{data["value"]["timezone"].get<int64_t>()})});
     case ObjectType::ENUM: {
       auto enum_val = storage_acc->GetEnumValue(data["value"].get<std::string>());
-      MG_ASSERT(enum_val.HasValue(), "Unknown enum found in the trigger storage");
+      MG_ASSERT(enum_val.has_value(), "Unknown enum found in the trigger storage");
       return storage::ExternalPropertyValue(*enum_val);
     }
     case ObjectType::POINT_2D: {

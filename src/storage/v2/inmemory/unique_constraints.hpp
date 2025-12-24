@@ -83,7 +83,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// exceeds the maximum allowed number of properties, and
   /// `CreationStatus::SUCCESS` on success.
   /// @throw std::bad_alloc
-  utils::BasicResult<ConstraintViolation, CreationStatus> CreateConstraint(
+  std::expected<CreationStatus, ConstraintViolation> CreateConstraint(
       LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
       const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);

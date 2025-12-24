@@ -302,7 +302,7 @@ std::variant<InMemoryUniqueConstraints::MultipleThreadsConstraintValidation,
              InMemoryUniqueConstraints::SingleThreadConstraintValidation>
 InMemoryUniqueConstraints::GetCreationFunction(
     const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info) {
-  if (par_exec_info.has_value()) {
+  if (par_exec_info) {
     return InMemoryUniqueConstraints::MultipleThreadsConstraintValidation{par_exec_info.value()};
   }
   return InMemoryUniqueConstraints::SingleThreadConstraintValidation{};
@@ -395,7 +395,7 @@ void InMemoryUniqueConstraints::AbortEntries(std::span<Vertex const *const> cons
   }
 }
 
-utils::BasicResult<ConstraintViolation, InMemoryUniqueConstraints::CreationStatus>
+std::expected<InMemoryUniqueConstraints::CreationStatus, ConstraintViolation>
 InMemoryUniqueConstraints::CreateConstraint(
     LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
@@ -423,7 +423,7 @@ InMemoryUniqueConstraints::CreateConstraint(
       multi_single_thread_processing);
 
   if (violation_found) {
-    return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
+    return std::unexpected{ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties}};
   }
 
   auto [it, _] = constraints_.emplace(std::make_pair(label, properties), std::move(constraints_skip_list));

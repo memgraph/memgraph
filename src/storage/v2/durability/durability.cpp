@@ -323,7 +323,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     for (const auto &index_info : index_metadata) {
       try {
         // TODO: parallel execution
-        text_index.RecoverIndex(index_info, snapshot_info);
+        text_index.RecoverIndex(index_info, vertices->access(), name_id_mapper, snapshot_info);
       } catch (...) {
         throw RecoveryFailure(fmt::format("The {} must be created here!", index_type).c_str());
       }
@@ -355,9 +355,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
     auto vertices_acc = vertices->access();
     for (const auto &spec : indices_metadata.vector_indices) {
-      if (!indices->vector_index_.CreateIndex(spec, vertices_acc, snapshot_info)) {
-        throw RecoveryFailure("The vector index must be created here!");
-      }
+      indices->vector_index_.RecoverIndex(spec, vertices_acc, snapshot_info);
       spdlog::info("Vector index on :{}({}) is recreated from metadata",
                    name_id_mapper->IdToName(spec.label_id.AsUint()), name_id_mapper->IdToName(spec.property.AsUint()));
     }
@@ -368,9 +366,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Recreating {} vector edge indices from metadata.", indices_metadata.vector_edge_indices.size());
     auto vertices_acc = vertices->access();
     for (const auto &spec : indices_metadata.vector_edge_indices) {
-      if (!indices->vector_edge_index_.CreateIndex(spec, vertices_acc, snapshot_info)) {
-        throw RecoveryFailure("The vector edge index must be created here!");
-      }
+      indices->vector_edge_index_.RecoverIndex(spec, vertices_acc, snapshot_info);
       spdlog::info("Vector edge index on :{}({}) is recreated from metadata",
                    name_id_mapper->IdToName(spec.edge_type_id.AsUint()),
                    name_id_mapper->IdToName(spec.property.AsUint()));
@@ -415,7 +411,7 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
     auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints->unique_constraints_.get());
     auto ret = mem_unique_constraints->CreateConstraint(label, properties, vertices->access(), parallel_exec_info,
                                                         snapshot_info);
-    if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
+    if (!ret || ret.value() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
 
     std::vector<std::string> property_names;
@@ -627,7 +623,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         // Update recovery info data only if WAL file was used and its deltas loaded
 
         bool wal_contains_changes{false};
-        if (info.has_value()) {
+        if (info) {
           recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info->next_vertex_id);
           recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
           recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);

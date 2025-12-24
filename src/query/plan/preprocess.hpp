@@ -164,9 +164,9 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     name() = default;                                                                                         \
                                                                                                               \
     static name FromUint(uint64_t id) { return name(id); }                                                    \
-    static name FromInt(int64_t id) { return name(utils::MemcpyCast<uint64_t>(id)); }                         \
+    static name FromInt(int64_t id) { return name(std::bit_cast<uint64_t>(id)); }                             \
     uint64_t AsUint() const { return id_; }                                                                   \
-    int64_t AsInt() const { return utils::MemcpyCast<int64_t>(id_); }                                         \
+    int64_t AsInt() const { return std::bit_cast<int64_t>(id_); }                                             \
                                                                                                               \
    private:                                                                                                   \
     uint64_t id_;                                                                                             \

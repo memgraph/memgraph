@@ -43,8 +43,8 @@ int main(int argc, char *argv[]) {
   MG_ASSERT(db_acc_opt, "Failed to access db");
   auto &db_acc = *db_acc_opt;
   memgraph::system::System system_state;
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, repl_state,
-                                                          system_state
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, nullptr,
+                                                          repl_state, system_state
 #ifdef MG_ENTERPRISE
                                                           ,
                                                           std::nullopt, nullptr

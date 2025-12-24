@@ -173,7 +173,7 @@ bool InMemoryEdgePropertyIndex::CreateIndexOnePass(PropertyId property, utils::S
   auto res = RegisterIndex(property);
   if (!res) return false;
   auto res2 = PopulateIndex(property, std::move(vertices), snapshot_info);
-  if (res2.HasError()) {
+  if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
   return PublishIndex(property, 0);
@@ -206,7 +206,7 @@ bool InMemoryEdgePropertyIndex::RegisterIndex(PropertyId property) {
 auto InMemoryEdgePropertyIndex::PopulateIndex(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
                                               std::optional<SnapshotObserverInfo> const &snapshot_info,
                                               Transaction const *tx, CheckCancelFunction cancel_check)
-    -> utils::BasicResult<IndexPopulateError> {
+    -> std::expected<void, IndexPopulateError> {
   auto index = GetIndividualIndex(property);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -231,7 +231,7 @@ auto InMemoryEdgePropertyIndex::PopulateIndex(PropertyId property, utils::SkipLi
     }
   } catch (const PopulateCancel &) {
     DropIndex(property);
-    return IndexPopulateError::Cancellation;
+    return std::unexpected{IndexPopulateError::Cancellation};
   } catch (const utils::OutOfMemoryException &) {
     DropIndex(property);
     throw;

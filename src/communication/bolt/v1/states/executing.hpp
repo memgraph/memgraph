@@ -45,7 +45,7 @@ State RunHandlerV1(Signature signature, TSession &session, State state, Marker m
     case Signature::Reset:
       return HandleReset<TSession>(session, marker);
     default:
-      spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
+      spdlog::trace("Unrecognized signature received (0x{:02X})!", std::to_underlying(signature));
       return State::Close;
   }
 }
@@ -86,7 +86,7 @@ State RunHandlerV4(Signature signature, TSession &session, State state, Marker m
       }
     }
     default:
-      spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
+      spdlog::trace("Unrecognized signature received (0x{:02X})!", std::to_underlying(signature));
       return State::Close;
   }
 }
@@ -117,7 +117,7 @@ State RunHandlerV5(Signature signature, TSession &session, State state, Marker m
     case Signature::LogOff:
       return HandleLogOff<TSession>(session);
     default:
-      spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
+      spdlog::trace("Unrecognized signature received (0x{:02X})!", std::to_underlying(signature));
       return State::Close;
   }
 }

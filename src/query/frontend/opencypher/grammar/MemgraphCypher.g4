@@ -57,6 +57,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DATABASE
                       | DATABASES
                       | DATE
+                      | DEFINER
                       | DELIMITER
                       | DEMOTE
                       | DENY
@@ -68,8 +69,8 @@ memgraphCypherKeyword : cypherKeyword
                       | DURABILITY
                       | DURATION
                       | EDGE
-                      | EDGES
                       | EDGE_TYPES
+                      | EDGES
                       | ENABLE
                       | ENUM
                       | ENUMS
@@ -94,14 +95,15 @@ memgraphCypherKeyword : cypherKeyword
                       | IF
                       | IGNORE
                       | IMPERSONATE_USER
-                      | INDEXES
                       | IMPORT
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
                       | INACTIVE
+                      | INDEXES
                       | INSTANCE
                       | INSTANCES
                       | INTEGER
+                      | INVOKER
                       | ISOLATION
                       | JSONL
                       | KAFKA
@@ -161,6 +163,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLES
                       | ROWS
                       | SCHEMA
+                      | SECURITY
                       | SERVER
                       | SERVICE_URL
                       | SESSION
@@ -188,8 +191,8 @@ memgraphCypherKeyword : cypherKeyword
                       | TOPICS
                       | TRACE
                       | TRANSACTION
-                      | TRANSACTIONS
                       | TRANSACTION_MANAGEMENT
+                      | TRANSACTIONS
                       | TRANSFORM
                       | TRIGGER
                       | TRIGGERS
@@ -200,10 +203,10 @@ memgraphCypherKeyword : cypherKeyword
                       | UNLOCK
                       | UNREGISTER
                       | UPDATE
+                      | USAGE
                       | USE
                       | USER
                       | USERS
-                      | USAGE
                       | USING
                       | VALUE
                       | VALUES
@@ -608,7 +611,7 @@ emptyVertex : '(' ')' ;
 
 emptyEdge : dash dash rightArrowHead ;
 
-createTrigger : CREATE TRIGGER triggerName ( ON ( emptyVertex | emptyEdge ) ? ( CREATE | UPDATE | DELETE ) ) ?
+createTrigger : CREATE TRIGGER triggerName ( SECURITY ( DEFINER | INVOKER ) ) ? ( ON ( emptyVertex | emptyEdge ) ? ( CREATE | UPDATE | DELETE ) ) ?
               ( AFTER | BEFORE ) COMMIT EXECUTE triggerStatement ;
 
 dropTrigger : DROP TRIGGER triggerName ;

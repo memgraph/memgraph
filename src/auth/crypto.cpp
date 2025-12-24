@@ -19,6 +19,7 @@
 #include "auth/exceptions.hpp"
 #include "utils/enum.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/logging.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -43,8 +44,8 @@ DEFINE_VALIDATED_string(password_encryption_algorithm, "bcrypt",
                         "The password encryption algorithm used for authentication.", {
                           if (const auto result =
                                   memgraph::utils::IsValidEnumValueString(value, password_hash_mappings);
-                              result.HasError()) {
-                            const auto error = result.GetError();
+                              !result.has_value()) {
+                            const auto error = result.error();
                             switch (error) {
                               case memgraph::utils::ValidationError::EmptyValue: {
                                 std::cout << "Password encryption algorithm cannot be empty." << std::endl;

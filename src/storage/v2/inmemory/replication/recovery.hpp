@@ -90,7 +90,7 @@ std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc:
   }
 
   // If dealing with ASYNC replica and couldn't obtain the lock
-  if (!maybe_stream_result.has_value()) {
+  if (!maybe_stream_result) {
     return std::nullopt;
   }
 
