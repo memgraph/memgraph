@@ -138,6 +138,12 @@ class InputFile {
   /// Closes the currently opened file. On failure it crashes the program.
   void Close() noexcept;
 
+  /// Advises the kernel that the specified range of the file is no longer needed
+  /// and can be evicted from the page cache. Uses posix_fadvise with POSIX_FADV_DONTNEED.
+  /// @param offset Starting offset in the file
+  /// @param length Number of bytes to evict (0 means from offset to end of file)
+  void EvictFromPageCache(size_t offset, size_t length = 0);
+
  private:
   bool LoadBuffer();
 

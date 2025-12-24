@@ -139,6 +139,10 @@ class Decoder final : public BaseDecoder {
   std::optional<uint64_t> GetPosition();
   bool SetPosition(uint64_t position);
 
+  /// Advises the kernel that the specified range of the file is no longer needed
+  /// and can be evicted from the page cache.
+  void EvictFromPageCache(size_t offset, size_t length = 0);
+
  private:
   utils::InputFile file_;
 };

@@ -682,6 +682,7 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
   auto edge_acc = edges.access();
   uint64_t last_edge_gid = 0;
   spdlog::info("Recovering {} edges.", edges_count);
+  spdlog::trace("Load partial Before: {} After: {}", snapshot.GetPosition(), from_offset);
   if (!snapshot.SetPosition(from_offset)) throw RecoveryFailure("Couldn't set offset position for reading edges!");
 
   std::vector<std::pair<PropertyId, PropertyValue>> read_properties;
@@ -763,6 +764,7 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
                              std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
+  spdlog::trace("LoadPartialVertices Before: {} After: {}", snapshot.GetPosition(), from_offset);
   if (!snapshot.SetPosition(from_offset))
     throw RecoveryFailure("Couldn't set offset for reading vertices from a snapshot!");
 
@@ -889,6 +891,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
+  spdlog::trace("LoadPartialConnectivy, Before: {} After: {}", snapshot.GetPosition(), from_offset);
   if (!snapshot.SetPosition(from_offset))
     throw RecoveryFailure("Couldn't set snapshot offset position doing loading partial connectivity!");
 
@@ -917,6 +920,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
 
   spdlog::info("Recovering connectivity for {} vertices.", vertices_count);
 
+  spdlog::trace("LoadPartialConnectivy2, Before: {} After: {}", snapshot.GetPosition(), from_offset);
   if (!snapshot.SetPosition(from_offset)) throw RecoveryFailure("Couldn't set from_offset position!");
 
   uint64_t five_percent_chunk = vertices_count / 20;
@@ -1316,6 +1320,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
 
     // Recover vertices (in/out edges).
     spdlog::info("Recovering connectivity.");
+    spdlog::trace("LoadPartialEdges2, before {}, after {}", snapshot.GetPosition(), info.offset_vertices);
     if (!snapshot.SetPosition(info.offset_vertices)) throw RecoveryFailure("Couldn't read data from snapshot!");
     for (auto &vertex : vertex_acc) {
       {
@@ -7809,6 +7814,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       snapshot_id_map.emplace(*id, my_id);
       SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
     }
+    // Evict mapper section from page cache (MAPPER → ENUMS)
+    snapshot.EvictFromPageCache(info.offset_mapper, info.offset_enums - info.offset_mapper);
   }
 
   // Recover enums.
@@ -7847,6 +7854,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       }
     }
     spdlog::info("Metadata of enums are recovered.");
+    // Evict enums section from page cache (ENUMS → EPOCH_HISTORY)
+    snapshot.EvictFromPageCache(info.offset_enums, info.offset_epoch_history - info.offset_enums);
   }
 
   auto get_label_from_id = [&snapshot_id_map](uint64_t label_id) {
@@ -7969,6 +7978,14 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
     recovery_info.next_vertex_id = last_vertex_gid + 1;
+
+    // Evict edges and vertices sections from page cache - they are no longer needed
+    // EDGES section: offset_edges → offset_vertices (if edges exist)
+    if (snapshot_has_edges) {
+      snapshot.EvictFromPageCache(info.offset_edges, info.offset_vertices - info.offset_edges);
+    }
+    // VERTICES section: offset_vertices → offset_indices
+    snapshot.EvictFromPageCache(info.offset_vertices, info.offset_indices - info.offset_vertices);
   }
 
   // Recover indices.
@@ -8307,6 +8324,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     }
 
     spdlog::info("Metadata of indices are recovered.");
+    // Evict indices sections from page cache (INDICES → CONSTRAINTS)
+    snapshot.EvictFromPageCache(info.offset_indices, info.offset_constraints - info.offset_indices);
   }
 
   // Recover constraints.
@@ -8394,6 +8413,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     }
 
     spdlog::info("Metadata of constraints are recovered.");
+    // Evict constraints section from page cache (CONSTRAINTS → MAPPER)
+    snapshot.EvictFromPageCache(info.offset_constraints, info.offset_mapper - info.offset_constraints);
   }
 
   spdlog::info("Recovering metadata.");
@@ -8422,6 +8443,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       }
       epoch_history->emplace_back(std::move(*maybe_epoch_id), *maybe_last_durable_timestamp);
     }
+    // Evict epoch history section from page cache (EPOCH_HISTORY → METADATA)
+    snapshot.EvictFromPageCache(info.offset_epoch_history, info.offset_metadata - info.offset_epoch_history);
   }
 
   // Recover TTL data if available
@@ -8490,6 +8513,10 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
   recovery_info.num_committed_txns = info.num_committed_txns;
+
+  // Evict remaining sections from page cache (METADATA → end of file)
+  // This covers metadata, batch infos, and TTL sections
+  snapshot.EvictFromPageCache(info.offset_metadata);
 
   // Set success flag (to disable cleanup).
   success = true;

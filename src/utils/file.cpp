@@ -304,6 +304,11 @@ void InputFile::Close() noexcept {
   path_ = "";
 }
 
+void InputFile::EvictFromPageCache(size_t offset, size_t length) {
+  if (!IsOpen()) return;
+  posix_fadvise(fd_, static_cast<off_t>(offset), static_cast<off_t>(length), POSIX_FADV_DONTNEED);
+}
+
 bool InputFile::LoadBuffer() {
   buffer_start_ = std::nullopt;
   buffer_size_ = 0;
