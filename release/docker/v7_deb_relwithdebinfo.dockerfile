@@ -7,6 +7,13 @@ ARG TARGETARCH
 ARG SOURCE_CODE
 ARG CUSTOM_MIRROR
 
+COPY openssl/* /tmp/
+RUN apt-get update && apt-get install -y \
+  /tmp/openssl*.deb \
+  /tmp/libssl3t64*.deb \
+  --no-install-recommends && \
+  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
 # If CUSTOM_MIRROR is set, replace the default archive.ubuntu.com
 # and security.ubuntu.com URIs in your .sources file
 RUN if [ -n "$CUSTOM_MIRROR" ]; then \
@@ -17,7 +24,7 @@ RUN if [ -n "$CUSTOM_MIRROR" ]; then \
   fi
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y \
-  openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip python3.12-venv libatomic1 adduser \
+  libcurl4 libseccomp2 python3 libpython3.12 python3-pip python3.12-venv libatomic1 adduser \
   gdb procps linux-tools-common linux-tools-generic linux-tools-generic libc6-dbg \
   --no-install-recommends && \
   apt install -y libxmlsec1 && \
