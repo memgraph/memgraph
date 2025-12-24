@@ -278,11 +278,6 @@ std::optional<size_t> InputFile::SetPosition(Position position, ssize_t offset) 
     file_position_ = pos;
 
     // Optimization if the new position fits within the old buffer
-    if (buffer_start_.has_value() && file_position_ >= *buffer_start_ &&
-        file_position_ < *buffer_start_ + buffer_size_) {
-      buffer_position_ = file_position_ - *buffer_start_;
-      return pos;
-    }
 
     buffer_start_ = std::nullopt;
     buffer_size_ = 0;
