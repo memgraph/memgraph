@@ -27,7 +27,7 @@ on:
       time-limit-non-mt:
         description: "Time limit for non-MT test (in seconds)"
         type: string
-        default: "25200"
+        default: "21600"
       num-tenants:
         description: "Number of tenants used in the MT test"
         type: string
@@ -77,7 +77,7 @@ jobs:
       name: "${{ needs.determine-sync.outputs.mode }}${{ matrix.mt && '-mt' || '' }}"
       mt: ${{ matrix.mt }}
       mode: ${{ needs.determine-sync.outputs.mode }}
-      time-limit: ${{ matrix.mt && '7200' || '25200' }}
+      time-limit: ${{ matrix.mt && '7200' || '21600' }}
       num-tenants: ${{ matrix.mt && '3' || '1' }}
       concurrency: ""
     secrets: inherit
