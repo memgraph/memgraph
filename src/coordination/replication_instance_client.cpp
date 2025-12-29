@@ -58,7 +58,6 @@ void ReplicationInstanceClient::StartStateCheck() {
             "Health check frequency must be greater than 0");
 
   instance_checker_.SetInterval(instance_health_check_frequency_sec_);
-  // TODO: (andi) Check if StateCheckRpc is getting logged, previously it was logging where it was sending message
   instance_checker_.Run(instance_name_, [this] {
     if (auto const maybe_res = SendStateCheckRpc()) {
       coord_instance_->InstanceSuccessCallback(instance_name_, *maybe_res);

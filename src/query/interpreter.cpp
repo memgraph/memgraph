@@ -673,20 +673,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint const &bolt_endpoint) override {
-    spdlog::trace("In CoordQueryHandler");
-
-    if (std::holds_alternative<int32_t>(instance)) {
-      spdlog::trace("Updating the config for coordinator {}", std::get<int32_t>(instance));
-    } else {
-      spdlog::trace("Updaing the config for instance {}", std::get<std::string>(instance));
-    }
-
     switch (coordinator_handler_.UpdateConfig(instance, bolt_endpoint)) {
-      if (std::holds_alternative<int32_t>(instance)) {
-        spdlog::trace("Updated the config for coordinator {}", std::get<int32_t>(instance));
-      } else {
-        spdlog::trace("Updated the config for instance {}", std::get<std::string>(instance));
-      }
       using enum memgraph::coordination::UpdateConfigStatus;
       case NO_SUCH_COORD:
         throw QueryRuntimeException("Couldn't update config for the coordinator {} because it doesn't exist!",
