@@ -148,6 +148,13 @@ auto CoordinatorState::RemoveCoordinatorInstance(int32_t coordinator_id) const -
   return std::get<CoordinatorInstance>(data_).RemoveCoordinatorInstance(coordinator_id);
 }
 
+auto CoordinatorState::UpdateConfig(std::variant<int32_t, std::string> const &instance,
+                                    io::network::Endpoint const &bolt_endpoint) -> coordination::UpdateConfigStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot be unregistered since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).UpdateConfig(instance, bolt_endpoint);
+}
+
 auto CoordinatorState::SetCoordinatorSetting(std::string_view const setting_name,
                                              std::string_view const setting_value) const
     -> SetCoordinatorSettingStatus {

@@ -672,6 +672,36 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
+  void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint const &bolt_endpoint) override {
+    spdlog::trace("In CoordQueryHandler");
+
+    if (std::holds_alternative<int32_t>(instance)) {
+      spdlog::trace("Updating the config for coordinator {}", std::get<int32_t>(instance));
+    } else {
+      spdlog::trace("Updaing the config for instance {}", std::get<std::string>(instance));
+    }
+
+    switch (coordinator_handler_.UpdateConfig(instance, bolt_endpoint)) {
+      if (std::holds_alternative<int32_t>(instance)) {
+        spdlog::trace("Updated the config for coordinator {}", std::get<int32_t>(instance));
+      } else {
+        spdlog::trace("Updated the config for instance {}", std::get<std::string>(instance));
+      }
+      using enum memgraph::coordination::UpdateConfigStatus;
+      case NO_SUCH_COORD:
+        throw QueryRuntimeException("Couldn't update config for the coordinator {} because it doesn't exist!",
+                                    std::get<int32_t>(instance));
+      case NO_SUCH_REPL_INSTANCE:
+        throw QueryRuntimeException("Couldn't update config for the repl instance {} because it doesn't exist!",
+                                    std::get<std::string>(instance));
+      case RAFT_FAILURE:
+        throw QueryRuntimeException("Couldn't update config because appending to Raft log failed.");
+      case SUCCESS:
+        break;
+        std::unreachable();
+    }
+  }
+
   void RemoveCoordinatorInstance(int32_t coordinator_id) override {
     switch (coordinator_handler_.RemoveCoordinatorInstance(coordinator_id)) {
       using enum memgraph::coordination::RemoveCoordinatorInstanceStatus;  // NOLINT
@@ -1756,7 +1786,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
     }
     case CoordinatorQuery::Action::UPDATE_CONFIG: {
       if (!coordinator_state->IsCoordinator()) {
-        throw QueryRuntimeException("Only coordinator can register coordinator server!");
+        throw QueryRuntimeException("Only coordinator can update config!");
       }
 
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -1778,9 +1808,21 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
       }
 
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, bolt_server = bolt_server_it->second]() mutable {
-        // handler.RegisterReplicationInstance(bolt_server, management_server, replication_server, instance_name,
-        // sync_mode);
+      auto data = std::invoke([coordinator_query, &evaluator]() -> std::variant<int32_t, std::string> {
+        if (!coordinator_query->instance_name_.empty()) {
+          return coordinator_query->instance_name_;
+        }
+        return static_cast<int32_t>(coordinator_query->coordinator_id_->Accept(evaluator).ValueInt());
+      });
+
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, bolt_server = bolt_server_it->second,
+                     data]() mutable {
+        auto const maybe_bolt_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(bolt_server);
+        if (!maybe_bolt_server) {
+          throw QueryRuntimeException("Invalid bolt socket address. {}", kSocketErrorExplanation);
+        }
+        handler.UpdateConfig(data, *maybe_bolt_server);
+
         return std::vector<std::vector<TypedValue>>();
       };
 

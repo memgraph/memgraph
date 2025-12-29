@@ -1429,5 +1429,84 @@ auto CoordinatorInstance::GetTelemetryJson() const -> nlohmann::json {
                          {"instance_health_check_frequency_sec", instance_health_check_frequency_sec_.count()}});
 }
 
+auto CoordinatorInstance::UpdateConfig(std::variant<int32_t, std::string> const &instance,
+                                       io::network::Endpoint const &bolt_endpoint) -> UpdateConfigStatus {
+  if (std::holds_alternative<int32_t>(instance)) {
+    // Need to update coordinator's bolt server
+    auto const coord_id = std::get<int32_t>(instance);
+
+    auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
+    auto new_bolt_server = bolt_endpoint.SocketAddress();
+
+    {
+      auto const existing_coord =
+          std::ranges::find_if(coordinator_instances_context,
+                               [&new_bolt_server](auto const &coord) { return coord.bolt_server == new_bolt_server; });
+
+      if (existing_coord != coordinator_instances_context.end()) {
+        spdlog::warn(
+            "You are trying to set-up a coordinator with the same bolt server as on coordinator {}. That is a valid "
+            "option but please double-check that's what you really want.",
+            existing_coord->id);
+      }
+    }
+
+    auto coord_it = std::ranges::find_if(coordinator_instances_context,
+                                         [coord_id](auto const &coordinator) { return coordinator.id == coord_id; });
+    if (coord_it == std::ranges::end(coordinator_instances_context)) {
+      return UpdateConfigStatus::NO_SUCH_COORD;
+    }
+
+    coord_it->bolt_server = std::move(new_bolt_server);
+
+    // NOLINTNEXTLINE
+    CoordinatorClusterStateDelta const delta_state{.coordinator_instances_ = std::move(coordinator_instances_context)};
+
+    // If we managed to add it to the NuRaft configuration but not to our app logs.
+    if (!raft_state_->AppendClusterUpdate(delta_state)) {
+      spdlog::error("Couldn't append application log when updating the config for the coordinator {}.", coord_id);
+      return UpdateConfigStatus::RAFT_FAILURE;
+    }
+
+  } else {
+    // Updating a config for the replication instance
+    auto const instance_name = std::get<std::string>(instance);
+    auto data_instances_context = raft_state_->GetDataInstancesContext();
+    {
+      auto const existing_repl_instance = std::ranges::find_if(
+          data_instances_context,
+          [&bolt_endpoint](auto const &repl_instance) { return repl_instance.config.bolt_server == bolt_endpoint; });
+
+      if (existing_repl_instance != data_instances_context.end()) {
+        spdlog::warn(
+            "You are trying to set-up a repl instance with the same bolt server as on repl instance {}. That is a "
+            "valid "
+            "option but please double-check that's what you really want.",
+            existing_repl_instance->config.instance_name);
+      }
+    }
+
+    auto repl_instance_it = std::ranges::find_if(data_instances_context, [instance_name](auto const &repl_instance) {
+      return repl_instance.config.instance_name == instance_name;
+    });
+    if (repl_instance_it == std::ranges::end(data_instances_context)) {
+      return UpdateConfigStatus::NO_SUCH_REPL_INSTANCE;
+    }
+
+    repl_instance_it->config.bolt_server = bolt_endpoint;
+
+    // NOLINTNEXTLINE
+    CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances_context)};
+
+    // If we managed to add it to the NuRaft configuration but not to our app logs.
+    if (!raft_state_->AppendClusterUpdate(delta_state)) {
+      spdlog::error("Couldn't append application log when updating the config for the repl instance {}.",
+                    instance_name);
+      return UpdateConfigStatus::RAFT_FAILURE;
+    }
+  }
+  return UpdateConfigStatus::SUCCESS;
+}
+
 }  // namespace memgraph::coordination
 #endif
