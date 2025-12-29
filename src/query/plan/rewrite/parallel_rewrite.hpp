@@ -59,7 +59,17 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   DEFAULT_VISITS(Accumulate)
+  DEFAULT_VISITS(Apply)
   DEFAULT_VISITS(Produce)
+  DEFAULT_VISITS(Merge)
+  DEFAULT_VISITS(Optional)
+  DEFAULT_VISITS(Foreach)
+  DEFAULT_VISITS(RollUpApply)
+  DEFAULT_VISITS(PeriodicSubquery)
+  DEFAULT_VISITS(Union)
+  DEFAULT_VISITS(Cartesian)
+  DEFAULT_VISITS(IndexedJoin)
+  DEFAULT_VISITS(HashJoin)
   DEFAULT_VISITS(Limit)
   DEFAULT_VISITS(Skip)
   DEFAULT_VISITS(Filter)
@@ -119,100 +129,6 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   DEFAULT_VISITS(AggregateParallel)
 
 #undef DEFAULT_VISITS
-
-  // Operators with branches that could contain Aggregate
-  bool PreVisit(Merge &op) override {
-    prev_ops_.push_back(&op);
-    return op.input()->Accept(*this) && op.merge_match_->Accept(*this) && op.merge_create_->Accept(*this);
-  }
-  bool PostVisit(Merge &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(Optional &op) override {
-    prev_ops_.push_back(&op);
-    return op.input()->Accept(*this) && op.optional_->Accept(*this);
-  }
-  bool PostVisit(Optional &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(Foreach &op) override {
-    prev_ops_.push_back(&op);
-    return op.input()->Accept(*this) && op.update_clauses_->Accept(*this);
-  }
-  bool PostVisit(Foreach &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(RollUpApply &op) override {
-    prev_ops_.push_back(&op);
-    return op.input()->Accept(*this) && op.list_collection_branch_->Accept(*this);
-  }
-  bool PostVisit(RollUpApply &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(PeriodicSubquery &op) override {
-    prev_ops_.push_back(&op);
-    return op.input()->Accept(*this) && op.subquery_->Accept(*this);
-  }
-  bool PostVisit(PeriodicSubquery &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(Apply &op) override {
-    prev_ops_.push_back(&op);
-    return op.input()->Accept(*this) && op.subquery_->Accept(*this);
-  }
-  bool PostVisit(Apply &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  // Multi-input operators
-  bool PreVisit(Union &op) override {
-    prev_ops_.push_back(&op);
-    op.left_op_->Accept(*this);
-    op.right_op_->Accept(*this);
-    return false;
-  }
-  bool PostVisit(Union &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(Cartesian &op) override {
-    prev_ops_.push_back(&op);
-    return op.left_op_->Accept(*this) && op.right_op_->Accept(*this);
-  }
-  bool PostVisit(Cartesian &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(HashJoin &op) override {
-    prev_ops_.push_back(&op);
-    return op.left_op_->Accept(*this) && op.right_op_->Accept(*this);
-  }
-  bool PostVisit(HashJoin &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(IndexedJoin &op) override {
-    prev_ops_.push_back(&op);
-    return op.main_branch_->Accept(*this) && op.sub_branch_->Accept(*this);
-  }
-  bool PostVisit(IndexedJoin &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
 
   // Single threaded Aggregate (potentially parallelizable)
   bool PreVisit(Aggregate &op) override {
@@ -347,7 +263,8 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
       return failure("No target scan or scan parent found");
     }
 
-    // Operator -> Scan -> etc is rewritten to OperatorParallel -> ScanChunk -> ParallelMerge -> ScanParallel -> etc
+    // Operator -> Scan -> etc is rewritten to OperatorParallel -> Operator -> ScanChunk -> ParallelMerge ->
+    // ScanParallel -> etc
     auto scan_input = target_scan->input();
     auto state_symbol = symbol_table->CreateAnonymousSymbol();
     auto scan_parallel = CreateScanParallel(target_scan, scan_input, state_symbol);
@@ -457,6 +374,29 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
     // parallel operator
     auto *current = prev_ops_.back();
     if (current->HasSingleInput()) {
+      // Special case for single input operators that have embedded queries
+      if (auto *periodic_subquery_op = dynamic_cast<PeriodicSubquery *>(current)) {
+        if (periodic_subquery_op->subquery_.get() == original_op) {
+          periodic_subquery_op->subquery_ = create_parallel_op(periodic_subquery_op->subquery_);
+          return;
+        }
+      } else if (auto *apply_op = dynamic_cast<Apply *>(current)) {
+        if (apply_op->subquery_.get() == original_op) {
+          apply_op->subquery_ = create_parallel_op(apply_op->subquery_);
+          return;
+        }
+      } else if (auto *optional_op = dynamic_cast<Optional *>(current)) {
+        if (optional_op->optional_.get() == original_op) {
+          optional_op->optional_ = create_parallel_op(optional_op->optional_);
+          return;
+        }
+      } else if (auto *unwind_op = dynamic_cast<Unwind *>(current)) {
+        if (unwind_op->input_.get() == original_op) {
+          unwind_op->input_ = create_parallel_op(unwind_op->input_);
+          return;
+        }
+      }
+      // Main input
       current->set_input(create_parallel_op(current->input()));
     } else {
       if (!original_op) {
@@ -698,26 +638,50 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
         return true;
       }
       if (current->HasSingleInput()) {
-        // Single input operators
+        // Single input operators - but some have additional branches that need checking
+        if (auto *periodic_subquery_op = dynamic_cast<PeriodicSubquery *>(current)) {
+          if (ConflictingOperators(periodic_subquery_op->subquery_.get())) {
+            return true;
+          }
+        } else if (auto *apply_op = dynamic_cast<Apply *>(current)) {
+          if (ConflictingOperators(apply_op->subquery_.get())) {
+            return true;
+          }
+        } else if (auto *optional_op = dynamic_cast<Optional *>(current)) {
+          if (ConflictingOperators(optional_op->optional_.get())) {
+            return true;
+          }
+        } else if (auto *filter_op = dynamic_cast<Filter *>(current)) {
+          for (const auto &pf : filter_op->pattern_filters_) {
+            if (ConflictingOperators(pf.get())) {
+              return true;
+            }
+          }
+        }
+        // Continue down the main input branch
         current = current->input().get();
       } else if (auto *cartesian_op = dynamic_cast<Cartesian *>(current)) {
         if (ConflictingOperators(cartesian_op->left_op_.get()) || ConflictingOperators(cartesian_op->right_op_.get())) {
           return true;
         }
+        break;
       } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(current)) {
         if (ConflictingOperators(hash_join_op->left_op_.get()) || ConflictingOperators(hash_join_op->right_op_.get())) {
           return true;
         }
+        break;
       } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current)) {
         if (ConflictingOperators(indexed_join_op->main_branch_.get()) ||
             ConflictingOperators(indexed_join_op->sub_branch_.get())) {
           return true;
         }
+        break;
       } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(current)) {
         if (ConflictingOperators(rollup_apply_op->input_.get()) ||
             ConflictingOperators(rollup_apply_op->list_collection_branch_.get())) {
           return true;
         }
+        break;
       } else if (dynamic_cast<Once *>(current) != nullptr || dynamic_cast<OutputTable *>(current) != nullptr ||
                  dynamic_cast<OutputTableStream *>(current) != nullptr) {
         // Terminal operators with no inputs - cannot have input symbols
@@ -902,6 +866,17 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
           if (ConflictingOperators(periodic_subquery_op->subquery_.get())) break;
         } else if (auto *apply_op = dynamic_cast<Apply *>(current)) {
           if (ConflictingOperators(apply_op->subquery_.get())) break;
+        } else if (auto *optional_op = dynamic_cast<Optional *>(current)) {
+          if (ConflictingOperators(optional_op->optional_.get())) break;
+        } else if (auto *filter_op = dynamic_cast<Filter *>(current)) {
+          bool has_conflict = false;
+          for (const auto &pf : filter_op->pattern_filters_) {
+            if (ConflictingOperators(pf.get())) {
+              has_conflict = true;
+              break;
+            }
+          }
+          if (has_conflict) break;
         }
         // We still go down the main branch
         current = current->input().get();
