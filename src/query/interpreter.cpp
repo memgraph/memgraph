@@ -1754,6 +1754,48 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                                               coordinator_query->instance_name_, coordinator_server_it->second));
       return callback;
     }
+    case CoordinatorQuery::Action::UPDATE_CONFIG: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can register coordinator server!");
+      }
+
+      // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+      // the argument to Callback.
+      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      auto config_map = ParseConfigMap(coordinator_query->configs_, evaluator);
+
+      if (!config_map) {
+        throw QueryRuntimeException("Failed to parse config map!");
+      }
+
+      if (config_map->size() != 1) {
+        throw QueryRuntimeException("Config map must contain exactly 1 entry: {}!", kBoltServer);
+      }
+
+      auto const &bolt_server_it = config_map->find(kBoltServer);
+      if (bolt_server_it == config_map->end()) {
+        throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
+      }
+
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, bolt_server = bolt_server_it->second]() mutable {
+        // handler.RegisterReplicationInstance(bolt_server, management_server, replication_server, instance_name,
+        // sync_mode);
+        return std::vector<std::vector<TypedValue>>();
+      };
+
+      auto const notification_str = std::invoke([coordinator_query, &evaluator]() {
+        if (!coordinator_query->instance_name_.empty()) {
+          return fmt::format("for instance {}", coordinator_query->instance_name_);
+        }
+        auto coord_server_id = coordinator_query->coordinator_id_->Accept(evaluator).ValueInt();
+        return fmt::format("for coordinator {}", coord_server_id);
+      });
+      notifications->emplace_back(
+          SeverityLevel::INFO, NotificationCode::UPDATE_CONFIG,
+          fmt::format("Coordinator has updated bolt server to {} {}.", bolt_server_it->second, notification_str));
+      return callback;
+    }
     case CoordinatorQuery::Action::REGISTER_INSTANCE: {
       if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");

@@ -323,6 +323,7 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | setCoordinatorSetting
                  | showCoordinatorSettings
                  | showReplicationLag
+                 | updateConfig
                  ;
 
 triggerQuery : createTrigger
@@ -591,6 +592,8 @@ coordinatorServerId : literal ;
 addCoordinatorInstance : ADD COORDINATOR coordinatorServerId WITH CONFIG configsMap=configMap ;
 
 removeCoordinatorInstance : REMOVE COORDINATOR coordinatorServerId ;
+
+updateConfig : UPDATE CONFIG FOR ( INSTANCE instanceName | COORDINATOR coordinatorServerId ) configsMap=configMap ;
 
 dropReplica : DROP REPLICA instanceName ;
 
