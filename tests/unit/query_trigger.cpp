@@ -1271,6 +1271,172 @@ TYPED_TEST(TriggerStoreTest, AnyTriggerAllKeywords) {
   }
 }
 
+// Test that MergeFrom properly combines TriggerContextCollector state from parallel branches
+TYPED_TEST(TriggerContextTest, MergeFrom) {
+  memgraph::query::DbAccessor dba{this->StartTransaction()};
+
+  // Create some vertices to work with
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  auto v3 = dba.InsertVertex();
+  auto v4 = dba.InsertVertex();
+  auto edge12 = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("EDGE")).value();
+  auto edge34 = dba.InsertEdge(&v3, &v4, dba.NameToEdgeType("EDGE")).value();
+
+  dba.AdvanceCommand();
+
+  // Test 1: Merging created objects
+  {
+    SCOPED_TRACE("Merging created objects");
+    memgraph::query::TriggerContextCollector main_collector{kAllEventTypes};
+    memgraph::query::TriggerContextCollector branch_collector{kAllEventTypes};
+
+    auto v_main = dba.InsertVertex();
+    main_collector.RegisterCreatedObject(v_main);
+
+    auto v_branch = dba.InsertVertex();
+    branch_collector.RegisterCreatedObject(v_branch);
+
+    main_collector.MergeFrom(branch_collector);
+
+    dba.AdvanceCommand();
+
+    const auto trigger_context = std::move(main_collector).TransformToTriggerContext();
+    // Should have both vertices
+    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_VERTICES, 2, dba);
+  }
+
+  // Test 2: Merging deleted objects
+  {
+    SCOPED_TRACE("Merging deleted objects");
+    memgraph::query::TriggerContextCollector main_collector{kAllEventTypes};
+    memgraph::query::TriggerContextCollector branch_collector{kAllEventTypes};
+
+    // Create new vertices to delete
+    auto v_to_delete1 = dba.InsertVertex();
+    auto v_to_delete2 = dba.InsertVertex();
+    dba.AdvanceCommand();
+
+    auto deleted1 = dba.RemoveVertex(&v_to_delete1).value().value();
+    main_collector.RegisterDeletedObject(deleted1);
+
+    auto deleted2 = dba.RemoveVertex(&v_to_delete2).value().value();
+    branch_collector.RegisterDeletedObject(deleted2);
+
+    main_collector.MergeFrom(branch_collector);
+
+    dba.AdvanceCommand();
+
+    const auto trigger_context = std::move(main_collector).TransformToTriggerContext();
+    // Should have both deleted vertices
+    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::DELETED_VERTICES, 2, dba);
+  }
+
+  // Test 3: Merging property changes
+  {
+    SCOPED_TRACE("Merging property changes");
+    memgraph::query::TriggerContextCollector main_collector{kAllEventTypes};
+    memgraph::query::TriggerContextCollector branch_collector{kAllEventTypes};
+
+    main_collector.RegisterSetObjectProperty(v1, dba.NameToProperty("PROP1"), memgraph::query::TypedValue("old1"),
+                                             memgraph::query::TypedValue("new1"));
+
+    branch_collector.RegisterSetObjectProperty(v2, dba.NameToProperty("PROP2"), memgraph::query::TypedValue("old2"),
+                                               memgraph::query::TypedValue("new2"));
+
+    main_collector.MergeFrom(branch_collector);
+
+    dba.AdvanceCommand();
+
+    const auto trigger_context = std::move(main_collector).TransformToTriggerContext();
+    // Should have property changes for both vertices
+    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::SET_VERTEX_PROPERTIES, 2, dba);
+  }
+
+  // Test 4: Merging label changes
+  {
+    SCOPED_TRACE("Merging label changes");
+    memgraph::query::TriggerContextCollector main_collector{kAllEventTypes};
+    memgraph::query::TriggerContextCollector branch_collector{kAllEventTypes};
+
+    main_collector.RegisterSetVertexLabel(v1, dba.NameToLabel("LABEL1"));
+    branch_collector.RegisterSetVertexLabel(v2, dba.NameToLabel("LABEL2"));
+
+    main_collector.MergeFrom(branch_collector);
+
+    dba.AdvanceCommand();
+
+    const auto trigger_context = std::move(main_collector).TransformToTriggerContext();
+    // Should have labels set for both vertices
+    CheckLabelList(trigger_context, memgraph::query::TriggerIdentifierTag::SET_VERTEX_LABELS, 2, dba);
+  }
+
+  // Test 5: Merging edge operations
+  {
+    SCOPED_TRACE("Merging edge operations");
+    memgraph::query::TriggerContextCollector main_collector{kAllEventTypes};
+    memgraph::query::TriggerContextCollector branch_collector{kAllEventTypes};
+
+    main_collector.RegisterSetObjectProperty(edge12, dba.NameToProperty("EDGE_PROP"), memgraph::query::TypedValue(1),
+                                             memgraph::query::TypedValue(2));
+
+    branch_collector.RegisterSetObjectProperty(edge34, dba.NameToProperty("EDGE_PROP"), memgraph::query::TypedValue(3),
+                                               memgraph::query::TypedValue(4));
+
+    main_collector.MergeFrom(branch_collector);
+
+    dba.AdvanceCommand();
+
+    const auto trigger_context = std::move(main_collector).TransformToTriggerContext();
+    // Should have property changes for both edges
+    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::SET_EDGE_PROPERTIES, 2, dba);
+  }
+
+  // Test 6: Created object in main should not have property changes from branch
+  {
+    SCOPED_TRACE("Created object in main ignores property changes from branch");
+    memgraph::query::TriggerContextCollector main_collector{kAllEventTypes};
+    memgraph::query::TriggerContextCollector branch_collector{kAllEventTypes};
+
+    auto v_created = dba.InsertVertex();
+    main_collector.RegisterCreatedObject(v_created);
+
+    // Branch tries to register property change on the same vertex
+    branch_collector.RegisterSetObjectProperty(v_created, dba.NameToProperty("PROP"),
+                                               memgraph::query::TypedValue("old"), memgraph::query::TypedValue("new"));
+
+    main_collector.MergeFrom(branch_collector);
+
+    dba.AdvanceCommand();
+
+    const auto trigger_context = std::move(main_collector).TransformToTriggerContext();
+    // Should have 1 created vertex, but no property changes (since vertex is newly created)
+    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_VERTICES, 1, dba);
+    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::SET_VERTEX_PROPERTIES, 0, dba);
+  }
+
+  // Test 7: Label change cancellation across merge
+  {
+    SCOPED_TRACE("Label changes combine across merge");
+    memgraph::query::TriggerContextCollector main_collector{kAllEventTypes};
+    memgraph::query::TriggerContextCollector branch_collector{kAllEventTypes};
+
+    // Main adds a label
+    main_collector.RegisterSetVertexLabel(v3, dba.NameToLabel("TEMP_LABEL"));
+    // Branch removes the same label
+    branch_collector.RegisterRemovedVertexLabel(v3, dba.NameToLabel("TEMP_LABEL"));
+
+    main_collector.MergeFrom(branch_collector);
+
+    dba.AdvanceCommand();
+
+    const auto trigger_context = std::move(main_collector).TransformToTriggerContext();
+    // Label add + remove should cancel out
+    CheckLabelList(trigger_context, memgraph::query::TriggerIdentifierTag::SET_VERTEX_LABELS, 0, dba);
+    CheckLabelList(trigger_context, memgraph::query::TriggerIdentifierTag::REMOVED_VERTEX_LABELS, 0, dba);
+  }
+}
+
 TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
   using Privilege = memgraph::query::AuthQuery::Privilege;
   using ::testing::_;
