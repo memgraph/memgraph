@@ -391,6 +391,18 @@ auto GetParallelQuery(AstStorage &storage, SingleQuery *single_query) {
   return query;
 }
 
+auto GetParallelQueryWithThreads(AstStorage &storage, Expression *num_threads, SingleQuery *single_query) {
+  auto *query = storage.Create<CypherQuery>();
+  PreQueryDirectives pre_query_directives;
+
+  query->single_query_ = single_query;
+  query->pre_query_directives_ = pre_query_directives;
+  query->pre_query_directives_.parallel_execution_ = true;
+  query->pre_query_directives_.num_threads_ = num_threads;
+
+  return query;
+}
+
 auto GetLoadCSV(AstStorage &storage, Expression *file_name, const std::string &row_var) {
   auto *ident = storage.Create<memgraph::query::Identifier>(row_var);
   auto *load_csv = storage.Create<memgraph::query::LoadCsv>(file_name, true, true, nullptr, nullptr, nullptr, ident);
@@ -715,6 +727,8 @@ auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
 #define QUERY(...) memgraph::query::test_common::GetQuery(this->storage, __VA_ARGS__)
 #define PERIODIC_QUERY(...) memgraph::query::test_common::GetPeriodicQuery(this->storage, __VA_ARGS__)
 #define PARALLEL_QUERY(...) memgraph::query::test_common::GetParallelQuery(this->storage, __VA_ARGS__)
+#define PARALLEL_QUERY_WITH_THREADS(num_threads, ...) \
+  memgraph::query::test_common::GetParallelQueryWithThreads(this->storage, num_threads, __VA_ARGS__)
 #define SINGLE_QUERY(...) \
   memgraph::query::test_common::GetSingleQuery(this->storage.template Create<SingleQuery>(), __VA_ARGS__)
 #define UNION(...) \
@@ -739,11 +753,18 @@ auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
 #define COUNT(expr, distinct)                                                  \
   this->storage.template Create<memgraph::query::Aggregation>((expr), nullptr, \
                                                               memgraph::query::Aggregation::Op::COUNT, (distinct))
-#define AVG(expr, distinct) \
-  storage.Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::AVG, (distinct))
-#define COLLECT_LIST(expr, distinct)                                                                            \
-  storage.Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::COLLECT_LIST, \
-                                               (distinct))
+#define AVG(expr, distinct)                                                                                           \
+  this->storage.template Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::AVG, \
+                                                              (distinct))
+#define AGG_MIN(expr, distinct)                                                                                       \
+  this->storage.template Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::MIN, \
+                                                              (distinct))
+#define AGG_MAX(expr, distinct)                                                                                       \
+  this->storage.template Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::MAX, \
+                                                              (distinct))
+#define COLLECT_LIST(expr, distinct)                           \
+  this->storage.template Create<memgraph::query::Aggregation>( \
+      (expr), nullptr, memgraph::query::Aggregation::Op::COLLECT_LIST, (distinct))
 #define EQ(expr1, expr2) this->storage.template Create<memgraph::query::EqualOperator>((expr1), (expr2))
 #define NEQ(expr1, expr2) this->storage.template Create<memgraph::query::NotEqualOperator>((expr1), (expr2))
 #define AND(expr1, expr2) this->storage.template Create<memgraph::query::AndOperator>((expr1), (expr2))

@@ -267,3 +267,15 @@ TEST_F(TestPrivilegeExtractor, ParallelQuery) {
   EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::MATCH, AuthQuery::Privilege::PARALLEL_EXECUTION));
 }
+
+TEST_F(TestPrivilegeExtractor, ParallelQueryWithThreads) {
+  auto *query = PARALLEL_QUERY_WITH_THREADS(LITERAL(4), SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n")));
+  EXPECT_THAT(GetRequiredPrivileges(query),
+              UnorderedElementsAre(AuthQuery::Privilege::MATCH, AuthQuery::Privilege::PARALLEL_EXECUTION));
+}
+
+TEST_F(TestPrivilegeExtractor, ParallelQueryCreate) {
+  auto *query = PARALLEL_QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")))));
+  EXPECT_THAT(GetRequiredPrivileges(query),
+              UnorderedElementsAre(AuthQuery::Privilege::CREATE, AuthQuery::Privilege::PARALLEL_EXECUTION));
+}
