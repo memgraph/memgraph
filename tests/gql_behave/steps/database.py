@@ -11,6 +11,7 @@
 
 # -*- coding: utf-8 -*-
 
+
 def query(q, context, params={}):
     """
     Function used to execute query on database. Query results are
@@ -25,6 +26,11 @@ def query(q, context, params={}):
         List of query results.
     """
     results_list = []
+
+    # Prepend USING PARALLEL EXECUTION to data queries (those with RETURN) when flag is set
+    if getattr(context.config, "parallel_execution", False):
+        if "RETURN" in q.upper():
+            q = "USING PARALLEL EXECUTION " + q
 
     session = context.driver.session()
     try:
@@ -44,7 +50,7 @@ def query(q, context, params={}):
     except Exception as e:
         # exception
         context.exception = e
-        context.log.info('%s', str(e))
+        context.log.info("%s", str(e))
     finally:
         session.close()
 
