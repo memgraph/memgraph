@@ -1312,7 +1312,7 @@ build_pymgclient() {
   fi
   docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/scripts && ./build-pymgclient.sh"
   package_name=$(docker exec -i -u mg $build_container bash -c "ls \$HOME/memgraph/mage/scripts/pymgclient/dist/")
-  docker cp $build_container:/home/mg/memgraph/mage/scripts/pymgclient/dist/$package_name wheels/
+  docker cp $build_container:/home/mg/memgraph/mage/scripts/pymgclient/dist/$package_name mage/wheels/
   echo -e "${GREEN_BOLD}Package: ${RED_BOLD}$package_name${RESET}"
 }
 
