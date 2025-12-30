@@ -73,7 +73,7 @@ DEFAULT_ORGANIZATION_NAME="memgraph"
 DEFAULT_BENCH_GRAPH_HOST="bench-graph-api"
 DEFAULT_BENCH_GRAPH_PORT="9001"
 DEFAULT_MGDEPS_CACHE_HOST="mgdeps-cache"
-DEFAULT_MGDEPS_CACHE_PORT="8000"
+DEFAULT_MGDEPS_CACHE_PORT="80"
 DEFAULT_CCACHE_ENABLED="true"
 DEFAULT_CONAN_CACHE_ENABLED="true"
 DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
@@ -1553,6 +1553,16 @@ case $command in
         "
       fi
 
+      # This network will allo w the mgbuild container to access the mgdeps cache container
+      # check for `mgbuild_network` network and create it if it doesn't exist
+      if ! docker network inspect mgbuild_network > /dev/null 2>&1; then
+        docker network create mgbuild_network
+      fi
+
+      # add the build container to the `mgbuild_network` network
+      docker network connect mgbuild_network $build_container
+      docker network connect mgbuild_network mgdeps-cache || true  # allow this to fail if the mgdeps cache container is not running
+
       # Clean up override files if they were created
       cleanup_cache_override
     ;;
@@ -1574,7 +1584,15 @@ case $command in
       done
 
       # clean up conan cache inside container
-      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && ./tools/clean_conan.sh 1w"
+      if docker exec -u mg $build_container bash -c "test -d /home/mg/.conan2"; then
+        docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && ./tools/clean_conan.sh 1w"
+      fi
+
+      # remove the build container from the `mgbuild_network` network
+      docker network disconnect mgbuild_network $build_container
+      docker network disconnect mgbuild_network mgdeps-cache || true
+      docker network rm mgbuild_network || true
+      echo "mgbuild_network network removed"
 
       # Create cache override files (same logic as run command)
       compose_files=$(setup_cache_override)
