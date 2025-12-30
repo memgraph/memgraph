@@ -47,6 +47,8 @@ on:
         description: "Run smoke tests on images after building (tests against previous tagged image)"
         default: false
 
+run-name: "Package MAGE"
+
 jobs:
   BuildMage:
     if: ${{ !inputs.matrix_build }}

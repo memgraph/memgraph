@@ -93,6 +93,7 @@ env:
 jobs:
   BuildAndPush:
     runs-on: [self-hosted, DockerMgBuild, Linux, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
+    timeout-minutes: 30
     outputs:
       s3_package_url: ${{ steps.output-url.outputs.s3_url }}
     steps:
@@ -289,7 +290,7 @@ jobs:
           --os "$OS" \
           --arch $ARCH \
           copy-heaptrack \
-          --dest-dir "$(pwd)/release/docker"
+          --dest-dir "$(pwd)/mage"
 
       - name: Probe fastest mirror
         run: |
@@ -333,10 +334,6 @@ jobs:
             --build-type $BUILD_TYPE \
             build-pymgclient
 
-      # - name: Build heaptrack
-      #   if: ${{ inputs.mage_build_type == 'RelWithDebInfo' }}
-      #   run: |
-      #     ./mage/scripts/container-build-heaptrack.sh $CONTAINER_NAME
 
       - name: Run tests
         if: ${{ inputs.run_tests == true }}
@@ -360,7 +357,8 @@ jobs:
             --toolchain $TOOLCHAIN \
             --os "$OS" \
             --arch $ARCH \
-            generate-memgraph-build-sbom
+            generate-memgraph-build-sbom \
+            --conan-remote $CONAN_REMOTE
 
       - name: "Stop mgbuild container"
         if: always()

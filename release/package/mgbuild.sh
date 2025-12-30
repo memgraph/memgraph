@@ -1317,6 +1317,19 @@ build_pymgclient() {
 }
 
 generate_memgraph_build_sbom() {
+  local conan_remote=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --conan-remote)
+        conan_remote=$2
+        shift 2
+      ;;
+    esac
+  done
+
+  if [[ -z "$conan_remote" ]]; then
+    echo -e "${YELLOW_BOLD}CONAN_REMOTE not set${RESET}"
+  fi
 
   if [[ -d sbom ]]; then
     echo -e "${YELLOW_BOLD}SBOM directory already exists${RESET}"
