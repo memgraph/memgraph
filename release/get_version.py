@@ -125,7 +125,7 @@ def check_dns_availability(timeout=0.05):
     return False
 
 
-def can_connect_to_github(url="https://www.github.com", timeout=3):
+def can_connect_to_github(host=("github.com", 443), timeout=3):
     """
     Check if we can connect to GitHub.
 
@@ -138,7 +138,7 @@ def can_connect_to_github(url="https://www.github.com", timeout=3):
         print("Warning: Could not connect to GitHub - DNS resolution failed", flush=True, file=sys.stderr)
         return False
 
-    if not check_connection(url, timeout):
+    if not check_connection(host, timeout):
         print("Warning: Could not connect to GitHub - connection failed", flush=True, file=sys.stderr)
         return False
 
@@ -321,7 +321,10 @@ try:
                 if can_connect:
                     get_output("git", "fetch", "origin", "master")
                 else:
-                    print("WARNING: Could not connect to GitHub. Unable to fetch master branch, continuing with local branch.", file=sys.stderr)
+                    print(
+                        "WARNING: Could not connect to GitHub. Unable to fetch master branch, continuing with local branch.",
+                        file=sys.stderr,
+                    )
             except Exception:
                 pass
         else:
@@ -420,8 +423,8 @@ if current_version is None:
         )
 
         # just use latest version found locally in tags
-        tags = get_output("git", "tag").strip().split('\n')
-        non_rc_tags = [t for t in tags if 'rc' not in t and t]
+        tags = get_output("git", "tag").strip().split("\n")
+        non_rc_tags = [t for t in tags if "rc" not in t and t]
         tag = non_rc_tags[-1] if non_rc_tags else ""
         if tag:
             # regex match for x.y.z format
