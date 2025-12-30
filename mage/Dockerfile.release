@@ -48,7 +48,7 @@ USER memgraph
 COPY --chown=memgraph:memgraph ./scripts/install_python_requirements.sh /home/memgraph/install_python_requirements.sh
 COPY --chown=memgraph:memgraph ./wheels /tmp/wheels
 RUN cd $HOME && \
-    if [ "$TARGETARCH" = "arm64" ]; then \
+    if [ "$TARGETARCH" = "arm" ]; then \
       pip install --no-cache-dir /tmp/wheels/pymgclient-*.whl --break-system-packages; \
     fi && \
     chmod +x /home/memgraph/install_python_requirements.sh && \
