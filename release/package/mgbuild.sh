@@ -1857,6 +1857,7 @@ case $command in
     ;;
     generate-mage-image-sbom)
       generate_mage_image_sbom $@
+    ;;
     build-ssl)
       build_ssl $@
     ;;
