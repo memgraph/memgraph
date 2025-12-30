@@ -29,8 +29,11 @@ on:
         default: false
         description: "Test malloc build"
 
+run-name: "Smoke Testing MAGE"
+
 jobs:
   smoke-release-tests-setup:
+    name: "Setup Smoke Testing"
     if: ${{ github.event_name != 'push' }}
     runs-on: ubuntu-latest
     outputs:
@@ -55,6 +58,7 @@ jobs:
 
 
   smoke-release-single:
+    name: "Smoke Testing MAGE (Single)"
     needs: smoke-release-tests-setup
     if: ${{ github.event_name != 'push' && needs.smoke-release-tests-setup.outputs.run_all == 'false' }}
     uses: ./.github/workflows/reusable_smoke_test_mage.yml
@@ -67,6 +71,7 @@ jobs:
 
 
   smoke-release-all:
+    name: "Smoke Testing MAGE (All)"
     needs: smoke-release-tests-setup
     if: ${{ github.event_name != 'push' && needs.smoke-release-tests-setup.outputs.run_all == 'true' }}
     strategy:
@@ -86,6 +91,7 @@ jobs:
     secrets: inherit
 
   smoke-push-tests:
+    name: "Smoke Testing MAGE (Push)"
     if: ${{ github.event_name == 'push' }}
     uses: ./.github/workflows/reusable_smoke_test_mage.yml
     with:
