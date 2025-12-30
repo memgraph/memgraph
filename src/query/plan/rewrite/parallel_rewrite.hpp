@@ -263,8 +263,8 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
       return failure("No target scan or scan parent found");
     }
 
-    // Operator -> Scan -> etc is rewritten to OperatorParallel -> Operator -> ScanChunk -> ParallelMerge ->
-    // ScanParallel -> etc
+    // Operator -> Scan -> etc is rewritten to
+    // OperatorParallel -> Operator -> ScanChunk -> ParallelMerge -> ScanParallel -> etc
     auto scan_input = target_scan->input();
     auto state_symbol = symbol_table->CreateAnonymousSymbol();
     auto scan_parallel = CreateScanParallel(target_scan, scan_input, state_symbol);
@@ -465,16 +465,12 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                              scan->label_, scan->properties_, scan->expression_ranges_);
     }
     if (scan_type == ScanAllByPointDistance::kType) {
-      auto *scan = dynamic_cast<ScanAllByPointDistance *>(scan_op);
-      return std::make_shared<ScanParallelByPointDistance>(input, scan->view_, num_threads_, state_symbol, scan->label_,
-                                                           scan->property_, scan->cmp_value_, scan->boundary_value_,
-                                                           scan->boundary_condition_);
+      // Not supported at the moment
+      return nullptr;
     }
     if (scan_type == ScanAllByPointWithinbbox::kType) {
-      auto *scan = dynamic_cast<ScanAllByPointWithinbbox *>(scan_op);
-      return std::make_shared<ScanParallelByWithinbbox>(input, scan->view_, num_threads_, state_symbol, scan->label_,
-                                                        scan->property_, scan->bottom_left_, scan->top_right_,
-                                                        scan->boundary_value_);
+      // Not supported at the moment
+      return nullptr;
     }
 
     // Handle edge scan variants
