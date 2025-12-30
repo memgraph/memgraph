@@ -338,7 +338,7 @@ jobs:
       - name: Run tests
         if: ${{ inputs.run_tests == true }}
         run: |
-          TEST_ARGS="${{ inputs.malloc && '--malloc' || '' }}${{ inputs.cuda && ' --cuda' || '' }}${{ env.CACHE_PRESENT == 'true' && ' --cache-present' || '' }}"
+          TEST_ARGS="${{ inputs.cuda && ' --cuda' || '' }}${{ env.CACHE_PRESENT == 'true' && ' --cache-present' || '' }}"
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \

@@ -1276,6 +1276,11 @@ test_mage() {
         cuda=true
         shift 1
       ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
     esac
   done
 
