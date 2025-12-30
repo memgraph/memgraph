@@ -9618,16 +9618,7 @@ ScanParallelByPointDistance::ScanParallelByPointDistance(const std::shared_ptr<L
 ACCEPT_WITH_INPUT(ScanParallelByPointDistance)
 
 UniqueCursorPtr ScanParallelByPointDistance::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
-  // Note: PointVertices doesn't have a chunked version, so we fall back to regular vertices with label
-  // This is a limitation that should be addressed in the future
-  auto get_chunks = [this](Frame & /*unused*/, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    // For now, we can't chunk point distance queries, so we use regular label-based chunking
-    // This is not ideal but maintains compatibility
-    return db->ChunkedVertices(view_, label_, num_threads_);
-  };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+  throw utils::NotYetImplemented("Parallel scan over point distance!");
 }
 
 std::string ScanParallelByPointDistance::ToString() const {
@@ -9662,16 +9653,7 @@ ScanParallelByWithinbbox::ScanParallelByWithinbbox(const std::shared_ptr<Logical
 ACCEPT_WITH_INPUT(ScanParallelByWithinbbox)
 
 UniqueCursorPtr ScanParallelByWithinbbox::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO: add specific metric
-  // Note: PointVertices doesn't have a chunked version, so we fall back to regular vertices with label
-  // This is a limitation that should be addressed in the future
-  auto get_chunks = [this](Frame & /*unused*/, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    // For now, we can't chunk point within bbox queries, so we use regular label-based chunking
-    // This is not ideal but maintains compatibility
-    return db->ChunkedVertices(view_, label_, num_threads_);
-  };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+  throw utils::NotYetImplemented("Parallel scan over point within bbox!");
 }
 
 std::string ScanParallelByWithinbbox::ToString() const {

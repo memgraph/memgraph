@@ -185,12 +185,14 @@ constexpr utils::TypeInfo query::plan::SetNestedProperty::kType{utils::TypeId::S
 constexpr utils::TypeInfo query::plan::RemoveNestedProperty::kType{
     utils::TypeId::REMOVE_NESTED_PROPERTY, "RemoveNestedProperty", &query::plan::LogicalOperator::kType};
 
-constexpr utils::TypeInfo query::plan::ScanAllByPointDistance::kType{
-    utils::TypeId::SCAN_ALL_BY_POINT_DISTANCE, "ScanAllByPointDistance", &query::plan::ScanAllByPointDistance::kType};
+constexpr utils::TypeInfo query::plan::ScanAllByPointDistance::kType{.id = utils::TypeId::SCAN_ALL_BY_POINT_DISTANCE,
+                                                                     .name = "ScanAllByPointDistance",
+                                                                     .superclass = &query::plan::ScanAll::kType};
 
-constexpr utils::TypeInfo query::plan::ScanAllByPointWithinbbox::kType{utils::TypeId::SCAN_ALL_BY_POINT_WITHINBBOX,
-                                                                       "ScanAllByPointWithinbbox",
-                                                                       &query::plan::ScanAllByPointWithinbbox::kType};
+constexpr utils::TypeInfo query::plan::ScanAllByPointWithinbbox::kType{
+    .id = utils::TypeId::SCAN_ALL_BY_POINT_WITHINBBOX,
+    .name = "ScanAllByPointWithinbbox",
+    .superclass = &query::plan::ScanAll::kType};
 
 constexpr utils::TypeInfo query::plan::ScanChunk::kType{
     .id = utils::TypeId::SCAN_CHUNK, .name = "ScanChunk", .superclass = &query::plan::ScanAll::kType};
