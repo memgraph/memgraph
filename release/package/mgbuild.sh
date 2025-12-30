@@ -85,6 +85,7 @@ print_help () {
   echo -e "\nCommands:"
   echo -e "  build [OPTIONS]               Build mgbuild image"
   echo -e "  build-memgraph [OPTIONS]      Build memgraph binary inside mgbuild container"
+  echo -e "  build-ssl [OPTIONS]           Build OpenSSL inside mgbuild container"
   echo -e "  init-tests                    Initialize tests inside mgbuild container"
   echo -e "  copy [OPTIONS]                Copy an artifact from mgbuild container to host"
   echo -e "  package-memgraph              Create memgraph package from built binary inside mgbuild container"
@@ -134,6 +135,12 @@ print_help () {
   echo -e "  --conan-username string       Specify conan username (default \"\")"
   echo -e "  --conan-password string       Specify conan password (default \"\")"
   echo -e "  --build-dependency string     Specify build dependency (default \"\"). Set to \"all\" to install all dependencies, or a specific dependency name to install only that dependency. Dependencies are specified in the format of \"<package>/<version>\"."
+
+  echo -e "\nbuild-ssl options:"
+  echo -e "  --conan-remote string         Specify conan remote (optional)"
+  echo -e "  --conan-username string       Specify conan username (optional, but required for uploading to remote)"
+  echo -e "  --conan-password string       Specify conan password (optional, but required for uploading to remote)"
+  echo -e "  --version string              Specify OpenSSL version (default \"3.5.4\")"
 
   echo -e "\ncopy options (default \"--binary\"):"
   echo -e "  --artifact-name string        Specify a custom name for the copied artifact"
@@ -383,12 +390,20 @@ copy_project_files() {
 upload_conan_cache() {
   local conan_username=$1
   local conan_password=$2
+  local package_name=""
+  if [[ $# -gt 2 ]]; then
+    package_name=$3
+  fi
   if [[ -z "$conan_username" ]] || [[ -z "$conan_password" ]]; then
     echo "Warning: Conan username and password are required for Conan cache upload"
     return 0
   fi
   docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan remote login -p $conan_password artifactory $conan_username"
-  docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan upload \"*/*\" -r=artifactory --confirm"
+  if [[ -n "$package_name" ]]; then
+    docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan upload \"$package_name\" -r=artifactory --confirm"
+  else
+    docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan upload \"*/*\" -r=artifactory --confirm"
+  fi
   return $?
 }
 
@@ -1196,6 +1211,50 @@ copy_heaptrack() {
   docker cp $build_container:/tmp/heaptrack/ $dest_dir
 }
 
+build_ssl() {
+  local conan_remote=""
+  local conan_username=""
+  local conan_password=""
+  local ssl_version="3.5.4"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --conan-remote)
+        conan_remote=$2
+        shift 2
+      ;;
+      --conan-username)
+        conan_username=$2
+        shift 2
+      ;;
+      --conan-password)
+        conan_password=$2
+        shift 2
+      ;;
+      --version)
+        ssl_version=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  echo "Building OpenSSL $ssl_version in $build_container..."
+  local conan_remote_flag=""
+  if [[ -n "$conan_remote" ]]; then
+    conan_remote_flag="--conan-remote $conan_remote"
+  fi
+  ./tools/openssl/container-build.sh $build_container $conan_remote_flag --version $ssl_version
+
+  if [[ -n "$conan_username" ]] && [[ -n "$conan_password" ]]; then
+    upload_conan_cache $conan_username $conan_password "openssl/$ssl_version"
+  fi
+
+  echo "OpenSSL built and uploaded to conan cache"
+}
 ##################################################
 ################### PARSE ARGS ###################
 ##################################################
@@ -1576,6 +1635,9 @@ case $command in
     ;;
     copy-heaptrack)
       copy_heaptrack $@
+    ;;
+    build-ssl)
+      build_ssl $@
     ;;
     *)
         echo "Error: Unknown command '$command'"

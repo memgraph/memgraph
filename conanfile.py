@@ -87,6 +87,10 @@ class Memgraph(ConanFile):
         self.requires("spdlog/1.15.3")
         self.requires("strong_type/v15")
         self.requires("zlib/1.3.1")
+        # We force Memgraph and all its dependencies to dynamically link to OpenSSL. We use version
+        # 3.0 here so that the binary can dynamically link to any version of OpenSSL >=3 and < 4,
+        # therefore allowing it to work with any package provided by our supported Linux distributions.
+        self.requires("openssl/3.0.18", override=True, options={"shared": True})
 
     def build_requirements(self):
         self.tool_requires("cmake/4.1.2")
