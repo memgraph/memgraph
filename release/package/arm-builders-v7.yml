@@ -9,7 +9,6 @@ services:
       args:
         TOOLCHAIN_VERSION: "v7"
     extra_hosts:
-      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_debian-12-arm"
 
@@ -20,7 +19,6 @@ services:
       args:
         TOOLCHAIN_VERSION: "v7"
     extra_hosts:
-      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_debian-13-arm"
 
@@ -31,7 +29,6 @@ services:
       args:
         TOOLCHAIN_VERSION: "v7"
     extra_hosts:
-      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_ubuntu-24.04-arm"
 
@@ -42,6 +39,5 @@ services:
       args:
         TOOLCHAIN_VERSION: "v7"
     extra_hosts:
-      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_fedora-42-arm"
