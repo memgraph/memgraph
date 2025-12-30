@@ -19,30 +19,33 @@ function cleanup() {
 
 trap cleanup ERR EXIT
 
-python3 -m venv env
-source env/bin/activate
-pip install conan
+# only do this part if we have not already ran `conan install` as part of the memgraph build
+if [[ ! -f "$HOME/memgraph/build/generators/sbom/memgraph-sbom.cdx.json" ]]; then
+  python3 -m venv env
+  source env/bin/activate
+  pip install conan
 
-if [[ ! -f "$HOME/.conan2/profiles/default" ]]; then
-  conan profile detect
+  if [[ ! -f "$HOME/.conan2/profiles/default" ]]; then
+    conan profile detect
+  fi
+
+  conan config install conan_config
+
+  if [[ -n "$CONAN_REMOTE" ]]; then
+    conan remote add artifactory $CONAN_REMOTE --force
+  fi
+
+  # This is not ideal, because it means that we need to have the cache populated with all the dependencies
+  # or build the dependencies before generating the SBOM.
+  BUILD_TYPE=Release
+  MG_TOOLCHAIN_ROOT=/opt/toolchain-v7 conan install \
+    . \
+    --build=missing \
+    -pr:h memgraph_template_profile \
+    -pr:b memgraph_build_profile \
+    -s build_type="$BUILD_TYPE" \
+    -s:a os=Linux \
+    -s:a os.distro="ubuntu-24.04"
 fi
-
-conan config install conan_config
-
-if [[ -n "$CONAN_REMOTE" ]]; then
-  conan remote add artifactory $CONAN_REMOTE --force
-fi
-
-# This is not ideal, because it means that we need to have the cache populated with all the dependencies
-# or build the dependencies before generating the SBOM.
-BUILD_TYPE=Release
-MG_TOOLCHAIN_ROOT=/opt/toolchain-v7 conan install \
-  . \
-  --build=missing \
-  -pr:h memgraph_template_profile \
-  -pr:b memgraph_build_profile \
-  -s build_type="$BUILD_TYPE" \
-  -s:a os=Linux \
-  -s:a os.distro="ubuntu-24.04"
 
 ./tools/sbom/build-sbom.sh

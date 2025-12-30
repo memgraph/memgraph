@@ -83,17 +83,20 @@ print_help () {
   echo -e "\nInteract with mgbuild containers"
 
   echo -e "\nCommands:"
-  echo -e "  build [OPTIONS]               Build mgbuild image"
-  echo -e "  build-memgraph [OPTIONS]      Build memgraph binary inside mgbuild container"
-  echo -e "  init-tests                    Initialize tests inside mgbuild container"
-  echo -e "  copy [OPTIONS]                Copy an artifact from mgbuild container to host"
-  echo -e "  package-memgraph              Create memgraph package from built binary inside mgbuild container"
-  echo -e "  package-docker [OPTIONS]      Create memgraph docker image and pack it as .tar.gz"
-  echo -e "  pull                          Pull mgbuild image from dockerhub"
-  echo -e "  push [OPTIONS]                Push mgbuild image to dockerhub"
-  echo -e "  run [OPTIONS]                 Run mgbuild container"
-  echo -e "  stop [OPTIONS]                Stop mgbuild container"
-  echo -e "  test-memgraph TEST            Run a selected test TEST (see supported tests below) inside mgbuild container"
+  echo -e "  build [OPTIONS]                    Build mgbuild image"
+  echo -e "  build-memgraph [OPTIONS]           Build memgraph binary inside mgbuild container"
+  echo -e "  init-tests                         Initialize tests inside mgbuild container"
+  echo -e "  copy [OPTIONS]                     Copy an artifact from mgbuild container to host"
+  echo -e "  package-memgraph                   Create memgraph package from built binary inside mgbuild container"
+  echo -e "  package-docker [OPTIONS]           Create memgraph docker image and pack it as .tar.gz"
+  echo -e "  pull                               Pull mgbuild image from dockerhub"
+  echo -e "  push [OPTIONS]                     Push mgbuild image to dockerhub"
+  echo -e "  run [OPTIONS]                      Run mgbuild container"
+  echo -e "  stop [OPTIONS]                     Stop mgbuild container"
+  echo -e "  test-memgraph TEST                 Run a selected test TEST (see supported tests below) inside mgbuild container"
+  echo -e "  generate-memgraph-build-sbom       Generate Memgraph build SBOM"
+  echo -e "  generate-mage-image-sbom [OPTIONS] Generate MAGE image SBOM"
+  echo -e "  build-pymgclient                   Build pymgclient inside mgbuild container"
 
   echo -e "\nSupported tests:"
   echo -e "  \"${SUPPORTED_TESTS[*]}\""
@@ -162,6 +165,9 @@ print_help () {
   echo -e "  --dataset string              Specify dataset to benchmark (default \"pokec\")"
   echo -e "  --size string                 Specify dataset size: (for pokec: small, medium, large) (default \"medium\")"
   echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result.json\")"
+
+  echo -e "\ngenerate-mage-image-sbom options:"
+  echo -e "  --image-name string           Specify the image name (required)"
 
   echo -e "\nToolchain v4 supported OSs:"
   echo -e "  \"${SUPPORTED_OS_V4[*]}\""
@@ -1310,6 +1316,48 @@ build_pymgclient() {
   echo -e "${GREEN_BOLD}Package: ${RED_BOLD}$package_name${RESET}"
 }
 
+generate_memgraph_build_sbom() {
+
+  if [[ -d sbom ]]; then
+    echo -e "${YELLOW_BOLD}SBOM directory already exists${RESET}"
+  else
+    mkdir -p sbom
+  fi
+
+  # generate the Memgraph SBOM
+  echo -e "${GREEN_BOLD}Generating Memgraph SBOM within container${RESET}"
+  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/mage && export CONAN_REMOTE=$conan_remote && ./scripts/sbom/memgraph-sbom.sh"
+  docker cp $build_container:/home/mg/memgraph/sbom/memgraph-build-sbom.json sbom/
+  echo -e "${GREEN_BOLD}Memgraph SBOM: ${RED_BOLD}sbom/memgraph-build-sbom.json${RESET}"
+}
+
+generate_mage_image_sbom() {
+  local image_name=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --image-name)
+        image_name=$2
+        shift 2
+      ;;
+    esac
+  done
+
+  if [[ -z "$image_name" ]]; then
+    echo -e "${RED_BOLD}Image name not provided${RESET}"
+    exit 1
+  fi
+
+  if [[ ! -f sbom/memgraph-build-sbom.json ]]; then
+    echo -e "${RED_BOLD}Memgraph SBOM not found, please generate it first${RESET}"
+    exit 1
+  fi
+
+  # generate the MAGE image SBOM
+  echo -e "${GREEN_BOLD}Generating MAGE image SBOM${RESET}"
+  ./mage/scripts/sbom/mage-sbom.sh "${image_name}"
+  echo -e "${GREEN_BOLD}MAGE image SBOM: ${RED_BOLD}sbom/mage-image-sbom.json${RESET}"
+}
+
 ##################################################
 ################### PARSE ARGS ###################
 ##################################################
@@ -1702,6 +1750,12 @@ case $command in
     ;;
     build-pymgclient)
       build_pymgclient $@
+    ;;
+    generate-memgraph-build-sbom)
+      generate_memgraph_build_sbom $@
+    ;;
+    generate-mage-image-sbom)
+      generate_mage_image_sbom $@
     ;;
     *)
         echo "Error: Unknown command '$command'"

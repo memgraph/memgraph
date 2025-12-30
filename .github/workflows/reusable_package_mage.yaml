@@ -356,8 +356,11 @@ jobs:
         env:
           CONAN_REMOTE: "${{ secrets.CONAN_REMOTE }}"
         run: |
-          cd mage
-          ./scripts/sbom/mgbuild-container-sbom.sh $CONTAINER_NAME
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            generate-memgraph-build-sbom
 
       - name: "Stop mgbuild container"
         if: always()
@@ -395,8 +398,12 @@ jobs:
       - name: Generate SBOM
         if: ${{ inputs.generate_sbom == true }}
         run: |
-          cd mage
-          ./scripts/sbom/mage-sbom.sh "${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG"
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            generate-mage-image-sbom \
+            --image-name "${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG"
 
       - name: Upload SBOM to GitHub
         if: ${{ inputs.generate_sbom == true }}
