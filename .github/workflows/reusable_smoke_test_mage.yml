@@ -26,6 +26,7 @@ env:
 
 jobs:
   smoke-test-image:
+    name: "Smoke Test Image (${{ inputs.arch}} ${{ inputs.malloc && ',malloc' || '' }}; ${{ inputs.last_version }} -> ${{ inputs.next_version }})"
     runs-on: ${{ (inputs.arch == 'arm64') && fromJSON('["self-hosted", "ARM64"]') || fromJSON('["self-hosted", "X64"]') }}
     steps:
       - name: Checkout repository and submodules
@@ -122,7 +123,7 @@ jobs:
         run: |
           python3 -m venv env
           source env/bin/activate
-          pip install -r mage/smoke-release-testing/requirements.txt --break-system-packages
+          pip install -r mage/smoke-release-testing/requirements.txt
 
       - name: Run Tests
         env:

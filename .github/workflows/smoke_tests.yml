@@ -4,6 +4,7 @@ concurrency:
   cancel-in-progress: true
 
 on:
+  push:
   workflow_dispatch:
     inputs:
       next_version:
@@ -30,6 +31,7 @@ on:
 
 jobs:
   smoke-release-tests-setup:
+    if: ${{ github.event_name != 'push' }}
     runs-on: ubuntu-latest
     outputs:
       run_all: ${{ steps.determine.outputs.run_all }}
@@ -54,7 +56,7 @@ jobs:
 
   smoke-release-single:
     needs: smoke-release-tests-setup
-    if: ${{ needs.smoke-release-tests-setup.outputs.run_all == 'false' }}
+    if: ${{ github.event_name != 'push' && needs.smoke-release-tests-setup.outputs.run_all == 'false' }}
     uses: ./.github/workflows/reusable_smoke_test_mage.yml
     with:
       arch: "${{ inputs.arch }}"
@@ -66,7 +68,7 @@ jobs:
 
   smoke-release-all:
     needs: smoke-release-tests-setup
-    if: ${{ needs.smoke-release-tests-setup.outputs.run_all == 'true' }}
+    if: ${{ github.event_name != 'push' && needs.smoke-release-tests-setup.outputs.run_all == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -81,4 +83,14 @@ jobs:
       next_version: "${{ inputs.next_version }}"
       last_version: "${{ inputs.last_version }}"
       malloc: ${{ matrix.malloc }}
+    secrets: inherit
+
+  smoke-push-tests:
+    if: ${{ github.event_name == 'push' }}
+    uses: ./.github/workflows/reusable_smoke_test_mage.yml
+    with:
+      arch: "amd"
+      next_version: "3.7.2"
+      last_version: "3.7.1"
+      malloc: false
     secrets: inherit
