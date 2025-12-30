@@ -1840,7 +1840,6 @@ case $command in
     copy-heaptrack)
       copy_heaptrack $@
     ;;
-<<<<<<< HEAD
     build-mage)
       build_mage $@
     ;;
@@ -1858,10 +1857,8 @@ case $command in
     ;;
     generate-mage-image-sbom)
       generate_mage_image_sbom $@
-=======
     build-ssl)
       build_ssl $@
->>>>>>> master
     ;;
     *)
         echo "Error: Unknown command '$command'"
