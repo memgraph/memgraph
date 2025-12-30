@@ -1303,7 +1303,7 @@ test_mage() {
   docker cp mage/python/$requirements_file $build_container:/tmp/$requirements_file
   docker cp src/auth/reference_modules/requirements.txt $build_container:/tmp/auth_module-requirements.txt
   docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/ && \
-    ./scripts/install_python_requirements.sh --ci --cache-present $cache_present --cuda $cuda --arch $arch && \
+    ./scripts/install_python_requirements.sh --ci --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
     pip install -r \$HOME/memgraph/mage/python/tests/requirements.txt --break-system-packages"
   docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/python/ && python3 -m pytest ."
 }
