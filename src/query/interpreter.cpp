@@ -5091,18 +5091,22 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
         if (auto maybe_error = mem_storage->RecoverSnapshot(path, force, replication_role); !maybe_error.has_value()) {
           switch (maybe_error.error()) {
-            case storage::InMemoryStorage::RecoverSnapshotError::DisabledForReplica:
+            using enum storage::InMemoryStorage::RecoverSnapshotError;
+            case DisabledForReplica:
               throw utils::BasicException(
                   "Failed to recover a snapshot. Replica instances are not allowed to create them.");
-            case storage::InMemoryStorage::RecoverSnapshotError::NonEmptyStorage:
+            case NonEmptyStorage:
               throw utils::BasicException("Failed to recover a snapshot. Storage is not clean. Try using FORCE.");
-            case storage::InMemoryStorage::RecoverSnapshotError::MissingFile:
+            case MissingFile:
               throw utils::BasicException("Failed to find the defined snapshot file.");
-            case storage::InMemoryStorage::RecoverSnapshotError::CopyFailure:
+            case CopyFailure:
               throw utils::BasicException("Failed to copy snapshot over to local snapshots directory.");
-            case storage::InMemoryStorage::RecoverSnapshotError::BackupFailure:
+            case BackupFailure:
               throw utils::BasicException(
                   "Failed to clear local wal and snapshots directories. Please clean them manually.");
+            case DownloadFailure:
+              throw utils::BasicException("Fail to download snapshot file {}", path);
+              std::unreachable();
           }
         }
         // REPLICATION

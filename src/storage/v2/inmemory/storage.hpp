@@ -135,6 +135,7 @@ class InMemoryStorage final : public Storage {
     MissingFile,
     CopyFailure,
     BackupFailure,
+    DownloadFailure
   };
 
   /// @throw std::system_error
@@ -718,8 +719,7 @@ class InMemoryStorage final : public Storage {
   std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> CreateSnapshot(bool force = false);
 
   std::expected<void, InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
-      std::filesystem::path path, bool force,
-      memgraph::replication_coordination_glue::ReplicationRole replication_role);
+      std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role);
 
   std::vector<SnapshotFileInfo> ShowSnapshots();
 

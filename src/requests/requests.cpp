@@ -47,7 +47,7 @@ auto DownloadProgressCb(void *clientp, curl_off_t dltotal, curl_off_t dlnow, cur
   auto *data = static_cast<ProgressData *>(clientp);
 
   // Catch HintedAbortError and abort the transfer if got the request to terminate the transactions
-  // abort_check_ could be a nullptr
+  // abort_check_ could be a nullptr.
   if (data->abort_check_) {
     try {
       data->abort_check_();
