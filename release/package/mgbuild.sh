@@ -1297,7 +1297,7 @@ test_mage() {
   docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/python/ && python3 -m pytest ."
 }
 
-package_pymgclient() {
+build_pymgclient() {
   echo -e "${GREEN_BOLD}Packaging pymgclient${RESET}"
   if [[ -d wheels ]]; then
     echo -e "${YELLOW_BOLD}Wheels directory already exists${RESET}"
