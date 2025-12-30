@@ -38,6 +38,7 @@
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
 
+import memgraph.utils.aws;
 namespace memgraph::dbms {
 class InMemoryReplicationHandlers;
 }  // namespace memgraph::dbms
@@ -135,7 +136,8 @@ class InMemoryStorage final : public Storage {
     MissingFile,
     CopyFailure,
     BackupFailure,
-    DownloadFailure
+    DownloadFailure,
+    S3GetFailure
   };
 
   /// @throw std::system_error
@@ -719,7 +721,8 @@ class InMemoryStorage final : public Storage {
   std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> CreateSnapshot(bool force = false);
 
   std::expected<void, InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
-      std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role);
+      std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role,
+      std::optional<utils::S3Config> s3_config);
 
   std::vector<SnapshotFileInfo> ShowSnapshots();
 

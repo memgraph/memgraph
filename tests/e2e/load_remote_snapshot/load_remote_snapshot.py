@@ -14,7 +14,7 @@ from pathlib import Path
 
 import boto3
 import pytest
-from common import connect, execute_and_fetch_all, get_file_path
+from common import connect, execute_and_fetch_all
 from mgclient import DatabaseError
 
 # LocalStack configuration
@@ -28,35 +28,39 @@ BUCKET_NAME = "deps.memgraph.io"
 SNAPSHOT_FILE = "test_snapshot"
 
 
-# def test_file_exists_s3_with_config():
-#     cursor = connect(host="localhost", port=7687).cursor()
+def test_file_exists_s3_with_config():
+    cursor = connect(host="localhost", port=7687).cursor()
 
-#     execute_and_fetch_all(cursor, f"set database setting 'aws.region' to '{AWS_REGION}'")
-#     execute_and_fetch_all(cursor, f"set database setting 'aws.access_key' to '{AWS_ACCESS_KEY_ID}'")
-#     execute_and_fetch_all(cursor, f"set database setting 'aws.secret_key' to '{AWS_SECRET_ACCESS_KEY}'")
-#     execute_and_fetch_all(cursor, f"set database setting 'aws.endpoint_url' to '{AWS_ENDPOINT_URL}'")
+    load_query = f"RECOVER SNAPSHOT 's3://{BUCKET_NAME}/{SNAPSHOT_FILE}' WITH CONFIG {{'aws_region': '{AWS_REGION}', 'aws_access_key': '{AWS_ACCESS_KEY_ID}', 'aws_secret_key': '{AWS_SECRET_ACCESS_KEY}', 'aws_endpoint_url': '{AWS_ENDPOINT_URL}' }} FORCE"
 
-#     load_query = f"LOAD JSONL FROM 's3://{BUCKET_NAME}/test_types.jsonl' WITH CONFIG {{'aws_region': '{AWS_REGION}', 'aws_access_key': '{AWS_ACCESS_KEY_ID}', 'aws_secret_key': '{AWS_SECRET_ACCESS_KEY}', 'aws_endpoint_url': '{AWS_ENDPOINT_URL}' }} AS row CREATE (n:N {{id: row.id, name: row.name}})"
-
-#     execute_and_fetch_all(cursor, load_query)
-#     execute_and_fetch_all(cursor, "match (n) detach delete n")
+    execute_and_fetch_all(cursor, load_query)
+    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
+    execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 
-# def test_file_exists_s3():
-#     cursor = connect(host="localhost", port=7687).cursor()
+def test_file_exists_no_s3_config():
+    cursor = connect(host="localhost", port=7687).cursor()
 
-#     execute_and_fetch_all(cursor, f"set database setting 'aws.region' to '{AWS_REGION}'")
-#     execute_and_fetch_all(cursor, f"set database setting 'aws.access_key' to '{AWS_ACCESS_KEY_ID}'")
-#     execute_and_fetch_all(cursor, f"set database setting 'aws.secret_key' to '{AWS_SECRET_ACCESS_KEY}'")
-#     execute_and_fetch_all(cursor, f"set database setting 'aws.endpoint_url' to '{AWS_ENDPOINT_URL}'")
+    load_query = f"RECOVER SNAPSHOT 's3://{BUCKET_NAME}/{SNAPSHOT_FILE}' FORCE"
+    try:
+        execute_and_fetch_all(cursor, load_query)
+    except DatabaseError as e:
+        assert str(e) == "Failed to download snapshot file from s3 s3://deps.memgraph.io/test_snapshot"
 
-#     # load_query = f"LOAD JSONL FROM 's3://{BUCKET_NAME}/test_types.jsonl' WITH CONFIG {{'aws_region': '{AWS_REGION}', 'aws_access_key': '{AWS_ACCESS_KEY_ID}', 'aws_secret_key': '{AWS_SECRET_ACCESS_KEY}', 'aws_endpoint_url': '{AWS_ENDPOINT_URL}' }} WITH HEADER AS row CREATE (n:N {{id: row.id, name: row.name}})"
-#     load_query = (
-#         f"LOAD JSONL FROM 's3://{BUCKET_NAME}/test_types.jsonl' AS row CREATE (n:N {{id: row.id, name: row.name}})"
-#     )
 
-#     execute_and_fetch_all(cursor, load_query)
-#     execute_and_fetch_all(cursor, "match (n) detach delete n")
+def test_file_exists_s3_db_settings():
+    cursor = connect(host="localhost", port=7687).cursor()
+
+    execute_and_fetch_all(cursor, f"set database setting 'aws.region' to '{AWS_REGION}'")
+    execute_and_fetch_all(cursor, f"set database setting 'aws.access_key' to '{AWS_ACCESS_KEY_ID}'")
+    execute_and_fetch_all(cursor, f"set database setting 'aws.secret_key' to '{AWS_SECRET_ACCESS_KEY}'")
+    execute_and_fetch_all(cursor, f"set database setting 'aws.endpoint_url' to '{AWS_ENDPOINT_URL}'")
+
+    load_query = f"RECOVER SNAPSHOT 's3://{BUCKET_NAME}/{SNAPSHOT_FILE}' FORCE"
+
+    execute_and_fetch_all(cursor, load_query)
+    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
+    execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 
 def test_http_file():
@@ -66,10 +70,25 @@ def test_http_file():
     execute_and_fetch_all(cursor, setting_query)
     res = dict(execute_and_fetch_all(cursor, "show database settings"))
     assert res[SETTING_KEY] == "400"
-    load_query = f"RECOVER SNAPSHOT '{AWS_ENDPOINT_URL}/{BUCKET_NAME}/{SNAPSHOT_FILE}'"
+    load_query = f"RECOVER SNAPSHOT '{AWS_ENDPOINT_URL}/{BUCKET_NAME}/{SNAPSHOT_FILE}' FORCE"
     execute_and_fetch_all(cursor, load_query)
     assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
     execute_and_fetch_all(cursor, "match (n) detach delete n")
+
+
+def test_http_file_not_existing():
+    cursor = connect(host="localhost", port=7687).cursor()
+    SETTING_KEY = "file.download_conn_timeout_sec"
+    setting_query = f"set database setting '{SETTING_KEY}' to '400'"
+    execute_and_fetch_all(cursor, setting_query)
+    res = dict(execute_and_fetch_all(cursor, "show database settings"))
+    assert res[SETTING_KEY] == "400"
+    try:
+        load_query = f"RECOVER SNAPSHOT '{AWS_ENDPOINT_URL}/{BUCKET_NAME}/{SNAPSHOT_FILE}_why' FORCE"
+    except DatabaseError as e:
+        assert (
+            str(e) == "Failed to download snapshot file from http://localhost:4566/deps.memgraph.io/test_snapshot_why"
+        )
 
 
 def prepare_file():

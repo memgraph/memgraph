@@ -12,6 +12,7 @@
 #include "query/interpreter.hpp"
 #include <bits/ranges_algo.h>
 #include <fmt/core.h>
+#include "ctre.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -128,6 +129,8 @@
 #include "flags/experimental.hpp"
 #endif
 
+import memgraph.utils.aws;
+
 namespace r = ranges;
 namespace rv = ranges::views;
 
@@ -147,6 +150,18 @@ extern const Event ActiveTransactions;
 
 extern const Event ShowSchema;
 }  // namespace memgraph::metrics
+
+namespace {
+// Builds a map of run-time settings
+auto BuildRunTimeS3Config() -> std::map<std::string, std::string, std::less<>> {
+  std::map<std::string, std::string, std::less<>> config;
+  config.emplace(memgraph::utils::kAwsRegionQuerySetting, memgraph::flags::run_time::GetAwsRegion());
+  config.emplace(memgraph::utils::kAwsAccessKeyQuerySetting, memgraph::flags::run_time::GetAwsAccessKey());
+  config.emplace(memgraph::utils::kAwsSecretKeyQuerySetting, memgraph::flags::run_time::GetAwsSecretKey());
+  config.emplace(memgraph::utils::kAwsEndpointUrlQuerySetting, memgraph::flags::run_time::GetAwsEndpointUrl());
+  return config;
+}
+}  // namespace
 
 // Accessors need to be able to throw if unable to gain access. Otherwise there could be a deadlock, where some queries
 // gained access during prepare, but can't execute (in PULL) because other queries are still preparing/waiting for
@@ -5082,30 +5097,59 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
   auto path_value = recover_query->snapshot_->Accept(evaluator);
 
+  auto maybe_config_map = ParseConfigMap(recover_query->configs_, evaluator);
+  if (!maybe_config_map) {
+    throw QueryRuntimeException("Failed to parse config map for the RECOVER SNAPSHOT query!");
+  }
+
+  if (maybe_config_map->size() > 4) {
+    throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
+                                utils::kAwsRegionQuerySetting, utils::kAwsAccessKeyQuerySetting,
+                                utils::kAwsSecretKeyQuerySetting, utils::kAwsEndpointUrlQuerySetting);
+  }
+
+  constexpr auto s3_matcher = ctre::starts_with<"s3://">;
+
+  std::optional<utils::S3Config> s3_config;
+  if (s3_matcher(path_value.ValueString())) {
+    s3_config.emplace(utils::S3Config::Build(std::move(*maybe_config_map), BuildRunTimeS3Config()));
+  }
+
   return PreparedQuery{
       .header = {},
       .privileges = std::move(parsed_query.required_privileges),
       .query_handler = [db_acc = *current_db.db_acc_, replication_role, path = std::move(path_value.ValueString()),
-                        force = recover_query->force_](AnyStream * /*stream*/, std::optional<int> /*n*/) mutable
-      -> std::optional<QueryHandlerResult> {
+                        force = recover_query->force_, s3_cfg = std::move(s3_config)](
+                           AnyStream * /*stream*/,
+                           std::optional<int> /*n*/) mutable -> std::optional<QueryHandlerResult> {
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
-        if (auto maybe_error = mem_storage->RecoverSnapshot(path, force, replication_role); !maybe_error.has_value()) {
+        if (auto maybe_error = mem_storage->RecoverSnapshot(path, force, replication_role, std::move(s3_cfg));
+            !maybe_error.has_value()) {
           switch (maybe_error.error()) {
             using enum storage::InMemoryStorage::RecoverSnapshotError;
-            case DisabledForReplica:
+            case DisabledForReplica: {
               throw utils::BasicException(
                   "Failed to recover a snapshot. Replica instances are not allowed to create them.");
-            case NonEmptyStorage:
+            }
+            case NonEmptyStorage: {
               throw utils::BasicException("Failed to recover a snapshot. Storage is not clean. Try using FORCE.");
-            case MissingFile:
+            }
+            case MissingFile: {
               throw utils::BasicException("Failed to find the defined snapshot file.");
-            case CopyFailure:
+            }
+            case CopyFailure: {
               throw utils::BasicException("Failed to copy snapshot over to local snapshots directory.");
-            case BackupFailure:
+            }
+            case BackupFailure: {
               throw utils::BasicException(
                   "Failed to clear local wal and snapshots directories. Please clean them manually.");
-            case DownloadFailure:
-              throw utils::BasicException("Fail to download snapshot file {}", path);
+            }
+            case DownloadFailure: {
+              throw utils::BasicException("Failed to download snapshot file from {}", path);
+            }
+            case S3GetFailure: {
+              throw utils::BasicException("Failed to download snapshot file from s3 {}", path);
+            }
               std::unreachable();
           }
         }

@@ -132,7 +132,8 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
   return true;
 }
 
-// File will be destroyed when it goes out of scope by calling std::fclose
+// File will be destroyed when it goes out of scope by calling std::fclose.
+// Clients are responsible for deleting the file if the downnload fails
 bool CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file, uint64_t const connection_timeout,
                            std::function<void()> abort_check) {
   CURL *curl = nullptr;
@@ -162,6 +163,8 @@ bool CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file, ui
   curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0);
   curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &progress_data);
   curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, DownloadProgressCb);
+  // Fail fast on HTTP errors (don't write error pages to file)
+  curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
 
   res = curl_easy_perform(curl);
 

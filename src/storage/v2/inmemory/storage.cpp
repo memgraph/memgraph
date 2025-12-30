@@ -3079,7 +3079,8 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
 
 // NOTE: Make sure this function is called while exclusively holding on to the main lock
 std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::RecoverSnapshot(
-    std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+    std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role,
+    std::optional<utils::S3Config> s3_config) {
   using memgraph::replication_coordination_glue::ReplicationRole;
   if (replication_role == ReplicationRole::REPLICA) {
     return std::unexpected{InMemoryStorage::RecoverSnapshotError::DisabledForReplica};
@@ -3088,6 +3089,11 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
   auto const uri_str = uri.string();
   const auto local_path = recovery_.snapshot_directory_ / uri.filename();
   const bool file_in_local_dir = local_path == uri;
+
+  auto handler_error = [&]() {
+    // If file was copied over, delete...
+    if (!file_in_local_dir) file_retainer_.DeleteFile(local_path);
+  };
 
   constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
   constexpr auto s3_matcher = ctre::starts_with<"s3://">;
@@ -3098,12 +3104,20 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
 
     if (!requests::CreateAndDownloadFile(uri_str, std::move(file),
                                          memgraph::flags::run_time::GetFileDownloadConnTimeoutSec())) {
+      // Delete the empty or partially written file
+      handler_error();
       return std::unexpected{InMemoryStorage::RecoverSnapshotError::DownloadFailure};
     }
 
     spdlog::trace("Downloaded snapshot file from {} to {}", uri_str, local_path.string());
 
   } else if (s3_matcher(uri_str)) {
+    DMG_ASSERT(s3_config.has_value(), "S3Config doesn't have a value");
+    if (!utils::GetS3Object(uri, *s3_config, local_path.string())) {
+      spdlog::error("Failed to download file {}", uri.string());
+      return std::unexpected{InMemoryStorage::RecoverSnapshotError::S3GetFailure};
+    }
+
   } else {  // local filesystem path
     if (!std::filesystem::exists(uri) || std::filesystem::is_directory(uri)) {
       return std::unexpected{InMemoryStorage::RecoverSnapshotError::MissingFile};
@@ -3119,11 +3133,6 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
       }
     }
   }
-
-  auto handler_error = [&]() {
-    // If file was copied over, delete...
-    if (!file_in_local_dir) file_retainer_.DeleteFile(local_path);
-  };
 
   auto file_locker = file_retainer_.AddLocker();
   (void)file_locker.Access().AddPath(local_path);
