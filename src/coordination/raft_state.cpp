@@ -213,20 +213,11 @@ auto RaftState::InitRaftServer() -> void {
 RaftState::~RaftState() {
   spdlog::trace("Shutting down RaftState for coordinator_{}", coordinator_id_);
 
-  utils::OnScopeExit const reset_shared_ptrs{[this]() {
-    state_machine_.reset();
-    state_manager_.reset();
-    logger_.reset();
-  }};
-
-  if (!raft_server_) {
-    spdlog::warn("Raft server not initialized for coordinator_{}, shutdown not necessary", coordinator_id_);
-    return;
+  if (raft_server_) {
+    raft_server_->shutdown();
+    raft_server_.reset();
+    spdlog::trace("Raft server closed");
   }
-  raft_server_->shutdown();
-  raft_server_.reset();
-
-  spdlog::trace("Raft server closed");
 
   if (asio_listener_) {
     asio_listener_->stop();
@@ -241,11 +232,11 @@ RaftState::~RaftState() {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
       count++;
     }
+    if (asio_service_->get_active_workers() > 0) {
+      spdlog::warn("Failed to shutdown raft server correctly for coordinator_{} in 5s", coordinator_id_);
+    }
+    spdlog::trace("Asio service closed");
   }
-  if (asio_service_->get_active_workers() > 0) {
-    spdlog::warn("Failed to shutdown raft server correctly for coordinator_{} in 5s", coordinator_id_);
-  }
-  spdlog::trace("Asio service closed");
 }
 
 auto RaftState::GetCoordinatorEndpoint(int32_t coordinator_id) const -> std::string {
