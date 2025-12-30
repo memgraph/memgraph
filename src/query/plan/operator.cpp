@@ -9934,10 +9934,7 @@ class ParallelBranchCursor : public Cursor {
         // TODO Try to not allocate since Scan will copy it. Problem if we return before Scan; will crash
         Frame frame_local(static_cast<int64_t>(frame_size));
 
-        try {
-          pre_pull_func(cursor.get());
-          pull_result.fetch_add((int)cursor->Pull(frame_local, context));
-          // Store the context copy after execution for unification
+        auto on_exit = utils::OnScopeExit([&]() {
           // Force state reset (life extended through the context)
           // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
           const_cast<std::optional<ScopedProfile> &>(profile).reset();
@@ -9948,18 +9945,21 @@ class ParallelBranchCursor : public Cursor {
           }
           // NOTE: hops limit is shared between threads, so we need to free the leftover quota
           context.hops_limit.Free();
+          // Move current context to the branch context for unification
           branch_contexts[metadata_i] = std::move(context);
+        });
+
+        try {
+          pre_pull_func(cursor.get());
+          pull_result.fetch_add((int)cursor->Pull(frame_local, context));
           post_pull_func(cursor.get());
         } catch (const std::exception &e) {
           // Stop all other threads
           DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
-          if (context.stopping_context.exception_occurred->load(std::memory_order_acquire)) {
-            // Exception already occurred, skip this thread
-            return;
+          if (!context.stopping_context.exception_occurred->fetch_or(true, std::memory_order::acq_rel)) {
+            // Set exception occurred flag and pass exception to the main thread
+            exceptions[i] = std::current_exception();
           }
-          // Set exception occurred flag and pass exception to the main thread
-          context.stopping_context.exception_occurred->store(true, std::memory_order_release);
-          exceptions[i] = std::current_exception();
           return;
         }
       });
@@ -9978,20 +9978,19 @@ class ParallelBranchCursor : public Cursor {
     // Execute branch 0 on the main thread
     const auto &cursor = branch_cursors_[0];
     try {
+      pre_pull_func(cursor.get());
       pull_result.fetch_add((int)cursor->Pull(frame, context));
+      // NOTE: hops limit is shared between threads, so we need to free the leftover quota
+      context.hops_limit.Free();
       post_pull_func(cursor.get());
     } catch (const std::exception &e) {
       DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
-      if (!context.stopping_context.exception_occurred->load(std::memory_order_acquire)) {
+      if (!context.stopping_context.exception_occurred->fetch_or(true, std::memory_order::acq_rel)) {
         // Exception occurred on the main thread, set flag and pass exception to the main thread
-        context.stopping_context.exception_occurred->store(true, std::memory_order_release);
         exceptions[0] = std::current_exception();
       }
     }
 
-    // NOTE: hops limit is shared between threads, so we need to free the leftover quota
-    // Successive increments to the hops limit will reset the quota
-    context.hops_limit.Free();
     collection_scheduler_->WaitOrSteal();
 
     // Check for exceptions

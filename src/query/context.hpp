@@ -76,7 +76,7 @@ struct StoppingContext {
   std::atomic<TransactionStatus> *transaction_status{nullptr};
   std::atomic<bool> *is_shutting_down{nullptr};
   std::shared_ptr<utils::AsyncTimer> timer{};
-  std::shared_ptr<std::atomic_bool> exception_occurred{nullptr};  // Used only for parallel execution
+  std::shared_ptr<std::atomic<uint8_t>> exception_occurred{nullptr};  // Used only for parallel execution
 
   auto MustAbort() const noexcept -> AbortReason {
     if (transaction_status && transaction_status->load(std::memory_order_acquire) == TransactionStatus::TERMINATED)

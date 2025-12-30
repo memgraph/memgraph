@@ -7733,7 +7733,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
           .transaction_status = &transaction_status_,
           .is_shutting_down = &interpreter_context_->is_shutting_down,
           .timer = current_timeout_timer_,
-          .exception_occurred = parallel_execution ? std::make_shared<std::atomic_bool>(false) : nullptr,
+          .exception_occurred = parallel_execution ? std::make_shared<std::atomic<uint8_t>>(false) : nullptr,
       };
     };
 
