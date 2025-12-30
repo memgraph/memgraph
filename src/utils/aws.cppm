@@ -24,7 +24,6 @@ module;
 
 #include "spdlog/spdlog.h"
 #include "utils/counter.hpp"
-#include "utils/exceptions.hpp"
 
 export module memgraph.utils.aws;
 
@@ -181,7 +180,8 @@ auto ExtractBucketAndObjectKey(std::string_view uri) -> std::optional<std::pair<
   return std::make_pair(uri.substr(0, slash_pos), uri.substr(slash_pos + 1));
 }
 
-auto GetS3ObjectOutcome(std::string uri, S3Config const &s3_config) -> std::optional<Aws::S3::Model::GetObjectOutcome> {
+auto GetS3ObjectOutcome(std::string_view uri, S3Config const &s3_config)
+    -> std::optional<Aws::S3::Model::GetObjectOutcome> {
   Aws::Auth::AWSCredentials const credentials(*s3_config.aws_access_key, *s3_config.aws_secret_key);
   // Use path-style for S3-compatible services (4th param = false)
   Aws::S3::S3Client const s3_client(credentials,
@@ -201,7 +201,7 @@ auto GetS3Object(std::string uri, S3Config const &s3_config, std::ostream &ostre
     return false;
   }
   GlobalS3APIManager::GetInstance();
-  auto const outcome = GetS3ObjectOutcome(std::move(uri), s3_config);
+  auto const outcome = GetS3ObjectOutcome(uri, s3_config);
 
   auto const res = outcome.transform([&](auto const &outcome) -> bool {
     if (!outcome.IsSuccess()) {

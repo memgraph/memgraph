@@ -722,7 +722,7 @@ class InMemoryStorage final : public Storage {
 
   std::expected<void, InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
       std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role,
-      std::optional<utils::S3Config> s3_config);
+      std::optional<utils::S3Config> s3_config = std::nullopt);
 
   std::vector<SnapshotFileInfo> ShowSnapshots();
 
