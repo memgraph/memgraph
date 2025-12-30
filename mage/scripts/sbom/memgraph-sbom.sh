@@ -3,24 +3,24 @@
 set -euo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-SOURCE_DIR="$( cd "$SCRIPT_DIR/../.." && pwd )"
+SOURCE_DIR="$( cd "$SCRIPT_DIR/../../.." && pwd )"
 CONAN_REMOTE=${CONAN_REMOTE:-""}
 
 # move into the memgraph directory and attempt to generate
-cd $SOURCE_DIR/cpp/memgraph
+cd $SOURCE_DIR
 
 function cleanup() {
     exit_code=$?
     cd $SOURCE_DIR
-    rm -rf $SOURCE_DIR/cpp/memgraph/env || true
-    rm -rf $SOURCE_DIR/cpp/memgraph/build || true
+    rm -rf $SOURCE_DIR/env || true
+    rm -rf $SOURCE_DIR/build || true
     exit $exit_code
 }
 
 trap cleanup ERR EXIT
 
 # only do this part if we have not already ran `conan install` as part of the memgraph build
-if [[ ! -f "$HOME/memgraph/build/generators/sbom/memgraph-sbom.cdx.json" ]]; then
+if [[ ! -f "$SOURCE_DIR/build/generators/sbom/memgraph-sbom.cdx.json" ]]; then
   python3 -m venv env
   source env/bin/activate
   pip install conan
