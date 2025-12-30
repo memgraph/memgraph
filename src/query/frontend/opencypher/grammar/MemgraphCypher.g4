@@ -630,7 +630,7 @@ storageModeQuery : STORAGE MODE storageMode ;
 
 createSnapshotQuery : CREATE SNAPSHOT ;
 
-recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( FORCE )? ;
+recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( WITH CONFIG configsMap=configMap ) ? ( FORCE )? ;
 
 showSnapshotsQuery : SHOW SNAPSHOTS ;
 
