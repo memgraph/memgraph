@@ -10,7 +10,7 @@ CONTAINER_NAME=mgbuild
 CI=false
 CACHE_PRESENT=false
 CUDA=false
-ARCH=amd64
+ARCH=amd
 while [[ $# -gt 0 ]]; do
   case $1 in
     --container-name)

@@ -5,7 +5,7 @@ set -euo pipefail
 CI=false
 CACHE_PRESENT=false
 CUDA=false
-ARCH=amd64
+ARCH=amd
 WHEEL_CACHE_DIR="$(pwd)/wheels"
 DEB_PACKAGE=false
 while [[ $# -gt 0 ]]; do
@@ -41,7 +41,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$CUDA" == true && "$ARCH" != "amd64" ]]; then
+if [[ "$CUDA" == true && "$ARCH" != "amd" ]]; then
     echo "CUDA is only supported on amd64 architecture."
     exit 1
 fi
@@ -67,7 +67,7 @@ else
     python3 -m pip install --no-cache-dir -r "$(pwd)/../src/auth/reference_modules/requirements.txt"
 fi
 
-if [ "$ARCH" = "arm64" ]; then
+if [ "$ARCH" = "arm" ]; then
     if [ "$CACHE_PRESENT" = "true" ]; then
         echo "Using cached torch packages"
         python3 -m pip install --no-index --find-links=$WHEEL_CACHE_DIR torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter
