@@ -162,7 +162,7 @@ jobs:
           mkdir -p mage/wheels
           if [ "$CACHE_PRESENT" = "true" ]; then
             echo "Cache is present. Fetching wheels..."
-            wget -r -np -nH --cut-dirs=1 -P mage/wheels "http://mgdeps-cache:8000/wheels/"
+            wget -nv -r -np -nH --cut-dirs=1 -P mage/wheels "http://mgdeps-cache:8000/wheels/"
           else
             echo "Cache is not present. Skipping wheel fetch."
           fi
@@ -333,7 +333,7 @@ jobs:
             --arch $ARCH \
             --build-type $BUILD_TYPE \
             build-pymgclient
-
+          ls -la mage/wheels
 
       - name: Run tests
         if: ${{ inputs.run_tests == true }}
