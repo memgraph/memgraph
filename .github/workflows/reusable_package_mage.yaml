@@ -6,7 +6,7 @@ on:
         type: string
         description: "Architecture to build the image for"
         required: true
-      mage_build_type:
+      build_type:
         type: string
         description: "Mage build type"
         default: 'Release'
@@ -70,7 +70,7 @@ env:
   OS: "${{ inputs.arch == 'arm' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}"
   ARCH: "${{ inputs.arch }}"
   DOCKER_REPOSITORY_NAME: memgraph/memgraph-mage
-  BUILD_TYPE: "${{ inputs.mage_build_type }}"
+  BUILD_TYPE: "${{ inputs.build_type }}"
   MALLOC: "${{ inputs.malloc }}"
   CUDA: "${{ inputs.cuda }}"
   CONTAINER_NAME: "mgbuild"

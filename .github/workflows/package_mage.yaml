@@ -4,14 +4,14 @@ on:
   push:
   workflow_dispatch:
     inputs:
-      mage_build_arch:
+      build_arch:
         type: choice
         description: "Mage build architecture"
         default: 'amd'
         options:
           - "amd"
           - "arm"
-      mage_build_type:
+      build_type:
         type: choice
         description: "Mage build type"
         default: 'Release'
@@ -54,8 +54,8 @@ jobs:
     if: ${{ !inputs.matrix_build }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
-      arch: ${{ github.event.inputs.mage_build_arch || 'amd' }}
-      mage_build_type: ${{ github.event.inputs.mage_build_type || 'Release' }}
+      arch: ${{ github.event.inputs.build_arch || 'amd' }}
+      build_type: ${{ github.event.inputs.build_type || 'Release' }}
       memgraph_download_link: ${{ github.event.inputs.memgraph_download_link || '' }}
       s3_dest_dir: ${{ inputs.s3_dest_dir }}
       shorten_tag: true
@@ -63,7 +63,7 @@ jobs:
       push_to_s3: ${{ inputs.push_to_s3 }}
       malloc: ${{ inputs.malloc }}
       run_smoke_tests: ${{ inputs.run_smoke_tests }}
-      generate_sbom: ${{ inputs.mage_build_arch == 'amd' && inputs.mage_build_type == 'Release' }}
+      generate_sbom: ${{ inputs.build_arch == 'amd' && inputs.build_type == 'Release' }}
     secrets: inherit
 
   # New matrix build job, runs only when matrix_build is true
@@ -89,7 +89,7 @@ jobs:
 
     with:
       arch: ${{ matrix.build_arch }}
-      mage_build_type: ${{ matrix.build_type }}
+      build_type: ${{ matrix.build_type }}
       memgraph_download_link: ${{ github.event.inputs.memgraph_download_link || '' }}
       s3_dest_dir: ${{ inputs.s3_dest_dir }}
       shorten_tag: true
@@ -97,7 +97,7 @@ jobs:
       push_to_s3: ${{ inputs.push_to_s3 }}
       malloc: ${{ matrix.malloc }}
       run_smoke_tests: ${{ inputs.run_smoke_tests }}
-      generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc }}
+      generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc && !matrix.cuda }}
     secrets: inherit
 
 
@@ -122,7 +122,7 @@ jobs:
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: ${{ matrix.build_arch }}
-      mage_build_type: ${{ matrix.build_type }}
+      build_type: ${{ matrix.build_type }}
       memgraph_download_link: ''
       s3_dest_dir: "mage-unofficial/monorepo"
       shorten_tag: true
