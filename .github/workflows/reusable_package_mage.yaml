@@ -326,9 +326,12 @@ jobs:
         run: |
           # This has to be done here, otherwise we will need to build pymgclient from source within
           # docker image build because we currently do not provide an arm64 wheel for Linux.
-          docker exec -i -u mg $CONTAINER_NAME bash -c "cd /home/mg/mage/scripts && ./build-pymgclient.sh"
-          package_name=$(docker exec -i -u mg $CONTAINER_NAME bash -c "ls /home/mg/mage/scripts/pymgclient/dist/")
-          docker cp $CONTAINER_NAME:/home/mg/mage/scripts/pymgclient/dist/$package_name wheels/
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            package-pymgclient
 
       # - name: Build heaptrack
       #   if: ${{ inputs.mage_build_type == 'RelWithDebInfo' }}

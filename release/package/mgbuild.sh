@@ -1296,6 +1296,20 @@ test_mage() {
     pip install -r \$HOME/memgraph/mage/python/tests/requirements.txt --break-system-packages"
   docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/python/ && python3 -m pytest ."
 }
+
+package_pymgclient() {
+  echo -e "${GREEN_BOLD}Packaging pymgclient${RESET}"
+  if [[ -d wheels ]]; then
+    echo -e "${YELLOW_BOLD}Wheels directory already exists${RESET}"
+  else
+    mkdir -p wheels
+  fi
+  docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage && ./scripts/build-pymgclient.sh"
+  package_name=$(docker exec -i -u mg $build_container bash -c "ls \$HOME/memgraph/mage/scripts/pymgclient/dist/")
+  docker cp $build_container:/home/mg/mage/scripts/pymgclient/dist/$package_name wheels/
+  echo -e "${GREEN_BOLD}Package: ${RED_BOLD}$package_name${RESET}"
+}
+
 ##################################################
 ################### PARSE ARGS ###################
 ##################################################
