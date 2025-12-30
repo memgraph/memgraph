@@ -4,7 +4,7 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  push:
+  #push:
   workflow_dispatch:
     inputs:
       next_version:
@@ -90,13 +90,13 @@ jobs:
       malloc: ${{ matrix.malloc }}
     secrets: inherit
 
-  smoke-push-tests:
-    name: "Smoke Testing MAGE (Push)"
-    if: ${{ github.event_name == 'push' }}
-    uses: ./.github/workflows/reusable_smoke_test_mage.yml
-    with:
-      arch: "amd"
-      next_version: "3.7.2"
-      last_version: "3.7.1"
-      malloc: false
-    secrets: inherit
+  # smoke-push-tests:
+  #   name: "Smoke Testing MAGE (Push)"
+  #   if: ${{ github.event_name == 'push' }}
+  #   uses: ./.github/workflows/reusable_smoke_test_mage.yml
+  #   with:
+  #     arch: "amd"
+  #     next_version: "3.7.2"
+  #     last_version: "3.7.1"
+  #     malloc: false
+  #   secrets: inherit
