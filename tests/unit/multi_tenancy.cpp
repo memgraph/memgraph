@@ -109,10 +109,12 @@ class MultiTenantTest : public ::testing::Test {
 
   struct MinMemgraph {
     explicit MinMemgraph(const memgraph::storage::Config &conf)
-        : auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
+        : settings{conf.durability.storage_directory / "settings"},
+          auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
           repl_state{ReplicationStateRootPath(conf)},
           dbms{conf, repl_state, auth, true},
           interpreter_context{{},
+                              &settings,
                               &dbms,
                               repl_state,
                               system
@@ -122,17 +124,14 @@ class MultiTenantTest : public ::testing::Test {
                               nullptr
 #endif
           } {
-      memgraph::utils::global_settings.Initialize(conf.durability.storage_directory / "settings");
-      memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker,
-                                                 memgraph::utils::global_settings);
-      memgraph::flags::run_time::Initialize();
+      memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker, settings);
+      memgraph::flags::run_time::Initialize(settings);
       memgraph::license::global_license_checker.CheckEnvLicense();
     }
 
-    ~MinMemgraph() { memgraph::utils::global_settings.Finalize(); }
-
     auto NewInterpreter() { return InterpreterFaker{&interpreter_context, dbms.Get()}; }
 
+    memgraph::utils::Settings settings;
     memgraph::auth::SynchedAuth auth;
     memgraph::system::System system;
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state;

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,15 +40,12 @@ TEST_F(SettingsTest, RegisterSetting) {
   const std::string default_value{"value"};
 
   {
-    memgraph::utils::Settings settings;
-
-    settings.Initialize(settings_directory);
+    memgraph::utils::Settings settings(settings_directory);
     settings.RegisterSetting(setting_name, default_value, DummyCallback);
     CheckSettingValue(settings, setting_name, default_value);
   }
   {
-    memgraph::utils::Settings settings;
-    settings.Initialize(settings_directory);
+    memgraph::utils::Settings settings(settings_directory);
     // registering the same object shouldn't change its value
     settings.RegisterSetting(setting_name, fmt::format("{}-modified", default_value), DummyCallback);
     CheckSettingValue(settings, setting_name, default_value);
@@ -59,8 +56,7 @@ TEST_F(SettingsTest, RegisterSettingCallback) {
   const std::string setting_name{"name"};
   const std::string default_value{"value"};
 
-  memgraph::utils::Settings settings;
-  settings.Initialize(settings_directory);
+  memgraph::utils::Settings settings(settings_directory);
 
   size_t callback_counter{0};
   const auto callback = [&]() { ++callback_counter; };
@@ -85,8 +81,7 @@ TEST_F(SettingsTest, GetSetRegisteredSetting) {
   const std::string setting_value{"value"};
   const std::string default_value{"default"};
 
-  memgraph::utils::Settings settings;
-  settings.Initialize(settings_directory);
+  memgraph::utils::Settings settings(settings_directory);
   settings.RegisterSetting(setting_name, default_value, DummyCallback);
 
   CheckSettingValue(settings, setting_name, default_value);
@@ -95,15 +90,13 @@ TEST_F(SettingsTest, GetSetRegisteredSetting) {
 }
 
 TEST_F(SettingsTest, GetSetUnregisteredSetting) {
-  memgraph::utils::Settings settings;
-  settings.Initialize(settings_directory);
+  memgraph::utils::Settings settings(settings_directory);
   ASSERT_FALSE(settings.GetValue("Somesetting")) << "Accessed unregistered setting";
   ASSERT_FALSE(settings.SetValue("Somesetting", "Somevalue")) << "Modified unregistered setting";
 }
 
 TEST_F(SettingsTest, Initialization) {
-  memgraph::utils::Settings settings;
-  settings.Initialize(settings_directory);
+  memgraph::utils::Settings settings(settings_directory);
   ASSERT_NO_FATAL_FAILURE(settings.GetValue("setting"));
   ASSERT_NO_FATAL_FAILURE(settings.SetValue("setting", "value"));
   ASSERT_NO_FATAL_FAILURE(settings.AllSettings());
@@ -125,8 +118,7 @@ std::vector<std::pair<std::string, std::string>> GenerateSettings(const size_t a
 TEST_F(SettingsTest, AllSettings) {
   const auto generated_settings = GenerateSettings(100);
 
-  memgraph::utils::Settings settings;
-  settings.Initialize(settings_directory);
+  memgraph::utils::Settings settings(settings_directory);
   for (const auto &[setting_name, setting_value] : generated_settings) {
     settings.RegisterSetting(setting_name, setting_value, DummyCallback);
   }
@@ -135,35 +127,44 @@ TEST_F(SettingsTest, AllSettings) {
 
 TEST_F(SettingsTest, Persistance) {
   auto generated_settings = GenerateSettings(100);
+  {
+    memgraph::utils::Settings settings(settings_directory);
 
-  memgraph::utils::Settings settings;
-  settings.Initialize(settings_directory);
+    for (const auto &[setting_name, setting_value] : generated_settings) {
+      settings.RegisterSetting(setting_name, setting_value, DummyCallback);
+    }
 
-  for (const auto &[setting_name, setting_value] : generated_settings) {
-    settings.RegisterSetting(setting_name, setting_value, DummyCallback);
+    ASSERT_THAT(settings.AllSettings(), testing::UnorderedElementsAreArray(generated_settings));
   }
-
-  ASSERT_THAT(settings.AllSettings(), testing::UnorderedElementsAreArray(generated_settings));
-
-  // reinitialize to other directory and then back to the first
-  settings.Initialize(test_directory / "other_settings");
-  ASSERT_TRUE(settings.AllSettings().empty());
-
-  settings.Initialize(settings_directory);
-  ASSERT_THAT(settings.AllSettings(), testing::UnorderedElementsAreArray(generated_settings));
-
-  for (size_t i = 0; i < generated_settings.size(); ++i) {
-    auto &[setting_name, setting_value] = generated_settings[i];
-    setting_value = fmt::format("new_value{}", i);
-    settings.SetValue(setting_name, setting_value);
+  {
+    // reinitialize to other directory and then back to the first
+    memgraph::utils::Settings settings(test_directory / "other_settings");
+    ASSERT_TRUE(settings.AllSettings().empty());
   }
+  {
+    memgraph::utils::Settings settings(settings_directory);
+    ASSERT_THAT(settings.AllSettings(), testing::UnorderedElementsAreArray(generated_settings));
 
-  ASSERT_THAT(settings.AllSettings(), testing::UnorderedElementsAreArray(generated_settings));
+    // Setting's data is persisted, but not the callbacks
+    for (const auto &[setting_name, setting_value] : generated_settings) {
+      settings.RegisterSetting(setting_name, setting_value, DummyCallback);
+    }
 
-  // reinitialize to other directory and then back to the first
-  settings.Initialize(test_directory / "other_settings");
-  ASSERT_TRUE(settings.AllSettings().empty());
+    for (size_t i = 0; i < generated_settings.size(); ++i) {
+      auto &[setting_name, setting_value] = generated_settings[i];
+      setting_value = fmt::format("new_value{}", i);
+      settings.SetValue(setting_name, setting_value);
+    }
 
-  settings.Initialize(settings_directory);
-  ASSERT_THAT(settings.AllSettings(), testing::UnorderedElementsAreArray(generated_settings));
+    ASSERT_THAT(settings.AllSettings(), testing::UnorderedElementsAreArray(generated_settings));
+  }
+  {
+    // reinitialize to other directory and then back to the first
+    memgraph::utils::Settings settings(test_directory / "other_settings");
+    ASSERT_TRUE(settings.AllSettings().empty());
+  }
+  {
+    memgraph::utils::Settings settings(settings_directory);
+    ASSERT_THAT(settings.AllSettings(), testing::UnorderedElementsAreArray(generated_settings));
+  }
 }

@@ -72,6 +72,7 @@ class TransactionQueueMultipleTest : public ::testing::Test {
   memgraph::system::System system_state;
   memgraph::query::InterpreterContext interpreter_context{{},
                                                           nullptr,
+                                                          nullptr,
                                                           repl_state,
                                                           system_state
 #ifdef MG_ENTERPRISE

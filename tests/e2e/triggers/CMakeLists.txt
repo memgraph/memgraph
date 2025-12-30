@@ -12,7 +12,7 @@ target_link_libraries(memgraph__e2e__triggers__on_update memgraph__e2e__triggers
 add_executable(memgraph__e2e__triggers__on_delete on_delete_triggers.cpp)
 target_link_libraries(memgraph__e2e__triggers__on_delete memgraph__e2e__triggers_common)
 
-add_executable(memgraph__e2e__triggers__privileges privilige_check.cpp)
+add_executable(memgraph__e2e__triggers__privileges privilege_check.cpp)
 target_link_libraries(memgraph__e2e__triggers__privileges memgraph__e2e__triggers_common)
 
 add_subdirectory(procedures)
@@ -27,5 +27,6 @@ endfunction()
 
 copy_triggers_e2e_python_files(common.py)
 copy_triggers_e2e_python_files(triggers_properties_false.py)
+copy_triggers_e2e_python_files(show_triggers.py)
 
 copy_e2e_files(triggers workloads.yaml)

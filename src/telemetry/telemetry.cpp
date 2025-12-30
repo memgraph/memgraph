@@ -208,11 +208,10 @@ void Telemetry::AddReplicationCollector(
 }
 
 #ifdef MG_ENTERPRISE
-void Telemetry::AddCoordinatorCollector(std::optional<coordination::CoordinatorState> const &coordinator_state) {
+void Telemetry::AddCoordinatorCollector(std::weak_ptr<coordination::CoordinatorState> coordinator_state) {
   // Both leader and followers return the data
-  AddCollector("coordination", [&coordinator_state]() -> std::optional<nlohmann::json> {
-    if (coordinator_state.has_value() && coordinator_state->IsCoordinator())
-      return coordinator_state->GetTelemetryJson();
+  AddCollector("coordination", [coordinator_state]() -> std::optional<nlohmann::json> {
+    if (auto state = coordinator_state.lock(); state && state->IsCoordinator()) return state->GetTelemetryJson();
     return std::nullopt;
   });
 }
