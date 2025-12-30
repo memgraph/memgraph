@@ -30,8 +30,9 @@ on:
         type: boolean
         default: true
       mage:
-        type: boolean
-        default: true
+        type: string
+        default: 'amd,arm,cuda'
+        description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
   workflow_call:
     inputs:
       community_core:
