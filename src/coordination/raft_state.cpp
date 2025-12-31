@@ -161,6 +161,7 @@ auto RaftState::InitRaftServer() -> void {
   std::shared_ptr<delayed_task_scheduler> scheduler = asio_service_;
   std::shared_ptr<rpc_client_factory> rpc_cli_factory = asio_service_;
 
+  // For some reason context uses shared pointer reference, so we need to cast it
   std::shared_ptr<state_mgr> casted_state_manager = state_manager_;
   std::shared_ptr<state_machine> casted_state_machine = state_machine_;
 
@@ -212,19 +213,24 @@ auto RaftState::InitRaftServer() -> void {
 
 RaftState::~RaftState() {
   spdlog::trace("Shutting down RaftState for coordinator_{}", coordinator_id_);
-
+  // Destruction order is critical:
+  // 1. Shutdown raft_server first - it holds references to state_machine and state_manager
+  //    and may be executing callbacks on its threads
   if (raft_server_) {
     raft_server_->shutdown();
     raft_server_.reset();
     spdlog::trace("Raft server closed");
   }
 
+  // 2. Stop and shutdown asio_listener - it's listening for network connections
   if (asio_listener_) {
     asio_listener_->stop();
     asio_listener_->shutdown();
+    asio_listener_.reset();
     spdlog::trace("Asio listener closed");
   }
 
+  // 3. Stop asio_service and wait for workers to finish
   if (asio_service_) {
     asio_service_->stop();
     size_t count = 0;
@@ -235,8 +241,19 @@ RaftState::~RaftState() {
     if (asio_service_->get_active_workers() > 0) {
       spdlog::warn("Failed to shutdown raft server correctly for coordinator_{} in 5s", coordinator_id_);
     }
+    asio_service_.reset();
     spdlog::trace("Asio service closed");
   }
+
+  // 4. Reset state_machine and state_manager after raft_server is gone
+  //    (raft_server holds shared_ptr to these, but we want to be explicit)
+  state_machine_.reset();
+  state_manager_.reset();
+
+  // 5. Reset logger last - other components may have logged during their destruction
+  logger_.reset();
+
+  spdlog::trace("RaftState destruction complete for coordinator_{}", coordinator_id_);
 }
 
 auto RaftState::GetCoordinatorEndpoint(int32_t coordinator_id) const -> std::string {
