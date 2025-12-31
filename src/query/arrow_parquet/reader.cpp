@@ -605,6 +605,8 @@ ParquetReader::ParquetReader(utils::pmr::string const &uri, utils::S3Config s3_c
         return LoadFileFromDisk(local_file_path);
       }
       spdlog::error("Couldn't download file {}", uri);
+      utils::DeleteFile(local_file_path);
+
       return nullptr;
     }
 

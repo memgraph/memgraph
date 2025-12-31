@@ -382,7 +382,9 @@ FileCsvSource::FileCsvSource(std::filesystem::path path) : path_(std::move(path)
 std::istream &FileCsvSource::GetStream() { return stream_; }
 
 S3CsvSource::S3CsvSource(std::string uri, utils::S3Config const &s3_config) {
-  utils::GetS3Object(std::move(uri), s3_config, stream_);
+  if (!utils::GetS3Object(std::move(uri), s3_config, stream_)) {
+    throw utils::BasicException("Failed to download CSV file");
+  }
 }
 
 std::istream &S3CsvSource::GetStream() { return stream_; }
