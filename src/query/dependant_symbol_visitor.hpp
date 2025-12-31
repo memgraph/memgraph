@@ -111,7 +111,9 @@ class DependantSymbolVisitor : public ExpressionVisitor<void> {
   }
 
   void Visit(Aggregation &agg) override {
-    agg.expression1_->Accept(*this);
+    if (agg.expression1_) {
+      agg.expression1_->Accept(*this);
+    }
     if (agg.expression2_) {
       agg.expression2_->Accept(*this);
     }

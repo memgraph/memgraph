@@ -27,7 +27,6 @@
 #include "utils/concepts.hpp"
 
 namespace memgraph::query {
-
 namespace detail {
 template <typename T>
 concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
@@ -323,6 +322,10 @@ class TriggerContextCollector {
   void RegisterSetVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id);
   void RegisterRemovedVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id);
   [[nodiscard]] TriggerContext TransformToTriggerContext() &&;
+
+  // Merge another TriggerContextCollector into this one.
+  // Used when unifying contexts from parallel execution branches.
+  void MergeFrom(const TriggerContextCollector &other);
 
  private:
   template <detail::ObjectAccessor TAccessor>
