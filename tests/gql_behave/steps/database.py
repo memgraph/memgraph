@@ -30,7 +30,12 @@ def query(q, context, params={}):
     # Prepend USING PARALLEL EXECUTION to data queries (those with RETURN) when flag is set
     if getattr(context.config, "parallel_execution", False):
         if "RETURN" in q.upper():
-            q = "USING PARALLEL EXECUTION " + q
+            if q.strip().upper().startswith("USING"):
+                import re
+
+                q = re.sub(r"(?i)^(\s*USING\s+)", r"\1PARALLEL EXECUTION, ", q)
+            else:
+                q = "USING PARALLEL EXECUTION " + q
 
     session = context.driver.session()
     try:
