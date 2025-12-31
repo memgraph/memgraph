@@ -304,14 +304,23 @@ def test_commit_works(test_name):
     # Create data on MAIN
     instance3_cursor = connect(host="localhost", port=7689).cursor()
     execute_and_fetch_all(instance3_cursor, "CREATE (n:Node)")
+    res = dict(execute_and_fetch_all(instance3_cursor, "show storage info"))
+
+    def get_unreleased_delta_obj(instance_cursor):
+        res = dict(execute_and_fetch_all(instance_cursor, "show storage info"))
+        return res["unreleased_delta_objects"]
+
+    mg_sleep_and_assert(0, partial(get_unreleased_delta_obj, instance3_cursor))
 
     # Check if replicated on 1st replica
     instance_1_cursor = connect(host="localhost", port=7687).cursor()
     mg_sleep_and_assert(1, partial(get_vertex_count, instance_1_cursor))
+    mg_sleep_and_assert(0, partial(get_unreleased_delta_obj, instance_1_cursor))
 
     # Check if replicated on 2nd replica
     instance_2_cursor = connect(host="localhost", port=7688).cursor()
     mg_sleep_and_assert(1, partial(get_vertex_count, instance_2_cursor))
+    mg_sleep_and_assert(0, partial(get_unreleased_delta_obj, instance_2_cursor))
 
     check_if_data_preserved_after_restart(inner_instances_description, "instance_1", 7687)
     check_if_data_preserved_after_restart(inner_instances_description, "instance_2", 7688)
