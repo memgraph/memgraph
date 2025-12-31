@@ -382,6 +382,11 @@ add_unit_test(utils_query_memory_tracker
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(jemalloc_hook_stress_test
+    SOURCES jemalloc_hook_stress_test.cpp
+    LINK_TARGETS mg-memory mg-utils
+)
+
 add_unit_test(utils_on_scope_exit
     SOURCES utils_on_scope_exit.cpp
     LINK_TARGETS mg-utils
