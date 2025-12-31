@@ -9617,7 +9617,7 @@ ScanParallelByPointDistance::ScanParallelByPointDistance(const std::shared_ptr<L
 
 ACCEPT_WITH_INPUT(ScanParallelByPointDistance)
 
-UniqueCursorPtr ScanParallelByPointDistance::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanParallelByPointDistance::MakeCursor(utils::MemoryResource * /*mem*/) const {
   throw utils::NotYetImplemented("Parallel scan over point distance!");
 }
 
@@ -9652,7 +9652,7 @@ ScanParallelByWithinbbox::ScanParallelByWithinbbox(const std::shared_ptr<Logical
 
 ACCEPT_WITH_INPUT(ScanParallelByWithinbbox)
 
-UniqueCursorPtr ScanParallelByWithinbbox::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanParallelByWithinbbox::MakeCursor(utils::MemoryResource * /*mem*/) const {
   throw utils::NotYetImplemented("Parallel scan over point within bbox!");
 }
 
@@ -9934,7 +9934,7 @@ class ParallelBranchCursor : public Cursor {
         try {
           pre_pull_func(cursor.get());
           pull_result.fetch_add((int)cursor->Pull(frame_local, context));
-          post_pull_func(cursor.get());
+          post_pull_func(cursor.get(), &frame_local);
         } catch (const std::exception &e) {
           // Stop all other threads
           DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
@@ -9964,7 +9964,7 @@ class ParallelBranchCursor : public Cursor {
       pull_result.fetch_add((int)cursor->Pull(frame, context));
       // NOTE: hops limit is shared between threads, so we need to free the leftover quota
       context.hops_limit.Free();
-      post_pull_func(cursor.get());
+      post_pull_func(cursor.get(), &frame);
     } catch (const std::exception &e) {
       DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
       if (!context.stopping_context.exception_occurred->fetch_or(true, std::memory_order::acq_rel)) {
@@ -10340,7 +10340,8 @@ class AggregateParallelCursor : public ParallelBranchCursor {
           static_cast<AggregateCursor *>(cursor)->aggregation_ = std::move(*complete_aggregation);
         }
       };
-      auto post_pull_func = [&branch_aggregations_mutex, &aggregations, &branch_aggregations](Cursor *cursor) {
+      auto post_pull_func = [&branch_aggregations_mutex, &aggregations, &branch_aggregations](Cursor *cursor,
+                                                                                              Frame * /*frame*/) {
         auto *aggregation = &static_cast<AggregateCursor *>(cursor)->aggregation_;
         decltype(main_aggregation_) complete_aggregation = nullptr;
 
@@ -10466,7 +10467,20 @@ class OrderByParallelCursor : public ParallelBranchCursor {
       initialized_ = true;
 
       auto pre_pull_func = [](Cursor * /*cursor*/) {};
-      auto post_pull_func = [](Cursor * /*cursor*/) {};
+      auto post_pull_func = [](Cursor *cursor, Frame *frame) {
+        // OrderBy moves first element into the Frame
+        // In order to limit the modification to single threaded operations, we need to move it back now
+        auto *orderby_cursor = static_cast<OrderByCursor *>(cursor);
+        auto &cache = orderby_cursor->cache_;
+        auto it = cache.begin();
+        if (it == cache.end()) return;
+        utils::pmr::vector<TypedValue> res;
+        res.reserve(orderby_cursor->self_.output_symbols_.size());
+        for (const auto &symbol : orderby_cursor->self_.output_symbols_) {
+          res.emplace_back(std::move(frame->at(symbol)));
+        }
+        *it = std::move(res);
+      };
 
       // Execute branches in parallel - each branch will pull all its data and sort it
       // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
