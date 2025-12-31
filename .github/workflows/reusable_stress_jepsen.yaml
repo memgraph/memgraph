@@ -127,7 +127,7 @@ jobs:
 
           if [ -z "$INPUT_CONCURRENCY" ]; then
             MIN=$NODES_NO
-            MAX=$((3 * NODES_NO))
+            MAX=10
             CONCURRENCY=$((MIN + RANDOM % (MAX - MIN + 1)))
             echo "Generated random concurrency: $CONCURRENCY (range: $MIN-$MAX)"
           else

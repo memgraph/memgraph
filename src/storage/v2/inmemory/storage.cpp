@@ -290,15 +290,16 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     };
   }
 
-  if (config_.gc.type == Config::Gc::Type::PERIODIC) {
-    // TODO: move out of storage have one global gc_runner_
-    gc_runner_.SetInterval(config_.gc.interval);
-    gc_runner_.Run("Storage GC", [this] { this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true); });
-  }
   if (timestamp_ == kTimestampInitialId) {
     commit_log_.emplace();
   } else {
     commit_log_.emplace(timestamp_);
+  }
+
+  if (config_.gc.type == Config::Gc::Type::PERIODIC) {
+    // TODO: move out of storage have one global gc_runner_
+    gc_runner_.SetInterval(config_.gc.interval);
+    gc_runner_.Run("Storage GC", [this] { this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true); });
   }
 
   flags::run_time::SnapshotPeriodicAttach(snapshot_periodic_observer_);
@@ -2122,7 +2123,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
-  std::unique_lock main_guard{main_lock_};
+  auto unique_accessor = UniqueAccess();
   MG_ASSERT(
       (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
       (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL ||
@@ -2130,16 +2131,26 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
   if (storage_mode_ != new_storage_mode) {
     // Snapshot thread is already running, but setup periodic execution only if enabled
     if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+      // Existance and unique constraints are not supported in analytical storage mode so we need to forbid changing
+      // storage mode to analytical if there are any of these constraints
+      if (!constraints_.existence_constraints_->empty() || !constraints_.unique_constraints_->empty()) {
+        throw utils::BasicException(
+            "Existance and unique constraints are not supported in analytical storage mode. Please drop them before "
+            "changing storage mode to analytical or use transactional mode.");
+      }
       // Ensure all pending work has been completed before changing to IN_MEMORY_ANALYTICAL
       async_indexer_.CompleteRemaining();
       snapshot_runner_.Pause();
     } else {
       // No need to resume async indexer, it is always running.
       // As IN_MEMORY_TRANSACTIONAL we will now start giving it new work
+      const auto snapshot_path = durability::CreateSnapshot(
+          this, unique_accessor->GetTransaction(), recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
+          &edges_, uuid(), repl_storage_state_.epoch_, repl_storage_state_.history, &file_retainer_, &abort_snapshot_);
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;
-    FreeMemory(std::move(main_guard), false);
+    FreeMemory(std::unique_lock{main_lock_, std::adopt_lock}, false);
   }
 }
 
@@ -2580,7 +2591,8 @@ StorageInfo InMemoryStorage::GetInfo() {
 }
 
 bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch) {
-  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL) {
+  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL ||
+      storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
     return false;
   }
 
@@ -3334,16 +3346,15 @@ void InMemoryStorage::CreateSnapshotHandler(
     if (auto maybe_error = cb(); !maybe_error.has_value()) {
       switch (maybe_error.error()) {
         case CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support.");
+          spdlog::warn("Failed to create snapshot. {}. Please contact support.",
+                       CreateSnapshotErrorToString(maybe_error.error()));
           break;
         case CreateSnapshotError::AbortSnapshot:
-          spdlog::warn("Failed to create snapshot. The current snapshot needs to be aborted.");
+          spdlog::warn("Failed to create snapshot. {}.", CreateSnapshotErrorToString(maybe_error.error()));
           break;
         case CreateSnapshotError::AlreadyRunning:
-          spdlog::info("Skipping snapshot creation. Another snapshot creation is already in progress.");
-          break;
         case CreateSnapshotError::NothingNewToWrite:
-          spdlog::info("Skipping snapshot creation. Nothing has been written since the last snapshot.");
+          spdlog::info("Skipping snapshot creation. {}.", CreateSnapshotErrorToString(maybe_error.error()));
           break;
       }
     }

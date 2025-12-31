@@ -470,7 +470,7 @@ class Auth final {
    * @return `true` if auth needs to run
    */
   bool HasAuthModulePrerequisites(const std::string &scheme) const {
-    const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
+    const auto license_check_result = license::global_license_checker.IsEnterpriseValid();
     if (!license_check_result) {
       spdlog::warn(license::LicenseCheckErrorToString(license_check_result.error(), "authentication modules"));
       return false;

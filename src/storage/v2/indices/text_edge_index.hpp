@@ -78,7 +78,8 @@ class TextEdgeIndex {
 
   void CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
 
-  void RecoverIndex(const TextEdgeIndexSpec &index_info,
+  void RecoverIndex(const TextEdgeIndexSpec &index_info, utils::SkipList<Vertex>::Accessor vertices,
+                    NameIdMapper *name_id_mapper,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   void DropIndex(const std::string &index_name);

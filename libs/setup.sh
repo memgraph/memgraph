@@ -272,7 +272,7 @@ repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx
 usearch_ref="v2.21.4" # (2025-12-16)
 if [[ "$use_cache" == true ]]; then
   # This is a bit of a hack to allow us to fetch submodules form the cache
-  git -c url.http://mgdeps-cache:8000/git/.insteadOf=https://github.com/ \
+  git -c url.http://${local_cache_host}/git/.insteadOf=https://github.com/ \
   clone --recurse-submodules "${primary_urls[usearch]}" usearch || \
   git clone --recurse-submodules "${secondary_urls[usearch]}" usearch
 else
