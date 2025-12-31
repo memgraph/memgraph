@@ -89,9 +89,6 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
       instance_health_check_frequency_sec_(config.instance_health_check_frequency_sec),
       coordinator_management_server_{ManagementServerConfig{
           io::network::Endpoint{kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)}}} {
-  CoordinatorInstanceManagementServerHandlers::Register(coordinator_management_server_, *this);
-  MG_ASSERT(coordinator_management_server_.Start(), "Management server on coordinator couldn't be started.");
-
   // Delay constructing of Raft state until everything is constructed in coordinator instance
   // since raft state will call become leader callback or become follower callback on construction.
   // If something is not yet constructed in coordinator instance, we get UB
@@ -99,6 +96,10 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
                                             CoordinationClusterChangeObserver{this});
   UpdateClientConnectors(raft_state_->GetCoordinatorInstancesAux());
   raft_state_->InitRaftServer();
+
+  // Last thing to contruct is the server and RPC handlers (that use instance and raft state)
+  CoordinatorInstanceManagementServerHandlers::Register(coordinator_management_server_, *this);
+  MG_ASSERT(coordinator_management_server_.Start(), "Management server on coordinator couldn't be started.");
 }
 
 CoordinatorInstance::~CoordinatorInstance() {
@@ -110,10 +111,26 @@ CoordinatorInstance::~CoordinatorInstance() {
   // 2. Await shutdown of coordinator thread pool so that coordinator can't become follower or do reconcile cluster
   // state
   // 3. State checks running, we need to stop them before raft_state_ is destroyed
+
+  // Step 1: Set our shutdown flag to prevent new work from being started
   ShuttingDown();
+
+  // Step 2: Shutdown thread pool and wait for in-flight tasks to complete
+  // This is safe now because:
+  // - RaftState callbacks won't add new tasks (PrepareForShutdown was called)
+  // - is_shutting_down_ flag prevents our callbacks from doing real work
   thread_pool_.ShutDown();
-  // We don't need to take lock as reconcile cluster state can't be running, coordinator can't become follower,
-  // user queries can't be running as memgraph awaits server shutdown
+
+  // Here we cannot have any scheduled task with a callback nor can we add new tasks (since the is_shutting_down flag is
+  // set) But RaftState is still alive and could call the callbacks. This is fine because raft_state_ is a unique
+  // pointer and will be destroyed after this function. NOTE: Make sure lifetime of objects in the raft state callbacks
+  // are not exceeded.
+
+  // Step 3: Stop state checks on replication instances
+  // No lock needed because:
+  // - ReconcileClusterState can't be running (thread pool is shut down)
+  // - Coordinator can't become follower (RaftState callbacks are disabled)
+  // - User queries can't be running (memgraph awaits server shutdown before calling destructor)
   std::ranges::for_each(repl_instances_, [](auto &repl_instance) { repl_instance.StopStateCheck(); });
 }
 
@@ -126,15 +143,27 @@ auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
     status.store(CoordinatorStatus::LEADER_NOT_READY, std::memory_order_release);
     // Thread pool is needed because becoming leader is blocking action, and if we don't succeed to check state of
     // cluster we will try again and again in same thread, thus blocking progress of NuRaft leader election.
-    thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
-    return;
+    thread_pool_.AddTask([this]() {
+      // Double-check shutdown flag inside the task as well so the already scheduled task exits
+      if (is_shutting_down_.load(std::memory_order_acquire)) {
+        return;
+      }
+      this->ReconcileClusterState();
+    });
   };
 }
 
 auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
   return [this]() {
+    if (is_shutting_down_.load(std::memory_order_acquire)) {
+      return;
+    }
     status.store(CoordinatorStatus::FOLLOWER, std::memory_order_release);
     thread_pool_.AddTask([this]() {
+      // Double-check shutdown flag inside the task as well so the already scheduled task exits
+      if (is_shutting_down_.load(std::memory_order_acquire)) {
+        return;
+      }
       spdlog::info("Executing become follower callback in thread {}.", std::this_thread::get_id());
       // We need to stop checks before taking a lock because deadlock can happen if instances wait
       // to take a lock in state check, and this thread already has a lock and waits for instance to

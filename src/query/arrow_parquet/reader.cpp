@@ -67,10 +67,8 @@ class GlobalS3APIManager {
 
  private:
   GlobalS3APIManager() {
-    if (auto const status = arrow::fs::EnsureS3Initialized(); !status.ok()) {
-      spdlog::error("Failed to initialize S3 file system: {}", status.message());
-      std::exit(1);
-    }
+    auto const status = arrow::fs::EnsureS3Initialized();
+    MG_ASSERT(status.ok(), "Failed to initialize S3 file system: {}", status.message());
   }
 
   ~GlobalS3APIManager() {

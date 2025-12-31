@@ -54,10 +54,10 @@ class RaftState {
                      BecomeFollowerCb become_follower_cb,
                      std::optional<CoordinationClusterChangeObserver> observer = std::nullopt);
   RaftState() = delete;
-  RaftState(RaftState const &other) = default;
-  RaftState &operator=(RaftState const &other) = default;
-  RaftState(RaftState &&other) noexcept = default;
-  RaftState &operator=(RaftState &&other) noexcept = default;
+  RaftState(RaftState const &other) = delete;
+  RaftState &operator=(RaftState const &other) = delete;
+  RaftState(RaftState &&other) noexcept = delete;
+  RaftState &operator=(RaftState &&other) noexcept = delete;
   ~RaftState();
 
   auto GetCoordinatorEndpoint(int32_t coordinator_id) const -> std::string;
@@ -107,14 +107,15 @@ class RaftState {
   int32_t coordinator_id_;
 
   ptr<logger> logger_;
-  ptr<raft_server> raft_server_;
-  ptr<asio_service> asio_service_;
-  ptr<rpc_listener> asio_listener_;
-
-  ptr<CoordinatorStateMachine> state_machine_;
-  ptr<CoordinatorStateManager> state_manager_;
   BecomeLeaderCb become_leader_cb_;
   BecomeFollowerCb become_follower_cb_;
+  // NuRaft components - destruction order matters!
+  ptr<CoordinatorStateMachine> state_machine_;
+  ptr<CoordinatorStateManager> state_manager_;
+  // raft_server_ must be shutdown/reset first as it references state_machine_ and state_manager_
+  ptr<asio_service> asio_service_;
+  ptr<rpc_listener> asio_listener_;
+  ptr<raft_server> raft_server_;
 };
 
 }  // namespace memgraph::coordination
