@@ -10478,7 +10478,7 @@ class OrderByParallelCursor : public ParallelBranchCursor {
         utils::pmr::vector<TypedValue> res;
         res.reserve(orderby_cursor->self_.output_symbols_.size());
         for (const auto &symbol : orderby_cursor->self_.output_symbols_) {
-          res.emplace_back(std::move(frame->at(symbol)));
+          res.emplace_back(frame->at(symbol));  // TODO Try and avoid this copy
         }
         *it = std::move(res);
       };
