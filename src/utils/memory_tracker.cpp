@@ -24,6 +24,7 @@ constinit thread_local uint64_t MemoryTracker::OutOfMemoryExceptionEnabler::coun
 constinit thread_local uint64_t MemoryTracker::OutOfMemoryExceptionBlocker::counter_
     [[gnu::tls_model("initial-exec")]] = 0;
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 constinit MemoryTracker total_memory_tracker{};
 
 // TODO (antonio2368): Define how should the peak memory be logged.

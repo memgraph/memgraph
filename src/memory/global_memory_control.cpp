@@ -157,7 +157,7 @@ void SetHooks() {
     std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
 
     extent_hooks_t *current_old_hooks = nullptr;
-    size_t hooks_len = sizeof(current_old_hooks);
+    size_t hooks_len = sizeof(extent_hooks_t *);
 
     err = je_mallctl(func_name.c_str(), (void *)&current_old_hooks, &hooks_len, nullptr, 0);
     if (err) {
@@ -188,13 +188,13 @@ void SetHooks() {
 
     // Due to the way jemalloc works, we need first to set their hooks
     // which will trigger creating arena, then we can set our custom hook wrappers
-    err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&old_hooks, sizeof(old_hooks));
+    err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&old_hooks, sizeof(extent_hooks_t *));
     if (err) {
       LOG_FATAL("Error setting jemalloc hooks for jemalloc arena {}", i);
     }
 
     // Update hooks
-    err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&new_hooks, sizeof(new_hooks));
+    err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&new_hooks, sizeof(extent_hooks_t *));
     if (err) {
       LOG_FATAL("Error setting custom hooks for jemalloc arena {}", i);
     }
@@ -228,7 +228,7 @@ void UnsetHooks() {
 
   for (unsigned i = 0; i < n_arenas; i++) {
     std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
-    err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&old_hooks, sizeof(old_hooks));
+    err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&old_hooks, sizeof(extent_hooks_t *));
     if (err) {
       LOG_FATAL("Error setting default hooks for jemalloc arena {}", i);
     }
