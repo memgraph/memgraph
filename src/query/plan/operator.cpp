@@ -8705,6 +8705,7 @@ std::unique_ptr<LogicalOperator> RollUpApply::Clone(AstStorage *storage) const {
   object->list_collection_branch_ = list_collection_branch_ ? list_collection_branch_->Clone(storage) : nullptr;
   object->list_collection_symbol_ = list_collection_symbol_;
   object->result_symbol_ = result_symbol_;
+  object->pass_input_ = pass_input_;
   return object;
 }
 
