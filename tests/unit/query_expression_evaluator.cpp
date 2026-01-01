@@ -353,6 +353,56 @@ TYPED_TEST(ExpressionEvaluatorTest, GreaterEqualOperator) {
   ASSERT_EQ(val3.ValueBool(), true);
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, GreaterOperatorIncompatibleOperands) {
+  {
+    auto *op = this->storage.template Create<GreaterOperator>(this->storage.template Create<PrimitiveLiteral>("true"),
+                                                              this->storage.template Create<PrimitiveLiteral>("three"));
+    auto val1 = this->Eval(op);
+    ASSERT_EQ(val1.ValueBool(), true);
+    // Trying to compare values of incompatible types should yield null.
+  }
+  {
+    auto *op = this->storage.template Create<GreaterOperator>(this->storage.template Create<PrimitiveLiteral>(true),
+                                                              this->storage.template Create<PrimitiveLiteral>("three"));
+    auto val2 = op->Accept(this->eval);
+    EXPECT_TRUE(val2.IsNull());
+  }
+  {
+    auto *op = this->storage.template Create<GreaterOperator>(this->storage.template Create<PrimitiveLiteral>("three"),
+                                                              this->storage.template Create<PrimitiveLiteral>(true));
+    auto val3 = op->Accept(this->eval);
+    EXPECT_TRUE(val3.IsNull());
+  }
+  {
+    auto *op = this->storage.template Create<GreaterOperator>(this->storage.template Create<PrimitiveLiteral>(3.01),
+                                                              this->storage.template Create<PrimitiveLiteral>("three"));
+    auto val4 = op->Accept(this->eval);
+    EXPECT_TRUE(val4.IsNull());
+  }
+  {
+    auto *op = this->storage.template Create<GreaterOperator>(this->storage.template Create<PrimitiveLiteral>("three"),
+                                                              this->storage.template Create<PrimitiveLiteral>(3.01));
+    auto val5 = op->Accept(this->eval);
+    EXPECT_TRUE(val5.IsNull());
+  }
+  {
+    auto *op = this->storage.template Create<GreaterOperator>(this->storage.template Create<PrimitiveLiteral>(false),
+                                                              this->storage.template Create<PrimitiveLiteral>(3.01));
+    auto val6 = op->Accept(this->eval);
+    EXPECT_TRUE(val6.IsNull());
+  }
+  {
+    auto *list_literal = this->storage.template Create<ListLiteral>(std::vector<Expression *>{
+        this->storage.template Create<PrimitiveLiteral>(1), this->storage.template Create<PrimitiveLiteral>(2),
+        this->storage.template Create<PrimitiveLiteral>("a")});
+
+    auto *op = this->storage.template Create<GreaterOperator>(this->storage.template Create<PrimitiveLiteral>("three"),
+                                                              list_literal);
+    auto val7 = op->Accept(this->eval);
+    EXPECT_TRUE(val7.IsNull());
+  }
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, InListOperator) {
   auto *list_literal = this->storage.template Create<ListLiteral>(std::vector<Expression *>{
       this->storage.template Create<PrimitiveLiteral>(1), this->storage.template Create<PrimitiveLiteral>(2),
