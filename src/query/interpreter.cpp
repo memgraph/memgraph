@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -5288,8 +5288,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                      std::shared_ptr<QueryUserOrRole> user_or_role, const Parameters &parameters,
                                      InterpreterContext *interpreter_context) {
   auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
-    return user_or_role && user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name,
-                                                      &query::up_to_date_policy);
+    return user_or_role && user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name);
   };
 
   Callback callback;
@@ -6148,17 +6147,16 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                   // Try to terminate all interpreters using the database
                   // Best effort approach, if it fails, user will continue using the db until they commit/abort
                   // Get access to the interpreter context to notify all active interpreters
-                  interpreter_context->interpreters.WithLock(
-                      [db_name, interpreter_context, interpreter](auto &interpreters) {
-                        auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
-                          return user_or_role &&
-                                 user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
-                                                            db_name, &query::up_to_date_policy);
-                        };
-                        interpreter_context->TerminateTransactions(
-                            interpreters, InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name),
-                            interpreter->user_or_role_.get(), privilege_checker);
-                      });
+                  interpreter_context->interpreters.WithLock([db_name, interpreter_context,
+                                                              interpreter](auto &interpreters) {
+                    auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
+                      return user_or_role &&
+                             user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name);
+                    };
+                    interpreter_context->TerminateTransactions(
+                        interpreters, InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name),
+                        interpreter->user_or_role_.get(), privilege_checker);
+                  });
                 }
               } else {
                 success = db_handler->TryDelete(db_name, &*interpreter->system_transaction_);
@@ -7779,7 +7777,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 }
 
 void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db) {
-  if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db, &query::session_long_policy)) {
+  if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db)) {
     Abort();
     if (!db) {
       throw QueryException(
