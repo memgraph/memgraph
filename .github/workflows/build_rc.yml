@@ -215,39 +215,48 @@ jobs:
       generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.build_type == 'Release' && matrix.arch == 'amd') && true || false }}
     secrets: inherit
 
-  TriggerMAGEBuild:
-    name: Trigger MAGE Build
-    needs: [PrepareReleaseBranch, PackageArtifact]
-    if: ${{ inputs.build_mage && always() }}
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.12'
-
-      - name: Install requests
-        run: |
-          python -m pip install --upgrade pip --break-system-packages
-          pip install requests --break-system-packages
-
-      - name: Trigger MAGE build
-        env:
-          GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
-        run: |
-          echo "Triggering MAGE build for release candidate ${GITHUB_REF_NAME}."
-          python3 tools/trigger_mage_rc_build.py \
-            --version "${{ inputs.version }}" \
-            --short_version "${{ needs.PrepareReleaseBranch.outputs.short_version }}" \
-            --rc_number "${{ inputs.rc_number }}" \
-            --branch_name "${{ needs.PrepareReleaseBranch.outputs.branch_name }}" \
-            --tag_name "${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
+  BuildAndTestMAGE:
+    name: Build and Test MAGE
+    needs: [PrepareReleaseBranch]
+    uses: ./.github/workflows/reusable_package_mage.yaml
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: ["Release", "RelWithDebInfo"]
+        build_arch: ["amd", "arm"]
+        malloc: [false]
+        cuda: [false]
+        include:
+          - build_type: "Release"
+            build_arch: "amd"
+            malloc: true
+            cuda: false
+          - build_type: "RelWithDebInfo"
+            build_arch: "amd"
+            cuda: true
+            malloc: false
+          - build_type: "RelWithDebInfo"
+            build_arch: "amd"
+            cuda: false
+            malloc: true
+          - build_type: "RelWithDebInfo"
+            build_arch: "arm"
+            cuda: false
+            malloc: true
+    with:
+      arch: ${{ matrix.build_arch }}
+      build_type: ${{ matrix.build_type }}
+      s3_dest_dir: "mage/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
+      shorten_tag: true
+      cuda: ${{ matrix.cuda }}
+      push_to_s3: true
+      malloc: ${{ matrix.malloc }}
+      run_smoke_tests: true
+      run_tests: true
+      package_deb: true
+      generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc && !matrix.cuda }}
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+    secrets: inherit
 
   SetupISSUTestInputs:
     name: Setup ISSU Test Inputs
