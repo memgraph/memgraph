@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.sum_longs([1000000000000000, 1.9, 1.9])
+  AS sum;
+output:
+  - sum: 1000000000000002

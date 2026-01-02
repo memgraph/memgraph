@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT real_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.real_col) AS real_col_type, row.real_col AS real_col
+
+output:
+  - real_col_type: 'FLOAT'
+    real_col: 1.23

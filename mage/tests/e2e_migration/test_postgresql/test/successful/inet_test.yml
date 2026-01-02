@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT inet_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.inet_col) AS inet_col_type, toString(row.inet_col) AS inet_col
+
+output:
+  - inet_col_type: 'STRING'
+    inet_col: '192.168.1.1'

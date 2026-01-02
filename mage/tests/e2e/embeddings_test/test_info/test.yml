@@ -1,0 +1,11 @@
+query: >
+    WITH {model_name: "all-MiniLM-L6-v2"} AS configuration
+    CALL embeddings.model_info(configuration)
+    YIELD info
+    RETURN info;
+
+output:
+    - info:
+        model_name: "all-MiniLM-L6-v2"
+        dimension: 384
+        max_sequence_length: 256

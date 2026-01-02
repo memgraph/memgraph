@@ -1,0 +1,5 @@
+query: >
+    RETURN util_module.md5(1) AS result;
+
+output:
+  - result: c4ca4238a0b923820dcc509a6f75849b

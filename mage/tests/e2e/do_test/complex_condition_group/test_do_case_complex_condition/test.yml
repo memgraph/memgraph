@@ -1,0 +1,10 @@
+query: >
+    MATCH (n:Node)
+    WITH size(collect(n)) as n_nodes
+    CALL do.case([n_nodes = 0, "RETURN 'empty' AS graph_status;",
+                  n_nodes > 0, "RETURN 'not empty' as graph_status;"],
+                  "RETURN 'unexpected' as graph_status")
+    YIELD value
+    RETURN value.graph_status AS graph_status;
+output:
+    - graph_status: "not empty"

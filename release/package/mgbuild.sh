@@ -83,18 +83,21 @@ print_help () {
   echo -e "\nInteract with mgbuild containers"
 
   echo -e "\nCommands:"
-  echo -e "  build [OPTIONS]               Build mgbuild image"
-  echo -e "  build-memgraph [OPTIONS]      Build memgraph binary inside mgbuild container"
-  echo -e "  build-ssl [OPTIONS]           Build OpenSSL inside mgbuild container"
-  echo -e "  init-tests                    Initialize tests inside mgbuild container"
-  echo -e "  copy [OPTIONS]                Copy an artifact from mgbuild container to host"
-  echo -e "  package-memgraph              Create memgraph package from built binary inside mgbuild container"
-  echo -e "  package-docker [OPTIONS]      Create memgraph docker image and pack it as .tar.gz"
-  echo -e "  pull                          Pull mgbuild image from dockerhub"
-  echo -e "  push [OPTIONS]                Push mgbuild image to dockerhub"
-  echo -e "  run [OPTIONS]                 Run mgbuild container"
-  echo -e "  stop [OPTIONS]                Stop mgbuild container"
-  echo -e "  test-memgraph TEST            Run a selected test TEST (see supported tests below) inside mgbuild container"
+  echo -e "  build [OPTIONS]                    Build mgbuild image"
+  echo -e "  build-memgraph [OPTIONS]           Build memgraph binary inside mgbuild container"
+  echo -e "  init-tests                         Initialize tests inside mgbuild container"
+  echo -e "  copy [OPTIONS]                     Copy an artifact from mgbuild container to host"
+  echo -e "  package-memgraph                   Create memgraph package from built binary inside mgbuild container"
+  echo -e "  package-docker [OPTIONS]           Create memgraph docker image and pack it as .tar.gz"
+  echo -e "  pull                               Pull mgbuild image from dockerhub"
+  echo -e "  push [OPTIONS]                     Push mgbuild image to dockerhub"
+  echo -e "  run [OPTIONS]                      Run mgbuild container"
+  echo -e "  stop [OPTIONS]                     Stop mgbuild container"
+  echo -e "  test-memgraph TEST                 Run a selected test TEST (see supported tests below) inside mgbuild container"
+  echo -e "  generate-memgraph-build-sbom       Generate Memgraph build SBOM"
+  echo -e "  generate-mage-image-sbom [OPTIONS] Generate MAGE image SBOM"
+  echo -e "  build-pymgclient                   Build pymgclient inside mgbuild container"
+  echo -e "  build-ssl [OPTIONS]                Build OpenSSL inside mgbuild container"
 
   echo -e "\nSupported tests:"
   echo -e "  \"${SUPPORTED_TESTS[*]}\""
@@ -170,6 +173,9 @@ print_help () {
   echo -e "  --size string                 Specify dataset size: (for pokec: small, medium, large) (default \"medium\")"
   echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result.json\")"
 
+  echo -e "\ngenerate-mage-image-sbom options:"
+  echo -e "  --image-name string           Specify the image name (required)"
+
   echo -e "\nToolchain v4 supported OSs:"
   echo -e "  \"${SUPPORTED_OS_V4[*]}\""
 
@@ -195,6 +201,12 @@ print_help () {
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd copy --use-make-install --dest-dir build/install"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd stop --remove"
 }
+
+# Color codes
+RED_BOLD='\033[1;31m'
+YELLOW_BOLD='\033[1;33m'
+GREEN_BOLD='\033[1;32m'
+RESET='\033[0m'
 
 check_support() {
   local is_supported=false
@@ -1211,6 +1223,180 @@ copy_heaptrack() {
   docker cp $build_container:/tmp/heaptrack/ $dest_dir
 }
 
+build_mage() {
+  echo -e "${GREEN_BOLD}Building MAGE${RESET}"
+  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+
+  # check if the repo has already been copied
+  if ! docker exec -u mg $build_container ls /home/mg/memgraph > /dev/null 2>&1; then
+    echo -e "${YELLOW_BOLD}Copying repo into container${RESET}"
+    docker exec -i -u mg $build_container mkdir -p /home/mg/memgraph
+    docker cp . $build_container:/home/mg/memgraph
+    docker exec -i -u root $build_container bash -c "chown -R mg:mg /home/mg/memgraph"
+  else
+    echo -e "${YELLOW_BOLD}Repo already copied into container${RESET}"
+  fi
+
+  echo -e "${GREEN_BOLD}Building MAGE in container${RESET}"
+  docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd /home/mg/memgraph/mage && ./scripts/build.sh $build_type"
+
+  echo -e "${GREEN_BOLD}Compressing query modules${RESET}"
+  docker exec -i $build_container bash -c "cd /home/mg/memgraph/mage && ./scripts/compress.sh"
+
+  echo -e "${GREEN_BOLD}Copying compressed query modules to host${RESET}"
+  docker cp $build_container:/home/mg/mage.tar.gz ./mage/mage.tar.gz
+}
+
+package_mage_deb() {
+
+  local version=""
+  local malloc=false
+  local cuda=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --version)
+        version=$2
+        shift 2
+      ;;
+      --malloc)
+        malloc=true
+        shift 1
+      ;;
+      --cuda)
+        cuda=true
+        shift 1
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  echo -e "${GREEN_BOLD}Packaging MAGE DEB package${RESET}"
+  docker exec -i -u root $build_container bash -c "apt-get update && apt-get install -y debhelper"
+
+  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/mage/scripts/package && ./build-deb.sh '${arch}64' $build_type $version $malloc $cuda"
+
+  package_name="$(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/mage/scripts/package/memgraph-mage*.deb")"
+  mkdir -pv output
+  docker cp $build_container:$package_name output/
+  echo "Package: $package_name"
+}
+
+test_mage() {
+  # TODO: move other tests into this function like the test_memgraph function
+
+  local ci=true
+  local cache_present=false
+  local cuda=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --ci)
+        ci=true
+        shift 1
+      ;;
+      --cache-present)
+        cache_present=true
+        shift 1
+      ;;
+      --cuda)
+        cuda=true
+        shift 1
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+
+  echo -e "${GREEN_BOLD}Running tests in container: $build_container${RESET}"
+
+  echo -e "${GREEN_BOLD}Running Rust tests${RESET}"
+  docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && source \$HOME/.cargo/env && cd \$HOME/memgraph/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
+
+  echo -e "${GREEN_BOLD}Running C++ tests${RESET}"
+  docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd \$HOME/memgraph/mage/cpp/build/ && ctest --output-on-failure -j\$(nproc)"
+
+  echo -e "${GREEN_BOLD}Running Python tests${RESET}"
+  if [[ "$CUDA" == true ]]; then
+    requirements_file="requirements-gpu.txt"
+  else
+    requirements_file="requirements.txt"
+  fi
+  docker cp mage/python/$requirements_file $build_container:/tmp/$requirements_file
+  docker cp src/auth/reference_modules/requirements.txt $build_container:/tmp/auth_module-requirements.txt
+  docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/ && \
+    ./scripts/install_python_requirements.sh --ci --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
+    pip install -r \$HOME/memgraph/mage/python/tests/requirements.txt --break-system-packages"
+  docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/python/ && python3 -m pytest ."
+}
+
+build_pymgclient() {
+  echo -e "${GREEN_BOLD}Packaging pymgclient${RESET}"
+  if [[ -d wheels ]]; then
+    echo -e "${YELLOW_BOLD}Wheels directory already exists${RESET}"
+  else
+    mkdir -p wheels
+  fi
+  docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/scripts && ./build-pymgclient.sh"
+  package_name=$(docker exec -i -u mg $build_container bash -c "ls \$HOME/memgraph/mage/scripts/pymgclient/dist/")
+  docker cp $build_container:/home/mg/memgraph/mage/scripts/pymgclient/dist/$package_name mage/wheels/
+  echo -e "${GREEN_BOLD}Package: ${RED_BOLD}$package_name${RESET}"
+}
+
+generate_memgraph_build_sbom() {
+  local conan_remote=""
+
+  if [[ -z "$conan_remote" ]]; then
+    echo -e "${YELLOW_BOLD}CONAN_REMOTE not set${RESET}"
+  fi
+
+  if [[ -d sbom ]]; then
+    echo -e "${YELLOW_BOLD}SBOM directory already exists${RESET}"
+  else
+    mkdir -p sbom
+  fi
+
+  # generate the Memgraph SBOM
+  echo -e "${GREEN_BOLD}Generating Memgraph SBOM within container${RESET}"
+  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/mage && export CONAN_REMOTE=$conan_remote && ./scripts/sbom/memgraph-sbom.sh"
+  docker cp $build_container:/home/mg/memgraph/sbom/memgraph-build-sbom.json sbom/
+  echo -e "${GREEN_BOLD}Memgraph SBOM: ${RED_BOLD}sbom/memgraph-build-sbom.json${RESET}"
+}
+
+generate_mage_image_sbom() {
+  local image_name=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --image-name)
+        image_name=$2
+        shift 2
+      ;;
+    esac
+  done
+
+  if [[ -z "$image_name" ]]; then
+    echo -e "${RED_BOLD}Image name not provided${RESET}"
+    exit 1
+  fi
+
+  if [[ ! -f sbom/memgraph-build-sbom.json ]]; then
+    echo -e "${RED_BOLD}Memgraph SBOM not found, please generate it first${RESET}"
+    exit 1
+  fi
+
+  # generate the MAGE image SBOM
+  echo -e "${GREEN_BOLD}Generating MAGE image SBOM${RESET}"
+  ./mage/scripts/sbom/mage-sbom.sh "${image_name}"
+  echo -e "${GREEN_BOLD}MAGE image SBOM: ${RED_BOLD}sbom/mage-image-sbom.json${RESET}"
+}
+
 build_ssl() {
   local conan_remote=""
   local conan_username=""
@@ -1653,6 +1839,24 @@ case $command in
     ;;
     copy-heaptrack)
       copy_heaptrack $@
+    ;;
+    build-mage)
+      build_mage $@
+    ;;
+    package-mage-deb)
+      package_mage_deb $@
+    ;;
+    test-mage)
+      test_mage $@
+    ;;
+    build-pymgclient)
+      build_pymgclient $@
+    ;;
+    generate-memgraph-build-sbom)
+      generate_memgraph_build_sbom $@
+    ;;
+    generate-mage-image-sbom)
+      generate_mage_image_sbom $@
     ;;
     build-ssl)
       build_ssl $@

@@ -1,0 +1,8 @@
+query: >
+    CALL do.case([TRUE, "MATCH p = (n: Node {id:0})-[*2]-() RETURN DISTINCT p AS path;"],
+                 "")
+    YIELD value
+    RETURN DISTINCT size(nodes(value.path)) as path_size;
+
+output:
+  - path_size: 3

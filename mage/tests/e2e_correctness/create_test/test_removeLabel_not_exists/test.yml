@@ -1,0 +1,9 @@
+memgraph_query: >
+     MATCH (p:Person)
+     CALL create.remove_labels(p, ["UK", "Programmer"]) YIELD node
+     RETURN node;
+
+neo4j_query: >
+     MATCH (p:Person)
+     CALL apoc.create.removeLabels(p, ["UK", "Programmer"]) YIELD node
+     RETURN node;

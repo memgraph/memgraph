@@ -1,0 +1,4 @@
+memgraph_query: >
+  MATCH (animal:Animal) MATCH (human:Human) CALL merge.relationship(animal, "Loves", {}, {created: true, matched: false}, human, {created: false, matched: true}) YIELD rel RETURN rel;
+neo4j_query: >
+  MATCH (animal:Animal) MATCH (human:Human) CALL apoc.merge.relationship(animal, "Loves", {}, {created: true, matched: false}, human, {created: false, matched: true}) YIELD rel RETURN rel;

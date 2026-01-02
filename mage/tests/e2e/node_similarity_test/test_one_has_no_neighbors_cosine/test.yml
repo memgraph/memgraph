@@ -1,0 +1,13 @@
+query: >
+        MATCH (m {id: 6})
+        WITH collect(m) as src_nodes
+        MATCH (n {id: 7})
+        WITH collect(n) as dst_nodes, src_nodes
+
+        CALL node_similarity.cosine_pairwise("score", src_nodes, dst_nodes) YIELD *
+
+        RETURN node1.id as node1, node2.id as node2, similarity
+output:
+    - node1: 6
+      node2: 7
+      similarity: 1.0

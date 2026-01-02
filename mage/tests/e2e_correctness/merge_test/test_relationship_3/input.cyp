@@ -1,0 +1,1 @@
+MERGE (d:Animal {id:0}) MERGE (h:Human {id:1}) MERGE (c:Animal {id:2})-[:Loves {created: false, property: false}]->(h) MERGE (g:Animal {id:3})-[:Loves {created: True}]->(h) MERGE (g)-[:Loves {forever: true}]->(h);

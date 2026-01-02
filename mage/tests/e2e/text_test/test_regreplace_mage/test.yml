@@ -1,0 +1,5 @@
+query: >
+    RETURN text.regreplace("Memgraph MAGE Memgraph MAGE!", "MAGE", "GQLAlchemy") AS output;
+
+output:
+  - output: "Memgraph GQLAlchemy Memgraph GQLAlchemy!"

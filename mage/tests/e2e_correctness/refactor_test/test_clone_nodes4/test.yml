@@ -1,0 +1,7 @@
+memgraph_query: >
+  MATCH (a) WHERE a.name IS NOT NULL WITH collect(a) AS nodes
+  CALL refactor.clone_nodes(nodes, True, ["age"]) YIELD * RETURN *;
+
+neo4j_query: >
+  MATCH (a) WHERE a.name IS NOT NULL WITH collect(a) AS nodes
+  CALL apoc.refactor.cloneNodes(nodes, True, ["age"]) YIELD output RETURN output;

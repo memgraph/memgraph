@@ -1,0 +1,6 @@
+query: >
+    CALL cycles.get() YIELD cycle_id, node
+    RETURN cycle_id, node.id AS node_id
+    ORDER BY cycle_id, node_id
+
+output: []

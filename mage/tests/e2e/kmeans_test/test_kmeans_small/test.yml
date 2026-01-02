@@ -1,0 +1,24 @@
+query: >
+  CALL kmeans.get_clusters(2, "embedding", "k-means++", 10, 10, 0.0001, "lloyd", 1) YIELD node, cluster_id
+  RETURN node.id as node_id, cluster_id
+  ORDER BY node_id ASC;
+
+output:
+  - node_id: 0
+    cluster_id: 0
+  - node_id: 1
+    cluster_id: 0
+  - node_id: 2
+    cluster_id: 0
+  - node_id: 4
+    cluster_id: 0
+  - node_id: 5
+    cluster_id: 1
+  - node_id: 6
+    cluster_id: 1
+  - node_id: 7
+    cluster_id: 1
+  - node_id: 8
+    cluster_id: 1
+  - node_id: 9
+    cluster_id: 1

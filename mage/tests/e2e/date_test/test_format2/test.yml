@@ -1,0 +1,6 @@
+query: >
+    CALL date.format(74976002900, "ms", "%Y/%m/%d %H:%M:%S %Z", "Australia/Broken_Hill") YIELD formatted
+    RETURN formatted
+
+output:
+    - formatted: "1972/05/18 04:10:02 ACST"

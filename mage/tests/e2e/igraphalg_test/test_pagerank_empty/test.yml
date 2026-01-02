@@ -1,0 +1,6 @@
+query: >
+    CALL igraphalg.pagerank(0.85,NULL,True) YIELD node, rank
+    RETURN node.id as node_id, rank
+    ORDER BY node_id ASC
+
+output: []

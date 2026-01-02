@@ -1,0 +1,6 @@
+query: >
+    CALL collections.split([], 7) YIELD splitted
+    RETURN splitted
+
+output:
+    - splitted: []

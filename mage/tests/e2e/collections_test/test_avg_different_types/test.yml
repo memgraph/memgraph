@@ -1,0 +1,4 @@
+query: >
+  RETURN collections.avg([-5, 5, 2.2, -8.6, 0, 1.0]) AS average;
+output:
+  - average: -0.8999999999999999

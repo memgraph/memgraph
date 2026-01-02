@@ -1,0 +1,7 @@
+query: >
+    CALL meta_util.schema() YIELD nodes, relationships UNWIND relationships AS relationship RETURN relationship.label AS label ORDER BY relationship.id DESC;
+output:
+  - label: "LIVES_IN"
+  - label: "STUDIES_AT"
+  - label: "LIVES_IN"
+  - label: "IS_FRIENDS_WITH"

@@ -1,0 +1,4 @@
+query: |
+  RETURN text.indexOf("abcdef", "c", 100) AS output;
+output:
+  - output: -1

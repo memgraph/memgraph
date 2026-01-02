@@ -1,0 +1,6 @@
+query: >
+    CALL graph_util.topological_sort() YIELD sorted_nodes
+    RETURN size(sorted_nodes) AS size
+
+output:
+    - size: 0

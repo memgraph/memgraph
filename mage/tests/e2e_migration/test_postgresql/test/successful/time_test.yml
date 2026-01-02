@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT time_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.time_col) AS time_col_type, toString(row.time_col) AS time_col
+
+output:
+  - time_col_type: 'LOCAL_TIME'
+    time_col: '10:30:45.000000'

@@ -1,0 +1,5 @@
+query: >
+    CALL periodic.delete({batch_size: 10, labels: [1]}) YIELD * RETURN *;
+
+exception: >
+    Invalid config for config parameter labels!

@@ -1,0 +1,15 @@
+query: |
+  CALL migrate.mysql('SELECT boolean_col FROM dummy_table', {
+      host: 'mysql_test',
+      port: 3306,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.boolean_col) AS boolean_col_type, row.boolean_col AS boolean_col
+
+output:
+    # This is wrong, and should be a boolean value
+  - boolean_col_type: 'INTEGER'
+    boolean_col: 1

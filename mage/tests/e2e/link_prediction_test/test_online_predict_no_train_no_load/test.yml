@@ -1,0 +1,8 @@
+# To predict, user must load or train the model before.
+- query: >
+    MATCH (v1:PAPER {id: 10})
+    MATCH (v2:PAPER {id: 11})
+    CALL link_prediction.predict(v1, v2)
+    YIELD *
+    RETURN score;
+  exception: No trained model available to the system. Train or load it first. "

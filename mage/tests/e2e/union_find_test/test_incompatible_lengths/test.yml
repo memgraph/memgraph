@@ -1,0 +1,8 @@
+query: >
+  MATCH (m {id: 7}), (n {id: 3}), (o {id: 1}),
+  CALL union_find.connected([m, n], o, "pairwise")
+  YIELD *
+  RETURN node1, node2, connected;
+
+exception: >
+  Incompatible lengths of given arguments

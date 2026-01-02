@@ -1,0 +1,1 @@
+CREATE (ivan: Intern {name: 'Ivan'}) CREATE (idora: Intern {name: 'Idora'}) CREATE (matija: Intern {name: 'Matija'}) MERGE (ivan)-[:KNOWS]->(idora) MERGE (matija)-[:HEARS]->(idora) MERGE (matija)-[:SEES]->(ivan);

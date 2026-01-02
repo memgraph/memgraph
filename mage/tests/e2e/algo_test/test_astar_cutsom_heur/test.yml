@@ -1,0 +1,7 @@
+query: >
+  MATCH (c1:City1 ), (c5:City5 )
+  CALL algo.astar(c1,c5, {distance_prop:"distance", heuristic_name: "heur"}) YIELD path RETURN path AS result;
+
+
+output:
+    - result:  {'nodes': [{'labels': ['City1'], 'properties': {'heur': 157.2}}, {'labels': ['MO1'], 'properties': {'heur': 78.62}}, {'labels': ['MO2'], 'properties': {'heur': 78.62}}, {'labels': ['City5'], 'properties': {'heur': 0}}], 'relationships': [{'label': 'RIVER', 'properties': {'distance': 90}}, {'label': 'RIVER', 'properties': {'distance': 125}}, {'label': 'ROAD', 'properties': {'distance': 90}}]}

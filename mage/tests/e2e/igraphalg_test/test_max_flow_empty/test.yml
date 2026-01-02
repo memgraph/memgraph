@@ -1,0 +1,6 @@
+query: >
+  MATCH (source {id: 0}), (sink {id: 5})
+  CALL igraphalg.maxflow(source, sink)
+  YIELD max_flow RETURN max_flow;
+
+output: []

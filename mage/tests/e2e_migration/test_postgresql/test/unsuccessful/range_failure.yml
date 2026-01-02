@@ -1,0 +1,12 @@
+query: |
+  CALL migrate.postgresql('SELECT range_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.range_col) AS range_col_type, toString(row.range_col) AS range_col
+
+exception: true

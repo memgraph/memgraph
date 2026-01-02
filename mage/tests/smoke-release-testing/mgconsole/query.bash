@@ -1,0 +1,21 @@
+#!/bin/bash
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/../utils.bash"
+
+test_query() {
+  echo "FEATURE: Cypher query engine"
+
+  echo "SUBFEATURE: Peridic commit"
+  run_next "MATCH (n) DETACH DELETE n;"
+  run_next "UNWIND range(1, 10) as x CALL { WITH x CREATE (n:Label {id: x}) RETURN n } IN TRANSACTIONS OF 1 ROWS;"
+  run_next "MATCH (n) RETURN n;"
+  run_next "USING PERIODIC COMMIT 1 MATCH (n) DETACH DELETE n;"
+  run_next "MATCH (n) RETURN n;"
+}
+
+if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then
+  # NOTE: Take a look at session_trace.bash for the v1 implementation of binary-docker picker.
+  trap cleanup_memgraph_binary_processes EXIT # To make sure cleanup is done.
+  set -e # To make sure the script will return non-0 in case of a failure.
+  run_memgraph_binary_and_test "--log-level=TRACE --log-file=mg_test_query.logs" test_query
+fi

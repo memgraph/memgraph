@@ -1,0 +1,5 @@
+query: >
+  MATCH (h:Human) RETURN node.degree_in(h, "LOVES") AS result;
+
+output:
+  - result: 1

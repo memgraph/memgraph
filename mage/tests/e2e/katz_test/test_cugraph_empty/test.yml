@@ -1,0 +1,5 @@
+query: >
+  CALL cugraph.katz_centrality.get()
+  YIELD *;
+
+output: []

@@ -1,0 +1,9 @@
+memgraph_query: >
+    MATCH (b:Brad), (j:Jen)
+    CALL create.set_properties([b, j], ["celebrity", "actor"], ["yes", "yes"]) YIELD node
+    RETURN node;
+
+neo4j_query: >
+    MATCH (b:Brad), (j:Jen)
+    CALL apoc.create.setProperties([b, j], ["celebrity", "actor"], ["yes", "yes"]) YIELD node
+    RETURN node;

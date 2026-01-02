@@ -1,0 +1,5 @@
+query: >
+  CALL cugraph.leiden.get()
+  YIELD *;
+
+output: []

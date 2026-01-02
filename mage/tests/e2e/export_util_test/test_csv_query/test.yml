@@ -1,0 +1,23 @@
+query: >
+    WITH "MATCH path = (c:Character)-[:ACTED_IN]->(tvshow) RETURN c.name AS name, c.portrayed_by AS portrayed_by, tvshow.title AS title, tvshow.released AS released, tvshow.program_creators AS program_creators" AS query CALL export_util.csv_query(query, "", True) YIELD file_path, data
+    WITH  split(data, "\r\n") as results_list
+    UNWIND(results_list) as result
+    WITH trim(result) as trimed_result
+    WHERE trimed_result!=""
+    RETURN trimed_result
+
+output:
+  - trimed_result: '"name","portrayed_by","title","released","program_creators"'
+  - trimed_result: "\"Eleven\",\"Millie Bobby Brown\",\"Stranger Things\",2016,\"['Matt Duffer', 'Ross Duffer']\""
+  - trimed_result: "\"Joyce Byers\",\"Millie Bobby Brown\",\"Stranger Things\",2016,\"['Matt Duffer', 'Ross Duffer']\""
+  - trimed_result: "\"Jim Hopper\",\"Millie Bobby Brown\",\"Stranger Things\",2016,\"['Matt Duffer', 'Ross Duffer']\""
+  - trimed_result: "\"Mike Wheeler\",\"Finn Wolfhard\",\"Stranger Things\",2016,\"['Matt Duffer', 'Ross Duffer']\""
+  - trimed_result: "\"Dustin Henderson\",\"Gaten Matarazzo\",\"Stranger Things\",2016,\"['Matt Duffer', 'Ross Duffer']\""
+  - trimed_result: "\"Lucas Sinclair\",\"Caleb McLaughlin\",\"Stranger Things\",2016,\"['Matt Duffer', 'Ross Duffer']\""
+  - trimed_result: "\"Nancy Wheeler\",\"Natalia Dyer\",\"Stranger Things\",2016,\"['Matt Duffer', 'Ross Duffer']\""
+  - trimed_result: "\"Jonathan Byers\",\"Charlie Heaton\",\"Stranger Things\",2016,\"['Matt Duffer', 'Ross Duffer']\""
+  - trimed_result: "\"Will Byers\",\"Noah Schnapp\",\"Stranger Things\",2016,\"['Matt Duffer', 'Ross Duffer']\""
+  - trimed_result: "\"Steve Harrington\",\"Joe Keery\",\"Stranger Things\",2016,\"['Matt Duffer', 'Ross Duffer']\""
+  - trimed_result: "\"Max Mayfield\",\"Sadie Sink\",\"Stranger Things\",2016,\"['Matt Duffer', 'Ross Duffer']\""
+  - trimed_result: "\"Robin Buckley\",\"Maya Hawke\",\"Stranger Things\",2016,\"['Matt Duffer', 'Ross Duffer']\""
+  - trimed_result: "\"Erica Sinclair\",\"Priah Ferguson\",\"Stranger Things\",2016,\"['Matt Duffer', 'Ross Duffer']\""

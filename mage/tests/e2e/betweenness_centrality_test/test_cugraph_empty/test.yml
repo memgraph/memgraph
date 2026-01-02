@@ -1,0 +1,5 @@
+query: >
+  CALL cugraph.betweenness_centrality.get()
+  YIELD *;
+
+output: []

@@ -1,0 +1,5 @@
+- query: >
+        CALL node_classification.load_model() YIELD *;
+
+  exception: >
+        "There are no saved models. "

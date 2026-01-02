@@ -1,0 +1,18 @@
+query: >
+  MATCH (m:Node {id: 0}), (n:Node {id: 1})
+  CALL cugraph.personalized_pagerank.get([m, n], [0.2, 0.5])
+  YIELD node, pagerank
+  RETURN node.id as node_id, pagerank
+  ORDER BY pagerank ASC;
+
+output:
+  - node_id: 2
+    pagerank: 0.0
+  - node_id: 4
+    pagerank: 0.0
+  - node_id: 3
+    pagerank: 0.1889
+  - node_id: 0
+    pagerank: 0.3667
+  - node_id: 1
+    pagerank: 0.4444

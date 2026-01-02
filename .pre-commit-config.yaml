@@ -5,7 +5,9 @@ repos:
       - id: check-yaml
         args: [--allow-multiple-documents]
       - id: end-of-file-fixer
+        exclude: ^mage/cpp/community_detection_module/grappolo/
       - id: trailing-whitespace
+        exclude: ^mage/cpp/community_detection_module/grappolo/
   - repo: https://github.com/psf/black
     rev: 23.1.0
     hooks:
@@ -20,6 +22,7 @@ repos:
     rev: v13.0.0
     hooks:
       - id: clang-format
+        exclude: ^mage/cpp/community_detection_module/grappolo/
 #  - repo: local
 #    hooks:
 #      - id: clang-tidy

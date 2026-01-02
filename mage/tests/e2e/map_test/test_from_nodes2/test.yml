@@ -1,0 +1,6 @@
+query: >
+  CALL map.from_nodes("Human", "name") YIELD map
+  RETURN map["Carl"]["properties"]["nationality"] AS nationality;
+
+output:
+  - nationality: Croatian
