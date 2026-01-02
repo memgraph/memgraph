@@ -812,8 +812,13 @@ class InMemoryStorage final : public Storage {
   std::mutex gc_lock_;
 
   struct GCDeltas {
-    GCDeltas(uint64_t mark_timestamp, delta_container deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp)
-        : mark_timestamp_{mark_timestamp}, deltas_{std::move(deltas)}, commit_timestamp_{std::move(commit_timestamp)} {}
+    GCDeltas(uint64_t mark_timestamp, delta_container deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp,
+             uint64_t transaction_id)
+        : mark_timestamp_{mark_timestamp},
+          deltas_{std::move(deltas)},
+          commit_timestamp_{std::move(commit_timestamp)},
+          unlinkable_timestamp_{commit_timestamp_ ? commit_timestamp_->load(std::memory_order_acquire) : 0},
+          transaction_id_{transaction_id} {}
 
     GCDeltas(GCDeltas &&) = default;
     GCDeltas &operator=(GCDeltas &&) = default;
@@ -821,12 +826,16 @@ class InMemoryStorage final : public Storage {
     uint64_t mark_timestamp_{};                                  //!< a timestamp no active transaction currently has
     delta_container deltas_;                                     //!< the deltas that need cleaning
     std::unique_ptr<std::atomic<uint64_t>> commit_timestamp_{};  //!< the timestamp the deltas are pointing at
+    uint64_t unlinkable_timestamp_{};  //!< earliest timestamp when these deltas can be safely unlinked
+    uint64_t transaction_id_{};        //!< the transaction ID that created these deltas
   };
 
-  // Ownership of linked deltas is transferred to committed_transactions_ once transaction is commited
   utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> committed_transactions_{};
 
-  // Ownership of unlinked deltas is transferred to garabage_undo_buffers once transaction is commited/aborted
+  // Interleaved delta chains waiting for all contributors to commit
+  utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> waiting_gc_deltas_{};
+
+  // Ownership of unlinked deltas is transferred to garbage_undo_buffers once transaction is committed/aborted
   utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> garbage_undo_buffers_{};
 
   // Vertices that are logically deleted but still have to be removed from
