@@ -197,6 +197,14 @@ bool ReplicationHandler::SetReplicationRoleMain() { return DoToMainPromotion({},
 bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                                    std::optional<utils::UUID> const &maybe_main_uuid) {
   try {
+    // Need to take read-only access to all databases so that write txns could finish before demoting
+    // to replica.
+    std::vector<std::unique_ptr<storage::Storage::Accessor>> accs;
+    dbms_handler_.ForEach([&accs](dbms::DatabaseAccess db_acc) {
+      auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+      accs.emplace_back(storage->ReadOnlyAccess());
+    });
+
     auto locked_repl_state = repl_state_.TryLock();
 
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {

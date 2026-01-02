@@ -1480,14 +1480,14 @@ def test_multiple_failovers_in_row_no_leadership_change(test_name):
             "localhost:10001",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+            {"memgraph": {"ts": 3, "behind": 0, "status": "ready"}},
         ),
         (
             "instance_2",
             "localhost:10002",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+            {"memgraph": {"ts": 3, "behind": 0, "status": "ready"}},
         ),
     ]
     mg_sleep_and_assert_collection(replicas, partial(show_replicas, instance_3_cursor))
@@ -2936,14 +2936,14 @@ def test_main_reselected_to_become_main(test_name):
             "localhost:10001",
             "sync",
             {"behind": None, "status": "ready", "ts": 0},
-            {"memgraph": {"behind": 0, "status": "ready", "ts": 2}},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 3}},
         ),
         (
             "instance_2",
             "localhost:10002",
             "sync",
             {"behind": None, "status": "ready", "ts": 0},
-            {"memgraph": {"behind": 0, "status": "ready", "ts": 2}},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 3}},
         ),
     ]
     mg_sleep_and_assert_collection(replicas, partial(show_replicas, main_cursor))
