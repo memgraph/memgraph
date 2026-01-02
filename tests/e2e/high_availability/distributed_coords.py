@@ -3165,5 +3165,53 @@ def test_coord_settings(test_name):
     assert settings[max_replica_read_lag] == "10"
 
 
+def test_update_config(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+
+    mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
+
+    execute_and_fetch_all(coord_cursor_3, "UPDATE CONFIG FOR COORDINATOR 1 {'bolt_server': '127.0.0.1:7690'}")
+    execute_and_fetch_all(coord_cursor_3, "UPDATE CONFIG FOR COORDINATOR 2 {'bolt_server': '127.0.0.1:7691'}")
+    execute_and_fetch_all(coord_cursor_3, "UPDATE CONFIG FOR COORDINATOR 3 {'bolt_server': '127.0.0.1:7692'}")
+    execute_and_fetch_all(coord_cursor_3, "UPDATE CONFIG FOR INSTANCE instance_1 {'bolt_server': '127.0.0.1:7687'}")
+    execute_and_fetch_all(coord_cursor_3, "UPDATE CONFIG FOR INSTANCE instance_2 {'bolt_server': '127.0.0.1:7688'}")
+    execute_and_fetch_all(coord_cursor_3, "UPDATE CONFIG FOR INSTANCE instance_3 {'bolt_server': '127.0.0.1:7689'}")
+
+    data = [
+        ("coordinator_1", "127.0.0.1:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "127.0.0.1:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "127.0.0.1:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "localhost:10013", "up", "main"),
+    ]
+    mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
+
+    data_1_cursor = connect(host="localhost", port=7687).cursor()
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(data_1_cursor, "UPDATE CONFIG FOR COORDINATOR 1 {'bolt_server': '127.0.0.1:7690'}")
+    assert str(e.value) == "Only coordinator can update config!"
+
+    interactive_mg_runner.kill(inner_instances_description, "coordinator_1")
+    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+    mg_sleep_and_assert(data, partial(show_instances, coord_cursor_2))
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
