@@ -25,7 +25,7 @@ IMAGE_TAG="${IMAGE_TAG//\~/_}"
 ARTIFACT_NAME="mage-${IMAGE_TAG}"
 
 # modify artifacts/tags for specific builds
-if [[ "$ARCH" == 'arm64' ]]; then
+if [[ "$ARCH" == 'arm' ]]; then
     ARTIFACT_NAME="${ARTIFACT_NAME}-arm64"
 fi
 if [[ "$BUILD_TYPE" == 'RelWithDebInfo' ]]; then
