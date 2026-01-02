@@ -69,3 +69,5 @@ list(APPEND CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
 set(OpenSSL_DIR "" CACHE PATH "OpenSSL directory (set by Conan)" FORCE)
 # Also prevent find_package from finding OpenSSL in the toolchain by ignoring that path
 list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_ROOT}/lib64/cmake/OpenSSL")
+list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_ROOT}/lib/cmake/OpenSSL")
+
