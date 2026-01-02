@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -8682,16 +8682,6 @@ std::optional<std::filesystem::path> CreateSnapshot(
     std::atomic_bool *abort_snapshot) {
   utils::Timer timer;
 
-  auto const snapshot_aborted = [abort_snapshot, &timer]() -> bool {
-    if (abort_snapshot == nullptr) return false;
-    if (timer.Elapsed() >= kCheckIfSnapshotAborted) {
-      const bool abort = abort_snapshot->load(std::memory_order_acquire);
-      if (!abort) timer.ResetStartTime();  // Leave timer as elapsed, so future checks also retrun true
-      return abort;
-    }
-    return false;
-  };
-
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(snapshot_directory);
 
@@ -8699,6 +8689,19 @@ std::optional<std::filesystem::path> CreateSnapshot(
   // For InMemoryStorage, we always have a value for last_durable_ts_
   auto path = snapshot_directory / MakeSnapshotName(transaction->last_durable_ts_ ? *transaction->last_durable_ts_
                                                                                   : transaction->start_timestamp);
+
+  auto const snapshot_aborted = [abort_snapshot, &timer, &path, file_retainer]() -> bool {
+    if (abort_snapshot == nullptr) return false;
+    if (timer.Elapsed() >= kCheckIfSnapshotAborted) {
+      const bool abort = abort_snapshot->load(std::memory_order_acquire);
+      if (!abort) timer.ResetStartTime();  // Leave timer as elapsed, so future checks also return true
+      // Delete a partially written snapshot file
+      file_retainer->DeleteFile(path);
+      return abort;
+    }
+    return false;
+  };
+
   spdlog::info("Starting snapshot creation to {}", path);
   SnapshotEncoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic, kVersion);
