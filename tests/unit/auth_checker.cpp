@@ -246,12 +246,10 @@ TEST(AuthChecker, Generate) {
   auto user = auth->AddUser("new_user");
   ASSERT_TRUE(user);
 
-  // ~Empty user should now fail~
-  // Always using up to date policy, cache invalidation is enabled, so empty_user sees that access control is now
-  // enabled
-  EXPECT_FALSE(empty_user->IsAuthorized({AUTH, REMOVE, REPLICATION}, ""));
-  EXPECT_FALSE(empty_user->IsAuthorized({FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph"));
-  EXPECT_FALSE(empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db"));
+  // Empty user should still allow access since he is superuser
+  EXPECT_TRUE(empty_user->IsAuthorized({AUTH, REMOVE, REPLICATION}, ""));
+  EXPECT_TRUE(empty_user->IsAuthorized({FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph"));
+  EXPECT_TRUE(empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db"));
 
   // Add role and new user
   auto new_role = *auth->AddRole("new_role");

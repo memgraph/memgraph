@@ -39,7 +39,8 @@ bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege
   if (user_) return AuthChecker::IsUserAuthorized(*user_, privileges, db_name);
   if (roles_) return AuthChecker::IsRoleAuthorized(*roles_, privileges, db_name);
 
-  return !locked_auth->AccessControlled();
+  // if the session was created before any users and not using auth module allow access
+  return !locked_auth->UsingAuthModule();
 }
 
 std::vector<std::string> QueryUserOrRole::GetRolenames(std::optional<std::string> db_name) const {
