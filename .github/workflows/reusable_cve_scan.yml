@@ -5,7 +5,7 @@ on:
     inputs:
       arch:
         type: string
-        description: "Image architecture (amd64|arm64)"
+        description: "Image architecture (amd|arm)"
         required: true
       image_url:
         type: string
@@ -41,18 +41,17 @@ env:
 jobs:
   scan-image:
     name: Scan Docker Image for Vulnerabilities (${{ inputs.image_type }}, ${{ inputs.arch }})
-    runs-on: ${{ (inputs.arch == 'arm64') && fromJSON('["self-hosted", "Linux", "Docker", "ARM64", "Ubuntu24.04"]') || fromJSON('["self-hosted", "Linux", "Docker", "X64", "Ubuntu24.04"]') }}
+    runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "Linux", "Docker", "ARM64", "Ubuntu24.04"]') || fromJSON('["self-hosted", "Linux", "Docker", "X64", "Ubuntu24.04"]') }}
     steps:
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Checkout repository and submodules
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create Scan Directory
@@ -167,21 +166,21 @@ jobs:
         if: ${{ inputs.run_cbt }}
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: ${{ inputs.image_type }}-${{ inputs.arch }}-cve-bin-tool-memgraph-summary
+          name: ${{ inputs.image_type }}-${{ inputs.arch }}64-cve-bin-tool-memgraph-summary
           path: "${{ env.CVE_DIR }}/cve-bin-tool-memgraph-summary.json"
 
       - name: Upload cve-bin-tool Language Scan Artifact
         if: ${{ inputs.run_cbt  }}
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: ${{ inputs.image_type }}-${{ inputs.arch }}-cve-bin-tool-language-summary
+          name: ${{ inputs.image_type }}-${{ inputs.arch }}64-cve-bin-tool-language-summary
           path: "${{ env.CVE_DIR }}/cve-bin-tool-lang-summary.json"
 
       - name: Upload cve-bin-tool APT Package Scan Artifact
         if: ${{ inputs.run_cbt }}
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: ${{ inputs.image_type }}-${{ inputs.arch }}-cve-bin-tool-apt-summary
+          name: ${{ inputs.image_type }}-${{ inputs.arch }}64-cve-bin-tool-apt-summary
           path: "${{ env.CVE_DIR }}/cve-bin-tool-apt-summary.json"
 
       # TODO(matt): cve-bin-tool is pretty broken, so we will not use it at
@@ -192,7 +191,7 @@ jobs:
         env:
           COLUMNS: 200
         run: |
-          if [[ "$ARCH" == "amd64" ]]; then
+          if [[ "$ARCH" == "amd" ]]; then
               CYCLONEDXURL="https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.29.1/cyclonedx-linux-x64"
           else
               CYCLONEDXURL="https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.29.1/cyclonedx-linux-arm64"
@@ -215,7 +214,7 @@ jobs:
         if: ${{ inputs.run_trivy || inputs.run_grype }}
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: ${{ inputs.image_type }}-${{ inputs.arch }}-cve-report
+          name: ${{ inputs.image_type }}-${{ inputs.arch }}64-cve-report
           path: |
             ${{ env.CVE_DIR }}/combined_report.json
             ${{ env.CVE_DIR }}/combined_report.txt

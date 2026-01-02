@@ -146,7 +146,7 @@ def create_slack_message(arch: str, image_type: str, cves: List[dict]) -> str:
     str: The formatted Slack message.
     """
 
-    arch_str = "x86_64" if arch == "amd64" else "aarch64"
+    arch_str = "x86_64" if arch == "amd" else "aarch64"
     name = "Memgraph" if image_type == "memgraph" else "MAGE"
 
     msg_start = f"Vulnerability Scan Results for *{name}* (Docker {arch_str})...\n\n"
@@ -200,7 +200,7 @@ def main(arch: str, image_type: str, send_slack_message: bool) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("arch", type=str, default="amd64")
+    parser.add_argument("arch", type=str, default="amd")
     parser.add_argument("image_type", type=str, choices=["memgraph", "mage"], default="mage")
     parser.add_argument("send_message", type=str, default="true")
     args = parser.parse_args()
