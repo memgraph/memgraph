@@ -9,20 +9,30 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "coordination/coordinator_state_machine.hpp"
-#include "coordination/constants.hpp"
-#include "coordination/coordinator_state_manager.hpp"
+#include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
-#include "utils/file.hpp"
+#include "replication_coordination_glue/mode.hpp"
+#include "utils/uuid.hpp"
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
+#include <libnuraft/async.hxx>
+#include <libnuraft/buffer.hxx>
+#include <libnuraft/cluster_config.hxx>
+#include <libnuraft/snapshot.hxx>
+#include <libnuraft/srv_config.hxx>
 #include <nlohmann/json.hpp>
 
-#include "libnuraft/nuraft.hxx"
+#include <ranges>
 
-#include <range/v3/view.hpp>
-#include "coordination/coordinator_communication_config.hpp"
+import memgraph.coordination.coordinator_cluster_state;
+import memgraph.coordination.constants;
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_instance_aux;
+import memgraph.coordination.coordinator_state_machine;
+import memgraph.coordination.coordinator_state_manager;
+import memgraph.coordination.logger;
+import memgraph.coordination.logger_wrapper;
 
 using memgraph::coordination::CoordinatorClusterState;
 using memgraph::coordination::CoordinatorInstanceAux;
@@ -147,7 +157,8 @@ TEST_P(CoordinatorStateMachineTestParam, SerializeDeserializeSnapshot) {
     CoordinatorStateMachine state_machine{my_logger, log_store_durability};
     auto last_snapshot = state_machine.last_snapshot();
     ASSERT_EQ(last_snapshot->get_last_log_idx(), 1);
-    auto zipped_view = ranges::views::zip(old_config->get_servers(), last_snapshot->get_last_config()->get_servers());
+    auto zipped_view =
+        std::ranges::views::zip(old_config->get_servers(), last_snapshot->get_last_config()->get_servers());
     std::ranges::for_each(zipped_view, [](auto const &pair) {
       auto &[temp_server, loaded_server] = pair;
       CompareServers(temp_server, loaded_server);

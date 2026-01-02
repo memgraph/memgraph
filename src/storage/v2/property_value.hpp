@@ -429,9 +429,19 @@ class PropertyValueImpl {
       case Type::List:
         alloc_trait::construct(alloc_, &list_v.val_, other.list_v.val_.begin(), other.list_v.val_.end());
         return;
-      case Type::Map:
+      case Type::Map: {
         alloc_trait::construct(alloc_, &map_v.val_, other.map_v.val_.begin(), other.map_v.val_.end());
+        // using pair_t = typename map_t::value_type;
+        // using vec_alloc = typename alloc_trait::template rebind_alloc<pair_t>;
+        // std::vector<pair_t, vec_alloc> pairs(alloc_);
+        // pairs.reserve(other.map_v.val_.size());
+        // for (auto const &[key, value] : other.map_v.val_) {
+        //   pairs.emplace_back(key, PropertyValueImpl(value, alloc_));
+        // }
+        // // flat_map source is already sorted, use ordered_unique_range
+        // new (&map_v.val_) map_t(boost::container::ordered_unique_range, pairs.begin(), pairs.end(), alloc_);
         return;
+      }
       case Type::TemporalData:
         temporal_data_v.val_ = other.temporal_data_v.val_;
         return;
@@ -1122,6 +1132,8 @@ inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl const
           break;
         case Type::Map:
           map_v.val_ = map_t(other.map_v.val_, alloc_);
+          // alloc_trait::destroy(alloc_, &map_v.val_);
+          // new (&map_v.val_) map_t(other.map_v.val_, alloc_);
           break;
         case Type::TemporalData:
           temporal_data_v.val_ = other.temporal_data_v.val_;
@@ -1211,6 +1223,9 @@ inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl &&oth
           break;
         case Type::Map:
           map_v.val_ = std::move(other.map_v.val_);
+
+          // alloc_trait::destroy(alloc_, &map_v.val_);
+          // new (&map_v.val_) map_t(std::move(other.map_v.val_), alloc_);
           break;
         case Type::TemporalData:
           temporal_data_v.val_ = other.temporal_data_v.val_;

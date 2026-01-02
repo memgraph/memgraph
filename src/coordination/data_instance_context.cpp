@@ -9,11 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+module;
+
+#include <nlohmann/json.hpp>
+
+module memgraph.coordination.data_instance_context;
+
 #ifdef MG_ENTERPRISE
 
-#include "coordination/data_instance_context.hpp"
-#include <nlohmann/json.hpp>
-#include "coordination/constants.hpp"
+import memgraph.coordination.constants;
 
 namespace memgraph::coordination {
 
