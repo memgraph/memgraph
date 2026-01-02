@@ -45,7 +45,7 @@ struct Trigger {
   void Execute(DbAccessor *dba, memgraph::dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
                double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
                std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context, bool is_main,
-               std::shared_ptr<QueryUserOrRole> triggering_user) const;
+               std::shared_ptr<QueryUserOrRole> triggering_user, const AuthChecker *auth_checker) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
   // NOLINTNEXTLINE (modernize-use-nullptr)
