@@ -569,6 +569,18 @@ jobs:
         run: |
           tag="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
           clean_tag="${tag#v}"
+          if [[ "$ARCH" == "arm" ]]; then
+            clean_tag="${clean_tag}-arm"
+          fi
+          if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
+            clean_tag="${clean_tag}-relwithdebinfo"
+          fi
+          if [[ "$MALLOC" == "true" ]]; then
+            clean_tag="${clean_tag}-malloc"
+          fi
+          if [[ "$CUDA" == "true" ]]; then
+            clean_tag="${clean_tag}-cuda"
+          fi
           echo "Found latest tag: ${clean_tag}"
           echo "clean_tag=$clean_tag" >> $GITHUB_OUTPUT
 
