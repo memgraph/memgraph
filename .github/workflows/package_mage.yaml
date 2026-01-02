@@ -51,7 +51,7 @@ run-name: "Package MAGE"
 
 jobs:
   BuildMage:
-    if: ${{ !inputs.matrix_build }}
+    if: ${{ !inputs.matrix_build && github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: ${{ github.event.inputs.build_arch || 'amd' }}
@@ -68,7 +68,7 @@ jobs:
 
   # New matrix build job, runs only when matrix_build is true
   BuildMageMatrix:
-    if: ${{ inputs.matrix_build }}
+    if: ${{ inputs.matrix_build && github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     strategy:
       fail-fast: false
@@ -100,7 +100,7 @@ jobs:
       generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc && !matrix.cuda }}
     secrets: inherit
 
-
+  # DO NOT MERGE THIS JOB! It is only used for testing the matrix build job.
   PushMatrixBuild:
     if: ${{ github.event_name == 'push' }}
     strategy:
@@ -119,6 +119,14 @@ jobs:
             build_arch: "amd"
             cuda: true
             malloc: false
+          - build_type: "RelWithDebInfo"
+            build_arch: "amd"
+            cuda: false
+            malloc: true
+          - build_type: "RelWithDebInfo"
+            build_arch: "arm"
+            cuda: false
+            malloc: true
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: ${{ matrix.build_arch }}
