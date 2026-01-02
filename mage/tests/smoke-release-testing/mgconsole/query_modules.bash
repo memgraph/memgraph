@@ -4,7 +4,7 @@ source "$SCRIPT_DIR/../utils.bash"
 
 test_query_modules() {
   echo "FEATURE: All MAGE query modules"
-  run_next_csv "CALL mg.procedures() YIELD * RETURN count(*) AS cnt;" | python3 $SCRIPT_DIR/validator.py first_as_int -f cnt -e 321
+  run_next_csv "CALL mg.procedures() YIELD * RETURN count(*) AS cnt;" | python3 $SCRIPT_DIR/validator.py first_as_int -f cnt -e 322
   run_next "CREATE (a), (b), (c), (d), (a)-[:ET]->(b), (c)-[:ET]->(d);"
   run_next "CALL leiden_community_detection.get() YIELD * RETURN communities, community_id, node;"
 }
