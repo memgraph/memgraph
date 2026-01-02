@@ -171,6 +171,7 @@ jobs:
         env:
           SHORTEN_TAG: "${{ inputs.shorten_tag }}"
         run: |
+          echo "DEBUG: script inputs: MEMGRAPH_VERSION=$MEMGRAPH_VERSION, SHORTEN_TAG=$SHORTEN_TAG, ARCH=$ARCH, BUILD_TYPE=$BUILD_TYPE, MALLOC=$MALLOC, CUDA=$CUDA"
           read IMAGE_TAG ARTIFACT_NAME < <(mage/scripts/artifact-name-tag.sh "$MEMGRAPH_VERSION" "$SHORTEN_TAG" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA")
           echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
           echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
