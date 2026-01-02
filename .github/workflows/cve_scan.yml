@@ -18,6 +18,8 @@ on:
         required: true
         description: "Daily build date (yyyymmdd) to be scanned."
 
+run-name: CVE Scan for ${{ inputs.date }}
+
 jobs:
   SetupCVEScan:
     name: Setup CVE Scan

@@ -41,6 +41,8 @@ on:
         description: "Send a Slack message"
         default: false
 
+run-name: Manual CVE Scan for ${{ inputs.arch }} ${{ inputs.image_type }}
+
 jobs:
   manual-cve-scan:
     name: Manual CVE Scan
