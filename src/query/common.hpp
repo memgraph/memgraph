@@ -116,13 +116,13 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
 }  // namespace
 
 struct OrderedTypedValueCompare {
-  OrderedTypedValueCompare(Ordering ordering) : ordering_{ordering}, ascending{ordering == Ordering::ASC} {}
+  constexpr OrderedTypedValueCompare(Ordering ordering) : ordering_{ordering}, ascending{ordering == Ordering::ASC} {}
 
   auto operator()(const TypedValue &lhs, const TypedValue &rhs) const -> std::partial_ordering {
     return ascending ? TypedValueCompare(lhs, rhs) : TypedValueCompare(rhs, lhs);
   }
 
-  auto ordering() const { return ordering_; }
+  constexpr auto ordering() const { return ordering_; }
 
  private:
   Ordering ordering_;
@@ -137,12 +137,12 @@ struct OrderedTypedValueCompare {
 class TypedValueVectorCompare final {
  public:
   TypedValueVectorCompare() = default;
-  explicit TypedValueVectorCompare(std::vector<OrderedTypedValueCompare> orderings)
+  constexpr explicit TypedValueVectorCompare(std::vector<OrderedTypedValueCompare> orderings)
       : orderings_{std::move(orderings)} {}
 
-  const auto &orderings() const { return orderings_; }
+  constexpr const auto &orderings() const { return orderings_; }
 
-  auto lex_cmp() const {
+  constexpr auto lex_cmp() const {
     return [orderings = &orderings_]<typename TAllocator>(const std::vector<TypedValue, TAllocator> &lhs,
                                                           const std::vector<TypedValue, TAllocator> &rhs) {
       auto rng = ranges::views::zip(*orderings, lhs, rhs);

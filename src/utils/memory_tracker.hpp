@@ -34,7 +34,7 @@ struct MemoryTrackerStatus {
   // DEVNOTE: Do not call from within allocator, will cause another allocation
   auto msg() -> std::optional<std::string>;
 
-  void set(data d) { data_ = d; }
+  constexpr void set(data d) { data_ = d; }
 
  private:
   std::optional<data> data_;

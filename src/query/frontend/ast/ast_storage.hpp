@@ -21,9 +21,9 @@ namespace memgraph::query {
 
 struct LabelIx {
   static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const { return kType; }
-  friend bool operator==(const LabelIx &a, const LabelIx &b) { return a.ix == b.ix; }
-  friend bool operator<(const LabelIx &a, const LabelIx &b) { return a.ix < b.ix; }
+  constexpr const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  constexpr friend bool operator==(const LabelIx &a, const LabelIx &b) { return a.ix == b.ix; }
+  constexpr friend bool operator<(const LabelIx &a, const LabelIx &b) { return a.ix < b.ix; }
 
   std::string name;
   int64_t ix;
@@ -31,9 +31,9 @@ struct LabelIx {
 
 struct PropertyIx {
   static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const { return kType; }
-  friend bool operator==(const PropertyIx &a, const PropertyIx &b) { return a.ix == b.ix; }
-  friend bool operator<(const PropertyIx &a, const PropertyIx &b) { return a.ix < b.ix; }
+  constexpr const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  constexpr friend bool operator==(const PropertyIx &a, const PropertyIx &b) { return a.ix == b.ix; }
+  constexpr friend bool operator<(const PropertyIx &a, const PropertyIx &b) { return a.ix < b.ix; }
 
   std::string name;
   int64_t ix;
@@ -41,9 +41,9 @@ struct PropertyIx {
 
 struct EdgeTypeIx {
   static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const { return kType; }
-  friend bool operator==(const EdgeTypeIx &a, const EdgeTypeIx &b) { return a.ix == b.ix; }
-  friend bool operator<(const EdgeTypeIx &a, const EdgeTypeIx &b) { return a.ix < b.ix; }
+  constexpr const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  constexpr friend bool operator==(const EdgeTypeIx &a, const EdgeTypeIx &b) { return a.ix == b.ix; }
+  constexpr friend bool operator<(const EdgeTypeIx &a, const EdgeTypeIx &b) { return a.ix < b.ix; }
 
   std::string name;
   int64_t ix;
@@ -55,17 +55,17 @@ namespace std {
 
 template <>
 struct hash<memgraph::query::LabelIx> {
-  size_t operator()(const memgraph::query::LabelIx &label) const { return label.ix; }
+  constexpr size_t operator()(const memgraph::query::LabelIx &label) const { return label.ix; }
 };
 
 template <>
 struct hash<memgraph::query::PropertyIx> {
-  size_t operator()(const memgraph::query::PropertyIx &prop) const { return prop.ix; }
+  constexpr size_t operator()(const memgraph::query::PropertyIx &prop) const { return prop.ix; }
 };
 
 template <>
 struct hash<memgraph::query::EdgeTypeIx> {
-  size_t operator()(const memgraph::query::EdgeTypeIx &edge_type) const { return edge_type.ix; }
+  constexpr size_t operator()(const memgraph::query::EdgeTypeIx &edge_type) const { return edge_type.ix; }
 };
 
 }  // namespace std
@@ -85,18 +85,22 @@ class AstStorage {
   AstStorage &operator=(AstStorage &&) = default;
 
   template <typename T, typename... Args>
-  T *Create(Args &&...args) {
+  constexpr T *Create(Args &&...args) {
     T *ptr = new T(std::forward<Args>(args)...);
     std::unique_ptr<T> tmp(ptr);
     storage_.emplace_back(std::move(tmp));
     return ptr;
   }
 
-  LabelIx GetLabelIx(const std::string &name) { return LabelIx{name, FindOrAddName(name, &labels_)}; }
+  constexpr LabelIx GetLabelIx(const std::string &name) { return LabelIx{name, FindOrAddName(name, &labels_)}; }
 
-  PropertyIx GetPropertyIx(const std::string &name) { return PropertyIx{name, FindOrAddName(name, &properties_)}; }
+  constexpr PropertyIx GetPropertyIx(const std::string &name) {
+    return PropertyIx{name, FindOrAddName(name, &properties_)};
+  }
 
-  EdgeTypeIx GetEdgeTypeIx(const std::string &name) { return EdgeTypeIx{name, FindOrAddName(name, &edge_types_)}; }
+  constexpr EdgeTypeIx GetEdgeTypeIx(const std::string &name) {
+    return EdgeTypeIx{name, FindOrAddName(name, &edge_types_)};
+  }
 
   // TODO: would be good if these were stable memory locations, then *Ix could have string_view rather than stringq
   std::vector<std::string> labels_;
@@ -107,7 +111,7 @@ class AstStorage {
   std::vector<std::unique_ptr<Tree>> storage_;
 
  private:
-  int64_t FindOrAddName(const std::string &name, std::vector<std::string> *names) {
+  constexpr int64_t FindOrAddName(const std::string &name, std::vector<std::string> *names) {
     for (int64_t i = 0; i < names->size(); ++i) {
       if ((*names)[i] == name) {
         return i;

@@ -20,7 +20,7 @@ namespace memgraph::utils {
 enum class ValidationError : uint8_t { EmptyValue, InvalidValue };
 
 // Returns joined string representations for every enum in the mapping.
-auto GetAllowedEnumValuesString(const auto &mappings) -> std::string {
+constexpr auto GetAllowedEnumValuesString(const auto &mappings) -> std::string {
   std::vector<std::string> allowed_values;
   allowed_values.reserve(mappings.size());
   std::transform(mappings.begin(), mappings.end(), std::back_inserter(allowed_values),
@@ -30,7 +30,7 @@ auto GetAllowedEnumValuesString(const auto &mappings) -> std::string {
 
 // Checks if the string value can be represented as an enum.
 // If not, the BasicResult will contain an error.
-auto IsValidEnumValueString(const auto &value, const auto &mappings) -> std::expected<void, ValidationError> {
+constexpr auto IsValidEnumValueString(const auto &value, const auto &mappings) -> std::expected<void, ValidationError> {
   if (value.empty()) {
     return std::unexpected{ValidationError::EmptyValue};
   }
@@ -45,7 +45,7 @@ auto IsValidEnumValueString(const auto &value, const auto &mappings) -> std::exp
 // Tries to convert a string into enum, which would then contain a value if the conversion
 // has been successful.
 template <typename Enum>
-auto StringToEnum(const auto &value, const auto &mappings) -> std::optional<Enum> {
+constexpr auto StringToEnum(const auto &value, const auto &mappings) -> std::optional<Enum> {
   const auto mapping_iter =
       std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.first == value; });
   if (mapping_iter == mappings.cend()) {
@@ -59,7 +59,7 @@ auto StringToEnum(const auto &value, const auto &mappings) -> std::optional<Enum
 // has been successful.
 template <typename Enum>
 requires std::is_enum_v<Enum>
-auto EnumToString(const auto &value, const auto &mappings) -> std::optional<std::string_view> {
+constexpr auto EnumToString(const auto &value, const auto &mappings) -> std::optional<std::string_view> {
   const auto mapping_iter =
       std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.second == value; });
   if (mapping_iter == mappings.cend()) [[unlikely]] {
@@ -70,7 +70,7 @@ auto EnumToString(const auto &value, const auto &mappings) -> std::optional<std:
 
 template <typename Enum>
 requires std::is_enum_v<Enum> && requires { Enum::N; }
-bool NumToEnum(std::underlying_type_t<Enum> input, Enum &res) {
+constexpr bool NumToEnum(std::underlying_type_t<Enum> input, Enum &res) {
   if (input >= std::to_underlying(Enum::N)) return false;
   res = static_cast<Enum>(input);
   return true;

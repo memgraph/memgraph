@@ -82,9 +82,9 @@ class Encoder final : public BaseEncoder {
 
   // Get the total size of the current file.
   size_t GetSize();
-  auto GetPath() const { return file_.path(); }
+  constexpr auto GetPath() const { return file_.path(); }
 
-  auto native_handle() const { return file_.fd(); }
+  constexpr auto native_handle() const { return file_.fd(); }
 
  private:
   FileType file_;

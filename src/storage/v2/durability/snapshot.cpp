@@ -252,7 +252,7 @@ void WaitAndCombine(task_results_t &partial_results, SnapshotEncoder &snapshot_e
 }
 
 // Return at least one batch (at least 2 elements: start and end gid)
-auto Batch(auto &&acc, const uint64_t items_per_batch) {
+constexpr auto Batch(auto &&acc, const uint64_t items_per_batch) {
   // Skiplist sizes can change, last thread will pick up any new elements. In the end, these will be skiped (MVCC)
   const auto n_batches = (items_per_batch < 1) ? 1 : (acc.size() + items_per_batch - 1) / items_per_batch;
 

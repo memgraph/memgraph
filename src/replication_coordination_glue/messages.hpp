@@ -46,7 +46,7 @@ struct SwapMainUUIDReq {
   static void Load(SwapMainUUIDReq *self, memgraph::slk::Reader *reader);
   static void Save(const SwapMainUUIDReq &self, memgraph::slk::Builder *builder);
 
-  explicit SwapMainUUIDReq(const utils::UUID &uuid) : uuid(uuid) {}
+  constexpr explicit SwapMainUUIDReq(const utils::UUID &uuid) : uuid(uuid) {}
 
   SwapMainUUIDReq() = default;
 
@@ -60,7 +60,7 @@ struct SwapMainUUIDRes {
   static void Load(SwapMainUUIDRes *self, memgraph::slk::Reader *reader);
   static void Save(const SwapMainUUIDRes &self, memgraph::slk::Builder *builder);
 
-  explicit SwapMainUUIDRes(bool success) : success(success) {}
+  constexpr explicit SwapMainUUIDRes(bool success) : success(success) {}
   SwapMainUUIDRes() = default;
 
   bool success;

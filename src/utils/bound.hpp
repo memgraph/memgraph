@@ -27,7 +27,7 @@ class Bound {
  public:
   using Type = BoundType;
 
-  Bound(TValue value, Type type) : value_(value), type_(type) {}
+  constexpr Bound(TValue value, Type type) : value_(value), type_(type) {}
 
   Bound(const Bound &other) = default;
   Bound(Bound &&other) = default;
@@ -36,13 +36,13 @@ class Bound {
   Bound &operator=(Bound &&other) = default;
 
   /** Value for the bound. */
-  const auto &value() const { return value_; }
+  constexpr const auto &value() const { return value_; }
   /** Whether the bound is inclusive or exclusive. */
-  auto type() const { return type_; }
-  auto IsInclusive() const { return type_ == BoundType::INCLUSIVE; }
-  auto IsExclusive() const { return type_ == BoundType::EXCLUSIVE; }
+  constexpr auto type() const { return type_; }
+  constexpr auto IsInclusive() const { return type_ == BoundType::INCLUSIVE; }
+  constexpr auto IsExclusive() const { return type_ == BoundType::EXCLUSIVE; }
 
-  friend bool operator==(Bound const &lhs, Bound const &rhs) noexcept {
+  constexpr friend bool operator==(Bound const &lhs, Bound const &rhs) noexcept {
     return std::tie(lhs.type_, lhs.value_) == std::tie(rhs.type_, rhs.value_);
   }
 
@@ -58,7 +58,7 @@ class Bound {
  * @tparam TValue - value type
  */
 template <typename TValue>
-Bound<TValue> MakeBoundInclusive(TValue value) {
+constexpr Bound<TValue> MakeBoundInclusive(TValue value) {
   return Bound<TValue>(value, BoundType::INCLUSIVE);
 };
 
@@ -69,7 +69,7 @@ Bound<TValue> MakeBoundInclusive(TValue value) {
  * @tparam TValue - value type
  */
 template <typename TValue>
-Bound<TValue> MakeBoundExclusive(TValue value) {
+constexpr Bound<TValue> MakeBoundExclusive(TValue value) {
   return Bound<TValue>(value, BoundType::EXCLUSIVE);
 };
 

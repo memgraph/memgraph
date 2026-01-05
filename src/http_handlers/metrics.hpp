@@ -109,7 +109,7 @@ struct MetricsResponse {
 
 class MetricsService {
  public:
-  explicit MetricsService(storage::Storage *storage) : db_(storage) {}
+  constexpr explicit MetricsService(storage::Storage *storage) : db_(storage) {}
 
   nlohmann::json GetMetricsJSON() {
     auto response = GetMetrics();
@@ -219,7 +219,7 @@ class MetricsService {
 // Raw pointer could be dangerous
 class MetricsRequestHandler final {
  public:
-  explicit MetricsRequestHandler(storage::Storage *storage) : service_(storage) {}
+  constexpr explicit MetricsRequestHandler(storage::Storage *storage) : service_(storage) {}
 
   MetricsRequestHandler(const MetricsRequestHandler &) = delete;
   MetricsRequestHandler(MetricsRequestHandler &&) = delete;

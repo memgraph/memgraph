@@ -54,7 +54,7 @@ namespace memgraph::dbms {
 
 class SnapshotObserver final : public utils::Observer<void> {
  public:
-  explicit SnapshotObserver(slk::Builder *res_builder) : res_builder_(res_builder) {}
+  constexpr explicit SnapshotObserver(slk::Builder *res_builder) : res_builder_(res_builder) {}
   void Update() override {
     auto guard = std::lock_guard{mtx_};
     rpc::SendInProgressMsg(res_builder_);
@@ -90,7 +90,7 @@ void MoveDurabilityFiles(std::vector<storage::durability::SnapshotDurabilityInfo
                          std::filesystem::path const &backup_snapshot_dir,
                          std::vector<storage::durability::WalDurabilityInfo> const &wal_files,
                          std::filesystem::path const &backup_wal_dir, utils::FileRetainer *file_retainer) {
-  auto const get_path = [](auto const &durability_info) { return durability_info.path; };
+  auto constexpr get_path = [](auto const &durability_info) { return durability_info.path; };
   // Move snapshots
   auto const snapshots_to_move = snapshot_files | rv::transform(get_path) | r::to_vector;
   MoveFiles(snapshots_to_move, backup_snapshot_dir, file_retainer);
@@ -338,14 +338,14 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
 
   if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::PrepareCommitReq::kType.name);
-    const storage::replication::PrepareCommitRes res{false};
+    constexpr storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
   if (!db_acc) {
-    const storage::replication::PrepareCommitRes res{false};
+    constexpr storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
@@ -355,7 +355,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   auto maybe_epoch_id = decoder.ReadString();
   if (!maybe_epoch_id) {
     spdlog::error("Invalid replication message, couldn't read epoch id.");
-    const storage::replication::PrepareCommitRes res{false};
+    constexpr storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
@@ -383,7 +383,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
       transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
     }
 
-    const storage::replication::PrepareCommitRes res{false};
+    constexpr storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
     return;
   }
@@ -409,14 +409,14 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
 
   if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::FinalizeCommitReq::kType.name);
-    storage::replication::FinalizeCommitRes const res(false);
+    storage::replication::FinalizeCommitRes constexpr res(false);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
   if (!db_acc) {
-    storage::replication::FinalizeCommitRes const res(false);
+    storage::replication::FinalizeCommitRes constexpr res(false);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
@@ -428,7 +428,7 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   // ReadAndApplyDeltasSingleTxn
   if (!two_pc_cache_.commit_accessor_) {
     spdlog::warn("Cached commit accessor became invalid between two phases");
-    storage::replication::FinalizeCommitRes const res(true);
+    storage::replication::FinalizeCommitRes constexpr res(true);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
@@ -436,7 +436,7 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   if (req.durability_commit_timestamp != two_pc_cache_.durability_commit_timestamp_) {
     spdlog::warn("Trying to finalize txn with ldt {} but the last prepared txn is with ldt {}",
                  req.durability_commit_timestamp, two_pc_cache_.durability_commit_timestamp_);
-    storage::replication::FinalizeCommitRes const res(true);
+    storage::replication::FinalizeCommitRes constexpr res(true);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
@@ -468,7 +468,7 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     mem_storage->FinalizeWalFile();
   }
 
-  storage::replication::FinalizeCommitRes const res(true);
+  storage::replication::FinalizeCommitRes constexpr res(true);
   rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
@@ -597,7 +597,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
           "preserved so you can restore your data by restarting instance.",
           dst_snapshot_file, e.what());
       storage->Clear();
-      const storage::replication::SnapshotRes res{std::nullopt, 0};
+      constexpr storage::replication::SnapshotRes res{std::nullopt, 0};
       rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
       return;
     }
@@ -618,7 +618,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
   if (!maybe_backup_dirs) {
     spdlog::error("Couldn't create backup directories. Replica won't be recovered.");
-    const storage::replication::SnapshotRes res{std::nullopt, 0};
+    constexpr storage::replication::SnapshotRes res{std::nullopt, 0};
     rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
     return;
   }
@@ -647,7 +647,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
   if (!db_acc) {
     spdlog::error("Couldn't get database accessor in wal files handler for request storage_uuid {}",
                   std::string{req.uuid});
-    const storage::replication::WalFilesRes res{std::nullopt, 0};
+    constexpr storage::replication::WalFilesRes res{std::nullopt, 0};
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
@@ -715,7 +715,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
     if (!success) {
       spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files for db {}.",
                     storage->name());
-      const storage::replication::WalFilesRes res{std::nullopt, 0};
+      constexpr storage::replication::WalFilesRes res{std::nullopt, 0};
       rpc::SendFinalResponse(res, request_version, res_builder);
       return;
     }

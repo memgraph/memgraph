@@ -54,9 +54,10 @@ class SubgraphVertexAccessor final {
   query::VertexAccessor impl_;
   query::Graph *graph_;
 
-  explicit SubgraphVertexAccessor(query::VertexAccessor impl, query::Graph *graph_) : impl_(impl), graph_(graph_) {}
+  constexpr explicit SubgraphVertexAccessor(query::VertexAccessor impl, query::Graph *graph_)
+      : impl_(impl), graph_(graph_) {}
 
-  bool operator==(const SubgraphVertexAccessor &v) const noexcept {
+  constexpr bool operator==(const SubgraphVertexAccessor &v) const noexcept {
     static_assert(noexcept(impl_ == v.impl_));
     return impl_ == v.impl_;
   }
@@ -85,7 +86,7 @@ class SubgraphVertexAccessor final {
     return impl_.GetPropertySize(key, view);
   }
 
-  storage::Gid Gid() const noexcept { return impl_.Gid(); }
+  constexpr storage::Gid Gid() const noexcept { return impl_.Gid(); }
 
   storage::Result<size_t> InDegree(storage::View view) const { return impl_.InDegree(view); }
 
@@ -139,8 +140,8 @@ class VerticesIterable final {
   };
 
   explicit VerticesIterable(storage::VerticesIterable iterable) : iterable_(std::move(iterable)) {}
-  explicit VerticesIterable(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
-                                               utils::Allocator<VertexAccessor>> *vertices)
+  constexpr explicit VerticesIterable(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+                                                         utils::Allocator<VertexAccessor>> *vertices)
       : iterable_(vertices) {}
 
   Iterator begin() {
@@ -166,15 +167,15 @@ class VerticesIterable final {
 template <typename storage_iterator>
 struct query_vertex_iterator final {
   using value_type = VertexAccessor;
-  explicit query_vertex_iterator(storage_iterator it) : it_(std::move(it)) {}
+  constexpr explicit query_vertex_iterator(storage_iterator it) : it_(std::move(it)) {}
   query_vertex_iterator(query_vertex_iterator const &) = default;
   query_vertex_iterator(query_vertex_iterator &&) = default;
   query_vertex_iterator &operator=(query_vertex_iterator const &) = default;
   query_vertex_iterator &operator=(query_vertex_iterator &&) = default;
 
-  VertexAccessor operator*() const { return VertexAccessor{*it_}; }
+  constexpr VertexAccessor operator*() const { return VertexAccessor{*it_}; }
 
-  auto operator++() -> query_vertex_iterator & {
+  constexpr auto operator++() -> query_vertex_iterator & {
     ++it_;
     return *this;
   }
@@ -189,16 +190,16 @@ template <typename storage_iterable>
 struct query_iterable final {
   using iterator = query_vertex_iterator<typename storage_iterable::iterator>;
 
-  explicit query_iterable(storage_iterable iterable) : iterable_(std::move(iterable)) {}
+  constexpr explicit query_iterable(storage_iterable iterable) : iterable_(std::move(iterable)) {}
   query_iterable(query_iterable const &) = default;
   query_iterable(query_iterable &&) = default;
   query_iterable &operator=(query_iterable const &) = default;
   query_iterable &operator=(query_iterable &&) = default;
   ~query_iterable() = default;
 
-  iterator begin() { return iterator{iterable_.begin()}; }
+  constexpr iterator begin() { return iterator{iterable_.begin()}; }
 
-  iterator end() { return iterator{iterable_.end()}; }
+  constexpr iterator end() { return iterator{iterable_.end()}; }
 
  private:
   storage_iterable iterable_;
@@ -225,7 +226,7 @@ class VerticesChunkedIterable {
     Iterator end_;
 
    public:
-    explicit Chunk(auto &&chunk) : begin_{chunk.begin()}, end_{chunk.end()} {}
+    constexpr explicit Chunk(auto &&chunk) : begin_{chunk.begin()}, end_{chunk.end()} {}
 
     Iterator begin() { return begin_; }
     Iterator end() { return end_; }
@@ -268,8 +269,8 @@ class EdgesIterable final {
   };
 
   explicit EdgesIterable(storage::EdgesIterable iterable) : iterable_(std::move(iterable)) {}
-  explicit EdgesIterable(std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
-                                            utils::Allocator<EdgeAccessor>> *edges)
+  constexpr explicit EdgesIterable(std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
+                                                      utils::Allocator<EdgeAccessor>> *edges)
       : iterable_(edges) {}
 
   Iterator begin() {
@@ -299,13 +300,13 @@ class VerticesChunkCollection final {
   std::vector<std::pair<VerticesIterable::Iterator, VerticesIterable::Iterator>> chunks_;
 
  public:
-  explicit VerticesChunkCollection(
+  constexpr explicit VerticesChunkCollection(
       std::vector<std::pair<VerticesIterable::Iterator, VerticesIterable::Iterator>> &&chunks)
       : chunks_(std::move(chunks)) {}
-  size_t size() const { return chunks_.size(); }
-  bool empty() const { return chunks_.empty(); }
-  auto begin() { return chunks_.begin(); }
-  auto end() { return chunks_.end(); }
+  constexpr size_t size() const { return chunks_.size(); }
+  constexpr bool empty() const { return chunks_.empty(); }
+  constexpr auto begin() { return chunks_.begin(); }
+  constexpr auto end() { return chunks_.end(); }
   const auto &operator[](size_t index) const { return chunks_[index]; }
   auto &operator[](size_t index) { return chunks_[index]; }
 };
@@ -314,7 +315,7 @@ class DbAccessor final {
   storage::Storage::Accessor *accessor_;
 
  public:
-  explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
+  constexpr explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
 
   bool CheckIndicesAreReady(storage::IndicesCollection const &required_indices) const {
     return accessor_->CheckIndicesAreReady(required_indices);
@@ -881,7 +882,7 @@ class DbAccessor final {
     return accessor_->EnumAlterUpdate(name, old_value, new_value);
   }
 
-  auto GetStorageAccessor() const -> storage::Storage::Accessor * { return accessor_; }
+  constexpr auto GetStorageAccessor() const -> storage::Storage::Accessor * { return accessor_; }
 
 #ifdef MG_ENTERPRISE
   // TTL operations - pushed into accessor

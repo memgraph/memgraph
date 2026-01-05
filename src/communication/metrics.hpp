@@ -28,12 +28,12 @@ class BoltMetrics {
  public:
   enum class ConnectionType { kAnonymous = 0, kBasic, Count };
   static constexpr std::array<std::string_view, (int)ConnectionType::Count> ct_to_str = {"anonymous", "basic"};
-  static std::string ConnectionTypeStr(ConnectionType type) { return std::string(ct_to_str[(int)type]); }
+  constexpr static std::string ConnectionTypeStr(ConnectionType type) { return std::string(ct_to_str[(int)type]); }
   class Metrics;
 
   struct Info {
-    explicit Info(std::string name) : name(std::move(name)) {}
-    Info(std::string name, std::string bolt_v, std::vector<std::string> supported_bolt_v)
+    constexpr explicit Info(std::string name) : name(std::move(name)) {}
+    constexpr Info(std::string name, std::string bolt_v, std::vector<std::string> supported_bolt_v)
         : name(std::move(name)), bolt_v(std::move(bolt_v)), supported_bolt_v(std::move(supported_bolt_v)) {}
 
     const std::string name;                                        //!< Driver name

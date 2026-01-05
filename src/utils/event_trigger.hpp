@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,11 +25,11 @@ enum class OneShotEvents {
 
 class EventOneShot {
  public:
-  explicit EventOneShot(std::atomic<double> *allocated_values) noexcept : values_(allocated_values) {}
+  constexpr explicit EventOneShot(std::atomic<double> *allocated_values) noexcept : values_(allocated_values) {}
 
-  auto &operator[](const OneShotEvents event) { return values_[(int)event]; }
+  constexpr auto &operator[](const OneShotEvents event) { return values_[(int)event]; }
 
-  const auto &operator[](const OneShotEvents event) const { return values_[(int)event]; }
+  constexpr const auto &operator[](const OneShotEvents event) const { return values_[(int)event]; }
 
   bool Trigger(OneShotEvents event, double val, double expected = 0) {
     return values_[(int)event].compare_exchange_weak(expected, val);

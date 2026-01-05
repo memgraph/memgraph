@@ -72,7 +72,7 @@ Histogram global_histograms_array[END]{
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 EventHistograms global_histograms(global_histograms_array);
 
-const Event EventHistograms::num_histograms = END;
+constexpr Event EventHistograms::num_histograms = END;
 
 void Measure(const Event event, Value const value) { global_histograms.Measure(event, value); }
 

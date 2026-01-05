@@ -20,8 +20,8 @@ namespace memgraph::utils {
 /// A resettable counter, every Nth call returns true
 
 struct ResettableCounter {
-  ResettableCounter(std::size_t N) : counter_{N}, orig_{N} {}
-  bool operator()() const {
+  constexpr ResettableCounter(std::size_t N) : counter_{N}, orig_{N} {}
+  constexpr bool operator()() const {
     --counter_;
     if (counter_ != 0) return false;
     counter_ = orig_;

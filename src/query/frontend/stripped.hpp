@@ -28,20 +28,20 @@ const std::string kStrippedBooleanToken = "true";
 
 struct HashedString {
   HashedString() = default;
-  HashedString(std::string str) : str_(std::move(str)) {}
+  constexpr HashedString(std::string str) : str_(std::move(str)) {}
   HashedString(HashedString const &) = default;
   HashedString(HashedString &&) = default;
   HashedString &operator=(HashedString const &) = default;
   HashedString &operator=(HashedString &&) = default;
 
-  friend bool operator==(const HashedString &lhs, const HashedString &rhs) {
+  constexpr friend bool operator==(const HashedString &lhs, const HashedString &rhs) {
     return std::tie(lhs.hash_, lhs.str_) == std::tie(rhs.hash_, rhs.str_);
   }
-  friend bool operator<(const HashedString &lhs, const HashedString &rhs) {
+  constexpr friend bool operator<(const HashedString &lhs, const HashedString &rhs) {
     return std::tie(lhs.hash_, lhs.str_) < std::tie(rhs.hash_, rhs.str_);
   }
-  size_t hash() const { return hash_; }
-  auto str() const -> std::string const & { return str_; }
+  constexpr size_t hash() const { return hash_; }
+  constexpr auto str() const -> std::string const & { return str_; }
 
  private:
   std::string str_{};
@@ -123,7 +123,7 @@ class StrippedQuery {
 namespace std {
 template <>
 struct hash<memgraph::query::frontend::HashedString> {
-  size_t operator()(const memgraph::query::frontend::HashedString &hs) const noexcept {
+  constexpr size_t operator()(const memgraph::query::frontend::HashedString &hs) const noexcept {
     return hs.hash();  // or expose hash_ via accessor
   }
 };

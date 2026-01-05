@@ -23,7 +23,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   using HierarchicalTreeVisitor::Visit;
   using QueryVisitor<void>::Visit;
 
-  std::vector<AuthQuery::Privilege> privileges() { return privileges_; }
+  constexpr std::vector<AuthQuery::Privilege> privileges() { return privileges_; }
 
   void Visit(IndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
@@ -263,7 +263,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   bool Visit(EnumValueAccess & /*unused*/) override { return true; }
 
  private:
-  void AddPrivilege(AuthQuery::Privilege privilege) {
+  constexpr void AddPrivilege(AuthQuery::Privilege privilege) {
     if (!std::ranges::contains(privileges_, privilege)) {
       privileges_.push_back(privilege);
     }

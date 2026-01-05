@@ -39,11 +39,11 @@ namespace memgraph::query {
 
 class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *> {
  public:
-  ReferenceExpressionEvaluator(Frame *frame, const EvaluationContext *ctx) : frame_(frame), ctx_(ctx) {}
+  constexpr ReferenceExpressionEvaluator(Frame *frame, const EvaluationContext *ctx) : frame_(frame), ctx_(ctx) {}
 
   using ExpressionVisitor::Visit;
 
-  utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
+  constexpr utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
 
 #define UNSUCCESSFUL_VISIT(expr_name) \
   TypedValue const *Visit(expr_name &expr) override { return nullptr; }

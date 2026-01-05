@@ -18,6 +18,7 @@ target_sources(mg-utils
     signals.cpp
     sysinfo/memory.cpp
     temporal.cpp
+    terminate_handler.cpp
     thread.cpp
     thread_pool.cpp
     tsc.cpp

@@ -91,7 +91,7 @@ class CsvSource {
  public:
   static auto Create(std::string csv_location, std::optional<utils::S3Config> s3_cfg) -> CsvSource;
   template <Streamable T>
-  explicit CsvSource(T source) : source_{std::move(source)} {}
+  constexpr explicit CsvSource(T source) : source_{std::move(source)} {}
 
   std::istream &GetStream();
 
@@ -103,8 +103,8 @@ class Reader {
  public:
   struct Config {
     Config() = default;
-    Config(const bool with_header, const bool ignore_bad, std::optional<utils::pmr::string> delim,
-           std::optional<utils::pmr::string> qt)
+    constexpr Config(const bool with_header, const bool ignore_bad, std::optional<utils::pmr::string> delim,
+                     std::optional<utils::pmr::string> qt)
         : with_header(with_header), ignore_bad(ignore_bad), delimiter(std::move(delim)), quote(std::move(qt)) {
       // delimiter + quote can not be empty
       if (delimiter && delimiter->empty()) delimiter.reset();
@@ -132,7 +132,7 @@ class Reader {
 
   struct ParseError {
     enum class ErrorCode : uint8_t { BAD_HEADER, NO_CLOSING_QUOTE, UNEXPECTED_TOKEN, BAD_NUM_OF_COLUMNS, NULL_BYTE };
-    ParseError(ErrorCode code, std::string message) : code(code), message(std::move(message)) {}
+    constexpr ParseError(ErrorCode code, std::string message) : code(code), message(std::move(message)) {}
 
     ErrorCode code;
     std::string message;

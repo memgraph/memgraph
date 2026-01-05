@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 
 namespace memgraph::query {
 struct DiscardValueResultStream final {
-  void Result(const std::vector<query::TypedValue> & /*values*/) {
+  constexpr void Result(const std::vector<query::TypedValue> & /*values*/) {
     // do nothing
   }
 };

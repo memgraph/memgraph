@@ -72,7 +72,7 @@ Module::~Module() {}
 
 class BuiltinModule final : public Module {
  public:
-  BuiltinModule();
+  constexpr BuiltinModule();
   ~BuiltinModule() override;
   BuiltinModule(const BuiltinModule &) = delete;
   BuiltinModule(BuiltinModule &&) = delete;
@@ -100,7 +100,7 @@ class BuiltinModule final : public Module {
   std::map<std::string, mgp_func, std::less<>> functions_;
 };
 
-BuiltinModule::BuiltinModule() {}
+constexpr BuiltinModule::BuiltinModule() {}
 
 BuiltinModule::~BuiltinModule() {}
 
@@ -415,13 +415,13 @@ void RegisterMgFunctions(std::map<std::string, std::shared_ptr<Module>, std::les
   builtin_module->AddProcedure("functions", std::move(functions));
 }
 namespace {
-bool IsAllowedExtension(const auto &extension) {
+constexpr bool IsAllowedExtension(const auto &extension) {
   static constexpr std::array<std::string_view, 1> allowed_extensions{".py"};
   return std::any_of(allowed_extensions.begin(), allowed_extensions.end(),
                      [&](const auto allowed_extension) { return allowed_extension == extension; });
 }
 
-bool IsSubPath(const auto &base, const auto &destination) {
+constexpr bool IsSubPath(const auto &base, const auto &destination) {
   const auto relative = std::filesystem::relative(destination, base);
   return !relative.empty() && *relative.begin() != "..";
 }
@@ -1356,7 +1356,7 @@ namespace {
 //      ModuleName | Prop
 /// 1. <ModuleName,  ProcedureName>
 /// 2. <ModuleName,  TransformationName>
-auto FindModuleNameAndProp(std::string_view fully_qualified_name)
+constexpr auto FindModuleNameAndProp(std::string_view fully_qualified_name)
     -> std::optional<std::pair<std::string_view, std::string_view>> {
   auto last_dot_pos = fully_qualified_name.find_last_of('.');
   if (last_dot_pos == std::string_view::npos) return std::nullopt;

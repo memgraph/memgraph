@@ -33,14 +33,14 @@ namespace memgraph::communication::bolt {
 template <typename Buffer>
 class Decoder {
  public:
-  explicit Decoder(Buffer &buffer) : buffer_(buffer), major_v_(0) {}
+  constexpr explicit Decoder(Buffer &buffer) : buffer_(buffer), major_v_(0) {}
 
   /**
    * Lets the user update the version.
    * This is all single thread for now. TODO: Update if ever multithreaded.
    * @param major_v the major version of the Bolt protocol used.
    */
-  void UpdateVersion(int major_v) { major_v_ = major_v; }
+  constexpr void UpdateVersion(int major_v) { major_v_ = major_v; }
 
   /**
    * Reads a Value from the available data in the buffer.
@@ -219,7 +219,7 @@ class Decoder {
    * @returns true if data has been written into the data pointers,
    *          false otherwise
    */
-  bool ReadMessageHeader(Signature *signature, Marker *marker) {
+  constexpr bool ReadMessageHeader(Signature *signature, Marker *marker) {
     std::array<uint8_t, 2> values;
 
     if (!buffer_.Read(values)) {

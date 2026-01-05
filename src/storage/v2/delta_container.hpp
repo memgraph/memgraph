@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -80,7 +80,7 @@ struct FlattenIterator {
 
   auto operator*() -> reference { return *inner_iter; }
 
-  friend bool operator==(FlattenIterator const &lhs, FlattenIterator const &rhs) {
+  constexpr friend bool operator==(FlattenIterator const &lhs, FlattenIterator const &rhs) {
     return lhs.inner_iter == rhs.inner_iter && lhs.outer_iter == rhs.outer_iter;
   }
 
@@ -145,7 +145,7 @@ struct FlattenConstIterator {
 
   auto operator*() -> reference { return *inner_iter; }
 
-  friend bool operator==(FlattenConstIterator const &lhs, FlattenConstIterator const &rhs) {
+  constexpr friend bool operator==(FlattenConstIterator const &lhs, FlattenConstIterator const &rhs) {
     return lhs.inner_iter == rhs.inner_iter && lhs.outer_iter == rhs.outer_iter;
   }
 
@@ -176,13 +176,13 @@ class Flatten {
   OuterContainer &outer_container;
 
  public:
-  explicit Flatten(OuterContainer &outer) : outer_container(outer) {}
+  constexpr explicit Flatten(OuterContainer &outer) : outer_container(outer) {}
 
-  auto begin() const {
+  constexpr auto begin() const {
     return FlattenIterator<OuterContainer, InnerContainer>(outer_container.begin(), outer_container.end());
   }
 
-  auto end() const {
+  constexpr auto end() const {
     return FlattenIterator<OuterContainer, InnerContainer>(outer_container.end(), outer_container.end());
   }
 };
@@ -196,13 +196,13 @@ class ConstFlatten {
   OuterContainer const &outer_container;
 
  public:
-  explicit ConstFlatten(OuterContainer const &outer) : outer_container(outer) {}
+  constexpr explicit ConstFlatten(OuterContainer const &outer) : outer_container(outer) {}
 
-  auto begin() const {
+  constexpr auto begin() const {
     return FlattenConstIterator<OuterContainer, InnerContainer>(outer_container.begin(), outer_container.end());
   }
 
-  auto end() const {
+  constexpr auto end() const {
     return FlattenConstIterator<OuterContainer, InnerContainer>(outer_container.end(), outer_container.end());
   }
 };

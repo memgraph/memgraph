@@ -37,9 +37,9 @@ namespace rv = ranges::views;
 
 namespace {
 
-auto const canonicalize_string = [](auto &&rng) {
-  auto const is_space = [](auto c) { return c == ' '; };
-  auto const to_lower = [](unsigned char c) { return std::tolower(c); };
+auto constexpr canonicalize_string = [](auto &&rng) {
+  auto constexpr is_space = [](auto c) { return c == ' '; };
+  auto constexpr to_lower = [](unsigned char c) { return std::tolower(c); };
 
   return rng | rv::drop_while(is_space) | rv::take_while(std::not_fn(is_space)) | rv::transform(to_lower) |
          ranges::to<std::string>;

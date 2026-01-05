@@ -72,7 +72,7 @@ class Handler {
    * @param name Name associated with the wanted context
    * @return std::optional<typename utils::Gatekeeper<T>::Accessor>
    */
-  std::optional<typename utils::Gatekeeper<T>::Accessor> Get(std::string_view name) {
+  constexpr std::optional<typename utils::Gatekeeper<T>::Accessor> Get(std::string_view name) {
     if (auto search = items_.find(name); search != items_.end()) {
       return search->second.access();
     }
@@ -86,7 +86,7 @@ class Handler {
    * @return true on success
    * @throw BasicException
    */
-  bool TryDelete(std::string_view name) {
+  constexpr bool TryDelete(std::string_view name) {
     if (auto itr = items_.find(name); itr != items_.end()) {
       auto db_acc = itr->second.access();
       if (db_acc && db_acc->try_delete()) {
@@ -138,7 +138,7 @@ class Handler {
    * @param name Name to check
    * @return true if a T is already associated with the name
    */
-  bool Has(std::string_view name) const { return items_.contains(name); }
+  constexpr bool Has(std::string_view name) const { return items_.contains(name); }
 
   /**
    * @brief Rename the context associated with the name.
@@ -147,7 +147,7 @@ class Handler {
    * @param new_name New name for the context
    * @return true on success, false if new_name already exists or context is in use
    */
-  std::expected<void, RenameError> Rename(std::string_view old_name, std::string_view new_name) {
+  constexpr std::expected<void, RenameError> Rename(std::string_view old_name, std::string_view new_name) {
     if (old_name == new_name) {
       return {};  // No-op
     }
@@ -169,14 +169,14 @@ class Handler {
     return {};
   }
 
-  auto begin() { return items_.begin(); }
-  auto end() { return items_.end(); }
-  auto begin() const { return items_.begin(); }
-  auto end() const { return items_.end(); }
-  auto cbegin() const { return items_.cbegin(); }
-  auto cend() const { return items_.cend(); }
+  constexpr auto begin() { return items_.begin(); }
+  constexpr auto end() { return items_.end(); }
+  constexpr auto begin() const { return items_.begin(); }
+  constexpr auto end() const { return items_.end(); }
+  constexpr auto cbegin() const { return items_.cbegin(); }
+  constexpr auto cend() const { return items_.cend(); }
 
-  auto size() const { return items_.size(); }
+  constexpr auto size() const { return items_.size(); }
 
   struct string_hash {
     using is_transparent = void;

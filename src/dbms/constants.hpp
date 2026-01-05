@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <string_view>
+
 namespace memgraph::dbms {
 
 constexpr std::string_view kDefaultDB = "memgraph";        //!< Name of the default database

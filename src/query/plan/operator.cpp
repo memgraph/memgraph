@@ -1426,7 +1426,7 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
     auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
     auto prop_value_ranges = expression_ranges_ | rv::transform(to_property_value_range) | ranges::to_vector;
 
-    auto const bound_is_null = [](auto &&range) {
+    auto constexpr bound_is_null = [](auto &&range) {
       return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
     };
 
@@ -7107,7 +7107,7 @@ WITHOUT_SINGLE_INPUT(OutputTableStream);
 
 class OutputTableStreamCursor : public Cursor {
  public:
-  explicit OutputTableStreamCursor(const OutputTableStream *self) : self_(self) {}
+  constexpr explicit OutputTableStreamCursor(const OutputTableStream *self) : self_(self) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;

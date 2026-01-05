@@ -199,7 +199,7 @@ void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstance
 }
 
 auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<InstanceStatus> {
-  auto const get_coord_role = [](auto const coordinator_id, auto const curr_leader) -> std::string {
+  auto constexpr get_coord_role = [](auto const coordinator_id, auto const curr_leader) -> std::string {
     return coordinator_id == curr_leader ? "leader" : "follower";
   };
 
@@ -268,7 +268,9 @@ auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::ve
     return "replica";
   };
 
-  auto const stringify_repl_health = [](auto &&instance) -> std::string { return instance.IsAlive() ? "up" : "down"; };
+  auto constexpr stringify_repl_health = [](auto &&instance) -> std::string {
+    return instance.IsAlive() ? "up" : "down";
+  };
 
   auto process_repl_instance_as_leader = [&stringify_repl_role,
                                           &stringify_repl_health](auto &&instance) -> InstanceStatus {
@@ -1269,7 +1271,7 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
     return std::nullopt;
   }
 
-  auto const get_instance_info = [](auto const &instance) {
+  auto constexpr get_instance_info = [](auto const &instance) {
     return instance.GetClient().SendGetDatabaseHistoriesRpc();
   };
 
@@ -1368,7 +1370,7 @@ auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, st
     }
     auto &replicas_res = maybe_repl_lag_res->replicas_info_;
 
-    auto const get_repl_db_lag_data =
+    auto constexpr get_repl_db_lag_data =
         [](std::pair<std::string, uint64_t> const &orig_data) -> std::pair<std::string, ReplicaDBLagData> {
       return std::pair{orig_data.first,
                        ReplicaDBLagData{.num_committed_txns_ = orig_data.second, .num_txns_behind_main_ = 0}};

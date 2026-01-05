@@ -435,7 +435,7 @@ auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const
 }
 
 template <bool is_read, typename T, typename U>
-auto Decode(utils::tag_type<std::pair<T, U>> /*unused*/, BaseDecoder *decoder, const uint64_t version)
+constexpr auto Decode(utils::tag_type<std::pair<T, U>> /*unused*/, BaseDecoder *decoder, const uint64_t version)
     -> std::conditional_t<is_read, std::pair<T, U>, void> {
   if constexpr (is_read) {
     auto first = Decode<true>(utils::tag_t<T>, decoder, version);
@@ -507,9 +507,9 @@ auto Decode(utils::tag_type<std::optional<std::chrono::system_clock::time_point>
 // ========== concrete type decoders end here ==========
 
 template <typename T>
-auto Read(BaseDecoder *decoder, const uint64_t version) -> T;
+constexpr auto Read(BaseDecoder *decoder, const uint64_t version) -> T;
 template <typename T>
-auto Skip(BaseDecoder *decoder, const uint64_t version) -> void;
+constexpr auto Skip(BaseDecoder *decoder, const uint64_t version) -> void;
 
 template <typename T>
 concept IsReadSkip = requires {
@@ -517,8 +517,8 @@ concept IsReadSkip = requires {
 };
 
 template <bool is_read, typename T>
-requires(std::is_enum_v<T>) auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder, const uint64_t version)
-    -> std::conditional_t<is_read, T, void> {
+requires(std::is_enum_v<T>) constexpr auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder,
+                                                  const uint64_t version) -> std::conditional_t<is_read, T, void> {
   using underlying_type = std::underlying_type_t<T>;
   if constexpr (is_read) {
     auto decoded = static_cast<T>(Decode<is_read>(utils::tag_type<underlying_type>(), decoder, version));
@@ -530,7 +530,7 @@ requires(std::is_enum_v<T>) auto Decode(utils::tag_type<T> /*unused*/, BaseDecod
 
 // Generic helper decoder, please keep after the concrete type decoders
 template <bool is_read, IsReadSkip T>
-auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder, const uint64_t version)
+constexpr auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder, const uint64_t version)
     -> std::conditional_t<is_read, T, void> {
   if constexpr (is_read) {
     return Read<T>(decoder, version);
@@ -541,8 +541,8 @@ auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder, const uint64_t 
 
 // Generic helper decoder, please keep after the concrete type decoders
 template <bool is_read, auto MIN_VER, typename Type>
-auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder, const uint64_t version)
-    -> std::conditional_t<is_read, std::optional<Type>, void> {
+constexpr auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder,
+                      const uint64_t version) -> std::conditional_t<is_read, std::optional<Type>, void> {
   if (MIN_VER <= version) {
     return Decode<is_read>(utils::tag_t<Type>, decoder, version);
   }
@@ -553,8 +553,8 @@ auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDec
 
 // Generic helper decoder, please keep after the concrete type decoders
 template <bool is_read, auto MIN_VER, typename Before, typename After, auto Upgrader>
-auto Decode(utils::tag_type<VersionDependantUpgradable<MIN_VER, Before, After, Upgrader>> /*unused*/,
-            BaseDecoder *decoder, const uint64_t version) -> std::conditional_t<is_read, After, void> {
+constexpr auto Decode(utils::tag_type<VersionDependantUpgradable<MIN_VER, Before, After, Upgrader>> /*unused*/,
+                      BaseDecoder *decoder, const uint64_t version) -> std::conditional_t<is_read, After, void> {
   if (MIN_VER <= version) {
     return Decode<is_read>(utils::tag_t<After>, decoder, version);
   }
@@ -566,7 +566,7 @@ auto Decode(utils::tag_type<VersionDependantUpgradable<MIN_VER, Before, After, U
 }
 
 template <typename T>
-auto Read(BaseDecoder *decoder, const uint64_t version) -> T {
+constexpr auto Read(BaseDecoder *decoder, const uint64_t version) -> T {
   using ctr_types = typename T::ctr_types;
 
   return [&]<auto... I>(std::index_sequence<I...>) {
@@ -579,7 +579,7 @@ auto Read(BaseDecoder *decoder, const uint64_t version) -> T {
 }
 
 template <typename T>
-auto Skip(BaseDecoder *decoder, const uint64_t version) -> void {
+constexpr auto Skip(BaseDecoder *decoder, const uint64_t version) -> void {
   using ctr_types = typename T::ctr_types;
 
   [&]<auto... I>(std::index_sequence<I...>) {

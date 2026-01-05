@@ -48,7 +48,7 @@ class RWChecker : public HierarchicalTreeVisitor {
   ReturnType Visit(ParameterLookup & /*unused*/) override { return true; }
   ReturnType Visit(EnumValueAccess & /*unused*/) override { return true; }
 
-  bool IsWrite() const { return is_write_; }
+  constexpr bool IsWrite() const { return is_write_; }
 
  private:
   bool is_write_{false};

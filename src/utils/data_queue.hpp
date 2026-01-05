@@ -17,6 +17,8 @@
 #include <mutex>
 #include <queue>
 
+#include "utils/logging.hpp"
+
 // Same as rocksdb/util/work_queue.h but moves in the pop()
 
 namespace memgraph::utils {
@@ -30,7 +32,7 @@ class DataQueue {
   bool done_{false};
   std::size_t maxSize_;
 
-  bool full() const {
+  constexpr bool full() const {
     DMG_ASSERT(!mutex_.try_lock(), "Lock should be taken before full() is invoked");
 
     if (maxSize_ == 0) {
@@ -46,7 +48,7 @@ class DataQueue {
    *
    * @param maxSize The maximum allowed size of the work queue.
    */
-  explicit DataQueue(std::size_t const maxSize = 0) : maxSize_(maxSize) {}
+  constexpr explicit DataQueue(std::size_t const maxSize = 0) : maxSize_(maxSize) {}
 
   /**
    * Push an item onto the work queue.  Notify a single thread that work is

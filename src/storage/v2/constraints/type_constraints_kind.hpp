@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,7 +39,7 @@ enum class TypeConstraintKind : uint8_t {
   POINT = 12,
 };
 
-inline std::string_view TypeConstraintKindToString(TypeConstraintKind type) {
+constexpr inline std::string_view TypeConstraintKindToString(TypeConstraintKind type) {
   using namespace std::string_view_literals;
   switch (type) {
     case TypeConstraintKind::STRING:
@@ -71,7 +71,7 @@ inline std::string_view TypeConstraintKindToString(TypeConstraintKind type) {
   }
 }
 
-inline PropertyStoreType TypeConstraintsKindToPropertyStoreType(TypeConstraintKind type) {
+constexpr inline PropertyStoreType TypeConstraintsKindToPropertyStoreType(TypeConstraintKind type) {
   switch (type) {
     case TypeConstraintKind::STRING:
       return PropertyStoreType::STRING;
@@ -99,7 +99,7 @@ inline PropertyStoreType TypeConstraintsKindToPropertyStoreType(TypeConstraintKi
   }
 }
 
-inline bool TemporalMatch(TemporalType type, TypeConstraintKind expected_type) {
+constexpr inline bool TemporalMatch(TemporalType type, TypeConstraintKind expected_type) {
   switch (type) {
     case TemporalType::Date:
       return expected_type == TypeConstraintKind::DATE;

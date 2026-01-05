@@ -28,9 +28,9 @@ class Stacktrace {
   class Line {
    public:
     // cppcheck-suppress noExplicitConstructor
-    explicit Line(std::string original) : original(std::move(original)) {}
+    constexpr explicit Line(std::string original) : original(std::move(original)) {}
 
-    Line(std::string original, std::string function, std::string location)
+    constexpr Line(std::string original, std::string function, std::string location)
         : original(std::move(original)), function(std::move(function)), location(std::move(location)) {}
 
     std::string original, function, location;

@@ -30,7 +30,7 @@ class Exists : public memgraph::query::Expression {
   DECLARE_VISITABLE(ExpressionVisitor<void>);
   DECLARE_VISITABLE(HierarchicalTreeVisitor);
 
-  Exists *MapTo(const Symbol &symbol) {
+  constexpr Exists *MapTo(const Symbol &symbol) {
     symbol_pos_ = symbol.position();
     return this;
   }
@@ -52,15 +52,15 @@ class Exists : public memgraph::query::Expression {
     return object;
   }
 
-  bool HasPattern() const { return std::holds_alternative<Pattern *>(content_); }
-  bool HasSubquery() const { return std::holds_alternative<CypherQuery *>(content_); }
+  constexpr bool HasPattern() const { return std::holds_alternative<Pattern *>(content_); }
+  constexpr bool HasSubquery() const { return std::holds_alternative<CypherQuery *>(content_); }
 
-  Pattern *GetPattern() const { return HasPattern() ? std::get<Pattern *>(content_) : nullptr; }
-  CypherQuery *GetSubquery() const { return HasSubquery() ? std::get<CypherQuery *>(content_) : nullptr; }
+  constexpr Pattern *GetPattern() const { return HasPattern() ? std::get<Pattern *>(content_) : nullptr; }
+  constexpr CypherQuery *GetSubquery() const { return HasSubquery() ? std::get<CypherQuery *>(content_) : nullptr; }
 
  protected:
-  explicit Exists(Pattern *pattern) : content_(pattern) {}
-  explicit Exists(CypherQuery *subquery) : content_(subquery) {}
+  constexpr explicit Exists(Pattern *pattern) : content_(pattern) {}
+  constexpr explicit Exists(CypherQuery *subquery) : content_(subquery) {}
 
  private:
   friend class AstStorage;

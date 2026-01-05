@@ -51,7 +51,7 @@ namespace memgraph::storage {
 using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
 
 struct IndexPerformanceTracker {
-  void update(Delta::Action action) {
+  constexpr void update(Delta::Action action) {
     switch (action) {
       using enum Delta::Action;
       case DELETE_DESERIALIZED_OBJECT:
@@ -81,8 +81,8 @@ struct IndexPerformanceTracker {
     }
   }
 
-  bool impacts_vertex_indexes() { return impacts_vertex_indexes_; }
-  bool impacts_edge_indexes() { return impacts_edge_indexes_; }
+  constexpr bool impacts_vertex_indexes() { return impacts_vertex_indexes_; }
+  constexpr bool impacts_edge_indexes() { return impacts_edge_indexes_; }
 
  private:
   bool impacts_vertex_indexes_ = false;

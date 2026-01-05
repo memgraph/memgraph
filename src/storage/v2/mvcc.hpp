@@ -92,7 +92,7 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
 /// transaction) and returns a `bool` value indicating whether the caller can
 /// proceed with a write operation.
 template <typename TObj>
-inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
+inline constexpr bool PrepareForWrite(Transaction *transaction, TObj *object) {
   if (object->delta == nullptr) return true;
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
   if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {

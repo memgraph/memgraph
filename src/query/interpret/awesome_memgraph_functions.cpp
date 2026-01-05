@@ -236,7 +236,7 @@ template <class ArgType>
 struct Or<ArgType> {
   static bool Check(const TypedValue &arg) { return ArgIsType<ArgType>(arg); }
 
-  static std::string TypeNames() { return ArgTypeName<ArgType>(); }
+  constexpr static std::string TypeNames() { return ArgTypeName<ArgType>(); }
 };
 
 template <class ArgType, class... ArgTypes>
@@ -246,7 +246,7 @@ struct Or<ArgType, ArgTypes...> {
     return Or<ArgTypes...>::Check(arg);
   }
 
-  static std::string TypeNames() {
+  constexpr static std::string TypeNames() {
     if constexpr (sizeof...(ArgTypes) > 1) {
       return fmt::format("'{}', {}", ArgTypeName<ArgType>(), Or<ArgTypes...>::TypeNames());
     } else {
@@ -272,7 +272,7 @@ template <class ArgType>
 struct Optional<ArgType> {
   static constexpr size_t size = 1;
 
-  static void Check(const char *name, const TypedValue *args, int64_t nargs, int64_t pos) {
+  constexpr static void Check(const char *name, const TypedValue *args, int64_t nargs, int64_t pos) {
     if (nargs == 0) return;
     const TypedValue &arg = args[0];
     if constexpr (IsOrType<ArgType>::value) {
@@ -1351,7 +1351,7 @@ template <typename T>
 concept IsNumberOrInteger = utils::SameAsAnyOf<T, Number, Integer>;
 
 template <IsNumberOrInteger ArgType>
-bool MapNumericParameters(auto &parameter_mappings, const auto &input_parameters) {
+constexpr bool MapNumericParameters(auto &parameter_mappings, const auto &input_parameters) {
   bool has_mapped_any_field{false};
   for (const auto &[key, value] : input_parameters) {
     if (auto it = parameter_mappings.find(key); it != parameter_mappings.end()) {

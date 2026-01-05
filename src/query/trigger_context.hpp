@@ -33,7 +33,7 @@ template <typename T>
 concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
 
 template <ObjectAccessor TAccessor>
-const char *ObjectString() {
+const constexpr char *ObjectString() {
   if constexpr (std::same_as<TAccessor, VertexAccessor>) {
     return "vertex";
   } else {
@@ -43,9 +43,9 @@ const char *ObjectString() {
 
 template <ObjectAccessor TAccessor>
 struct CreatedObject {
-  explicit CreatedObject(const TAccessor &object) : object{object} {}
+  constexpr explicit CreatedObject(const TAccessor &object) : object{object} {}
 
-  bool IsValid() const { return object.IsVisible(storage::View::OLD); }
+  constexpr bool IsValid() const { return object.IsVisible(storage::View::OLD); }
   std::map<std::string, TypedValue> ToMap([[maybe_unused]] DbAccessor *dba) const {
     return {{ObjectString<TAccessor>(), TypedValue{object}}};
   }
@@ -55,9 +55,9 @@ struct CreatedObject {
 
 template <ObjectAccessor TAccessor>
 struct DeletedObject {
-  explicit DeletedObject(const TAccessor &object) : object{object} {}
+  constexpr explicit DeletedObject(const TAccessor &object) : object{object} {}
 
-  bool IsValid() const { return object.IsVisible(storage::View::OLD); }
+  constexpr bool IsValid() const { return object.IsVisible(storage::View::OLD); }
   std::map<std::string, TypedValue> ToMap([[maybe_unused]] DbAccessor *dba) const {
     return {{ObjectString<TAccessor>(), TypedValue{object}}};
   }
@@ -107,7 +107,7 @@ struct RemovedObjectProperty : ObjectCommonMethods {
 };
 
 struct SetVertexLabel {
-  explicit SetVertexLabel(const VertexAccessor &vertex, const storage::LabelId label_id)
+  constexpr explicit SetVertexLabel(const VertexAccessor &vertex, const storage::LabelId label_id)
       : object{vertex}, label_id{label_id} {}
 
   std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const;
@@ -118,7 +118,7 @@ struct SetVertexLabel {
 };
 
 struct RemovedVertexLabel {
-  explicit RemovedVertexLabel(const VertexAccessor &vertex, const storage::LabelId label_id)
+  constexpr explicit RemovedVertexLabel(const VertexAccessor &vertex, const storage::LabelId label_id)
       : object{vertex}, label_id{label_id} {}
 
   std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const;
@@ -166,16 +166,16 @@ const char *TriggerEventTypeToString(TriggerEventType event_type);
 class TriggerContext {
  public:
   TriggerContext() = default;
-  TriggerContext(std::vector<detail::CreatedObject<VertexAccessor>> created_vertices,
-                 std::vector<detail::DeletedObject<VertexAccessor>> deleted_vertices,
-                 std::vector<detail::SetObjectProperty<VertexAccessor>> set_vertex_properties,
-                 std::vector<detail::RemovedObjectProperty<VertexAccessor>> removed_vertex_properties,
-                 std::vector<detail::SetVertexLabel> set_vertex_labels,
-                 std::vector<detail::RemovedVertexLabel> removed_vertex_labels,
-                 std::vector<detail::CreatedObject<EdgeAccessor>> created_edges,
-                 std::vector<detail::DeletedObject<EdgeAccessor>> deleted_edges,
-                 std::vector<detail::SetObjectProperty<EdgeAccessor>> set_edge_properties,
-                 std::vector<detail::RemovedObjectProperty<EdgeAccessor>> removed_edge_properties)
+  constexpr TriggerContext(std::vector<detail::CreatedObject<VertexAccessor>> created_vertices,
+                           std::vector<detail::DeletedObject<VertexAccessor>> deleted_vertices,
+                           std::vector<detail::SetObjectProperty<VertexAccessor>> set_vertex_properties,
+                           std::vector<detail::RemovedObjectProperty<VertexAccessor>> removed_vertex_properties,
+                           std::vector<detail::SetVertexLabel> set_vertex_labels,
+                           std::vector<detail::RemovedVertexLabel> removed_vertex_labels,
+                           std::vector<detail::CreatedObject<EdgeAccessor>> created_edges,
+                           std::vector<detail::DeletedObject<EdgeAccessor>> deleted_edges,
+                           std::vector<detail::SetObjectProperty<EdgeAccessor>> set_edge_properties,
+                           std::vector<detail::RemovedObjectProperty<EdgeAccessor>> removed_edge_properties)
       : created_vertices_{std::move(created_vertices)},
         deleted_vertices_{std::move(deleted_vertices)},
         set_vertex_properties_{std::move(set_vertex_properties)},
@@ -219,7 +219,7 @@ class TriggerContextCollector {
  public:
   struct HashPairWithAccessor {
     template <detail::ObjectAccessor TAccessor, typename T2>
-    size_t operator()(const std::pair<TAccessor, T2> &pair) const {
+    constexpr size_t operator()(const std::pair<TAccessor, T2> &pair) const {
       using GidType = decltype(std::declval<TAccessor>().Gid());
       return utils::HashCombine<GidType, T2>{}(pair.first.Gid(), pair.second);
     }

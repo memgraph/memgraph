@@ -217,7 +217,7 @@ std::string Date::ToString() const {
 }
 
 size_t DateHash::operator()(const Date &date) const {
-  const utils::HashCombine<uint64_t, uint64_t> hasher;
+  constexpr utils::HashCombine<uint64_t, uint64_t> hasher;
   size_t result = hasher(0, date.year);
   result = hasher(result, date.month);
   result = hasher(result, date.day);
@@ -428,7 +428,7 @@ std::string LocalTime::ToString() const {
 }
 
 size_t LocalTimeHash::operator()(const LocalTime &local_time) const {
-  const utils::HashCombine<uint64_t, uint64_t> hasher;
+  constexpr utils::HashCombine<uint64_t, uint64_t> hasher;
   size_t result = hasher(0, local_time.hour);
   result = hasher(result, local_time.minute);
   result = hasher(result, local_time.second);
@@ -614,7 +614,7 @@ std::tm LocalDateTime::tm() const {
 
 size_t LocalDateTimeHash::operator()(const LocalDateTime &local_date_time) const {
   // Use system time since it is in a fixed timezone
-  const utils::HashCombine<uint64_t, uint64_t> hasher;
+  constexpr utils::HashCombine<uint64_t, uint64_t> hasher;
   return hasher(0, local_date_time.SysMicrosecondsSinceEpoch());
 }
 
@@ -950,7 +950,7 @@ std::strong_ordering ZonedDateTime::operator<=>(const ZonedDateTime &other) cons
 }
 
 size_t ZonedDateTimeHash::operator()(const ZonedDateTime &zoned_date_time) const {
-  const utils::HashCombine<size_t, int64_t> hasher;
+  constexpr utils::HashCombine<size_t, int64_t> hasher;
   size_t result = hasher(0, zoned_date_time.SysMicrosecondsSinceEpoch().count());
   const auto offset = zoned_date_time.GetTimezone().GetOffset();
   if (std::holds_alternative<const std::chrono::time_zone *>(offset)) {

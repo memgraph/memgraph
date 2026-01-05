@@ -87,7 +87,7 @@ void RedirectToStderr();
 // /// Use it for operations that must successfully finish.
 inline void AssertRocksDBStatus(const auto &status) { MG_ASSERT(status.ok(), "rocksdb: {}", status.ToString()); }
 
-inline bool CheckRocksDBStatus(const auto &status) {
+inline constexpr bool CheckRocksDBStatus(const auto &status) {
   if (!status.ok()) [[unlikely]] {
     spdlog::error("rocksdb: {}", status.ToString());
   }

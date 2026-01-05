@@ -117,7 +117,7 @@ void LicenseChecker::RevalidateLicense(const utils::Settings &settings) {
 void LicenseChecker::RevalidateLicense(const std::string &license_key, const std::string &organization_name) {
   spdlog::trace("License revalidation started");
   static utils::Synchronized<std::optional<int64_t>, utils::SpinLock> previous_memory_limit;
-  const auto set_memory_limit = [](const auto memory_limit) {
+  constexpr auto set_memory_limit = [](const auto memory_limit) {
     auto locked_previous_memory_limit_ptr = previous_memory_limit.Lock();
     auto &locked_previous_memory_limit = *locked_previous_memory_limit_ptr;
     if (!locked_previous_memory_limit || *locked_previous_memory_limit != memory_limit) {

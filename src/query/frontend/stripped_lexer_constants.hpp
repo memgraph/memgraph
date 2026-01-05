@@ -26,7 +26,7 @@ namespace trie {
 // directly test this class, but there are tests that test StrippedQuery.
 
 namespace detail {
-inline int Noop(int x) { return x; }
+constexpr inline int Noop(int x) { return x; }
 };  // namespace detail
 
 class Trie {

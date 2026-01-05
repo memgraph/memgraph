@@ -38,7 +38,7 @@ class Resource {
   };
 
   Resource() = default;
-  explicit Resource(T limit) : limit_(limit) {}
+  constexpr explicit Resource(T limit) : limit_(limit) {}
   ~Resource() = default;
 
   Resource(const Resource &) = delete;
@@ -49,9 +49,9 @@ class Resource {
   static constexpr auto kUnlimited = std::numeric_limits<T>::max();
 
   // Should this fail?
-  void UpdateLimit(T limit) { limit_.store(limit, std::memory_order_release); }
+  constexpr void UpdateLimit(T limit) { limit_.store(limit, std::memory_order_release); }
 
-  IncrementResult Increment(T size, bool can_throw = true) {
+  constexpr IncrementResult Increment(T size, bool can_throw = true) {
     auto current = allocated_.fetch_add(size, std::memory_order_acq_rel) + size;
 
     if (!can_throw) {
@@ -70,7 +70,7 @@ class Resource {
   }
 
   // Decrementing cannot fail
-  void Decrement(T size) {
+  constexpr void Decrement(T size) {
     const auto current = allocated_.fetch_sub(size, std::memory_order_acq_rel);
     if (current < size) {                                                           // Underflow protection
       auto current = allocated_.fetch_add(size, std::memory_order_acq_rel) + size;  // Rollback decrement
@@ -80,8 +80,8 @@ class Resource {
     }
   }
 
-  T GetCurrent() const { return allocated_.load(std::memory_order_acquire); }
-  T GetLimit() const { return limit_.load(std::memory_order_acquire); }
+  constexpr T GetCurrent() const { return allocated_.load(std::memory_order_acquire); }
+  constexpr T GetLimit() const { return limit_.load(std::memory_order_acquire); }
 
  private:
   std::atomic<T> allocated_{0};
@@ -92,7 +92,7 @@ using SessionsResource = Resource<size_t>;                    // Number of sessi
 class TransactionsMemoryResource : public Resource<size_t> {  // Bytes allowed to be allocated
  public:
   TransactionsMemoryResource() = default;
-  explicit TransactionsMemoryResource(size_t limit) : Resource(limit) {}
+  constexpr explicit TransactionsMemoryResource(size_t limit) : Resource(limit) {}
 
   bool Allocate(size_t size);
   void Deallocate(size_t size);
@@ -100,25 +100,25 @@ class TransactionsMemoryResource : public Resource<size_t> {  // Bytes allowed t
 
 struct UserResources {
   UserResources() = default;
-  UserResources(SessionsResource::value_type sessions_limit,
-                TransactionsMemoryResource::value_type transactions_memory_limit)
+  constexpr UserResources(SessionsResource::value_type sessions_limit,
+                          TransactionsMemoryResource::value_type transactions_memory_limit)
       : sessions(sessions_limit), transactions_memory(transactions_memory_limit) {}
 
-  void Reset() {
+  constexpr void Reset() {
     sessions.UpdateLimit(SessionsResource::kUnlimited);
     transactions_memory.UpdateLimit(TransactionsMemoryResource::kUnlimited);
   }
 
   // Session limits
-  void SetSessionLimit(SessionsResource::value_type limit) { sessions.UpdateLimit(limit); }
-  bool IncrementSessions() { return sessions.Increment(1).success; }
-  void DecrementSessions() { sessions.Decrement(1); }
-  std::pair<SessionsResource::value_type, SessionsResource::value_type> GetSessions() const {
+  constexpr void SetSessionLimit(SessionsResource::value_type limit) { sessions.UpdateLimit(limit); }
+  constexpr bool IncrementSessions() { return sessions.Increment(1).success; }
+  constexpr void DecrementSessions() { sessions.Decrement(1); }
+  constexpr std::pair<SessionsResource::value_type, SessionsResource::value_type> GetSessions() const {
     return {sessions.GetCurrent(), sessions.GetLimit()};
   }
 
   // Transactional memory limits
-  void SetTransactionsMemoryLimit(TransactionsMemoryResource::value_type limit) {
+  constexpr void SetTransactionsMemoryLimit(TransactionsMemoryResource::value_type limit) {
     transactions_memory.UpdateLimit(limit);
   }
   bool IncrementTransactionsMemory(TransactionsMemoryResource::value_type size) {
@@ -127,8 +127,8 @@ struct UserResources {
   void DecrementTransactionsMemory(TransactionsMemoryResource::value_type size) {
     transactions_memory.Deallocate(size);
   }
-  std::pair<TransactionsMemoryResource::value_type, TransactionsMemoryResource::value_type> GetTransactionsMemory()
-      const {
+  constexpr std::pair<TransactionsMemoryResource::value_type, TransactionsMemoryResource::value_type>
+  GetTransactionsMemory() const {
     return {transactions_memory.GetCurrent(), transactions_memory.GetLimit()};
   }
 

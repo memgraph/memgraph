@@ -36,31 +36,31 @@ namespace memgraph::communication::bolt {
 template <typename Buffer>
 class BaseEncoder {
  public:
-  explicit BaseEncoder(Buffer &buffer) : buffer_(buffer), major_v_(0) {}
+  constexpr explicit BaseEncoder(Buffer &buffer) : buffer_(buffer), major_v_(0) {}
 
   /**
    * Lets the user update the version.
    * This is all single thread for now. TODO: Update if ever multithreaded.
    * @param major_v the major version of the Bolt protocol used.
    */
-  void UpdateVersion(int major_v) { major_v_ = major_v; }
+  constexpr void UpdateVersion(int major_v) { major_v_ = major_v; }
 
-  void WriteRAW(const uint8_t *data, uint64_t len) { buffer_.Write(data, len); }
+  constexpr void WriteRAW(const uint8_t *data, uint64_t len) { buffer_.Write(data, len); }
 
-  void WriteRAW(const char *data, uint64_t len) { WriteRAW((const uint8_t *)data, len); }
+  constexpr void WriteRAW(const char *data, uint64_t len) { WriteRAW((const uint8_t *)data, len); }
 
-  void WriteRAW(const uint8_t data) { WriteRAW(&data, 1); }
+  constexpr void WriteRAW(const uint8_t data) { WriteRAW(&data, 1); }
 
-  void WriteNull() { WriteRAW(std::to_underlying(Marker::Null)); }
+  constexpr void WriteNull() { WriteRAW(std::to_underlying(Marker::Null)); }
 
-  void WriteBool(const bool &value) {
+  constexpr void WriteBool(const bool &value) {
     if (value)
       WriteRAW(std::to_underlying(Marker::True));
     else
       WriteRAW(std::to_underlying(Marker::False));
   }
 
-  void WriteInt(const int64_t &value) {
+  constexpr void WriteInt(const int64_t &value) {
     if (value >= -16L && value < 128L) {
       WriteRAW(static_cast<uint8_t>(value));
     } else if (value >= -128L && value < -16L) {
@@ -78,13 +78,13 @@ class BaseEncoder {
     }
   }
 
-  void WriteDouble(const double &value) {
+  constexpr void WriteDouble(const double &value) {
     WriteRAW(std::to_underlying(Marker::Float64));
     uint64_t tmp = std::bit_cast<uint64_t>(value);
     WritePrimitiveValue(tmp);
   }
 
-  void WriteTypeSize(const size_t size, const uint8_t typ) {
+  constexpr void WriteTypeSize(const size_t size, const uint8_t typ) {
     if (size <= 15) {
       uint8_t len = size;
       len &= 0x0F;
@@ -104,7 +104,7 @@ class BaseEncoder {
     }
   }
 
-  void WriteString(std::string_view value) {
+  constexpr void WriteString(std::string_view value) {
     WriteTypeSize(value.size(), MarkerString);
     WriteRAW(value.data(), value.size());
   }
@@ -244,7 +244,7 @@ class BaseEncoder {
     WriteInt(duration.SubSecondsAsNanoseconds());
   }
 
-  void WritePoint2d(const Point2d &point_2d) {
+  constexpr void WritePoint2d(const Point2d &point_2d) {
     WriteRAW(std::to_underlying(Marker::TinyStruct3));
     WriteRAW(std::to_underlying(Signature::Point2d));
     WriteInt(storage::CrsToSrid(point_2d.crs()).value_of());
@@ -252,7 +252,7 @@ class BaseEncoder {
     WriteDouble(point_2d.y());
   }
 
-  void WritePoint3d(const Point3d &point_3d) {
+  constexpr void WritePoint3d(const Point3d &point_3d) {
     WriteRAW(std::to_underlying(Marker::TinyStruct4));
     WriteRAW(std::to_underlying(Signature::Point3d));
     WriteInt(storage::CrsToSrid(point_3d.crs()).value_of());

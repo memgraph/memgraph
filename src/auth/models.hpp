@@ -167,7 +167,9 @@ class UserImpersonation {
     void to_json(nlohmann::json &data, const UserId &uid);
     void from_json(const nlohmann::json &data, UserId &uid);
 
-    friend std::strong_ordering operator<=>(UserId const &lhs, UserId const &rhs) { return lhs.name <=> rhs.name; };
+    constexpr friend std::strong_ordering operator<=>(UserId const &lhs, UserId const &rhs) {
+      return lhs.name <=> rhs.name;
+    };
   };
   struct GrantAllUsers {};
   using GrantedUsers = std::variant<std::set<UserId>, GrantAllUsers>;  // Default to no granted user

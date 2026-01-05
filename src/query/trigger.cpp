@@ -34,7 +34,7 @@ extern const Event TriggersExecuted;
 
 namespace memgraph::query {
 namespace {
-auto IdentifierString(const TriggerIdentifierTag tag) noexcept {
+constexpr auto IdentifierString(const TriggerIdentifierTag tag) noexcept {
   switch (tag) {
     case TriggerIdentifierTag::CREATED_VERTICES:
       return "createdVertices";
@@ -87,7 +87,7 @@ template <typename T>
 concept SameAsIdentifierTag = std::same_as<T, TriggerIdentifierTag>;
 
 template <SameAsIdentifierTag... TArgs>
-std::vector<std::pair<Identifier, TriggerIdentifierTag>> TagsToIdentifiers(const TArgs &...args) {
+constexpr std::vector<std::pair<Identifier, TriggerIdentifierTag>> TagsToIdentifiers(const TArgs &...args) {
   std::vector<std::pair<Identifier, TriggerIdentifierTag>> identifiers;
   identifiers.reserve(sizeof...(args));
 
@@ -100,7 +100,8 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> TagsToIdentifiers(const
   return identifiers;
 };
 
-std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifiers(const TriggerEventType event_type) {
+constexpr std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifiers(
+    const TriggerEventType event_type) {
   using IdentifierTag = TriggerIdentifierTag;
   using EventType = TriggerEventType;
 

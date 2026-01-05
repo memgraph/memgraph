@@ -48,7 +48,7 @@ inline bool operator==(const Edge &first, const Gid &second) { return first.gid 
 inline bool operator<(const Edge &first, const Gid &second) { return first.gid < second; }
 
 struct EdgeMetadata {
-  EdgeMetadata(Gid gid, Vertex *from_vertex) : gid(gid), from_vertex(from_vertex) {}
+  constexpr EdgeMetadata(Gid gid, Vertex *from_vertex) : gid(gid), from_vertex(from_vertex) {}
 
   Gid gid;
   Vertex *from_vertex;
@@ -56,9 +56,13 @@ struct EdgeMetadata {
 
 static_assert(alignof(Edge) >= 8, "The Edge should be aligned to at least 8!");
 
-inline bool operator==(const EdgeMetadata &first, const EdgeMetadata &second) { return first.gid == second.gid; }
-inline bool operator<(const EdgeMetadata &first, const EdgeMetadata &second) { return first.gid < second.gid; }
-inline bool operator==(const EdgeMetadata &first, const Gid &second) { return first.gid == second; }
-inline bool operator<(const EdgeMetadata &first, const Gid &second) { return first.gid < second; }
+constexpr inline bool operator==(const EdgeMetadata &first, const EdgeMetadata &second) {
+  return first.gid == second.gid;
+}
+constexpr inline bool operator<(const EdgeMetadata &first, const EdgeMetadata &second) {
+  return first.gid < second.gid;
+}
+constexpr inline bool operator==(const EdgeMetadata &first, const Gid &second) { return first.gid == second; }
+constexpr inline bool operator<(const EdgeMetadata &first, const Gid &second) { return first.gid < second; }
 
 }  // namespace memgraph::storage

@@ -21,13 +21,13 @@ class EdgeAccessor final {
  public:
   storage::EdgeAccessor impl_;
 
-  explicit EdgeAccessor(storage::EdgeAccessor impl) : impl_(std::move(impl)) {}
+  constexpr explicit EdgeAccessor(storage::EdgeAccessor impl) : impl_(std::move(impl)) {}
 
   bool IsDeleted() const { return impl_.IsDeleted(); }
 
   bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
 
-  storage::EdgeTypeId EdgeType() const { return impl_.EdgeType(); }
+  constexpr storage::EdgeTypeId EdgeType() const { return impl_.EdgeType(); }
 
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
@@ -78,9 +78,9 @@ class EdgeAccessor final {
 
   storage::Gid Gid() const noexcept { return impl_.Gid(); }
 
-  bool operator==(const EdgeAccessor &e) const noexcept { return impl_ == e.impl_; }
+  constexpr bool operator==(const EdgeAccessor &e) const noexcept { return impl_ == e.impl_; }
 
-  bool operator!=(const EdgeAccessor &e) const noexcept { return !(*this == e); }
+  constexpr bool operator!=(const EdgeAccessor &e) const noexcept { return !(*this == e); }
 };
 
 }  // namespace memgraph::query

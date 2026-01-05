@@ -115,7 +115,7 @@ struct SkipListNode_base {
 template <typename TObj>
 struct SkipListNode {
   template <typename TObjUniv>
-  SkipListNode(uint8_t height, TObjUniv &&object) : obj(std::forward<TObjUniv>(object)), height(height) {}
+  constexpr SkipListNode(uint8_t height, TObjUniv &&object) : obj(std::forward<TObjUniv>(object)), height(height) {}
 
   // The items here are carefully placed to minimize padding gaps.
 
@@ -144,7 +144,7 @@ constexpr size_t SkipListNodeAlign() {
 
 /// Get the size in bytes of the given SkipListNode instance.
 template <typename TObj>
-size_t SkipListNodeSize(const SkipListNode<TObj> &node) {
+constexpr size_t SkipListNodeSize(const SkipListNode<TObj> &node) {
   return sizeof(node) + node.height * sizeof(std::atomic<SkipListNode<TObj> *>);
 }
 
@@ -268,7 +268,7 @@ class SkipListGc final {
   }
 
  public:
-  explicit SkipListGc(MemoryResource *memory) : memory_(memory) {
+  constexpr explicit SkipListGc(MemoryResource *memory) : memory_(memory) {
     static_assert(sizeof(Block) % kLinuxPageSize == 0,
                   "It is recommended that you set the kSkipListGcBlockSize "
                   "constant so that the size of SkipListGc::Block is a "
@@ -389,7 +389,7 @@ class SkipListGc final {
                      });
   }
 
-  MemoryResource *GetMemoryResource() const { return memory_; }
+  constexpr MemoryResource *GetMemoryResource() const { return memory_; }
 
   void Clear() {
     // Delete all allocated blocks.
@@ -610,7 +610,7 @@ class SkipList final : detail::SkipListNode_base {
     friend class SkipList;
     friend class ConstIterator;
 
-    explicit Iterator(TNode *node) : node_(node) {}
+    constexpr explicit Iterator(TNode *node) : node_(node) {}
 
    public:
     using value_type = TObj;
@@ -622,13 +622,13 @@ class SkipList final : detail::SkipListNode_base {
     Iterator &operator=(Iterator const &) = default;
     Iterator &operator=(Iterator &&) = default;
 
-    value_type &operator*() const { return node_->obj; }
+    constexpr value_type &operator*() const { return node_->obj; }
 
-    value_type *operator->() const { return &node_->obj; }
+    constexpr value_type *operator->() const { return &node_->obj; }
 
-    friend bool operator==(Iterator const &lhs, Iterator const &rhs) { return lhs.node_ == rhs.node_; }
+    constexpr friend bool operator==(Iterator const &lhs, Iterator const &rhs) { return lhs.node_ == rhs.node_; }
 
-    Iterator &operator++() {
+    constexpr Iterator &operator++() {
       auto current = node_;
       while (true) {
         current = current->nexts[0].load(std::memory_order_acquire);
@@ -641,7 +641,7 @@ class SkipList final : detail::SkipListNode_base {
       }
     }
 
-    Iterator operator++(int) {
+    constexpr Iterator operator++(int) {
       Iterator old = *this;
       ++(*this);
       return old;
@@ -655,7 +655,7 @@ class SkipList final : detail::SkipListNode_base {
    private:
     friend class SkipList;
 
-    explicit ConstIterator(TNode *node) : node_(node) {}
+    constexpr explicit ConstIterator(TNode *node) : node_(node) {}
 
    public:
     using value_type = TObj const;
@@ -667,15 +667,17 @@ class SkipList final : detail::SkipListNode_base {
     ConstIterator &operator=(ConstIterator const &) = default;
     ConstIterator &operator=(ConstIterator &&) = default;
 
-    ConstIterator(const Iterator &it) : node_(it.node_) {}
+    constexpr ConstIterator(const Iterator &it) : node_(it.node_) {}
 
-    value_type &operator*() const { return node_->obj; }
+    constexpr value_type &operator*() const { return node_->obj; }
 
-    value_type *operator->() const { return &node_->obj; }
+    constexpr value_type *operator->() const { return &node_->obj; }
 
-    friend bool operator==(ConstIterator const &lhs, ConstIterator const &rhs) { return lhs.node_ == rhs.node_; }
+    constexpr friend bool operator==(ConstIterator const &lhs, ConstIterator const &rhs) {
+      return lhs.node_ == rhs.node_;
+    }
 
-    ConstIterator &operator++() {
+    constexpr ConstIterator &operator++() {
       while (true) {
         node_ = node_->nexts[0].load(std::memory_order_acquire);
         if (node_ != nullptr && node_->marked.load(std::memory_order_acquire)) [[unlikely]] {
@@ -686,7 +688,7 @@ class SkipList final : detail::SkipListNode_base {
       }
     }
 
-    ConstIterator operator++(int) {
+    constexpr ConstIterator operator++(int) {
       ConstIterator old = *this;
       ++(*this);
       return old;
@@ -700,7 +702,7 @@ class SkipList final : detail::SkipListNode_base {
    private:
     friend class SkipList;
 
-    ChunkedIterator(TNode *node) : node_(node) {}
+    constexpr ChunkedIterator(TNode *node) : node_(node) {}
 
    public:
     using value_type = TObj;
@@ -708,12 +710,12 @@ class SkipList final : detail::SkipListNode_base {
 
     ChunkedIterator() = default;
 
-    value_type &operator*() const { return node_->obj; }
+    constexpr value_type &operator*() const { return node_->obj; }
 
-    value_type *operator->() const { return &node_->obj; }
+    constexpr value_type *operator->() const { return &node_->obj; }
 
     // Chunked version needs to use the order of nodes to avoid skipping nodes that are marked or not fully linked.
-    ChunkedIterator &operator++() {
+    constexpr ChunkedIterator &operator++() {
       if (node_ == nullptr) {
         return *this;  // Already at end
       }
@@ -736,15 +738,15 @@ class SkipList final : detail::SkipListNode_base {
       }
     }
 
-    ChunkedIterator operator++(int) {
+    constexpr ChunkedIterator operator++(int) {
       ChunkedIterator old = *this;
       ++(*this);
       return old;
     }
 
-    bool operator==(const ChunkedIterator &other) const { return node_ == other.node_; }
+    constexpr bool operator==(const ChunkedIterator &other) const { return node_ == other.node_; }
     // More complex because the end node can be removed from the skiplist, we check the order and stop if past end node
-    bool operator!=(const ChunkedIterator &other) const {
+    constexpr bool operator!=(const ChunkedIterator &other) const {
       if (!node_) return false;       // end of skiplist (stop)
       if (!other.node_) return true;  // continue till the end of the skiplist
       return node_ != other.node_ &&
@@ -760,11 +762,11 @@ class SkipList final : detail::SkipListNode_base {
     ChunkedIterator end_;
 
    public:
-    Chunk(TNode *begin, TNode *end) : begin_{begin}, end_{end} {}
-    Chunk(ChunkedIterator begin, ChunkedIterator end) : begin_{begin}, end_{end} {}
+    constexpr Chunk(TNode *begin, TNode *end) : begin_{begin}, end_{end} {}
+    constexpr Chunk(ChunkedIterator begin, ChunkedIterator end) : begin_{begin}, end_{end} {}
 
-    ChunkedIterator begin() { return begin_; }
-    ChunkedIterator end() { return end_; }
+    constexpr ChunkedIterator begin() { return begin_; }
+    constexpr ChunkedIterator end() { return end_; }
   };
 
   /// Collection of chunks for parallel processing.
@@ -775,7 +777,7 @@ class SkipList final : detail::SkipListNode_base {
    private:
     friend class SkipList;
 
-    explicit SamplingIterator(TNode *node, uint32_t level) : node_{node}, level_{level} {}
+    constexpr explicit SamplingIterator(TNode *node, uint32_t level) : node_{node}, level_{level} {}
 
    public:
     using value_type = TObj const;
@@ -787,13 +789,15 @@ class SkipList final : detail::SkipListNode_base {
     SamplingIterator &operator=(SamplingIterator const &) = default;
     SamplingIterator &operator=(SamplingIterator &&) = default;
 
-    value_type &operator*() const { return node_->obj; }
+    constexpr value_type &operator*() const { return node_->obj; }
 
-    value_type *operator->() const { return &node_->obj; }
+    constexpr value_type *operator->() const { return &node_->obj; }
 
-    friend bool operator==(SamplingIterator const &lhs, SamplingIterator const &rhs) { return lhs.node_ == rhs.node_; }
+    constexpr friend bool operator==(SamplingIterator const &lhs, SamplingIterator const &rhs) {
+      return lhs.node_ == rhs.node_;
+    }
 
-    SamplingIterator &operator++() {
+    constexpr SamplingIterator &operator++() {
       while (true) {
         node_ = node_->nexts[level_].load(std::memory_order_acquire);
         if (node_ != nullptr && node_->marked.load(std::memory_order_acquire)) [[unlikely]] {
@@ -804,7 +808,7 @@ class SkipList final : detail::SkipListNode_base {
       }
     }
 
-    SamplingIterator operator++(int) {
+    constexpr SamplingIterator operator++(int) {
       SamplingIterator old = *this;
       ++(*this);
       return old;
@@ -816,9 +820,9 @@ class SkipList final : detail::SkipListNode_base {
   };
 
   struct SamplingRange {
-    SamplingRange(SamplingIterator begin, SamplingIterator end) : begin_(begin), end_(end) {}
-    auto begin() const -> SamplingIterator { return begin_; }
-    auto end() const -> SamplingIterator { return end_; }
+    constexpr SamplingRange(SamplingIterator begin, SamplingIterator end) : begin_(begin), end_(end) {}
+    constexpr auto begin() const -> SamplingIterator { return begin_; }
+    constexpr auto end() const -> SamplingIterator { return end_; }
 
    private:
     SamplingIterator begin_;
@@ -829,7 +833,7 @@ class SkipList final : detail::SkipListNode_base {
    private:
     friend class SkipList;
 
-    explicit Accessor(SkipList *skiplist) : skiplist_(skiplist), id_(skiplist->gc_.AllocateId()) {}
+    constexpr explicit Accessor(SkipList *skiplist) : skiplist_(skiplist), id_(skiplist->gc_.AllocateId()) {}
 
    public:
     using value_type = TObj;
@@ -849,8 +853,10 @@ class SkipList final : detail::SkipListNode_base {
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
 
-    Accessor(Accessor &&other) noexcept : skiplist_(other.skiplist_), id_(other.id_) { other.skiplist_ = nullptr; }
-    Accessor &operator=(Accessor &&other) noexcept {
+    constexpr Accessor(Accessor &&other) noexcept : skiplist_(other.skiplist_), id_(other.id_) {
+      other.skiplist_ = nullptr;
+    }
+    constexpr Accessor &operator=(Accessor &&other) noexcept {
       if (this != &other) {
         skiplist_ = other.skiplist_;
         id_ = other.id_;
@@ -861,20 +867,24 @@ class SkipList final : detail::SkipListNode_base {
 
     /// Functions that return an Iterator (or ConstIterator) to the beginning of
     /// the list.
-    Iterator begin() { return Iterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
-    ConstIterator begin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
-    ConstIterator cbegin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
+    constexpr Iterator begin() { return Iterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
+    constexpr ConstIterator begin() const {
+      return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)};
+    }
+    constexpr ConstIterator cbegin() const {
+      return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)};
+    }
 
     /// Functions that return an Iterator (or ConstIterator) to the end of the
     /// list.
-    Iterator end() { return Iterator{nullptr}; }
-    ConstIterator end() const { return ConstIterator{nullptr}; }
-    ConstIterator cend() const { return ConstIterator{nullptr}; }
+    constexpr Iterator end() { return Iterator{nullptr}; }
+    constexpr ConstIterator end() const { return ConstIterator{nullptr}; }
+    constexpr ConstIterator cend() const { return ConstIterator{nullptr}; }
 
     auto sampling_range() const {
       auto const level = static_cast<uint8_t>(SkipListLayerForCountEstimation(size()) - 1);
       auto const b = SamplingIterator{skiplist_->head_->nexts[level].load(std::memory_order_acquire), level};
-      auto const e = SamplingIterator{};
+      auto constexpr e = SamplingIterator{};
       return SamplingRange{b, e};
     };
 
@@ -884,7 +894,7 @@ class SkipList final : detail::SkipListNode_base {
     ///
     /// @param num_chunks The number of chunks to create
     /// @return ChunkCollection containing the chunks
-    ChunkCollection create_chunks(size_t num_chunks) const { return skiplist_->create_chunks(num_chunks); }
+    constexpr ChunkCollection create_chunks(size_t num_chunks) const { return skiplist_->create_chunks(num_chunks); }
 
     /// Creates chunks for parallel processing of the skip list within a specified range.
     /// Each chunk contains approximately equal number of elements within the range.
@@ -895,12 +905,12 @@ class SkipList final : detail::SkipListNode_base {
     /// @param upper_bound Optional upper bound for the range
     /// @return ChunkCollection containing the chunks
     template <typename TKey>
-    ChunkCollection create_chunks(size_t num_chunks, const std::optional<TKey> &lower_bound,
-                                  const std::optional<TKey> &upper_bound) const {
+    constexpr ChunkCollection create_chunks(size_t num_chunks, const std::optional<TKey> &lower_bound,
+                                            const std::optional<TKey> &upper_bound) const {
       return skiplist_->create_chunks(num_chunks, lower_bound, upper_bound);
     }
 
-    std::pair<Iterator, bool> insert(const TObj &object) { return skiplist_->insert(object); }
+    constexpr std::pair<Iterator, bool> insert(const TObj &object) { return skiplist_->insert(object); }
 
     /// Inserts an object into the list. It returns an iterator to the item that
     /// is in the list. If the item already exists in the list no insertion is
@@ -908,13 +918,13 @@ class SkipList final : detail::SkipListNode_base {
     ///
     /// @return Iterator to the item that is in the list
     ///         bool indicates whether the item was inserted into the list
-    std::pair<Iterator, bool> insert(TObj &&object) { return skiplist_->insert(std::move(object)); }
+    constexpr std::pair<Iterator, bool> insert(TObj &&object) { return skiplist_->insert(std::move(object)); }
 
     /// Checks whether the key exists in the list.
     ///
     /// @return bool indicating whether the item exists
     template <typename TKey>
-    bool contains(const TKey &key) const {
+    constexpr bool contains(const TKey &key) const {
       return skiplist_->contains(key);
     }
 
@@ -923,7 +933,7 @@ class SkipList final : detail::SkipListNode_base {
     /// @return Iterator to the item in the list, will be equal to `end()` when
     ///                  the key isn't found
     template <typename TKey>
-    Iterator find(const TKey &key) {
+    constexpr Iterator find(const TKey &key) {
       return skiplist_->find(key);
     }
 
@@ -932,7 +942,7 @@ class SkipList final : detail::SkipListNode_base {
     /// @return ConstIterator to the item in the list, will be equal to `cend()` when
     ///                  the key isn't found
     template <typename TKey>
-    ConstIterator find(const TKey &key) const {
+    constexpr ConstIterator find(const TKey &key) const {
       return skiplist_->find(key);
     }
 
@@ -942,7 +952,7 @@ class SkipList final : detail::SkipListNode_base {
     /// @return Iterator to the item in the list, will be equal to `end()` when
     ///                  no items match the search
     template <typename TKey>
-    Iterator find_equal_or_greater(const TKey &key) {
+    constexpr Iterator find_equal_or_greater(const TKey &key) {
       return skiplist_->find_equal_or_greater(key);
     }
 
@@ -952,7 +962,7 @@ class SkipList final : detail::SkipListNode_base {
     /// @return ConstIterator to the item in the list, will be equal to `end()` when
     ///                  no items match the search
     template <typename TKey>
-    ConstIterator find_equal_or_greater(const TKey &key) const {
+    constexpr ConstIterator find_equal_or_greater(const TKey &key) const {
       return skiplist_->find_equal_or_greater(key);
     }
 
@@ -965,7 +975,8 @@ class SkipList final : detail::SkipListNode_base {
     ///
     /// @return uint64_t estimated count of identical items in the list
     template <typename TKey>
-    uint64_t estimate_count(const TKey &key, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
+    constexpr uint64_t estimate_count(const TKey &key,
+                                      int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
       return skiplist_->estimate_count(key, max_layer_for_estimation);
     }
 
@@ -978,9 +989,9 @@ class SkipList final : detail::SkipListNode_base {
     ///
     /// @return uint64_t estimated count of items in the range in the list
     template <typename TKey>
-    uint64_t estimate_range_count(const std::optional<utils::Bound<TKey>> &lower,
-                                  const std::optional<utils::Bound<TKey>> &upper,
-                                  int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
+    constexpr uint64_t estimate_range_count(const std::optional<utils::Bound<TKey>> &lower,
+                                            const std::optional<utils::Bound<TKey>> &upper,
+                                            int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
       return skiplist_->estimate_range_count(lower, upper, max_layer_for_estimation);
     }
 
@@ -996,7 +1007,7 @@ class SkipList final : detail::SkipListNode_base {
     ///
     /// @return uint64_t estimated average number of equal items in the list
     template <typename TCallable>
-    uint64_t estimate_average_number_of_equals(
+    constexpr uint64_t estimate_average_number_of_equals(
         const TCallable &equal_cmp, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
       return skiplist_->estimate_average_number_of_equals(equal_cmp, max_layer_for_estimation);
     }
@@ -1005,7 +1016,7 @@ class SkipList final : detail::SkipListNode_base {
     ///
     /// @return bool indicating whether the removal was successful
     template <typename TKey>
-    bool remove(const TKey &key) {
+    constexpr bool remove(const TKey &key) {
       return skiplist_->remove(key);
     }
 
@@ -1023,7 +1034,7 @@ class SkipList final : detail::SkipListNode_base {
    private:
     friend class SkipList;
 
-    explicit ConstAccessor(const SkipList *skiplist) : skiplist_(skiplist), id_(skiplist->gc_.AllocateId()) {}
+    constexpr explicit ConstAccessor(const SkipList *skiplist) : skiplist_(skiplist), id_(skiplist->gc_.AllocateId()) {}
 
    public:
     using value_type = TObj;
@@ -1037,21 +1048,25 @@ class SkipList final : detail::SkipListNode_base {
     ConstAccessor(const ConstAccessor &) = delete;
     ConstAccessor &operator=(const ConstAccessor &) = delete;
 
-    ConstAccessor(ConstAccessor &&other) noexcept : skiplist_(other.skiplist_), id_(other.id_) {
+    constexpr ConstAccessor(ConstAccessor &&other) noexcept : skiplist_(other.skiplist_), id_(other.id_) {
       other.skiplist_ = nullptr;
     }
-    ConstAccessor &operator=(ConstAccessor &&other) noexcept {
+    constexpr ConstAccessor &operator=(ConstAccessor &&other) noexcept {
       skiplist_ = other.skiplist_;
       id_ = other.id_;
       other.skiplist_ = nullptr;
       return *this;
     }
 
-    ConstIterator begin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
-    ConstIterator cbegin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
+    constexpr ConstIterator begin() const {
+      return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)};
+    }
+    constexpr ConstIterator cbegin() const {
+      return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)};
+    }
 
-    ConstIterator end() const { return ConstIterator{nullptr}; }
-    ConstIterator cend() const { return ConstIterator{nullptr}; }
+    constexpr ConstIterator end() const { return ConstIterator{nullptr}; }
+    constexpr ConstIterator cend() const { return ConstIterator{nullptr}; }
 
     auto sampling_range() const {
       auto const level = static_cast<uint8_t>(SkipListLayerForCountEstimation(size()) - 1);
@@ -1066,7 +1081,7 @@ class SkipList final : detail::SkipListNode_base {
     ///
     /// @param num_chunks The number of chunks to create
     /// @return ChunkCollection containing the chunks
-    ChunkCollection create_chunks(size_t num_chunks) const { return skiplist_->create_chunks(num_chunks); }
+    constexpr ChunkCollection create_chunks(size_t num_chunks) const { return skiplist_->create_chunks(num_chunks); }
 
     /// Creates chunks for parallel processing of the skip list within a specified range.
     /// Each chunk contains approximately equal number of elements within the range.
@@ -1077,40 +1092,41 @@ class SkipList final : detail::SkipListNode_base {
     /// @param upper_bound Optional upper bound for the range
     /// @return ChunkCollection containing the chunks
     template <typename TKey>
-    ChunkCollection create_chunks(size_t num_chunks, const std::optional<TKey> &lower_bound,
-                                  const std::optional<TKey> &upper_bound) const {
+    constexpr ChunkCollection create_chunks(size_t num_chunks, const std::optional<TKey> &lower_bound,
+                                            const std::optional<TKey> &upper_bound) const {
       return skiplist_->create_chunks(num_chunks, lower_bound, upper_bound);
     }
 
     template <typename TKey>
-    bool contains(const TKey &key) const {
+    constexpr bool contains(const TKey &key) const {
       return skiplist_->contains(key);
     }
 
     template <typename TKey>
-    ConstIterator find(const TKey &key) const {
+    constexpr ConstIterator find(const TKey &key) const {
       return skiplist_->find(key);
     }
 
     template <typename TKey>
-    ConstIterator find_equal_or_greater(const TKey &key) const {
+    constexpr ConstIterator find_equal_or_greater(const TKey &key) const {
       return skiplist_->find_equal_or_greater(key);
     }
 
     template <typename TKey>
-    uint64_t estimate_count(const TKey &key, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
+    constexpr uint64_t estimate_count(const TKey &key,
+                                      int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
       return skiplist_->estimate_count(key, max_layer_for_estimation);
     }
 
     template <typename TKey>
-    uint64_t estimate_range_count(const std::optional<utils::Bound<TKey>> &lower,
-                                  const std::optional<utils::Bound<TKey>> &upper,
-                                  int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
+    constexpr uint64_t estimate_range_count(const std::optional<utils::Bound<TKey>> &lower,
+                                            const std::optional<utils::Bound<TKey>> &upper,
+                                            int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
       return skiplist_->estimate_range_count(lower, upper, max_layer_for_estimation);
     }
 
     template <typename TCallable>
-    uint64_t estimate_average_number_of_equals(
+    constexpr uint64_t estimate_average_number_of_equals(
         const TCallable &equal_cmp, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
       return skiplist_->estimate_average_number_of_equals(equal_cmp, max_layer_for_estimation);
     }

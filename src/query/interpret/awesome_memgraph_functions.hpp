@@ -26,10 +26,10 @@ class TypedValue;
 struct QueryUserOrRole;
 
 namespace {
-const char kStartsWith[] = "STARTSWITH";
-const char kEndsWith[] = "ENDSWITH";
-const char kContains[] = "CONTAINS";
-const char kId[] = "ID";
+constexpr char kStartsWith[] = "STARTSWITH";
+constexpr char kEndsWith[] = "ENDSWITH";
+constexpr char kContains[] = "CONTAINS";
+constexpr char kId[] = "ID";
 }  // namespace
 
 struct FunctionContext {

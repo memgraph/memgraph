@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,7 +24,7 @@ class JStringFormatException final : public BasicException {
   explicit JStringFormatException(const std::string &what) noexcept : BasicException(what) {}
 
   template <class... Args>
-  explicit JStringFormatException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+  constexpr explicit JStringFormatException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : JStringFormatException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(JStringFormatException)
@@ -80,7 +80,8 @@ class JStringFormatter final {
   }
 
  private:
-  void ReplaceFormatSpecifier(TString &str, std::size_t pos, char format_specifier, TTypedValueLike current_arg) const {
+  constexpr void ReplaceFormatSpecifier(TString &str, std::size_t pos, char format_specifier,
+                                        TTypedValueLike current_arg) const {
     std::string replacement_str;
     switch (format_specifier) {
       case 'd':

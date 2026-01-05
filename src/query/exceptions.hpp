@@ -24,7 +24,7 @@ extern const Event WriteWriteConflicts;
 namespace memgraph::query {
 
 template <class... Args>
-inline auto MessageWithDocsLink(fmt::format_string<Args...> fmt, Args &&...args) {
+inline constexpr auto MessageWithDocsLink(fmt::format_string<Args...> fmt, Args &&...args) {
   return fmt::format("{} For more details, visit https://memgraph.com/docs",
                      fmt::format(fmt, std::forward<Args>(args)...));
 }
@@ -214,7 +214,7 @@ class HintedAbortError : public RetryBasicException {
   auto Reason() const -> AbortReason { return reason_; }
 
  private:
-  static auto AsMsg(AbortReason reason) -> std::string_view {
+  constexpr static auto AsMsg(AbortReason reason) -> std::string_view {
     using namespace std::string_view_literals;
     switch (reason) {
       case AbortReason::TERMINATED:
@@ -468,7 +468,7 @@ class AnalyzeGraphInMulticommandTxException : public MulticommandTxException {
 class ReplicationException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
-  explicit ReplicationException(const std::string &message)
+  constexpr explicit ReplicationException(const std::string &message)
       : utils::BasicException("Replication Exception: {} Check the status of the replicas using 'SHOW REPLICAS' query.",
                               message) {}
   SPECIALIZE_GET_EXCEPTION_NAME(ReplicationException)

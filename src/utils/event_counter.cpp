@@ -165,7 +165,7 @@ Counter global_counters_array[END]{};
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 EventCounters global_counters(global_counters_array);
 
-const Event EventCounters::num_counters = END;
+constexpr Event EventCounters::num_counters = END;
 
 void EventCounters::Increment(const Event event, Count const amount) {
   counters_[event].fetch_add(amount, std::memory_order_relaxed);

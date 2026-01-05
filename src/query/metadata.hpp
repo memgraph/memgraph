@@ -88,7 +88,7 @@ struct ExecutionStats {
     UPDATED_PROPERTIES,
   };
 
-  int64_t &operator[](Key key) { return counters[static_cast<size_t>(key)]; }
+  constexpr int64_t &operator[](Key key) { return counters[static_cast<size_t>(key)]; }
 
  private:
   static constexpr auto kExecutionStatsCountersSize = std::underlying_type_t<Key>(Key::UPDATED_PROPERTIES) + 1;

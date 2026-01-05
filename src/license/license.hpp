@@ -29,7 +29,7 @@ std::string LicenseTypeToString(LicenseType license_type);
 struct License {
   License() = default;
 
-  License(std::string organization_name, int64_t valid_until, int64_t memory_limit, LicenseType license_type)
+  constexpr License(std::string organization_name, int64_t valid_until, int64_t memory_limit, LicenseType license_type)
       : organization_name{std::move(organization_name)},
         valid_until{valid_until},
         memory_limit{memory_limit},
@@ -44,7 +44,7 @@ struct License {
 };
 
 struct LicenseInfo {
-  LicenseInfo(std::string license_key, std::string organization_name)
+  constexpr LicenseInfo(std::string license_key, std::string organization_name)
       : license_key(std::move(license_key)), organization_name{std::move(organization_name)} {}
 
   std::string license_key;

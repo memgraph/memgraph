@@ -60,51 +60,53 @@ struct small_vector {
 
     iterator() = default;
 
-    explicit iterator(pointer p) : ptr{p} {}
+    constexpr explicit iterator(pointer p) : ptr{p} {}
 
-    auto operator++() -> iterator & {
+    constexpr auto operator++() -> iterator & {
       ++ptr;
       return *this;
     }
 
-    auto operator++(int) -> iterator {
+    constexpr auto operator++(int) -> iterator {
       auto cpy = *this;
       ++(*this);
       return cpy;
     }
 
-    auto operator--() -> iterator & {
+    constexpr auto operator--() -> iterator & {
       --ptr;
       return *this;
     }
 
-    auto operator--(int) -> iterator {
+    constexpr auto operator--(int) -> iterator {
       auto cpy = *this;
       --(*this);
       return cpy;
     }
 
-    auto operator+=(difference_type n) -> iterator & {
+    constexpr auto operator+=(difference_type n) -> iterator & {
       ptr += n;
       return *this;
     }
 
-    auto operator-=(difference_type n) -> iterator & { return this->operator+=(-n); }
+    constexpr auto operator-=(difference_type n) -> iterator & { return this->operator+=(-n); }
 
     auto operator+(const difference_type n) const -> iterator { return iterator(ptr + n); }
-    friend auto operator+(const difference_type n, iterator other) -> iterator { return iterator(other.ptr + n); }
+    constexpr friend auto operator+(const difference_type n, iterator other) -> iterator {
+      return iterator(other.ptr + n);
+    }
 
-    auto operator*() const -> reference { return *ptr; }
+    constexpr auto operator*() const -> reference { return *ptr; }
 
-    auto operator->() const -> pointer { return ptr; }
+    constexpr auto operator->() const -> pointer { return ptr; }
 
-    auto operator[](difference_type n) const -> reference { return ptr[n]; }
+    constexpr auto operator[](difference_type n) const -> reference { return ptr[n]; }
 
-    friend auto operator==(iterator const &lhs, iterator const &rhs) -> bool { return lhs.ptr == rhs.ptr; }
-    friend auto operator<(iterator const &lhs, iterator const &rhs) -> bool { return lhs.ptr < rhs.ptr; }
-    friend auto operator>(iterator const &lhs, iterator const &rhs) -> bool { return rhs < lhs; }
-    friend auto operator>=(iterator const &lhs, iterator const &rhs) -> bool { return !(lhs < rhs); }
-    friend auto operator<=(iterator const &lhs, iterator const &rhs) -> bool { return !(rhs < lhs); }
+    constexpr friend auto operator==(iterator const &lhs, iterator const &rhs) -> bool { return lhs.ptr == rhs.ptr; }
+    constexpr friend auto operator<(iterator const &lhs, iterator const &rhs) -> bool { return lhs.ptr < rhs.ptr; }
+    constexpr friend auto operator>(iterator const &lhs, iterator const &rhs) -> bool { return rhs < lhs; }
+    constexpr friend auto operator>=(iterator const &lhs, iterator const &rhs) -> bool { return !(lhs < rhs); }
+    constexpr friend auto operator<=(iterator const &lhs, iterator const &rhs) -> bool { return !(rhs < lhs); }
 
     auto operator-(const iterator &rv) const -> std::ptrdiff_t { return ptr - rv.ptr; }
     auto operator-(const difference_type n) const -> iterator { return iterator(ptr - n); }
@@ -122,56 +124,64 @@ struct small_vector {
 
     const_iterator() = default;
 
-    explicit(false) const_iterator(iterator p) : ptr{p.ptr} {}
-    explicit const_iterator(pointer p) : ptr{p} {}
+    constexpr explicit(false) const_iterator(iterator p) : ptr{p.ptr} {}
+    constexpr explicit const_iterator(pointer p) : ptr{p} {}
 
-    auto operator++() -> const_iterator & {
+    constexpr auto operator++() -> const_iterator & {
       ++ptr;
       return *this;
     }
 
-    auto operator++(int) -> const_iterator {
+    constexpr auto operator++(int) -> const_iterator {
       const_iterator temp = *this;
       ++(*this);
       return temp;
     }
 
-    auto operator--() -> const_iterator & {
+    constexpr auto operator--() -> const_iterator & {
       --ptr;
       return *this;
     }
 
-    auto operator--(int) -> const_iterator {
+    constexpr auto operator--(int) -> const_iterator {
       const_iterator temp = *this;
       --(*this);
       return temp;
     }
 
-    auto operator+=(difference_type n) -> const_iterator & {
+    constexpr auto operator+=(difference_type n) -> const_iterator & {
       ptr += n;
       return *this;
     }
 
-    auto operator-=(difference_type n) -> const_iterator & { return this->operator+=(-n); }
+    constexpr auto operator-=(difference_type n) -> const_iterator & { return this->operator+=(-n); }
 
     auto operator+(const difference_type n) const -> const_iterator { return const_iterator(ptr + n); }
-    friend auto operator+(const difference_type n, const_iterator other) -> const_iterator {
+    constexpr friend auto operator+(const difference_type n, const_iterator other) -> const_iterator {
       return const_iterator(other.ptr + n);
     }
 
-    auto operator*() const -> reference { return *ptr; }
+    constexpr auto operator*() const -> reference { return *ptr; }
 
-    auto operator->() const -> pointer { return ptr; }
+    constexpr auto operator->() const -> pointer { return ptr; }
 
-    auto operator[](difference_type n) const -> reference { return ptr[n]; }
+    constexpr auto operator[](difference_type n) const -> reference { return ptr[n]; }
 
-    friend auto operator==(const_iterator const &lhs, const_iterator const &rhs) -> bool { return lhs.ptr == rhs.ptr; }
-    friend auto operator<(const_iterator const &lhs, const_iterator const &rhs) -> bool { return lhs.ptr < rhs.ptr; }
-    friend auto operator>(const_iterator const &lhs, const_iterator const &rhs) -> bool { return rhs < lhs; }
-    friend auto operator>=(const_iterator const &lhs, const_iterator const &rhs) -> bool { return !(lhs < rhs); }
-    friend auto operator<=(const_iterator const &lhs, const_iterator const &rhs) -> bool { return !(rhs < lhs); }
+    constexpr friend auto operator==(const_iterator const &lhs, const_iterator const &rhs) -> bool {
+      return lhs.ptr == rhs.ptr;
+    }
+    constexpr friend auto operator<(const_iterator const &lhs, const_iterator const &rhs) -> bool {
+      return lhs.ptr < rhs.ptr;
+    }
+    constexpr friend auto operator>(const_iterator const &lhs, const_iterator const &rhs) -> bool { return rhs < lhs; }
+    constexpr friend auto operator>=(const_iterator const &lhs, const_iterator const &rhs) -> bool {
+      return !(lhs < rhs);
+    }
+    constexpr friend auto operator<=(const_iterator const &lhs, const_iterator const &rhs) -> bool {
+      return !(rhs < lhs);
+    }
 
-    friend auto operator==(iterator const &lhs, const_iterator const &rhs) -> bool {
+    constexpr friend auto operator==(iterator const &lhs, const_iterator const &rhs) -> bool {
       return const_iterator{lhs} == rhs;
     }
 
@@ -185,7 +195,7 @@ struct small_vector {
   using reverse_iterator = std::reverse_iterator<iterator>;
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-  small_vector() {
+  constexpr small_vector() {
     // Small buffer optimization is turned off; define buffer_ as nullptr
     if constexpr (!usingSmallBuffer(kSmallCapacity)) {
       buffer_ = nullptr;
@@ -201,7 +211,7 @@ struct small_vector {
     std::ranges::uninitialized_copy(other, *this);
   }
 
-  small_vector(small_vector &&other) noexcept : size_{other.size_}, capacity_{other.capacity_} {
+  constexpr small_vector(small_vector &&other) noexcept : size_{other.size_}, capacity_{other.capacity_} {
     // NOTE 1: moved from vector, new capacity is kSmallCapacity
     // NOTE 2: either move the buffer or move into the small buffer
     if (usingSmallBuffer(other.capacity_)) {
@@ -256,7 +266,7 @@ struct small_vector {
     return *this;
   }
 
-  auto operator=(small_vector &&other) noexcept -> small_vector & {
+  constexpr auto operator=(small_vector &&other) noexcept -> small_vector & {
     if (std::addressof(other) == this) [[unlikely]] {
       return *this;
     }
@@ -298,10 +308,10 @@ struct small_vector {
     }
   }
 
-  explicit small_vector(std::initializer_list<T> other) : small_vector(other.begin(), other.end()) {}
+  constexpr explicit small_vector(std::initializer_list<T> other) : small_vector(other.begin(), other.end()) {}
 
   // TODO: change to range + add test
-  explicit small_vector(std::span<T const> other) : small_vector(other.begin(), other.end()) {}
+  constexpr explicit small_vector(std::span<T const> other) : small_vector(other.begin(), other.end()) {}
   // TODO: generalise to not just vector
   explicit small_vector(std::vector<T> &&other) : size_(other.size()), capacity_{std::max(size_, kSmallCapacity)} {
     if (!usingSmallBuffer(capacity_)) {
@@ -344,7 +354,7 @@ struct small_vector {
     ++size_;
   }
 
-  void pop_back() {
+  constexpr void pop_back() {
     if (empty()) [[unlikely]] {
       return;
     }
@@ -352,9 +362,9 @@ struct small_vector {
     --size_;
   }
 
-  auto operator[](uint32_t index) -> reference { return begin()[index]; }
+  constexpr auto operator[](uint32_t index) -> reference { return begin()[index]; }
 
-  auto operator[](uint32_t index) const -> const_reference { return begin()[index]; }
+  constexpr auto operator[](uint32_t index) const -> const_reference { return begin()[index]; }
 
   auto at(uint32_t index) -> reference {
     if (size_ <= index) {
@@ -370,9 +380,9 @@ struct small_vector {
     return begin()[index];
   }
 
-  [[nodiscard]] auto size() const -> uint32_t { return size_; }
+  [[nodiscard]] constexpr auto size() const -> uint32_t { return size_; }
 
-  [[nodiscard]] auto capacity() const -> uint32_t { return capacity_; }
+  [[nodiscard]] constexpr auto capacity() const -> uint32_t { return capacity_; }
 
   void shrink_to_fit() {
     if (usingSmallBuffer(capacity_)) return;
@@ -451,44 +461,44 @@ struct small_vector {
     }
   }
 
-  auto back() -> reference { return begin()[size_ - 1]; }
+  constexpr auto back() -> reference { return begin()[size_ - 1]; }
 
-  [[nodiscard]] auto back() const -> const_reference { return begin()[size_ - 1]; }
+  [[nodiscard]] constexpr auto back() const -> const_reference { return begin()[size_ - 1]; }
 
-  [[nodiscard]] auto empty() const -> bool { return size_ == 0; }
+  [[nodiscard]] constexpr auto empty() const -> bool { return size_ == 0; }
 
-  void clear() {
+  constexpr void clear() {
     std::destroy(begin(), end());
     size_ = 0;
   }
 
-  auto begin() -> iterator { return iterator{(usingSmallBuffer(capacity_)) ? small_buffer_->as() : buffer_}; }
+  constexpr auto begin() -> iterator { return iterator{(usingSmallBuffer(capacity_)) ? small_buffer_->as() : buffer_}; }
 
-  auto end() -> iterator { return begin() + size_; }
+  constexpr auto end() -> iterator { return begin() + size_; }
 
-  [[nodiscard]] auto begin() const -> const_iterator {
+  [[nodiscard]] constexpr auto begin() const -> const_iterator {
     return const_iterator{(usingSmallBuffer(capacity_)) ? small_buffer_->as() : buffer_};
   }
 
-  [[nodiscard]] auto end() const -> const_iterator { return begin() + size_; }
+  [[nodiscard]] constexpr auto end() const -> const_iterator { return begin() + size_; }
 
-  [[nodiscard]] auto cbegin() const -> const_iterator { return begin(); }
+  [[nodiscard]] constexpr auto cbegin() const -> const_iterator { return begin(); }
 
-  [[nodiscard]] auto cend() const -> const_iterator { return end(); }
+  [[nodiscard]] constexpr auto cend() const -> const_iterator { return end(); }
 
-  auto rbegin() -> reverse_iterator { return reverse_iterator{end()}; }
+  constexpr auto rbegin() -> reverse_iterator { return reverse_iterator{end()}; }
 
-  auto rend() -> reverse_iterator { return reverse_iterator{begin()}; }
+  constexpr auto rend() -> reverse_iterator { return reverse_iterator{begin()}; }
 
-  [[nodiscard]] auto rbegin() const -> const_reverse_iterator { return const_reverse_iterator{cend()}; }
+  [[nodiscard]] constexpr auto rbegin() const -> const_reverse_iterator { return const_reverse_iterator{cend()}; }
 
-  [[nodiscard]] auto rend() const -> const_reverse_iterator { return const_reverse_iterator{cbegin()}; }
+  [[nodiscard]] constexpr auto rend() const -> const_reverse_iterator { return const_reverse_iterator{cbegin()}; }
 
-  [[nodiscard]] auto crbegin() const -> const_reverse_iterator { return rbegin(); }
+  [[nodiscard]] constexpr auto crbegin() const -> const_reverse_iterator { return rbegin(); }
 
-  [[nodiscard]] auto crend() const -> const_reverse_iterator { return rend(); }
+  [[nodiscard]] constexpr auto crend() const -> const_reverse_iterator { return rend(); }
 
-  auto erase(const_iterator pos) -> iterator {
+  constexpr auto erase(const_iterator pos) -> iterator {
     auto it = begin() + std::distance(cbegin(), pos);
     if (it != end()) {
       std::move(std::next(it), end(), it);
@@ -498,7 +508,7 @@ struct small_vector {
     return it;
   }
 
-  auto erase(const_iterator beg_itr, const_iterator end_itr) -> iterator {
+  constexpr auto erase(const_iterator beg_itr, const_iterator end_itr) -> iterator {
     auto it_first = begin() + std::distance(cbegin(), beg_itr);
     auto it_last = begin() + std::distance(cbegin(), end_itr);
 
@@ -512,7 +522,9 @@ struct small_vector {
     return it_first;
   }
 
-  friend bool operator==(small_vector const &lhs, small_vector const &rhs) { return std::ranges::equal(lhs, rhs); }
+  constexpr friend bool operator==(small_vector const &lhs, small_vector const &rhs) {
+    return std::ranges::equal(lhs, rhs);
+  }
 
   // kSmallCapacity can be 0; in that case we disable the small buffer
   constexpr static std::uint32_t kSmallCapacity = sizeof(value_type *) / sizeof(value_type);

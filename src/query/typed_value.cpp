@@ -1413,7 +1413,7 @@ double ToDouble(const TypedValue &value) {
 }
 
 namespace {
-bool IsTemporalType(const TypedValue::Type type) {
+constexpr bool IsTemporalType(const TypedValue::Type type) {
   static constexpr std::array temporal_types{TypedValue::Type::Date, TypedValue::Type::LocalTime,
                                              TypedValue::Type::LocalDateTime, TypedValue::Type::ZonedDateTime,
                                              TypedValue::Type::Duration};

@@ -32,7 +32,7 @@ class PatternComprehension : public memgraph::query::Expression {
   DECLARE_VISITABLE(ExpressionVisitor<void>);
   DECLARE_VISITABLE(HierarchicalTreeVisitor);
 
-  PatternComprehension *MapTo(const Symbol &symbol) {
+  constexpr PatternComprehension *MapTo(const Symbol &symbol) {
     symbol_pos_ = symbol.position();
     return this;
   }
@@ -61,7 +61,7 @@ class PatternComprehension : public memgraph::query::Expression {
   }
 
  protected:
-  PatternComprehension(Identifier *variable, Pattern *pattern, Where *filter, Expression *resultExpr)
+  constexpr PatternComprehension(Identifier *variable, Pattern *pattern, Where *filter, Expression *resultExpr)
       : variable_(variable), pattern_(pattern), filter_(filter), resultExpr_(resultExpr) {}
 
  private:

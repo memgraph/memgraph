@@ -35,7 +35,7 @@ namespace impl {
 template <class TDbAccessor>
 class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  JoinRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
+  constexpr JoinRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
       : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;

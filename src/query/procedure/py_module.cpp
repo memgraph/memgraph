@@ -349,7 +349,7 @@ PyObject *PyGraphInvalidate(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   Py_RETURN_NONE;
 }
 
-bool PyGraphIsValidImpl(PyGraph &self) { return self.graph != nullptr; }
+constexpr bool PyGraphIsValidImpl(PyGraph &self) { return self.graph != nullptr; }
 
 PyObject *PyGraphIsValid(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   return PyBool_FromLong(PyGraphIsValidImpl(*self));

@@ -72,12 +72,12 @@ template <typename T>
 concept FloatingPoint = std::is_floating_point_v<T>;
 
 template <FloatingPoint T>
-bool ApproxEqualDecimal(T a, T b) {
+constexpr bool ApproxEqualDecimal(T a, T b) {
   return boost::math::relative_difference(a, b) < std::numeric_limits<T>::epsilon();
 }
 
 template <FloatingPoint T>
-bool LessThanDecimal(T a, T b) {
+constexpr bool LessThanDecimal(T a, T b) {
   return (b - a) > std::numeric_limits<T>::epsilon();
 }
 
@@ -85,7 +85,7 @@ bool LessThanDecimal(T a, T b) {
 /// @return 1 if a > b
 /// @return -1 if a < b
 template <FloatingPoint T>
-int CompareDecimal(T a, T b) {
+constexpr int CompareDecimal(T a, T b) {
   if (ApproxEqualDecimal(a, b)) return 0;
   if (LessThanDecimal(a, b)) return -1;
   return 1;

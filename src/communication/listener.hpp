@@ -54,8 +54,8 @@ class Listener final {
   using SessionHandler = Session<TSession, TSessionContext>;
 
  public:
-  Listener(TSessionContext *data, ServerContext *context, int inactivity_timeout_sec, std::string service_name,
-           size_t workers_count)
+  constexpr Listener(TSessionContext *data, ServerContext *context, int inactivity_timeout_sec,
+                     std::string service_name, size_t workers_count)
       : data_(data),
         alive_(false),
         context_(context),
