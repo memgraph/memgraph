@@ -22,8 +22,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROMETHEUS_CONFIG_FILE="${SCRIPT_DIR}/prometheus_ha_config.yaml"
 PROMETHEUS_SERVER_CONFIG="${SCRIPT_DIR}/prometheus/prometheus.yaml"
 
-# Container to use for running mgconsole commands (first coordinator)
-MGCONSOLE_CONTAINER="${CONTAINER_PREFIX}_coord_1"
+# Containers for running mgconsole commands
+COORDINATOR_CONTAINER="${CONTAINER_PREFIX}_coord_1"
+DATA_CONTAINER="${CONTAINER_PREFIX}_data_1"
 
 # Default flags for Memgraph Data Nodes
 DEFAULT_DATA_FLAGS=(
@@ -293,11 +294,26 @@ start_memgraph() {
     setup_ha
 }
 
-run_mgconsole() {
-    # Run mgconsole command inside the coordinator container
+run_query() {
+    # Run a query via mgconsole inside a specific container
+    # Usage: run_query <container> <port> <query>
     # Note: Use echo | docker exec -i (heredoc <<< doesn't work with docker exec)
+    local container="$1"
+    local port="$2"
+    local query="$3"
+    echo "$query" | docker exec -i "$container" mgconsole --host 127.0.0.1 --port "$port"
+}
+
+run_query_coordinator() {
+    # Run a query via mgconsole on the coordinator (port 7691)
     local query="$1"
-    echo "$query" | docker exec -i "$MGCONSOLE_CONTAINER" mgconsole --host 127.0.0.1 --port 7691
+    run_query "$COORDINATOR_CONTAINER" 7691 "$query"
+}
+
+run_query_data_instance() {
+    # Run a query via mgconsole on the MAIN data instance (port 7687)
+    local query="$1"
+    run_query "$DATA_CONTAINER" 7687 "$query"
 }
 
 setup_ha() {
@@ -306,7 +322,7 @@ setup_ha() {
     sleep 2  # Ensure coordinators are fully started
 
     echo "Adding coordinators..."
-    if ! run_mgconsole "
+    if ! run_query_coordinator "
     ADD COORDINATOR 1 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7691\", \"coordinator_server\": \"127.0.0.1:10111\", \"management_server\": \"127.0.0.1:12121\"};
     ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7692\", \"coordinator_server\": \"127.0.0.1:10112\", \"management_server\": \"127.0.0.1:12122\"};
     ADD COORDINATOR 3 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7693\", \"coordinator_server\": \"127.0.0.1:10113\", \"management_server\": \"127.0.0.1:12123\"};
@@ -317,7 +333,7 @@ setup_ha() {
     fi
 
     echo "Registering instances..."
-    if ! run_mgconsole "
+    if ! run_query_coordinator "
     REGISTER INSTANCE instance_1 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7687\", \"management_server\": \"127.0.0.1:13011\", \"replication_server\": \"127.0.0.1:10001\"};
     REGISTER INSTANCE instance_2 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7688\", \"management_server\": \"127.0.0.1:13012\", \"replication_server\": \"127.0.0.1:10002\"};
     SET INSTANCE instance_1 TO MAIN;
@@ -337,10 +353,10 @@ setup_ha() {
 
     echo "HA setup completed!"
 
-    # Show Memgraph version
+    # Show Memgraph version (query the MAIN data instance on port 7687)
     echo ""
     echo "Memgraph version:"
-    echo "SHOW VERSION;" | docker exec -i "$MGCONSOLE_CONTAINER" mgconsole --host 127.0.0.1 --port 7691 2>/dev/null || echo "Could not retrieve version"
+    run_query_data_instance "SHOW VERSION;" || echo "Could not retrieve version"
     echo ""
 
     start_monitoring_if_enabled
@@ -352,7 +368,7 @@ wait_for_healthy_cluster() {
 
     for ((i=1; i<=max_retries; i++)); do
         # Check if we have a healthy MAIN instance
-        result=$(echo "SHOW INSTANCES;" | docker exec -i "$MGCONSOLE_CONTAINER" mgconsole --host 127.0.0.1 --port 7691 --output-format=csv 2>/dev/null)
+        result=$(run_query_coordinator "SHOW INSTANCES;" 2>/dev/null)
         if echo "$result" | grep -q "main" && echo "$result" | grep -q "up"; then
             echo "HA cluster is healthy."
             return 0
