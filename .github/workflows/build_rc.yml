@@ -18,10 +18,34 @@ on:
         type: boolean
         description: "Overwrite the existing tag if it exists."
         default: false
+      run_tests:
+        type: boolean
+        description: "Run tests."
+        default: true
+      run_stress_large:
+        type: boolean
+        description: "Run stress test large."
+        default: true
+      package_memgraph:
+        type: boolean
+        description: "Build Memgraph packages."
+        default: true
+      build_docker:
+        type: boolean
+        description: "Build Memgraph Docker images."
+        default: true
+      run_issu_test:
+        type: boolean
+        description: "Run ISSU test."
+        default: true
       build_mage:
         type: boolean
         description: "Build MAGE."
         default: true
+      mock:
+        type: boolean
+        description: "Build mock RC."
+        default: false
 
 jobs:
   PrepareReleaseBranch:
@@ -95,6 +119,7 @@ jobs:
           git push origin "${{ steps.check_tag.outputs.tag_name }}"
 
   TestRC:
+    if: ${{ inputs.run_tests }}
     name: Test Release Candidate
     needs: PrepareReleaseBranch
     uses: ./.github/workflows/reusable_release_tests.yaml
@@ -107,6 +132,7 @@ jobs:
     secrets: inherit
 
   StressTestLarge:
+    if: ${{ inputs.run_stress_large }}
     name: Stress Test Large
     needs: PrepareReleaseBranch
     uses: ./.github/workflows/reusable_release_tests.yaml
@@ -121,6 +147,7 @@ jobs:
     secrets: inherit
 
   PackageArtifact:
+    if: ${{ inputs.package_memgraph }}
     name: Package Artifact
     needs: PrepareReleaseBranch
     strategy:
@@ -176,12 +203,13 @@ jobs:
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
-      s3_dest_dir: "memgraph/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
+      s3_dest_dir: "memgraph${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       additional_build_args: ${{ matrix.additional_build_args }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
     secrets: inherit
 
   DockerArtifact:
+    if: ${{ inputs.build_docker }}
     name: Docker Artifact
     needs: PrepareReleaseBranch
     strategy:
@@ -210,12 +238,13 @@ jobs:
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
-      s3_dest_dir: "memgraph/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
+      s3_dest_dir: "memgraph${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
       generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.build_type == 'Release' && matrix.arch == 'amd') && true || false }}
     secrets: inherit
 
   BuildAndTestMAGE:
+    if: ${{ inputs.build_mage }}
     name: Build and Test MAGE
     needs: [PrepareReleaseBranch]
     uses: ./.github/workflows/reusable_package_mage.yaml
@@ -246,7 +275,7 @@ jobs:
     with:
       arch: ${{ matrix.build_arch }}
       build_type: ${{ matrix.build_type }}
-      s3_dest_dir: "mage/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
+      s3_dest_dir: "mage${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       shorten_tag: true
       cuda: ${{ matrix.cuda }}
       push_to_s3: true
@@ -260,6 +289,7 @@ jobs:
     secrets: inherit
 
   SetupISSUTestInputs:
+    if: ${{ inputs.run_issu_test }}
     name: Setup ISSU Test Inputs
     needs: [PrepareReleaseBranch, PackageArtifact]
     runs-on: ubuntu-24.04
@@ -278,8 +308,8 @@ jobs:
         id: set_image_urls
         run: |
           echo "Setting next image URLs"
-          amd_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker/memgraph-${{ inputs.version }}-docker.tar.gz"
-          arm_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker-aarch64/memgraph-${{ inputs.version }}-docker.tar.gz"
+          amd_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker/memgraph-${{ inputs.version }}-docker.tar.gz"
+          arm_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker-aarch64/memgraph-${{ inputs.version }}-docker.tar.gz"
           echo "amd_image_url=$amd_image_url" >> $GITHUB_OUTPUT
           echo "arm_image_url=$arm_image_url" >> $GITHUB_OUTPUT
           echo "AMD Image URL: $amd_image_url"
@@ -293,6 +323,7 @@ jobs:
           echo "last_image_version=$last_image_version" >> $GITHUB_OUTPUT
 
   RunISSUTest:
+    if: ${{ inputs.run_issu_test }}
     name: Run ISSU Tests
     needs: [SetupISSUTestInputs]
     uses: ./.github/workflows/reusable_issu_test.yaml
