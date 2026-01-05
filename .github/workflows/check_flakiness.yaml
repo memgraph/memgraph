@@ -193,8 +193,8 @@ jobs:
         run_no: ${{ fromJSON(needs.DiffSetup.outputs.runs) }}
     uses: ./.github/workflows/diff_mage.yml
     with:
-      run_amd: ${{ needs.DiffSetup.outputs.run_mage_amd }}
-      run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm }}
-      run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda }}
+      run_amd: ${{ needs.DiffSetup.outputs.run_mage_amd == 'true' }}
+      run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
+      run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
       run_id: "${{ matrix.run_no }}"
     secrets: inherit
