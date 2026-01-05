@@ -63,6 +63,10 @@ on:
         type: string
         description: "Memgraph package download URL"
         default: ''
+      version:
+        type: string
+        description: "Version to build"
+        default: ''
 
 run-name: "Build and test MAGE for ${{ inputs.arch }}"
 
@@ -89,6 +93,7 @@ env:
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
   MEMGRAPH_DOWNLOAD_LINK: ${{ inputs.memgraph_download_link }}
+  VERSION: "${{ inputs.version }}"
 
 jobs:
   BuildAndPush:
@@ -154,7 +159,12 @@ jobs:
       - name: Get Memgraph version
         run: |
           variant=binary
-          version="$(release/get_version.py --memgraph-root-dir $(pwd) '' '' --variant "$variant")"
+          version="${VERSION}"
+          if [[ -n "$version" ]]; then
+            # strip "v" prefix if it exists
+            version="${version#v}"
+          fi
+          version="$(release/get_version.py --memgraph-root-dir $(pwd) '$VERSION' '' --variant "$variant")"
           echo "MEMGRAPH_VERSION=${version}" >> $GITHUB_ENV
 
       - name: Create wheels directory and fetch wheels if available

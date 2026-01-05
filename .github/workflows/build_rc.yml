@@ -256,6 +256,7 @@ jobs:
       package_deb: true
       generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc && !matrix.cuda }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+      version: ${{ inputs.version }}
     secrets: inherit
 
   SetupISSUTestInputs:
