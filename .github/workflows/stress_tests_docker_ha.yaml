@@ -31,13 +31,13 @@ on:
           - rocky-10
 
 env:
-  OS: ${{ inputs.os }}
+  OS: ${{ inputs.os || 'ubuntu-24.04' }}
   TOOLCHAIN: v7
   ARCH: amd
   THREADS: 24
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-  BUILD_TYPE: ${{ inputs.build_type }}
+  BUILD_TYPE: ${{ inputs.build_type || 'Release' }}
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
