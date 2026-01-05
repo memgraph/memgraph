@@ -1,10 +1,10 @@
 #!/bin/bash
 
-MEMGRAPH_BINARY="../../build/memgraph"
+MEMGRAPH_BINARY="../../../../build/memgraph"
 
 # Try to find mgconsole: first in build dir, then in toolchain
-if [[ -x "../../build/mgconsole" ]]; then
-    MGCONSOLE_BINARY="../../build/mgconsole"
+if [[ -x "../../../../build/mgconsole" ]]; then
+    MGCONSOLE_BINARY="../../../../build/mgconsole"
 elif [[ -n "$MG_TOOLCHAIN_ROOT" && -x "$MG_TOOLCHAIN_ROOT/bin/mgconsole" ]]; then
     MGCONSOLE_BINARY="$MG_TOOLCHAIN_ROOT/bin/mgconsole"
 elif [[ -x "/opt/toolchain-v7/bin/mgconsole" ]]; then

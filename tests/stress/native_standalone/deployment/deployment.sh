@@ -1,6 +1,6 @@
 #!/bin/bash
 
-MEMGRAPH_BINARY="../../build/memgraph"
+MEMGRAPH_BINARY="../../../../build/memgraph"
 DATA_DIR="stress_data"
 
 # Default flags for Memgraph

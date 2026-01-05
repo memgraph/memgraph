@@ -8,9 +8,9 @@ import subprocess
 
 from neo4j import GraphDatabase
 
-# Deployment script path (relative to this file: workloads/ -> eks_ha/)
+# Deployment script path (relative to this file: workloads/ -> eks_ha/deployment/)
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEPLOYMENT_SCRIPT = os.path.join(_SCRIPT_DIR, "..", "deployment.sh")
+DEPLOYMENT_SCRIPT = os.path.join(_SCRIPT_DIR, "..", "deployment", "deployment.sh")
 
 
 def get_service_ip(service_name: str) -> str:

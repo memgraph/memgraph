@@ -40,5 +40,5 @@ customWorkloads:
   tests:
     - name: vector-workload-eks
       memgraph_args: []
-      script: "eks_ha/workloads/rag/vector_workload.py"
+      script: "eks_ha/workloads/rag/workload.py"
       timeout_min: 30

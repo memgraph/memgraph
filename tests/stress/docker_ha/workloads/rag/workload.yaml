@@ -1,6 +1,6 @@
 memgraph:
   deployment:
-    script: "docker_ha/deployment.sh"
+    script: "docker_ha/deployment/deployment.sh"
   args: []
   env:
     MEMGRAPH_ENTERPRISE_LICENSE: ""
@@ -37,5 +37,5 @@ customWorkloads:
   tests:
     - name: vector-workload
       memgraph_args: []
-      script: "docker_ha/workloads/rag/vector_workload.py"
+      script: "docker_ha/workloads/rag/workload.py"
       timeout_min: 30

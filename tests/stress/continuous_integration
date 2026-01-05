@@ -1,12 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+Memgraph Stress Test Runner
+
+Usage:
+  # Run all enabled workloads for a deployment type
+  ./continuous_integration --deployment docker_ha
+
+  # Run a specific config file (legacy mode)
+  ./continuous_integration --config-file docker_ha/workloads/rag/vector_workload.yaml
+
+  # List available deployments
+  ./continuous_integration --list
+"""
 import argparse
 import multiprocessing
 import os
 import subprocess
+import sys
 import time
 from argparse import Namespace as Args
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import yaml
 from gqlalchemy import Memgraph
@@ -19,14 +33,109 @@ BUILD_DIR = os.path.join(BASE_DIR, "build")
 MEASUREMENTS_FILE = os.path.join(SCRIPT_DIR, ".apollo_measurements")
 KEY_FILE = os.path.join(SCRIPT_DIR, ".key.pem")
 CERT_FILE = os.path.join(SCRIPT_DIR, ".cert.pem")
-# Deployment scripts are now in their respective folders (native_standalone/, docker_ha/, eks_ha/, native_ha/)
-# The script path in config should be relative to SCRIPT_DIR (e.g., "docker_ha/deployment.sh")
-
-# Long running stats file
 STATS_FILE = os.path.join(SCRIPT_DIR, ".long_running_stats")
+
+# Deployment folders (each contains deployment.sh and workloads.yaml)
+DEPLOYMENT_FOLDERS = ["native_standalone", "docker_ha", "eks_ha", "native_ha"]
 
 # Get number of threads
 THREADS = os.environ["THREADS"] if "THREADS" in os.environ else multiprocessing.cpu_count()
+
+
+# =============================================================================
+# Workload Registry
+# =============================================================================
+
+
+def get_deployment_path(deployment: str) -> str:
+    """Get the full path to a deployment folder."""
+    return os.path.join(SCRIPT_DIR, deployment)
+
+
+def get_workloads_registry(deployment: str) -> Optional[str]:
+    """Get the path to workloads.yaml for a deployment."""
+    registry_path = os.path.join(get_deployment_path(deployment), "workloads.yaml")
+    if os.path.exists(registry_path):
+        return registry_path
+    return None
+
+
+def load_workloads_registry(deployment: str) -> List[Dict[str, Any]]:
+    """
+    Load the workloads registry for a deployment.
+    Returns list of enabled workload configs.
+    """
+    registry_path = get_workloads_registry(deployment)
+    if not registry_path:
+        print(f"Warning: No workloads.yaml found for deployment '{deployment}'")
+        return []
+
+    with open(registry_path) as f:
+        registry = yaml.safe_load(f)
+
+    workloads = registry.get("workloads", [])
+    enabled_workloads = []
+
+    for workload in workloads:
+        config_path = workload.get("config")
+        enabled = workload.get("enabled", True)
+
+        if not enabled:
+            print(f"  Skipping (disabled): {config_path}")
+            continue
+
+        # Resolve full path (relative to deployment folder)
+        full_config_path = os.path.join(get_deployment_path(deployment), config_path)
+        if not os.path.exists(full_config_path):
+            print(f"  Warning: Config not found: {full_config_path}")
+            continue
+
+        enabled_workloads.append(
+            {
+                "config_path": full_config_path,
+                "relative_path": config_path,
+            }
+        )
+
+    return enabled_workloads
+
+
+def list_deployments() -> None:
+    """List all available deployments and their workloads."""
+    print("\nAvailable deployments:\n")
+
+    for deployment in DEPLOYMENT_FOLDERS:
+        deployment_path = get_deployment_path(deployment)
+        if not os.path.isdir(deployment_path):
+            continue
+
+        registry_path = get_workloads_registry(deployment)
+        has_registry = registry_path is not None
+
+        print(f"  {deployment}/")
+        print(f"    Deployment script: deployment.sh")
+        print(f"    Registry: {'workloads.yaml' if has_registry else '(none)'}")
+
+        if has_registry:
+            with open(registry_path) as f:
+                registry = yaml.safe_load(f)
+            workloads = registry.get("workloads", [])
+
+            if workloads:
+                print("    Workloads:")
+                for w in workloads:
+                    status = "enabled" if w.get("enabled", True) else "disabled"
+                    print(f"      - {w.get('config')} [{status}]")
+        print()
+
+    print("Usage:")
+    print("  ./continuous_integration --deployment <name>")
+    print("  ./continuous_integration --config-file <path>")
+
+
+# =============================================================================
+# Config Class
+# =============================================================================
 
 
 class Config:
@@ -88,6 +197,11 @@ class Config:
         return self._data_instances
 
 
+# =============================================================================
+# Deployment Management
+# =============================================================================
+
+
 def start_deployment(script_path: str, args: List[str], env: Dict[str, str] = None) -> None:
     cmd = [script_path, "start"] + args
     print(f"Starting Memgraph with: {' '.join(cmd)}")
@@ -116,11 +230,43 @@ def check_deployment_status(script_path: str) -> bool:
     return result.returncode == 0
 
 
+# =============================================================================
+# Test Execution
+# =============================================================================
+
+
 def parse_arguments() -> Args:
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Run stress tests on Memgraph.")
-    parser.add_argument("--config-file", default=os.path.join(SCRIPT_DIR, "shared/templates/config_small.yaml"))
-    parser.add_argument("--python", default=os.path.join(BASE_DIR, "tests", "ve3", "bin", "python3"), type=str)
+    parser = argparse.ArgumentParser(
+        description="Run stress tests on Memgraph.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run all enabled workloads for a deployment
+  ./continuous_integration --deployment docker_ha
+
+  # Run a specific config file
+  ./continuous_integration --config-file docker_ha/workloads/rag/vector_workload.yaml
+
+  # List available deployments and workloads
+  ./continuous_integration --list
+        """,
+    )
+
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--deployment", "-d", choices=DEPLOYMENT_FOLDERS, help="Run all enabled workloads for a deployment type"
+    )
+    group.add_argument("--config-file", "-c", help="Path to a specific config YAML file")
+    group.add_argument("--list", "-l", action="store_true", help="List available deployments and workloads")
+
+    parser.add_argument(
+        "--python",
+        default=os.path.join(BASE_DIR, "tests", "ve3", "bin", "python3"),
+        type=str,
+        help="Path to Python interpreter",
+    )
+
     return parser.parse_args()
 
 
@@ -259,9 +405,11 @@ def run_custom_workloads(script_path: str, config: Config, args: Args) -> Dict[s
     return runtimes
 
 
-def run_stress_test_suite(args: Args, config: Config) -> Dict[str, Any]:
-    """Runs the stress test suite on Memgraph."""
+def run_config_file(args: Args, config_file: str) -> Dict[str, Any]:
+    """Run tests from a single config file."""
     runtimes = {}
+
+    config = Config(yaml.safe_load(open(config_file)))
 
     # Determine if we're managing deployment or using external cluster
     script_path = config.script
@@ -275,6 +423,7 @@ def run_stress_test_suite(args: Args, config: Config) -> Dict[str, Any]:
         script_path = None
         print("No deployment script specified - assuming cluster is managed externally")
 
+    # Run dataset tests
     for test in config.tests:
         test_name = test["name"]
         test_flags = test["test_args"]
@@ -298,11 +447,49 @@ def run_stress_test_suite(args: Args, config: Config) -> Dict[str, Any]:
             if manage_deployment:
                 stop_deployment(script_path)
 
+    # Run custom workloads
     workload_result = run_custom_workloads(script_path, config, args)
     if "error" in workload_result:
         return workload_result
 
     return runtimes | workload_result
+
+
+def run_deployment(args: Args, deployment: str) -> Dict[str, Any]:
+    """
+    Run all enabled workloads for a deployment type.
+    Reads from {deployment}/workloads.yaml.
+    """
+    print(f"\n{'='*60}")
+    print(f"Running deployment: {deployment}")
+    print(f"{'='*60}\n")
+
+    workloads = load_workloads_registry(deployment)
+
+    if not workloads:
+        return {"error": f"No enabled workloads found for deployment '{deployment}'"}
+
+    all_runtimes = {}
+
+    for i, workload in enumerate(workloads, 1):
+        config_path = workload["config_path"]
+        relative_path = workload["relative_path"]
+
+        print(f"\n[{i}/{len(workloads)}] Running: {relative_path}")
+        print("-" * 60)
+
+        result = run_config_file(args, config_path)
+
+        if "error" in result:
+            print(f"Error in workload: {result['error']}")
+            return result
+
+        # Prefix runtimes with workload name to avoid collisions
+        workload_prefix = os.path.splitext(os.path.basename(relative_path))[0]
+        for key, value in result.items():
+            all_runtimes[f"{workload_prefix}.{key}"] = value
+
+    return all_runtimes
 
 
 def write_stats(runtimes: Dict[str, float]) -> None:
@@ -311,15 +498,37 @@ def write_stats(runtimes: Dict[str, float]) -> None:
         f.write("\n".join(f"{key}.runtime {value}" for key, value in runtimes.items()))
 
 
+# =============================================================================
+# Main Entry Point
+# =============================================================================
+
+
 if __name__ == "__main__":
     args = parse_arguments()
-    config = Config(yaml.safe_load(open(args.config_file)))
 
-    result = run_stress_test_suite(args, config)
+    # Handle --list
+    if args.list:
+        list_deployments()
+        sys.exit(0)
+
+    # Handle --deployment
+    if args.deployment:
+        result = run_deployment(args, args.deployment)
+    # Handle --config-file
+    elif args.config_file:
+        config_file = args.config_file
+        if not os.path.isabs(config_file):
+            config_file = os.path.join(SCRIPT_DIR, config_file)
+        result = run_config_file(args, config_file)
+    # Default: run native_standalone with default config
+    else:
+        default_config = os.path.join(SCRIPT_DIR, "shared/templates/config_small.yaml")
+        print(f"No deployment or config specified. Using default: {default_config}")
+        result = run_config_file(args, default_config)
 
     if "error" in result:
-        print(f"Stress test failed: {result['error']}")
-        exit(1)
+        print(f"\nStress test failed: {result['error']}")
+        sys.exit(1)
 
     write_stats(result)
-    print("Successfully ran stress tests!")
+    print("\nSuccessfully ran stress tests!")

@@ -1,0 +1,14 @@
+# EKS HA Workload Registry
+# List all workloads to run for this deployment type.
+# Set enabled: false to skip a workload.
+
+workloads:
+  - config: workloads/rag/workload.yaml
+    enabled: true
+
+  - config: workloads/dummy/workload.yaml
+    enabled: false  # Skipped by default (long-running test)
+
+  # Add new workloads here:
+  # - config: workloads/my_workload/workload.yaml
+  #   enabled: true

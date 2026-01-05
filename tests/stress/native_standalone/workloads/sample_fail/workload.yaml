@@ -1,0 +1,19 @@
+memgraph:
+  deployment:
+    script: "native_standalone/deployment/deployment.sh"
+  args: []
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: sample-workload-fail
+      memgraph_args: []
+      # This workload intentionally fails to test error handling
+      script: "native_standalone/workloads/sample_fail/workload.py"
+      timeout_min: 5

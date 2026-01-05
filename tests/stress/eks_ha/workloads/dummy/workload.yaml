@@ -28,5 +28,5 @@ customWorkloads:
   tests:
     - name: dummy-workload-eks
       memgraph_args: []
-      script: "eks_ha/workloads/dummy_workload.py"
+      script: "eks_ha/workloads/dummy/workload.py"
       timeout_min: 180  # 100 iterations * 100 seconds = ~3 hours

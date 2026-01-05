@@ -1,6 +1,6 @@
 memgraph:
   deployment:
-    script: "native_ha/deployment.sh"
+    script: "native_ha/deployment/deployment.sh"
   args: [] # Any additional flags you need
 
 general:

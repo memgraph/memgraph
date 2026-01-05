@@ -3,7 +3,12 @@
 Dummy workload for EKS testing.
 Simply runs RETURN 1 query 100 times with 100 second sleep between each.
 """
+import os
+import sys
 import time
+
+# Add parent directory to path for common imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from common import create_driver, wait_for_service_ip
 

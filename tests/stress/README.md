@@ -3,6 +3,117 @@
 ## Overview
 This stress test suite is designed to evaluate the performance, stability, and reliability of Memgraph deployments under various workloads. The configuration allows testing different deployments, and query workloads to ensure Memgraph can handle real-world production scenarios.
 
+## Quick Start
+
+### Run All Workloads for a Deployment Type
+```sh
+# Run all enabled workloads for docker_ha
+./continuous_integration --deployment docker_ha
+
+# Run all enabled workloads for native_standalone
+./continuous_integration --deployment native_standalone
+
+# List available deployments and workloads
+./continuous_integration --list
+```
+
+### Run a Specific Workload
+```sh
+./continuous_integration --config-file docker_ha/workloads/rag/vector_workload.yaml
+```
+
+## Folder Structure
+
+Each deployment type has its own folder containing:
+- `workloads.yaml` - Registry of workloads to run (enable/disable here)
+- `workloads/` - Workload configs and scripts
+- `deployment/` - Deployment scripts and configs (deployment.sh, values.yaml, etc.)
+
+```
+stress/
+├── native_standalone/          # Native binary standalone
+│   ├── workloads.yaml          # ← Register workloads here
+│   ├── workloads/              # Workload configs
+│   └── deployment/             # Deployment files
+│       └── deployment.sh
+│
+├── docker_ha/                  # Docker-based HA
+│   ├── workloads.yaml          # ← Register workloads here
+│   ├── workloads/              # Workload configs
+│   └── deployment/             # Deployment files
+│       ├── deployment.sh
+│       ├── prometheus_ha_config.yaml
+│       ├── prometheus/
+│       └── grafana/
+│
+├── eks_ha/                     # AWS EKS HA
+│   ├── workloads.yaml          # ← Register workloads here
+│   ├── workloads/              # Workload configs
+│   └── deployment/             # Deployment files
+│       ├── deployment.sh
+│       ├── cluster.yaml
+│       ├── values.yaml
+│       └── gp3-sc.yaml
+│
+├── native_ha/                  # Native binary HA
+│   ├── workloads.yaml          # ← Register workloads here
+│   ├── workloads/              # Workload configs
+│   └── deployment/             # Deployment files
+│       └── deployment.sh
+│
+├── shared/                     # Shared resources
+│   ├── templates/
+│   └── clickhouse/
+│
+└── continuous_integration      # Main test runner
+```
+
+## Workload Registry
+
+Each deployment folder has a `workloads.yaml` file that registers which workloads to run:
+
+```yaml
+# docker_ha/workloads.yaml
+workloads:
+  - config: workloads/rag/vector_workload.yaml
+    enabled: true
+
+  - config: workloads/my_other_workload.yaml
+    enabled: false  # Skipped
+
+  # Add new workloads here:
+  # - config: workloads/new_workload.yaml
+  #   enabled: true
+```
+
+### Adding a New Workload
+
+1. Create the workload config in the appropriate folder:
+   ```
+   docker_ha/workloads/my_workload.yaml
+   ```
+
+2. Register it in `workloads.yaml`:
+   ```yaml
+   workloads:
+     - config: workloads/my_workload.yaml
+       enabled: true
+   ```
+
+3. Run it:
+   ```sh
+   ./continuous_integration --deployment docker_ha
+   ```
+
+### Skipping a Workload
+
+Set `enabled: false` in the registry:
+```yaml
+workloads:
+  - config: workloads/slow_workload.yaml
+    enabled: false  # Will be skipped
+```
+
 ## Configuration
 The test suite is configured using YAML files, which define Memgraph deployment script, general options, dataset specifications, and custom workloads. Below is a breakdown of the configuration parameters:
 
@@ -193,7 +304,7 @@ The exporter collects metrics from all Memgraph instances (data nodes and coordi
 
 ## EKS Deployment
 
-For deploying Memgraph HA on AWS EKS, use the `deployment.sh` script in `eks_ha/`.
+For deploying Memgraph HA on AWS EKS, use the `deployment.sh` script in `eks_ha/deployment/`.
 
 ### Prerequisites
 
@@ -204,7 +315,7 @@ For deploying Memgraph HA on AWS EKS, use the `deployment.sh` script in `eks_ha/
 
 ### Configuration Files
 
-The EKS deployment uses configuration files in `eks_ha/`:
+The EKS deployment uses configuration files in `eks_ha/deployment/`:
 
 | File | Description |
 |------|-------------|
@@ -214,7 +325,7 @@ The EKS deployment uses configuration files in `eks_ha/`:
 
 ### Quick Start
 
-1. **Configure your license** in `eks_ha/values.yaml`:
+1. **Configure your license** in `eks_ha/deployment/values.yaml`:
    ```yaml
    env:
      MEMGRAPH_ENTERPRISE_LICENSE: "<your-license>"
@@ -223,7 +334,7 @@ The EKS deployment uses configuration files in `eks_ha/`:
 
 2. **Create cluster and deploy Memgraph:**
    ```sh
-   cd tests/stress/eks_ha
+   cd tests/stress/eks_ha/deployment
    ./deployment.sh start
    ```
 

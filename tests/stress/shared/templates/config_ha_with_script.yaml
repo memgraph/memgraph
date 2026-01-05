@@ -1,6 +1,6 @@
 memgraph:
   deployment:
-    script: "native_ha/deployment.sh"
+    script: "native_ha/deployment/deployment.sh"
   args: []
   env:
     MEMGRAPH_ENTERPRISE_LICENSE: ""
@@ -38,4 +38,4 @@ customWorkloads:
       memgraph_args: []
       # Path to Python script (relative to stress/ directory or absolute)
       # The script receives --host and --port arguments automatically
-      script: "native_standalone/workloads/sample_workload.py"
+      script: "native_standalone/workloads/sample/workload.py"
