@@ -68,6 +68,12 @@ inline void ApplyDeltasForRead(const Delta *delta, uint64_t start_timestamp, aut
   if (!delta) return;
 
   while (delta != nullptr) {
+    // Skip interleaved deltas as they don't affect vertex/edge properties or labels
+    if (IsDeltaInterleaved(*delta)) {
+      delta = delta->next.load(std::memory_order_acquire);
+      continue;
+    }
+
     auto ts = delta->timestamp->load(std::memory_order_acquire);
     // Went back far enough
     if (ts < start_timestamp) break;
@@ -81,6 +87,11 @@ inline void ApplyDeltasForRead(const Delta *delta, uint64_t start_timestamp, aut
 enum State { NO_CHANGE, THIS_TX, ANOTHER_TX };
 
 inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t commit_timestamp) {
+  // Skip interleaved deltas to find first non-interleaved delta
+  while (delta != nullptr && IsDeltaInterleaved(*delta)) {
+    delta = delta->next.load(std::memory_order_acquire);
+  }
+
   // This tx is running, so no deltas means there are no changes made after the tx started
   if (delta == nullptr) return State::NO_CHANGE;
   const auto ts = delta->timestamp->load(std::memory_order_acquire);
