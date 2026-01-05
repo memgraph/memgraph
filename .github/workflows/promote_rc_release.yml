@@ -331,7 +331,7 @@ jobs:
 
       - name: Clean up temporary images
         run: |
-          sleep 3
+          sleep 5
           echo "Deleting temporary image ${IMAGE_TAG_AMD} ..."
           curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release}/tags/${IMAGE_TAG_AMD}/
           echo "Deleting temporary image ${IMAGE_TAG_ARM} ..."
@@ -510,7 +510,7 @@ jobs:
 
       - name: Clean up temporary images
         run: |
-          sleep 3
+          sleep 5
           if [ "${has_rc_package_amd}" = "true" ]; then
             echo "Deleting temporary image ${release_image_amd} ..."
             curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${release_image#*:}-amd64/
