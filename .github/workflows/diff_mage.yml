@@ -18,7 +18,7 @@ on:
       run_cuda:
         type: boolean
         description: "Should the cuda mage tests be run? Default is true."
-        default: false
+        default: true
       run_id:
         type: string
         description: "The ID of the run that triggered this workflow."
