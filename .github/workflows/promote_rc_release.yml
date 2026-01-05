@@ -362,7 +362,7 @@ jobs:
 
       - name: Setup environment variables
         run: |
-          mage_version="$VERSION"
+          mage_version="$RELEASE_VERSION"
           echo "docker_tar_amd=mage-${mage_version%.0}${{ matrix.image_ext }}.tar.gz" >> $GITHUB_ENV
           echo "docker_tar_arm=mage-${mage_version%.0}-arm64${{ matrix.image_ext }}.tar.gz" >> $GITHUB_ENV
           echo "rc_image=${docker_repo_rc_mage}:${mage_version%.0}${{ matrix.image_ext }}" >> $GITHUB_ENV
