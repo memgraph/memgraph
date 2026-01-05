@@ -19,7 +19,8 @@ BUILD_DIR = os.path.join(BASE_DIR, "build")
 MEASUREMENTS_FILE = os.path.join(SCRIPT_DIR, ".apollo_measurements")
 KEY_FILE = os.path.join(SCRIPT_DIR, ".key.pem")
 CERT_FILE = os.path.join(SCRIPT_DIR, ".cert.pem")
-DEPLOYMENTS_DIR = os.path.join(SCRIPT_DIR, "deployments")
+# Deployment scripts are now in their respective folders (native_standalone/, docker_ha/, eks_ha/, native_ha/)
+# The script path in config should be relative to SCRIPT_DIR (e.g., "docker_ha/deployment.sh")
 
 # Long running stats file
 STATS_FILE = os.path.join(SCRIPT_DIR, ".long_running_stats")
@@ -118,7 +119,7 @@ def check_deployment_status(script_path: str) -> bool:
 def parse_arguments() -> Args:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Run stress tests on Memgraph.")
-    parser.add_argument("--config-file", default=os.path.join(SCRIPT_DIR, "templates/config_small.yaml"))
+    parser.add_argument("--config-file", default=os.path.join(SCRIPT_DIR, "shared/templates/config_small.yaml"))
     parser.add_argument("--python", default=os.path.join(BASE_DIR, "tests", "ve3", "bin", "python3"), type=str)
     return parser.parse_args()
 
@@ -267,7 +268,7 @@ def run_stress_test_suite(args: Args, config: Config) -> Dict[str, Any]:
     manage_deployment = bool(script_path)
 
     if manage_deployment:
-        script_path = os.path.join(DEPLOYMENTS_DIR, script_path)
+        script_path = os.path.join(SCRIPT_DIR, script_path)
         if not os.path.exists(script_path):
             return {"error": f"Memgraph deployment script not found: {script_path}!"}
     else:

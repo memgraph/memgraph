@@ -10,17 +10,14 @@ The test suite is configured using YAML files, which define Memgraph deployment 
 ```yaml
 memgraph:
   deployment:
-    # Specifies the path to the deployment script
+    # Specifies the path to the deployment script (relative to stress/ folder)
     # Deployment script needs to setup and cleanup the Memgraph ecosystem it is run on.
     # Script needs to have methods for start, stop and status, since continuous integration
-    # calls the script with these arguments. Optionally, the script can have an additional
-    # argument to pass memgraph flags to the cluster, which will override the existing cluster
-    # flags. Stopping of the cluster needs to guarantee the cleanup of the resources so that
-    # no files or directories are left behind. Check binary_standalone.sh for more info.
+    # calls the script with these arguments.
     #
     # If script is empty or not specified, the test suite assumes the cluster is managed
     # externally (e.g., K8s, cloud deployment) and will skip start/stop operations.
-    script: <path to script>  # Leave empty for externally managed clusters
+    script: "docker_ha/deployment.sh"  # Leave empty for externally managed clusters
   args:
     # Additional memgraph arguments that are passed. Overrides the arguments from the
     # deployment script.
@@ -34,7 +31,7 @@ memgraph:
     # If value is empty, the variable will be inherited from the shell environment.
     MEMGRAPH_ENTERPRISE_LICENSE: "<license-key>"
     MEMGRAPH_ORGANIZATION_NAME: "<org-name>"
-    # Enable Prometheus monitoring (for docker_ha.sh deployments)
+    # Enable Prometheus monitoring (for docker_ha deployments)
     ENABLE_MONITORING: "true"  # Starts Prometheus exporter on port 9100
 ```
 
@@ -130,40 +127,48 @@ To run the stress test suite, ensure you have the necessary dependencies install
 ### Example: Standalone Memgraph
 Run the stress test suite against a standalone Memgraph instance:
 ```sh
-./continuous_integration --config-file templates/config_small.yaml
+./continuous_integration --config-file shared/templates/config_small.yaml
 ```
 
-### Example: High Availability Memgraph
-Run the stress test suite against a High Availability (HA) Memgraph cluster.
+### Example: High Availability Memgraph (Native)
+Run the stress test suite against a High Availability (HA) Memgraph cluster using native binaries.
 
 **Note:** HA requires an enterprise license. Set the license either in the config YAML under `memgraph.env` or via shell environment variables:
 ```sh
 export MEMGRAPH_ENTERPRISE_LICENSE="your-license-key"
 export MEMGRAPH_ORGANIZATION_NAME="your-org-name"
-./continuous_integration --config-file templates/config_ha.yaml
+./continuous_integration --config-file shared/templates/config_ha.yaml
 ```
 
-### Example: Externally Managed Cluster
-Run workloads against an existing cluster (e.g., K8s, cloud deployment) without managing the cluster lifecycle:
-```yaml
-memgraph:
-  deployment:
-    script: ""  # Empty = cluster managed externally
-```
-
+### Example: Docker HA Deployment
+Run the stress test suite against a Docker-based HA deployment:
 ```sh
-./continuous_integration --config-file workloads/eks/rag/vector_workload.yaml
+export MEMGRAPH_ENTERPRISE_LICENSE="your-license-key"
+export MEMGRAPH_ORGANIZATION_NAME="your-org-name"
+./continuous_integration --config-file docker_ha/workloads/rag/vector_workload.yaml
+```
+
+### Example: EKS Deployment
+Run workloads against an existing EKS cluster without managing the cluster lifecycle:
+```sh
+# First, deploy the cluster using the deployment script
+cd eks_ha
+./deployment.sh start
+
+# Then run the workload
+cd ..
+./continuous_integration --config-file eks_ha/workloads/rag/vector_workload.yaml
 ```
 
 The test suite will skip start/stop operations and run workloads directly against the existing cluster.
 
 ## Monitoring with Prometheus & Grafana
-For Docker HA deployments (`docker_ha.sh`), you can enable the full monitoring stack by setting `ENABLE_MONITORING`:
+For Docker HA deployments (`docker_ha/deployment.sh`), you can enable the full monitoring stack by setting `ENABLE_MONITORING`:
 
 ```yaml
 memgraph:
   deployment:
-    script: "docker_ha.sh"
+    script: "docker_ha/deployment.sh"
   env:
     MEMGRAPH_ENTERPRISE_LICENSE: "<license-key>"
     MEMGRAPH_ORGANIZATION_NAME: "<org-name>"
@@ -188,7 +193,7 @@ The exporter collects metrics from all Memgraph instances (data nodes and coordi
 
 ## EKS Deployment
 
-For deploying Memgraph HA on AWS EKS, use the `eks_ha.sh` script located in `deployments/`.
+For deploying Memgraph HA on AWS EKS, use the `deployment.sh` script in `eks_ha/`.
 
 ### Prerequisites
 
@@ -199,7 +204,7 @@ For deploying Memgraph HA on AWS EKS, use the `eks_ha.sh` script located in `dep
 
 ### Configuration Files
 
-The EKS deployment uses configuration files in `deployments/eks/`:
+The EKS deployment uses configuration files in `eks_ha/`:
 
 | File | Description |
 |------|-------------|
@@ -209,7 +214,7 @@ The EKS deployment uses configuration files in `deployments/eks/`:
 
 ### Quick Start
 
-1. **Configure your license** in `eks/values.yaml`:
+1. **Configure your license** in `eks_ha/values.yaml`:
    ```yaml
    env:
      MEMGRAPH_ENTERPRISE_LICENSE: "<your-license>"
@@ -218,8 +223,8 @@ The EKS deployment uses configuration files in `deployments/eks/`:
 
 2. **Create cluster and deploy Memgraph:**
    ```sh
-   cd tests/stress/deployments
-   ./eks_ha.sh start
+   cd tests/stress/eks_ha
+   ./deployment.sh start
    ```
 
    This will:
@@ -231,13 +236,13 @@ The EKS deployment uses configuration files in `deployments/eks/`:
 
 3. **Check deployment status:**
    ```sh
-   ./eks_ha.sh status
+   ./deployment.sh status
    ```
 
 4. **Connect to Memgraph:**
    ```sh
    # Port forward to coordinator
-   ./eks_ha.sh port-forward coordinator 7687
+   ./deployment.sh port-forward coordinator 7687
 
    # Then connect with mgconsole
    mgconsole --host 127.0.0.1 --port 7687
@@ -245,17 +250,17 @@ The EKS deployment uses configuration files in `deployments/eks/`:
 
 5. **View logs:**
    ```sh
-   ./eks_ha.sh logs <pod-name>
+   ./deployment.sh logs <pod-name>
    ```
 
 6. **Stop Memgraph (keeps cluster):**
    ```sh
-   ./eks_ha.sh stop
+   ./deployment.sh stop
    ```
 
 7. **Destroy entire cluster:**
    ```sh
-   ./eks_ha.sh destroy
+   ./deployment.sh destroy
    ```
 
 ### Environment Variables
@@ -274,8 +279,22 @@ To export Prometheus metrics to a JSON file:
 
 ```sh
 # Export to timestamped file (e.g., metrics_20251219_143052.json)
-./eks_ha.sh export-metrics
+./deployment.sh export-metrics
 
 # Export to specific file
-./eks_ha.sh export-metrics my_metrics.json
+./deployment.sh export-metrics my_metrics.json
 ```
+
+## ClickHouse Metrics Storage
+
+For storing and analyzing historical metrics, see `shared/clickhouse/README.md`.
+
+```sh
+cd shared/clickhouse
+docker-compose up -d
+
+# Import metrics from EKS
+python import_metrics.py /path/to/my_metrics.json
+```
+
+Grafana is included and pre-configured with a ClickHouse datasource at http://localhost:3001.

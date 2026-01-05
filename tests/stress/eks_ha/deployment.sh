@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Cluster configuration
 CLUSTER_NAME="${CLUSTER_NAME:-test-cluster-ha}"
 CLUSTER_REGION="${CLUSTER_REGION:-eu-west-1}"
-CLUSTER_CONFIG_FILE="${SCRIPT_DIR}/eks/cluster.yaml"
+CLUSTER_CONFIG_FILE="${SCRIPT_DIR}/cluster.yaml"
 
 # Helm configuration
 HELM_RELEASE_NAME="${HELM_RELEASE_NAME:-mem-ha-test}"
@@ -20,10 +20,10 @@ HELM_REPO_URL="https://memgraph.github.io/helm-charts"
 
 # Storage configuration
 STORAGE_CLASS_NAME="gp3"
-STORAGE_CLASS_FILE="${SCRIPT_DIR}/eks/gp3-sc.yaml"
+STORAGE_CLASS_FILE="${SCRIPT_DIR}/gp3-sc.yaml"
 
 # Helm values file
-HELM_VALUES_FILE="${SCRIPT_DIR}/eks/values.yaml"
+HELM_VALUES_FILE="${SCRIPT_DIR}/values.yaml"
 
 # Monitoring configuration
 ENABLE_MONITORING="${ENABLE_MONITORING:-true}"

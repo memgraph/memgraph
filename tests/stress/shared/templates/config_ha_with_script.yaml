@@ -1,11 +1,10 @@
 memgraph:
   deployment:
-    script: "docker_ha.sh"
+    script: "native_ha/deployment.sh"
   args: []
   env:
     MEMGRAPH_ENTERPRISE_LICENSE: ""
     MEMGRAPH_ORGANIZATION_NAME: ""
-    ENABLE_MONITORING: "true"
 
 cluster:
   coordinators:
@@ -35,7 +34,8 @@ dataset:
 
 customWorkloads:
   tests:
-    - name: vector-workload
+    - name: custom-script-workload
       memgraph_args: []
-      script: "workloads/docker/rag/vector_workload.py"
-      timeout_min: 30
+      # Path to Python script (relative to stress/ directory or absolute)
+      # The script receives --host and --port arguments automatically
+      script: "native_standalone/workloads/sample_workload.py"

@@ -1,6 +1,6 @@
 memgraph:
   deployment:
-    # No script - EKS cluster is managed externally via eks_ha.sh
+    # No script - EKS cluster is managed externally via eks_ha/deployment.sh
     script: null
   args: []
   env:
@@ -28,5 +28,5 @@ customWorkloads:
   tests:
     - name: dummy-workload-eks
       memgraph_args: []
-      script: "workloads/eks/dummy_workload.py"
+      script: "eks_ha/workloads/dummy_workload.py"
       timeout_min: 180  # 100 iterations * 100 seconds = ~3 hours

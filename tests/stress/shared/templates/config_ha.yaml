@@ -1,7 +1,7 @@
 memgraph:
   deployment:
-    # Script needs to be located in stress/deployments
-    script: "binary_ha.sh"
+    # Script path is relative to stress/ folder
+    script: "native_ha/deployment.sh"
   args: [] # Any additional flags you need
   env:
     # Environment variables passed to the deployment script (required for HA)

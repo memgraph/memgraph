@@ -6,14 +6,17 @@ Creates nodes with 1500-dimension vectors in batches using multiprocessing.
 Workers write to the MAIN instance (data-0).
 Periodically restarts the REPLICA instance (data-1) to test replication resilience.
 
-This script uses eks_ha.sh to get LoadBalancer IPs and restart instances.
+This script uses deployment.sh to get LoadBalancer IPs and restart instances.
 """
 import multiprocessing
 import os
 import random
-import subprocess
+import sys
 
-from neo4j import GraphDatabase
+# Add parent directory to path for common imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from common import create_driver, restart_instance, wait_for_service_ip
 
 # Workload configuration
 BATCH_SIZE = 10000
@@ -25,77 +28,8 @@ NUM_WORKERS = 4
 # Instance to restart (REPLICA)
 RESTART_INSTANCE = "data-1"
 
-# Deployment script path
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEPLOYMENT_SCRIPT = os.path.join(SCRIPT_DIR, "..", "..", "..", "deployments", "eks_ha.sh")
-
 # Global connection URI (will be set dynamically)
 URI = None
-
-
-def get_service_ip(service_name: str) -> str:
-    """
-    Get the external IP of a LoadBalancer service using eks_ha.sh.
-
-    Args:
-        service_name: Name of the service (e.g., "data-0", "memgraph-data-0")
-
-    Returns:
-        The external IP address.
-    """
-    result = subprocess.run(
-        [DEPLOYMENT_SCRIPT, "get-ip", service_name],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise Exception(f"Failed to get IP for {service_name}: {result.stderr}")
-    return result.stdout.strip()
-
-
-def wait_for_service_ip(service_name: str, timeout: int = 300) -> str:
-    """
-    Wait for a LoadBalancer service to get an external IP using eks_ha.sh.
-
-    Args:
-        service_name: Name of the service (e.g., "data-0", "memgraph-data-0")
-        timeout: Maximum time to wait in seconds
-
-    Returns:
-        The external IP when available.
-    """
-    result = subprocess.run(
-        [DEPLOYMENT_SCRIPT, "wait-ip", service_name, str(timeout)],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise Exception(f"Failed to wait for IP for {service_name}: {result.stderr}")
-    return result.stdout.strip()
-
-
-def restart_instance(instance_name: str) -> None:
-    """
-    Restart a specific instance using the EKS deployment script.
-    Deletes the pod and returns immediately (StatefulSet will recreate it).
-
-    Args:
-        instance_name: Name of the instance to restart (e.g., "data-0", "data-1")
-    """
-    print(f"Restarting instance: {instance_name}")
-    result = subprocess.run(
-        [DEPLOYMENT_SCRIPT, "restart", instance_name],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise Exception(f"Failed to restart {instance_name}: {result.stderr}")
-    print(f"Instance {instance_name} restart triggered")
-
-
-def create_driver():
-    """Create a new database driver."""
-    return GraphDatabase.driver(URI, auth=("", ""))
 
 
 def generate_vector(dimensions: int) -> list[float]:
@@ -106,7 +40,7 @@ def generate_vector(dimensions: int) -> list[float]:
 def create_indexes() -> None:
     """Create necessary indexes."""
     print("Creating indexes...")
-    driver = create_driver()
+    driver = create_driver(URI)
     try:
         with driver.session() as session:
             session.run("CREATE INDEX ON :VectorNode;")
@@ -126,7 +60,7 @@ def process_batch(batch_num: int) -> tuple[int, int]:
     Returns:
         Tuple of (batch_num, nodes_created).
     """
-    driver = create_driver()
+    driver = create_driver(URI)
     try:
         nodes_data = [
             {"id": batch_num * BATCH_SIZE + i, "vector": generate_vector(VECTOR_DIMENSIONS)} for i in range(BATCH_SIZE)
@@ -166,8 +100,8 @@ def run_batches_parallel(batch_numbers: list[int]) -> int:
 def main():
     global URI
 
-    # Discover MAIN instance connection via eks_ha.sh
-    print("Discovering MAIN instance IP via eks_ha.sh...")
+    # Discover MAIN instance connection via deployment.sh
+    print("Discovering MAIN instance IP via deployment.sh...")
     host = wait_for_service_ip("data-0")
     port = "7687"
 

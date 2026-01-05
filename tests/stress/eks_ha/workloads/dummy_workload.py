@@ -3,36 +3,18 @@
 Dummy workload for EKS testing.
 Simply runs RETURN 1 query 100 times with 100 second sleep between each.
 """
-import os
-import subprocess
 import time
 
-from neo4j import GraphDatabase
+from common import create_driver, wait_for_service_ip
 
 # Configuration
 NUM_ITERATIONS = 100
 SLEEP_SECONDS = 100
 
-# Deployment script path
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEPLOYMENT_SCRIPT = os.path.join(SCRIPT_DIR, "..", "..", "deployments", "eks_ha.sh")
-
-
-def wait_for_service_ip(service_name: str, timeout: int = 300) -> str:
-    """Wait for a LoadBalancer service to get an external IP using eks_ha.sh."""
-    result = subprocess.run(
-        [DEPLOYMENT_SCRIPT, "wait-ip", service_name, str(timeout)],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise Exception(f"Failed to wait for IP for {service_name}: {result.stderr}")
-    return result.stdout.strip()
-
 
 def main():
-    # Discover MAIN instance connection via eks_ha.sh
-    print("Discovering MAIN instance IP via eks_ha.sh...")
+    # Discover MAIN instance connection via deployment.sh
+    print("Discovering MAIN instance IP via deployment.sh...")
     host = wait_for_service_ip("data-0")
     port = "7687"
     uri = f"bolt://{host}:{port}"
@@ -41,7 +23,7 @@ def main():
     print(f"Running RETURN 1 query {NUM_ITERATIONS} times with {SLEEP_SECONDS}s sleep between each")
     print("-" * 60)
 
-    driver = GraphDatabase.driver(uri, auth=("", ""))
+    driver = create_driver(uri)
 
     try:
         for i in range(NUM_ITERATIONS):

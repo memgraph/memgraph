@@ -1,10 +1,10 @@
 memgraph:
   deployment:
-    # No script - EKS cluster is managed externally via eks_ha.sh
+    # No script - EKS cluster is managed externally via eks_ha/deployment.sh
     script: null
   args: []
   env:
-    # Set in eks/values.yaml
+    # Set in eks_ha/values.yaml
     MEMGRAPH_ENTERPRISE_LICENSE: ""
     MEMGRAPH_ORGANIZATION_NAME: ""
 
@@ -40,5 +40,5 @@ customWorkloads:
   tests:
     - name: vector-workload-eks
       memgraph_args: []
-      script: "workloads/eks/rag/vector_workload.py"
+      script: "eks_ha/workloads/rag/vector_workload.py"
       timeout_min: 30
