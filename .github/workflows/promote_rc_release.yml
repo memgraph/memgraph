@@ -37,8 +37,8 @@ env:
 
   s3_region: eu-west-1
   rc_bucket: deps.memgraph.io
-  rc_dir: ${{ inputs.use_test_rc && 'memgraph-test/' || 'memgraph/' }}v${{ github.event.inputs.release_version }}-${{ github.event.inputs.rc_version }}
-  mage_rc_dir: ${{ inputs.use_test_rc && 'mage-test/' || 'mage/' }}v${{ github.event.inputs.release_version }}-${{ github.event.inputs.rc_version }}
+  rc_dir: ${{ inputs.use_test_rc && 'memgraph-mock-rc/' || 'memgraph/' }}v${{ github.event.inputs.release_version }}-${{ github.event.inputs.rc_version }}
+  mage_rc_dir: ${{ inputs.use_test_rc && 'mage-mock-rc/' || 'mage/' }}v${{ github.event.inputs.release_version }}-${{ github.event.inputs.rc_version }}
   release_bucket: ${{ github.event.inputs.test == 'false' && 'download.memgraph.com' || 'deps.memgraph.io' }}
   release_dir: memgraph${{ github.event.inputs.test == 'true' && '-release-test' || '' }}/v${{ github.event.inputs.release_version }}
   package_rpm_amd: memgraph-${{ github.event.inputs.release_version }}_1-1.x86_64.rpm

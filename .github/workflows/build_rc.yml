@@ -275,7 +275,7 @@ jobs:
     with:
       arch: ${{ matrix.build_arch }}
       build_type: ${{ matrix.build_type }}
-      s3_dest_dir: "mage${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}-${{ inputs.rc_number }}"
+      s3_dest_dir: "mage${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       shorten_tag: true
       cuda: ${{ matrix.cuda }}
       push_to_s3: true
