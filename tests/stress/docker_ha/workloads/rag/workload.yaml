@@ -2,10 +2,6 @@ memgraph:
   deployment:
     script: "docker_ha/deployment/deployment.sh"
   args: []
-  env:
-    MEMGRAPH_ENTERPRISE_LICENSE: ""
-    MEMGRAPH_ORGANIZATION_NAME: ""
-    ENABLE_MONITORING: "true"
 
 cluster:
   coordinators:
