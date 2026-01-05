@@ -191,7 +191,7 @@ jobs:
       max-parallel: 3
       matrix:
         run_no: ${{ fromJSON(needs.DiffSetup.outputs.runs) }}
-    uses: ./.github/workflows/diff_mage.yaml
+    uses: ./.github/workflows/diff_mage.yml
     with:
       run_amd: ${{ needs.DiffSetup.outputs.run_mage_amd }}
       run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm }}
