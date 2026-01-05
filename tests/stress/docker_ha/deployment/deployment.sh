@@ -281,8 +281,9 @@ start_memgraph() {
 
 run_mgconsole() {
     # Run mgconsole command inside the coordinator container
+    # Note: Use echo | docker exec -i (heredoc <<< doesn't work with docker exec)
     local query="$1"
-    docker exec "$MGCONSOLE_CONTAINER" mgconsole --host 127.0.0.1 --port 7691 <<< "$query"
+    echo "$query" | docker exec -i "$MGCONSOLE_CONTAINER" mgconsole --host 127.0.0.1 --port 7691
 }
 
 setup_ha() {
@@ -331,7 +332,7 @@ wait_for_healthy_cluster() {
 
     for ((i=1; i<=max_retries; i++)); do
         # Check if we have a healthy MAIN instance
-        result=$(docker exec "$MGCONSOLE_CONTAINER" mgconsole --host 127.0.0.1 --port 7691 --output-format=csv <<< "SHOW INSTANCES;" 2>/dev/null)
+        result=$(echo "SHOW INSTANCES;" | docker exec -i "$MGCONSOLE_CONTAINER" mgconsole --host 127.0.0.1 --port 7691 --output-format=csv 2>/dev/null)
         if echo "$result" | grep -q "main" && echo "$result" | grep -q "up"; then
             echo "HA cluster is healthy."
             return 0
