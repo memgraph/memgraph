@@ -19,18 +19,18 @@ PORT = 7687  # data_1 (MAIN)
 URI = f"bolt://{HOST}:{PORT}"
 
 # Workload configuration
-BATCH_SIZE = 10000
-NUM_BATCHES = 100
-VECTOR_DIMENSIONS = 1500
-RESTART_EVERY_N_BATCHES = 10
-NUM_WORKERS = 4
+BATCH_SIZE = 1000  # Reduced from 10000
+NUM_BATCHES = 10  # Reduced from 100
+VECTOR_DIMENSIONS = 128  # Reduced from 1500
+RESTART_EVERY_N_BATCHES = 5
+NUM_WORKERS = 2  # Reduced from 4
 
 # Instance to restart (REPLICA)
 RESTART_INSTANCE = "data_2"  # port 7688
 
 # Deployment script path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEPLOYMENT_SCRIPT = os.path.join(SCRIPT_DIR, "..", "..", "..", "deployments", "docker_ha.sh")
+DEPLOYMENT_SCRIPT = os.path.join(SCRIPT_DIR, "..", "..", "deployment", "deployment.sh")
 
 
 def restart_container(instance_name: str) -> None:

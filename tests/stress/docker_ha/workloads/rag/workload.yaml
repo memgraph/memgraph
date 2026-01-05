@@ -2,6 +2,7 @@ memgraph:
   deployment:
     script: "docker_ha/deployment/deployment.sh"
   args: []
+  env: {}  # License passed via environment variables from workflow
 
 cluster:
   coordinators:
