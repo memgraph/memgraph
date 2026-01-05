@@ -337,6 +337,12 @@ setup_ha() {
 
     echo "HA setup completed!"
 
+    # Show Memgraph version
+    echo ""
+    echo "Memgraph version:"
+    echo "SHOW VERSION;" | docker exec -i "$MGCONSOLE_CONTAINER" mgconsole --host 127.0.0.1 --port 7691 2>/dev/null || echo "Could not retrieve version"
+    echo ""
+
     start_monitoring_if_enabled
 }
 
