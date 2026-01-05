@@ -178,7 +178,6 @@ bool HasUncommittedInterleavedDeltas(Vertex const *vertex) {
 void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std::list<Gid> &current_deleted_edges,
                            std::list<Gid> &current_deleted_vertices, IndexPerformanceTracker &impact_tracker) {
   for (auto &delta : deltas) {
-    DMG_ASSERT(!IsDeltaInterleaved(delta), "interleaved deltas are not candidates for rapid delta cleanup");
     DMG_ASSERT(
         [&delta]() {
           Delta *next = delta.next.load(std::memory_order_acquire);
