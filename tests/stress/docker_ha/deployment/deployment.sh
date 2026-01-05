@@ -22,9 +22,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROMETHEUS_CONFIG_FILE="${SCRIPT_DIR}/prometheus_ha_config.yaml"
 PROMETHEUS_SERVER_CONFIG="${SCRIPT_DIR}/prometheus/prometheus.yaml"
 
+# Get absolute path to build directory
+BUILD_DIR="$(cd "$SCRIPT_DIR/../../../../build" 2>/dev/null && pwd)"
+
 # Try to find mgconsole: first in build dir, then in toolchain, then PATH
-if [[ -x "../../../../build/mgconsole" ]]; then
-    MGCONSOLE_BINARY="../../../../build/mgconsole"
+if [[ -x "$BUILD_DIR/mgconsole" ]]; then
+    MGCONSOLE_BINARY="$BUILD_DIR/mgconsole"
 elif [[ -n "$MG_TOOLCHAIN_ROOT" && -x "$MG_TOOLCHAIN_ROOT/bin/mgconsole" ]]; then
     MGCONSOLE_BINARY="$MG_TOOLCHAIN_ROOT/bin/mgconsole"
 elif [[ -x "/opt/toolchain-v7/bin/mgconsole" ]]; then

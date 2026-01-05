@@ -9,9 +9,6 @@ Usage:
 
   # Run a specific config file (legacy mode)
   ./continuous_integration --config-file docker_ha/workloads/rag/vector_workload.yaml
-
-  # List available deployments
-  ./continuous_integration --list
 """
 import argparse
 import multiprocessing
@@ -20,6 +17,7 @@ import subprocess
 import sys
 import time
 from argparse import Namespace as Args
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 import yaml
@@ -35,16 +33,30 @@ KEY_FILE = os.path.join(SCRIPT_DIR, ".key.pem")
 CERT_FILE = os.path.join(SCRIPT_DIR, ".cert.pem")
 STATS_FILE = os.path.join(SCRIPT_DIR, ".long_running_stats")
 
-# Deployment folders (each contains deployment.sh and workloads.yaml)
-DEPLOYMENT_FOLDERS = ["native_standalone", "docker_ha", "eks_ha", "native_ha"]
-
 # Get number of threads
 THREADS = os.environ["THREADS"] if "THREADS" in os.environ else multiprocessing.cpu_count()
 
 
 # =============================================================================
-# Workload Registry
+# Deployment
 # =============================================================================
+
+
+class DeploymentType(str, Enum):
+    """Supported deployment types for stress testing."""
+
+    NATIVE_STANDALONE = "native_standalone"
+    DOCKER_HA = "docker_ha"
+    EKS_HA = "eks_ha"
+    NATIVE_HA = "native_ha"
+
+    def __str__(self) -> str:
+        return self.value
+
+    @classmethod
+    def values(cls) -> List[str]:
+        """Return list of all deployment type values."""
+        return [d.value for d in cls]
 
 
 def get_deployment_path(deployment: str) -> str:
@@ -100,37 +112,32 @@ def load_workloads_registry(deployment: str) -> List[Dict[str, Any]]:
     return enabled_workloads
 
 
-def list_deployments() -> None:
-    """List all available deployments and their workloads."""
-    print("\nAvailable deployments:\n")
+def start_deployment(script_path: str, args: List[str], env: Dict[str, str] = None) -> None:
+    cmd = [script_path, "start"] + args
+    print(f"Starting Memgraph with: {' '.join(cmd)}")
 
-    for deployment in DEPLOYMENT_FOLDERS:
-        deployment_path = get_deployment_path(deployment)
-        if not os.path.isdir(deployment_path):
-            continue
+    # Merge provided env with current environment
+    run_env = os.environ.copy()
+    if env:
+        for key, value in env.items():
+            # Only set if value is non-empty, otherwise use existing env var
+            if value:
+                run_env[key] = str(value)
 
-        registry_path = get_workloads_registry(deployment)
-        has_registry = registry_path is not None
+    subprocess.run(cmd, check=True, env=run_env)
+    time.sleep(2)  # Ensure the server has time to start
 
-        print(f"  {deployment}/")
-        print(f"    Deployment script: deployment.sh")
-        print(f"    Registry: {'workloads.yaml' if has_registry else '(none)'}")
 
-        if has_registry:
-            with open(registry_path) as f:
-                registry = yaml.safe_load(f)
-            workloads = registry.get("workloads", [])
+def stop_deployment(script_path: str) -> None:
+    cmd = [script_path, "stop"]
+    print(f"Stopping Memgraph with: {' '.join(cmd)}")
+    subprocess.run(cmd, check=True)
 
-            if workloads:
-                print("    Workloads:")
-                for w in workloads:
-                    status = "enabled" if w.get("enabled", True) else "disabled"
-                    print(f"      - {w.get('config')} [{status}]")
-        print()
 
-    print("Usage:")
-    print("  ./continuous_integration --deployment <name>")
-    print("  ./continuous_integration --config-file <path>")
+def check_deployment_status(script_path: str) -> bool:
+    cmd = [script_path, "status"]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return result.returncode == 0
 
 
 # =============================================================================
@@ -198,39 +205,6 @@ class Config:
 
 
 # =============================================================================
-# Deployment Management
-# =============================================================================
-
-
-def start_deployment(script_path: str, args: List[str], env: Dict[str, str] = None) -> None:
-    cmd = [script_path, "start"] + args
-    print(f"Starting Memgraph with: {' '.join(cmd)}")
-
-    # Merge provided env with current environment
-    run_env = os.environ.copy()
-    if env:
-        for key, value in env.items():
-            # Only set if value is non-empty, otherwise use existing env var
-            if value:
-                run_env[key] = str(value)
-
-    subprocess.run(cmd, check=True, env=run_env)
-    time.sleep(2)  # Ensure the server has time to start
-
-
-def stop_deployment(script_path: str) -> None:
-    cmd = [script_path, "stop"]
-    print(f"Stopping Memgraph with: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
-
-
-def check_deployment_status(script_path: str) -> bool:
-    cmd = [script_path, "status"]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    return result.returncode == 0
-
-
-# =============================================================================
 # Test Execution
 # =============================================================================
 
@@ -247,18 +221,14 @@ Examples:
 
   # Run a specific config file
   ./continuous_integration --config-file docker_ha/workloads/rag/vector_workload.yaml
-
-  # List available deployments and workloads
-  ./continuous_integration --list
         """,
     )
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
-        "--deployment", "-d", choices=DEPLOYMENT_FOLDERS, help="Run all enabled workloads for a deployment type"
+        "--deployment", "-d", choices=DeploymentType.values(), help="Run all enabled workloads for a deployment type"
     )
     group.add_argument("--config-file", "-c", help="Path to a specific config YAML file")
-    group.add_argument("--list", "-l", action="store_true", help="List available deployments and workloads")
 
     parser.add_argument(
         "--python",
@@ -505,11 +475,6 @@ def write_stats(runtimes: Dict[str, float]) -> None:
 
 if __name__ == "__main__":
     args = parse_arguments()
-
-    # Handle --list
-    if args.list:
-        list_deployments()
-        sys.exit(0)
 
     # Handle --deployment
     if args.deployment:

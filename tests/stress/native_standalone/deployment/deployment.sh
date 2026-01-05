@@ -1,6 +1,21 @@
 #!/bin/bash
 
-MEMGRAPH_BINARY="../../../../build/memgraph"
+# Get absolute path to script directory and build directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUILD_DIR="$(cd "$SCRIPT_DIR/../../../../build" 2>/dev/null && pwd)"
+
+if [[ -z "$BUILD_DIR" || ! -d "$BUILD_DIR" ]]; then
+    echo "ERROR: Build directory not found. Expected at: $SCRIPT_DIR/../../../../build"
+    echo "Please build Memgraph first."
+    exit 1
+fi
+
+MEMGRAPH_BINARY="$BUILD_DIR/memgraph"
+
+if [[ ! -x "$MEMGRAPH_BINARY" ]]; then
+    echo "ERROR: Memgraph binary not found at: $MEMGRAPH_BINARY"
+    exit 1
+fi
 DATA_DIR="stress_data"
 
 # Default flags for Memgraph

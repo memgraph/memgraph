@@ -1,10 +1,25 @@
 #!/bin/bash
 
-MEMGRAPH_BINARY="../../../../build/memgraph"
+# Get absolute path to script directory and build directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUILD_DIR="$(cd "$SCRIPT_DIR/../../../../build" 2>/dev/null && pwd)"
+
+if [[ -z "$BUILD_DIR" || ! -d "$BUILD_DIR" ]]; then
+    echo "ERROR: Build directory not found. Expected at: $SCRIPT_DIR/../../../../build"
+    echo "Please build Memgraph first."
+    exit 1
+fi
+
+MEMGRAPH_BINARY="$BUILD_DIR/memgraph"
+
+if [[ ! -x "$MEMGRAPH_BINARY" ]]; then
+    echo "ERROR: Memgraph binary not found at: $MEMGRAPH_BINARY"
+    exit 1
+fi
 
 # Try to find mgconsole: first in build dir, then in toolchain
-if [[ -x "../../../../build/mgconsole" ]]; then
-    MGCONSOLE_BINARY="../../../../build/mgconsole"
+if [[ -x "$BUILD_DIR/mgconsole" ]]; then
+    MGCONSOLE_BINARY="$BUILD_DIR/mgconsole"
 elif [[ -n "$MG_TOOLCHAIN_ROOT" && -x "$MG_TOOLCHAIN_ROOT/bin/mgconsole" ]]; then
     MGCONSOLE_BINARY="$MG_TOOLCHAIN_ROOT/bin/mgconsole"
 elif [[ -x "/opt/toolchain-v7/bin/mgconsole" ]]; then
