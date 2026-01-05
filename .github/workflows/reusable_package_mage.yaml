@@ -164,7 +164,7 @@ jobs:
             # strip "v" prefix if it exists
             version="${version#v}"
           fi
-          version="$(release/get_version.py --memgraph-root-dir $(pwd) '$VERSION' '' --variant "$variant")"
+          version="$(release/get_version.py --memgraph-root-dir $(pwd) "$VERSION" '' --variant "$variant")"
           echo "MEMGRAPH_VERSION=${version}" >> $GITHUB_ENV
 
       - name: Create wheels directory and fetch wheels if available
