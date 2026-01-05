@@ -9,43 +9,19 @@ on:
       - stress_tests_provisioned
   workflow_dispatch:
     inputs:
-      build_type:
-        type: choice
-        description: "Memgraph Build type. Default value is Release."
-        default: 'Release'
-        options:
-          - Release
-          - RelWithDebInfo
-      os:
-        type: choice
-        description: "Target OS on which the stress tests will be run."
-        default: 'ubuntu-24.04'
-        options:
-          - ubuntu-24.04
-          - ubuntu-22.04
-          - debian-12
-          - debian-13
-          - centos-9
-          - centos-10
-          - fedora-42
-          - rocky-10
+      memgraph_image:
+        type: string
+        description: "Memgraph Docker image (repo:tag or URL to .tar.gz)"
+        default: 'memgraph/memgraph:latest'
 
 env:
-  OS: ${{ inputs.os || 'ubuntu-24.04' }}
-  TOOLCHAIN: v7
-  ARCH: amd
-  THREADS: 24
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-  BUILD_TYPE: ${{ inputs.build_type || 'Release' }}
-  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
-  CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
-  CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
 
 jobs:
   stress_tests_docker_ha:
     name: "Stress tests docker HA"
-    runs-on: [self-hosted, DockerMgBuild, X64]
+    runs-on: [self-hosted, X64]
     timeout-minutes: 180
 
     steps:
@@ -60,72 +36,57 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Spin up mgbuild container
+      - name: Determine Input Type
         run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run
+          INPUT_IMAGE="${{ inputs.memgraph_image || 'memgraph/memgraph:latest' }}"
+          read image_type image_value < <(python3 tools/issu_image_type.py "$INPUT_IMAGE")
+          echo "IMAGE_TYPE=${image_type}" >> $GITHUB_ENV
+          echo "IMAGE_VALUE=${image_value}" >> $GITHUB_ENV
 
-      - name: Build enterprise binary
+      - name: Load Image (Docker)
+        if: ${{ env.IMAGE_TYPE == 'docker' }}
         run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --build-type $BUILD_TYPE \
-          --threads $THREADS \
-          build-memgraph \
-          --conan-remote $CONAN_REMOTE \
-          --conan-username $CONAN_USERNAME \
-          --conan-password $CONAN_PASSWORD
+          docker pull "$IMAGE_VALUE"
+          echo "MEMGRAPH_IMAGE=${{ env.IMAGE_VALUE }}" >> $GITHUB_ENV
 
-      - name: Initialize tests
+      - name: Load Image (URL)
+        if: ${{ env.IMAGE_TYPE == 'url' }}
         run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          init-tests
+          curl -L ${{ env.IMAGE_VALUE }} > memgraph.tar.gz
+          load_output=$(docker load -i memgraph.tar.gz)
+
+          # grab each repo:tag, drop the ":latest" one, pick the first real tag
+          repo_tag=$(echo "$load_output" \
+            | awk -F': ' '/Loaded image:/ {print $2}' \
+            | grep -v ':latest$' \
+            | head -n1)
+
+          echo "MEMGRAPH_IMAGE=${repo_tag}" >> $GITHUB_ENV
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/stress/requirements.txt
 
       - name: Run stress tests (docker HA)
         run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph stress-suite --deployment docker_ha
-
-      - name: Copy stress test logs
-        if: failure()
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          copy --logs-dir /home/mg/memgraph/tests/stress --dest-dir build/stress/logs
+          cd tests/stress
+          ./continuous_integration --deployment docker_ha
 
       - name: Save stress test logs
         continue-on-error: true
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: "Stress Tests Docker HA Logs-${{ env.OS }}"
-          path: build/stress/logs
+          name: "Stress Tests Docker HA Logs"
+          path: tests/stress/**/*.log
 
-      - name: Stop mgbuild container
-        if: always()
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          stop --remove
-
-      - name: Cleanup Docker
+      - name: Clean up Docker
         if: always()
         run: |
           ./tools/docker_cleanup.sh
