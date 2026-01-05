@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,7 +39,7 @@ auto CreateUniqueDownloadFile(std::filesystem::path const &base_path)
 ///
 /// @throw std::filesystem::filesystem_error
 /// @throw std::bad_alloc
-std::filesystem::path GetExecutablePath();
+std::filesystem::path const &GetExecutablePath();
 
 /// Reads all lines from the file specified by path. If the file doesn't exist
 /// or there is an access error the function returns an empty list.

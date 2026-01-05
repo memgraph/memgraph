@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -61,7 +61,10 @@ auto CreateUniqueDownloadFile(std::filesystem::path const &base_path)
                               base_path.string());
 }
 
-std::filesystem::path GetExecutablePath() { return std::filesystem::read_symlink("/proc/self/exe"); }
+std::filesystem::path const &GetExecutablePath() {
+  static const auto path = std::filesystem::read_symlink("/proc/self/exe");
+  return path;
+}
 
 std::vector<std::string> ReadLines(const std::filesystem::path &path) noexcept {
   std::vector<std::string> lines;
