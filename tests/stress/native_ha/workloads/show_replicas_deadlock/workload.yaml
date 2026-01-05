@@ -2,6 +2,9 @@ memgraph:
   deployment:
     script: "native_ha/deployment/deployment.sh"
   args: [] # Any additional flags you need
+  env:
+    MEMGRAPH_ENTERPRISE_LICENSE: ""
+    MEMGRAPH_ORGANIZATION_NAME: ""
 
 general:
   verbose: false

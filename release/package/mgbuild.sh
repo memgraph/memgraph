@@ -1057,6 +1057,24 @@ test_memgraph() {
     stress-large)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --config-file=shared/templates/config_large.yaml"
     ;;
+    stress-suite)
+      # Usage: test-memgraph stress-suite --deployment <deployment_type>
+      shift
+      local deployment_type="native_standalone"
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --deployment)
+            deployment_type="$2"
+            shift 2
+            ;;
+          *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+        esac
+      done
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=$deployment_type"
+    ;;
     durability)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 durability --num-steps 5 --log-file=durability_test.log --verbose"
     ;;
