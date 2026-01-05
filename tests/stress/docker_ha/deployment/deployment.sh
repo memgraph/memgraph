@@ -22,21 +22,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROMETHEUS_CONFIG_FILE="${SCRIPT_DIR}/prometheus_ha_config.yaml"
 PROMETHEUS_SERVER_CONFIG="${SCRIPT_DIR}/prometheus/prometheus.yaml"
 
-# Get absolute path to build directory
-BUILD_DIR="$(cd "$SCRIPT_DIR/../../../../build" 2>/dev/null && pwd)"
-
-# Try to find mgconsole: first in build dir, then in toolchain, then PATH
-if [[ -x "$BUILD_DIR/mgconsole" ]]; then
-    MGCONSOLE_BINARY="$BUILD_DIR/mgconsole"
-elif [[ -n "$MG_TOOLCHAIN_ROOT" && -x "$MG_TOOLCHAIN_ROOT/bin/mgconsole" ]]; then
-    MGCONSOLE_BINARY="$MG_TOOLCHAIN_ROOT/bin/mgconsole"
-elif [[ -x "/opt/toolchain-v7/bin/mgconsole" ]]; then
-    MGCONSOLE_BINARY="/opt/toolchain-v7/bin/mgconsole"
-elif command -v mgconsole &> /dev/null; then
-    MGCONSOLE_BINARY="mgconsole"
-else
-    MGCONSOLE_BINARY=""
-fi
+# Container to use for running mgconsole commands (first coordinator)
+MGCONSOLE_CONTAINER="${CONTAINER_PREFIX}_coord_1"
 
 # Default flags for Memgraph Data Nodes
 DEFAULT_DATA_FLAGS=(
@@ -292,35 +279,34 @@ start_memgraph() {
     setup_ha
 }
 
-setup_ha() {
-    echo "Setting up HA configuration using mgconsole..."
+run_mgconsole() {
+    # Run mgconsole command inside the coordinator container
+    local query="$1"
+    docker exec "$MGCONSOLE_CONTAINER" mgconsole --host 127.0.0.1 --port 7691 <<< "$query"
+}
 
-    # Check if mgconsole binary exists
-    if [[ -z "$MGCONSOLE_BINARY" || ! -x "$MGCONSOLE_BINARY" ]]; then
-        echo "ERROR: mgconsole binary not found"
-        stop_memgraph
-        exit 1
-    fi
+setup_ha() {
+    echo "Setting up HA configuration using mgconsole (via docker exec)..."
 
     sleep 2  # Ensure coordinators are fully started
 
     echo "Adding coordinators..."
-    if ! echo "
+    if ! run_mgconsole "
     ADD COORDINATOR 1 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7691\", \"coordinator_server\": \"127.0.0.1:10111\", \"management_server\": \"127.0.0.1:12121\"};
     ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7692\", \"coordinator_server\": \"127.0.0.1:10112\", \"management_server\": \"127.0.0.1:12122\"};
     ADD COORDINATOR 3 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7693\", \"coordinator_server\": \"127.0.0.1:10113\", \"management_server\": \"127.0.0.1:12123\"};
-    " | $MGCONSOLE_BINARY --host 127.0.0.1 --port 7691; then
+    "; then
         echo "ERROR: Failed to add coordinators"
         stop_memgraph
         exit 1
     fi
 
     echo "Registering instances..."
-    if ! echo "
+    if ! run_mgconsole "
     REGISTER INSTANCE instance_1 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7687\", \"management_server\": \"127.0.0.1:13011\", \"replication_server\": \"127.0.0.1:10001\"};
     REGISTER INSTANCE instance_2 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7688\", \"management_server\": \"127.0.0.1:13012\", \"replication_server\": \"127.0.0.1:10002\"};
     SET INSTANCE instance_1 TO MAIN;
-    " | $MGCONSOLE_BINARY --host 127.0.0.1 --port 7691; then
+    "; then
         echo "ERROR: Failed to register instances"
         stop_memgraph
         exit 1
@@ -345,7 +331,7 @@ wait_for_healthy_cluster() {
 
     for ((i=1; i<=max_retries; i++)); do
         # Check if we have a healthy MAIN instance
-        result=$(echo "SHOW INSTANCES;" | $MGCONSOLE_BINARY --host 127.0.0.1 --port 7691 --output-format=csv 2>/dev/null)
+        result=$(docker exec "$MGCONSOLE_CONTAINER" mgconsole --host 127.0.0.1 --port 7691 --output-format=csv <<< "SHOW INSTANCES;" 2>/dev/null)
         if echo "$result" | grep -q "main" && echo "$result" | grep -q "up"; then
             echo "HA cluster is healthy."
             return 0
