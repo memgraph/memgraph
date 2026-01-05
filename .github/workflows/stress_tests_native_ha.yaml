@@ -4,6 +4,9 @@ concurrency:
   cancel-in-progress: true
 
 on:
+  push:
+    branches:
+      - stress_tests_provisioned
   workflow_dispatch:
     inputs:
       build_type:
