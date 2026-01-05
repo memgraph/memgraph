@@ -10,24 +10,32 @@ on:
       next_version:
         type: string
         required: false
-        description: "Version (x.y.z), daily build date (YYYYMMDD), or URL to Docker image: Default - latest daily build"
+        description: "Next Version (e.g. x.y.z or x.y.z-relwithdebinfo etc.), daily build date (YYYYMMDD), or URL to Docker image: Default - latest daily build"
       last_version:
         type: string
         required: false
-        description: "Version (x.y.z), daily build date (YYYYMMDD), or URL to Docker image: Default - latest release"
+        description: "Last Version (e.g. x.y.z or x.y.z-relwithdebinfo etc.), daily build date (YYYYMMDD), or URL to Docker image: Default - latest release"
       arch:
         type: choice
-        default: "amd64"
+        default: "amd"
         options:
         - "all"
-        - "arm64"
-        - "amd64"
+        - "arm"
+        - "amd"
         required: false
-        description: "Architecture to build the image for (amd64/arm64)"
+        description: "Architecture to build the image for (amd/arm)"
       malloc:
         type: boolean
         default: false
-        description: "Test malloc build"
+        description: "Test malloc build (only used for daily builds)"
+      cuda:
+        type: boolean
+        default: false
+        description: "Test CUDA build (only used for daily builds)"
+      relwithdebinfo:
+        type: boolean
+        default: false
+        description: "Test RelWithDebInfo build (only used for daily builds)"
 
 run-name: "Smoke Testing MAGE"
 
@@ -77,10 +85,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: ["amd64", "arm64"]
+        arch: ["amd", "arm"]
         malloc: [false]
         include:
-        - arch: "amd64"
+        - arch: "amd"
           malloc: true
     uses: ./.github/workflows/reusable_smoke_test_mage.yml
     with:

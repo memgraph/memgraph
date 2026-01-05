@@ -19,6 +19,14 @@ on:
         type: boolean
         default: false
         description: "Used if next_type or last_type is of 'date'"
+      cuda:
+        type: boolean
+        default: false
+        description: "Used if next_type or last_type is of 'date'"
+      relwithdebinfo:
+        type: boolean
+        default: false
+        description: "Used if next_type or last_type is of 'date'"
 
 env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -65,10 +73,10 @@ jobs:
             last_version="${{ inputs.last_version }}"
           fi
 
-          read next_type next_image < <(python3 mage/scripts/workflow_image_setup.py "${next_version}" "${{ inputs.arch }}" "${{ inputs.malloc }}")
+          read next_type next_image < <(python3 mage/scripts/workflow_image_setup.py "${next_version}" "${{ inputs.arch }}" "${{ inputs.malloc }}" "${{ inputs.cuda }}" "${{ inputs.relwithdebinfo }}")
           echo "NEXT_IMAGE=${next_image}" >> $GITHUB_ENV
           echo "NEXT_TYPE=${next_type}" >> $GITHUB_ENV
-          read last_type last_image < <(python3 mage/scripts/workflow_image_setup.py "${last_version}" "${{ inputs.arch }}" "${{ inputs.malloc }}")
+          read last_type last_image < <(python3 mage/scripts/workflow_image_setup.py "${last_version}" "${{ inputs.arch }}" "${{ inputs.malloc }}" "${{ inputs.cuda }}" "${{ inputs.relwithdebinfo }}")
           echo "LAST_IMAGE=${last_image}" >> $GITHUB_ENV
           echo "LAST_TYPE=${last_type}" >> $GITHUB_ENV
 

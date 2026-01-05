@@ -579,9 +579,6 @@ jobs:
         run: |
           tag="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
           clean_tag="${tag#v}"
-          if [[ "$ARCH" == "arm" ]]; then
-            clean_tag="${clean_tag}-arm"
-          fi
           if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
             clean_tag="${clean_tag}-relwithdebinfo"
           fi
@@ -602,4 +599,6 @@ jobs:
       next_version: "${{ needs.BuildAndPush.outputs.s3_package_url }}"
       last_version: "${{ needs.SetupSmokeTest.outputs.last_version }}"
       malloc: ${{ inputs.malloc }}
+      cuda: ${{ inputs.cuda }}
+      relwithdebinfo: ${{ inputs.build_type == 'RelWithDebInfo' }}
     secrets: inherit

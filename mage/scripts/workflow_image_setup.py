@@ -9,7 +9,7 @@ DATE_PATTERN = re.compile(r"^(?P<year>\d{4})(?P<month>0[1-9]|1[0-2])(?P<day>0[1-
 DOCKER_PATTERN = re.compile(
     r"^([a-z0-9]+(?:[._\-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._\-][a-z0-9]+)*)*):([A-Za-z0-9][A-Za-z0-9._\-]*)$"
 )
-VERSION_PATTERN = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
+VERSION_PATTERN = re.compile(r"^\d+\.\d+(?:\.\d+)?.*$")
 
 
 def classify_string(s: str) -> str:
@@ -35,7 +35,7 @@ def classify_string(s: str) -> str:
         return s
 
 
-def get_daily_url(date: str, arch: str, malloc: bool) -> str:
+def get_daily_url(date: str, arch: str, malloc: bool, cuda: bool, relwithdebinfo: bool) -> str:
     """
     Given a date of the format yyyymmdd, find and return the URL of the
     appropriate image.
@@ -44,9 +44,16 @@ def get_daily_url(date: str, arch: str, malloc: bool) -> str:
     packages = list_daily_release_packages(int(date), return_url=True)
 
     try:
-        arch_name = "x86_64" if arch == "amd64" else "arm64"
+        arch_name = "x86_64" if arch == "amd" else "arm64"
         key = f"Docker ({arch_name})"
-        key_image = f"{arch_name}-malloc" if malloc else arch_name
+        suffixes = ""
+        if relwithdebinfo:
+            suffixes += "-relwithdebinfo"
+        if malloc:
+            suffixes += "-malloc"
+        if cuda:
+            suffixes += "-cuda"
+        key_image = f"{arch_name}{suffixes}"
         url = packages[key][key_image]
     except KeyError:
         url = "fail"
@@ -54,7 +61,7 @@ def get_daily_url(date: str, arch: str, malloc: bool) -> str:
     return url
 
 
-def get_version_docker(version: str, malloc: str):
+def get_version_docker(version: str, malloc: str, cuda: str, relwithdebinfo: str):
     """
     convert version number to docker image tag
 
@@ -62,20 +69,13 @@ def get_version_docker(version: str, malloc: str):
     full docker tag to the workflow
     """
 
-    parts = [int(x) for x in version.split(".")]
+    repo_tag = f"memgraph/memgraph-mage:{version}"
 
-    # remove patch version if == 0
-    if len(parts) == 3 and parts[-1] == 0:
-        version = version[: version.rfind(".")]
-
-    # check whether version is before 3.2 or not (change in tag format)
-    major, minor = parts[:2]
-    if major < 3 or (major == 3 and minor < 2):
-        repo_tag = f"memgraph/memgraph-mage:{version}-memgraph-{version}"
-    else:
-        repo_tag = f"memgraph/memgraph-mage:{version}"
-
-    if malloc:
+    if relwithdebinfo and "relwithdebinfo" not in version:
+        repo_tag = f"{repo_tag}-relwithdebinfo"
+    if cuda and "cuda" not in version:
+        repo_tag = f"{repo_tag}-cuda"
+    if malloc and "malloc" not in version:
         repo_tag = f"{repo_tag}-malloc"
 
     return repo_tag
@@ -115,9 +115,13 @@ def main() -> None:
 
     parser.add_argument("image", type=str, help="Image tag, URL or daily build date")
 
-    parser.add_argument("arch", type=str, help="CPU Arch: arm64|amd64")
+    parser.add_argument("arch", type=str, help="CPU Arch: arm|amd")
 
     parser.add_argument("malloc", type=str, help="Is a malloc build: true|false")
+
+    parser.add_argument("cuda", type=str, help="Is a CUDA build: true|false")
+
+    parser.add_argument("relwithdebinfo", type=str, help="Is a RelWithDebInfo build: true|false")
 
     args = parser.parse_args()
 
@@ -125,10 +129,21 @@ def main() -> None:
     cls = classify_string(args.image)
 
     if cls == "date":
-        out = get_daily_url(args.image, args.arch, string_to_boolean(args.malloc))
+        out = get_daily_url(
+            args.image,
+            args.arch,
+            string_to_boolean(args.malloc),
+            string_to_boolean(args.cuda),
+            string_to_boolean(args.relwithdebinfo),
+        )
         cls = "url"
     elif cls == "version":
-        out = get_version_docker(args.image, string_to_boolean(args.malloc))
+        out = get_version_docker(
+            args.image,
+            string_to_boolean(args.malloc),
+            string_to_boolean(args.cuda),
+            string_to_boolean(args.relwithdebinfo),
+        )
         cls = "docker"
     else:
         out = args.image
