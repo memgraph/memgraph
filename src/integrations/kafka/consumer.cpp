@@ -190,7 +190,7 @@ Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 
-  consumer_ = std::unique_ptr<RdKafka::KafkaConsumer, std::function<void(RdKafka::KafkaConsumer *)>>(
+  consumer_ = std::unique_ptr<RdKafka::KafkaConsumer, std::move_only_function<void(RdKafka::KafkaConsumer *)>>(
       RdKafka::KafkaConsumer::create(conf.get(), error), [this](auto *consumer) {
         this->StopConsuming();
         consumer->close();

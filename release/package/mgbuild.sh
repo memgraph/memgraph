@@ -73,7 +73,7 @@ DEFAULT_ORGANIZATION_NAME="memgraph"
 DEFAULT_BENCH_GRAPH_HOST="bench-graph-api"
 DEFAULT_BENCH_GRAPH_PORT="9001"
 DEFAULT_MGDEPS_CACHE_HOST="mgdeps-cache"
-DEFAULT_MGDEPS_CACHE_PORT="8000"
+DEFAULT_MGDEPS_CACHE_PORT="80"
 DEFAULT_CCACHE_ENABLED="true"
 DEFAULT_CONAN_CACHE_ENABLED="true"
 DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
@@ -85,6 +85,7 @@ print_help () {
   echo -e "\nCommands:"
   echo -e "  build [OPTIONS]               Build mgbuild image"
   echo -e "  build-memgraph [OPTIONS]      Build memgraph binary inside mgbuild container"
+  echo -e "  build-ssl [OPTIONS]           Build OpenSSL inside mgbuild container"
   echo -e "  init-tests                    Initialize tests inside mgbuild container"
   echo -e "  copy [OPTIONS]                Copy an artifact from mgbuild container to host"
   echo -e "  package-memgraph              Create memgraph package from built binary inside mgbuild container"
@@ -134,6 +135,12 @@ print_help () {
   echo -e "  --conan-username string       Specify conan username (default \"\")"
   echo -e "  --conan-password string       Specify conan password (default \"\")"
   echo -e "  --build-dependency string     Specify build dependency (default \"\"). Set to \"all\" to install all dependencies, or a specific dependency name to install only that dependency. Dependencies are specified in the format of \"<package>/<version>\"."
+
+  echo -e "\nbuild-ssl options:"
+  echo -e "  --conan-remote string         Specify conan remote (optional)"
+  echo -e "  --conan-username string       Specify conan username (optional, but required for uploading to remote)"
+  echo -e "  --conan-password string       Specify conan password (optional, but required for uploading to remote)"
+  echo -e "  --version string              Specify OpenSSL version (default \"3.5.4\")"
 
   echo -e "\ncopy options (default \"--binary\"):"
   echo -e "  --artifact-name string        Specify a custom name for the copied artifact"
@@ -383,12 +390,20 @@ copy_project_files() {
 upload_conan_cache() {
   local conan_username=$1
   local conan_password=$2
+  local package_name=""
+  if [[ $# -gt 2 ]]; then
+    package_name=$3
+  fi
   if [[ -z "$conan_username" ]] || [[ -z "$conan_password" ]]; then
     echo "Warning: Conan username and password are required for Conan cache upload"
     return 0
   fi
   docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan remote login -p $conan_password artifactory $conan_username"
-  docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan upload \"*/*\" -r=artifactory --confirm"
+  if [[ -n "$package_name" ]]; then
+    docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan upload \"$package_name\" -r=artifactory --confirm"
+  else
+    docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan upload \"*/*\" -r=artifactory --confirm"
+  fi
   return $?
 }
 
@@ -1109,6 +1124,20 @@ test_memgraph() {
 
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE supernode"
     ;;
+    mgbench-load-parquet)
+      shift 1
+      local EXPORT_RESULTS_FILE='benchmark_result.json'
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --export-results-file)
+            EXPORT_RESULTS_FILE="$2"
+            shift 2
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE load_parquet"
+    ;;
     upload-to-bench-graph)
       shift 1
       local SETUP_PASSED_ARGS="export PASSED_ARGS=\"$@\""
@@ -1182,6 +1211,50 @@ copy_heaptrack() {
   docker cp $build_container:/tmp/heaptrack/ $dest_dir
 }
 
+build_ssl() {
+  local conan_remote=""
+  local conan_username=""
+  local conan_password=""
+  local ssl_version="3.5.4"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --conan-remote)
+        conan_remote=$2
+        shift 2
+      ;;
+      --conan-username)
+        conan_username=$2
+        shift 2
+      ;;
+      --conan-password)
+        conan_password=$2
+        shift 2
+      ;;
+      --version)
+        ssl_version=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  echo "Building OpenSSL $ssl_version in $build_container..."
+  local conan_remote_flag=""
+  if [[ -n "$conan_remote" ]]; then
+    conan_remote_flag="--conan-remote $conan_remote"
+  fi
+  ./tools/openssl/container-build.sh $build_container $conan_remote_flag --version $ssl_version
+
+  if [[ -n "$conan_username" ]] && [[ -n "$conan_password" ]]; then
+    upload_conan_cache $conan_username $conan_password "openssl/$ssl_version"
+  fi
+
+  echo "OpenSSL built and uploaded to conan cache"
+}
 ##################################################
 ################### PARSE ARGS ###################
 ##################################################
@@ -1480,6 +1553,16 @@ case $command in
         "
       fi
 
+      # This network will allo w the mgbuild container to access the mgdeps cache container
+      # check for `mgbuild_network` network and create it if it doesn't exist
+      if ! docker network inspect mgbuild_network > /dev/null 2>&1; then
+        docker network create mgbuild_network
+      fi
+
+      # add the build container to the `mgbuild_network` network
+      docker network connect mgbuild_network $build_container
+      docker network connect mgbuild_network mgdeps-cache || true  # allow this to fail if the mgdeps cache container is not running
+
       # Clean up override files if they were created
       cleanup_cache_override
     ;;
@@ -1501,7 +1584,15 @@ case $command in
       done
 
       # clean up conan cache inside container
-      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && ./tools/clean_conan.sh 1w"
+      if docker exec -u mg $build_container bash -c "test -d /home/mg/.conan2"; then
+        docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && ./tools/clean_conan.sh 1w"
+      fi
+
+      # remove the build container from the `mgbuild_network` network
+      docker network disconnect mgbuild_network $build_container
+      docker network disconnect mgbuild_network mgdeps-cache || true
+      docker network rm mgbuild_network || true
+      echo "mgbuild_network network removed"
 
       # Create cache override files (same logic as run command)
       compose_files=$(setup_cache_override)
@@ -1562,6 +1653,9 @@ case $command in
     ;;
     copy-heaptrack)
       copy_heaptrack $@
+    ;;
+    build-ssl)
+      build_ssl $@
     ;;
     *)
         echo "Error: Unknown command '$command'"

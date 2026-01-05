@@ -23,6 +23,7 @@ namespace memgraph::query {
 
 class DbAccessor;
 class TypedValue;
+struct QueryUserOrRole;
 
 namespace {
 const char kStartsWith[] = "STARTSWITH";
@@ -38,6 +39,7 @@ struct FunctionContext {
   std::unordered_map<std::string, int64_t> *counters;
   storage::View view;
   int64_t hops_counter{0};
+  std::shared_ptr<QueryUserOrRole> user_or_role{nullptr};
 };
 
 using func_impl =

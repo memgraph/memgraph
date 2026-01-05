@@ -126,7 +126,7 @@ class Handler {
         gk.~Gatekeeper<T>();
         post_delete_func();
       };
-      defer_pool_.AddTask(utils::CopyMovableFunctionWrapper{std::move(task)});
+      defer_pool_.AddTask(std::move(task));
     }
     // In any case remove from handled map
     items_.erase(itr);

@@ -16,15 +16,16 @@ on:
 
 jobs:
   release_benchmarks:
-    name: "Release benchmarks"
+    name: "Daily benchmarks"
     runs-on: [self-hosted, Linux, "${{ github.ref == 'refs/heads/master' && 'laufey' || 'benchmark' }}"]
-    timeout-minutes: 330
+    timeout-minutes: 350
     #  The timeout above is calculated based on a previous run where the loop count was 100
     #  Rough times per test:
     #  - macro-benchmark: 2.13 minutes
     #  - mgbench: 13 minutes
     #  - extended planner improvements mgbench: 7.26 minutes
     #  - mgbench-supernode: 1 minute (very rough estimate)
+    #  - mgbench-load-parquet: 2 minutes
     #  10 iterations would take about 234 minutes, leaving 36 minutes to allow
     #  for building memgraph and variations in benchmark times.
     env:
@@ -36,6 +37,9 @@ jobs:
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
       LOOP_COUNT: ${{ inputs.loop_count || 10 }}
+      CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+      CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+      CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
 
     steps:
       - name: Set up repository
@@ -64,7 +68,10 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -82,6 +89,18 @@ jobs:
           else
             echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
           fi
+
+      - name: Run and upload load_parquet benchmark
+        id: load-parquet
+        continue-on-error: true
+        run: |
+          ./tools/loop-benchmark.sh \
+            mgbench-load-parquet \
+            load-parquet \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME
 
       - name: Run and upload macro benchmarks
         id: macro-benchmark

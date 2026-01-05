@@ -30,6 +30,7 @@
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/procedure/module_fwd.hpp"
+#include "query/trigger_privilege_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/property_value.hpp"
@@ -3371,9 +3372,9 @@ class TriggerQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action { CREATE_TRIGGER, DROP_TRIGGER, SHOW_TRIGGERS };
+  enum class Action : uint8_t { CREATE_TRIGGER, DROP_TRIGGER, SHOW_TRIGGERS };
 
-  enum class EventType {
+  enum class EventType : uint8_t {
     ANY,
     VERTEX_CREATE,
     EDGE_CREATE,
@@ -3390,11 +3391,12 @@ class TriggerQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  memgraph::query::TriggerQuery::Action action_;
-  memgraph::query::TriggerQuery::EventType event_type_;
+  TriggerQuery::Action action_;
+  TriggerQuery::EventType event_type_;
   std::string trigger_name_;
   bool before_commit_;
   std::string statement_;
+  TriggerPrivilegeContext privilege_context_;
 
   TriggerQuery *Clone(AstStorage *storage) const override {
     TriggerQuery *object = storage->Create<TriggerQuery>();
@@ -3403,6 +3405,7 @@ class TriggerQuery : public memgraph::query::Query {
     object->trigger_name_ = trigger_name_;
     object->before_commit_ = before_commit_;
     object->statement_ = statement_;
+    object->privilege_context_ = privilege_context_;
     return object;
   }
 

@@ -48,7 +48,7 @@ class Telemetry final {
 
 #ifdef MG_ENTERPRISE
   void AddDatabaseCollector(dbms::DbmsHandler &dbms_handler);
-  void AddCoordinatorCollector(std::optional<coordination::CoordinatorState> const &coordinator_state);
+  void AddCoordinatorCollector(std::weak_ptr<coordination::CoordinatorState> coordinator_state);
 #else
   void AddDatabaseCollector() {
     AddCollector("database", []() -> nlohmann::json { return nlohmann::json::array(); });

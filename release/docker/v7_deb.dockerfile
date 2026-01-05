@@ -6,6 +6,13 @@ ARG EXTENSION
 ARG TARGETARCH
 ARG CUSTOM_MIRROR
 
+COPY openssl/* /tmp/
+RUN apt-get update && apt-get install -y \
+  /tmp/openssl*.deb \
+  /tmp/libssl3t64*.deb \
+  --no-install-recommends && \
+  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
 # If CUSTOM_MIRROR is set, replace the default archive.ubuntu.com
 # and security.ubuntu.com URIs in your .sources file
 RUN if [ -n "$CUSTOM_MIRROR" ]; then \
@@ -16,7 +23,7 @@ RUN if [ -n "$CUSTOM_MIRROR" ]; then \
   fi
 
 RUN apt-get update && apt-get install -y \
-  openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip python3.12-venv libatomic1 adduser \
+  libcurl4 libseccomp2 python3 libpython3.12 python3-pip python3.12-venv libatomic1 adduser \
   --no-install-recommends && \
   apt install -y libxmlsec1 && \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*

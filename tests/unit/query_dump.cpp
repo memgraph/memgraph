@@ -435,6 +435,7 @@ class DumpTest : public ::testing::Test {
   memgraph::system::System system_state;
   memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{},
                                               nullptr,
+                                              nullptr,
                                               repl_state,
                                               system_state
 #ifdef MG_ENTERPRISE
@@ -1180,8 +1181,8 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
       << "Wrong storage mode!";
 
   memgraph::system::System system_state;
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, repl_state,
-                                                          system_state
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, nullptr,
+                                                          repl_state, system_state
 #ifdef MG_ENTERPRISE
                                                           ,
                                                           std::nullopt, nullptr
@@ -1362,8 +1363,8 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
       << "Wrong storage mode!";
 
   memgraph::system::System system_state;
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, repl_state,
-                                                          system_state
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, nullptr,
+                                                          repl_state, system_state
 #ifdef MG_ENTERPRISE
                                                           ,
                                                           std::nullopt, nullptr
@@ -1652,7 +1653,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB);
+                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1662,7 +1663,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB);
+                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1672,7 +1673,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB);
+                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1682,7 +1683,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB);
+                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1692,7 +1693,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB);
+                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1702,7 +1703,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB);
+                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1712,7 +1713,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB);
+                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1722,7 +1723,37 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB);
+                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::INVOKER);
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_definer_on_vcreate";
+    const std::string trigger_statement = "UNWIND createdVertices AS newNodes SET newNodes.created = timestamp()";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_CREATE;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER);
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_definer_on_vupdate";
+    const std::string trigger_statement = "CREATE (:DummyUpdate)";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_UPDATE;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER);
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_definer_on_any";
+    const std::string trigger_statement = "CREATE ()-[:Any]->()";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::ANY;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER);
   }
   {
     ResultStreamFaker stream(this->db->storage());
@@ -1730,15 +1761,25 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     { memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db); }
     VerifyQueries(
         stream.GetResults(),
-        "CREATE TRIGGER trigger_on_vcreate ON () CREATE AFTER COMMIT EXECUTE UNWIND createdVertices AS newNodes "
+        "CREATE TRIGGER trigger_on_vcreate SECURITY INVOKER ON () CREATE AFTER COMMIT EXECUTE UNWIND createdVertices "
+        "AS newNodes "
         "SET newNodes.created = timestamp();",
-        "CREATE TRIGGER trigger_on_vupdate ON () UPDATE BEFORE COMMIT EXECUTE CREATE (:DummyUpdate);",
-        "CREATE TRIGGER trigger_on_vdelete ON () DELETE AFTER COMMIT EXECUTE CREATE (:DummyDelete);",
-        "CREATE TRIGGER trigger_on_ecreate ON --> CREATE BEFORE COMMIT EXECUTE CREATE ()-[:DummyCreate]->();",
-        "CREATE TRIGGER trigger_on_eupdate ON --> UPDATE BEFORE COMMIT EXECUTE CREATE ()-[:DummyUpdate]->();",
-        "CREATE TRIGGER trigger_on_edelete ON --> DELETE AFTER COMMIT EXECUTE CREATE ()-[:DummyDelete]->();",
-        "CREATE TRIGGER trigger_on_any BEFORE COMMIT EXECUTE CREATE ()-[:Any]->();",
-        "CREATE TRIGGER trigger_on_any_after AFTER COMMIT EXECUTE CREATE ()-[:Any]->();");
+        "CREATE TRIGGER trigger_on_vupdate SECURITY INVOKER ON () UPDATE BEFORE COMMIT EXECUTE CREATE (:DummyUpdate);",
+        "CREATE TRIGGER trigger_on_vdelete SECURITY INVOKER ON () DELETE AFTER COMMIT EXECUTE CREATE (:DummyDelete);",
+        "CREATE TRIGGER trigger_on_ecreate SECURITY INVOKER ON --> CREATE BEFORE COMMIT EXECUTE CREATE "
+        "()-[:DummyCreate]->();",
+        "CREATE TRIGGER trigger_on_eupdate SECURITY INVOKER ON --> UPDATE BEFORE COMMIT EXECUTE CREATE "
+        "()-[:DummyUpdate]->();",
+        "CREATE TRIGGER trigger_on_edelete SECURITY INVOKER ON --> DELETE AFTER COMMIT EXECUTE CREATE "
+        "()-[:DummyDelete]->();",
+        "CREATE TRIGGER trigger_on_any SECURITY INVOKER BEFORE COMMIT EXECUTE CREATE ()-[:Any]->();",
+        "CREATE TRIGGER trigger_on_any_after SECURITY INVOKER AFTER COMMIT EXECUTE CREATE ()-[:Any]->();",
+        "CREATE TRIGGER trigger_definer_on_vcreate SECURITY DEFINER ON () CREATE AFTER COMMIT EXECUTE UNWIND "
+        "createdVertices AS newNodes "
+        "SET newNodes.created = timestamp();",
+        "CREATE TRIGGER trigger_definer_on_vupdate SECURITY DEFINER ON () UPDATE BEFORE COMMIT EXECUTE CREATE "
+        "(:DummyUpdate);",
+        "CREATE TRIGGER trigger_definer_on_any SECURITY DEFINER BEFORE COMMIT EXECUTE CREATE ()-[:Any]->();");
   }
 }
 
