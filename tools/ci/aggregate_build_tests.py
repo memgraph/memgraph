@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import subprocess
@@ -5,7 +6,7 @@ from typing import List
 from urllib.parse import quote
 
 
-def list_build_files(date: int, mock: bool = False) -> List[str]:
+def list_build_files(date: int, image_type: str = "mage", mock: bool = False) -> List[str]:
     """
     Lists the files in s3 for the current build date
 
@@ -13,7 +14,10 @@ def list_build_files(date: int, mock: bool = False) -> List[str]:
     =====
     date: int
         Date in the format yyyymmdd
-
+    image_type: str
+        `memgraph` or `mage`
+    mock: bool
+        If True, the mock build is listed
     Returns
     =======
     files: list[str]
@@ -24,7 +28,7 @@ def list_build_files(date: int, mock: bool = False) -> List[str]:
             "aws",
             "s3",
             "ls",
-            f"s3://deps.memgraph.io/daily-build/memgraph{'_mock' if mock else ''}/{date}/",
+            f"s3://deps.memgraph.io/daily-build/{image_type}{'_mock' if mock else ''}/{date}/",
             "--recursive",
         ],
         capture_output=True,
@@ -37,7 +41,61 @@ def list_build_files(date: int, mock: bool = False) -> List[str]:
     return files
 
 
-def build_package_json(files: List[str], return_url: bool = True) -> dict:
+def parse_file_os_arch(file, image_type):
+    """
+    Extracts the OS and CPU architecture from a file name
+    Inputs
+    ======
+    file: str
+        s3 key of the package file name
+    image_type: str
+        `memgraph` or `mage`
+
+    Returns
+    =======
+    os, arch: strings
+        OS and CPU architecture, respectively, respectively
+    """
+
+    if image_type == "mage":
+        is_deb = file.endswith(".deb")
+
+        if "arm64" in file:
+            arch = "arm64"
+            os = "Docker (arm64)" if not is_deb else "ubuntu-24.04"
+        else:
+            arch = "x86_64"
+            os = "Docker (x86_64)" if not is_deb else "ubuntu-24.04"
+
+        if "relwithdebinfo" in file:
+            arch = f"{arch}-relwithdebinfo"
+
+        if "malloc" in file:
+            arch = f"{arch}-malloc"
+
+        if "cuda" in file:
+            arch = f"{arch}-cuda"
+
+    elif image_type == "memgraph":
+        if "aarch64" in file:
+            arch = "arm64"
+        else:
+            arch = "x86_64"
+
+        if "relwithdebinfo" in file:
+            arch = f"{arch}-relwithdebinfo"
+
+        if "malloc" in file:
+            arch = f"{arch}-malloc"
+
+        os = file.split("/")[3].replace("-malloc", "").replace("-aarch64", "").replace("-relwithdebinfo", "")
+    else:
+        raise ValueError(f"Unsupported image_type: {image_type}")
+
+    return os, arch
+
+
+def build_package_json(files: List[str], return_url: bool = True, image_type: str = "mage") -> dict:
     """
     Extracts the OS and CPU architecture and builds the dict/json used by the
     daily-builds workflow
@@ -48,6 +106,8 @@ def build_package_json(files: List[str], return_url: bool = True) -> dict:
         list of s3 keys
     return_url: bool
         If True, the URL is returned, otherwise the s3 key
+    image_type: str
+        `memgraph` or `mage`
 
     Returns
     =======
@@ -67,18 +127,7 @@ def build_package_json(files: List[str], return_url: bool = True) -> dict:
         else:
             url = file
 
-        if "aarch64" in file:
-            arch = "arm64"
-        else:
-            arch = "x86_64"
-
-        if "relwithdebinfo" in file:
-            arch = f"{arch}-debug"
-
-        if "malloc" in file:
-            arch = f"{arch}-malloc"
-
-        os = file.split("/")[3].replace("-malloc", "").replace("-aarch64", "").replace("-relwithdebinfo", "")
+        os, arch = parse_file_os_arch(file, image_type)
 
         if os not in out:
             out[os] = {}
@@ -88,7 +137,9 @@ def build_package_json(files: List[str], return_url: bool = True) -> dict:
     return out
 
 
-def list_daily_release_packages(date: int, return_url: bool = True, mock: bool = False) -> dict:
+def list_daily_release_packages(
+    date: int, return_url: bool = True, image_type: str = "mage", mock: bool = False
+) -> dict:
     """
     returns dict containing all packages for a specific date
 
@@ -98,7 +149,10 @@ def list_daily_release_packages(date: int, return_url: bool = True, mock: bool =
         Date in the format yyyymmdd
     return_url: bool
         If True, the URL is returned, otherwise the s3 key
-
+    image_type: str
+        `memgraph` or `mage`
+    mock: bool
+        If True, the mock build is listed
     Returns
     =======
     out: dict
@@ -111,13 +165,14 @@ def list_daily_release_packages(date: int, return_url: bool = True, mock: bool =
         }
     """
 
-    files = list_build_files(date, mock)
-    packages = build_package_json(files, return_url)
+    files = list_build_files(date, image_type, mock)
+
+    packages = build_package_json(files, return_url, image_type)
 
     return packages
 
 
-def main() -> None:
+def main(image_type: str, mock: bool = False) -> None:
     """
     Collect BUILD_TEST_RESULTS, CURRENT_BUILD_DATE, s3 keys of packages and
     build a JSON payload to be sent to the daily build repo workflow
@@ -137,19 +192,20 @@ def main() -> None:
         }
     }
     """
+
     date = int(os.getenv("CURRENT_BUILD_DATE"))
 
     # TODO: add individual test results and URL to each one
-    tests = os.getenv("TEST_INDIVIDUAL_RESULT")
+    tests = os.getenv("TEST_RESULT")
 
     # collect packages part of the payload
-    packages = list_daily_release_packages(date)
+    packages = list_daily_release_packages(date, image_type=image_type, mock=mock)
 
     # build the payload dict, print the JSON dump
     payload = {
         "event_type": "trigger_update_index",
         "client_payload": {
-            "table": "memgraph",
+            "table": image_type,
             "limit": 42,
             "build_data": {"date": date, "tests": tests, "packages": packages},
         },
@@ -159,4 +215,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("image_type", type=str, choices=["memgraph", "mage"], default="mage")
+    parser.add_argument("--mock", action="store_true", default=False)
+    args = parser.parse_args()
+
+    main(args.image_type, args.mock)

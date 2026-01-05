@@ -184,12 +184,12 @@ jobs:
 
       - name: Aggregate Test Results and Builds
         env:
-          TEST_INDIVIDUAL_RESULT: ${{ needs.TestBuild.outputs.test_status }}
+          TEST_RESULT: ${{ needs.TestBuild.outputs.test_status }}
           CURRENT_BUILD_DATE: ${{ needs.CurrentDateJob.outputs.current_date }}
         run: |
-          echo "TEST_INDIVIDUAL_RESULT: $TEST_INDIVIDUAL_RESULT"
+          echo "TEST_RESULT: $TEST_RESULT"
           echo "Package Date: $CURRENT_BUILD_DATE"
-          echo "BUILD_TEST_RESULTS=$(python3 tools/aggregate_build_tests.py)" >> $GITHUB_ENV
+          echo "BUILD_TEST_RESULTS=$(python3 tools/ci/aggregate_build_tests.py 'memgraph')" >> $GITHUB_ENV
 
       - name: Trigger Daily Builds Page Update
         env:
@@ -271,7 +271,7 @@ jobs:
         run: |
           echo "TEST_RESULT: $TEST_RESULT"
           echo "Package Date: $CURRENT_BUILD_DATE"
-          echo "BUILD_TEST_RESULTS=$(python3 mage/scripts/aggregate_build_tests.py 'mage')" >> $GITHUB_ENV
+          echo "BUILD_TEST_RESULTS=$(python3 tools/ci/aggregate_build_tests.py 'mage')" >> $GITHUB_ENV
 
       - name: Trigger Daily Builds Page Update
         if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.mock) }}
