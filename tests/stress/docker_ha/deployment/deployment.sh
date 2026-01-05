@@ -242,6 +242,20 @@ stop_monitoring() {
 
 start_memgraph() {
     echo "Starting Memgraph HA Deployment (Docker)..."
+    echo "Using image: $MEMGRAPH_IMAGE"
+
+    # Verify license is set
+    if [[ -z "$MEMGRAPH_ENTERPRISE_LICENSE" ]]; then
+        echo "WARNING: MEMGRAPH_ENTERPRISE_LICENSE is not set!"
+    else
+        echo "Enterprise license is configured (length: ${#MEMGRAPH_ENTERPRISE_LICENSE})"
+    fi
+    if [[ -z "$MEMGRAPH_ORGANIZATION_NAME" ]]; then
+        echo "WARNING: MEMGRAPH_ORGANIZATION_NAME is not set!"
+    else
+        echo "Organization name: $MEMGRAPH_ORGANIZATION_NAME"
+    fi
+
     if [[ "$ENABLE_MONITORING" == "true" ]]; then
         echo "Monitoring enabled - Prometheus exporter and Grafana will be started"
     fi
