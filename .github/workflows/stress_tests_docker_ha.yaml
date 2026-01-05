@@ -70,11 +70,17 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
+          python -m venv tests/ve3
+          source tests/ve3/bin/activate
+          pip install --upgrade pip
           pip install -r tests/stress/requirements.txt
 
       - name: Run stress tests (docker HA)
         run: |
+          source tests/ve3/bin/activate
+          export MEMGRAPH_ENTERPRISE_LICENSE="${MEMGRAPH_ENTERPRISE_LICENSE}"
+          export MEMGRAPH_ORGANIZATION_NAME="${MEMGRAPH_ORGANIZATION_NAME}"
+          export MEMGRAPH_IMAGE="${MEMGRAPH_IMAGE}"
           cd tests/stress
           ./continuous_integration --deployment docker_ha
         env:
