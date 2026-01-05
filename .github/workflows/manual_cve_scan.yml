@@ -4,7 +4,7 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  push:
+  #push: DO NOT MERGE THIS!
   workflow_dispatch:
     inputs:
       arch:
@@ -59,6 +59,7 @@ jobs:
     secrets: inherit
 
 
+  # DO NOT MERGE THIS!
   push-cve-scan:
     name: Push CVE Scan
     if: ${{ github.event_name == 'push' }}
