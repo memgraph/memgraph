@@ -262,7 +262,7 @@ jobs:
           # if on master, then store the latest PR number and the commit
 
           # get the latest tagged version
-          tag="$(tools/get_latest_tag.sh)"
+          tag="$(tools/ci/get_latest_tag.sh)"
 
           # fetch the most recent PR number from git log
           pr="$(git log --pretty=%B | grep -oP '(?<=\(#)\d+(?=\))' | head -n 1)"

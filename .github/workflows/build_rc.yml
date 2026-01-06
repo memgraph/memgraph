@@ -319,7 +319,7 @@ jobs:
         id: set_last_image_version
         run: |
           echo "Setting last image version"
-          last_image_version=$(./tools/get_latest_tag.sh)
+          last_image_version=$(./tools/ci/get_latest_tag.sh)
           echo "last_image_version=$last_image_version" >> $GITHUB_OUTPUT
 
   RunISSUTest:
