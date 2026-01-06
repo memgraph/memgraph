@@ -1325,7 +1325,7 @@ test_mage() {
     pip install -r python/tests/requirements.txt --break-system-packages
   }
 
-  case "$1" in
+  case $1 in
     unit)
       local ci=true
       local cache_present=false
@@ -1514,6 +1514,7 @@ test_mage() {
       print_help
       exit 1
     ;;
+  esac
 }
 
 build_pymgclient() {
