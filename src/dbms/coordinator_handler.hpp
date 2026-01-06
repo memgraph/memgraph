@@ -13,15 +13,17 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <cstdint>
+#include <map>
 #include <optional>
 #include <string_view>
-
-#include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_ops_status.hpp"
-#include "coordination/coordinator_state.hpp"
-#include "coordination/instance_status.hpp"
-
 #include <vector>
+
+import memgraph.coordination.coordinator_communication_config;
+import memgraph.coordination.coordinator_ops_status;
+import memgraph.coordination.coordinator_state;
+import memgraph.coordination.instance_status;
+import memgraph.coordination.replication_lag_info;
 
 namespace memgraph::dbms {
 
