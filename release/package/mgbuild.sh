@@ -1287,9 +1287,9 @@ package_mage_deb() {
   echo -e "${GREEN_BOLD}Packaging MAGE DEB package${RESET}"
   docker exec -i -u root $build_container bash -c "apt-get update && apt-get install -y debhelper"
 
-  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/mage/scripts/package && ./build-deb.sh '${arch}64' $build_type $version $malloc $cuda"
+  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && ./build-deb.sh '${arch}64' $build_type $version $malloc $cuda"
 
-  package_name="$(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/mage/scripts/package/memgraph-mage*.deb")"
+  package_name="$(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.deb")"
   mkdir -pv output
   docker cp $build_container:$package_name output/
   echo "Package: $package_name"

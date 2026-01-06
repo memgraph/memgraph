@@ -43,9 +43,9 @@ done
 
 docker exec -i -u root $CONTAINER_NAME bash -c "apt-get update && apt-get install -y debhelper"
 
-docker exec -i -u mg $CONTAINER_NAME bash -c "cd /home/mg/memgraph/mage/scripts/package && ./build-deb.sh $ARCH $BUILD_TYPE $VERSION $MALLOC $CUDA"
+docker exec -i -u mg $CONTAINER_NAME bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && ./build-deb.sh $ARCH $BUILD_TYPE $VERSION $MALLOC $CUDA"
 
-package_name="$(docker exec -i -u mg $CONTAINER_NAME bash -c "ls /home/mg/memgraph/mage/scripts/package/memgraph-mage*.deb")"
+package_name="$(docker exec -i -u mg $CONTAINER_NAME bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.deb")"
 mkdir -pv output
 docker cp $CONTAINER_NAME:$package_name output/
 echo "Package: $package_name"
