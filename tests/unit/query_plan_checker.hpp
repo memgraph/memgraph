@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,6 +33,42 @@ class BaseOpChecker {
   virtual void CheckOp(LogicalOperator &, const SymbolTable &) = 0;
 };
 
+/// Type-erased wrapper for BaseOpChecker that allows value semantics.
+/// This enables using checkers in containers without manual memory management.
+/// Uses shared_ptr internally to allow cheap copies (shared ownership).
+/// Example: Checkers checkers{ExpectOnce{}, ExpectExpand{}, ExpectProduce{}};
+class Checker {
+ public:
+  template <typename T, typename = std::enable_if_t<std::is_base_of_v<BaseOpChecker, std::decay_t<T>>>>
+  Checker(T &&checker) : impl_(std::make_shared<Model<std::decay_t<T>>>(std::forward<T>(checker))) {}
+
+  Checker(Checker &&) = default;
+  Checker &operator=(Checker &&) = default;
+  Checker(const Checker &) = default;
+  Checker &operator=(const Checker &) = default;
+
+  BaseOpChecker *get() const { return impl_->get(); }
+
+ private:
+  struct Concept {
+    virtual ~Concept() = default;
+    virtual BaseOpChecker *get() = 0;
+  };
+
+  template <typename T>
+  struct Model : Concept {
+    T checker;
+    template <typename U>
+    explicit Model(U &&c) : checker(std::forward<U>(c)) {}
+    BaseOpChecker *get() override { return &checker; }
+  };
+
+  std::shared_ptr<Concept> impl_;
+};
+
+/// Container type alias for a list of type-erased checkers
+using Checkers = std::vector<Checker>;
+
 class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
  public:
   using HierarchicalLogicalOperatorVisitor::PostVisit;
@@ -46,6 +82,10 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
 
   PlanChecker(const std::list<BaseOpChecker *> &checkers, const SymbolTable &symbol_table)
       : checkers_(checkers), symbol_table_(symbol_table) {}
+
+  PlanChecker(const Checkers &checkers, const SymbolTable &symbol_table) : symbol_table_(symbol_table) {
+    for (const auto &checker : checkers) checkers_.emplace_back(checker.get());
+  }
 
 #define PRE_VISIT(TOp)              \
   bool PreVisit(TOp &op) override { \
@@ -224,13 +264,33 @@ using ExpectRemoveNestedProperty = OpChecker<RemoveNestedProperty>;
 
 class ExpectFilter : public OpChecker<Filter> {
  public:
-  explicit ExpectFilter(const std::vector<std::list<BaseOpChecker *>> &pattern_filters = {},
-                        const std::optional<std::vector<std::string>> &expected_edge_types = std::nullopt)
-      : pattern_filters_(pattern_filters), expected_edge_types_(expected_edge_types) {}
+  // Default constructor (no pattern filters)
+  ExpectFilter() = default;
+
+  // Constructor with only expected edge types (no pattern filters)
+  explicit ExpectFilter(std::vector<std::string> expected_edge_types)
+      : expected_edge_types_(std::move(expected_edge_types)) {}
+
+  // Constructor taking raw pointer lists (legacy)
+  explicit ExpectFilter(std::vector<std::list<BaseOpChecker *>> pattern_filters,
+                        std::optional<std::vector<std::string>> expected_edge_types = std::nullopt)
+      : pattern_filters_ptrs_(std::move(pattern_filters)), expected_edge_types_(std::move(expected_edge_types)) {}
+
+  // Constructor taking Checkers (value semantics, owns the checkers)
+  explicit ExpectFilter(std::vector<Checkers> pattern_filters,
+                        std::optional<std::vector<std::string>> expected_edge_types = std::nullopt)
+      : pattern_filters_(std::move(pattern_filters)), expected_edge_types_(std::move(expected_edge_types)) {
+    for (const auto &filter : pattern_filters_) {
+      pattern_filters_ptrs_.emplace_back();
+      for (const auto &checker : filter) {
+        pattern_filters_ptrs_.back().emplace_back(checker.get());
+      }
+    }
+  }
 
   void ExpectOp(Filter &filter, const SymbolTable &symbol_table) override {
-    for (auto i = 0; i < filter.pattern_filters_.size(); i++) {
-      PlanChecker check_updates(pattern_filters_[i], symbol_table);
+    for (size_t i = 0; i < filter.pattern_filters_.size(); i++) {
+      PlanChecker check_updates(pattern_filters_ptrs_[i], symbol_table);
 
       filter.pattern_filters_[i]->Accept(check_updates);
     }
@@ -279,7 +339,11 @@ class ExpectFilter : public OpChecker<Filter> {
     }
   }
 
-  std::vector<std::list<BaseOpChecker *>> pattern_filters_;
+ private:
+  // Owned storage (when using Checkers constructor)
+  std::vector<Checkers> pattern_filters_;
+  // Pointer views for PlanChecker
+  std::vector<std::list<BaseOpChecker *>> pattern_filters_ptrs_;
   std::optional<std::vector<std::string>> expected_edge_types_;
 };
 
@@ -666,21 +730,39 @@ class ExpectCallProcedure : public OpChecker<CallProcedure> {
 
 class ExpectRollUpApply : public OpChecker<RollUpApply> {
  public:
+  // Constructor taking unique_ptr lists (for backward compatibility)
   ExpectRollUpApply(const std::list<std::unique_ptr<BaseOpChecker>> &input,
-                    const std::list<std::unique_ptr<BaseOpChecker>> &list_collection_branch)
-      : input_(input), list_collection_branch_(list_collection_branch) {}
+                    const std::list<std::unique_ptr<BaseOpChecker>> &list_collection_branch) {
+    for (const auto &checker : input) input_ptrs_.emplace_back(checker.get());
+    for (const auto &checker : list_collection_branch) list_collection_branch_ptrs_.emplace_back(checker.get());
+  }
+
+  // Constructor taking raw pointer lists (for use in pattern filters - legacy)
+  ExpectRollUpApply(const std::list<BaseOpChecker *> &input, const std::list<BaseOpChecker *> &list_collection_branch)
+      : input_ptrs_(input), list_collection_branch_ptrs_(list_collection_branch) {}
+
+  // Constructor taking Checkers (value semantics, owns the checkers)
+  ExpectRollUpApply(Checkers input, Checkers list_collection_branch)
+      : input_(std::move(input)), list_collection_branch_(std::move(list_collection_branch)) {
+    for (const auto &checker : input_) input_ptrs_.emplace_back(checker.get());
+    for (const auto &checker : list_collection_branch_) list_collection_branch_ptrs_.emplace_back(checker.get());
+  }
 
   void ExpectOp(RollUpApply &op, const SymbolTable &symbol_table) override {
-    PlanChecker input_checker(input_, symbol_table);
+    PlanChecker input_checker(input_ptrs_, symbol_table);
     op.input_->Accept(input_checker);
     ASSERT_TRUE(op.list_collection_branch_);
-    PlanChecker list_collection_branch_checker(list_collection_branch_, symbol_table);
+    PlanChecker list_collection_branch_checker(list_collection_branch_ptrs_, symbol_table);
     op.list_collection_branch_->Accept(list_collection_branch_checker);
   }
 
  private:
-  const std::list<std::unique_ptr<BaseOpChecker>> &input_;
-  const std::list<std::unique_ptr<BaseOpChecker>> &list_collection_branch_;
+  // Owned storage (when using Checkers constructor)
+  Checkers input_;
+  Checkers list_collection_branch_;
+  // Pointer views for PlanChecker
+  std::list<BaseOpChecker *> input_ptrs_;
+  std::list<BaseOpChecker *> list_collection_branch_ptrs_;
 };
 
 class ExpectPeriodicSubquery : public OpChecker<PeriodicSubquery> {
