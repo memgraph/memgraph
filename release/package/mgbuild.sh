@@ -1443,7 +1443,7 @@ build_ssl() {
   if [[ -n "$conan_remote" ]]; then
     conan_remote_flag="--conan-remote $conan_remote"
   fi
-  ./tools/openssl/container-build.sh $build_container $conan_remote_flag --version $ssl_version
+  ./tools/ci/openssl/container-build.sh $build_container $conan_remote_flag --version $ssl_version
 
   if [[ -n "$conan_username" ]] && [[ -n "$conan_password" ]]; then
     upload_conan_cache $conan_username $conan_password "openssl/$ssl_version"
