@@ -9,6 +9,7 @@ RESET='\033[0m'
 ARCH=amd64
 BUILD_TYPE=Release
 CONTAINER_NAME=mgbuild
+RUST_VERSION="1.85"
 while [[ $# -gt 0 ]]; do
   case $1 in
     --arch)
@@ -21,6 +22,10 @@ while [[ $# -gt 0 ]]; do
     ;;
     --container-name)
       CONTAINER_NAME=$2
+      shift 2
+    ;;
+    --rust-version)
+      RUST_VERSION=$2
       shift 2
     ;;
     *)
@@ -64,10 +69,10 @@ docker cp . $CONTAINER_NAME:/home/mg/memgraph
 docker exec -i -u root $CONTAINER_NAME bash -c "chown -R mg:mg /home/mg/memgraph"
 
 echo -e "${GREEN_BOLD}Building inside container${RESET}"
-docker exec -i $CONTAINER_NAME bash -c "cd /home/mg/memgraph/mage && ./scripts/build.sh $BUILD_TYPE"
+docker exec -i $CONTAINER_NAME bash -c "cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh $BUILD_TYPE $RUST_VERSION"
 
 echo -e "${GREEN_BOLD}Compressing query modules${RESET}"
-docker exec -i $CONTAINER_NAME bash -c "cd /home/mg/memgraph/mage && ./scripts/compress.sh"
+docker exec -i $CONTAINER_NAME bash -c "cd /home/mg/memgraph/mage && ../tools/ci/mage-build/compress-query-modules.sh"
 
 echo -e "${GREEN_BOLD}Copying compressed query modules${RESET}"
 docker cp $CONTAINER_NAME:/home/mg/mage.tar.gz ./mage/mage.tar.gz

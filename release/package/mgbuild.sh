@@ -77,6 +77,7 @@ DEFAULT_MGDEPS_CACHE_PORT="80"
 DEFAULT_CCACHE_ENABLED="true"
 DEFAULT_CONAN_CACHE_ENABLED="true"
 DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
+DEFAULT_RUST_VERSION="1.85"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -119,7 +120,7 @@ print_help () {
 
   echo -e "\nbuild options:"
   echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
-  echo -e "  --rust-version number         Specify rustc and cargo version which be installed (default \"1.85\")"
+  echo -e "  --rust-version number         Specify rustc and cargo version which be installed (default \"$DEFAULT_RUST_VERSION\")"
   echo -e "  --node-version number         Specify nodejs version which be installed (default \"20\")"
 
   echo -e "\nbuild-memgraph options:"
@@ -1226,6 +1227,15 @@ copy_heaptrack() {
 build_mage() {
   echo -e "${GREEN_BOLD}Building MAGE${RESET}"
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+  local rust_version=$DEFAULT_RUST_VERSION
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --rust-version)
+        rust_version=$2
+        shift 2
+      ;;
+    esac
+  done
 
   # check if the repo has already been copied
   if ! docker exec -u mg $build_container ls /home/mg/memgraph > /dev/null 2>&1; then
@@ -1238,10 +1248,10 @@ build_mage() {
   fi
 
   echo -e "${GREEN_BOLD}Building MAGE in container${RESET}"
-  docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd /home/mg/memgraph/mage && ./scripts/build.sh $build_type"
+  docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh $build_type $rust_version"
 
   echo -e "${GREEN_BOLD}Compressing query modules${RESET}"
-  docker exec -i $build_container bash -c "cd /home/mg/memgraph/mage && ./scripts/compress.sh"
+  docker exec -i $build_container bash -c "cd /home/mg/memgraph/mage && ../tools/ci/mage-build/compress-query-modules.sh"
 
   echo -e "${GREEN_BOLD}Copying compressed query modules to host${RESET}"
   docker cp $build_container:/home/mg/mage.tar.gz ./mage/mage.tar.gz
@@ -1578,7 +1588,7 @@ case $command in
       cd $SCRIPT_DIR
       # Default values for --git-ref, --rust-version and --node-version
       git_ref_flag="--build-arg GIT_REF=master"
-      rust_version_flag="--build-arg RUST_VERSION=1.85"
+      rust_version_flag="--build-arg RUST_VERSION=$DEFAULT_RUST_VERSION"
       node_version_flag="--build-arg NODE_VERSION=20"
       while [[ "$#" -gt 0 ]]; do
         case "$1" in
