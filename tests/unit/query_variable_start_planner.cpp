@@ -489,4 +489,119 @@ TYPED_TEST(TestVariableStartPlanner, TestSubqueryWithTripleUnion) {
                dba);
   });
 }
+
+// Test nested pattern comprehensions where inner PC starts from outer's expansion node
+// Query: MATCH (n) WHERE n.id = 1 RETURN [(n)-[]->(m) | [(m)-[]->(x) | x.id]] AS result
+// Graph: (a {id:1})-[:R]->(b {id:2})-[:R]->(c {id:3})
+// Expected: [[3]] (one row with outer list containing inner list [3])
+TYPED_TEST(TestVariableStartPlanner, NestedPatternComprehensionChainedExpansion) {
+  auto storage_dba = this->db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto id = dba.NameToProperty("id");
+
+  // Create graph: (a {id:1})-[:R]->(b {id:2})-[:R]->(c {id:3})
+  auto a = dba.InsertVertex();
+  ASSERT_TRUE(a.SetProperty(id, memgraph::storage::PropertyValue(1)).has_value());
+
+  auto b = dba.InsertVertex();
+  ASSERT_TRUE(b.SetProperty(id, memgraph::storage::PropertyValue(2)).has_value());
+
+  auto c = dba.InsertVertex();
+  ASSERT_TRUE(c.SetProperty(id, memgraph::storage::PropertyValue(3)).has_value());
+
+  ASSERT_TRUE(dba.InsertEdge(&a, &b, dba.NameToEdgeType("R")).has_value());
+  ASSERT_TRUE(dba.InsertEdge(&b, &c, dba.NameToEdgeType("R")).has_value());
+
+  dba.AdvanceCommand();
+
+  // Inner pattern comprehension: [(m)-[]->(x) | x.id]
+  // This starts from 'm' which is discovered by the outer pattern comprehension
+  auto *inner_pc =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("m"), EDGE("anon_inner_edge", EdgeAtom::Direction::OUT), NODE("x")),
+                            nullptr, PROPERTY_LOOKUP(dba, "x", id));
+
+  // Outer pattern comprehension: [(n)-[]->(m) | <inner_pc>]
+  auto *outer_pc = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon_outer_edge", EdgeAtom::Direction::OUT), NODE("m")), nullptr, inner_pc);
+
+  // Query: MATCH (n) WHERE n.id = 1 RETURN <outer_pc> AS result
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EQ(PROPERTY_LOOKUP(dba, "n", id), LITERAL(1))),
+                                   RETURN(NEXPR("result", outer_pc))));
+
+  CheckPlansProduce(1, query, this->storage, &dba, [&](const auto &results) {
+    ASSERT_EQ(results.size(), 1) << "Should have exactly one result row";
+    ASSERT_EQ(results[0].size(), 1) << "Should have exactly one column";
+
+    const auto &outer_list = results[0][0];
+    ASSERT_TRUE(outer_list.IsList()) << "Result should be a list";
+    ASSERT_EQ(outer_list.ValueList().size(), 1) << "Outer list should have one element (for node b)";
+
+    const auto &inner_list = outer_list.ValueList()[0];
+    ASSERT_TRUE(inner_list.IsList()) << "Inner element should be a list";
+    ASSERT_EQ(inner_list.ValueList().size(), 1) << "Inner list should have one element (for node c)";
+
+    const auto &inner_value = inner_list.ValueList()[0];
+    ASSERT_TRUE(inner_value.IsInt()) << "Inner value should be an integer (c.id)";
+    EXPECT_EQ(inner_value.ValueInt(), 3) << "Inner value should be 3 (c's id)";
+  });
+}
+
+// Test that pattern comprehension with variable-length path after CREATE can see newly created data.
+// This tests View::OLD vs View::NEW handling when VLE is combined with writes.
+// Query: CREATE (a)-[:R]->(b)-[:R]->(c) WITH a RETURN [(a)-[*1..2]->(x) | x.id] AS reachable
+// Expected: [[2, 3]] (sees both b and c through the VLE)
+TYPED_TEST(TestVariableStartPlanner, PatternComprehensionVLEAfterCreate) {
+  auto storage_dba = this->db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto id = dba.NameToProperty("id");
+
+  // Build: CREATE (a {id:1})-[:R]->(b {id:2})-[:R]->(c {id:3})
+  auto *node_a = NODE("a");
+  std::get<0>(node_a->properties_)[this->storage.GetPropertyIx("id")] = LITERAL(1);
+  auto *node_b = NODE("b");
+  std::get<0>(node_b->properties_)[this->storage.GetPropertyIx("id")] = LITERAL(2);
+  auto *node_c = NODE("c");
+  std::get<0>(node_c->properties_)[this->storage.GetPropertyIx("id")] = LITERAL(3);
+
+  // Single pattern chain: (a)-[:R]->(b)-[:R]->(c)
+  auto *create_clause = CREATE(PATTERN(node_a, EDGE("r1", EdgeAtom::Direction::OUT, {"R"}), node_b,
+                                       EDGE("r2", EdgeAtom::Direction::OUT, {"R"}), node_c));
+
+  // Build: WITH a
+  auto *with_clause = WITH(NEXPR("a", IDENT("a")));
+
+  // Build variable-length edge for pattern comprehension: (a)-[*1..2]->(x)
+  auto *vle_edge = EDGE_VARIABLE("anon_edge", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
+  vle_edge->lower_bound_ = LITERAL(1);
+  vle_edge->upper_bound_ = LITERAL(2);
+
+  // Build: [(a)-[*1..2]->(x) | x.id]
+  auto *pc =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), vle_edge, NODE("x")), nullptr, PROPERTY_LOOKUP(dba, "x", id));
+
+  // Build: RETURN <pc> AS reachable
+  auto *query = QUERY(SINGLE_QUERY(create_clause, with_clause, RETURN(NEXPR("reachable", pc))));
+
+  CheckPlansProduce(1, query, this->storage, &dba, [&](const auto &results) {
+    ASSERT_EQ(results.size(), 1) << "Should have exactly one result row";
+    ASSERT_EQ(results[0].size(), 1) << "Should have exactly one column";
+
+    const auto &list = results[0][0];
+    ASSERT_TRUE(list.IsList()) << "Result should be a list";
+
+    // Should see both b (id=2) and c (id=3) through the VLE [*1..2]
+    // With View::OLD (bug), this would be empty because CREATE data isn't visible
+    // With correct handling, this should have 2 elements
+    ASSERT_EQ(list.ValueList().size(), 2) << "Should reach both b and c through VLE [*1..2]";
+
+    // Check the values (order may vary based on traversal)
+    std::set<int64_t> found_ids;
+    for (const auto &val : list.ValueList()) {
+      ASSERT_TRUE(val.IsInt()) << "Each element should be an integer (node id)";
+      found_ids.insert(val.ValueInt());
+    }
+    EXPECT_TRUE(found_ids.contains(2)) << "Should find node b (id=2)";
+    EXPECT_TRUE(found_ids.contains(3)) << "Should find node c (id=3)";
+  });
+}
 }  // namespace
