@@ -125,7 +125,7 @@ jobs:
     uses: ./.github/workflows/reusable_package_mage.yaml
     strategy:
       matrix:
-        include: ${{ needs.PackageSetup.outputs.package_suite }}
+        include: ${{ fromJson(needs.PackageSetup.outputs.package_suite) }}
     with:
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}

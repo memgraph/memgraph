@@ -51,7 +51,6 @@ class PackageMageSetup:
         self._package_suite = []
         self._load_gh_context()
         self.event_name = self._get_event_name()
-        print(f"Event name: {self.event_name}")
         self.workflow_inputs = self.get_workflow_inputs()
         self.setup_package_workflow()
 
@@ -82,12 +81,12 @@ class PackageMageSetup:
 
     def _check_pr_label(self, package: str, pr_labels: list) -> bool:
         if f"CI -package=mage-{package}" in pr_labels:
+            print(f'Found label for "{package}"')
             return {"build_type": "Release", "arch": "arm" if package == "arm" else "amd", "cuda": package == "cuda"}
         return None
 
     def _setup_pull_request(self) -> None:
         pr_labels = self._get_pr_labels()
-        print(f"PR labels: {pr_labels}")
         for package in PR_BUILDS:
             build = self._check_pr_label(package, pr_labels)
             if build:
@@ -141,6 +140,7 @@ def parse_args() -> argparse.Namespace:
 
 def print_package_suite(package_suite: dict) -> None:
     for build in package_suite:
+        print("--------------------------------")
         print(f"Build: {build}")
         print(f"Build type: {build.get('build_type')}")
         print(f"Arch: {build.get('arch')}")
@@ -152,7 +152,7 @@ def print_package_suite(package_suite: dict) -> None:
         print(f"Run smoke tests: {build.get('run_smoke_tests')}")
         print(f"Generate SBOM: {build.get('generate_sbom')}")
         print(f"Ref: {build.get('ref')}")
-        print("--------------------------------")
+
     build_packages = "false" if len(package_suite) == 0 else "true"
     os.popen(f"echo build_packages={build_packages} >> $GITHUB_OUTPUT")
     os.popen(f"echo package_suite={json.dumps(package_suite)} >> $GITHUB_OUTPUT")
