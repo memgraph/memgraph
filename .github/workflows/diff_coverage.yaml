@@ -216,6 +216,15 @@ jobs:
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
 
+      - name: Configure mage
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --no-ccache \
+          build-mage --config-only
+
       - name: Run clang-tidy
         run: |
           ./release/package/mgbuild.sh \

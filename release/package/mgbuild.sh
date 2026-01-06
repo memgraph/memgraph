@@ -1228,11 +1228,16 @@ build_mage() {
   echo -e "${GREEN_BOLD}Building MAGE${RESET}"
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local rust_version=$DEFAULT_RUST_VERSION
+  local config_only=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --rust-version)
         rust_version=$2
         shift 2
+      ;;
+      --config-only)
+        config_only=true
+        shift 1
       ;;
     esac
   done
@@ -1248,7 +1253,18 @@ build_mage() {
   fi
 
   echo -e "${GREEN_BOLD}Building MAGE in container${RESET}"
-  docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh $build_type $rust_version"
+  build_args=(
+    $build_type
+    $rust_version
+  )
+  if [[ "$config_only" = true ]]; then
+    build_args+=("--config-only")
+  fi
+  docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh ${build_args[@]}"
+  if [[ "$config_only" = true ]]; then
+    echo -e "${GREEN_BOLD}Configuration done successfully${RESET}"
+    exit 0
+  fi
 
   echo -e "${GREEN_BOLD}Compressing query modules${RESET}"
   docker exec -i $build_container bash -c "cd /home/mg/memgraph/mage && ../tools/ci/mage-build/compress-query-modules.sh"

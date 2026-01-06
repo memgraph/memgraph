@@ -63,6 +63,7 @@ class BuildType(Enum):
 
 
 class Parameter(Enum):
+    CONFIG_ONLY = "config_only"
     GPU = "gpu"
     CPP_BUILD_FLAGS = "cpp_build_flags"
     LANG = "lang"
@@ -103,6 +104,8 @@ def get_arguments():
     )
 
     build_args_parser.add_argument("--no-ml", help="Exclude ML files", action="store_true")
+
+    build_args_parser.add_argument("--config-only", help="Only configure the build", action="store_true")
 
     subparsers.add_parser("build", help="Build memgraph-mage", parents=[build_args_parser])
 
@@ -175,7 +178,12 @@ def build_and_copy_cpp_modules(args: Dict[str, Any]) -> bool:
     This function builds and copies C++ modules. Returns true if successful, false otherwise.
     """
 
-    logger.info("[Terminal] (1/7) Building C++ modules started.")
+    if args[Parameter.CONFIG_ONLY.value]:
+        step_cnt_str = "1"
+    else:
+        step_cnt_str = "7"
+
+    logger.info(f"[Terminal] (1/{step_cnt_str}) Building C++ modules started.")
 
     # Make build directory
     os.makedirs(CPP_BUILD_DIRECTORY, exist_ok=True)
@@ -194,8 +202,12 @@ def build_and_copy_cpp_modules(args: Dict[str, Any]) -> bool:
 
     cmake_status = run_command(cmake_command)
     if not cmake_status:
-        logger.error("[Terminal] (1/7) Building C++ modules failed.")
+        logger.error(f"[Terminal] (1/{step_cnt_str}) Building C++ modules failed.")
         return False
+
+    if args[Parameter.CONFIG_ONLY.value]:
+        logger.info("[Terminal] (1/1) Configuration done successfully.")
+        return True
 
     make_command = ["cmake", "--build", CPP_BUILD_DIRECTORY]
 
@@ -316,6 +328,9 @@ def build(args: Dict[str, Any]) -> bool:
         if not cpp_status:
             return False
 
+    if args[Parameter.CONFIG_ONLY.value]:
+        return True
+
     if Lang.PYTHON in args[Parameter.LANG.value]:
         python_status = copy_python_modules(args)
         if not python_status:
@@ -335,6 +350,9 @@ def run_build_action(args: Dict[str, Any]) -> bool:
     if not status:
         logging.error("[Terminal] An error occurred while building. Check the output message for more information.")
         return False
+
+    if args[Parameter.CONFIG_ONLY.value]:
+        return True
 
     logger.info("[Terminal] Building done successfully.")
 
