@@ -429,7 +429,7 @@ jobs:
           --load .
 
           # print the image size in both SI and IEC units
-          ./scripts/print_image_size.sh ${DOCKER_REPOSITORY_NAME} $IMAGE_TAG
+          ./tools/ci/mage-build/print-image-size.sh ${DOCKER_REPOSITORY_NAME} $IMAGE_TAG
 
       - name: Generate SBOM
         if: ${{ inputs.generate_sbom == true }}
