@@ -382,7 +382,7 @@ jobs:
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
-            test-mage \
+            test-mage unit \
             --ci \
             $TEST_ARGS
 
@@ -466,11 +466,12 @@ jobs:
       - name: Run end-to-end tests
         if: ${{ inputs.run_tests == true }}
         run: |
-          cd mage
-          python3 -m venv env
-          source env/bin/activate
-          pip install -r python/tests/requirements.txt --break-system-packages
-          cd tests/e2e/ && python3 -m pytest . -k "not cugraph and not embeddings_test-test_cuda_compute"
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            test-mage e2e
 
       - name: Wait for e2e Docker images to be available
         if: ${{ inputs.run_tests == true }}
@@ -483,37 +484,33 @@ jobs:
         env:
           PYTHONPATH: "$PWD/tests/e2e"
         run: |
-          cd mage/tests
-          source ../env/bin/activate
-          ./run_e2e_correctness_tests.sh $MEMGRAPH_PORT $NEO4J_PORT $NEO4J_CONTAINER $MAGE_CONTAINER $MEMGRAPH_NETWORK
-
-      - name: Cleanup after correctness tests
-        if: ${{ inputs.run_tests == true && always() }}
-        run: |
-          docker stop $NEO4J_CONTAINER || true
-          docker rm $NEO4J_CONTAINER || true
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            test-mage e2e-correctness \
+            --memgraph-port $MEMGRAPH_PORT \
+            --neo4j-port $NEO4J_PORT \
+            --neo4j-container $NEO4J_CONTAINER \
+            --mage-container $MAGE_CONTAINER \
+            --memgraph-network $MEMGRAPH_NETWORK
 
       - name: Run End-to-end migration tests
         if: ${{ inputs.run_tests == true }}
         env:
           PYTHONPATH: "$PWD/e2e"
         run: |
-          cd mage/tests
-          source ../env/bin/activate
-          ./run_e2e_migration_tests.sh --mage-container $MAGE_CONTAINER --mysql-container $MYSQL_CONTAINER --postgresql-container $POSTGRESQL_CONTAINER
-
-      - name: Cleanup after migration tests
-        if: ${{ inputs.run_tests == true && always() }}
-        run: |
-          docker stop $MAGE_CONTAINER || true
-          docker rm $MAGE_CONTAINER || true
-          docker stop $MYSQL_CONTAINER || true
-          docker rm $MYSQL_CONTAINER || true
-          docker stop $POSTGRESQL_CONTAINER || true
-          docker rm $POSTGRESQL_CONTAINER || true
-          docker stop $NEO4J_CONTAINER || true
-          docker rm $NEO4J_CONTAINER || true
-          docker network rm $MEMGRAPH_NETWORK || true
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            test-mage e2e-migration \
+            --mage-container $MAGE_CONTAINER \
+            --mysql-container $MYSQL_CONTAINER \
+            --postgresql-container $POSTGRESQL_CONTAINER \
+            --clean-env
 
       - name: Save docker image
         if: ${{ inputs.push_to_github || inputs.push_to_s3 }}

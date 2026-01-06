@@ -1314,53 +1314,206 @@ package_mage_deb() {
 test_mage() {
   # TODO: move other tests into this function like the test_memgraph function
 
-  local ci=true
-  local cache_present=false
-  local cuda=false
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --ci)
-        ci=true
-        shift 1
-      ;;
-      --cache-present)
-        cache_present=true
-        shift 1
-      ;;
-      --cuda)
-        cuda=true
-        shift 1
-      ;;
-      *)
-        echo "Error: Unknown flag '$1'"
-        print_help
-        exit 1
-      ;;
-    esac
-  done
+  function create_e2e_test_env() {
+    cd mage
+    if [[ -d env ]]; then
+      echo -e "${YELLOW_BOLD}E2E test environment already exists${RESET}"
+      return
+    fi
+    python3 -m venv env
+    source env/bin/activate
+    pip install -r python/tests/requirements.txt --break-system-packages
+  }
 
-  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+  case "$1" in
+    unit)
+      local ci=true
+      local cache_present=false
+      local cuda=false
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --ci)
+            ci=true
+            shift 1
+          ;;
+          --cache-present)
+            cache_present=true
+            shift 1
+          ;;
+          --cuda)
+            cuda=true
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$1'"
+            print_help
+            exit 1
+          ;;
+        esac
+      done
 
-  echo -e "${GREEN_BOLD}Running tests in container: $build_container${RESET}"
+      local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
 
-  echo -e "${GREEN_BOLD}Running Rust tests${RESET}"
-  docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && source \$HOME/.cargo/env && cd \$HOME/memgraph/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
+      echo -e "${GREEN_BOLD}Running tests in container: $build_container${RESET}"
 
-  echo -e "${GREEN_BOLD}Running C++ tests${RESET}"
-  docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd \$HOME/memgraph/mage/cpp/build/ && ctest --output-on-failure -j\$(nproc)"
+      echo -e "${GREEN_BOLD}Running Rust tests${RESET}"
+      docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && source \$HOME/.cargo/env && cd \$HOME/memgraph/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
 
-  echo -e "${GREEN_BOLD}Running Python tests${RESET}"
-  if [[ "$CUDA" == true ]]; then
-    requirements_file="requirements-gpu.txt"
-  else
-    requirements_file="requirements.txt"
-  fi
-  docker cp mage/python/$requirements_file $build_container:/tmp/$requirements_file
-  docker cp src/auth/reference_modules/requirements.txt $build_container:/tmp/auth_module-requirements.txt
-  docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/ && \
-    ./install_python_requirements.sh --ci --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
-    pip install -r \$HOME/memgraph/mage/python/tests/requirements.txt --break-system-packages"
-  docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/python/ && python3 -m pytest ."
+      echo -e "${GREEN_BOLD}Running C++ tests${RESET}"
+      docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd \$HOME/memgraph/mage/cpp/build/ && ctest --output-on-failure -j\$(nproc)"
+
+      echo -e "${GREEN_BOLD}Running Python tests${RESET}"
+      if [[ "$CUDA" == true ]]; then
+        requirements_file="requirements-gpu.txt"
+      else
+        requirements_file="requirements.txt"
+      fi
+      docker cp mage/python/$requirements_file $build_container:/tmp/$requirements_file
+      docker cp src/auth/reference_modules/requirements.txt $build_container:/tmp/auth_module-requirements.txt
+      docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/ && \
+        ./install_python_requirements.sh --ci --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
+        pip install -r \$HOME/memgraph/mage/python/tests/requirements.txt --break-system-packages"
+      docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/python/ && python3 -m pytest ."
+    ;;
+    e2e)
+      local clean_env=false
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --clean-env)
+            clean_env=true
+            shift 1
+          ;;
+        esac
+      done
+      create_e2e_test_env
+      cd mage
+      source env/bin/activate
+      cd tests/e2e/ && python3 -m pytest . -k "not cugraph and not embeddings_test-test_cuda_compute"
+      if [[ "$clean_env" = true ]]; then
+        rm -rf env
+      fi
+    ;;
+    e2e-correctness)
+      local memgraph_port=7687
+      local neo4j_port=7688
+      local neo4j_container=neo4j
+      local mage_container=mage
+      local memgraph_network=memgraph_network
+      local clean_env=false
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --memgraph-port)
+            memgraph_port=$2
+            shift 2
+          ;;
+          --neo4j-port)
+            neo4j_port=$2
+            shift 2
+          ;;
+          --neo4j-container)
+            neo4j_container=$2
+            shift 2
+          ;;
+          --mage-container)
+            mage_container=$2
+            shift 2
+          ;;
+          --memgraph-network)
+            memgraph_network=$2
+            shift 2
+          ;;
+          --clean-env)
+            clean_env=true
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$1'"
+            print_help
+            exit 1
+          ;;
+        esac
+      done
+      cleanup_container() {
+        docker stop $neo4j_container || true
+        docker rm $neo4j_container || true
+      }
+      trap cleanup_container EXIT INT TERM
+      create_e2e_test_env
+      cd mage/tests
+      source ../env/bin/activate
+      ./run_e2e_correctness_tests.sh \
+        --memgraph-port $memgraph_port \
+        --neo4j-port $neo4j_port \
+        --neo4j-container $neo4j_container \
+        --mage-container $mage_container \
+        --memgraph-network $memgraph_network
+      cleanup_container
+      if [[ "$clean_env" = true ]]; then
+        rm -rf ../env
+      fi
+      trap - EXIT INT TERM
+    ;;
+    e2e-migration)
+      local mage_container=mage
+      local mysql_container=mysql
+      local postgresql_container=postgresql
+      local clean_env=false
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --mage-container)
+            mage_container=$2
+            shift 2
+          ;;
+          --mysql-container)
+            mysql_container=$2
+            shift 2
+          ;;
+          --postgresql-container)
+            postgresql_container=$2
+            shift 2
+          ;;
+          --clean-env)
+            clean_env=true
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$1'"
+            print_help
+            exit 1
+          ;;
+        esac
+      done
+      # Define cleanup function for this case branch
+      cleanup_containers() {
+        docker stop $mage_container || true
+        docker rm $mage_container || true
+        docker stop $mysql_container || true
+        docker rm $mysql_container || true
+        docker stop $postgresql_container || true
+        docker rm $postgresql_container || true
+      }
+      # Set trap to cleanup on exit/interrupt (scoped to this case branch)
+      trap cleanup_containers EXIT INT TERM
+      create_e2e_test_env
+      cd mage/tests
+      source ../env/bin/activate
+      ./run_e2e_migration_tests.sh \
+        --mage-container $mage_container \
+        --mysql-container $mysql_container \
+        --postgresql-container $postgresql_container
+      # Normal cleanup
+      cleanup_containers
+      if [[ "$clean_env" = true ]]; then
+        rm -rf ../env
+      fi
+      # Remove trap since we're done with this branch
+      trap - EXIT INT TERM
+    ;;
+    *)
+      echo "Error: Unknown test '$1'"
+      print_help
+      exit 1
+    ;;
 }
 
 build_pymgclient() {
