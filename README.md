@@ -55,7 +55,7 @@ It’s also ACID-compliant and highly available.
 ## :zap: Features
 
 - Custom query modules - Run Python, Rust, and C/C++ code natively; check out
-  the [MAGE](https://github.com/memgraph/mage) graph algorithm library.
+  the [MAGE](mage/README.md) graph algorithm library.
 - Deep-path traversals - Use advanced capabilities such as accumulators and path
   filtering without adding additional application logic.
 - Native support for machine learning
@@ -70,8 +70,8 @@ It’s also ACID-compliant and highly available.
 
 ## :video_game: Memgraph Playground
 
-You don't need to install anything to try out Memgraph. Check out 
-our **[Memgraph Playground](https://playground.memgraph.com/)** sandboxes in 
+You don't need to install anything to try out Memgraph. Check out
+our **[Memgraph Playground](https://playground.memgraph.com/)** sandboxes in
 your browser.
 
 <p align="left">
@@ -128,7 +128,7 @@ Check out [Memgraph Cloud](https://memgraph.com/docs/memgraph-cloud) - a cloud s
 
 ## :link: Connect to Memgraph
 
-[Connect to the database](https://memgraph.com/docs/memgraph/connect-to-memgraph) using Memgraph Lab, mgconsole, various drivers (Python, C/C++ and others) and WebSocket. 
+[Connect to the database](https://memgraph.com/docs/memgraph/connect-to-memgraph) using Memgraph Lab, mgconsole, various drivers (Python, C/C++ and others) and WebSocket.
 
 ### :microscope: Memgraph Lab
 
@@ -160,7 +160,7 @@ Welcome to the heart of Memgraph development! We're on a mission to supercharge 
 
 ### Compile from Source
 
-Learn how to download, compile and run Memgraph from source with the [Quick Start](https://memgraph.notion.site/Quick-Start-82a99a85e62a4e3d89f6a9fb6d35626d) guide. 
+Learn how to download, compile and run Memgraph from source with the [Quick Start](https://memgraph.notion.site/Quick-Start-82a99a85e62a4e3d89f6a9fb6d35626d) guide.
 
 
 ### Explore Memgraph Internals
