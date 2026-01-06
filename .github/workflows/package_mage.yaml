@@ -131,11 +131,13 @@ jobs:
       memgraph_download_link: ${{ matrix.memgraph_download_link }}
       s3_dest_dir: ${{ matrix.s3_dest_dir }}
       shorten_tag: true
-      cuda: ${{ matrix.cuda == 'true' }}
-      push_to_s3: ${{ matrix.push_to_s3 == 'true' }}
-      malloc: ${{ matrix.malloc == 'true' }}
-      run_smoke_tests: ${{ matrix.run_smoke_tests == 'true' }}
-      generate_sbom: ${{ matrix.generate_sbom == 'true' }}
+      cuda: ${{ matrix.cuda }}
+      push_to_s3: ${{ matrix.push_to_s3 }}
+      malloc: ${{ matrix.malloc }}
+      run_smoke_tests: ${{ matrix.run_smoke_tests }}
+      run_tests: ${{ matrix.run_tests }}
+      package_deb: ${{ matrix.package_deb }}
+      generate_sbom: ${{ matrix.generate_sbom }}
       ref: ${{ matrix.ref }}
     secrets: inherit
 

@@ -80,9 +80,22 @@ class PackageMageSetup:
         return self._package_suite
 
     def _check_pr_label(self, package: str, pr_labels: list) -> bool:
+        default_args = {
+            "malloc": False,
+            "memgraph_download_link": "",
+            "push_to_s3": False,
+            "s3_dest_dir": "mage-unofficial",
+            "run_smoke_tests": False,
+            "run_tests": False,
+            "package_deb": "default",
+            "generate_sbom": False,
+            "ref": "",
+        }
         if f"CI -package=mage-{package}" in pr_labels:
             print(f'Found label for "{package}"')
-            return {"build_type": "Release", "arch": "arm" if package == "arm" else "amd", "cuda": package == "cuda"}
+            out = {"build_type": "Release", "arch": "arm" if package == "arm" else "amd", "cuda": package == "cuda"}
+            out.update(default_args)
+            return out
         return None
 
     def _setup_pull_request(self) -> None:
@@ -110,6 +123,8 @@ class PackageMageSetup:
                 "push_to_s3": self.workflow_inputs.get("push_to_s3", False),
                 "s3_dest_dir": self.workflow_inputs.get("s3_dest_dir", "mage-unofficial"),
                 "run_smoke_tests": self.workflow_inputs.get("run_smoke_tests", False),
+                "run_tests": self.workflow_inputs.get("run_tests", False),
+                "package_deb": self.workflow_inputs.get("package_deb", "default"),
                 "generate_sbom": self.workflow_inputs.get("generate_sbom", False),
                 "ref": self.workflow_inputs.get("ref", ""),
             }
@@ -160,6 +175,8 @@ def print_package_suite(package_suite: dict) -> None:
         print(f"Push to S3: {build.get('push_to_s3')}")
         print(f"S3 dest dir: {build.get('s3_dest_dir')}")
         print(f"Run smoke tests: {build.get('run_smoke_tests')}")
+        print(f"Run tests: {build.get('run_tests')}")
+        print(f"Package deb: {build.get('package_deb')}")
         print(f"Generate SBOM: {build.get('generate_sbom')}")
         print(f"Ref: {build.get('ref')}")
 
