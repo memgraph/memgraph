@@ -37,7 +37,7 @@ MAX_THREADS_BY_MEM=$((MAX_THREADS_BY_MEM > 0 ? MAX_THREADS_BY_MEM : 1))
 DEFAULT_THREADS=$((MAX_THREADS_BY_CPU < MAX_THREADS_BY_MEM ? MAX_THREADS_BY_CPU : MAX_THREADS_BY_MEM))
 THREADS=${THREADS:-$DEFAULT_THREADS}
 # Directories to exclude from clang-tidy analysis
-EXCLUSIONS=":!src/planner/test :!src/planner/bench :!src/csv/fuzz"
+EXCLUSIONS=":!src/planner/test :!src/planner/bench :!src/csv/fuzz :!mage/cpp/community_detection_module/grappolo :!mage/cpp/text_module/utf8 :!mage/cpp/util_module/algorithm/md5.hpp :!mage/cpp/util_module/algorithm/md5.cpp"
 VENV_DIR="${VENV_DIR:-env}"
 # until https://github.com/conan-io/conan/issues/19285 is fixed
 CLASSPATH=
@@ -99,7 +99,7 @@ echo "Using clang-tidy: $(command -v clang-tidy)"
 echo "clang-tidy version: $(clang-tidy --version | head -1)"
 echo "Parallel jobs: $THREADS (CPU cores: $MAX_THREADS_BY_CPU, Memory limit: $MAX_THREADS_BY_MEM based on ${AVAILABLE_MEM_GB}GB available)"
 
-git diff -U0 $BASE_BRANCH... -- src $EXCLUSIONS | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build  -regex ".+\.cppm?" | tee ./build/clang_tidy_output.txt
+git diff -U0 $BASE_BRANCH... -- src mage/cpp $EXCLUSIONS | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build  -regex ".+\.cppm?" | tee ./build/clang_tidy_output.txt
 
 echo ""
 echo "Checking for errors in clang-tidy output..."
