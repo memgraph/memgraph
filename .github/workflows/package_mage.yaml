@@ -116,7 +116,7 @@ jobs:
 
       - name: Set up package execution
         id: setup
-        run: ./tools/ci/package_mage_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME"
+        run: python3 tools/ci/package_mage_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME"
 
 
   BuildMage:
