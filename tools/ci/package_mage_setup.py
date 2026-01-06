@@ -100,18 +100,20 @@ class PackageMageSetup:
     def _check_workflow_input(self) -> bool:
         if self.workflow_inputs.get(f"matrix_build") == "true":
             return MATRIX_BUILDS
-        return {
-            "build_type": self.workflow_inputs.get("build_type", "Release"),
-            "arch": self.workflow_inputs.get("build_arch", "amd"),
-            "cuda": self.workflow_inputs.get("cuda", False),
-            "malloc": self.workflow_inputs.get("malloc", False),
-            "memgraph_download_link": self.workflow_inputs.get("memgraph_download_link", ""),
-            "push_to_s3": self.workflow_inputs.get("push_to_s3", False),
-            "s3_dest_dir": self.workflow_inputs.get("s3_dest_dir", "mage-unofficial"),
-            "run_smoke_tests": self.workflow_inputs.get("run_smoke_tests", False),
-            "generate_sbom": self.workflow_inputs.get("generate_sbom", False),
-            "ref": self.workflow_inputs.get("ref", ""),
-        }
+        return [
+            {
+                "build_type": self.workflow_inputs.get("build_type", "Release"),
+                "arch": self.workflow_inputs.get("build_arch", "amd"),
+                "cuda": self.workflow_inputs.get("cuda", False),
+                "malloc": self.workflow_inputs.get("malloc", False),
+                "memgraph_download_link": self.workflow_inputs.get("memgraph_download_link", ""),
+                "push_to_s3": self.workflow_inputs.get("push_to_s3", False),
+                "s3_dest_dir": self.workflow_inputs.get("s3_dest_dir", "mage-unofficial"),
+                "run_smoke_tests": self.workflow_inputs.get("run_smoke_tests", False),
+                "generate_sbom": self.workflow_inputs.get("generate_sbom", False),
+                "ref": self.workflow_inputs.get("ref", ""),
+            }
+        ]
 
     def setup_package_workflow(self) -> None:
         print(f"Event name: {self.event_name}")
@@ -138,6 +140,14 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def set_output(name: str, value: str) -> None:
+    out_path = os.environ.get("GITHUB_OUTPUT")
+    if not out_path:
+        raise RuntimeError("GITHUB_OUTPUT is not set")
+    with open(out_path, "a", encoding="utf-8") as f:
+        f.write(f"{name}={value}\n")
+
+
 def print_package_suite(package_suite: dict) -> None:
     for build in package_suite:
         print("--------------------------------")
@@ -153,9 +163,11 @@ def print_package_suite(package_suite: dict) -> None:
         print(f"Generate SBOM: {build.get('generate_sbom')}")
         print(f"Ref: {build.get('ref')}")
 
-    build_packages = "false" if len(package_suite) == 0 else "true"
-    os.popen(f"echo build_packages={build_packages} >> $GITHUB_OUTPUT")
-    os.popen(f"echo package_suite={json.dumps(package_suite)} >> $GITHUB_OUTPUT")
+    build_packages = "true" if len(package_suite) > 0 else "false"
+    set_output("build_packages", build_packages)
+
+    suite_json = json.dumps(package_suite, separators=(",", ":"))
+    set_output("package_suite", suite_json)
 
 
 if __name__ == "__main__":
