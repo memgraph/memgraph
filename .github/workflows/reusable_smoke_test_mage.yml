@@ -155,4 +155,4 @@ jobs:
       - name: Clean up Docker images
         if: always()
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh.sh

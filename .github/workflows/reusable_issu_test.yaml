@@ -1,4 +1,4 @@
-name: Reusable ISSU Test 
+name: Reusable ISSU Test
 
 on:
   workflow_call:
@@ -50,7 +50,7 @@ jobs:
         run: |
           docker pull "$NEXT_IMAGE"
           echo "MEMGRAPH_NEXT_DOCKERHUB_IMAGE=${{ env.NEXT_IMAGE }}" >> $GITHUB_ENV
-  
+
       - name: Load Next Image (URL)
         if: ${{ env.NEXT_TYPE == 'url' }}
         run: |
@@ -76,7 +76,7 @@ jobs:
         run: |
           curl -L ${{ env.LAST_IMAGE }} > last.tar.gz
           load_output=$(docker load -i last.tar.gz)
-          
+
           # grab each repo:tag, drop the ":latest" one, pick the first real tag
           repo_tag=$(echo "$load_output" \
             | awk -F': ' '/Loaded image:/ {print $2}' \
@@ -100,4 +100,4 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh.sh

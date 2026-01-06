@@ -584,7 +584,7 @@ jobs:
       - name: Memgraph Docker Cleanup
         if: always()
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh.sh
 
   SetupSmokeTest:
     runs-on: [self-hosted]
