@@ -71,6 +71,6 @@ fi
 docker cp mage/python/$requirements_file $CONTAINER_NAME:/tmp/$requirements_file
 docker cp src/auth/reference_modules/requirements.txt $CONTAINER_NAME:/tmp/auth_module-requirements.txt
 docker exec -i -u mg $CONTAINER_NAME bash -c "cd \$HOME/memgraph/mage/ && \
-  ./scripts/install_python_requirements.sh --ci --cache-present $CACHE_PRESENT --cuda $CUDA --arch $ARCH && \
+  ./install_python_requirements.sh --ci --cache-present $CACHE_PRESENT --cuda $CUDA --arch $ARCH && \
   pip install -r \$HOME/memgraph/mage/python/tests/requirements.txt --break-system-packages"
 docker exec -i -u mg $CONTAINER_NAME bash -c "cd \$HOME/memgraph/mage/python/ && python3 -m pytest ."
