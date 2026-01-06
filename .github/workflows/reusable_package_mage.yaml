@@ -119,7 +119,7 @@ jobs:
       - name: Pull e2e Docker images in background
         if: ${{ inputs.run_tests == true }}
         run: |
-          ./mage/scripts/pull-e2e-docker-images.sh &
+          ./tools/ci/pull-e2e-docker-images.sh &
 
       - name: Check package deb build
         env:
@@ -429,7 +429,7 @@ jobs:
           --load .
 
           # print the image size in both SI and IEC units
-          ./tools/ci/mage-build/print-image-size.sh ${DOCKER_REPOSITORY_NAME} $IMAGE_TAG
+          ./tools/ci/print-image-size.sh ${DOCKER_REPOSITORY_NAME} $IMAGE_TAG
 
       - name: Generate SBOM
         if: ${{ inputs.generate_sbom == true }}
@@ -476,7 +476,7 @@ jobs:
         if: ${{ inputs.run_tests == true }}
         run: |
           cd mage
-          ./scripts/wait-for-docker-images.sh
+          ./tools/ci/wait-for-docker-images.sh
 
       - name: Run End-to-end correctness tests
         if: ${{ inputs.run_tests == true }}
