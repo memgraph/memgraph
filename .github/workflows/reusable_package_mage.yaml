@@ -190,6 +190,12 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         run: echo "CI_BRANCH=${{ github.event.pull_request.head.ref }}" >> $GITHUB_ENV
 
+      - name: Get Current Memgraph Commit/Tag
+        env:
+          INPUT_REF: "${{ inputs.ref }}"
+        run: |
+          ./tools/ci/get_commit.sh "$INPUT_REF" "$CI_BRANCH" "$GITHUB_REF"
+
       - name: Download Memgraph package
         if: ${{ inputs.memgraph_download_link != '' }}
         run: |
@@ -417,7 +423,7 @@ jobs:
           --tag ${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG \
           --file Dockerfile.release \
           --build-arg BUILD_TYPE=$BUILD_TYPE \
-          --build-arg MAGE_COMMIT=$MAGE_COMMIT \
+          --build-arg MEMGRAPH_REF=$MEMGRAPH_REF \
           --build-arg CACHE_PRESENT=$CACHE_PRESENT \
           --build-arg CUSTOM_MIRROR=$CUSTOM_MIRROR \
           --load .

@@ -56,23 +56,23 @@ curl -L "$TOOLCHAIN_URL" -o /toolchain.tar.gz
 tar xzvfm /toolchain.tar.gz -C /opt
 
 
-echo "Cloning MAGE repo commit/tag: $MAGE_COMMIT"
+echo "Cloning Memgraph repo commit/tag: $MEMGRAPH_REF"
 cd /root
 git clone https://github.com/memgraph/mage.git --recurse-submodules
 cd /root/mage
 
-# Check if MAGE_COMMIT matches a version tag format: vX.Y or vX.Y.Z
-if [[ "$MAGE_COMMIT" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
-    echo "Detected valid tag format. Checking out tag: $MAGE_COMMIT"
-    git checkout "$MAGE_COMMIT"
+# Check if MEMGRAPH_REF matches a version tag format: vX.Y or vX.Y.Z
+if [[ "$MEMGRAPH_REF" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "Detected valid tag format. Checking out tag: $MEMGRAPH_REF"
+    git checkout "$MEMGRAPH_REF"
 else
-    echo "Detected branch name. Checking out branch: $MAGE_COMMIT"
-    git checkout "$MAGE_COMMIT"
+    echo "Detected branch name. Checking out branch: $MEMGRAPH_REF"
+    git checkout "$MEMGRAPH_REF"
 
     echo "Fetching latest main branch..."
     git fetch origin main
 
-    echo "Merging origin/main into branch $MAGE_COMMIT..."
+    echo "Merging origin/main into branch $MEMGRAPH_REF..."
     git merge origin/main
 fi
 

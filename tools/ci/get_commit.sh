@@ -6,12 +6,12 @@ GITHUB_REF=$3
 
 # Get the current tag, or branch if a tag doesn't exist
 # This is used later in image creation, so that the exact version of
-# the MAGE git repository can be checked out within the container,
+# the Memgraph git repository can be checked out within the container,
 # when we run the script to convert to "dev" container
 if [ -z "$INPUT_REF" ]; then
     echo "No specific ref provided, using current branch/tag."
     # If no ref is provided, use the current branch or tag
-    tag=$(./scripts/get_tag.sh)
+    tag=$(./tools/ci/get_tag.sh)
 else
     echo "Using provided ref: $INPUT_REF"
     tag="$INPUT_REF"
@@ -30,4 +30,4 @@ if [ -z "$tag" ]; then
 fi
 
 echo "Using tag/branch: $tag"
-echo "MAGE_COMMIT=${tag}" >> $GITHUB_ENV
+echo "MEMGRAPH_REF=${tag}" >> $GITHUB_ENV
