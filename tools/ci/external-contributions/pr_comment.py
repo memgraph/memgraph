@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
+import json
 import os
 import sys
 import urllib.request
-import urllib.parse
-import json
 
 
 def main(pr_number: str, branch_name: str):
@@ -28,8 +27,8 @@ def main(pr_number: str, branch_name: str):
     url = f"{api_url}/repos/{repo}/issues/{pr_number}/comments"
 
     # --- Send the request ---
-    data = json.dumps({"body": body}).encode('utf-8')
-    
+    data = json.dumps({"body": body}).encode("utf-8")
+
     request = urllib.request.Request(
         url,
         data=data,
@@ -38,21 +37,21 @@ def main(pr_number: str, branch_name: str):
             "Accept": "application/vnd.github+json",
             "Content-Type": "application/json",
         },
-        method="POST"
+        method="POST",
     )
-    
+
     try:
         with urllib.request.urlopen(request) as response:
             status_code = response.getcode()
-            response_text = response.read().decode('utf-8')
-            
+            response_text = response.read().decode("utf-8")
+
             if status_code == 201:
                 print("✅ Comment posted successfully.")
-                
+
                 # Parse the response to extract the comment ID
                 try:
                     response_data = json.loads(response_text)
-                    comment_id = response_data.get('id')
+                    comment_id = response_data.get("id")
                     if comment_id:
                         print(f"🔗 Comment ID: {comment_id}")
                         # Output the ID in a format that can be captured by shell
@@ -67,7 +66,7 @@ def main(pr_number: str, branch_name: str):
                 sys.exit(1)
     except urllib.error.HTTPError as e:
         print(f"❌ HTTP Error {e.code}: {e.reason}")
-        print(e.read().decode('utf-8'))
+        print(e.read().decode("utf-8"))
         sys.exit(1)
     except urllib.error.URLError as e:
         print(f"❌ URL Error: {e.reason}")

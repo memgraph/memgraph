@@ -84,7 +84,7 @@ jobs:
             echo "❌ Diff workflow failed"
           fi
 
-          python3 ./tools/external-contributions/pr_comment_update.py \
+          python3 ./tools/ci/external-contributions/pr_comment_update.py \
             "${{ needs.CallCreateStagingBranch.outputs.comment_id }}" \
             "${{ github.event.inputs.pr_number }}" \
             "${{ needs.CallCreateStagingBranch.outputs.staging_branch }}" \

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
+import json
 import os
 import sys
-import urllib.request
 import urllib.parse
-import json
+import urllib.request
 
 
 def main(comment_id: str, pr_number: str, branch_name: str, success_status: str):
@@ -19,7 +19,7 @@ def main(comment_id: str, pr_number: str, branch_name: str, success_status: str)
     run_url = f"{server_url}/{repo}/actions/runs/{run_id}"
 
     # --- Determine emoji based on success status ---
-    if success_status.lower() in ['true', 'success', '1']:
+    if success_status.lower() in ["true", "success", "1"]:
         status_emoji = "✅"
         status_text = "completed"
     else:
@@ -33,8 +33,8 @@ def main(comment_id: str, pr_number: str, branch_name: str, success_status: str)
     )
 
     # --- Send the PATCH request to update the comment ---
-    data = json.dumps({"body": body}).encode('utf-8')
-    
+    data = json.dumps({"body": body}).encode("utf-8")
+
     comment_api_url = f"{api_url}/repos/{repo}/issues/comments/{comment_id}"
     request = urllib.request.Request(
         comment_api_url,
@@ -44,14 +44,14 @@ def main(comment_id: str, pr_number: str, branch_name: str, success_status: str)
             "Accept": "application/vnd.github+json",
             "Content-Type": "application/json",
         },
-        method="PATCH"
+        method="PATCH",
     )
-    
+
     try:
         with urllib.request.urlopen(request) as response:
             status_code = response.getcode()
-            response_text = response.read().decode('utf-8')
-            
+            response_text = response.read().decode("utf-8")
+
             if status_code == 200:
                 print(f"✅ Comment updated successfully with {status_text} status.")
             else:
@@ -60,7 +60,7 @@ def main(comment_id: str, pr_number: str, branch_name: str, success_status: str)
                 sys.exit(1)
     except urllib.error.HTTPError as e:
         print(f"❌ HTTP Error {e.code}: {e.reason}")
-        print(e.read().decode('utf-8'))
+        print(e.read().decode("utf-8"))
         sys.exit(1)
     except urllib.error.URLError as e:
         print(f"❌ URL Error: {e.reason}")
