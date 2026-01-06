@@ -316,7 +316,7 @@ jobs:
         run: |
           echo "Setting next image URLs"
           export CURRENT_BUILD_DATE=${{ needs.CurrentDateJob.outputs.current_date }}
-          read amd_image_url arm_image_url < <(python3 tools/get_daily_issu_images.py)
+          read amd_image_url arm_image_url < <(python3 tools/ci/get_daily_issu_images.py)
           echo "amd_image_url=$amd_image_url" >> $GITHUB_OUTPUT
           echo "arm_image_url=$arm_image_url" >> $GITHUB_OUTPUT
           echo "AMD Image URL: $amd_image_url"
