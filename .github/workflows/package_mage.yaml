@@ -124,6 +124,7 @@ jobs:
     name: Build MAGE for ${{ matrix.arch }} ${{ matrix.build_type }}${{ matrix.cuda && ' CUDA' || '' }}${{ matrix.malloc && 'Malloc' || '' }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     strategy:
+      fail-fast: false
       matrix:
         include: ${{ fromJson(needs.PackageSetup.outputs.package_suite) }}
     with:
