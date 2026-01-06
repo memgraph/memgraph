@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+# generate the MAGE artifact name and Docker tag
 
 MEMGRAPH_VERSION=$1
 SHORTEN_TAG=$2
@@ -17,8 +18,6 @@ if [[ $SHORTEN_TAG == "true" ]]; then
     fi
 fi
 
-# if these match, then tag the image with the shortest vesion, e.g. 3.1.1
-# rather than 3.1.1-memgraph-3.1.1
 IMAGE_TAG="${MEMGRAPH_VERSION}"
 IMAGE_TAG="${IMAGE_TAG//+/_}"
 IMAGE_TAG="${IMAGE_TAG//\~/_}"
