@@ -1,9 +1,0 @@
----
-Language: Cpp
-BasedOnStyle: Google
-Standard: "c++20"
-UseTab: Never
-DerivePointerAlignment: false
-PointerAlignment: Right
-ColumnLimit: 120
-IncludeBlocks: Preserve
