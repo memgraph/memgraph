@@ -245,7 +245,7 @@ jobs:
       - name: "Generate Build SBOM"
         if: ${{ env.GENERATE_SBOM == 'true'  && env.FOR_DOCKER != 'true' }}
         run: |
-          ./tools/sbom/build-sbom.sh
+          ./tools/ci/sbom/build-sbom.sh
 
       - name: "Upload SBOM Files"
         if: ${{ env.GENERATE_SBOM == 'true' }}

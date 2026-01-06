@@ -1375,7 +1375,7 @@ generate_memgraph_build_sbom() {
 
   # generate the Memgraph SBOM
   echo -e "${GREEN_BOLD}Generating Memgraph SBOM within container${RESET}"
-  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/mage && export CONAN_REMOTE=$conan_remote && ./scripts/sbom/memgraph-sbom.sh"
+  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph && export CONAN_REMOTE=$conan_remote && ./tools/ci/sbom/build-sbom.sh"
   docker cp $build_container:/home/mg/memgraph/sbom/memgraph-build-sbom.json sbom/
   echo -e "${GREEN_BOLD}Memgraph SBOM: ${RED_BOLD}sbom/memgraph-build-sbom.json${RESET}"
 }
@@ -1403,7 +1403,7 @@ generate_mage_image_sbom() {
 
   # generate the MAGE image SBOM
   echo -e "${GREEN_BOLD}Generating MAGE image SBOM${RESET}"
-  ./mage/scripts/sbom/mage-sbom.sh "${image_name}"
+  ./tools/ci/sbom/mage-sbom.sh "${image_name}"
   echo -e "${GREEN_BOLD}MAGE image SBOM: ${RED_BOLD}sbom/mage-image-sbom.json${RESET}"
 }
 

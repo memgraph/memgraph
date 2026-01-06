@@ -8,7 +8,7 @@ TAG=$1
 
 function cleanup() {
     exit_status=$?
-    rm -rf tools/sbom/env || true
+    rm -rf tools/ci/sbom/env || true
     rm -f syft
     rm -f syft.tar.gz
     rm -r cyclonedx
@@ -18,7 +18,7 @@ function cleanup() {
 trap cleanup EXIT
 
 # run the build-sbom.sh script to obtain the SBOM for the Memgraph binary
-./tools/sbom/build-sbom.sh --no-cleanup
+./tools/ci/sbom/build-sbom.sh --no-cleanup
 
 # download syft binary from GitHub Releases
 if [[ "$(arch)" == "x86_64" ]]; then
@@ -45,5 +45,5 @@ echo "Generated SBOM file: sbom/memgraph-docker-sbom.json"
 rm sbom/docker-sbom.json
 
 # generate human-readable SBOM table
-python3 tools/sbom/sbom-formatter.py sbom/memgraph-docker-sbom.json
+python3 tools/ci/sbom/sbom-formatter.py sbom/memgraph-docker-sbom.json
 echo "Generated human-readable SBOM table: sbom/memgraph-docker-sbom.txt"

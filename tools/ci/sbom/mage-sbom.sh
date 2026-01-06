@@ -51,5 +51,5 @@ python3 -m venv sbom/env
 source sbom/env/bin/activate
 pip install rich==13.9.4
 
-python3 tools/sbom/sbom-formatter.py sbom/mage-sbom.json
+python3 tools/ci/sbom/sbom-formatter.py sbom/mage-sbom.json
 echo "Generated SBOM file: sbom/mage-sbom.txt"
