@@ -332,7 +332,7 @@ jobs:
 
       - name: Probe fastest mirror
         run: |
-          FASTEST=$(bash mage/scripts/test-mirrors.sh)
+          FASTEST=$(bash tools/ci/test-mirrors.sh)
           echo "CUSTOM_MIRROR=${FASTEST}" >> $GITHUB_ENV
 
       - name: Build Query Modules in MGBUILD container
