@@ -37,9 +37,9 @@ if [ "$exists" = "false" ]; then
     docker exec -u root "$CONTAINER_NAME" bash -c "chown -R mg:mg /home/mg/memgraph"
 fi
 
-docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/openssl/ci/build.sh --version $VERSION --conan-remote $CONAN_REMOTE"
-docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/openssl/ci/build-openssl-deb.sh $VERSION"
-docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/openssl/ci/build-libssl3-deb.sh $VERSION"
+docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/ci/openssl/build.sh --version $VERSION --conan-remote $CONAN_REMOTE"
+docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/ci/openssl/build-openssl-deb.sh $VERSION"
+docker exec -u mg "$CONTAINER_NAME" bash -c "cd /home/mg/memgraph && ./tools/ci/openssl/build-libssl3-deb.sh $VERSION"
 
 ARCH="$(dpkg --print-architecture)"
 docker cp "$CONTAINER_NAME:/home/mg/memgraph/build/openssl_${VERSION}-0ubuntu0custom1_${ARCH}.deb" build/openssl_${VERSION}-0ubuntu0custom1_${ARCH}.deb
