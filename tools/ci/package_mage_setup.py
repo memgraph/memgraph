@@ -86,7 +86,7 @@ class PackageMageSetup:
             "push_to_s3": False,
             "s3_dest_dir": "mage-unofficial",
             "run_smoke_tests": False,
-            "run_tests": False,
+            "run_tests": True,
             "package_deb": "default",
             "generate_sbom": False,
             "ref": "",
