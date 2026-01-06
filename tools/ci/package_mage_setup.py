@@ -163,3 +163,4 @@ if __name__ == "__main__":
     package_mage_setup = PackageMageSetup(args.gh_context_path)
     package_suite = package_mage_setup.get_package_suite()
     print_package_suite(package_suite)
+    print(json.dumps(package_suite, indent=2))

@@ -94,7 +94,6 @@ on:
         description: "Branch or tag to build"
         default: ''
 
-run-name: "Package MAGE"
 
 jobs:
   PackageSetup:
