@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+# runs Python, Rust and C++ tests for MAGE inside build container
+
 # Color codes
 RED_BOLD='\033[1;31m'
 GREEN_BOLD='\033[1;32m'
