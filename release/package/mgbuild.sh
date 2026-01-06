@@ -119,7 +119,7 @@ print_help () {
 
   echo -e "\nbuild options:"
   echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
-  echo -e "  --rust-version number         Specify rustc and cargo version which be installed (default \"1.80\")"
+  echo -e "  --rust-version number         Specify rustc and cargo version which be installed (default \"1.85\")"
   echo -e "  --node-version number         Specify nodejs version which be installed (default \"20\")"
 
   echo -e "\nbuild-memgraph options:"
@@ -1578,7 +1578,7 @@ case $command in
       cd $SCRIPT_DIR
       # Default values for --git-ref, --rust-version and --node-version
       git_ref_flag="--build-arg GIT_REF=master"
-      rust_version_flag="--build-arg RUST_VERSION=1.80"
+      rust_version_flag="--build-arg RUST_VERSION=1.85"
       node_version_flag="--build-arg NODE_VERSION=20"
       while [[ "$#" -gt 0 ]]; do
         case "$1" in
