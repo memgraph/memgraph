@@ -113,7 +113,8 @@ struct TaskState {
   /// Read schedule atomically using seqlock
   /// Returns consistent interval, one_shot, next_execution, and anchor_time together
   ScheduleSnapshot ReadSchedule() const {
-    uint64_t v1, v2;
+    uint64_t v1 = 0;
+    uint64_t v2 = 0;
     ScheduleSnapshot snap;
     do {
       v1 = schedule_version_.load(std::memory_order_acquire);
@@ -124,7 +125,7 @@ struct TaskState {
       snap.anchor_time = std::chrono::steady_clock::time_point{
           std::chrono::nanoseconds{anchor_time_ns.load(std::memory_order_relaxed)}};
       v2 = schedule_version_.load(std::memory_order_acquire);
-    } while (v1 != v2 || (v1 & 1));  // Retry if version changed or write in progress
+    } while (v1 != v2 || (v1 & 1U));  // Retry if version changed or write in progress
     return snap;
   }
 
@@ -235,6 +236,7 @@ struct WorkerPool {
         queued_tasks(other.queued_tasks.load()) {}
   WorkerPool &operator=(WorkerPool &&) = delete;
 
+  // NOLINTNEXTLINE(readability-make-member-function-const) - writes to eventfd
   void Signal(size_t count = 1) {
     if (eventfd_ >= 0) {
       uint64_t val = count;
@@ -242,9 +244,10 @@ struct WorkerPool {
     }
   }
 
+  // NOLINTNEXTLINE(readability-make-member-function-const) - reads from eventfd
   bool Wait(const std::atomic<bool> &running) {
-    uint64_t val;
-    ssize_t bytes;
+    uint64_t val = 0;
+    ssize_t bytes = 0;
     // Retry read if interrupted by signal (EINTR)
     // This is important for robustness - signals can interrupt blocking reads
     do {
@@ -311,6 +314,7 @@ class ConsolidatedScheduler::Impl {
   }
 
   /// Wake the dispatcher to re-evaluate task deadlines
+  // NOLINTNEXTLINE(readability-make-member-function-const) - modifies timer state
   void WakeDispatcher() {
     if (!timer_backend_) return;
     // Use epoch (time_point{}) to trigger immediate wake
@@ -431,9 +435,12 @@ ConsolidatedScheduler &ConsolidatedScheduler::Global() {
     g_instance.emplace(std::move(*result));
 
     // Register default pools
-    auto critical = g_instance->RegisterPool({kCriticalPool, 1, 1, PoolPolicy::CALLER_THREAD});
-    auto general = g_instance->RegisterPool({kGeneralPool, 4, 4, PoolPolicy::FIXED});
-    auto io = g_instance->RegisterPool({kIoPool, 2, 4, PoolPolicy::GROW});
+    auto critical = g_instance->RegisterPool(
+        {.name = kCriticalPool, .min_workers = 1, .max_workers = 1, .policy = PoolPolicy::CALLER_THREAD});
+    auto general = g_instance->RegisterPool(
+        {.name = kGeneralPool, .min_workers = 4, .max_workers = 4, .policy = PoolPolicy::FIXED});
+    auto io =
+        g_instance->RegisterPool({.name = kIoPool, .min_workers = 2, .max_workers = 4, .policy = PoolPolicy::GROW});
 
     if (!critical || !general || !io) {
       spdlog::critical("Failed to register default pools");
@@ -476,7 +483,7 @@ std::expected<PoolId, PoolError> ConsolidatedScheduler::RegisterPool(PoolConfig 
   std::lock_guard lock(impl_->pools_mutex_);
 
   // Check if pool already exists
-  if (impl_->pools_.find(config.name) != impl_->pools_.end()) {
+  if (impl_->pools_.contains(config.name)) {
     return std::unexpected(PoolError::ALREADY_EXISTS);
   }
 
@@ -504,7 +511,7 @@ std::optional<PoolId> ConsolidatedScheduler::GetPool(const std::string &name) {
   }
 
   std::lock_guard lock(impl_->pools_mutex_);
-  if (impl_->pools_.find(name) != impl_->pools_.end()) {
+  if (impl_->pools_.contains(name)) {
     return PoolId{this, name};
   }
   return std::nullopt;
@@ -589,7 +596,8 @@ std::expected<TaskHandle, RegisterError> PoolId::ScheduleNow(std::string name, s
   if (!scheduler_) {
     return std::unexpected(RegisterError::INVALID_POOL);
   }
-  TaskConfig config{std::move(name), ScheduleSpec::Once(), priority, name_};
+  TaskConfig config{
+      .name = std::move(name), .schedule = ScheduleSpec::Once(), .priority = priority, .pool_name = name_};
   return scheduler_->RegisterInternal(std::move(config), std::move(callback));
 }
 

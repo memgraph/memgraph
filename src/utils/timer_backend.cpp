@@ -11,6 +11,7 @@
 
 #include "utils/timer_backend.hpp"
 
+#include <array>
 #include <cerrno>
 #include <utility>
 
@@ -25,7 +26,7 @@ std::expected<TimerBackend, TimerBackendError> TimerBackend::Create() {
   //               if called outside epoll_wait context
   backend.timer_fd_ = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC | TFD_NONBLOCK);
   if (backend.timer_fd_ < 0) {
-    return std::unexpected(TimerBackendError{"timerfd_create failed", errno});
+    return std::unexpected(TimerBackendError{.message = "timerfd_create failed", .errno_value = errno});
   }
 
   // Create eventfd for cancel/wake signaling
@@ -35,19 +36,19 @@ std::expected<TimerBackend, TimerBackendError> TimerBackend::Create() {
   //       for UpdateDeadline() where we just need to wake the waiter once
   backend.cancel_fd_ = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
   if (backend.cancel_fd_ < 0) {
-    int saved_errno = errno;
+    const int saved_errno = errno;
     close(std::exchange(backend.timer_fd_, -1));
-    return std::unexpected(TimerBackendError{"eventfd failed", saved_errno});
+    return std::unexpected(TimerBackendError{.message = "eventfd failed", .errno_value = saved_errno});
   }
 
   // Create epoll instance for multiplexing timer and cancel events
   // EPOLL_CLOEXEC: prevent fd leak to child processes
   backend.epoll_fd_ = epoll_create1(EPOLL_CLOEXEC);
   if (backend.epoll_fd_ < 0) {
-    int saved_errno = errno;
+    const int saved_errno = errno;
     close(std::exchange(backend.cancel_fd_, -1));
     close(std::exchange(backend.timer_fd_, -1));
-    return std::unexpected(TimerBackendError{"epoll_create1 failed", saved_errno});
+    return std::unexpected(TimerBackendError{.message = "epoll_create1 failed", .errno_value = saved_errno});
   }
 
   // Register timer_fd with epoll
@@ -58,21 +59,21 @@ std::expected<TimerBackend, TimerBackendError> TimerBackend::Create() {
   ev.events = EPOLLIN;
   ev.data.fd = backend.timer_fd_;
   if (epoll_ctl(backend.epoll_fd_, EPOLL_CTL_ADD, backend.timer_fd_, &ev) < 0) {
-    int saved_errno = errno;
+    const int saved_errno = errno;
     close(std::exchange(backend.epoll_fd_, -1));
     close(std::exchange(backend.cancel_fd_, -1));
     close(std::exchange(backend.timer_fd_, -1));
-    return std::unexpected(TimerBackendError{"epoll_ctl(timer_fd) failed", saved_errno});
+    return std::unexpected(TimerBackendError{.message = "epoll_ctl(timer_fd) failed", .errno_value = saved_errno});
   }
 
   // Register cancel_fd with epoll
   ev.data.fd = backend.cancel_fd_;
   if (epoll_ctl(backend.epoll_fd_, EPOLL_CTL_ADD, backend.cancel_fd_, &ev) < 0) {
-    int saved_errno = errno;
+    const int saved_errno = errno;
     close(std::exchange(backend.epoll_fd_, -1));
     close(std::exchange(backend.cancel_fd_, -1));
     close(std::exchange(backend.timer_fd_, -1));
-    return std::unexpected(TimerBackendError{"epoll_ctl(cancel_fd) failed", saved_errno});
+    return std::unexpected(TimerBackendError{.message = "epoll_ctl(cancel_fd) failed", .errno_value = saved_errno});
   }
 
   return backend;
@@ -111,13 +112,13 @@ bool TimerBackend::WaitUntil(time_point deadline) {
 
   SetTimerDeadline(deadline);
 
-  struct epoll_event events[2];
-  int nfds;
+  std::array<struct epoll_event, 2> events{};
+  int nfds = 0;
 
   // Retry epoll_wait if interrupted by signal (EINTR)
   // This is important for robustness - signals like SIGUSR1 can interrupt syscalls
   do {
-    nfds = epoll_wait(epoll_fd_, events, 2, -1);
+    nfds = epoll_wait(epoll_fd_, events.data(), static_cast<int>(events.size()), -1);
   } while (nfds < 0 && errno == EINTR);
 
   // Check for unexpected errors
@@ -129,14 +130,14 @@ bool TimerBackend::WaitUntil(time_point deadline) {
   if (cancelled_.load(std::memory_order_acquire)) return false;
 
   for (int i = 0; i < nfds; ++i) {
-    if (events[i].data.fd == cancel_fd_) {
+    if (events[static_cast<size_t>(i)].data.fd == cancel_fd_) {
       // Drain the eventfd counter (without EFD_SEMAPHORE, this reads the entire value)
-      uint64_t val;
+      uint64_t val = 0;
       [[maybe_unused]] auto _ = read(cancel_fd_, &val, sizeof(val));
       if (cancelled_.load(std::memory_order_acquire)) return false;
-    } else if (events[i].data.fd == timer_fd_) {
+    } else if (events[static_cast<size_t>(i)].data.fd == timer_fd_) {
       // Timer expired - read expiration count to clear the event
-      uint64_t expirations;
+      uint64_t expirations = 0;
       [[maybe_unused]] auto _ = read(timer_fd_, &expirations, sizeof(expirations));
       return true;
     }
@@ -165,9 +166,9 @@ void TimerBackend::SetTimerDeadline(time_point deadline) {
   // Convert steady_clock::time_point directly to timespec for absolute time
   // steady_clock uses CLOCK_MONOTONIC on Linux, same clock as our timerfd
   // This avoids calling steady_clock::now() which would trigger clock_gettime syscall
-  auto ns = deadline.time_since_epoch();
-  auto secs = std::chrono::duration_cast<std::chrono::seconds>(ns);
-  auto nsecs = std::chrono::duration_cast<std::chrono::nanoseconds>(ns - secs);
+  const auto ns = deadline.time_since_epoch();
+  const auto secs = std::chrono::duration_cast<std::chrono::seconds>(ns);
+  const auto nsecs = std::chrono::duration_cast<std::chrono::nanoseconds>(ns - secs);
 
   struct itimerspec its {};
   its.it_value.tv_sec = secs.count();
@@ -181,7 +182,7 @@ void TimerBackend::SetTimerDeadline(time_point deadline) {
 
   // Use TFD_TIMER_ABSTIME - deadline is interpreted as absolute CLOCK_MONOTONIC time
   // If deadline is in the past, timer fires immediately (no need for clock_gettime)
-  timerfd_settime(timer_fd_, TFD_TIMER_ABSTIME, &its, nullptr);
+  (void)timerfd_settime(timer_fd_, TFD_TIMER_ABSTIME, &its, nullptr);
 }
 
 }  // namespace memgraph::utils
