@@ -75,6 +75,34 @@ struct ScheduleSpec {
   constexpr explicit operator bool() const { return interval.count() > 0; }
 };
 
+/// Extended schedule specification with start time alignment
+/// Used for tasks that need to run at specific wall-clock aligned times
+struct AlignedScheduleSpec {
+  std::chrono::milliseconds interval{0};                              ///< Fixed interval scheduling
+  std::optional<std::chrono::steady_clock::time_point> start_time{};  ///< First execution time (nullopt = now)
+  bool one_shot{false};                                               ///< If true, task runs once then stops
+
+  /// Create a fixed-interval schedule starting at a specific time
+  /// If start_time is in the past, advances to next aligned time
+  template <typename Rep, typename Period>
+  static AlignedScheduleSpec StartingAt(std::chrono::duration<Rep, Period> duration,
+                                        std::chrono::steady_clock::time_point start) {
+    return AlignedScheduleSpec{std::chrono::duration_cast<std::chrono::milliseconds>(duration), start, false};
+  }
+
+  /// Create a fixed-interval schedule starting now
+  template <typename Rep, typename Period>
+  static AlignedScheduleSpec Interval(std::chrono::duration<Rep, Period> duration) {
+    return AlignedScheduleSpec{std::chrono::duration_cast<std::chrono::milliseconds>(duration), std::nullopt, false};
+  }
+
+  /// Convert to basic ScheduleSpec (loses start_time info, for compatibility)
+  ScheduleSpec ToBasic() const { return ScheduleSpec{interval, start_time.has_value(), one_shot}; }
+
+  /// Check if schedule is valid (non-zero interval)
+  explicit operator bool() const { return interval.count() > 0; }
+};
+
 // Forward declarations
 class ConsolidatedScheduler;
 class TaskHandle;

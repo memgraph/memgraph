@@ -696,3 +696,86 @@ TEST(ConsolidatedSchedulerStandalone, RegisterPoolOnShutdownReturnsError) {
   EXPECT_FALSE(result.has_value());
   EXPECT_EQ(result.error(), PoolError::SCHEDULER_STOPPED);
 }
+
+/// Test 27: Time drift handling - slow execution doesn't cause drift
+/// If a task takes longer than its interval, it should skip missed executions
+/// and stay aligned to the original schedule
+TEST(ConsolidatedSchedulerStandalone, TimeDriftHandling) {
+  auto scheduler = CreateSchedulerOrFail();
+  auto general = RegisterPoolOrFail(scheduler, {"general", 1, 1, PoolPolicy::FIXED});
+
+  std::atomic<int> execution_count{0};
+  std::atomic<bool> first_execution_done{false};
+  const auto period = 100ms;
+
+  auto result = general.Register(
+      "slow_task", period,
+      [&]() {
+        int count = ++execution_count;
+        if (count == 1) {
+          // First execution takes longer than 2 periods
+          std::this_thread::sleep_for(250ms);
+          first_execution_done.store(true);
+          first_execution_done.notify_one();
+        }
+      },
+      SchedulerPriority::NORMAL, true);  // execute_immediately
+  ASSERT_TRUE(result.has_value());
+  auto handle = std::move(*result);
+
+  // Wait for first (slow) execution to complete
+  first_execution_done.wait(false);
+
+  // After slow execution, we should NOT have piled up multiple executions
+  // Give a little time for potential spurious executions
+  std::this_thread::sleep_for(50ms);
+  int count_after_slow = execution_count.load();
+
+  // Should be 1 or 2, NOT 3+ (which would indicate missed executions piled up)
+  EXPECT_LE(count_after_slow, 2) << "Slow execution caused pile-up of missed executions";
+
+  // Wait for a couple more intervals and verify schedule continues normally
+  std::this_thread::sleep_for(250ms);
+  int final_count = execution_count.load();
+
+  // Should have executed a few more times (drift-free)
+  EXPECT_GE(final_count, 3);
+  EXPECT_LE(final_count, 5);  // But not too many (no pile-up)
+
+  handle.Stop();
+}
+
+/// Test 28: Schedule alignment - executions stay aligned to original anchor
+TEST(ConsolidatedSchedulerStandalone, ScheduleAlignment) {
+  auto scheduler = CreateSchedulerOrFail();
+  auto general = RegisterPoolOrFail(scheduler, {"general", 1, 1, PoolPolicy::FIXED});
+
+  std::vector<std::chrono::steady_clock::time_point> execution_times;
+  std::mutex times_mutex;
+  const auto period = 100ms;
+
+  auto result = general.Register(
+      "aligned_task", period,
+      [&]() {
+        std::lock_guard lock(times_mutex);
+        execution_times.push_back(std::chrono::steady_clock::now());
+      },
+      SchedulerPriority::NORMAL, true);  // execute_immediately
+  ASSERT_TRUE(result.has_value());
+  auto handle = std::move(*result);
+
+  // Wait for several executions
+  std::this_thread::sleep_for(450ms);
+  handle.Stop();
+
+  // Verify executions are aligned to ~100ms intervals from start
+  std::lock_guard lock(times_mutex);
+  ASSERT_GE(execution_times.size(), 4);
+
+  for (size_t i = 1; i < execution_times.size(); ++i) {
+    auto delta = execution_times[i] - execution_times[i - 1];
+    // Each interval should be close to the period (within 50ms tolerance for scheduling jitter)
+    EXPECT_GE(delta, period - 50ms) << "Interval " << i << " too short";
+    EXPECT_LE(delta, period + 50ms) << "Interval " << i << " too long";
+  }
+}

@@ -47,6 +47,8 @@ struct TaskState {
   std::atomic<int64_t> next_execution_ns{0};
   // interval stored as milliseconds
   std::atomic<int64_t> interval_ms{0};
+  // anchor_time stored as nanoseconds since epoch (for drift-free rescheduling)
+  std::atomic<int64_t> anchor_time_ns{0};
   // one_shot flag
   std::atomic<bool> one_shot{false};
 
@@ -105,10 +107,11 @@ struct TaskState {
     std::chrono::milliseconds interval;
     bool one_shot;
     std::chrono::steady_clock::time_point next_execution;
+    std::chrono::steady_clock::time_point anchor_time;
   };
 
   /// Read schedule atomically using seqlock
-  /// Returns consistent interval, one_shot, and next_execution together
+  /// Returns consistent interval, one_shot, next_execution, and anchor_time together
   ScheduleSnapshot ReadSchedule() const {
     uint64_t v1, v2;
     ScheduleSnapshot snap;
@@ -118,6 +121,8 @@ struct TaskState {
       snap.one_shot = one_shot.load(std::memory_order_relaxed);
       snap.next_execution = std::chrono::steady_clock::time_point{
           std::chrono::nanoseconds{next_execution_ns.load(std::memory_order_relaxed)}};
+      snap.anchor_time = std::chrono::steady_clock::time_point{
+          std::chrono::nanoseconds{anchor_time_ns.load(std::memory_order_relaxed)}};
       v2 = schedule_version_.load(std::memory_order_acquire);
     } while (v1 != v2 || (v1 & 1));  // Retry if version changed or write in progress
     return snap;
@@ -131,6 +136,8 @@ struct TaskState {
     interval_ms.store(new_schedule.interval.count(), std::memory_order_relaxed);
     one_shot.store(new_schedule.one_shot, std::memory_order_relaxed);
     auto now = std::chrono::steady_clock::now();
+    // Reset anchor to now when schedule changes
+    anchor_time_ns.store(now.time_since_epoch().count(), std::memory_order_relaxed);
     next_execution_ns.store((now + new_schedule.interval).time_since_epoch().count(), std::memory_order_relaxed);
 
     // Increment to even (write complete)
@@ -138,11 +145,31 @@ struct TaskState {
   }
 
   /// Initialize schedule (called during registration, single-threaded)
-  void InitSchedule(const ScheduleSpec &schedule, std::chrono::steady_clock::time_point next) {
+  void InitSchedule(const ScheduleSpec &schedule, std::chrono::steady_clock::time_point anchor,
+                    std::chrono::steady_clock::time_point next) {
     interval_ms.store(schedule.interval.count(), std::memory_order_relaxed);
     one_shot.store(schedule.one_shot, std::memory_order_relaxed);
+    anchor_time_ns.store(anchor.time_since_epoch().count(), std::memory_order_relaxed);
     next_execution_ns.store(next.time_since_epoch().count(), std::memory_order_relaxed);
     // Version stays at 0 (even = stable) after init
+  }
+
+  /// Calculate next aligned execution time (drift-free)
+  /// Returns the next time >= now that aligns with anchor + N*interval
+  std::chrono::steady_clock::time_point CalculateNextAligned(std::chrono::steady_clock::time_point now) const {
+    auto snap = ReadSchedule();
+    if (snap.interval.count() == 0) return now;
+
+    // If we're before the anchor, next execution is at anchor
+    if (now < snap.anchor_time) {
+      return snap.anchor_time;
+    }
+
+    // Calculate how many intervals have passed since anchor
+    auto elapsed = now - snap.anchor_time;
+    auto intervals_passed = elapsed / snap.interval;
+    // Next execution is anchor + (intervals_passed + 1) * interval
+    return snap.anchor_time + (intervals_passed + 1) * snap.interval;
   }
 
   /// Comparison for priority queue (min-heap: earliest time, then highest priority)
@@ -506,8 +533,10 @@ std::expected<TaskHandle, RegisterError> ConsolidatedScheduler::RegisterInternal
 
   // Initialize schedule (single-threaded at this point)
   auto now = std::chrono::steady_clock::now();
+  // Anchor time is when this schedule started - used for drift-free rescheduling
+  auto anchor = now;
   auto next_exec = config.schedule.execute_immediately ? now : (now + config.schedule.interval);
-  task->InitSchedule(config.schedule, next_exec);
+  task->InitSchedule(config.schedule, anchor, next_exec);
 
   // Set up wake function
   task->wake_dispatcher = [this]() { WakeDispatcher(); };
@@ -526,9 +555,11 @@ std::expected<TaskHandle, RegisterError> ConsolidatedScheduler::RegisterInternal
         return;
       }
 
-      // Reschedule periodic task
+      // Reschedule periodic task using drift-free calculation
+      // This ensures executions stay aligned to the original anchor time
       auto reschedule_now = std::chrono::steady_clock::now();
-      t->SetNextExecution(reschedule_now + t->GetInterval());
+      auto next_aligned = t->CalculateNextAligned(reschedule_now);
+      t->SetNextExecution(next_aligned);
       {
         std::lock_guard lock(impl_->mutex_);
         impl_->task_queue_.push(t);
