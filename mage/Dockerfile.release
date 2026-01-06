@@ -14,6 +14,14 @@ ARG CUDA=false
 ARG CACHE_PRESENT=false
 ARG MEMGRAPH_PACKAGE
 
+# install custom openssl packages
+COPY openssl/* /tmp/
+RUN apt-get update && apt-get install -y \
+  /tmp/openssl*.deb \
+  /tmp/libssl3t64*.deb \
+  --no-install-recommends && \
+  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
 # Install runtime requirements for MAGE
 COPY scripts/install_runtime_requirements.sh /install_runtime_requirements.sh
 RUN chmod +x /install_runtime_requirements.sh && \
