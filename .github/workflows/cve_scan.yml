@@ -49,10 +49,10 @@ jobs:
         env:
           CURRENT_BUILD_DATE: ${{ inputs.date }}
         run: |
-          mage_arm_url="$(python3 scripts/get_cve_image_url.py 'arm64' 'mage')"
-          mage_amd_url="$(python3 scripts/get_cve_image_url.py 'amd64' 'mage')"
-          memgraph_arm_url="$(python3 scripts/get_cve_image_url.py 'arm64' 'memgraph')"
-          memgraph_amd_url="$(python3 scripts/get_cve_image_url.py 'amd64' 'memgraph')"
+          mage_arm_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'arm64' 'mage')"
+          mage_amd_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'amd64' 'mage')"
+          memgraph_arm_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'arm64' 'memgraph')"
+          memgraph_amd_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'amd64' 'memgraph')"
 
           echo "MAGE arm64 URL: $mage_arm_url"
           echo "MAGE amd64 URL: $mage_amd_url"
