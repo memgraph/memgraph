@@ -7,7 +7,7 @@ LRU_PERIOD="${1:-1w}"
 if [ ! -f "env/bin/activate" ]; then
     echo "Warning: Virtual environment not found at env/bin/activate"
     echo "Skipping conan cache cleanup"
-    exit 0  
+    exit 0
 fi
 source env/bin/activate
 trap 'deactivate 2>/dev/null' EXIT ERR

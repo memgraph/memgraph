@@ -1781,7 +1781,7 @@ case $command in
 
       # clean up conan cache inside container
       if docker exec -u mg $build_container bash -c "test -d /home/mg/.conan2"; then
-        docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && ./tools/clean_conan.sh 1w"
+        docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && ./tools/ci/clean_conan.sh 1w"
       fi
 
       # remove the build container from the `mgbuild_network` network
