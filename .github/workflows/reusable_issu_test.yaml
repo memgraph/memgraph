@@ -38,10 +38,10 @@ jobs:
 
       - name: Determine Input Types
         run: |
-          read next_type next_image < <(python3 tools/issu_image_type.py "${{ inputs.next_image }}")
+          read next_type next_image < <(python3 tools/ci/issu_image_type.py "${{ inputs.next_image }}")
           echo "NEXT_IMAGE=${next_image}" >> $GITHUB_ENV
           echo "NEXT_TYPE=${next_type}" >> $GITHUB_ENV
-          read last_type last_image < <(python3 tools/issu_image_type.py "${{ inputs.last_image }}")
+          read last_type last_image < <(python3 tools/ci/issu_image_type.py "${{ inputs.last_image }}")
           echo "LAST_IMAGE=${last_image}" >> $GITHUB_ENV
           echo "LAST_TYPE=${last_type}" >> $GITHUB_ENV
 

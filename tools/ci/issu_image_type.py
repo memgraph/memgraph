@@ -1,16 +1,12 @@
-import re
 import argparse
+import re
 
 # Compile regex patterns
-URL_PATTERN = re.compile(
-    r'^(https?://[\w\-\.]+(?:/[\w\-\./?%&=]*)?)$'
-)
+URL_PATTERN = re.compile(r"^(https?://[\w\-\.]+(?:/[\w\-\./?%&=]*)?)$")
 DOCKER_PATTERN = re.compile(
-    r'^([a-z0-9]+(?:[._\-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._\-][a-z0-9]+)*)*):([A-Za-z0-9][A-Za-z0-9._\-]*)$'
+    r"^([a-z0-9]+(?:[._\-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._\-][a-z0-9]+)*)*):([A-Za-z0-9][A-Za-z0-9._\-]*)$"
 )
-VERSION_PATTERN = re.compile(
-    r'^\d+\.\d+(?:\.\d+)?$'
-)
+VERSION_PATTERN = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
 
 
 def classify_string(s: str) -> str:
@@ -33,7 +29,6 @@ def classify_string(s: str) -> str:
         return s
 
 
-
 def get_version_docker(version: str):
     """
     convert version number to docker image tag
@@ -54,17 +49,17 @@ def string_to_boolean(bool_str: str) -> bool:
 
 def main() -> None:
     """
-    This function will parse the inputs for the smoke test workflow and 
+    This function will parse the inputs for the smoke test workflow and
     determine whether the input is a `URL`, `docker` tag or `version`.
 
     For...
     `version`:
         get dockerhub repo:tag
-    `URL`: 
+    `URL`:
         nothing needs to be done here if it's a full URL to an image archive
     `docker`:
         nothing needs to be done as long as it's a valid `repo:tag` string
-        
+
     Finally, prints either:
         - "url https://...."
         - "docker memgraph/..."
@@ -73,11 +68,7 @@ def main() -> None:
     """
     parser = argparse.ArgumentParser(description="Check image/url")
 
-    parser.add_argument(
-        "image",
-        type=str,
-        help="Image tag, URL"
-    )
+    parser.add_argument("image", type=str, help="Image tag, URL")
     args = parser.parse_args()
 
     # classify image
