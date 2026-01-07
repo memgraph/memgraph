@@ -7424,7 +7424,6 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(CreateTextEdgeIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(VectorIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(CreateVectorEdgeIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-  void Visit(ConstraintQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(DropAllIndexesQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(DropAllConstraintsQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(DropGraphQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
@@ -7437,6 +7436,9 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     accessor_type_ = storage::StorageAccessType::UNIQUE;
   }
   void Visit(RecoverSnapshotQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+
+  // READ_ONLY access required
+  void Visit(ConstraintQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ_ONLY; }
 
   // Read access required
   void Visit(ExplainQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }

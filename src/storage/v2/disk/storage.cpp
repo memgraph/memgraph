@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -2225,7 +2225,7 @@ std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAcces
 
 std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::DiskAccessor::CreateExistenceConstraint(
     LabelId label, PropertyId property) {
-  MG_ASSERT(type() == UNIQUE, "Create existence constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Create existence constraint requires a read only access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
   if (existence_constraints->ConstraintExists(label, property)) {
@@ -2242,7 +2242,7 @@ std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::Disk
 
 std::expected<void, StorageExistenceConstraintDroppingError> DiskStorage::DiskAccessor::DropExistenceConstraint(
     LabelId label, PropertyId property) {
-  MG_ASSERT(type() == UNIQUE, "Drop existence constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Drop existence constraint requires a read only access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
   if (!existence_constraints->DropConstraint(label, property)) {
@@ -2254,7 +2254,7 @@ std::expected<void, StorageExistenceConstraintDroppingError> DiskStorage::DiskAc
 
 std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
 DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(type() == UNIQUE, "Create unique constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Create unique constraint requires a read only access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
   if (auto constraint_check = disk_unique_constraints->CheckIfConstraintCanBeCreated(label, properties);
@@ -2274,7 +2274,7 @@ DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<
 
 UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstraint(
     LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(type() == UNIQUE, "Drop unique constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Drop unique constraint requires a read only access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
   if (auto ret = disk_unique_constraints->DropConstraint(label, properties);

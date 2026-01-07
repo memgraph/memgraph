@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1825,7 +1825,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
 std::expected<void, StorageExistenceConstraintDefinitionError>
 InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
-  MG_ASSERT(type() == UNIQUE, "Creating existence requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Creating existence requires a read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
   if (existence_constraints->ConstraintExists(label, property)) {
@@ -1843,7 +1843,7 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
 
 std::expected<void, StorageExistenceConstraintDroppingError> InMemoryStorage::InMemoryAccessor::DropExistenceConstraint(
     LabelId label, PropertyId property) {
-  MG_ASSERT(type() == UNIQUE, "Dropping existence constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Dropping existence constraint requires a read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
   if (!existence_constraints->DropConstraint(label, property)) {
@@ -1855,7 +1855,7 @@ std::expected<void, StorageExistenceConstraintDroppingError> InMemoryStorage::In
 
 std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
 InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(type() == UNIQUE, "Creating unique constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Creating unique constraint requires a read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
@@ -1872,7 +1872,7 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
 
 UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueConstraint(
     LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(type() == UNIQUE, "Dropping unique constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Dropping unique constraint requires a read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
@@ -1886,7 +1886,7 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
 
 std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(
     LabelId label, PropertyId property, TypeConstraintKind kind) {
-  MG_ASSERT(type() == UNIQUE, "Creating IS TYPED constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Creating IS TYPED constraint requires a read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
   if (type_constraints->ConstraintExists(label, property)) {
@@ -1904,7 +1904,7 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
 
 std::expected<void, StorageTypeConstraintDroppingError> InMemoryStorage::InMemoryAccessor::DropTypeConstraint(
     LabelId label, PropertyId property, TypeConstraintKind kind) {
-  MG_ASSERT(type() == UNIQUE, "Dropping IS TYPED constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Dropping IS TYPED constraint requires a read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
   auto deleted_constraint = type_constraints->DropConstraint(label, property, kind);

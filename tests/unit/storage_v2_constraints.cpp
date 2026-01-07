@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -90,10 +90,10 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateExistenceConstraint(this->label1, this->prop1);
     EXPECT_FALSE(!res.has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->storage->Access();
@@ -101,10 +101,10 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateExistenceConstraint(this->label1, this->prop1);
     EXPECT_TRUE(!res.has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->storage->Access();
@@ -112,10 +112,10 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateExistenceConstraint(this->label2, this->prop1);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateExistenceConstraint(this->label2, this->prop1);
     EXPECT_FALSE(!res.has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->storage->Access();
@@ -124,14 +124,14 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    EXPECT_FALSE(!unique_acc->DropExistenceConstraint(this->label1, this->prop1).has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    EXPECT_FALSE(!read_only_access->DropExistenceConstraint(this->label1, this->prop1).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    EXPECT_TRUE(!unique_acc->DropExistenceConstraint(this->label1, this->prop1).has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    EXPECT_TRUE(!read_only_access->DropExistenceConstraint(this->label1, this->prop1).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->storage->Access();
@@ -139,14 +139,14 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    EXPECT_FALSE(!unique_acc->DropExistenceConstraint(this->label2, this->prop1).has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    EXPECT_FALSE(!read_only_access->DropExistenceConstraint(this->label2, this->prop1).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    EXPECT_TRUE(!unique_acc->DropExistenceConstraint(this->label2, this->prop2).has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    EXPECT_TRUE(!read_only_access->DropExistenceConstraint(this->label2, this->prop2).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->storage->Access();
@@ -154,10 +154,10 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateExistenceConstraint(this->label2, this->prop1);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateExistenceConstraint(this->label2, this->prop1);
     EXPECT_FALSE(!res.has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto acc = this->storage->Access();
@@ -175,13 +175,13 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateFailure1) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateExistenceConstraint(this->label1, this->prop1);
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.error()),
         (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, this->label1, std::set<PropertyId>{this->prop1}}));
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs())
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs())
                     .has_value());  // TODO: Check if we are committing here?
   }
   {
@@ -192,10 +192,10 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateFailure1) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateExistenceConstraint(this->label1, this->prop1);
     EXPECT_FALSE(!res.has_value());
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
 
@@ -208,13 +208,13 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateFailure2) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateExistenceConstraint(this->label1, this->prop1);
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.error()),
         (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, this->label1, std::set<PropertyId>{this->prop1}}));
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs())
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs())
                     .has_value());  // TODO: Check if we are committing here?
   }
   {
@@ -225,20 +225,20 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateFailure2) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateExistenceConstraint(this->label1, this->prop1);
     EXPECT_FALSE(!res.has_value());
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateExistenceConstraint(this->label1, this->prop1);
     EXPECT_FALSE(!res.has_value());
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -286,9 +286,9 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    ASSERT_TRUE(unique_acc->DropExistenceConstraint(this->label1, this->prop1).has_value());
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    ASSERT_TRUE(read_only_access->DropExistenceConstraint(this->label1, this->prop1).has_value());
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
@@ -306,11 +306,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1});
     EXPECT_TRUE(res.has_value());
     EXPECT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
@@ -319,11 +319,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1});
     EXPECT_TRUE(res.has_value());
     EXPECT_EQ(res.value(), UniqueConstraints::CreationStatus::ALREADY_EXISTS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
@@ -332,10 +332,10 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label2, {this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label2, {this->prop1});
     ASSERT_EQ(res, UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
@@ -345,16 +345,16 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    EXPECT_EQ(unique_acc->DropUniqueConstraint(this->label1, {this->prop1}),
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    EXPECT_EQ(read_only_access->DropUniqueConstraint(this->label1, {this->prop1}),
               UniqueConstraints::DeletionStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    EXPECT_EQ(unique_acc->DropUniqueConstraint(this->label1, {this->prop1}),
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    EXPECT_EQ(read_only_access->DropUniqueConstraint(this->label1, {this->prop1}),
               UniqueConstraints::DeletionStatus::NOT_FOUND);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
@@ -363,16 +363,16 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    EXPECT_EQ(unique_acc->DropUniqueConstraint(this->label2, {this->prop1}),
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    EXPECT_EQ(read_only_access->DropUniqueConstraint(this->label2, {this->prop1}),
               UniqueConstraints::DeletionStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    EXPECT_EQ(unique_acc->DropUniqueConstraint(this->label2, {this->prop2}),
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    EXPECT_EQ(read_only_access->DropUniqueConstraint(this->label2, {this->prop2}),
               UniqueConstraints::DeletionStatus::NOT_FOUND);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
@@ -380,8 +380,8 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label2, {this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label2, {this->prop1});
     EXPECT_TRUE(res.has_value());
     EXPECT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
   }
@@ -406,13 +406,13 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateFailure1) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.error()),
         (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set<PropertyId>{this->prop1}}));
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs())
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs())
                     .has_value());  // TODO: Check if we are committing here?
   }
 
@@ -425,11 +425,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateFailure1) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
 
@@ -446,13 +446,13 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateFailure2) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.error()),
         (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set<PropertyId>{this->prop1}}));
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs())
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs())
                     .has_value());  // TODO: Check if we are committing here?
   }
 
@@ -467,11 +467,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateFailure2) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
 
@@ -492,11 +492,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation1) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -524,11 +524,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation1) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation2) {
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -556,11 +556,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation2) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation3) {
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -594,11 +594,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation3) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation4) {
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -631,11 +631,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation4) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit1) {
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -658,11 +658,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit1) {
 /// TODO: andi consistency problems
 TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit2) {
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -704,11 +704,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit2) {
 /// TODO: andi consistency problems
 TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit3) {
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -757,11 +757,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit3) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, UniqueConstraintsLabelAlteration) {
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   Gid gid1;
@@ -869,17 +869,18 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsPropertySetSize) {
   {
     // This should fail since unique constraint cannot be created for an empty
     // property set.
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::EMPTY_PROPERTIES);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {  // Removing a constraint with empty property set should also fail.
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    ASSERT_EQ(unique_acc->DropUniqueConstraint(this->label1, {}), UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    ASSERT_EQ(read_only_access->DropUniqueConstraint(this->label1, {}),
+              UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES);
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   // Create a set of 33 properties.
@@ -891,18 +892,18 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsPropertySetSize) {
   {
     // This should fail since list of properties exceeds the maximum number of
     // properties, which is 32.
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, properties);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, properties);
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {  // An attempt to delete constraint with too large property set should fail.
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    ASSERT_EQ(unique_acc->DropUniqueConstraint(this->label1, properties),
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    ASSERT_EQ(read_only_access->DropUniqueConstraint(this->label1, properties),
               UniqueConstraints::DeletionStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   // Remove one property from the set.
@@ -910,11 +911,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsPropertySetSize) {
 
   {
     // Creating a constraint for 32 properties should succeed.
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, properties);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, properties);
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -924,9 +925,10 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsPropertySetSize) {
   }
 
   {  // Removing a constraint with 32 properties should succeed.
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    ASSERT_EQ(unique_acc->DropUniqueConstraint(this->label1, properties), UniqueConstraints::DeletionStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    ASSERT_EQ(read_only_access->DropUniqueConstraint(this->label1, properties),
+              UniqueConstraints::DeletionStatus::SUCCESS);
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
@@ -939,20 +941,20 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsPropertySetSize) {
 /// TODO: andi consistency problems
 TYPED_TEST(ConstraintsTest, UniqueConstraintsMultipleProperties) {
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
     // An attempt to create an existing unique constraint.
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop2, this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop2, this->prop1});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::ALREADY_EXISTS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   Gid gid1;
@@ -1004,11 +1006,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsMultipleProperties) {
 /// TODO: andi Test passes when ran alone but fails when all tests are run
 TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertAbortInsert) {
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -1032,11 +1034,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertAbortInsert) {
 
 TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertRemoveInsert) {
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   Gid gid;
@@ -1069,11 +1071,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertRemoveInsert) {
 
 TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertRemoveAbortInsert) {
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   Gid gid;
@@ -1111,11 +1113,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertRemoveAbortInsert) {
 
 TYPED_TEST(ConstraintsTest, UniqueConstraintsDeleteVertexSetProperty) {
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   Gid gid1;
@@ -1155,11 +1157,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsDeleteVertexSetProperty) {
 
 TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertDropInsert) {
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -1172,10 +1174,10 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertDropInsert) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    ASSERT_EQ(unique_acc->DropUniqueConstraint(this->label1, {this->prop2, this->prop1}),
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    ASSERT_EQ(read_only_access->DropUniqueConstraint(this->label1, {this->prop2, this->prop1}),
               UniqueConstraints::DeletionStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -1193,11 +1195,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsComparePropertyValues) {
   // are correctly compared.
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -1238,11 +1240,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsClearOldData) {
     auto *tx_db = disk_constraints->GetRocksDBStorage()->db_;
 
     {
-      auto unique_acc = this->db_acc_->get()->UniqueAccess();
-      auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+      auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+      auto res = read_only_access->CreateUniqueConstraint(this->label1, {this->prop1});
       ASSERT_TRUE(res.has_value());
       ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
-      ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+      ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
     auto acc = this->storage->Access();
@@ -1275,10 +1277,10 @@ TYPED_TEST(ConstraintsTest, TypeConstraints) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
     ASSERT_NO_ERROR(res);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -1297,10 +1299,10 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsInitProperties) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
     ASSERT_NO_ERROR(res);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -1320,10 +1322,10 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsUpdateProperties) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
     ASSERT_NO_ERROR(res);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -1344,17 +1346,17 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsMultiplePropertiesSameLabel) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
     ASSERT_NO_ERROR(res);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop2, TypeConstraintKind::INTEGER);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateTypeConstraint(this->label1, this->prop2, TypeConstraintKind::INTEGER);
     ASSERT_NO_ERROR(res);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -1375,15 +1377,15 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsDuplicate) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
     ASSERT_NO_ERROR(res);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
     ASSERT_FALSE(res.has_value());
   }
 }
@@ -1394,10 +1396,10 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsAddLabelLast) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
     ASSERT_NO_ERROR(res);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -1424,8 +1426,8 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsAddConstraintLastWithViolation) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
     ASSERT_FALSE(res.has_value());
   }
 }
@@ -1445,8 +1447,8 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsAddConstraintLastWithoutViolation) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
     ASSERT_NO_ERROR(res);
   }
 }
@@ -1457,10 +1459,10 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsWhenItDoesNotApply) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
     ASSERT_NO_ERROR(res);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -1479,10 +1481,10 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsSubtypeCheckForTemporalData) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::DATE);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::DATE);
     ASSERT_NO_ERROR(res);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -1503,10 +1505,10 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsSubtypeCheckForTemporalDataAddLabelLa
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::DATE);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::DATE);
     ASSERT_NO_ERROR(res);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -1532,23 +1534,23 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsDrop) {
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->DropTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->DropTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
     ASSERT_FALSE(res.has_value());
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res = read_only_access->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
     ASSERT_NO_ERROR(res);
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    ASSERT_NO_ERROR(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
-    auto unique_acc = this->db_acc_->get()->UniqueAccess();
-    auto res1 = unique_acc->DropTypeConstraint(this->label1, this->prop1, TypeConstraintKind::FLOAT);
+    auto read_only_access = this->db_acc_->get()->ReadOnlyAccess();
+    auto res1 = read_only_access->DropTypeConstraint(this->label1, this->prop1, TypeConstraintKind::FLOAT);
     ASSERT_FALSE(res1.has_value());
-    auto res2 = unique_acc->DropTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    auto res2 = read_only_access->DropTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
     ASSERT_NO_ERROR(res2);
   }
 }
