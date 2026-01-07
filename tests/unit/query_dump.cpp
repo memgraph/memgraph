@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1072,11 +1072,11 @@ TYPED_TEST(DumpTest, ExistenceConstraints) {
     ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("L`abel 1"),
-                                                     this->db->storage()->NameToProperty("prop"));
+    auto read_only_access = this->db->ReadOnlyAccess();
+    auto res = read_only_access->CreateExistenceConstraint(this->db->storage()->NameToLabel("L`abel 1"),
+                                                           this->db->storage()->NameToProperty("prop"));
     ASSERT_TRUE(res.has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1107,13 +1107,13 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
     ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(
+    auto read_only_access = this->db->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(
         this->db->storage()->NameToLabel("Label"),
         {this->db->storage()->NameToProperty("prop"), this->db->storage()->NameToProperty("prop2")});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1264,19 +1264,19 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto ret = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("Person"),
-                                                     this->db->storage()->NameToProperty("name"));
+    auto read_only_access = this->db->ReadOnlyAccess();
+    auto ret = read_only_access->CreateExistenceConstraint(this->db->storage()->NameToLabel("Person"),
+                                                           this->db->storage()->NameToProperty("name"));
     ASSERT_TRUE(ret.has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto ret = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("Person"),
-                                                  {this->db->storage()->NameToProperty("name")});
+    auto read_only_access = this->db->ReadOnlyAccess();
+    auto ret = read_only_access->CreateUniqueConstraint(this->db->storage()->NameToLabel("Person"),
+                                                        {this->db->storage()->NameToProperty("name")});
     ASSERT_TRUE(ret.has_value());
     ASSERT_EQ(ret.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1527,36 +1527,36 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
 
     // Create existence constraints
     {
-      auto unique_acc = this->db->UniqueAccess();
-      auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                       this->db->storage()->NameToProperty("name"));
+      auto read_only_access = this->db->ReadOnlyAccess();
+      auto res = read_only_access->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                             this->db->storage()->NameToProperty("name"));
       ASSERT_TRUE(res.has_value());
-      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
-      auto unique_acc = this->db->UniqueAccess();
-      auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                       this->db->storage()->NameToProperty("surname"));
+      auto read_only_access = this->db->ReadOnlyAccess();
+      auto res = read_only_access->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                             this->db->storage()->NameToProperty("surname"));
       ASSERT_TRUE(res.has_value());
-      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Create unique constraints
     {
-      auto unique_acc = this->db->UniqueAccess();
-      auto res = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                    {this->db->storage()->NameToProperty("name")});
+      auto read_only_access = this->db->ReadOnlyAccess();
+      auto res = read_only_access->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                          {this->db->storage()->NameToProperty("name")});
       ASSERT_TRUE(res.has_value());
       ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
-      auto unique_acc = this->db->UniqueAccess();
-      auto res = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                    {this->db->storage()->NameToProperty("surname")});
+      auto read_only_access = this->db->ReadOnlyAccess();
+      auto res = read_only_access->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                          {this->db->storage()->NameToProperty("surname")});
       ASSERT_TRUE(res.has_value());
       ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     auto dba = this->db->Access();
@@ -1789,35 +1789,35 @@ TYPED_TEST(DumpTest, DumpTypeConstraints) {
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                     this->db->storage()->NameToProperty("name"));
+    auto read_only_access = this->db->ReadOnlyAccess();
+    auto res = read_only_access->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                           this->db->storage()->NameToProperty("name"));
     ASSERT_TRUE(res.has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                  {this->db->storage()->NameToProperty("name")});
+    auto read_only_access = this->db->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                        {this->db->storage()->NameToProperty("name")});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                this->db->storage()->NameToProperty("name"),
-                                                memgraph::storage::TypeConstraintKind::INTEGER);
+    auto read_only_access = this->db->ReadOnlyAccess();
+    auto res = read_only_access->CreateTypeConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                      this->db->storage()->NameToProperty("name"),
+                                                      memgraph::storage::TypeConstraintKind::INTEGER);
     ASSERT_TRUE(res.has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                this->db->storage()->NameToProperty("surname"),
-                                                memgraph::storage::TypeConstraintKind::STRING);
+    auto read_only_access = this->db->ReadOnlyAccess();
+    auto res = read_only_access->CreateTypeConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                      this->db->storage()->NameToProperty("surname"),
+                                                      memgraph::storage::TypeConstraintKind::STRING);
     ASSERT_TRUE(res.has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ResultStreamFaker stream(this->db->storage());
