@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -252,23 +252,24 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     {
       // Create existence constraint.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_TRUE(unique_acc->CreateExistenceConstraint(label_unindexed, property_id).has_value());
-      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      auto read_only_access = store->ReadOnlyAccess();
+      ASSERT_TRUE(read_only_access->CreateExistenceConstraint(label_unindexed, property_id).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create unique constraint.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_TRUE(unique_acc->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).has_value());
-      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      auto read_only_access = store->ReadOnlyAccess();
+      ASSERT_TRUE(read_only_access->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create type constraint.
-      auto unique_acc = store->UniqueAccess();
+      auto read_only_access = store->ReadOnlyAccess();
       ASSERT_FALSE(
-          !unique_acc->CreateTypeConstraint(label_indexed, property_point, memgraph::storage::TypeConstraintKind::POINT)
+          !read_only_access
+               ->CreateTypeConstraint(label_indexed, property_point, memgraph::storage::TypeConstraintKind::POINT)
                .has_value());
-      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Create vertices.
@@ -416,16 +417,16 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     {
       // Create existence constraint.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_TRUE(unique_acc->CreateExistenceConstraint(label_unused, property_count).has_value());
-      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      auto read_only_access = store->ReadOnlyAccess();
+      ASSERT_TRUE(read_only_access->CreateExistenceConstraint(label_unused, property_count).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     {
       // Create unique constraint.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_TRUE(unique_acc->CreateUniqueConstraint(label_unused, {property_count}).has_value());
-      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      auto read_only_access = store->ReadOnlyAccess();
+      ASSERT_TRUE(read_only_access->CreateUniqueConstraint(label_unused, {property_count}).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Storage accessor.
@@ -2398,15 +2399,15 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       return res;
     }();  // iile
     for (const auto &constraint : constraints.existence) {
-      auto unique_acc = db.UniqueAccess();
-      ASSERT_TRUE(unique_acc->DropExistenceConstraint(constraint.first, constraint.second).has_value());
-      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      auto read_only_access = db.ReadOnlyAccess();
+      ASSERT_TRUE(read_only_access->DropExistenceConstraint(constraint.first, constraint.second).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     for (const auto &constraint : constraints.unique) {
-      auto unique_acc = db.UniqueAccess();
-      ASSERT_EQ(unique_acc->DropUniqueConstraint(constraint.first, constraint.second),
+      auto read_only_access = db.ReadOnlyAccess();
+      ASSERT_EQ(read_only_access->DropUniqueConstraint(constraint.first, constraint.second),
                 memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
-      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     auto acc = db.Access();
     for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {

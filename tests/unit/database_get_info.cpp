@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -123,14 +123,14 @@ TYPED_TEST(InfoTest, InfoCheck) {
 
   {
     {
-      auto unique_acc = db_acc->UniqueAccess();
-      ASSERT_TRUE(unique_acc->CreateExistenceConstraint(lbl, prop).has_value());
-      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      auto read_only_access = db_acc->ReadOnlyAccess();
+      ASSERT_TRUE(read_only_access->CreateExistenceConstraint(lbl, prop).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
-      auto unique_acc = db_acc->UniqueAccess();
-      ASSERT_TRUE(unique_acc->DropExistenceConstraint(lbl, prop).has_value());
-      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      auto read_only_access = db_acc->ReadOnlyAccess();
+      ASSERT_TRUE(read_only_access->DropExistenceConstraint(lbl, prop).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     auto acc = db_acc->Access();
@@ -199,25 +199,25 @@ TYPED_TEST(InfoTest, InfoCheck) {
   }
 
   {
-    auto unique_acc = db_acc->UniqueAccess();
-    ASSERT_TRUE(unique_acc->CreateUniqueConstraint(lbl, {prop2}).has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    auto read_only_access = db_acc->ReadOnlyAccess();
+    ASSERT_TRUE(read_only_access->CreateUniqueConstraint(lbl, {prop2}).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto unique_acc = db_acc->UniqueAccess();
-    ASSERT_TRUE(unique_acc->CreateUniqueConstraint(lbl2, {prop}).has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    auto read_only_access = db_acc->ReadOnlyAccess();
+    ASSERT_TRUE(read_only_access->CreateUniqueConstraint(lbl2, {prop}).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto unique_acc = db_acc->UniqueAccess();
-    ASSERT_TRUE(unique_acc->CreateUniqueConstraint(lbl3, {prop}).has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    auto read_only_access = db_acc->ReadOnlyAccess();
+    ASSERT_TRUE(read_only_access->CreateUniqueConstraint(lbl3, {prop}).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto unique_acc = db_acc->UniqueAccess();
-    ASSERT_EQ(unique_acc->DropUniqueConstraint(lbl, {prop2}),
+    auto read_only_access = db_acc->ReadOnlyAccess();
+    ASSERT_EQ(read_only_access->DropUniqueConstraint(lbl, {prop2}),
               memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   const auto &info = db_acc->GetInfo();  // force to use configured directory

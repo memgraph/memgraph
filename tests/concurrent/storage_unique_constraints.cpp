@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -92,8 +92,8 @@ TEST_F(StorageUniqueConstraints, ParallelAbortCommit) {
   std::uniform_int_distribution<> uniform(1, 20);  // Range: [1, 100]
 
   {
-    auto unique_acc = storage->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(label, {prop1});
+    auto read_only_access = storage->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(label, {prop1});
     ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
     spdlog::trace("Created UC");
   }
@@ -126,11 +126,11 @@ TEST_F(StorageUniqueConstraints, ParallelAbortCommit) {
 
 TEST_F(StorageUniqueConstraints, ChangeProperties) {
   {
-    auto unique_acc = storage->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
+    auto read_only_access = storage->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(label, {prop1, prop2, prop3});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -210,11 +210,11 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
 
 TEST_F(StorageUniqueConstraints, ChangeLabels) {
   {
-    auto unique_acc = storage->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
+    auto read_only_access = storage->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(label, {prop1, prop2, prop3});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // In the first part of the test, each transaction tries to add the same label
