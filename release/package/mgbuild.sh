@@ -821,7 +821,7 @@ package_docker() {
   cd "$docker_build_folder"
   if [[ "$os" == "ubuntu-24.04" && "$arch" == "amd" ]]; then
     echo "Finding best mirror"
-    mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh)"
+    mirror="$(${PROJECT_ROOT}/tools/ci/test-mirrors.sh)"
   else
     echo "Using default mirror"
     mirror=""
