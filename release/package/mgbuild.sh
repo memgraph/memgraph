@@ -1838,7 +1838,7 @@ case $command in
         # set local mirror for Ubuntu
         if [[ "$os" =~ ^"ubuntu".* && "$arch" == "amd" ]]; then
           if [[ "$os" == "ubuntu-22.04" ]]; then
-            if mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh 'jammy')"; then
+            if mirror="$(${PROJECT_ROOT}/tools/ci/test-mirrors.sh 'jammy')"; then
               # set custom mirror within build container
               docker exec -i -u root \
                 -e CUSTOM_MIRROR=$mirror \
@@ -1854,7 +1854,7 @@ case $command in
               '
             fi
           else
-            if mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh)"; then
+            if mirror="$(${PROJECT_ROOT}/tools/ci/test-mirrors.sh)"; then
               # set custom mirror within build container
               docker exec -i -u root \
                 -e CUSTOM_MIRROR=$mirror \
@@ -1955,7 +1955,9 @@ case $command in
       done
 
       # clean up conan cache inside container
-      if docker exec -u mg $build_container bash -c "test -d /home/mg/.conan2"; then
+      conan_cache_exists=$(docker exec -u mg $build_container bash -c "test -d /home/mg/.conan2" && echo "true" || echo "false") || true
+      mgbuild_root_dir_exists=$(docker exec -u mg $build_container bash -c "test -d $MGBUILD_ROOT_DIR" && echo "true" || echo "false") || true
+      if [[ "$conan_cache_exists" == "true" && "$mgbuild_root_dir_exists" == "true" ]]; then
         docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && ./tools/ci/clean_conan.sh 1w"
       fi
 
