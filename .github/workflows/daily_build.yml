@@ -29,6 +29,10 @@ on:
         type: boolean
         description: "Skip ISSU tests"
         default: false
+      skip_stress_tests:
+        type: boolean
+        description: "Skip stress tests"
+        default: false
       mock:
         type: boolean
         description: "Mock build"
@@ -64,7 +68,6 @@ jobs:
       run_release_tests: 'true'
       run_stress_large: 'true'
     secrets: inherit
-
 
   DailyPackageArtifact:
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_package)  }}
@@ -244,9 +247,8 @@ jobs:
             https://api.github.com/repos/memgraph/mage/dispatches \
             -d "${MAGE_PAYLOAD}"
 
-
-  SetupISSUTestInputs:
-    name: Setup ISSU Test Inputs
+  SetupDailyBuildImageOutputs:
+    name: Setup Daily Build Image Outputs
     needs: [CurrentDateJob, DailyDockerArtifact]
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests) }}
     runs-on: ubuntu-24.04
@@ -274,7 +276,7 @@ jobs:
         run: |
           echo "Setting next image URLs"
           export CURRENT_BUILD_DATE=${{ needs.CurrentDateJob.outputs.current_date }}
-          read amd_image_url arm_image_url < <(python3 tools/get_daily_issu_images.py)
+          read amd_image_url arm_image_url < <(python3 tools/get_daily_build_images.py)
           echo "amd_image_url=$amd_image_url" >> $GITHUB_OUTPUT
           echo "arm_image_url=$arm_image_url" >> $GITHUB_OUTPUT
           echo "AMD Image URL: $amd_image_url"
@@ -289,19 +291,47 @@ jobs:
 
   RunISSUTest:
     name: Run ISSU Tests
-    needs: [SetupISSUTestInputs]
-    if: ${{ (github.event_name == 'schedule' && always() || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests)) && needs.SetupISSUTestInputs.result == 'success' }}
+    needs: [SetupDailyBuildImageOutputs]
+    if: ${{ (github.event_name == 'schedule' && always() || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
     uses: ./.github/workflows/reusable_issu_test.yaml
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: amd
-            next_image: ${{ needs.SetupISSUTestInputs.outputs.amd_image_url }}
+            next_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_image_url }}
           - arch: arm
-            next_image: ${{ needs.SetupISSUTestInputs.outputs.arm_image_url }}
+            next_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.arm_image_url }}
     with:
-      last_image: ${{ needs.SetupISSUTestInputs.outputs.last_image_version }}
+      last_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.last_image_version }}
       next_image: ${{ matrix.next_image }}
       arch: ${{ matrix.arch }}
+    secrets: inherit
+
+  StressTestsNativeStandalone:
+    name: "Stress Tests Native Standalone"
+    needs: [DailyPackageArtifact]
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: native_standalone
+    secrets: inherit
+
+  StressTestsNativeHA:
+    name: "Stress Tests Native HA"
+    needs: [DailyPackageArtifact]
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: native_ha
+    secrets: inherit
+
+  StressTestsDockerHA:
+    name: "Stress Tests Docker HA"
+    needs: [SetupDailyBuildImageOutputs]
+    if: ${{ ((github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: docker_ha
+      memgraph_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_image_url }}
     secrets: inherit

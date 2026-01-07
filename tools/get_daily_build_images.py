@@ -4,7 +4,7 @@ from typing import List
 from aggregate_build_tests import list_daily_release_packages
 
 
-def get_daily_issu_images(date: int, mock: bool = False) -> List[str]:
+def get_daily_build_images(date: int, mock: bool = False) -> List[str]:
     """
     Get the Releasse docker images for x86_64 and arm64 for the given date
     """
@@ -23,7 +23,7 @@ def main() -> None:
         raise ValueError("CURRENT_BUILD_DATE is not set")
     date = int(current_build_date)
     mock = os.getenv("MOCK", "false") == "true"
-    amd_docker, arm_docker = get_daily_issu_images(date, mock)
+    amd_docker, arm_docker = get_daily_build_images(date, mock)
 
     print(f"{amd_docker} {arm_docker}")
 
