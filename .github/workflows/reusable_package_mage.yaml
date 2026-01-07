@@ -476,7 +476,6 @@ jobs:
       - name: Wait for e2e Docker images to be available
         if: ${{ inputs.run_tests == true }}
         run: |
-          cd mage
           ./tools/ci/wait-for-docker-images.sh
 
       - name: Run End-to-end correctness tests
