@@ -5,9 +5,6 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  push:
-    branches:
-      - stress_tests_provisioned
   schedule:
     - cron: "0 22 * * *" #UTC
   workflow_dispatch:
@@ -331,11 +328,10 @@ jobs:
 
   StressTestsDockerHA:
     name: "Stress Tests Docker HA"
-    # No needs since we're using hardcoded image for testing
-    if: ${{ (github.event_name == 'push') || (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
+    needs: [SetupDailyBuildImageOutputs]
+    if: ${{ ((github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: docker_ha
-      memgraph_image: https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph/20260106/docker/memgraph-3.7.2_pr3609_f32147e33a22-docker.tar.gz
-      # memgraph_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_image_url }}
+      memgraph_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_image_url }}
     secrets: inherit
