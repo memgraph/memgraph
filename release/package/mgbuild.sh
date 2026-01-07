@@ -1316,7 +1316,7 @@ test_mage() {
   # TODO: move other tests into this function like the test_memgraph function
 
   function create_e2e_test_env() {
-    cd mage
+    cd $PROJECT_ROOT/mage
     if [[ -d env ]]; then
       echo -e "${YELLOW_BOLD}E2E test environment already exists${RESET}"
       return
@@ -1389,7 +1389,7 @@ test_mage() {
         esac
       done
       create_e2e_test_env
-      cd mage
+      cd $PROJECT_ROOT/mage
       source env/bin/activate
       cd tests/e2e/ && python3 -m pytest . -k "not cugraph and not embeddings_test-test_cuda_compute"
       if [[ "$clean_env" = true ]]; then
@@ -1443,7 +1443,7 @@ test_mage() {
       }
       trap cleanup_container EXIT INT TERM
       create_e2e_test_env
-      cd mage/tests
+      cd $PROJECT_ROOT/mage/tests
       source ../env/bin/activate
       ./run_e2e_correctness_tests.sh \
         --memgraph-port $memgraph_port \
@@ -1500,7 +1500,7 @@ test_mage() {
       # Set trap to cleanup on exit/interrupt (scoped to this case branch)
       trap cleanup_containers EXIT INT TERM
       create_e2e_test_env
-      cd mage/tests
+      cd $PROJECT_ROOT/mage/tests
       source ../env/bin/activate
       ./run_e2e_migration_tests.sh \
         --mage-container $mage_container \
