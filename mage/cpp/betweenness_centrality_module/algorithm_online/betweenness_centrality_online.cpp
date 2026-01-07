@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -15,7 +15,7 @@ void RemoveDuplicates(std::vector<T> &vector) {
   std::unordered_set<T> seen;
 
   auto new_end = std::remove_if(vector.begin(), vector.end(), [&seen](const T &value) {
-    if (seen.count(value)) return true;
+    if (seen.contains(value)) return true;
 
     seen.insert(value);
     return false;
@@ -460,8 +460,10 @@ std::unordered_map<std::uint64_t, double> OnlineBC::EdgeUpdate(
   edges_by_bcc =
       bcc_algorithm::GetBiconnectedComponents(graph_with_updated_edge, articulation_points_by_bcc, nodes_by_bcc);
 
-  const auto [affected_bcc_nodes, affected_bcc_articulation_points] =
-      IsolateAffectedBCC(graph_with_updated_edge, updated_edge);
+  // Extract tuple values explicitly (OpenMP doesn't support structured bindings)
+  const auto affected_bcc_result = IsolateAffectedBCC(graph_with_updated_edge, updated_edge);
+  const auto &affected_bcc_nodes = std::get<0>(affected_bcc_result);
+  const auto &affected_bcc_articulation_points = std::get<1>(affected_bcc_result);
 
   const auto distances_first = SSSPLengths(graph_with_updated_edge, updated_edge.first, affected_bcc_nodes);
   const auto distances_second = SSSPLengths(graph_with_updated_edge, updated_edge.second, affected_bcc_nodes);

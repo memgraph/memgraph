@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,12 +26,13 @@ void InsertBipartiteMatchingRecord(mgp_result *result, mgp_memory *memory, const
   mg_utility::InsertIntValueResult(record, kFieldMatchingNumber, matching_number, memory);
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void GetMaximumBipartiteMatching(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
     auto graph = mg_utility::GetGraphView(memgraph_graph, result, memory, mg_graph::GraphType::kUndirectedGraph);
     auto maximum_bipartite_matching = bipartite_matching_alg::BipartiteMatching(*graph);
 
-    InsertBipartiteMatchingRecord(result, memory, maximum_bipartite_matching);
+    InsertBipartiteMatchingRecord(result, memory, static_cast<int>(maximum_bipartite_matching));
   } catch (const std::exception &e) {
     // We must not let any exceptions out of our module.
     mgp::result_set_error_msg(result, e.what());
@@ -42,6 +43,7 @@ void GetMaximumBipartiteMatching(mgp_list *args, mgp_graph *memgraph_graph, mgp_
 
 // Each module needs to define mgp_init_module function.
 // Here you can register multiple procedures your module supports.
+// NOLINTNEXTLINE(misc-unused-parameters)
 extern "C" int mgp_init_module(mgp_module *module, mgp_memory *memory) {
   try {
     mgp_proc *proc = mgp::module_add_read_procedure(module, kProcedureMax, GetMaximumBipartiteMatching);

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,7 +48,7 @@ bool IsSubgraphBipartiteColoring(const mg_graph::GraphView<> &graph, std::vector
   // Data structure used in BFS
   std::queue<std::uint64_t> unvisited;
 
-  colors[node_index] = 1;
+  colors[node_index] = static_cast<std::int8_t>(1);
   unvisited.push(node_index);
   while (!unvisited.empty()) {
     auto current_index = unvisited.front();
@@ -62,7 +62,7 @@ bool IsSubgraphBipartiteColoring(const mg_graph::GraphView<> &graph, std::vector
 
       if (colors[neighbour.node_id] == -1) {
         // Set to the opposite color = 0/1
-        colors[neighbour.node_id] = 1 - colors[current_index];
+        colors[neighbour.node_id] = static_cast<std::int8_t>(1 - colors[current_index]);
         unvisited.push(neighbour.node_id);
       }
     }
@@ -71,11 +71,11 @@ bool IsSubgraphBipartiteColoring(const mg_graph::GraphView<> &graph, std::vector
   return true;
 }
 
-std::uint64_t MaximumMatching(const std::vector<std::pair<std::uint64_t, std::uint64_t>> &bipartite_edges) {
+std::uint64_t MaximumMatching(const std::vector<std::pair<std::uint64_t, std::uint64_t>> &disjoint_edges) {
   std::unordered_set<std::uint64_t> group_a;
   std::unordered_set<std::uint64_t> group_b;
 
-  for (const auto &[from, to] : bipartite_edges) {
+  for (const auto &[from, to] : disjoint_edges) {
     group_a.insert(from);
     group_b.insert(to);
   }
@@ -87,7 +87,7 @@ std::uint64_t MaximumMatching(const std::vector<std::pair<std::uint64_t, std::ui
   std::vector<std::optional<std::uint64_t>> matched(size_b + 1, std::nullopt);
 
   std::vector<std::vector<std::uint64_t>> adj_list(size_a + 1);
-  for (const auto &[from, to] : bipartite_edges) adj_list[from].push_back(to);
+  for (const auto &[from, to] : disjoint_edges) adj_list[from].push_back(to);
 
   std::uint64_t maximum_matching = 0;
   for (std::uint64_t node = 1; node <= size_a; ++node) {
@@ -119,10 +119,10 @@ std::uint64_t BipartiteMatching(const mg_graph::GraphView<> &graph) {
     auto left_edge = colors[from] == 0 ? from : to;
     auto right_edge = colors[from] == 1 ? from : to;
 
-    if (left_subset.find(left_edge) == left_subset.end()) {
+    if (!left_subset.contains(left_edge)) {
       left_subset[left_edge] = left_subset.size() + 1;
     }
-    if (right_subset.find(right_edge) == right_subset.end()) {
+    if (!right_subset.contains(right_edge)) {
       right_subset[right_edge] = right_subset.size() + 1;
     }
 

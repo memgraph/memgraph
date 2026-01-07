@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,7 @@ namespace bcc_utility {
 struct NodeState {
   std::unordered_map<std::uint64_t, bool> visited;
   std::unordered_map<std::uint64_t, std::uint64_t> discovery, low_link;
-  std::uint64_t counter;
+  std::uint64_t counter = 0;
 
   explicit NodeState(std::uint64_t number_of_nodes);
   void Update(std::uint64_t node_id);

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,6 @@ bcc_utility::NodeState::NodeState(std::uint64_t number_of_nodes) {
   visited.reserve(number_of_nodes);
   discovery.reserve(number_of_nodes);
   low_link.reserve(number_of_nodes);
-  counter = 0;
 }
 
 void bcc_utility::NodeState::Update(std::uint64_t node_id) {

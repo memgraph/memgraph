@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,7 +28,8 @@ TEST(BipartiteMatching, RandomCompleteBipartiteGraphs) {
   std::uniform_int_distribution<> dist(1, max_size);
 
   for (int t = 0; t < num_of_experiments; ++t) {
-    auto size_a = dist(rng), size_b = dist(rng);
+    auto size_a = dist(rng);
+    auto size_b = dist(rng);
 
     std::vector<std::pair<uint64_t, uint64_t>> bipartite_edges;
     for (int i = 1; i <= size_a; ++i)
@@ -73,8 +74,8 @@ TEST(BipartiteMatching, NotBipartiteGraphWithSelfLoop) {
 }
 
 TEST(BipartiteMatching, Handmade1) {
-  std::vector<std::pair<uint64_t, uint64_t>> bipartite_edges = {{1, 2}, {1, 3}, {2, 1}, {2, 4},
-                                                                {3, 3}, {4, 3}, {4, 4}, {5, 5}};
+  const std::vector<std::pair<uint64_t, uint64_t>> bipartite_edges = {{1, 2}, {1, 3}, {2, 1}, {2, 4},
+                                                                      {3, 3}, {4, 3}, {4, 4}, {5, 5}};
   auto max_match = bipartite_matching_util::MaximumMatching(bipartite_edges);
   ASSERT_EQ(max_match, 5);
 }
@@ -86,7 +87,7 @@ TEST(BipartiteMatching, HandmadeGraph1) {
 }
 
 TEST(BipartiteMatching, Handmade2) {
-  std::vector<std::pair<uint64_t, uint64_t>> bipartite_edges = {{5, 2}, {1, 2}, {4, 3}, {3, 1}, {2, 2}, {4, 4}};
+  const std::vector<std::pair<uint64_t, uint64_t>> bipartite_edges = {{5, 2}, {1, 2}, {4, 3}, {3, 1}, {2, 2}, {4, 4}};
   auto max_match = bipartite_matching_util::MaximumMatching(bipartite_edges);
   ASSERT_EQ(max_match, 3);
 }
@@ -98,7 +99,8 @@ TEST(BipartiteMatching, HandmadeGraph2) {
 }
 
 TEST(BipartiteMatching, Handmade3) {
-  std::vector<std::pair<uint64_t, uint64_t>> bipartite_edges = {{1, 2}, {1, 5}, {2, 3}, {3, 2}, {4, 3}, {4, 4}, {5, 1}};
+  const std::vector<std::pair<uint64_t, uint64_t>> bipartite_edges = {{1, 2}, {1, 5}, {2, 3}, {3, 2},
+                                                                      {4, 3}, {4, 4}, {5, 1}};
   auto max_match = bipartite_matching_util::MaximumMatching(bipartite_edges);
   ASSERT_EQ(max_match, 5);
 }
@@ -110,7 +112,7 @@ TEST(BipartiteMatching, HandmadeGraph3) {
 }
 
 TEST(BipartiteMatching, Handmade4) {
-  std::vector<std::pair<uint64_t, uint64_t>> bipartite_edges = {
+  const std::vector<std::pair<uint64_t, uint64_t>> bipartite_edges = {
       {1, 4}, {1, 10}, {2, 6}, {2, 8}, {2, 9}, {3, 9}, {4, 6}, {4, 8}, {5, 1},  {5, 3},  {5, 9}, {6, 1},
       {6, 5}, {6, 7},  {7, 4}, {7, 7}, {8, 2}, {8, 8}, {9, 3}, {9, 5}, {10, 1}, {10, 2}, {10, 7}};
   auto max_match = bipartite_matching_util::MaximumMatching(bipartite_edges);
@@ -126,7 +128,7 @@ TEST(BipartiteMatching, HandmadeGraph4) {
 }
 
 TEST(BipartiteMatching, Handmade5) {
-  std::vector<std::pair<uint64_t, uint64_t>> bipartite_edges = {
+  const std::vector<std::pair<uint64_t, uint64_t>> bipartite_edges = {
       {1, 7}, {2, 1}, {2, 6}, {2, 8}, {3, 4}, {3, 5}, {3, 6}, {3, 7}, {4, 2}, {4, 4},  {4, 5},  {5, 5},  {5, 6},
       {6, 3}, {6, 4}, {6, 7}, {7, 5}, {7, 7}, {8, 4}, {8, 5}, {9, 3}, {9, 6}, {9, 10}, {10, 1}, {10, 8}, {10, 9}};
   auto max_match = bipartite_matching_util::MaximumMatching(bipartite_edges);
@@ -159,16 +161,17 @@ TEST(BipartiteMatching, Performance) {
   std::mt19937 rng(seed);
 
   auto num_of_nodes = 250;
-  auto num_of_edges = num_of_nodes * num_of_nodes / 5;
+  std::size_t num_of_edges = num_of_nodes * num_of_nodes / 5;
 
   std::uniform_int_distribution<> dist(1, num_of_nodes);
   std::set<std::pair<uint64_t, uint64_t>> bipartite_edges;
   for (std::size_t i = 0; i < num_of_edges; ++i) {
-    auto from = dist(rng), to = dist(rng);
+    auto from = dist(rng);
+    auto to = dist(rng);
     bipartite_edges.insert({from, to});
   }
 
-  mg_test_utility::Timer timer;
+  const mg_test_utility::Timer timer;
   bipartite_matching_util::MaximumMatching(
       std::vector<std::pair<uint64_t, uint64_t>>(bipartite_edges.begin(), bipartite_edges.end()));
   auto time_elapsed = timer.Elapsed();

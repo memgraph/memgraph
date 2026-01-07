@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,16 +16,16 @@
 
 namespace {
 
-const char *kProcedureGet = "get";
+constexpr const char *const kProcedureGet = "get";
 
-// const char *fieldEdgeID = "edge_id";
-const char *k_field_node_from = "node_from";
-const char *k_field_node_to = "node_to";
+// constexpr const char *const fieldEdgeID = "edge_id";
+constexpr const char *const k_field_node_from = "node_from";
+constexpr const char *const k_field_node_to = "node_to";
 
 void InsertBridgeRecord(mgp_graph *graph, mgp_result *result, mgp_memory *memory, const std::uint64_t node_from_id,
                         const std::uint64_t node_to_id) {
-  auto *node_from = mg_utility::GetNodeForInsertion(node_from_id, graph, memory);
-  auto *node_to = mg_utility::GetNodeForInsertion(node_to_id, graph, memory);
+  auto *node_from = mg_utility::GetNodeForInsertion(static_cast<int>(node_from_id), graph, memory);
+  auto *node_to = mg_utility::GetNodeForInsertion(static_cast<int>(node_to_id), graph, memory);
   if (!node_from || !node_to) return;
 
   auto *record = mgp::result_new_record(result);
@@ -35,6 +35,7 @@ void InsertBridgeRecord(mgp_graph *graph, mgp_result *result, mgp_memory *memory
   mg_utility::InsertNodeValueResult(record, k_field_node_to, node_to, memory);
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void GetBridges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
     auto graph = mg_utility::GetGraphView(memgraph_graph, result, memory, mg_graph::GraphType::kUndirectedGraph);
@@ -54,6 +55,7 @@ void GetBridges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, m
 
 // Each module needs to define mgp_init_module function.
 // Here you can register multiple procedures your module supports.
+// NOLINTNEXTLINE(misc-unused-parameters)
 extern "C" int mgp_init_module(mgp_module *module, mgp_memory *memory) {
   try {
     auto *proc = mgp::module_add_read_procedure(module, kProcedureGet, GetBridges);

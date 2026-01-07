@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,6 +37,7 @@ void InsertWeaklyComponentResult(mgp_graph *graph, mgp_result *result, mgp_memor
 /// Finds weakly connected components of a graph.
 ///
 /// Time complexity: O(|V|+|E|)
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Weak(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
     auto graph = mg_utility::GetGraphView(memgraph_graph, result, memory, mg_graph::GraphType::kUndirectedGraph);
@@ -82,7 +83,8 @@ void Weak(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_mem
 }
 }  // namespace
 
-extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
+// NOLINTNEXTLINE(misc-unused-parameters)
+extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory [[maybe_unused]]) {
   try {
     auto *wcc_proc = mgp::module_add_read_procedure(module, kProcedureGet, Weak);
 

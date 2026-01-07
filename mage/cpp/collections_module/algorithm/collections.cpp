@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,6 +52,7 @@ void Collections::SetResult(mgp::Result &result, const mgp::Value &value) {
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::SumLongs(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -77,6 +78,7 @@ void Collections::SumLongs(mgp_list *args, mgp_func_context *ctx, mgp_func_resul
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Avg(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -104,6 +106,7 @@ void Collections::Avg(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::ContainsAll(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -125,6 +128,7 @@ void Collections::ContainsAll(mgp_list *args, mgp_func_context *ctx, mgp_func_re
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Intersection(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -156,6 +160,7 @@ void Collections::Intersection(mgp_list *args, mgp_func_context *ctx, mgp_func_r
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::RemoveAll(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -190,6 +195,7 @@ void Collections::RemoveAll(mgp_list *args, mgp_func_context *ctx, mgp_func_resu
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Sum(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -213,6 +219,7 @@ void Collections::Sum(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Union(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -258,6 +265,7 @@ void Collections::Union(mgp_list *args, mgp_func_context *ctx, mgp_func_result *
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Sort(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -280,6 +288,7 @@ void Collections::Sort(mgp_list *args, mgp_func_context *ctx, mgp_func_result *r
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::ContainsSorted(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -313,6 +322,7 @@ void Collections::ContainsSorted(mgp_list *args, mgp_func_context *ctx, mgp_func
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Max(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -340,6 +350,7 @@ void Collections::Max(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Split(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
 
@@ -379,6 +390,7 @@ void Collections::Split(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Pairs(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -410,6 +422,7 @@ void Collections::Pairs(mgp_list *args, mgp_func_context *ctx, mgp_func_result *
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Contains(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -438,6 +451,7 @@ void Collections::Contains(mgp_list *args, mgp_func_context *ctx, mgp_func_resul
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::UnionAll(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   auto arguments = mgp::List(args);
@@ -457,6 +471,7 @@ void Collections::UnionAll(mgp_list *args, mgp_func_context *ctx, mgp_func_resul
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Min(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -495,6 +510,7 @@ void Collections::Min(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::ToSet(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   auto arguments = mgp::List(args);
@@ -515,6 +531,7 @@ void Collections::ToSet(mgp_list *args, mgp_func_context *ctx, mgp_func_result *
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Partition(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   auto arguments = mgp::List(args);
@@ -572,6 +589,7 @@ void FlattenHelper(const mgp::Value &value, mgp::List &result) {
 
 }  // namespace
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Flatten(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -601,6 +619,7 @@ void Collections::Flatten(mgp_list *args, mgp_func_context *ctx, mgp_func_result
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::FrequenciesAsMap(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   auto const arguments = mgp::List(args);

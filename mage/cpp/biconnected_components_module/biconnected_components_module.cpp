@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,15 +15,16 @@
 #include "algorithm/biconnected_components.hpp"
 
 namespace {
-const char *kProcedureGet = "get";
+constexpr const char *const kProcedureGet = "get";
 
-const char *fieldBiconnectedComponentID = "bcc_id";
-// const char *fieldEdgeID = "edge_id";
-const char *fieldNodeFrom = "node_from";
-const char *fieldNodeTo = "node_to";
+constexpr const char *const fieldBiconnectedComponentID = "bcc_id";
+// constexpr const char *const fieldEdgeID = "edge_id";
+constexpr const char *const fieldNodeFrom = "node_from";
+constexpr const char *const fieldNodeTo = "node_to";
 
 void InsertBiconnectedComponentRecord(mgp_graph *graph, mgp_result *result, mgp_memory *memory, const int bcc_id,
-                                      const int edge_id, const int node_from_id, const int node_to_id) {
+                                      const int edge_id [[maybe_unused]], const int node_from_id,
+                                      const int node_to_id) {
   auto *node_from = mg_utility::GetNodeForInsertion(node_from_id, graph, memory);
   auto *node_to = mg_utility::GetNodeForInsertion(node_to_id, graph, memory);
   if (!node_from || !node_to) return;
@@ -38,6 +39,7 @@ void InsertBiconnectedComponentRecord(mgp_graph *graph, mgp_result *result, mgp_
   mg_utility::InsertNodeValueResult(record, fieldNodeTo, node_to, memory);
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void GetBiconnectedComponents(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
     auto graph = mg_utility::GetGraphView(memgraph_graph, result, memory, mg_graph::GraphType::kUndirectedGraph);
@@ -49,8 +51,9 @@ void GetBiconnectedComponents(mgp_list *args, mgp_graph *memgraph_graph, mgp_res
 
     for (std::uint64_t bcc_id = 0; bcc_id < bccs.size(); bcc_id++) {
       for (const auto &edge : bccs[bcc_id]) {
-        InsertBiconnectedComponentRecord(memgraph_graph, result, memory, bcc_id, edge.id,
-                                         graph->GetMemgraphNodeId(edge.from), graph->GetMemgraphNodeId(edge.to));
+        InsertBiconnectedComponentRecord(
+            memgraph_graph, result, memory, static_cast<int>(bcc_id), static_cast<int>(edge.id),
+            static_cast<int>(graph->GetMemgraphNodeId(edge.from)), static_cast<int>(graph->GetMemgraphNodeId(edge.to)));
       }
     }
   } catch (const std::exception &e) {
@@ -63,6 +66,7 @@ void GetBiconnectedComponents(mgp_list *args, mgp_graph *memgraph_graph, mgp_res
 
 // Each module needs to define mgp_init_module function.
 // Here you can register multiple procedures your module supports.
+// NOLINTNEXTLINE(misc-unused-parameters)
 extern "C" int mgp_init_module(mgp_module *module, mgp_memory *memory) {
   try {
     auto *proc = mgp::module_add_read_procedure(module, kProcedureGet, GetBiconnectedComponents);

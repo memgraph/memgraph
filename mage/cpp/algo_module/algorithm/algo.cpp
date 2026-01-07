@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -141,6 +141,7 @@ void Algo::PathFinder::FindAllPaths() {
   DFS(start_node_, path, visited);
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Algo::AllSimplePaths(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -161,6 +162,7 @@ void Algo::AllSimplePaths(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Algo::Cover(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -419,6 +421,7 @@ std::pair<mgp::Path, double> Algo::BuildResult(std::shared_ptr<NodeObject> final
   return std::pair<mgp::Path, double>(std::move(path), weight);
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Algo::AStar(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);

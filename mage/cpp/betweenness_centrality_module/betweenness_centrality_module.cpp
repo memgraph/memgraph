@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,11 +51,12 @@ void GetBetweennessCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_res
     const auto graph_type = directed ? mg_graph::GraphType::kDirectedGraph : mg_graph::GraphType::kUndirectedGraph;
 
     const auto graph = mg_utility::GetGraphView(memgraph_graph, result, memory, graph_type);
-    const auto BC = betweenness_centrality_alg::BetweennessCentrality(*graph, directed, normalize, threads);
+    const auto BC =
+        betweenness_centrality_alg::BetweennessCentrality(*graph, directed, normalize, static_cast<int>(threads));
 
     const auto number_of_nodes = graph->Nodes().size();
     for (std::uint64_t node_id = 0; node_id < number_of_nodes; ++node_id)
-      InsertBCRecord(memgraph_graph, result, memory, BC[node_id], graph->GetMemgraphNodeId(node_id));
+      InsertBCRecord(memgraph_graph, result, memory, BC[node_id], static_cast<int>(graph->GetMemgraphNodeId(node_id)));
 
   } catch (const std::exception &e) {
     // We must not let any exceptions out of our module.
@@ -68,9 +69,9 @@ void GetBetweennessCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_res
 // Each module needs to define mgp_init_module function.
 // Here you can register multiple procedures your module supports.
 extern "C" int mgp_init_module(mgp_module *module, mgp_memory *memory) {
-  mgp_value *bool_value_directed;
-  mgp_value *bool_value_normalized;
-  mgp_value *int_value_threads;
+  mgp_value *bool_value_directed = nullptr;
+  mgp_value *bool_value_normalized = nullptr;
+  mgp_value *int_value_threads = nullptr;
 
   try {
     auto *proc = mgp::module_add_read_procedure(module, kProcedureGet, GetBetweennessCentrality);

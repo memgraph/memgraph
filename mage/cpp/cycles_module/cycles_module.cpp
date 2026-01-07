@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,6 +32,7 @@ void InsertCycleRecord(mgp_graph *graph, mgp_result *result, mgp_memory *memory,
   mg_utility::InsertNodeValueResult(record, kFieldNode, node, memory);
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void GetCycles(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
     auto graph = mg_utility::GetGraphView(memgraph_graph, result, memory, mg_graph::GraphType::kUndirectedGraph);
@@ -53,6 +54,7 @@ void GetCycles(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mg
 
 // Each module needs to define mgp_init_module function.
 // Here you can register multiple procedures your module supports.
+// NOLINTNEXTLINE(misc-unused-parameters)
 extern "C" int mgp_init_module(mgp_module *module, mgp_memory *memory) {
   try {
     auto *proc = mgp::module_add_read_procedure(module, kProcedureGet, GetCycles);

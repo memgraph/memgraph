@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -59,6 +59,7 @@ double distance_calc(const mgp::Node &node1, const mgp::Node &node2, bool use_km
   return round(distance * rounding) / rounding;
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Single(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto record_factory = mgp::RecordFactory(result);
@@ -79,6 +80,7 @@ void Single(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Multiple(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto record_factory = mgp::RecordFactory(result);

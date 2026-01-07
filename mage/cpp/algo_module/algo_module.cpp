@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,18 +15,17 @@
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard{memory};
+    const mgp::MemoryDispatcherGuard guard{memory};
 
-    AddProcedure(Algo::AStar, std::string(Algo::kProcedureAStar).c_str(), mgp::ProcedureType::Read,
-                 {mgp::Parameter(std::string(Algo::kAStarStart).c_str(), mgp::Type::Node),
-                  mgp::Parameter(std::string(Algo::kAStarTarget).c_str(), mgp::Type::Node),
-                  mgp::Parameter(std::string(Algo::kAStarConfig).c_str(), mgp::Type::Map)},
-                 {mgp::Return(std::string(Algo::kAStarPath).c_str(), mgp::Type::Path),
-                  mgp::Return(std::string(Algo::kAStarWeight).c_str(), mgp::Type::Double)},
-                 module, memory);
-    AddProcedure(Algo::Cover, std::string(Algo::kProcedureCover).c_str(), mgp::ProcedureType::Read,
-                 {mgp::Parameter(std::string(Algo::kCoverArg1).c_str(), {mgp::Type::List, mgp::Type::Node})},
-                 {mgp::Return(std::string(Algo::kCoverRet1).c_str(), mgp::Type::Relationship)}, module, memory);
+    AddProcedure(
+        Algo::AStar, Algo::kProcedureAStar, mgp::ProcedureType::Read,
+        {mgp::Parameter(Algo::kAStarStart, mgp::Type::Node), mgp::Parameter(Algo::kAStarTarget, mgp::Type::Node),
+         mgp::Parameter(Algo::kAStarConfig, mgp::Type::Map)},
+        {mgp::Return(Algo::kAStarPath, mgp::Type::Path), mgp::Return(Algo::kAStarWeight, mgp::Type::Double)}, module,
+        memory);
+    AddProcedure(Algo::Cover, Algo::kProcedureCover, mgp::ProcedureType::Read,
+                 {mgp::Parameter(Algo::kCoverArg1, {mgp::Type::List, mgp::Type::Node})},
+                 {mgp::Return(Algo::kCoverRet1, mgp::Type::Relationship)}, module, memory);
 
     AddProcedure(Algo::AllSimplePaths, Algo::kProcedureAllSimplePaths, mgp::ProcedureType::Read,
                  {mgp::Parameter(Algo::kAllSimplePathsArg1, mgp::Type::Node),

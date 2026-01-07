@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,10 +25,11 @@ namespace {
 
 bool CheckBCC(std::vector<std::vector<mg_graph::Edge<>>> user,
               std::vector<std::vector<std::pair<std::uint64_t, std::uint64_t>>> correct_bcc_edges) {
-  std::vector<std::set<std::pair<std::uint64_t, std::uint64_t>>> user_bcc_edges, correct_bcc_edges_set;
+  std::vector<std::set<std::pair<std::uint64_t, std::uint64_t>>> user_bcc_edges;
+  std::vector<std::set<std::pair<std::uint64_t, std::uint64_t>>> correct_bcc_edges_set;
 
   for (auto &bcc : correct_bcc_edges) {
-    correct_bcc_edges_set.push_back({});
+    correct_bcc_edges_set.emplace_back();
     for (auto &p : bcc) {
       correct_bcc_edges_set.back().insert({p.first, p.second});
       correct_bcc_edges_set.back().insert({p.second, p.first});
@@ -36,15 +37,15 @@ bool CheckBCC(std::vector<std::vector<mg_graph::Edge<>>> user,
   }
 
   for (auto &bcc : user) {
-    user_bcc_edges.push_back({});
+    user_bcc_edges.emplace_back();
     for (const auto &edge : bcc) {
       user_bcc_edges.back().insert({edge.from, edge.to});
       user_bcc_edges.back().insert({edge.to, edge.from});
     }
   }
 
-  std::sort(correct_bcc_edges_set.begin(), correct_bcc_edges_set.end());
-  std::sort(user_bcc_edges.begin(), user_bcc_edges.end());
+  std::ranges::sort(correct_bcc_edges_set);
+  std::ranges::sort(user_bcc_edges);
 
   return user_bcc_edges == correct_bcc_edges_set;
 }
@@ -81,8 +82,9 @@ TEST(BCC, DisconnectedNodes) {
 }
 
 TEST(BCC, Cycle) {
-  std::uint64_t n = 100;
+  const std::uint64_t n = 100;
   std::vector<std::pair<std::uint64_t, std::uint64_t>> E;
+  E.reserve(n);
   for (std::uint64_t i = 0; i < n; ++i) {
     E.emplace_back(i, (i + 1) % n);
   }
@@ -272,7 +274,7 @@ TEST(BCC, HandmadeArticulationPoint) {
 
 TEST(BCC, Performance) {
   auto G = mg_generate::GenRandomGraph(10000, 25000);
-  mg_test_utility::Timer timer;
+  const mg_test_utility::Timer timer;
 
   std::unordered_set<std::uint64_t> articulation_points;
   std::vector<std::unordered_set<std::uint64_t>> bcc_nodes;

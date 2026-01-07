@@ -1,10 +1,11 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
 // this file except in compliance with the License. You may obtain a copy of the License at https://memgraph.com/legal.
 
 #include <algorithm>
+#include <ranges>
 #include <string>
 #include <thread>
 
@@ -32,17 +33,17 @@ constexpr char const *kFieldNode = "node";
 constexpr char const *kFieldBCScore = "betweenness_centrality";
 constexpr char const *kFieldMessage = "message";
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 auto algorithm = online_bc::OnlineBC();
 
 ///@brief Tests if given node is connected to the rest of the graph via given edge.
 bool ConnectedVia(std::uint64_t node_id, std::pair<std::uint64_t, std::uint64_t> edge) {
   return (edge.first == node_id || edge.second == node_id) && edge.first != edge.second;  // exclude self-loops
 }
-}  // namespace
 
 void InsertOnlineBCRecord(mgp_graph *graph, mgp_result *result, mgp_memory *memory, const std::uint64_t node_id,
                           double bc_score) {
-  auto *node = mg_utility::GetNodeForInsertion(node_id, graph, memory);
+  auto *node = mg_utility::GetNodeForInsertion(static_cast<int>(node_id), graph, memory);
   if (!node) return;
 
   auto *record = mgp::result_new_record(result);
@@ -136,15 +137,14 @@ void Update(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
       const auto deleted_edges = mg_utility::GetEdgeEndpointIDs(mgp::value_get_list(mgp::list_at(args, 3)));
 
       // Check if online update can be used
-      if (created_nodes.size() == 0 && deleted_nodes.size() == 0) {  // Edge update
+      if (created_nodes.empty() && deleted_nodes.empty()) {  // Edge update
         // Get edges as before the update
         std::vector<std::pair<std::uint64_t, std::uint64_t>> prior_edges_ids;
         for (const auto edge_inner_ids : graph->Edges()) {
           const std::pair<std::uint64_t, std::uint64_t> edge{graph->GetMemgraphNodeId(edge_inner_ids.from),
                                                              graph->GetMemgraphNodeId(edge_inner_ids.to)};
           // Newly created edges aren’t part of the prior graph
-          if (std::find(created_edges.begin(), created_edges.end(), edge) == created_edges.end())
-            prior_edges_ids.push_back(edge);
+          if (std::ranges::find(created_edges, edge) == created_edges.end()) prior_edges_ids.push_back(edge);
         }
         for (const auto deleted_edge : deleted_edges) {
           prior_edges_ids.push_back(deleted_edge);
@@ -163,14 +163,13 @@ void Update(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
           prior_graph = std::move(graph);
         }
         for (const auto deleted_edge : deleted_edges) {
-          prior_edges_ids.erase(std::remove(prior_edges_ids.begin(), prior_edges_ids.end(), deleted_edge),
-                                prior_edges_ids.end());
+          std::erase(prior_edges_ids, deleted_edge);
           graph = mg_generate::BuildGraph(graph_nodes_ids, prior_edges_ids, mg_graph::GraphType::kUndirectedGraph);
           node_bc_scores = algorithm.EdgeUpdate(*prior_graph, *graph, online_bc::Operation::DELETE_EDGE, deleted_edge,
                                                 normalize, threads);
           prior_graph = std::move(graph);
         }
-      } else if (created_edges.size() == 0 && deleted_edges.size() == 0) {  // Node update
+      } else if (created_edges.empty() && deleted_edges.empty()) {  // Node update
         for (const auto created_node_id : created_nodes) {
           algorithm.NodeUpdate(online_bc::Operation::CREATE_NODE, created_node_id, normalize);
         }
@@ -199,6 +198,7 @@ void Update(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
   }
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 void Reset(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
     if (!mgp_is_enterprise_valid()) {
@@ -213,6 +213,7 @@ void Reset(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_me
     return;
   }
 }
+}  // namespace
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   // Add .set()
@@ -220,8 +221,8 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     try {
       auto *set_proc = mgp::module_add_read_procedure(module, kProcedureSet, Set);
 
-      auto default_normalize = mgp::value_make_bool(true, memory);
-      auto default_threads = mgp::value_make_int(std::thread::hardware_concurrency(), memory);
+      auto *default_normalize = mgp::value_make_bool(true, memory);
+      auto *default_threads = mgp::value_make_int(std::thread::hardware_concurrency(), memory);
 
       mgp::proc_add_opt_arg(set_proc, kArgumentNormalize, mgp::type_bool(), default_normalize);
       mgp::proc_add_opt_arg(set_proc, kArgumentThreads, mgp::type_int(), default_threads);
@@ -241,7 +242,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     try {
       auto *get_proc = mgp::module_add_read_procedure(module, kProcedureGet, Get);
 
-      auto default_normalize = mgp::value_make_bool(true, memory);
+      auto *default_normalize = mgp::value_make_bool(true, memory);
       mgp::proc_add_opt_arg(get_proc, kArgumentNormalize, mgp::type_bool(), default_normalize);
 
       mgp::proc_add_result(get_proc, kFieldNode, mgp::type_node());
@@ -256,10 +257,10 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     try {
       auto *update_proc = mgp::module_add_read_procedure(module, kProcedureUpdate, Update);
 
-      auto default_vertices = mgp::value_make_list(mgp::list_make_empty(0, memory));
-      auto default_edges = mgp::value_make_list(mgp::list_make_empty(0, memory));
-      auto default_normalize = mgp::value_make_bool(true, memory);
-      auto default_threads = mgp::value_make_int(std::thread::hardware_concurrency(), memory);
+      auto *default_vertices = mgp::value_make_list(mgp::list_make_empty(0, memory));
+      auto *default_edges = mgp::value_make_list(mgp::list_make_empty(0, memory));
+      auto *default_normalize = mgp::value_make_bool(true, memory);
+      auto *default_threads = mgp::value_make_int(std::thread::hardware_concurrency(), memory);
 
       mgp::proc_add_opt_arg(update_proc, kArgumentCreatedVertices, mgp::type_list(mgp::type_node()), default_vertices);
       mgp::proc_add_opt_arg(update_proc, kArgumentCreatedEdges, mgp::type_list(mgp::type_relationship()),
