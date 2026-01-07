@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1194,8 +1194,8 @@ TYPED_TEST(CppApiTestFixture, TestNestedIndex) {
 }
 
 TYPED_TEST(CppApiTestFixture, TestExistenceConstraint) {
-  auto storage_acc = this->storage->UniqueAccess();
-  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+  auto read_only_acc = this->storage->Access(AccessorType::READ_ONLY);
+  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(read_only_acc.get());
   mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
   ASSERT_TRUE(mgp::CreateExistenceConstraint(&raw_graph, "User", "email"));
@@ -1213,8 +1213,8 @@ TYPED_TEST(CppApiTestFixture, TestExistenceConstraint) {
 }
 
 TYPED_TEST(CppApiTestFixture, TestUniqueConstraint) {
-  auto storage_acc = this->storage->UniqueAccess();
-  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+  auto read_only_acc = this->storage->Access(AccessorType::READ_ONLY);
+  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(read_only_acc.get());
   mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
   // Prepare the properties list: ["username"]
