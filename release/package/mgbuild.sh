@@ -1254,13 +1254,14 @@ build_mage() {
 
   echo -e "${GREEN_BOLD}Building MAGE in container${RESET}"
   build_args=(
-    $build_type
-    $rust_version
+    --build-type $build_type
+    --rust-version $rust_version
   )
   if [[ "$config_only" = true ]]; then
     build_args+=("--config-only")
   fi
-  docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh ${build_args[@]}"
+
+  docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh ${build_args[*]}"
   if [[ "$config_only" = true ]]; then
     echo -e "${GREEN_BOLD}Configuration done successfully${RESET}"
     exit 0

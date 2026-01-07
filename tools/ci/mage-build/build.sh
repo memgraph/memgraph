@@ -1,20 +1,34 @@
 #!/bin/bash
+echo "here"
 set -eo pipefail
 
-BUILD_TYPE="${1:-Release}"
-RUST_VERSION="${2:-1.85}"
-
 config_only=false
-shift 2
+BUILD_TYPE="Release"
+RUST_VERSION="1.85"
+
+# Process flags first
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --rust-version)
+      RUST_VERSION=$2
+      shift 2
+    ;;
+    --build-type)
+      BUILD_TYPE=$2
+      shift 2
+    ;;
     --config-only)
       config_only=true
       shift 1
     ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+    ;;
   esac
 done
 
+# Extract positional arguments after flags have been processed
 build_args=(
     "build"
     "-p"
@@ -22,7 +36,6 @@ build_args=(
     "--cpp-build-flags"
     "CMAKE_BUILD_TYPE=${BUILD_TYPE}"
 )
-
 if [[ "$config_only" = true ]]; then
     build_args+=("--config-only")
 fi
