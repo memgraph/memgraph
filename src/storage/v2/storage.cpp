@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -404,11 +404,6 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
     for (auto *edge : edges) {
       storage_->indices_.text_edge_index_.RemoveEdge(edge->edge_.ptr, edge->edge_type_, transaction_);
     }
-  }
-
-  // Cleanup vector indices
-  for (auto *node : nodes_to_delete) {
-    storage_->indices_.vector_index_.RemoveNode(node);
   }
 
   auto deleted_vertices = maybe_deleted_vertices.value();

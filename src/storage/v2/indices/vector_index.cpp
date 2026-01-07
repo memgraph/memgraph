@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -261,15 +261,6 @@ void VectorIndex::Clear() {
   pimpl->label_to_index_.clear();
 }
 
-void VectorIndex::RemoveNode(Vertex *vertex) {
-  for (auto &[_, index_item] : pimpl->index_) {
-    auto locked_index = index_item.mg_index->MutableSharedLock();
-    if (locked_index->contains(vertex)) {
-      locked_index->remove(vertex);
-    }
-  }
-}
-
 void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper) {
   auto matching_index_properties = GetProperties(label);
   if (matching_index_properties.empty()) {
@@ -307,9 +298,10 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, NameIdMappe
     if (auto index_name = matching_index_properties.find(property_id); index_name != matching_index_properties.end()) {
       auto old_vertex_property_value = vertex->properties.GetProperty(property_id);
       auto &ids = old_vertex_property_value.ValueVectorIndexIds();
-      std::ranges::remove(ids, name_id_mapper->NameToId(index_name->second));
+      auto [erase_begin, erase_end] = std::ranges::remove(ids, name_id_mapper->NameToId(index_name->second));
+      ids.erase(erase_begin, erase_end);
       auto old_vector_property_value = GetPropertyValue(vertex, index_name->second);
-      UpdateIndex(PropertyValue(), vertex, std::optional{index_name->second},
+      UpdateIndex(PropertyValue(), vertex, index_name->second,
                   name_id_mapper);  // we are removing property from index
       vertex->properties.SetProperty(property_id,
                                      ids.empty() ? old_vector_property_value
@@ -360,7 +352,7 @@ void VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *vertex, std::o
   const auto &vector_property = value.ValueVectorIndexList();
   const auto &index_ids = value.ValueVectorIndexIds();
   for (const auto &index_id : index_ids) {
-    auto idx_name = name_id_mapper->IdToName(index_id);
+    const auto &idx_name = name_id_mapper->IdToName(index_id);
     auto label_prop = pimpl->index_name_to_label_prop_.at(idx_name);
     auto &index_item = pimpl->index_.at(label_prop);
     if (vector_property.empty()) {
@@ -448,6 +440,24 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
   }
 
   return result;
+}
+
+void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
+  auto maybe_stop = utils::ResettableCounter(2048);
+  for (auto &[_, index_item] : pimpl->index_) {
+    if (maybe_stop() && token.stop_requested()) {
+      return;
+    }
+    auto &[mg_index, _] = index_item;
+    auto locked_index = mg_index->MutableSharedLock();
+    std::vector<Vertex *> vertices_to_remove(locked_index->size());
+    locked_index->export_keys(vertices_to_remove.data(), 0, locked_index->size());
+
+    auto deleted = vertices_to_remove | rv::filter([](const Vertex *vertex) { return vertex->deleted; });
+    for (const auto &vertex : deleted) {
+      locked_index->remove(vertex);
+    }
+  }
 }
 
 bool VectorIndex::IndexExists(std::string_view index_name) const {

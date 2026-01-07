@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -239,10 +239,7 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
       for (const auto &id : value.ValueVectorIndexIds()) {
         slk::Save(id, builder);
       }
-      slk::Save(value.ValueVectorIndexList().size(), builder);
-      for (const auto &item : value.ValueVectorIndexList()) {
-        slk::Save(item, builder);
-      }
+      slk::Save(value.ValueVectorIndexList(), builder);
       return;
     }
   }
@@ -399,19 +396,15 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::ExternalPropertyValue::Type::VectorIndexId: {
-      size_t size{0};
+      uint32_t size{0};
       slk::Load(&size, reader);
       utils::small_vector<std::string> ids;
-      ids.reserve(size);
+      ids.resize(size);
       for (size_t i = 0; i < size; ++i) {
         slk::Load(&ids[i], reader);
       }
-      size_t list_size{0};
-      slk::Load(&list_size, reader);
-      std::vector<float> list(list_size);
-      for (size_t i = 0; i < list_size; ++i) {
-        slk::Load(&list[i], reader);
-      }
+      std::vector<float> list;
+      slk::Load(&list, reader);
       *value = storage::ExternalPropertyValue(std::move(ids), std::move(list));
       return;
     }
