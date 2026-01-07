@@ -1,7 +1,6 @@
 memgraph:
   deployment:
-    # Script needs to be located in stress/deployments
-    script: "native_standalone/deployment/deployment.sh"
+    externally_managed: false
   args:
     - "--telemetry-enabled=false"
     - "--bolt-server-name-for-init=Neo4j/"

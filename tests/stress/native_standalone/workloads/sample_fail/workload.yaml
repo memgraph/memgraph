@@ -1,6 +1,6 @@
 memgraph:
   deployment:
-    script: "native_standalone/deployment/deployment.sh"
+    externally_managed: false
   args: []
 
 general:

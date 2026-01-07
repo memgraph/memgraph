@@ -47,10 +47,9 @@ The test suite is configured using YAML files, which define Memgraph deployment 
 ```yaml
 memgraph:
   deployment:
-    # Path to deployment script (relative to stress/ folder).
-    # Script must support: start, stop, status commands.
-    # Leave empty for externally managed clusters.
-    script: "docker_ha/deployment/deployment.sh"
+    # If true, cluster is managed externally (e.g., EKS) - skip start/stop.
+    # If false, CI will run <deployment_type>/deployment/deployment.sh start/stop.
+    externally_managed: false
   args:
     # Additional memgraph arguments that are passed. Overrides the arguments from the
     # deployment script.
@@ -150,7 +149,7 @@ Examples:
 ./continuous_integration --deployment native_ha
 
 # Run specific config file
-./continuous_integration --config-file shared/templates/config_small.yaml
+./continuous_integration --config-file native_standalone/workloads/config_small.yaml
 ```
 
 ## Monitoring with Prometheus & Grafana

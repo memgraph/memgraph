@@ -46,9 +46,9 @@ class DeploymentType(str, Enum):
     """Supported deployment types for stress testing."""
 
     NATIVE_STANDALONE = "native_standalone"
+    NATIVE_HA = "native_ha"
     DOCKER_HA = "docker_ha"
     EKS_HA = "eks_ha"
-    NATIVE_HA = "native_ha"
 
     def __str__(self) -> str:
         return self.value
@@ -112,8 +112,8 @@ def load_workloads_registry(deployment: str) -> List[Dict[str, Any]]:
     return enabled_workloads
 
 
-def start_deployment(script_path: str, args: List[str], env: Dict[str, str] = None) -> None:
-    cmd = [script_path, "start"] + args
+def start_deployment(deployment_script: str, args: List[str], env: Dict[str, str] = None) -> None:
+    cmd = [deployment_script, "start"] + args
     print(f"Starting Memgraph with: {' '.join(cmd)}")
 
     # Merge provided env with current environment
@@ -128,14 +128,14 @@ def start_deployment(script_path: str, args: List[str], env: Dict[str, str] = No
     time.sleep(2)  # Ensure the server has time to start
 
 
-def stop_deployment(script_path: str) -> None:
-    cmd = [script_path, "stop"]
+def stop_deployment(deployment_script: str) -> None:
+    cmd = [deployment_script, "stop"]
     print(f"Stopping Memgraph with: {' '.join(cmd)}")
     subprocess.run(cmd, check=True)
 
 
-def check_deployment_status(script_path: str) -> bool:
-    cmd = [script_path, "status"]
+def check_deployment_status(deployment_script: str) -> bool:
+    cmd = [deployment_script, "status"]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return result.returncode == 0
 
@@ -146,13 +146,15 @@ def check_deployment_status(script_path: str) -> bool:
 
 
 class Config:
-    def __init__(self, config):
+    def __init__(self, config, config_file: str):
+        self._config_file = config_file
         self._verbose = config.get("general", {}).get("verbose", False)
         self._use_ssl = config.get("general", {}).get("use_ssl", False)
 
         # Memgraph configuration
         memgraph = config.get("memgraph", {})
-        self._script = memgraph.get("deployment", {}).get("script", None)
+        deployment = memgraph.get("deployment", {})
+        self._externally_managed = deployment.get("externally_managed", True)
         self._memgraph_args = memgraph.get("args", [])
         self._env = memgraph.get("env", {})
 
@@ -167,6 +169,18 @@ class Config:
 
         self._custom_workloads = config.get("customWorkloads", {}).get("tests", [])
 
+        # Derive script path
+        self._deployment_script = self._derive_deployment_script()
+
+    def _derive_deployment_script(self) -> str:
+        """Derive deployment script path from config file location."""
+        if self._externally_managed:
+            return None
+        # e.g., docker_ha/workloads/rag/workload.yaml -> docker_ha/deployment/deployment.sh
+        config_rel_path = os.path.relpath(self._config_file, SCRIPT_DIR)
+        deployment_type = config_rel_path.split(os.sep)[0]
+        return os.path.join(SCRIPT_DIR, deployment_type, "deployment", "deployment.sh")
+
     @property
     def uses_ssl(self):
         return self._use_ssl
@@ -176,8 +190,16 @@ class Config:
         return self._verbose
 
     @property
-    def script(self):
-        return self._script
+    def externally_managed(self):
+        return self._externally_managed
+
+    @property
+    def deployment_script(self):
+        return self._deployment_script
+
+    @property
+    def manage_deployment(self):
+        return not self._externally_managed
 
     @property
     def tests(self):
@@ -293,26 +315,25 @@ def run_workload_script(workload: Dict[str, Any], args: Args, timeout_sec: int) 
         raise Exception(f"Workload script returned non-zero ({result.returncode})!")
 
 
-def run_custom_workloads(script_path: str, config: Config, args: Args) -> Dict[str, Any]:
+def run_custom_workloads(config: Config, args: Args) -> Dict[str, Any]:
     """Runs custom workloads on Memgraph using GQLAlchemy or custom scripts."""
     print("Running custom workloads...")
     runtimes = {}
-    manage_deployment = script_path is not None
 
     for workload in config.custom_workloads:
         workload_name = workload["name"]
         print(f"Running workload '{workload_name}'")
         start = time.time()
 
-        # Start Memgraph deployment (skip if no deployment script - cluster managed externally)
-        if manage_deployment:
+        # Start Memgraph deployment (skip if externally managed)
+        if config.manage_deployment:
             try:
-                start_deployment(script_path, config.memgraph_args + workload.get("memgraph_args", []), config.env)
+                start_deployment(
+                    config.deployment_script, config.memgraph_args + workload.get("memgraph_args", []), config.env
+                )
             except Exception as ex:
-                stop_deployment(script_path)
+                stop_deployment(config.deployment_script)
                 return {"error": f"Failed to start deployment for workload '{workload_name}': {ex}"}
-        else:
-            print("No deployment script specified - assuming cluster is managed externally")
 
         try:
             # Run import queries
@@ -365,12 +386,12 @@ def run_custom_workloads(script_path: str, config: Config, args: Args) -> Dict[s
             runtimes[workload_name] = end - start
 
         except Exception as ex:
-            if manage_deployment:
-                stop_deployment(script_path)
+            if config.manage_deployment:
+                stop_deployment(config.deployment_script)
             return {"error": f"Failed to execute workload '{workload_name}': {ex}"}
         finally:
-            if manage_deployment:
-                stop_deployment(script_path)
+            if config.manage_deployment:
+                stop_deployment(config.deployment_script)
 
     return runtimes
 
@@ -379,19 +400,14 @@ def run_config_file(args: Args, config_file: str) -> Dict[str, Any]:
     """Run tests from a single config file."""
     runtimes = {}
 
-    config = Config(yaml.safe_load(open(config_file)))
+    config = Config(yaml.safe_load(open(config_file)), config_file)
 
-    # Determine if we're managing deployment or using external cluster
-    script_path = config.script
-    manage_deployment = bool(script_path)
-
-    if manage_deployment:
-        script_path = os.path.join(SCRIPT_DIR, script_path)
-        if not os.path.exists(script_path):
-            return {"error": f"Memgraph deployment script not found: {script_path}!"}
+    # Validate script path if managing deployment
+    if config.manage_deployment:
+        if not os.path.exists(config.deployment_script):
+            return {"error": f"Deployment script not found: {config.deployment_script}!"}
     else:
-        script_path = None
-        print("No deployment script specified - assuming cluster is managed externally")
+        print("Externally managed cluster - skipping deployment start/stop")
 
     # Run dataset tests
     for test in config.tests:
@@ -400,9 +416,9 @@ def run_config_file(args: Args, config_file: str) -> Dict[str, Any]:
         timeout = test["timeout_min"]
         memgraph_flags = config.memgraph_args + test.get("memgraph_args", [])
 
-        if manage_deployment:
+        if config.manage_deployment:
             try:
-                start_deployment(script_path, memgraph_flags, config.env)
+                start_deployment(config.deployment_script, memgraph_flags, config.env)
             except Exception as ex:
                 return {"error": f"Failed to start deployment for test '{test_name}': {ex}"}
 
@@ -410,15 +426,15 @@ def run_config_file(args: Args, config_file: str) -> Dict[str, Any]:
             runtime = run_test(args, config, test_name, test_flags, timeout)
             runtimes[os.path.splitext(test_name)[0]] = runtime
         except Exception as ex:
-            if manage_deployment:
-                stop_deployment(script_path)
+            if config.manage_deployment:
+                stop_deployment(config.deployment_script)
             return {"error": f"Failed to execute test '{test_name}': {ex}"}
         finally:
-            if manage_deployment:
-                stop_deployment(script_path)
+            if config.manage_deployment:
+                stop_deployment(config.deployment_script)
 
     # Run custom workloads
-    workload_result = run_custom_workloads(script_path, config, args)
+    workload_result = run_custom_workloads(config, args)
     if "error" in workload_result:
         return workload_result
 
@@ -487,7 +503,7 @@ if __name__ == "__main__":
         result = run_config_file(args, config_file)
     # Default: run native_standalone with default config
     else:
-        default_config = os.path.join(SCRIPT_DIR, "shared/templates/config_small.yaml")
+        default_config = os.path.join(SCRIPT_DIR, "native_standalone/workloads/config_small.yaml")
         print(f"No deployment or config specified. Using default: {default_config}")
         result = run_config_file(args, default_config)
 

@@ -1,7 +1,6 @@
 memgraph:
   deployment:
-    # No script - EKS cluster is managed externally via eks_ha/deployment.sh
-    script: null
+    externally_managed: true
   args: []
   env:
     # Set in eks_ha/values.yaml

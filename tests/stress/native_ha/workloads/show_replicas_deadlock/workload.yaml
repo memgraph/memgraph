@@ -1,6 +1,6 @@
 memgraph:
   deployment:
-    script: "native_ha/deployment/deployment.sh"
+    externally_managed: false
   args: [] # Any additional flags you need
   env:
     MEMGRAPH_ENTERPRISE_LICENSE: ""

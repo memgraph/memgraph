@@ -5,7 +5,3 @@
 workloads:
   - config: workloads/show_replicas_deadlock/workload.yaml
     enabled: true
-
-  # Add new workloads here:
-  # - config: workloads/my_workload/workload.yaml
-  #   enabled: true

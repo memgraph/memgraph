@@ -5,7 +5,3 @@
 workloads:
   - config: workloads/supernode_edge_abort/workload.yaml
     enabled: true
-
-  # Add new workloads here:
-  # - config: workloads/my_workload/workload.yaml
-  #   enabled: true

@@ -1,6 +1,6 @@
 memgraph:
   deployment:
-    script: "docker_ha/deployment/deployment.sh"
+    externally_managed: false
   args: []
   env: {}  # License passed via environment variables from workflow
 
