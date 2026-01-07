@@ -1326,8 +1326,9 @@ test_mage() {
     pip install -r python/tests/requirements.txt --break-system-packages
   }
 
-  case $1 in
+  case "$1" in
     unit)
+      shift 1
       local ci=true
       local cache_present=false
       local cuda=false
@@ -1377,6 +1378,7 @@ test_mage() {
       docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/python/ && python3 -m pytest ."
     ;;
     e2e)
+      shift 1
       local clean_env=false
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -1395,6 +1397,7 @@ test_mage() {
       fi
     ;;
     e2e-correctness)
+      shift 1
       local memgraph_port=7687
       local neo4j_port=7688
       local neo4j_container=neo4j
@@ -1455,6 +1458,7 @@ test_mage() {
       trap - EXIT INT TERM
     ;;
     e2e-migration)
+      shift 1
       local mage_container=mage
       local mysql_container=mysql
       local postgresql_container=postgresql
