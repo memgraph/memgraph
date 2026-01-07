@@ -511,6 +511,11 @@ jobs:
             --postgresql-container $POSTGRESQL_CONTAINER \
             --clean-env
 
+      - name: Stop container for e2e tests
+        if: ${{ inputs.run_tests == true && always() }}
+        run: |
+          docker stop $MAGE_CONTAINER || true
+
       - name: Save docker image
         if: ${{ inputs.push_to_github || inputs.push_to_s3 }}
         run: |
