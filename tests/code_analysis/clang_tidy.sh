@@ -94,6 +94,41 @@ if ! command -v clang-tidy &> /dev/null; then
 fi
 ninja -C build -t inputs | grep -E '\.cppm\.o$|\.o\.modmap$' | xargs -r ninja -C build
 
+# Merge mage's compile_commands.json into the main one if it exists
+if [[ -f "mage/cpp/build/compile_commands.json" ]]; then
+  echo "Merging mage compile_commands.json into main build..."
+  if [[ -f "build/compile_commands.json" ]]; then
+    # Use Python to merge the two JSON arrays
+    python3 << 'EOF'
+import json
+import sys
+
+try:
+    # Read main compile_commands.json
+    with open('build/compile_commands.json', 'r') as f:
+        main_commands = json.load(f)
+
+    # Read mage compile_commands.json
+    with open('mage/cpp/build/compile_commands.json', 'r') as f:
+        mage_commands = json.load(f)
+
+    # Merge the arrays
+    merged_commands = main_commands + mage_commands
+
+    # Write back to main compile_commands.json
+    with open('build/compile_commands.json', 'w') as f:
+        json.dump(merged_commands, f, indent=2)
+
+    print(f"Merged {len(mage_commands)} mage compile commands into main build")
+except Exception as e:
+    print(f"Warning: Failed to merge mage compile_commands.json: {e}", file=sys.stderr)
+    sys.exit(0)  # Don't fail the build if merge fails
+EOF
+  else
+    echo "Warning: Main build/compile_commands.json not found, cannot merge mage compile commands"
+  fi
+fi
+
 echo "Running clang-tidy on changed files..."
 echo "Using clang-tidy: $(command -v clang-tidy)"
 echo "clang-tidy version: $(clang-tidy --version | head -1)"
