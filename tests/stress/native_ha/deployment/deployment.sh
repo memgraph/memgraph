@@ -33,11 +33,6 @@ COORD_DIR_PREFIX="mg_coord"
 
 # Default flags for Memgraph Data Nodes
 DEFAULT_DATA_FLAGS=(
-    "--storage-properties-on-edges=true"
-    "--storage-snapshot-on-exit=false"
-    "--storage-snapshot-interval-sec=600"
-    "--storage-snapshot-retention-count=1"
-    "--storage-wal-enabled=true"
     "--query-execution-timeout-sec=1200"
     "--log-file="
     "--log-level=ERROR"
