@@ -241,14 +241,16 @@ TEST_F(ConsolidatedSchedulerTest, MultipleTasksConsolidated) {
 
 /// Test 9: Task exception doesn't crash scheduler
 TEST_F(ConsolidatedSchedulerTest, TaskExceptionHandled) {
-  std::atomic<int> counter{0};
-  std::atomic<int> exception_count{0};
+  // Use shared_ptr to ensure atomics outlive any in-flight callbacks
+  // (Stop() doesn't wait for in-progress execution to complete)
+  auto counter = std::make_shared<std::atomic<int>>(0);
+  auto exception_count = std::make_shared<std::atomic<int>>(0);
 
-  auto r1 = general_.Register("throwing", 50ms, [&exception_count]() {
-    ++exception_count;
+  auto r1 = general_.Register("throwing", 50ms, [exception_count]() {
+    ++(*exception_count);
     throw std::runtime_error("test exception");
   });
-  auto r2 = general_.Register("normal", 50ms, [&counter]() { ++counter; });
+  auto r2 = general_.Register("normal", 50ms, [counter]() { ++(*counter); });
   ASSERT_TRUE(r1.has_value() && r2.has_value());
   auto throwing_handle = std::move(*r1);
   auto normal_handle = std::move(*r2);
@@ -256,8 +258,8 @@ TEST_F(ConsolidatedSchedulerTest, TaskExceptionHandled) {
   std::this_thread::sleep_for(200ms);
 
   // Both should have executed multiple times
-  EXPECT_GE(exception_count.load(), 1);
-  EXPECT_GE(counter.load(), 1);
+  EXPECT_GE(exception_count->load(), 1);
+  EXPECT_GE(counter->load(), 1);
 
   // Scheduler should still be running
   EXPECT_TRUE(scheduler_->IsRunning());
