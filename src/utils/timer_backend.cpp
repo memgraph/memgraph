@@ -162,6 +162,7 @@ void TimerBackend::Cancel() {
   [[maybe_unused]] auto _ = write(cancel_fd_, &val, sizeof(val));
 }
 
+// NOLINTNEXTLINE(readability-make-member-function-const) - modifies timer state via timerfd_settime
 void TimerBackend::SetTimerDeadline(time_point deadline) {
   // Convert steady_clock::time_point directly to timespec for absolute time
   // steady_clock uses CLOCK_MONOTONIC on Linux, same clock as our timerfd

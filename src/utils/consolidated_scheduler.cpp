@@ -420,9 +420,11 @@ std::expected<ConsolidatedScheduler, std::string> ConsolidatedScheduler::Create(
 
 // Global scheduler and pools storage
 namespace {
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables) - singleton pattern requires mutable globals
 std::once_flag g_init_flag;
 std::optional<ConsolidatedScheduler> g_instance;
 std::optional<GlobalPools> g_pools;
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 }  // namespace
 
 ConsolidatedScheduler &ConsolidatedScheduler::Global() {
@@ -480,7 +482,7 @@ std::expected<PoolId, PoolError> ConsolidatedScheduler::RegisterPool(PoolConfig 
 
   std::string pool_name = config.name;
 
-  std::lock_guard lock(impl_->pools_mutex_);
+  const std::lock_guard lock(impl_->pools_mutex_);
 
   // Check if pool already exists
   if (impl_->pools_.contains(config.name)) {
@@ -492,7 +494,7 @@ std::expected<PoolId, PoolError> ConsolidatedScheduler::RegisterPool(PoolConfig 
   // Start min_workers for this pool
   // Capture impl_.get() which is stable across moves of the outer scheduler
   for (size_t i = 0; i < config.min_workers; ++i) {
-    std::string worker_pool_name = config.name;
+    const std::string worker_pool_name = config.name;
     pool->workers.emplace_back(
         [impl = impl_.get(), worker_pool_name](std::stop_token) { impl->PoolWorkerLoop(worker_pool_name); });
   }
@@ -510,7 +512,7 @@ std::optional<PoolId> ConsolidatedScheduler::GetPool(const std::string &name) {
     return std::nullopt;
   }
 
-  std::lock_guard lock(impl_->pools_mutex_);
+  const std::lock_guard lock(impl_->pools_mutex_);
   if (impl_->pools_.contains(name)) {
     return PoolId{this, name};
   }
@@ -549,7 +551,7 @@ std::expected<TaskHandle, RegisterError> ConsolidatedScheduler::RegisterInternal
   task->wake_dispatcher = [this]() { WakeDispatcher(); };
 
   // Set up reschedule function (captures task as weak_ptr to avoid cycle)
-  std::weak_ptr<TaskState> weak_task = task;
+  const std::weak_ptr<TaskState> weak_task = task;
   task->reschedule_task = [this, weak_task](std::shared_ptr<TaskState>) {
     if (auto t = weak_task.lock()) {
       if (t->stopped.load(std::memory_order_acquire)) {
@@ -568,7 +570,7 @@ std::expected<TaskHandle, RegisterError> ConsolidatedScheduler::RegisterInternal
       auto next_aligned = t->CalculateNextAligned(reschedule_now);
       t->SetNextExecution(next_aligned);
       {
-        std::lock_guard lock(impl_->mutex_);
+        const std::lock_guard lock(impl_->mutex_);
         impl_->task_queue_.push(t);
       }
       WakeDispatcher();
@@ -576,7 +578,7 @@ std::expected<TaskHandle, RegisterError> ConsolidatedScheduler::RegisterInternal
   };
 
   {
-    std::lock_guard lock(impl_->mutex_);
+    const std::lock_guard lock(impl_->mutex_);
     // Re-check running_ under lock to prevent race with Shutdown()
     if (!impl_->running_.load(std::memory_order_acquire)) {
       return std::unexpected(RegisterError::SCHEDULER_STOPPED);
@@ -611,7 +613,7 @@ void ConsolidatedScheduler::Shutdown() {
 
   // Signal all pool workers to exit
   {
-    std::lock_guard lock(impl_->pools_mutex_);
+    const std::lock_guard lock(impl_->pools_mutex_);
     for (auto &[name, pool] : impl_->pools_) {
       pool->Signal(pool->workers.size());
     }
@@ -625,7 +627,7 @@ void ConsolidatedScheduler::Shutdown() {
 
   // Join all pool workers and clear pools
   {
-    std::lock_guard lock(impl_->pools_mutex_);
+    const std::lock_guard lock(impl_->pools_mutex_);
     for (auto &[name, pool] : impl_->pools_) {
       for (auto &worker : pool->workers) {
         if (worker.joinable()) {
@@ -635,7 +637,7 @@ void ConsolidatedScheduler::Shutdown() {
       }
       pool->workers.clear();
       // Clear pool queue
-      std::lock_guard pool_lock(pool->mutex);
+      const std::lock_guard pool_lock(pool->mutex);
       while (!pool->queue.empty()) {
         pool->queue.pop();
       }
@@ -645,7 +647,7 @@ void ConsolidatedScheduler::Shutdown() {
 
   // Clear all tasks
   {
-    std::lock_guard lock(impl_->mutex_);
+    const std::lock_guard lock(impl_->mutex_);
     while (!impl_->task_queue_.empty()) {
       impl_->task_queue_.pop();
     }
@@ -657,13 +659,13 @@ bool ConsolidatedScheduler::IsRunning() const { return impl_ && impl_->running_.
 
 size_t ConsolidatedScheduler::TaskCount() const {
   if (!impl_) return 0;
-  std::lock_guard lock(impl_->mutex_);
+  const std::lock_guard lock(impl_->mutex_);
   return impl_->all_tasks_.size();
 }
 
 size_t ConsolidatedScheduler::WorkerCount() const {
   if (!impl_) return 0;
-  std::lock_guard lock(impl_->pools_mutex_);
+  const std::lock_guard lock(impl_->pools_mutex_);
   size_t total = 0;
   for (const auto &[name, pool] : impl_->pools_) {
     total += pool->workers.size();
@@ -673,7 +675,7 @@ size_t ConsolidatedScheduler::WorkerCount() const {
 
 size_t ConsolidatedScheduler::PoolCount() const {
   if (!impl_) return 0;
-  std::lock_guard lock(impl_->pools_mutex_);
+  const std::lock_guard lock(impl_->pools_mutex_);
   return impl_->pools_.size();
 }
 
@@ -683,7 +685,7 @@ void ConsolidatedScheduler::Impl::DispatcherLoop() {
     time_point next_deadline = time_point::max();
 
     {
-      std::lock_guard lock(mutex_);
+      const std::lock_guard lock(mutex_);
 
       // Remove stopped tasks
       std::erase_if(all_tasks_, [](const auto &t) { return t->stopped.load(std::memory_order_acquire); });
@@ -745,7 +747,7 @@ void ConsolidatedScheduler::Impl::DispatcherLoop() {
       }
 
       // Submit to each pool
-      std::lock_guard pools_lock(pools_mutex_);
+      const std::lock_guard pools_lock(pools_mutex_);
       for (auto &[pool_name, tasks] : tasks_by_pool) {
         auto *pool = GetPool(pool_name);
         if (!pool) {
@@ -770,9 +772,9 @@ void ConsolidatedScheduler::Impl::DispatcherLoop() {
           }
         } else {
           // Submit to pool queue
-          size_t num_tasks = tasks.size();
+          const size_t num_tasks = tasks.size();
           {
-            std::lock_guard pool_lock(pool->mutex);
+            const std::lock_guard pool_lock(pool->mutex);
             for (auto &task : tasks) {
               pool->queue.push(std::move(task));
               pool->queued_tasks.fetch_add(1, std::memory_order_release);
@@ -800,7 +802,7 @@ void ConsolidatedScheduler::Impl::PoolWorkerLoop(const std::string &pool_name) {
   // Get pool reference (must exist since we're started by RegisterPool)
   WorkerPool *pool = nullptr;
   {
-    std::lock_guard lock(pools_mutex_);
+    const std::lock_guard lock(pools_mutex_);
     pool = GetPool(pool_name);
   }
 
@@ -817,7 +819,7 @@ void ConsolidatedScheduler::Impl::PoolWorkerLoop(const std::string &pool_name) {
 
     std::shared_ptr<TaskState> task;
     {
-      std::lock_guard lock(pool->mutex);
+      const std::lock_guard lock(pool->mutex);
       if (!pool->queue.empty()) {
         // Priority queue: highest priority (lowest enum value) at top
         task = pool->queue.top();
