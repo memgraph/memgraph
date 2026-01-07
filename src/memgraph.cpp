@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 #include <memory>
 #include <optional>
@@ -174,7 +175,7 @@ int main(int argc, char **argv) {
 
   if (FLAGS_h) {
     gflags::ShowUsageWithFlags(argv[0]);
-    exit(1);
+    return EXIT_FAILURE;
   }
 
   auto flags_experimental = memgraph::flags::ReadExperimental(FLAGS_experimental_enabled);
@@ -511,7 +512,7 @@ int main(int argc, char **argv) {
 #endif
   } catch (std::exception const &e) {
     spdlog::error("Exception was thrown on creating SyncedAuth object, shutting down Memgraph. {}", e.what());
-    exit(1);
+    return EXIT_FAILURE;
   }
   auth_glue(auth_.get(), auth_handler, auth_checker);
 
@@ -577,7 +578,7 @@ int main(int argc, char **argv) {
     spdlog::trace("Coordinator state initialized successfully.");
   } catch (std::exception const &e) {
     spdlog::error("Exception was thrown on coordinator state construction, shutting down Memgraph. {}", e.what());
-    exit(1);
+    return EXIT_FAILURE;
   }
 
 #endif

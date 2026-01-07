@@ -183,11 +183,10 @@ bool InputFile::Open(const std::filesystem::path &path) {
     if (fd_ == -1 && errno == EINTR) {
       // The call was interrupted, try again...
       continue;
-    } else {
-      // All other possible errors are fatal errors and are handled with the
-      // return value.
-      break;
     }
+    // All other possible errors are fatal errors and are handled with the
+    // return value.
+    break;
   }
 
   if (fd_ == -1) return false;
@@ -238,13 +237,13 @@ bool InputFile::Peek(uint8_t *data, size_t size) {
     // buffer position.
     buffer_position_ = old_buffer_position;
   } else {
-    SetPosition(Position::SET, real_position);
+    SetPosition(Position::SET, static_cast<ssize_t>(real_position));
   }
 
   return ret;
 }
 
-size_t InputFile::GetSize() { return file_size_; }
+size_t InputFile::GetSize() const { return file_size_; }
 
 size_t InputFile::GetPosition() {
   if (buffer_start_) return *buffer_start_ + buffer_position_;
@@ -252,7 +251,22 @@ size_t InputFile::GetPosition() {
 }
 
 std::optional<size_t> InputFile::SetPosition(Position position, ssize_t offset) {
-  int whence;
+  // It would be wrong not to take into account buffering
+  if (position == Position::RELATIVE_TO_CURRENT) {
+    offset = static_cast<ssize_t>(GetPosition()) + offset;
+    position = Position::SET;
+  }
+
+  // Optimization if the new position fits within the old buffer
+  if (position == Position::SET && buffer_start_.has_value()) {
+    auto target = static_cast<size_t>(offset);
+    if (target >= *buffer_start_ && target < *buffer_start_ + buffer_size_) {
+      buffer_position_ = target - *buffer_start_;
+      return target;
+    }
+  }
+
+  int whence = 0;
   switch (position) {
     case Position::SET:
       whence = SEEK_SET;
@@ -271,6 +285,7 @@ std::optional<size_t> InputFile::SetPosition(Position position, ssize_t offset) 
     }
     if (pos < 0) return std::nullopt;
     file_position_ = pos;
+
     buffer_start_ = std::nullopt;
     buffer_size_ = 0;
     buffer_position_ = 0;
@@ -287,11 +302,10 @@ void InputFile::Close() noexcept {
     if (ret == -1 && errno == EINTR) {
       // The call was interrupted, try again...
       continue;
-    } else {
-      // All other possible errors are fatal errors and are handled in the
-      // MG_ASSERT below.
-      break;
     }
+    // All other possible errors are fatal errors and are handled in the
+    // MG_ASSERT below.
+    break;
   }
 
   if (ret != 0) {
@@ -383,11 +397,10 @@ void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
     if (fd_ == -1 && errno == EINTR) {
       // The call was interrupted, try again...
       continue;
-    } else {
-      // All other possible errors are fatal errors and are handled in the
-      // MG_ASSERT below.
-      break;
     }
+    // All other possible errors are fatal errors and are handled in the
+    // MG_ASSERT below.
+    break;
   }
 
   MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
@@ -427,7 +440,7 @@ void OutputFile::Write(const char *data, size_t size) { Write(reinterpret_cast<c
 void OutputFile::Write(const std::string_view data) { Write(data.data(), data.size()); }
 
 size_t OutputFile::SeekFile(const Position position, const ssize_t offset) {
-  int whence;
+  int whence = 0;
   switch (position) {
     case Position::SET:
       whence = SEEK_SET;
@@ -678,7 +691,7 @@ void NonConcurrentOutputFile::Write(const char *data, size_t size) {
 void NonConcurrentOutputFile::Write(const std::string_view data) { Write(data.data(), data.size()); }
 
 size_t NonConcurrentOutputFile::SeekFile(const Position position, const ssize_t offset) {
-  int whence;
+  int whence = 0;
   switch (position) {
     case Position::SET:
       whence = SEEK_SET;

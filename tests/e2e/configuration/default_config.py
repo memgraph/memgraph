@@ -300,5 +300,15 @@ startup_config_dict = {
     ),
     "query_log_directory": ("", "", "Path to directory where the query logs should be stored."),
     "schema_info_enabled": ("false", "false", "Set to true to enable run-time schema info tracking."),
+    "storage_rocksdb_enable_thread_tracking": (
+        "false",
+        "false",
+        "Enable RocksDB thread status tracking. Default is false for reduced syscall overhead. Enable when debugging disk storage performance issues (provides GetThreadList API).",
+    ),
+    "storage_rocksdb_info_log_level": (
+        "ERROR_LEVEL",
+        "ERROR_LEVEL",
+        "RocksDB info log level. Options: DEBUG_LEVEL, INFO_LEVEL, WARN_LEVEL, ERROR_LEVEL, FATAL_LEVEL, HEADER_LEVEL. Default is ERROR_LEVEL for reduced syscall overhead. Use INFO_LEVEL or DEBUG_LEVEL when debugging disk storage issues.",
+    ),
     "debug_query_plans": ("false", "false", "Enable DEBUG logging of potential query plans."),
 }
