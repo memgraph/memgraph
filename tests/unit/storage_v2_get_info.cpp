@@ -91,14 +91,14 @@ TYPED_TEST(InfoTest, InfoCheck) {
 
   {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      ASSERT_TRUE(unique_acc->CreateExistenceConstraint(lbl, prop).has_value());
-      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      auto read_only_access = this->storage->ReadOnlyAccess();
+      ASSERT_TRUE(read_only_access->CreateExistenceConstraint(lbl, prop).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      ASSERT_TRUE(unique_acc->DropExistenceConstraint(lbl, prop).has_value());
-      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      auto read_only_access = this->storage->ReadOnlyAccess();
+      ASSERT_TRUE(read_only_access->DropExistenceConstraint(lbl, prop).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     auto acc = this->storage->Access();
@@ -159,25 +159,25 @@ TYPED_TEST(InfoTest, InfoCheck) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_TRUE(unique_acc->CreateUniqueConstraint(lbl, {prop2}).has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    auto read_only_access = this->storage->ReadOnlyAccess();
+    ASSERT_TRUE(read_only_access->CreateUniqueConstraint(lbl, {prop2}).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_TRUE(unique_acc->CreateUniqueConstraint(lbl2, {prop}).has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    auto read_only_access = this->storage->ReadOnlyAccess();
+    ASSERT_TRUE(read_only_access->CreateUniqueConstraint(lbl2, {prop}).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_TRUE(unique_acc->CreateUniqueConstraint(lbl3, {prop}).has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    auto read_only_access = this->storage->ReadOnlyAccess();
+    ASSERT_TRUE(read_only_access->CreateUniqueConstraint(lbl3, {prop}).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_EQ(unique_acc->DropUniqueConstraint(lbl, {prop2}),
+    auto read_only_access = this->storage->ReadOnlyAccess();
+    ASSERT_EQ(read_only_access->DropUniqueConstraint(lbl, {prop2}),
               memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   StorageInfo info = this->storage->GetInfo();

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -402,21 +402,21 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
-    auto unique_acc = main.db.UniqueAccess();
-    ASSERT_TRUE(unique_acc
+    auto read_only_access = main.db.ReadOnlyAccess();
+    ASSERT_TRUE(read_only_access
                     ->CreateExistenceConstraint(main.db.storage()->NameToLabel(label),
                                                 main.db.storage()->NameToProperty(property))
                     .has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
-    auto unique_acc = main.db.UniqueAccess();
-    ASSERT_TRUE(unique_acc
+    auto read_only_access = main.db.ReadOnlyAccess();
+    ASSERT_TRUE(read_only_access
                     ->CreateUniqueConstraint(main.db.storage()->NameToLabel(label),
                                              {main.db.storage()->NameToProperty(property),
                                               main.db.storage()->NameToProperty(property_extra)})
                     .has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
 
   {
@@ -537,20 +537,20 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
-    auto unique_acc = main.db.UniqueAccess();
-    ASSERT_TRUE(unique_acc
+    auto read_only_access = main.db.ReadOnlyAccess();
+    ASSERT_TRUE(read_only_access
                     ->DropExistenceConstraint(main.db.storage()->NameToLabel(label),
                                               main.db.storage()->NameToProperty(property))
                     .has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
-    auto unique_acc = main.db.UniqueAccess();
-    ASSERT_EQ(unique_acc->DropUniqueConstraint(
+    auto read_only_access = main.db.ReadOnlyAccess();
+    ASSERT_EQ(read_only_access->DropUniqueConstraint(
                   main.db.storage()->NameToLabel(label),
                   {main.db.storage()->NameToProperty(property), main.db.storage()->NameToProperty(property_extra)}),
               memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
 
   {
