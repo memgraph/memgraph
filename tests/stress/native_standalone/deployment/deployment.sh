@@ -28,6 +28,7 @@ DEFAULT_FLAGS=(
     "--storage-snapshot-retention-count=1"
     "--storage-wal-enabled=true"
     "--query-execution-timeout-sec=1200"
+    "--log-file="
     "--log-level=TRACE"
     "--also-log-to-stderr=true"
     "--data-directory=$DATA_DIR"
