@@ -1446,11 +1446,11 @@ test_mage() {
       cd $PROJECT_ROOT/mage/tests
       source ../env/bin/activate
       ./run_e2e_correctness_tests.sh \
-        --memgraph-port $memgraph_port \
-        --neo4j-port $neo4j_port \
-        --neo4j-container $neo4j_container \
-        --mage-container $mage_container \
-        --memgraph-network $memgraph_network
+        $memgraph_port \
+        $neo4j_port \
+        $neo4j_container \
+        $mage_container \
+        $memgraph_network
       cleanup_container
       if [[ "$clean_env" = true ]]; then
         rm -rf ../env
