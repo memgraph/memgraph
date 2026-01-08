@@ -95,14 +95,6 @@ jobs:
           --arch $ARCH \
           copy --logs-dir /home/mg/memgraph/tests/stress --dest-dir build/stress/logs
 
-      - name: Save stress test logs
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: "Stress Tests Native Standalone Logs"
-          path: build/stress/logs
-
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -179,23 +171,6 @@ jobs:
           --organization-name ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }} \
           test-memgraph stress-native-ha
 
-      - name: Copy stress test logs
-        if: failure()
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          copy --logs-dir /home/mg/memgraph/tests/stress --dest-dir build/stress/logs
-
-      - name: Save stress test logs
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: "Stress Tests Native HA Logs"
-          path: build/stress/logs
-
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -266,14 +241,6 @@ jobs:
           test-memgraph stress-docker-ha
         env:
           MEMGRAPH_IMAGE: ${{ env.MEMGRAPH_IMAGE }}
-
-      - name: Save stress test logs
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: "Stress Tests Docker HA Logs"
-          path: tests/stress/**/*.log
 
       - name: Clean up Docker
         if: always()
