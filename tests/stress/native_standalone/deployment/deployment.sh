@@ -20,13 +20,14 @@ DATA_DIR="stress_data"
 
 # Default flags for Memgraph
 DEFAULT_FLAGS=(
-    "--telemetry-enabled=false"
+    "--also-log-to-stderr=true"
     "--bolt-server-name-for-init=Neo4j/"
-    "--query-execution-timeout-sec=1200"
+    "--data-directory=$DATA_DIR"
     "--log-file="
     "--log-level=TRACE"
-    "--also-log-to-stderr=true"
-    "--data-directory=$DATA_DIR"
+    "--query-execution-timeout-sec=1200"
+    "--storage-properties-on-edges=true"
+    "--telemetry-enabled=false"
 )
 
 clean_data_directory() {
