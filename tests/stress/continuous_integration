@@ -192,7 +192,7 @@ class Config:
         """Derive deployment script path from config file location."""
         if self._externally_managed:
             return None
-        # e.g., docker_ha/workloads/rag/workload.yaml -> docker_ha/deployment/deployment.sh
+
         config_rel_path = os.path.relpath(self._config_file, SCRIPT_DIR)
         deployment_type = config_rel_path.split(os.sep)[0]
         return os.path.join(SCRIPT_DIR, deployment_type, "deployment", "deployment.sh")
