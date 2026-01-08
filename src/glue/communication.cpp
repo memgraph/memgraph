@@ -460,6 +460,9 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
     case storage::PropertyValue::Type::Point3d: {
       return {value.ValuePoint3d()};
     }
+    case storage::PropertyValue::Type::VectorIndexId: {
+      throw communication::bolt::ValueException("VectorIndexId is not supported for bolt value");
+    }
   }
 }
 

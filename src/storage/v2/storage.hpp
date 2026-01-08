@@ -553,6 +553,8 @@ class Storage {
 
     virtual std::expected<void, storage::StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name) = 0;
 
+    virtual utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) = 0;
+
     virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorEdgeIndex(
         VectorEdgeIndexSpec spec) = 0;
 

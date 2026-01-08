@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,8 +33,6 @@
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/join.hpp>
 #include <range/v3/view/transform.hpp>
-
-#include "storage/v2/durability/paths.hpp"
 
 using memgraph::storage::Delta;
 using memgraph::storage::EdgeAccessor;
@@ -572,7 +570,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
           &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_,
           storage->config_, &storage->enum_store_,
           storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr, &storage->ttl_,
-          snapshot_observer_info);
+          &storage->indices_, snapshot_observer_info);
       // If this step is present it should always be the first step of
       // the recovery so we use the UUID we read from snapshot
       storage->uuid().set(snapshot_info.uuid);

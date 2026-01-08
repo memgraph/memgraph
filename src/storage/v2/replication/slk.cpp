@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -109,6 +109,7 @@ void Load(storage::ExternalPropertyValue::Type *type, slk::Reader *reader) {
     case std::to_underlying(storage::ExternalPropertyValue::Type::Enum):
     case std::to_underlying(storage::ExternalPropertyValue::Type::Point2d):
     case std::to_underlying(storage::ExternalPropertyValue::Type::Point3d):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::VectorIndexId):
       valid = true;
       break;
     default:
@@ -230,6 +231,15 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
     case storage::ExternalPropertyValue::Type::Point3d: {
       slk::Save(storage::ExternalPropertyValue::Type::Point3d, builder);
       slk::Save(value.ValuePoint3d(), builder);
+      return;
+    }
+    case storage::ExternalPropertyValue::Type::VectorIndexId: {
+      slk::Save(storage::ExternalPropertyValue::Type::VectorIndexId, builder);
+      slk::Save(value.ValueVectorIndexIds().size(), builder);
+      for (const auto &id : value.ValueVectorIndexIds()) {
+        slk::Save(id, builder);
+      }
+      slk::Save(value.ValueVectorIndexList(), builder);
       return;
     }
   }
@@ -383,6 +393,19 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       storage::Point3d v;
       slk::Load(&v, reader);
       *value = storage::ExternalPropertyValue(v);
+      return;
+    }
+    case storage::ExternalPropertyValue::Type::VectorIndexId: {
+      uint32_t size{0};
+      slk::Load(&size, reader);
+      utils::small_vector<std::string> ids;
+      ids.resize(size);
+      for (size_t i = 0; i < size; ++i) {
+        slk::Load(&ids[i], reader);
+      }
+      std::vector<float> list;
+      slk::Load(&list, reader);
+      *value = storage::ExternalPropertyValue(std::move(ids), std::move(list));
       return;
     }
   }

@@ -515,6 +515,8 @@ class InMemoryStorage final : public Storage {
 
     std::expected<void, StorageIndexDefinitionError> CreateVectorIndex(VectorIndexSpec spec) override;
 
+    utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) override;
+
     std::expected<void, StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name) override;
 
     std::expected<void, StorageIndexDefinitionError> CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) override;
