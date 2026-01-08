@@ -7792,14 +7792,12 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem::path const &path,
-                                             utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                             utils::SkipList<EdgeMetadata> *edges_metadata,
-                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                             Config const &config, EnumStore *enum_store,
-                                             SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
-                                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
+RecoveredSnapshot LoadCurrentVersionSnapshot(
+    Decoder &snapshot, std::filesystem::path const &path, utils::SkipList<Vertex> *vertices,
+    utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+    std::deque<std::pair<std::string, uint64_t>> *epoch_history, NameIdMapper *name_id_mapper,
+    std::atomic<uint64_t> *edge_count, Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
+    memgraph::storage::ttl::TTL *ttl, Indices *indices, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   // Cleanup of loaded data in case of failure.
 
   RecoveryInfo recovery_info;
@@ -8219,17 +8217,17 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})", *index_name,
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
-
-        indices_constraints.indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{
-            .spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
+        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
                                     .label_id = get_label_from_id(*label),
                                     .property = get_property_from_id(*property),
                                     .metric_kind = metric_kind,
                                     .dimension = static_cast<uint16_t>(*dimension),
                                     .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
                                     .capacity = *capacity,
-                                    .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)},
-            .index_entries = {}});
+                                    .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+        indices->vector_index_.RecoverSnapshot(spec);
+        indices_constraints.indices.vector_indices.emplace_back(
+            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -8535,7 +8533,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
                                memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info,
-                               memgraph::storage::ttl::TTL *ttl,
+                               memgraph::storage::ttl::TTL *ttl, Indices *indices,
                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
   Decoder snapshot;
   const auto version = snapshot.Initialize(path, kSnapshotMagic);
@@ -8602,7 +8600,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     }
     case 31U: {
       return LoadCurrentVersionSnapshot(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
-                                        edge_count, config, enum_store, schema_info, ttl, snapshot_info);
+                                        edge_count, config, enum_store, schema_info, ttl, indices, snapshot_info);
     }
     default: {
       // `IsVersionSupported` checks that the version is within the supported
@@ -9224,6 +9222,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
         snapshot.WriteUint(capacity);
         snapshot.WriteUint(static_cast<uint64_t>(scalar_kind));
       }
+      storage->indices_.vector_index_.CreateSnapshot();
       if (snapshot_aborted()) {
         return std::nullopt;
       }

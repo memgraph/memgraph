@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1416,13 +1416,22 @@ std::optional<RecoveryInfo> LoadWal(
             data.capacity, scalar_kind);
       },
       [&](WalVectorIndexDrop const &data) {
-        // TODO(@DavIvek): edge index drop
+        // Vector index drop
         VectorIndexRecovery::UpdateOnIndexDrop(data.index_name, name_id_mapper,
                                                indices_constraints->indices.vector_indices, vertex_acc);
         indices_constraints->indices.vector_indices.erase(
             r::remove_if(indices_constraints->indices.vector_indices,
                          [&](const auto &recovery_info) { return recovery_info.spec.index_name == data.index_name; }),
             indices_constraints->indices.vector_indices.end());
+        indices->vector_index_.DropIndex(
+            data.index_name, vertex_acc,
+            name_id_mapper);  // if index was recovered using snapshot, it will be dropped here
+
+        // Vector edge index drop
+        indices_constraints->indices.vector_edge_indices.erase(
+            r::remove_if(indices_constraints->indices.vector_edge_indices,
+                         [&](const auto &recovery_info) { return recovery_info.index_name == data.index_name; }),
+            indices_constraints->indices.vector_edge_indices.end());
       },
       [&](WalTtlOperation const &data) {
         switch (data.operation_type) {

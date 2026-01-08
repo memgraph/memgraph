@@ -172,7 +172,7 @@ class VectorIndex {
 
   void CreateSnapshot();
 
-  bool RecoverSnapshot(const std::filesystem::path &path);
+  bool RecoverSnapshot(const VectorIndexSpec &spec);
 
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.

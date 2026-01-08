@@ -28,9 +28,25 @@ namespace memgraph::storage {
 using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
 
 struct IndexItem {
-  mg_vector_index_t index;
-  VectorIndexLock lock;
+  SynchronizedVectorIndex<mg_vector_index_t> index;
   VectorIndexSpec spec;
+  std::atomic<bool> updated_since_last_snapshot{false};
+
+  IndexItem(SynchronizedVectorIndex<mg_vector_index_t> idx, VectorIndexSpec s)
+      : index(std::move(idx)), spec(std::move(s)) {}
+  ~IndexItem() = default;
+  IndexItem(IndexItem &&other) noexcept
+      : index(std::move(other.index)),
+        spec(std::move(other.spec)),
+        updated_since_last_snapshot(other.updated_since_last_snapshot.load()) {}
+  IndexItem &operator=(IndexItem &&other) noexcept {
+    index = std::move(other.index);
+    spec = std::move(other.spec);
+    updated_since_last_snapshot.store(other.updated_since_last_snapshot.load());
+    return *this;
+  }
+  IndexItem(const IndexItem &) = delete;
+  IndexItem &operator=(const IndexItem &) = delete;
 };
 
 namespace {
@@ -42,7 +58,8 @@ void TryAddVertexToIndex(IndexItem &index_item, Vertex &vertex,
   auto property = vertex.properties.GetProperty(index_item.spec.property);
   if (property.IsNull()) return;
   auto vector = PropertyToFloatVector(property, index_item.spec.dimension);
-  AddToVectorIndex(index_item.index, index_item.lock, index_item.spec, &vertex, vector.data(), thread_id);
+  AddToVectorIndex(index_item.index, index_item.spec, &vertex, vector.data(), thread_id);
+  index_item.updated_since_last_snapshot = true;
   vertex.properties.SetProperty(
       index_item.spec.property,
       PropertyValue(utils::small_vector<uint64_t>{name_id_mapper->NameToId(index_item.spec.index_name)},
@@ -113,7 +130,8 @@ void VectorIndex::SetupIndex(const VectorIndexSpec &spec) {
 
   pimpl->index_name_to_label_prop_.try_emplace(spec.index_name, label_prop);
   pimpl->label_to_index_[spec.label_id].emplace(spec.property, spec.index_name);
-  pimpl->index_.emplace(label_prop, IndexItem{.index = std::move(mg_vector_index.index), .lock = {}, .spec = spec});
+  pimpl->index_.try_emplace(label_prop, SynchronizedVectorIndex<mg_vector_index_t>(std::move(mg_vector_index.index)),
+                            spec);
 
   spdlog::info("Created vector index {}", spec.index_name);
 }
@@ -122,15 +140,17 @@ void VectorIndex::RecoverIndex(const VectorIndexRecoveryInfo &recovery_info,
                                utils::SkipList<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const auto &spec = recovery_info.spec;
-  const auto &recovery_entries = recovery_info.index_entries;
-  SetupIndex(spec);
+  if (!pimpl->index_.contains(
+          {spec.label_id, spec.property})) {  // if index wasn't recovered using snapshot, it will be created here
+    SetupIndex(spec);
+  }
   auto &index_item = pimpl->index_.at({spec.label_id, spec.property});
-
+  const auto &recovery_entries = recovery_info.index_entries;
   auto process_vertex_for_recovery = [&index_item, &recovery_entries, &snapshot_info, name_id_mapper](
                                          Vertex &vertex, std::optional<std::size_t> thread_id) {
     const auto index_id = name_id_mapper->NameToId(index_item.spec.index_name);
     std::vector<float> vector;
-    bool should_set_property = false;
+    auto should_set_property = false;
 
     if (auto it = recovery_entries.find(vertex.gid); it != recovery_entries.end()) {
       vector = it->second;
@@ -139,7 +159,7 @@ void VectorIndex::RecoverIndex(const VectorIndexRecoveryInfo &recovery_info,
         return;
       }
       auto property = vertex.properties.GetProperty(index_item.spec.property);
-      if (property.IsNull()) {
+      if (property.IsNull() || property.IsVectorIndexId()) {  // either null or already in index
         return;
       }
       vector = ListToVector(property);
@@ -151,8 +171,7 @@ void VectorIndex::RecoverIndex(const VectorIndexRecoveryInfo &recovery_info,
     }
 
     ValidateVectorDimension(vector, index_item.spec.dimension);
-    AddToVectorIndex(index_item.index, index_item.lock, index_item.spec, &vertex, vector.data(), thread_id);
-
+    AddToVectorIndex(index_item.index, index_item.spec, &vertex, vector.data(), thread_id);
     if (should_set_property) {
       vertex.properties.SetProperty(index_item.spec.property,
                                     PropertyValue(utils::small_vector<uint64_t>{index_id}, std::vector<float>{}));
@@ -175,19 +194,18 @@ void VectorIndex::CreateSnapshot() {
     std::filesystem::create_directories(vector_index_storage_dir_);
   }
   for (auto &[label_prop, index_item] : pimpl->index_) {
-    auto lock = index_item.lock.LockForSave();
-    index_item.index.save((vector_index_storage_dir_ / index_item.spec.index_name).c_str());
+    if (!index_item.updated_since_last_snapshot.exchange(false)) continue;
+    auto index = index_item.index.LockForSave();
+    index->save((vector_index_storage_dir_ / index_item.spec.index_name).c_str());
   }
 }
 
-bool VectorIndex::RecoverSnapshot(const std::filesystem::path &path) {
-  if (!std::filesystem::exists(path)) {
-    return false;
-  }
-  for (auto &[label_prop, index_item] : pimpl->index_) {
-    auto lock = index_item.lock.LockForResize();
-    index_item.index.load((path / index_item.spec.index_name).c_str());
-  }
+bool VectorIndex::RecoverSnapshot(const VectorIndexSpec &spec) {
+  if (!std::filesystem::exists(vector_index_storage_dir_)) return false;
+  SetupIndex(spec);
+  auto &index_item = pimpl->index_.at({spec.label_id, spec.property});
+  auto index = index_item.index.LockForResize();
+  index->load((vector_index_storage_dir_ / spec.index_name).c_str());
   return true;
 }
 
@@ -223,24 +241,24 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
   }
   auto label_prop = it->second;
   auto &index_item = pimpl->index_.at(label_prop);
-  auto _ = index_item.lock.LockForModify();
+  auto index = index_item.index.LockForModify();
 
   auto restore_vector_from_index = [&](auto *vertex) {
-    std::vector<double> vector(index_item.index.dimensions());
-    index_item.index.get(vertex, vector.data());
+    std::vector<double> vector(index->dimensions());
+    index->get(vertex, vector.data());
     vertex->properties.SetProperty(label_prop.property(), PropertyValue(std::move(vector)));
   };
 
   auto index_id = name_id_mapper->NameToId(index_name);
   for (auto &vertex : vertices) {
-    if (index_item.index.contains(&vertex)) {
+    if (index->contains(&vertex)) {
       auto vector_property = vertex.properties.GetProperty(label_prop.property());
       if (RemoveIndexIdFromProperty(vector_property, index_id)) {
         restore_vector_from_index(&vertex);
       } else {
         vertex.properties.SetProperty(label_prop.property(), vector_property);
       }
-      index_item.index.remove(&vertex);
+      index->remove(&vertex);
     }
   }
   pimpl->index_.erase(label_prop);
@@ -316,8 +334,9 @@ void VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *vertex, std::o
 
     auto &index_item = pimpl->index_.at(it->second);
     if (value.IsNull()) {
-      auto _ = index_item.lock.LockForModify();
-      index_item.index.remove(vertex);
+      auto index = index_item.index.LockForModify();
+      index->remove(vertex);
+      index_item.updated_since_last_snapshot = true;
       return;
     }
 
@@ -331,7 +350,8 @@ void VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *vertex, std::o
       throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
     });
 
-    UpdateSingleVectorIndex(index_item.index, index_item.lock, index_item.spec, vertex, vector_property, true);
+    UpdateSingleVectorIndex(index_item.index, index_item.spec, vertex, vector_property, true);
+    index_item.updated_since_last_snapshot = true;
     return;
   }
 
@@ -346,11 +366,13 @@ void VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *vertex, std::o
     auto label_prop = pimpl->index_name_to_label_prop_.at(idx_name);
     auto &index_item = pimpl->index_.at(label_prop);
     if (vector_property.empty()) {
-      auto _ = index_item.lock.LockForModify();
-      index_item.index.remove(vertex);
+      auto index = index_item.index.LockForModify();
+      index->remove(vertex);
+      index_item.updated_since_last_snapshot = true;
       continue;
     }
-    UpdateSingleVectorIndex(index_item.index, index_item.lock, index_item.spec, vertex, vector_property, false);
+    UpdateSingleVectorIndex(index_item.index, index_item.spec, vertex, vector_property, false);
+    index_item.updated_since_last_snapshot = true;
   }
 }
 
@@ -360,8 +382,8 @@ PropertyValue VectorIndex::GetPropertyValue(Vertex *vertex, std::string_view ind
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
   auto &index_item = pimpl->index_.at(it->second);
-  auto _ = index_item.lock.LockForRead();
-  return GetVectorAsPropertyValue(index_item.index, vertex);
+  auto index = index_item.index.LockForRead();
+  return GetVectorAsPropertyValue(*index, vertex);
 }
 
 std::vector<float> VectorIndex::GetVectorProperty(Vertex *vertex, std::string_view index_name) const {
@@ -370,19 +392,18 @@ std::vector<float> VectorIndex::GetVectorProperty(Vertex *vertex, std::string_vi
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
   auto &index_item = pimpl->index_.at(it->second);
-  auto _ = index_item.lock.LockForRead();
-  return GetVector(index_item.index, vertex);
+  auto index = index_item.index.LockForRead();
+  return GetVector(*index, vertex);
 }
 
 std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
   std::vector<VectorIndexInfo> result;
   result.reserve(pimpl->index_.size());
   for (auto &[label_prop, index_item] : pimpl->index_) {
-    auto lock = index_item.lock.LockForRead();
+    auto index = index_item.index.LockForRead();
     result.emplace_back(index_item.spec.index_name, index_item.spec.label_id, index_item.spec.property,
-                        NameFromMetric(index_item.index.metric().metric_kind()),
-                        static_cast<std::uint16_t>(index_item.index.dimensions()), index_item.index.capacity(),
-                        index_item.index.size(), NameFromScalar(index_item.index.metric().scalar_kind()));
+                        NameFromMetric(index->metric().metric_kind()), static_cast<std::uint16_t>(index->dimensions()),
+                        index->capacity(), index->size(), NameFromScalar(index->metric().scalar_kind()));
   }
   return result;
 }
@@ -401,8 +422,8 @@ std::optional<uint64_t> VectorIndex::ApproximateNodesVectorCount(LabelId label, 
     return std::nullopt;
   }
   auto &index_item = it->second;
-  auto _ = index_item.lock.LockForRead();
-  return index_item.index.size();
+  auto index = index_item.index.LockForRead();
+  return index->size();
 }
 
 VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view index_name, uint64_t result_set_size,
@@ -416,17 +437,15 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
   VectorSearchNodeResults result;
   result.reserve(result_set_size);
 
-  auto _ = index_item.lock.LockForRead();
-  const auto result_keys =
-      index_item.index.filtered_search(query_vector.data(), result_set_size, [](const Vertex *vertex) {
-        auto guard = std::shared_lock{vertex->lock};
-        return !vertex->deleted;
-      });
+  auto index = index_item.index.LockForRead();
+  const auto result_keys = index->filtered_search(query_vector.data(), result_set_size, [](const Vertex *vertex) {
+    auto guard = std::shared_lock{vertex->lock};
+    return !vertex->deleted;
+  });
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &vertex = static_cast<Vertex *>(result_keys[i].member.key);
-    result.emplace_back(
-        vertex, static_cast<double>(result_keys[i].distance),
-        std::abs(SimilarityFromDistance(index_item.index.metric().metric_kind(), result_keys[i].distance)));
+    result.emplace_back(vertex, static_cast<double>(result_keys[i].distance),
+                        std::abs(SimilarityFromDistance(index->metric().metric_kind(), result_keys[i].distance)));
   }
 
   return result;
@@ -438,14 +457,15 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
     if (maybe_stop() && token.stop_requested()) {
       return;
     }
-    auto lock = index_item.lock.LockForModify();
-    std::vector<Vertex *> vertices_to_remove(index_item.index.size());
-    index_item.index.export_keys(vertices_to_remove.data(), 0, index_item.index.size());
+    auto index = index_item.index.LockForModify();
+    std::vector<Vertex *> vertices_to_remove(index->size());
+    index->export_keys(vertices_to_remove.data(), 0, index->size());
 
     auto deleted = vertices_to_remove | rv::filter([](const Vertex *vertex) { return vertex->deleted; });
     for (const auto &vertex : deleted) {
-      index_item.index.remove(vertex);
+      index->remove(vertex);
     }
+    if (!deleted.empty()) index_item.updated_since_last_snapshot = true;
   }
 }
 
@@ -499,9 +519,10 @@ void VectorIndex::RemoveVertexFromIndex(Vertex *vertex, std::string_view index_n
         fmt::format("Error in removing vertex from index: index name {} does not exist.", index_name));
   }
   auto &index_item = pimpl->index_.at(it->second);
-  auto _ = index_item.lock.LockForModify();
-  if (index_item.index.contains(vertex)) {
-    index_item.index.remove(vertex);
+  auto index = index_item.index.LockForModify();
+  if (index->contains(vertex)) {
+    index->remove(vertex);
+    index_item.updated_since_last_snapshot = true;
   }
 }
 
@@ -701,9 +722,9 @@ std::vector<float> VectorIndex::GetVectorFromVertex(Vertex *vertex, std::string_
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
   auto &index_item = pimpl->index_.at(label_prop->second);
-  auto _ = index_item.lock.LockForRead();
-  std::vector<float> vector(index_item.index.dimensions());
-  index_item.index.get(vertex, vector.data());
+  auto index = index_item.index.LockForRead();
+  std::vector<float> vector(index->dimensions());
+  index->get(vertex, vector.data());
   return vector;
 }
 

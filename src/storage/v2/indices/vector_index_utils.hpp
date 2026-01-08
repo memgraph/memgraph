@@ -36,52 +36,93 @@ namespace memgraph::storage {
 
 namespace rv = ranges::views;
 
-/// Two-mutex locking pattern for vector index operations.
+/// Two-mutex synchronized wrapper for vector index operations.
 /// - structure_mutex_: Guards structural changes (resize). Exclusive lock blocks everything.
 /// - mutation_mutex_: Separates read-only operations (save, search) from modifications (add, remove).
-class VectorIndexLock {
+///
+/// Lock compatibility matrix:
+///   Read    + Read/Modify/Save = OK (all share structure_mutex_)
+///   Modify  + Modify           = OK (both share mutation_mutex_)
+///   Modify  + Save             = BLOCKED (Save takes unique mutation_mutex_)
+///   Resize  + anything         = BLOCKED (Resize takes unique structure_mutex_)
+template <class VectorIndexType>
+class SynchronizedVectorIndex {
  public:
-  struct ReadLock {
-    std::shared_lock<std::shared_mutex> structure_lock;
+  class ReadPtr {
+    friend class SynchronizedVectorIndex;
+    ReadPtr(const VectorIndexType *obj, std::shared_mutex &mutex) : object_ptr_(obj), structure_lock_(mutex) {}
+
+   public:
+    const VectorIndexType *operator->() const { return object_ptr_; }
+    const VectorIndexType &operator*() const { return *object_ptr_; }
+
+   private:
+    const VectorIndexType *object_ptr_;
+    std::shared_lock<std::shared_mutex> structure_lock_;
   };
 
-  struct ModifyLock {
-    std::shared_lock<std::shared_mutex> structure_lock;
-    std::shared_lock<std::shared_mutex> mutation_lock;
+  class ModifyPtr {
+    friend class SynchronizedVectorIndex;
+    ModifyPtr(VectorIndexType *obj, std::shared_mutex &structure, std::shared_mutex &mutation)
+        : object_ptr_(obj), structure_lock_(structure), mutation_lock_(mutation) {}
+
+   public:
+    VectorIndexType *operator->() { return object_ptr_; }
+    VectorIndexType &operator*() { return *object_ptr_; }
+
+   private:
+    VectorIndexType *object_ptr_;
+    std::shared_lock<std::shared_mutex> structure_lock_;
+    std::shared_lock<std::shared_mutex> mutation_lock_;
   };
 
-  struct SaveLock {
-    std::shared_lock<std::shared_mutex> structure_lock;
-    std::unique_lock<std::shared_mutex> mutation_lock;
+  class SavePtr {
+    friend class SynchronizedVectorIndex;
+    SavePtr(VectorIndexType *obj, std::shared_mutex &structure, std::shared_mutex &mutation)
+        : object_ptr_(obj), structure_lock_(structure), mutation_lock_(mutation) {}
+
+   public:
+    VectorIndexType *operator->() { return object_ptr_; }
+    VectorIndexType &operator*() { return *object_ptr_; }
+
+   private:
+    VectorIndexType *object_ptr_;
+    std::shared_lock<std::shared_mutex> structure_lock_;
+    std::unique_lock<std::shared_mutex> mutation_lock_;
   };
 
-  struct ResizeLock {
-    std::unique_lock<std::shared_mutex> structure_lock;
+  class ResizePtr {
+    friend class SynchronizedVectorIndex;
+    ResizePtr(VectorIndexType *obj, std::shared_mutex &mutex) : object_ptr_(obj), structure_lock_(mutex) {}
+
+   public:
+    VectorIndexType *operator->() { return object_ptr_; }
+    VectorIndexType &operator*() { return *object_ptr_; }
+
+   private:
+    VectorIndexType *object_ptr_;
+    std::unique_lock<std::shared_mutex> structure_lock_;
   };
 
-  VectorIndexLock()
-      : structure_mutex_(std::make_unique<std::shared_mutex>()),
+  template <class... Args>
+  explicit SynchronizedVectorIndex(Args &&...args)
+      : object_(std::forward<Args>(args)...),
+        structure_mutex_(std::make_unique<std::shared_mutex>()),
         mutation_mutex_(std::make_unique<std::shared_mutex>()) {}
 
-  ~VectorIndexLock() = default;
-  VectorIndexLock(VectorIndexLock &&) noexcept = default;
-  VectorIndexLock &operator=(VectorIndexLock &&) noexcept = default;
-  VectorIndexLock(const VectorIndexLock &) = delete;
-  VectorIndexLock &operator=(const VectorIndexLock &) = delete;
+  ~SynchronizedVectorIndex() = default;
+  SynchronizedVectorIndex(SynchronizedVectorIndex &&) noexcept = default;
+  SynchronizedVectorIndex &operator=(SynchronizedVectorIndex &&) noexcept = default;
+  SynchronizedVectorIndex(const SynchronizedVectorIndex &) = delete;
+  SynchronizedVectorIndex &operator=(const SynchronizedVectorIndex &) = delete;
 
-  [[nodiscard]] ReadLock LockForRead() const { return {std::shared_lock{*structure_mutex_}}; }
-
-  [[nodiscard]] ModifyLock LockForModify() const {
-    return {.structure_lock = std::shared_lock{*structure_mutex_}, .mutation_lock = std::shared_lock{*mutation_mutex_}};
-  }
-
-  [[nodiscard]] SaveLock LockForSave() const {
-    return {.structure_lock = std::shared_lock{*structure_mutex_}, .mutation_lock = std::unique_lock{*mutation_mutex_}};
-  }
-
-  [[nodiscard]] ResizeLock LockForResize() const { return {std::unique_lock{*structure_mutex_}}; }
+  [[nodiscard]] ReadPtr LockForRead() const { return ReadPtr(&object_, *structure_mutex_); }
+  [[nodiscard]] ModifyPtr LockForModify() { return ModifyPtr(&object_, *structure_mutex_, *mutation_mutex_); }
+  [[nodiscard]] SavePtr LockForSave() { return SavePtr(&object_, *structure_mutex_, *mutation_mutex_); }
+  [[nodiscard]] ResizePtr LockForResize() { return ResizePtr(&object_, *structure_mutex_); }
 
  private:
+  VectorIndexType object_;
   mutable std::unique_ptr<std::shared_mutex> structure_mutex_;
   mutable std::unique_ptr<std::shared_mutex> mutation_mutex_;
 };
@@ -445,27 +486,27 @@ inline std::size_t GetVectorIndexThreadCount() {
 }
 
 template <typename Index, typename Spec, typename Key>
-void UpdateSingleVectorIndex(Index &index, VectorIndexLock &lock, Spec &spec, Key key, const std::vector<float> &vector,
-                             bool update_capacity = true) {
+void UpdateSingleVectorIndex(SynchronizedVectorIndex<Index> &sync_index, Spec &spec, Key key,
+                             const std::vector<float> &vector, bool update_capacity = true) {
   bool is_index_full = false;
   {
-    auto _ = lock.LockForModify();
-    if (index.contains(key)) {
-      index.remove(key);
+    auto index = sync_index.LockForModify();
+    if (index->contains(key)) {
+      index->remove(key);
     }
-    is_index_full = index.size() == index.capacity();
+    is_index_full = index->size() == index->capacity();
   }
 
   if (is_index_full) {
     spdlog::warn("Vector index is full, resizing...");
-    auto _ = lock.LockForResize();
-    const auto new_size = spec.resize_coefficient * index.capacity();
+    auto index = sync_index.LockForResize();
+    const auto new_size = spec.resize_coefficient * index->capacity();
     const unum::usearch::index_limits_t new_limits(new_size, FLAGS_bolt_num_workers);
-    if (!index.try_reserve(new_limits)) {
+    if (!index->try_reserve(new_limits)) {
       throw query::VectorSearchException("Failed to resize vector index.");
     }
     if (update_capacity) {
-      spec.capacity = index.capacity();
+      spec.capacity = index->capacity();
     }
   }
 
@@ -477,33 +518,33 @@ void UpdateSingleVectorIndex(Index &index, VectorIndexLock &lock, Spec &spec, Ke
     throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
   }
 
-  auto _ = lock.LockForModify();
-  index.add(key, vector.data());
+  auto index = sync_index.LockForModify();
+  index->add(key, vector.data());
 }
 
 template <typename Index, typename Spec, typename Key>
-void AddToVectorIndex(Index &index, VectorIndexLock &lock, Spec &spec, const Key &key, const float *vector_data,
+void AddToVectorIndex(SynchronizedVectorIndex<Index> &sync_index, Spec &spec, const Key &key, const float *vector_data,
                       std::optional<std::size_t> thread_id = std::nullopt) {
   const auto thread_id_for_adding = thread_id ? *thread_id : Index::any_thread();
   {
-    auto _ = lock.LockForModify();
-    auto result = index.add(key, vector_data, thread_id_for_adding);
+    auto index = sync_index.LockForModify();
+    auto result = index->add(key, vector_data, thread_id_for_adding);
     if (!result.error) return;
-    if (index.size() >= index.capacity()) {
+    if (index->size() >= index->capacity()) {
       result.error.release();
     }
   }
   {
-    auto _ = lock.LockForResize();
-    if (index.size() >= index.capacity()) {
-      const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * index.capacity());
+    auto index = sync_index.LockForResize();
+    if (index->size() >= index->capacity()) {
+      const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * index->capacity());
       const unum::usearch::index_limits_t new_limits(new_size, GetVectorIndexThreadCount());
-      if (!index.try_reserve(new_limits)) {
+      if (!index->try_reserve(new_limits)) {
         throw query::VectorSearchException("Failed to resize vector index.");
       }
-      spec.capacity = index.capacity();
+      spec.capacity = index->capacity();
     }
-    auto result = index.add(key, vector_data, thread_id_for_adding);
+    index->add(key, vector_data, thread_id_for_adding);
   }
 }
 

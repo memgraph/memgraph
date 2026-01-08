@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -3081,7 +3081,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     auto recovered_snapshot = storage::durability::LoadSnapshot(
         local_path, &vertices_, &edges_, &edges_metadata_, &repl_storage_state_.history, name_id_mapper_.get(),
         &edge_count_, config_, &enum_store_, config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-        &ttl_);
+        &ttl_, &indices_);
     spdlog::debug("Snapshot recovered successfully");
     // Instead of using the UUID from the snapshot, we will override the snapshot's UUID with our own
     // This snapshot creates a new state and cannot have any WALs associated with it at this point

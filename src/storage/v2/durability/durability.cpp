@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -511,7 +511,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
         recovered_snapshot = LoadSnapshot(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
-                                          edge_count, config, enum_store, schema_info, ttl);
+                                          edge_count, config, enum_store, schema_info, ttl, indices);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
