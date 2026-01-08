@@ -18,12 +18,10 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
-#include "usearch/index_dense.hpp"
+#include "usearch/index_plugins.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
-
-using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
 
 /// @struct VectorIndexInfo
 /// @brief Represents information about a vector index in the system.
@@ -154,7 +152,7 @@ class VectorIndex {
 
   using VectorSearchNodeResults = std::vector<std::tuple<Vertex *, double, double>>;
 
-  VectorIndex();
+  explicit VectorIndex(const std::filesystem::path &storage_dir);
   ~VectorIndex();
   VectorIndex(VectorIndex &&) noexcept;
   VectorIndex &operator=(VectorIndex &&) noexcept;
@@ -171,6 +169,10 @@ class VectorIndex {
   void RecoverIndex(const VectorIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
                     NameIdMapper *name_id_mapper,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+
+  void CreateSnapshot();
+
+  bool RecoverSnapshot(const std::filesystem::path &path);
 
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
@@ -271,12 +273,6 @@ class VectorIndex {
  private:
   void RemoveVertexFromIndex(Vertex *vertex, std::string_view index_name);
 
-  /// @brief Creates the index structure (metric, index, and internal maps) without populating it.
-  /// @param spec The specification for the index to be created.
-  /// @return A pair containing the created index and the label_prop key.
-  /// @throws query::VectorSearchException if the index already exists or creation fails.
-  std::pair<mg_vector_index_t, LabelPropKey> CreateIndexStructure(const VectorIndexSpec &spec);
-
   /// @brief Sets up a new vector index structure without populating it.
   /// @param spec The specification for the index to be created.
   /// @throws query::VectorSearchException if index already exists or creation fails.
@@ -312,6 +308,7 @@ class VectorIndex {
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;
+  std::filesystem::path vector_index_storage_dir_;
 };
 
 }  // namespace memgraph::storage

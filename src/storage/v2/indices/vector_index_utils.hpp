@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,10 +11,13 @@
 
 #pragma once
 
+#include <memory>
 #include <string_view>
 #include <vector>
 
 #include <fmt/core.h>
+#include <shared_mutex>
+
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
@@ -26,11 +29,64 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
+#include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
 namespace rv = ranges::views;
+
+/// Two-mutex locking pattern for vector index operations.
+/// - structure_mutex_: Guards structural changes (resize). Exclusive lock blocks everything.
+/// - mutation_mutex_: Separates read-only operations (save, search) from modifications (add, remove).
+class VectorIndexLock {
+ public:
+  struct ReadLock {
+    std::shared_lock<std::shared_mutex> structure_lock;
+  };
+
+  struct ModifyLock {
+    std::shared_lock<std::shared_mutex> structure_lock;
+    std::shared_lock<std::shared_mutex> mutation_lock;
+  };
+
+  struct SaveLock {
+    std::shared_lock<std::shared_mutex> structure_lock;
+    std::unique_lock<std::shared_mutex> mutation_lock;
+  };
+
+  struct ResizeLock {
+    std::unique_lock<std::shared_mutex> structure_lock;
+  };
+
+  VectorIndexLock()
+      : structure_mutex_(std::make_unique<std::shared_mutex>()),
+        mutation_mutex_(std::make_unique<std::shared_mutex>()) {}
+
+  ~VectorIndexLock() = default;
+  VectorIndexLock(VectorIndexLock &&) noexcept = default;
+  VectorIndexLock &operator=(VectorIndexLock &&) noexcept = default;
+  VectorIndexLock(const VectorIndexLock &) = delete;
+  VectorIndexLock &operator=(const VectorIndexLock &) = delete;
+
+  [[nodiscard]] ReadLock LockForRead() const { return {std::shared_lock{*structure_mutex_}}; }
+
+  [[nodiscard]] ModifyLock LockForModify() const {
+    return {.structure_lock = std::shared_lock{*structure_mutex_}, .mutation_lock = std::shared_lock{*mutation_mutex_}};
+  }
+
+  [[nodiscard]] SaveLock LockForSave() const {
+    return {.structure_lock = std::shared_lock{*structure_mutex_}, .mutation_lock = std::unique_lock{*mutation_mutex_}};
+  }
+
+  [[nodiscard]] ResizeLock LockForResize() const { return {std::unique_lock{*structure_mutex_}}; }
+
+ private:
+  mutable std::unique_ptr<std::shared_mutex> structure_mutex_;
+  mutable std::unique_ptr<std::shared_mutex> mutation_mutex_;
+};
+
+inline constexpr std::string_view kVectorIndicesDirectory = "vector_indices";
 
 /// @enum VectorIndexType
 /// @brief Represents the type of vector index.
@@ -355,21 +411,11 @@ inline bool RemoveIndexIdFromProperty(PropertyValue &property_value, uint64_t in
   return ids.empty();  // Return true if should restore (no more IDs)
 }
 
-/// @brief Retrieves a vector from a USearch index using the get method and returns it as a PropertyValue of type
-/// double.
-/// @tparam IndexType The type of the USearch index (e.g., mg_vector_index_t or mg_vector_edge_index_t).
-/// @tparam KeyType The type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
-/// @param index The USearch index to retrieve the vector from.
-/// @param key The key to look up in the index.
-/// @return A PropertyValue containing the vector as a list of double values.
-/// @throws query::VectorSearchException if the key is not found in the index or if retrieval fails.
 template <typename IndexType, typename KeyType>
-PropertyValue GetVectorAsPropertyValue(const std::shared_ptr<utils::Synchronized<IndexType, std::shared_mutex>> &index,
-                                       KeyType key) {
-  auto locked_index = index->ReadLock();
-  const auto dimension = locked_index->dimensions();
+PropertyValue GetVectorAsPropertyValue(IndexType &index, KeyType key) {
+  const auto dimension = index.dimensions();
   std::vector<double> vector(dimension);
-  const auto retrieved_count = locked_index->get(key, vector.data());
+  const auto retrieved_count = index.get(key, vector.data());
   if (retrieved_count == 0) {
     return {};
   }
@@ -381,20 +427,11 @@ PropertyValue GetVectorAsPropertyValue(const std::shared_ptr<utils::Synchronized
   return PropertyValue(std::move(double_values));
 }
 
-/// @brief Retrieves a vector from a USearch index using the get method and returns it as a list of float values.
-/// @tparam IndexType The type of the USearch index (e.g., mg_vector_index_t or mg_vector_edge_index_t).
-/// @tparam KeyType The type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
-/// @param index The USearch index to retrieve the vector from.
-/// @param key The key to look up in the index.
-/// @return A list of float values representing the vector.
-/// @throws query::VectorSearchException if the key is not found in the index or if retrieval fails.
 template <typename IndexType, typename KeyType>
-std::vector<float> GetVector(const std::shared_ptr<utils::Synchronized<IndexType, std::shared_mutex>> &index,
-                             KeyType key) {
-  auto locked_index = index->ReadLock();
-  const auto dimension = locked_index->dimensions();
+std::vector<float> GetVector(IndexType &index, KeyType key) {
+  const auto dimension = index.dimensions();
   std::vector<unum::usearch::f32_t> vector(dimension);
-  const auto retrieved_count = locked_index->get(key, vector.data(), 1);
+  const auto retrieved_count = index.get(key, vector.data(), 1);
   if (retrieved_count == 0) {
     return {};
   }
@@ -407,37 +444,28 @@ inline std::size_t GetVectorIndexThreadCount() {
                   static_cast<std::size_t>(FLAGS_storage_recovery_thread_count));
 }
 
-/// @brief Updates a single vector index with a vector (common logic for vertex and edge indices).
-/// @tparam IndexItemType Type of the index item (must have mg_index and spec members).
-/// @tparam KeyType Type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
-/// @param index_item The index item containing the synchronized index and spec.
-/// @param key The key to add/update in the index.
-/// @param vector The vector data to add.
-/// @param update_capacity Whether to update the spec.capacity after resizing (default: true).
-/// @throws query::VectorSearchException if dimension mismatch or resize fails.
-template <typename IndexItemType, typename KeyType>
-void UpdateSingleVectorIndex(IndexItemType &index_item, KeyType key, const std::vector<float> &vector,
+template <typename Index, typename Spec, typename Key>
+void UpdateSingleVectorIndex(Index &index, VectorIndexLock &lock, Spec &spec, Key key, const std::vector<float> &vector,
                              bool update_capacity = true) {
-  auto &[mg_index, spec] = index_item;
   bool is_index_full = false;
   {
-    auto locked_index = mg_index->MutableSharedLock();
-    if (locked_index->contains(key)) {
-      locked_index->remove(key);
+    auto _ = lock.LockForModify();
+    if (index.contains(key)) {
+      index.remove(key);
     }
-    is_index_full = locked_index->size() == locked_index->capacity();
+    is_index_full = index.size() == index.capacity();
   }
 
   if (is_index_full) {
     spdlog::warn("Vector index is full, resizing...");
-    auto exclusively_locked_index = mg_index->Lock();
-    const auto new_size = spec.resize_coefficient * exclusively_locked_index->capacity();
+    auto _ = lock.LockForResize();
+    const auto new_size = spec.resize_coefficient * index.capacity();
     const unum::usearch::index_limits_t new_limits(new_size, FLAGS_bolt_num_workers);
-    if (!exclusively_locked_index->try_reserve(new_limits)) {
+    if (!index.try_reserve(new_limits)) {
       throw query::VectorSearchException("Failed to resize vector index.");
     }
     if (update_capacity) {
-      spec.capacity = exclusively_locked_index->capacity();  // capacity might be larger than the requested capacity
+      spec.capacity = index.capacity();
     }
   }
 
@@ -449,46 +477,60 @@ void UpdateSingleVectorIndex(IndexItemType &index_item, KeyType key, const std::
     throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
   }
 
-  auto locked_index = mg_index->MutableSharedLock();
-  locked_index->add(key, vector.data());
+  auto _ = lock.LockForModify();
+  index.add(key, vector.data());
 }
 
-/// @brief Adds an entry to the vector index with automatic resize if the index is full.
-/// No need to throw if the error occurred because it will be raised on result destruction.
-/// @tparam Index The usearch index type (e.g., index_dense_gt<Key, ...>).
-/// @tparam Key The key type used in the index (e.g., Vertex*, EdgeIndexEntry).
-/// @tparam Spec The index specification type.
-/// @param mg_index The synchronized index wrapper.
-/// @param spec The index specification (will be updated if resize occurs).
-/// @param key The key to add to the index.
-/// @param vector_data Pointer to the float vector data.
-/// @param thread_id Optional thread ID hint for usearch's internal thread-local optimizations.
-/// @throws query::VectorSearchException if add fails for reasons other than capacity.
-template <typename Index, typename Key, typename Spec>
-void AddToVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, Spec &spec, const Key &key,
-                      const float *vector_data, std::optional<std::size_t> thread_id = std::nullopt) {
+template <typename Index, typename Spec, typename Key>
+void AddToVectorIndex(Index &index, VectorIndexLock &lock, Spec &spec, const Key &key, const float *vector_data,
+                      std::optional<std::size_t> thread_id = std::nullopt) {
   const auto thread_id_for_adding = thread_id ? *thread_id : Index::any_thread();
   {
-    auto locked_index = mg_index.MutableSharedLock();
-    auto result = locked_index->add(key, vector_data, thread_id_for_adding);
+    auto _ = lock.LockForModify();
+    auto result = index.add(key, vector_data, thread_id_for_adding);
     if (!result.error) return;
-    if (locked_index->size() >= locked_index->capacity()) {
-      // Error is due to capacity, release the error because we will resize the index.
+    if (index.size() >= index.capacity()) {
       result.error.release();
     }
   }
   {
-    // In order to resize the index, we need to acquire an exclusive lock.
-    auto exclusively_locked_index = mg_index.Lock();
-    if (exclusively_locked_index->size() >= exclusively_locked_index->capacity()) {
-      const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * exclusively_locked_index->capacity());
+    auto _ = lock.LockForResize();
+    if (index.size() >= index.capacity()) {
+      const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * index.capacity());
       const unum::usearch::index_limits_t new_limits(new_size, GetVectorIndexThreadCount());
-      if (!exclusively_locked_index->try_reserve(new_limits)) {
+      if (!index.try_reserve(new_limits)) {
         throw query::VectorSearchException("Failed to resize vector index.");
       }
-      spec.capacity = exclusively_locked_index->capacity();
+      spec.capacity = index.capacity();
     }
-    auto result = exclusively_locked_index->add(key, vector_data, thread_id_for_adding);
+    auto result = index.add(key, vector_data, thread_id_for_adding);
+  }
+}
+
+/// @brief Overload for synchronized index wrapper (used by edge index).
+template <typename Index, typename Spec, typename Key>
+void AddToVectorIndex(utils::Synchronized<Index, std::shared_mutex> &sync_index, Spec &spec, const Key &key,
+                      const float *vector_data, std::optional<std::size_t> thread_id = std::nullopt) {
+  const auto thread_id_for_adding = thread_id ? *thread_id : Index::any_thread();
+  {
+    auto locked_index = sync_index.MutableSharedLock();
+    auto result = locked_index->add(key, vector_data, thread_id_for_adding);
+    if (!result.error) return;
+    if (locked_index->size() >= locked_index->capacity()) {
+      result.error.release();
+    }
+  }
+  {
+    auto locked_index = sync_index.Lock();
+    if (locked_index->size() >= locked_index->capacity()) {
+      const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * locked_index->capacity());
+      const unum::usearch::index_limits_t new_limits(new_size, GetVectorIndexThreadCount());
+      if (!locked_index->try_reserve(new_limits)) {
+        throw query::VectorSearchException("Failed to resize vector index.");
+      }
+      spec.capacity = locked_index->capacity();
+    }
+    locked_index->add(key, vector_data, thread_id_for_adding);
   }
 }
 
