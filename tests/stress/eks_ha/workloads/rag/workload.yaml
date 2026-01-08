@@ -1,11 +1,6 @@
 memgraph:
   deployment:
     externally_managed: true
-  args: []
-  env:
-    # Set in eks_ha/values.yaml
-    MEMGRAPH_ENTERPRISE_LICENSE: ""
-    MEMGRAPH_ORGANIZATION_NAME: ""
 
 # EKS cluster configuration - hosts are discovered dynamically via kubectl
 # The workload script uses kubectl to get LoadBalancer IPs
