@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,12 +20,13 @@ constexpr int kReplaceMap = 0;
 constexpr int kThreadsOpt = 1;
 constexpr int kNumColors = 16;
 
+// NOLINTBEGIN(google-runtime-int)
 std::vector<int64_t> GrappoloCommunityDetection(GrappoloGraph &grappolo_graph, mgp_graph *graph, bool coloring,
                                                 uint64_t min_graph_size, double threshold, double coloring_threshold,
                                                 int num_threads) {
   auto number_of_vertices = grappolo_graph.numVertices;
 
-  auto *cluster_array = (long *)malloc(number_of_vertices * sizeof(long));
+  auto *cluster_array = static_cast<long *>(malloc(number_of_vertices * sizeof(long)));
 #pragma omp parallel for
   for (long i = 0; i < number_of_vertices; i++) {
     cluster_array[i] = -1;
@@ -33,15 +34,15 @@ std::vector<int64_t> GrappoloCommunityDetection(GrappoloGraph &grappolo_graph, m
 
   // Dynamically set currently.
   if (coloring) {
-    runMultiPhaseColoring(&grappolo_graph, graph, cluster_array, coloring, kNumColors, kReplaceMap, min_graph_size,
-                          threshold, coloring_threshold, num_threads, kThreadsOpt);
+    runMultiPhaseColoring(&grappolo_graph, graph, cluster_array, coloring, kNumColors, kReplaceMap,
+                          static_cast<long>(min_graph_size), threshold, coloring_threshold, num_threads, kThreadsOpt);
   } else {
-    runMultiPhaseBasic(&grappolo_graph, graph, cluster_array, kReplaceMap, min_graph_size, threshold,
+    runMultiPhaseBasic(&grappolo_graph, graph, cluster_array, kReplaceMap, static_cast<long>(min_graph_size), threshold,
                        coloring_threshold, num_threads, kThreadsOpt);
   }
 
   // Store clustering information in vector
-  std::vector<int64_t> result;
+  std::vector<long> result;
   result.reserve(number_of_vertices);
   for (long i = 0; i < number_of_vertices; ++i) {
     result.emplace_back(cluster_array[i]);
@@ -61,7 +62,7 @@ LouvainGraph GetLouvainGraph(mgp_graph *memgraph_graph, mgp_memory *memory, cons
   louvain_graph.memgraph_id_to_id.reserve(mgp::graph_approximate_vertex_count(memgraph_graph));
 
   auto *vertices_it = mgp::graph_iter_vertices(memgraph_graph, memory);  // Safe vertex iterator creation
-  mg_utility::OnScopeExit delete_vertices_it([&vertices_it] { mgp::vertices_iterator_destroy(vertices_it); });
+  const mg_utility::OnScopeExit delete_vertices_it([&vertices_it] { mgp::vertices_iterator_destroy(vertices_it); });
   for (auto *source = mgp::vertices_iterator_get(vertices_it); source;
        source = mgp::vertices_iterator_next(vertices_it)) {
     if (mgp::must_abort(memgraph_graph)) [[unlikely]] {
@@ -69,7 +70,7 @@ LouvainGraph GetLouvainGraph(mgp_graph *memgraph_graph, mgp_memory *memory, cons
     }
     uint64_t source_id = 0;
     auto *edges_it = mgp::vertex_iter_out_edges(source, memory);  // Safe edge iterator creation
-    mg_utility::OnScopeExit delete_edges_it([&edges_it] { mgp::edges_iterator_destroy(edges_it); });
+    const mg_utility::OnScopeExit delete_edges_it([&edges_it] { mgp::edges_iterator_destroy(edges_it); });
     auto memgraph_source_id = mgp::vertex_get_id(source).as_int;
     auto memgraph_source_id_it = louvain_graph.memgraph_id_to_id.find(memgraph_source_id);
     if (memgraph_source_id_it == louvain_graph.memgraph_id_to_id.end()) {
@@ -84,7 +85,7 @@ LouvainGraph GetLouvainGraph(mgp_graph *memgraph_graph, mgp_memory *memory, cons
       }
       uint64_t destination_id = 0;
       auto *destination = mgp::edge_get_to(out_edge);
-      double weight = mg_utility::GetNumericProperty(out_edge, weight_property, memory, default_weight);
+      const double weight = mg_utility::GetNumericProperty(out_edge, weight_property, memory, default_weight);
       auto memgraph_destination_id = mgp::vertex_get_id(destination).as_int;
       auto memgraph_destination_id_it = louvain_graph.memgraph_id_to_id.find(memgraph_destination_id);
       if (memgraph_destination_id_it == louvain_graph.memgraph_id_to_id.end()) {
@@ -127,9 +128,9 @@ LouvainGraph GetLouvainSubgraph(mgp_memory *memory, mgp_graph *memgraph_graph, m
     auto *destination = mgp::edge_get_to(edge);
     auto source_id = mgp::vertex_get_id(source).as_int;
     auto destination_id = mgp::vertex_get_id(destination).as_int;
-    if (louvain_graph.memgraph_id_to_id.find(source_id) != louvain_graph.memgraph_id_to_id.end() &&
-        louvain_graph.memgraph_id_to_id.find(destination_id) != louvain_graph.memgraph_id_to_id.end()) {
-      double weight = mg_utility::GetNumericProperty(edge, weight_property, memory, default_weight);
+    if (louvain_graph.memgraph_id_to_id.contains(source_id) &&
+        louvain_graph.memgraph_id_to_id.contains(destination_id)) {
+      const double weight = mg_utility::GetNumericProperty(edge, weight_property, memory, default_weight);
       louvain_graph.edges.emplace_back(louvain_graph.memgraph_id_to_id[source_id],
                                        louvain_graph.memgraph_id_to_id[destination_id], weight);
     }
@@ -140,18 +141,18 @@ LouvainGraph GetLouvainSubgraph(mgp_memory *memory, mgp_graph *memgraph_graph, m
 void GetGrappoloSuitableGraph(GrappoloGraph &grappolo_graph, int num_threads, const LouvainGraph &louvain_graph) {
   const auto number_of_edges = louvain_graph.edges.size();
 
+  std::vector<edge> tmp_edge_list(number_of_edges);  // Every edge stored ONCE
   auto edge_index = 0;
-  auto tmp_edge_list = std::unique_ptr<edge[]>(new edge[number_of_edges]);  // Every edge stored ONCE
   for (const auto &[source, destination, weight] : louvain_graph.edges) {
-    tmp_edge_list[edge_index].head = source;       // The H index: Zero-based indexing
-    tmp_edge_list[edge_index].tail = destination;  // The T index: Zero-based indexing
-    tmp_edge_list[edge_index].weight = weight;     // The weight
+    tmp_edge_list[edge_index].head = static_cast<long>(source);       // The H index: Zero-based indexing
+    tmp_edge_list[edge_index].tail = static_cast<long>(destination);  // The T index: Zero-based indexing
+    tmp_edge_list[edge_index].weight = weight;                        // The weight
     edge_index++;
   }
   const auto number_of_vertices = louvain_graph.memgraph_id_to_id.size();
 
   omp_set_num_threads(num_threads);
-  auto *edge_list_ptrs = static_cast<long *>(malloc((number_of_vertices + 1) * sizeof(long)));
+  auto *edge_list_ptrs = static_cast<int64_t *>(malloc((number_of_vertices + 1) * sizeof(int64_t)));
   if (edge_list_ptrs == nullptr) {
     throw mg_exception::NotEnoughMemoryException();
   }
@@ -179,8 +180,10 @@ void GetGrappoloSuitableGraph(GrappoloGraph &grappolo_graph, int num_threads, co
   }
 
   // Keep track of how many edges have been added for a vertex:
-  auto added = std::unique_ptr<long[]>(new long[number_of_vertices]);
-  if (added == nullptr) {
+  std::vector<long> added;
+  try {
+    added.resize(number_of_vertices, 0);
+  } catch (const std::bad_alloc &) {
     throw mg_exception::NotEnoughMemoryException();
   }
 #pragma omp parallel for
@@ -204,10 +207,11 @@ void GetGrappoloSuitableGraph(GrappoloGraph &grappolo_graph, int num_threads, co
     edge_list[index].tail = head;
     edge_list[index].weight = weight;
   }
-  grappolo_graph.numVertices = number_of_vertices;
-  grappolo_graph.numEdges = number_of_edges;
+  grappolo_graph.numVertices = static_cast<long>(number_of_vertices);
+  grappolo_graph.numEdges = static_cast<long>(number_of_edges);
   grappolo_graph.edgeListPtrs = edge_list_ptrs;
   grappolo_graph.edgeList = edge_list;
-  grappolo_graph.sVertices = number_of_vertices;
+  grappolo_graph.sVertices = static_cast<long>(number_of_vertices);
 }
 }  // namespace louvain_alg
+// NOLINTEND(google-runtime-int)

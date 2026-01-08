@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,7 +24,7 @@ std::uint64_t CountComponents(const mg_graph::Graph<> &graph) {
   std::uint64_t n_components = 0;
   std::vector<bool> visited(graph.Nodes().size());
 
-  for (auto &node : graph.Nodes()) {
+  for (const auto &node : graph.Nodes()) {
     if (visited[node.id]) continue;
     ++n_components;
 
@@ -48,7 +48,7 @@ std::uint64_t CountComponents(const mg_graph::Graph<> &graph) {
 std::vector<std::pair<std::uint64_t, std::uint64_t>> GetBridgesBruteforce(mg_graph::Graph<> *graph) {
   using IntPair = std::pair<std::uint64_t, std::uint64_t>;
 
-  std::uint64_t comp_cnt = CountComponents(*graph);
+  const std::uint64_t comp_cnt = CountComponents(*graph);
   std::vector<IntPair> bridges;
   auto edges = graph->ExistingEdges();
   for (const auto [id, from, to] : edges) {
@@ -96,8 +96,9 @@ TEST(Bridges, DisconnectedNodes) {
 }
 
 TEST(Bridges, Cycle) {
-  std::uint64_t n = 100;
+  const std::uint64_t n = 100;
   std::vector<std::pair<std::uint64_t, std::uint64_t>> edges;
+  edges.reserve(n);
   for (std::uint64_t i = 0; i < n; ++i) {
     edges.emplace_back(i, (i + 1) % n);
   }
@@ -210,9 +211,8 @@ TEST(Bridges, Random100) {
 TEST(Bridges, Performance) {
   auto graph = mg_generate::GenRandomGraph(10000, 25000);
 
-  mg_test_utility::Timer timer;
+  const mg_test_utility::Timer timer;
   auto bridges = bridges_alg::GetBridges(*graph);
-  auto time_elapsed = timer.Elapsed();
   ASSERT_TRUE(timer.Elapsed() < std::chrono::seconds(100));
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,7 +32,7 @@ class BCUtilBFSParametersTests
 };
 
 TEST_P(BCUtilBFSParametersTests, BetweennessCentralityUtilBFS) {
-  auto number_of_nodes = graph->Nodes().size();
+  const uint64_t number_of_nodes = graph->Nodes().size();
 
   // data structures used in BFS
   std::stack<std::uint64_t> visited;
@@ -43,7 +43,7 @@ TEST_P(BCUtilBFSParametersTests, BetweennessCentralityUtilBFS) {
 
   ASSERT_EQ(visited, expected_visited);
 
-  for (auto node_id = 0; node_id < number_of_nodes; node_id++) {
+  for (uint64_t node_id = 0; node_id < number_of_nodes; node_id++) {
     ASSERT_EQ(predecessors[node_id], expected_predecessors[node_id]);
   }
 
@@ -100,8 +100,8 @@ class BetweennessCentralityParametersTests
 };
 
 TEST_P(BetweennessCentralityParametersTests, BetweennessCentralityTest) {
-  auto result = betweenness_centrality_alg::BetweennessCentrality(*graph, directed, normalized,
-                                                                  std::thread::hardware_concurrency());
+  auto result = betweenness_centrality_alg::BetweennessCentrality(
+      *graph, directed, normalized, static_cast<int>(std::thread::hardware_concurrency()));
   ASSERT_TRUE(mg_test_utility::TestEqualVectors(result, expected));
 }
 
@@ -150,8 +150,8 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST(BetweennessCentrality, EmptyGraph) {
   auto graph = mg_generate::BuildGraph(0, {});
-  auto result =
-      betweenness_centrality_alg::BetweennessCentrality(*graph, false, false, std::thread::hardware_concurrency());
+  auto result = betweenness_centrality_alg::BetweennessCentrality(
+      *graph, false, false, static_cast<int>(std::thread::hardware_concurrency()));
   ASSERT_EQ(result.size(), 0);
 }
 

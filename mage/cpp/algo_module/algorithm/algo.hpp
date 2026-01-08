@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,7 @@ enum class RelDirection { kNone = -1, kAny = 0, kIncoming = 1, kOutgoing = 2, kB
 
 class PathFinder {
  public:
-  PathFinder(const mgp::Node &start_node, const mgp::Node &end_node, int64_t max_length, const mgp::List &rel_types,
+  PathFinder(mgp::Node start_node, const mgp::Node &end_node, int64_t max_length, const mgp::List &rel_types,
              const mgp::RecordFactory &record_factory);
 
   RelDirection GetDirection(const std::string &rel_type) const;
@@ -43,7 +43,7 @@ class PathFinder {
   bool all_incoming_;
   bool all_outgoing_;
 
-  std::unordered_map<std::string_view, RelDirection> rel_direction_;
+  std::unordered_map<std::string, RelDirection> rel_direction_;
   const mgp::RecordFactory &record_factory_;
 };
 

@@ -41,7 +41,8 @@ void GetCycles(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mg
     for (std::size_t cycle_id = 0; cycle_id < cycles.size(); cycle_id++) {
       // Insert each node on the cycle
       for (const auto &node : cycles[cycle_id]) {
-        InsertCycleRecord(memgraph_graph, result, memory, cycle_id, graph->GetMemgraphNodeId(node.id));
+        InsertCycleRecord(memgraph_graph, result, memory, static_cast<int>(cycle_id),
+                          static_cast<int>(graph->GetMemgraphNodeId(node.id)));
       }
     }
   } catch (const std::exception &e) {

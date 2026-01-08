@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,7 @@
 namespace degree_centrality_alg {
 
 std::vector<double> GetDegreeCentrality(const mg_graph::GraphView<> &graph, const AlgorithmType algorithm_type) {
-  auto nodes = graph.Nodes();
+  const auto nodes = graph.Nodes();
   auto number_of_nodes = nodes.size();
 
   // Initialize centrality values
@@ -22,7 +22,7 @@ std::vector<double> GetDegreeCentrality(const mg_graph::GraphView<> &graph, cons
 
   // Degree centrality is the proportion of neighbors and maximum degree (n-1)
   for (const auto [node_id] : graph.Nodes()) {
-    std::size_t degree;
+    std::size_t degree = 0;
 
     switch (algorithm_type) {
       case AlgorithmType::kUndirected:
@@ -39,7 +39,7 @@ std::vector<double> GetDegreeCentrality(const mg_graph::GraphView<> &graph, cons
     }
 
     // Degree centrality can be > 1 in multi-relational graphs
-    degree_centralities[node_id] = degree / static_cast<double>((number_of_nodes - 1));
+    degree_centralities[node_id] = static_cast<double>(degree) / static_cast<double>((number_of_nodes - 1));
   }
   return degree_centralities;
 }

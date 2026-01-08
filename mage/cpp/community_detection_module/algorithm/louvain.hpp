@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,5 +56,5 @@ LouvainGraph GetLouvainGraph(mgp_graph *memgraph_graph, mgp_memory *memory, cons
                              double default_weight = 1.0);
 LouvainGraph GetLouvainSubgraph(mgp_memory *memory, mgp_graph *memgraph_graph, mgp_list *subgraph_nodes,
                                 mgp_list *subgraph_edges, const char *weight_property, double default_weight = 1.0);
-void GetGrappoloSuitableGraph(GrappoloGraph &grappolo_graph, int num_threads, const LouvainGraph &edges);
+void GetGrappoloSuitableGraph(GrappoloGraph &grappolo_graph, int num_threads, const LouvainGraph &louvain_graph);
 }  // namespace louvain_alg

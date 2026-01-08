@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard{memory};
+    const mgp::MemoryDispatcherGuard guard{memory};
 
     mgp::AddFunction(Collections::SumLongs, Collections::kProcedureSumLongs,
                      {mgp::Parameter(Collections::kSumLongsArg1, {mgp::Type::List, mgp::Type::Any})}, module, memory);
@@ -65,22 +65,19 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     mgp::AddFunction(Collections::Pairs, Collections::kProcedurePairs,
                      {mgp::Parameter(Collections::kArgumentPairs, {mgp::Type::List, mgp::Type::Any})}, module, memory);
 
-    mgp::AddFunction(
-        Collections::Contains, std::string(Collections::kProcedureContains).c_str(),
-        {mgp::Parameter(std::string(Collections::kArgumentListContains).c_str(), {mgp::Type::List, mgp::Type::Any}),
-         mgp::Parameter(std::string(Collections::kArgumentValueContains).c_str(), mgp::Type::Any)},
-        module, memory);
+    mgp::AddFunction(Collections::Contains, Collections::kProcedureContains,
+                     {mgp::Parameter(Collections::kArgumentListContains, {mgp::Type::List, mgp::Type::Any}),
+                      mgp::Parameter(Collections::kArgumentValueContains, mgp::Type::Any)},
+                     module, memory);
 
-    mgp::AddFunction(
-        Collections::Min, std::string(Collections::kProcedureMin).c_str(),
-        {mgp::Parameter(std::string(Collections::kArgumentListMin).c_str(), {mgp::Type::List, mgp::Type::Any})}, module,
-        memory);
+    mgp::AddFunction(Collections::Min, Collections::kProcedureMin,
+                     {mgp::Parameter(Collections::kArgumentListMin, {mgp::Type::List, mgp::Type::Any})}, module,
+                     memory);
 
-    mgp::AddFunction(
-        Collections::UnionAll, std::string(Collections::kProcedureUnionAll).c_str(),
-        {mgp::Parameter(std::string(Collections::kArgumentList1UnionAll).c_str(), {mgp::Type::List, mgp::Type::Any}),
-         mgp::Parameter(std::string(Collections::kArgumentList2UnionAll).c_str(), {mgp::Type::List, mgp::Type::Any})},
-        module, memory);
+    mgp::AddFunction(Collections::UnionAll, Collections::kProcedureUnionAll,
+                     {mgp::Parameter(Collections::kArgumentList1UnionAll, {mgp::Type::List, mgp::Type::Any}),
+                      mgp::Parameter(Collections::kArgumentList2UnionAll, {mgp::Type::List, mgp::Type::Any})},
+                     module, memory);
 
     mgp::AddFunction(Collections::ToSet, Collections::kProcedureToSet,
                      {mgp::Parameter(Collections::kArgumentListToSet, {mgp::Type::List, mgp::Type::Any})}, module,
@@ -90,12 +87,10 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                      {mgp::Parameter(Collections::kArgumentListFrequenciesAsMap, {mgp::Type::List, mgp::Type::Any})},
                      module, memory);
 
-    AddProcedure(
-        Collections::Partition, std::string(Collections::kProcedurePartition).c_str(), mgp::ProcedureType::Read,
-        {mgp::Parameter(std::string(Collections::kArgumentListPartition).c_str(), {mgp::Type::List, mgp::Type::Any}),
-         mgp::Parameter(std::string(Collections::kArgumentSizePartition).c_str(), mgp::Type::Int)},
-        {mgp::Return(std::string(Collections::kReturnValuePartition).c_str(), {mgp::Type::List, mgp::Type::Any})},
-        module, memory);
+    AddProcedure(Collections::Partition, Collections::kProcedurePartition, mgp::ProcedureType::Read,
+                 {mgp::Parameter(Collections::kArgumentListPartition, {mgp::Type::List, mgp::Type::Any}),
+                  mgp::Parameter(Collections::kArgumentSizePartition, mgp::Type::Int)},
+                 {mgp::Return(Collections::kReturnValuePartition, {mgp::Type::List, mgp::Type::Any})}, module, memory);
 
     mgp::AddFunction(
         Collections::Flatten, Collections::kProcedureFlatten,

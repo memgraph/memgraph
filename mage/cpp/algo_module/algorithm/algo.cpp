@@ -11,11 +11,19 @@
 
 #include "algo.hpp"
 
+#include <ranges>
+#include <utility>
+
 #include "mgp.hpp"
 
-Algo::PathFinder::PathFinder(const mgp::Node &start_node, const mgp::Node &end_node, int64_t max_length,
+Algo::PathFinder::PathFinder(mgp::Node start_node, const mgp::Node &end_node, int64_t max_length,
                              const mgp::List &rel_types, const mgp::RecordFactory &record_factory)
-    : start_node_(start_node), end_node_id_(end_node.Id()), max_length_(max_length), record_factory_(record_factory) {
+    : start_node_(std::move(start_node)),
+      end_node_id_(end_node.Id()),
+      max_length_(max_length),
+      record_factory_(record_factory),
+      any_incoming_(false),
+      any_outgoing_(false) {
   UpdateRelationshipDirection(rel_types);
 }
 
@@ -33,9 +41,9 @@ void Algo::PathFinder::UpdateRelationshipDirection(const mgp::List &relationship
   bool out_rel = false;
 
   for (const auto &rel : relationship_types) {
-    std::string rel_type{std::string(rel.ValueString())};
-    bool starts_with = rel_type.starts_with('<');
-    bool ends_with = rel_type.ends_with('>');
+    const std::string rel_type{std::string(rel.ValueString())};
+    const bool starts_with = rel_type.starts_with('<');
+    const bool ends_with = rel_type.ends_with('>');
 
     // '<' -> all incoming relationship are accepted
     // '>' -> all outgoing relationships are good
@@ -54,13 +62,16 @@ void Algo::PathFinder::UpdateRelationshipDirection(const mgp::List &relationship
     }
 
     if (starts_with && ends_with) {  // <type>
-      rel_direction_[rel_type.substr(1, rel_type.size() - 2)] = RelDirection::kBoth;
+      const std::string rel_key = rel_type.substr(1, rel_type.size() - 2);
+      rel_direction_[rel_key] = RelDirection::kBoth;
       in_rel = out_rel = true;
     } else if (starts_with) {  // <type
-      rel_direction_[rel_type.substr(1)] = RelDirection::kIncoming;
+      const std::string rel_key = rel_type.substr(1);
+      rel_direction_[rel_key] = RelDirection::kIncoming;
       in_rel = true;
     } else if (ends_with) {  // type>
-      rel_direction_[rel_type.substr(0, rel_type.size() - 1)] = RelDirection::kOutgoing;
+      const std::string rel_key = rel_type.substr(0, rel_type.size() - 1);
+      rel_direction_[rel_key] = RelDirection::kOutgoing;
       out_rel = true;
     } else {  // type
       rel_direction_[rel_type] = RelDirection::kAny;
@@ -90,7 +101,7 @@ void Algo::PathFinder::DFS(const mgp::Node &curr_node, mgp::Path &curr_path, std
     return;
   }
 
-  if (static_cast<int64_t>(curr_path.Length()) == max_length_) {
+  if (std::cmp_equal(curr_path.Length(), max_length_)) {
     return;
   }
 
@@ -143,7 +154,7 @@ void Algo::PathFinder::FindAllPaths() {
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Algo::AllSimplePaths(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
 
@@ -164,7 +175,7 @@ void Algo::AllSimplePaths(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Algo::Cover(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -177,7 +188,7 @@ void Algo::Cover(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, 
 
     for (const auto &node : nodes) {
       for (const auto rel : node.OutRelationships()) {
-        if (nodes.find(rel.To()) != nodes.end()) {
+        if (nodes.contains(rel.To())) {
           auto record = record_factory.NewRecord();
           record.Insert(std::string(kCoverRet1).c_str(), rel);
         }
@@ -233,7 +244,8 @@ void Algo::CheckConfigTypes(const mgp::Map &map) {
   }
   if (!map.At("relationships_filter").IsNull() && !map.At("relationships_filter").IsList()) {
     throw mgp::ValueException("relationships_filter config option should be list!");
-  } else if (!map.At("relationships_filter").IsNull() && map.At("relationships_filter").IsList()) {
+  }
+  if (!map.At("relationships_filter").IsNull() && map.At("relationships_filter").IsList()) {
     auto list = map.At("relationships_filter").ValueList();
     for (const auto value : list) {
       if (!value.IsString()) {
@@ -264,11 +276,11 @@ double Algo::GetHaversineDistance(double lat1, double lon1, double lat2, double 
   lat2 = GetRadians(lat2);
   lon2 = GetRadians(lon2);
 
-  double dLat = lat2 - lat1;
-  double dLon = lon2 - lon1;
-  double a = sin(dLat / 2) * sin(dLat / 2) + cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2);
-  double c = 2 * atan2(sqrt(a), sqrt(1 - a));
-  double distance = earthRadius * c;
+  const double dLat = lat2 - lat1;
+  const double dLon = lon2 - lon1;
+  const double a = (sin(dLat / 2) * sin(dLat / 2)) + (cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2));
+  const double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+  const double distance = earthRadius * c;
 
   // returns distance in km
   return distance;
@@ -282,7 +294,7 @@ double Algo::CalculateHeuristic(const Config &config, const mgp::Node &node, con
       return heuristic.ValueNumeric();
     }
     if (heuristic.IsDuration() && config.duration) {
-      return heuristic.ValueDuration().Microseconds();
+      return static_cast<double>(heuristic.ValueDuration().Microseconds());
     }
     throw mgp::ValueException("Custom heuristic property must be of a numeric, or duration data type!");
   }
@@ -300,7 +312,7 @@ std::pair<double, double> Algo::GetLatLon(const mgp::Node &target, const Config 
         "Latitude and longitude properties, or a custom heuristic value, must be specified in every node!");
   }
   if (latitude.IsNumeric() && longitude.IsNumeric()) {
-    return std::make_pair<double, double>(latitude.ValueNumeric(), longitude.ValueNumeric());
+    return std::make_pair(latitude.ValueNumeric(), longitude.ValueNumeric());
   }
   throw mgp::ValueException("Latitude and longitude must be numeric data types!");
 }
@@ -317,22 +329,22 @@ double Algo::CalculateDistance(const Config &config, const mgp::Relationship &re
     return distance.ValueNumeric();
   }
   if (distance.IsDuration() && config.duration) {
-    return distance.ValueDuration().Microseconds();
+    return static_cast<double>(distance.ValueDuration().Microseconds());
   }
   throw mgp::ValueException("Distance property must be a numeric or duration datatype!");
 }
 
 bool Algo::RelOk(const mgp::Relationship &rel, const Config &config,
                  const RelationshipType rel_type) {  // in true incoming, in false outgoing
-  if (config.in_rels.size() == 0 && config.out_rels.size() == 0) {
+  if (config.in_rels.empty() && config.out_rels.empty()) {
     return true;
   }
 
-  if (rel_type == RelationshipType::IN && config.in_rels.find(std::string(rel.Type())) != config.in_rels.end()) {
+  if (rel_type == RelationshipType::IN && config.in_rels.contains(std::string(rel.Type()))) {
     return true;
   }
 
-  if (rel_type == RelationshipType::OUT && config.out_rels.find(std::string(rel.Type())) != config.out_rels.end()) {
+  if (rel_type == RelationshipType::OUT && config.out_rels.contains(std::string(rel.Type()))) {
     return true;
   }
 
@@ -340,13 +352,13 @@ bool Algo::RelOk(const mgp::Relationship &rel, const Config &config,
 }
 
 bool Algo::IsLabelOk(const mgp::Node &node, const Config &config) {
-  bool whitelist_empty = config.whitelist.empty();
+  const bool whitelist_empty = config.whitelist.empty();
 
   for (auto label : node.Labels()) {
-    if (config.blacklist.find(std::string(label)) != config.blacklist.end()) {
+    if (config.blacklist.contains(std::string(label))) {
       return false;
     }
-    if (!whitelist_empty && config.whitelist.find(std::string(label)) == config.whitelist.end()) {
+    if (!whitelist_empty && !config.whitelist.contains(std::string(label))) {
       return false;
     }
   }
@@ -401,29 +413,29 @@ std::pair<mgp::Path, double> Algo::HelperAstar(const GoalNodes &nodes, const Con
     ExpandRelationships(nb, RelationshipType::OUT, nodes, lists, config);
     ExpandRelationships(nb, RelationshipType::IN, nodes, lists, config);
   }
-  return std::pair<mgp::Path, double>(mgp::Path(nodes.start), 0);
+  return {mgp::Path(nodes.start), 0};
 }
 
 std::pair<mgp::Path, double> Algo::BuildResult(std::shared_ptr<NodeObject> final_node, const mgp::Node &start) {
   mgp::Path path = mgp::Path(start);
   std::vector<mgp::Relationship> rels;
 
-  double weight = final_node->total_distance;
+  const double weight = final_node->total_distance;
   while (final_node->prev) {
     rels.push_back(final_node->rel);
     final_node = final_node->prev;
   }
 
-  for (auto it = rels.rbegin(); it != rels.rend(); ++it) {
-    path.Expand(std::move(*it));
+  for (const auto &rel : std::ranges::reverse_view(rels)) {
+    path.Expand(rel);
   }
 
-  return std::pair<mgp::Path, double>(std::move(path), weight);
+  return {std::move(path), weight};
 }
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Algo::AStar(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
 
@@ -436,12 +448,12 @@ void Algo::AStar(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, 
     // if there is a custom heuristic, there is no need for target latitude and lognitude
     auto nodes = config.heuristic_name == kDefaultHeuristic ? GoalNodes(start, target, GetLatLon(target, config))
                                                             : GoalNodes(start, target);
-    std::pair<mgp::Path, double> pair = HelperAstar(nodes, config);
-    mgp::Path &path = pair.first;
+    const std::pair<mgp::Path, double> pair = HelperAstar(nodes, config);
+    const mgp::Path &path = pair.first;
     const double weight = pair.second;
 
     auto record = record_factory.NewRecord();
-    record.Insert(std::string(kAStarPath).c_str(), std::move(path));
+    record.Insert(std::string(kAStarPath).c_str(), path);
     record.Insert(std::string(kAStarWeight).c_str(), weight);
 
   } catch (const std::exception &e) {

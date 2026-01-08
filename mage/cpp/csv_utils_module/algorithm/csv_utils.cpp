@@ -15,7 +15,7 @@ namespace CsvUtils {
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void CreateCsvFile(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+  const mgp::MemoryDispatcherGuard guard(memory);
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
 
@@ -35,23 +35,24 @@ void CreateCsvFile(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
   }
-  return;
 }
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void DeleteCsvFile(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+  const mgp::MemoryDispatcherGuard guard(memory);
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
 
   try {
     const std::string_view filepath = arguments[0].ValueString();
-    std::remove(std::string(filepath).c_str());
+    if (std::remove(std::string(filepath).c_str()) != 0) {
+      record_factory.SetErrorMessage("Failed to delete CSV file");
+      return;
+    }
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
   }
-  return;
 }
 
 }  // namespace CsvUtils

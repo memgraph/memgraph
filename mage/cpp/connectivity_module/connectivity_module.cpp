@@ -45,7 +45,7 @@ void Weak(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_mem
     std::unordered_map<std::uint64_t, std::uint64_t> vertex_component;
     std::uint64_t curr_component = 0;
     for (auto vertex : graph->Nodes()) {
-      if (vertex_component.find(vertex.id) != vertex_component.end()) continue;
+      if (vertex_component.contains(vertex.id)) continue;
 
       // Run BFS from current vertex.
       std::queue<std::uint64_t> q;
@@ -60,7 +60,7 @@ void Weak(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_mem
         for (auto neighbor : graph->Neighbours(v_id)) {
           auto next_id = neighbor.node_id;
 
-          if (vertex_component.find(next_id) != vertex_component.end()) {
+          if (vertex_component.contains(next_id)) {
             continue;
           }
           vertex_component[next_id] = curr_component;
@@ -73,7 +73,8 @@ void Weak(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_mem
 
     for (const auto [vertex_id, component_id] : vertex_component) {
       // Insert each weakly component record
-      InsertWeaklyComponentResult(memgraph_graph, result, memory, component_id, graph->GetMemgraphNodeId(vertex_id));
+      InsertWeaklyComponentResult(memgraph_graph, result, memory, static_cast<int>(component_id),
+                                  static_cast<int>(graph->GetMemgraphNodeId(vertex_id)));
     }
   } catch (const std::exception &e) {
     // We must not let any exceptions out of our module.

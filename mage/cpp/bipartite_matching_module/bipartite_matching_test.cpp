@@ -161,7 +161,7 @@ TEST(BipartiteMatching, Performance) {
   std::mt19937 rng(seed);
 
   auto num_of_nodes = 250;
-  std::size_t num_of_edges = num_of_nodes * num_of_nodes / 5;
+  const std::size_t num_of_edges = num_of_nodes * num_of_nodes / 5;
 
   std::uniform_int_distribution<> dist(1, num_of_nodes);
   std::set<std::pair<uint64_t, uint64_t>> bipartite_edges;
