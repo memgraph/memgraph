@@ -153,6 +153,47 @@ static_assert(std::is_constructible_v<opt_str, std::optional<std::string_view>, 
 static_assert(std::is_trivially_destructible_v<opt_str>,
               "uses PageSlabMemoryResource, lifetime linked to that, dtr should be trivial");
 
+/* Interleaved deltas relax the usual rules of MVCC by allowing certain
+ * commutative operations (i.e., edge creations) to be prepended to a delta
+ * chain, even in cases where normally this would be a write conflict. Doing so
+ * hugely improves performance in edge-write heavy imports, at the expense
+ * of increasing delta chain iteration and garbage collection whilst interleaved
+ * deltas exist in the chains. */
+enum class DeltaInterleaving : uint8_t { NORMAL, INTERLEAVED };
+
+/**
+ * By using a tagged pointer for the vertex in a vertex_edge `Delta`, we can
+ * store a flag indicating whether the `Delta` is interleaved without increasing
+ * the size of the overall `Delta`. An "interleaved" `Delta` is a non-conflicting
+ * commutative `Delta` operation. When reading `Delta`s, we don't stop traversing
+ * the `Delta` chain on interleaved operations as there may be relevant `Deltas`
+ * downstream. On a non-interleaved `Delta`, the previous conditions for
+ * bailing out of a read apply.
+ */
+class TaggedVertexPtr {
+ public:
+  TaggedVertexPtr() : ptr_(nullptr) {}
+
+  TaggedVertexPtr(Vertex *vertex, DeltaInterleaving interleaving = DeltaInterleaving::NORMAL) {
+    Set(vertex, interleaving == DeltaInterleaving::INTERLEAVED);
+  }
+
+  Vertex *Get() const { return reinterpret_cast<Vertex *>(reinterpret_cast<uintptr_t>(ptr_) & ~0x1UL); }
+
+  bool IsInterleaved() const { return (reinterpret_cast<uintptr_t>(ptr_) & 0x1UL) != 0; }
+
+  void Set(Vertex *vertex, bool is_interleaved = false) {
+    uintptr_t vertex_ptr = reinterpret_cast<uintptr_t>(vertex);
+    if (is_interleaved) {
+      vertex_ptr |= 0x1UL;
+    }
+    ptr_ = reinterpret_cast<Vertex *>(vertex_ptr);
+  }
+
+ private:
+  Vertex *ptr_;
+};
+
 struct Delta {
   using Action = DeltaAction;
 
@@ -210,27 +251,55 @@ struct Delta {
 
   Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
+      : Delta(AddInEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NORMAL, timestamp, command_id) {}
+
+  Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge{.action = Action::ADD_IN_EDGE, .edge_type = edge_type, vertex, edge} {}
+        vertex_edge{.action = Action::ADD_IN_EDGE,
+                    .edge_type = edge_type,
+                    .vertex = TaggedVertexPtr(vertex, interleaving),
+                    .edge = edge} {}
 
   Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
+      : Delta(AddOutEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NORMAL, timestamp, command_id) {}
+
+  Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge{.action = Action::ADD_OUT_EDGE, .edge_type = edge_type, vertex, edge} {}
+        vertex_edge{.action = Action::ADD_OUT_EDGE,
+                    .edge_type = edge_type,
+                    .vertex = TaggedVertexPtr(vertex, interleaving),
+                    .edge = edge} {}
 
   Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
+      : Delta(RemoveInEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NORMAL, timestamp, command_id) {}
+
+  Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge{.action = Action::REMOVE_IN_EDGE, .edge_type = edge_type, vertex, edge} {}
+        vertex_edge{.action = Action::REMOVE_IN_EDGE,
+                    .edge_type = edge_type,
+                    .vertex = TaggedVertexPtr(vertex, interleaving),
+                    .edge = edge} {}
 
   Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
+      : Delta(RemoveOutEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NORMAL, timestamp, command_id) {}
+
+  Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge{.action = Action::REMOVE_OUT_EDGE, .edge_type = edge_type, vertex, edge} {}
+        vertex_edge{.action = Action::REMOVE_OUT_EDGE,
+                    .edge_type = edge_type,
+                    .vertex = TaggedVertexPtr(vertex, interleaving),
+                    .edge = edge} {}
 
   Delta(const Delta &) = delete;
   Delta(Delta &&) = delete;
@@ -264,16 +333,30 @@ struct Delta {
     struct {
       Action action;
       EdgeTypeId edge_type;
-      Vertex *vertex;
+      TaggedVertexPtr vertex;
       EdgeRef edge;
     } vertex_edge;
   };
 };
+
+constexpr bool IsActionCommutative(Delta::Action action) noexcept {
+  return action == Delta::Action::ADD_IN_EDGE || action == Delta::Action::ADD_OUT_EDGE;
+}
+
+constexpr bool IsResultOfCommutativeOperation(Delta::Action action) noexcept {
+  return action == Delta::Action::REMOVE_IN_EDGE || action == Delta::Action::REMOVE_OUT_EDGE;
+}
+
+inline bool IsDeltaInterleaved(Delta const &delta) {
+  return IsResultOfCommutativeOperation(delta.action) && delta.vertex_edge.vertex.IsInterleaved();
+}
 
 // This is important, we want fast discard of unlinked deltas,
 static_assert(std::is_trivially_destructible_v<Delta>,
               "any allocations use PageSlabMemoryResource, lifetime linked to that, dtr should be trivial");
 
 static_assert(alignof(Delta) >= 8, "The Delta should be aligned to at least 8!");
+
+static_assert(sizeof(Delta) <= 56, "Delta size is at most 56 bytes");
 
 }  // namespace memgraph::storage
