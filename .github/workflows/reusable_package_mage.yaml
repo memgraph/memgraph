@@ -476,7 +476,6 @@ jobs:
       - name: Wait for e2e Docker images to be available
         if: ${{ inputs.run_tests == true }}
         run: |
-          cd mage
           ./tools/ci/wait-for-docker-images.sh
 
       - name: Run End-to-end correctness tests
@@ -511,6 +510,11 @@ jobs:
             --mysql-container $MYSQL_CONTAINER \
             --postgresql-container $POSTGRESQL_CONTAINER \
             --clean-env
+
+      - name: Stop container for e2e tests
+        if: ${{ inputs.run_tests == true && always() }}
+        run: |
+          docker stop $MAGE_CONTAINER || true
 
       - name: Save docker image
         if: ${{ inputs.push_to_github || inputs.push_to_s3 }}
@@ -581,7 +585,7 @@ jobs:
       - name: Memgraph Docker Cleanup
         if: always()
         run: |
-          ./tools/ci/docker_cleanup.sh.sh
+          ./tools/ci/docker_cleanup.sh
 
   SetupSmokeTest:
     runs-on: [self-hosted]
