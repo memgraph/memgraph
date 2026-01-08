@@ -203,17 +203,3 @@ cd eks_ha/deployment
 | `CLUSTER_NAME` | `test-cluster-ha` | EKS cluster name |
 | `CLUSTER_REGION` | `eu-west-1` | AWS region |
 | `HELM_RELEASE_NAME` | `mem-ha-test` | Helm release name |
-
-## ClickHouse Metrics Storage
-
-For storing and analyzing historical metrics, see `shared/clickhouse/README.md`.
-
-```sh
-cd shared/clickhouse
-docker-compose up -d
-
-# Import metrics from EKS
-python import_metrics.py /path/to/my_metrics.json
-```
-
-Grafana is included and pre-configured with a ClickHouse datasource at http://localhost:3001.
