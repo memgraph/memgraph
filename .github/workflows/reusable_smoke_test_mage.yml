@@ -84,7 +84,6 @@ jobs:
         if: ${{ env.NEXT_TYPE == 'docker' }}
         run: |
           docker pull "$NEXT_IMAGE"
-          echo "MEMGRAPH_NEXT_DOCKERHUB_IMAGE=${{ env.NEXT_IMAGE }}" >> $GITHUB_ENV
 
       - name: Load Next Image (URL)
         if: ${{ env.NEXT_TYPE == 'url' }}
@@ -98,14 +97,12 @@ jobs:
             | grep -v ':latest$' \
             | head -n1)
 
-          echo "MEMGRAPH_NEXT_DOCKERHUB_IMAGE=${repo_tag}" >> $GITHUB_ENV
           rm next.tar.gz
 
       - name: Load Last Image (Docker)
         if: ${{ env.LAST_TYPE == 'docker' }}
         run: |
           docker pull "$LAST_IMAGE"
-          echo "MEMGRAPH_LAST_DOCKERHUB_IMAGE=${{ env.LAST_IMAGE }}" >> $GITHUB_ENV
 
       - name: Load Last Image (URL)
         if: ${{ env.LAST_TYPE == 'url' }}
@@ -119,38 +116,23 @@ jobs:
             | grep -v ':latest$' \
             | head -n1)
 
-          echo "MEMGRAPH_LAST_DOCKERHUB_IMAGE=${repo_tag}" >> $GITHUB_ENV
           rm last.tar.gz
-
-      - name: Init Tests
-        run: |
-          cd mage/tests/smoke-release-testing
-          ./init_workflow.bash
-
-      - name: Install Python Dependencies
-        run: |
-          python3 -m venv env
-          source env/bin/activate
-          pip install -r mage/tests/smoke-release-testing/requirements.txt
 
       - name: Run Tests
         env:
           MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
           MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
         run: |
-          source env/bin/activate
-          cd mage/tests/smoke-release-testing
-          ./test_single_mage.bash
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          smoke \
+          --next-image "$NEXT_IMAGE" \
+          --last-image "$LAST_IMAGE"
 
-      - name: clean up Python environment
-        if: always()
-        run: |
-          rm -rf env || true
-
-      - name: Clean up Go environment
-        if: always()
-        run: |
-          rm -rf $HOME/go-install || true
 
       - name: Clean up Docker images
         if: always()
