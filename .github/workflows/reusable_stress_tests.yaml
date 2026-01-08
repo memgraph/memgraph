@@ -21,6 +21,7 @@ on:
 env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  INPUT_IMAGE: ${{ inputs.memgraph_image }}
 
 jobs:
   stress_test_native_standalone:
@@ -228,10 +229,6 @@ jobs:
 
       - name: Determine Input Type
         run: |
-          INPUT_IMAGE="${{ inputs.memgraph_image }}"
-          if [ -z "$INPUT_IMAGE" ]; then
-            INPUT_IMAGE="memgraph/memgraph:latest"
-          fi
           read image_type image_value < <(python3 tools/issu_image_type.py "$INPUT_IMAGE")
           echo "IMAGE_TYPE=${image_type}" >> $GITHUB_ENV
           echo "IMAGE_VALUE=${image_value}" >> $GITHUB_ENV

@@ -17,15 +17,18 @@ if [[ ! -x "$MEMGRAPH_BINARY" ]]; then
     exit 1
 fi
 
-# Try to find mgconsole: first in build dir, then in toolchain
+# Try to find mgconsole: first in build dir, then in toolchain, then in PATH
 if [[ -x "$BUILD_DIR/mgconsole" ]]; then
     MGCONSOLE_BINARY="$BUILD_DIR/mgconsole"
 elif [[ -n "$MG_TOOLCHAIN_ROOT" && -x "$MG_TOOLCHAIN_ROOT/bin/mgconsole" ]]; then
     MGCONSOLE_BINARY="$MG_TOOLCHAIN_ROOT/bin/mgconsole"
 elif [[ -x "/opt/toolchain-v7/bin/mgconsole" ]]; then
     MGCONSOLE_BINARY="/opt/toolchain-v7/bin/mgconsole"
+elif command -v mgconsole &>/dev/null; then
+    MGCONSOLE_BINARY="$(command -v mgconsole)"
 else
-    MGCONSOLE_BINARY="mgconsole"  # Fall back to PATH lookup
+    echo "ERROR: mgconsole binary not found in build dir, toolchain, or PATH"
+    exit 1
 fi
 
 DATA_DIR_PREFIX="mg_data"

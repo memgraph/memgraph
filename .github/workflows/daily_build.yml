@@ -250,7 +250,7 @@ jobs:
   SetupDailyBuildImageOutputs:
     name: Setup Daily Build Image Outputs
     needs: [CurrentDateJob, DailyDockerArtifact]
-    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests && !inputs.skip_stress_tests) }}
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests || !inputs.skip_stress_tests) }}
     runs-on: ubuntu-24.04
     outputs:
       amd_image_url: ${{ steps.set_image_urls.outputs.amd_image_url }}
