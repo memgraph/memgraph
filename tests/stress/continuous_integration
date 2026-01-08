@@ -162,7 +162,11 @@ class Config:
             extra_keys = set(memgraph.keys()) - allowed_keys
             if extra_keys:
                 raise ValueError(
-                    "Externally managed deployments should not have any other keys under 'memgraph' in the workload configuration. If you want to override any behaviour, you need to manage the workload yourself. If you have made a mistake in configuration and you want the workload to be externally managed, please remove the extra keys and keep the externally managed flag to true."
+                    "Externally managed deployments should not have any other keys under 'memgraph' "
+                    "in the workload configuration. If you want to override any behaviour, you need to "
+                    "manage the workload yourself. If you have made a mistake in configuration and you "
+                    "want the workload to be externally managed, please remove the extra keys and keep "
+                    "the externally managed flag to true."
                 )
             self._memgraph_args = []
             self._env = {}
