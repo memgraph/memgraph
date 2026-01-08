@@ -15,7 +15,7 @@ Stress test suite for evaluating Memgraph performance and stability under variou
 
 ### Run a Specific Workload
 ```sh
-./continuous_integration --config-file docker_ha/workloads/rag/workload.yaml
+./continuous_integration --workload docker_ha/workloads/rag/workload.yaml
 ```
 
 ## Workload Registry
@@ -148,8 +148,8 @@ Examples:
 ./continuous_integration --deployment docker_ha
 ./continuous_integration --deployment native_ha
 
-# Run specific config file
-./continuous_integration --config-file native_standalone/workloads/config_small.yaml
+# Run specific workload
+./continuous_integration --workload native_standalone/workloads/config_small.yaml
 ```
 
 ## Monitoring with Prometheus & Grafana

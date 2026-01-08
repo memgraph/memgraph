@@ -7,8 +7,8 @@ Usage:
   # Run all enabled workloads for a deployment type
   ./continuous_integration --deployment docker_ha
 
-  # Run a specific config file (legacy mode)
-  ./continuous_integration --config-file docker_ha/workloads/rag/vector_workload.yaml
+  # Run a specific workload
+  ./continuous_integration --workload docker_ha/workloads/rag/workload.yaml
 """
 import argparse
 import multiprocessing
@@ -257,16 +257,16 @@ Examples:
   # Run all enabled workloads for a deployment
   ./continuous_integration --deployment docker_ha
 
-  # Run a specific config file
-  ./continuous_integration --config-file docker_ha/workloads/rag/vector_workload.yaml
+  # Run a specific workload
+  ./continuous_integration --workload docker_ha/workloads/rag/workload.yaml
         """,
     )
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
-        "--deployment", "-d", choices=DeploymentType.values(), help="Run all enabled workloads for a deployment type"
+        "--deployment", choices=DeploymentType.values(), help="Run all enabled workloads for a deployment type"
     )
-    group.add_argument("--config-file", "-c", help="Path to a specific config YAML file")
+    group.add_argument("--workload", help="Path to a specific workload YAML file")
 
     parser.add_argument(
         "--python",
@@ -511,17 +511,16 @@ if __name__ == "__main__":
     # Handle --deployment
     if args.deployment:
         result = run_deployment(args, args.deployment)
-    # Handle --config-file
-    elif args.config_file:
-        config_file = args.config_file
-        if not os.path.isabs(config_file):
-            config_file = os.path.join(SCRIPT_DIR, config_file)
-        result = run_config_file(args, config_file)
-    # Default: run native_standalone with default config
+    # Handle --workload
+    elif args.workload:
+        workload_file = args.workload
+        if not os.path.isabs(workload_file):
+            workload_file = os.path.join(SCRIPT_DIR, workload_file)
+        result = run_config_file(args, workload_file)
     else:
-        default_config = os.path.join(SCRIPT_DIR, "native_standalone/workloads/config_small.yaml")
-        print(f"No deployment or config specified. Using default: {default_config}")
-        result = run_config_file(args, default_config)
+        print("Error: No deployment or workload specified.")
+        print("Usage: ./continuous_integration --deployment <type> OR --workload <path>")
+        sys.exit(1)
 
     if "error" in result:
         print(f"\nStress test failed: {result['error']}")
