@@ -521,7 +521,7 @@ def onto_import_inline(
 
 @mgp.function
 def inference_in_category(
-    node: mgp.Vertex, category: mgp.Vertex, in_cat_rel: str, sub_class_of_rel: str
+    node: mgp.Vertex, category: mgp.Vertex, params: Optional[mgp.Map] = None
 ) -> bool:
     """
     Check if a node belongs to a category through ontology inference.
@@ -534,15 +534,25 @@ def inference_in_category(
         The node to check
     category : Vertex
         The category/class node
-    in_cat_rel : str
-        Relationship type that connects nodes to categories
-    sub_class_of_rel : str
-        Relationship type for subClassOf
+    params : Map, optional
+        Configuration parameters:
+        - inCatRel: Relationship type connecting instance nodes to category (default: "IN_CAT")
+        - subCatRel: Relationship type connecting child category to parent (default: "SCO")
 
     Returns:
     --------
     True if the node belongs to the category (directly or through hierarchy)
     """
+    # Get parameters with defaults
+    in_cat_rel = "IN_CAT"
+    sub_class_of_rel = "SCO"
+
+    if params:
+        if "inCatRel" in params:
+            in_cat_rel = params["inCatRel"]
+        if "subCatRel" in params:
+            sub_class_of_rel = params["subCatRel"]
+
     return _is_in_category(node, category, in_cat_rel, sub_class_of_rel)
 
 
