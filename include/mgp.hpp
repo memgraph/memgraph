@@ -4713,17 +4713,19 @@ namespace detail {
 inline void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &parameters,
                                    const std::vector<Return> &returns) {
   for (const auto &parameter : parameters) {
-    const auto *parameter_name = parameter.name.data();
+    // Ensure null-terminated string for proc_add_arg which uses std::regex_match
+    const std::string parameter_name(parameter.name);
     if (!parameter.optional) {
-      mgp::proc_add_arg(proc, parameter_name, parameter.GetMGPType());
+      mgp::proc_add_arg(proc, parameter_name.c_str(), parameter.GetMGPType());
     } else {
-      mgp::proc_add_opt_arg(proc, parameter_name, parameter.GetMGPType(), parameter.default_value.ptr());
+      mgp::proc_add_opt_arg(proc, parameter_name.c_str(), parameter.GetMGPType(), parameter.default_value.ptr());
     }
   }
 
   for (const auto return_ : returns) {
-    const auto *return_name = return_.name.data();
-    mgp::proc_add_result(proc, return_name, return_.GetMGPType());
+    // Ensure null-terminated string for proc_add_result which uses std::regex_match
+    const std::string return_name(return_.name);
+    mgp::proc_add_result(proc, return_name.c_str(), return_.GetMGPType());
   }
 }
 }  // namespace detail
