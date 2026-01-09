@@ -7753,14 +7753,14 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        utils::SkipList<EdgeMetadata> *edges_metadata,
-                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                        NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                        Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
-                                        memgraph::storage::ttl::TTL *ttl,
-                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
+static RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path const &path,
+                                               utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                               utils::SkipList<EdgeMetadata> *edges_metadata,
+                                               std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                                               NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+                                               Config const &config, EnumStore *enum_store,
+                                               SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
+                                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
   // Cleanup of loaded data in case of failure.
 
   RecoveryInfo recovery_info;
@@ -8406,7 +8406,7 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
       throw RecoveryFailure("Couldn't read history size!");
     }
 
-    for (int i = 0; i < *history_size; ++i) {
+    for (auto i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
