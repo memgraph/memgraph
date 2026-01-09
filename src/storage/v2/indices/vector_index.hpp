@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <unordered_map>
 
+#include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
@@ -267,6 +268,8 @@ class VectorIndex {
   /// NOTE: Currently used only in the tests but we will use it in the future when we'll store vectors only in the
   /// index.
   std::vector<float> GetVectorFromVertex(Vertex *vertex, std::string_view index_name) const;
+
+  void SerializeVectorIndices(durability::BaseEncoder *encoder) const;
 
  private:
   void RemoveVertexFromIndex(Vertex *vertex, std::string_view index_name);

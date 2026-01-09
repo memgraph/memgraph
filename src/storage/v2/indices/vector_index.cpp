@@ -14,6 +14,7 @@
 
 #include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
@@ -402,6 +403,45 @@ std::vector<VectorIndexSpec> VectorIndex::ListIndices() const {
   std::ranges::transform(pimpl->index_, std::back_inserter(result),
                          [](const auto &label_prop_index_item) { return label_prop_index_item.second.spec; });
   return result;
+}
+
+void VectorIndex::SerializeVectorIndices(durability::BaseEncoder *encoder) const {
+  encoder->WriteUint(pimpl->index_.size());
+
+  for (const auto &[_, index_item] : pimpl->index_) {
+    const auto &[mg_index, spec] = index_item;
+
+    encoder->WriteString(spec.index_name);
+    encoder->WriteUint(spec.label_id.AsUint());
+    encoder->WriteUint(spec.property.AsUint());
+    encoder->WriteString(NameFromMetric(spec.metric_kind));
+    encoder->WriteUint(spec.dimension);
+    encoder->WriteUint(spec.resize_coefficient);
+    encoder->WriteUint(spec.capacity);
+    encoder->WriteUint(static_cast<uint64_t>(spec.scalar_kind));
+
+    auto locked_index = mg_index->ReadLock();
+    const auto index_size = locked_index->size();
+    const auto dimension = locked_index->dimensions();
+
+    if (index_size == 0) {
+      encoder->WriteUint(0);
+      continue;
+    }
+
+    std::vector<Vertex *> vertices(index_size);
+    locked_index->export_keys(vertices.data(), 0, index_size);
+
+    const auto valid_count = std::ranges::count_if(vertices, [](const auto *vertex) { return !vertex->deleted; });
+    encoder->WriteUint(valid_count);
+
+    std::vector<float> buffer(dimension);
+    for (auto *vertex : vertices) {
+      encoder->WriteUint(vertex->gid.AsUint());
+      locked_index->get(vertex, buffer.data());
+      std::ranges::for_each(buffer, [&](auto value) { encoder->WriteDouble(static_cast<double>(value)); });
+    }
+  }
 }
 
 std::optional<uint64_t> VectorIndex::ApproximateNodesVectorCount(LabelId label, PropertyId property) const {
