@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <thread>
@@ -21,6 +22,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "utils/logging.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
@@ -64,6 +66,17 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
                     const std::set<PropertyId> &properties,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+  };
+
+  // TODO (ivan): better name for this?
+  enum class ValidationStatus : bool { PENDING, VALIDATED };
+
+  // constraints are created and dropped with read only access
+  // a status is needed to not drop the constraint before it gets validated
+  // new writes can't happen during this time due to read only access
+  struct IndividualConstraint {
+    utils::SkipList<Entry> skiplist;
+    ValidationStatus status{ValidationStatus::PENDING};
   };
 
   /// Indexes the given vertex for relevant labels and properties.
@@ -118,16 +131,18 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
   void Clear() override;
 
-  void DropGraphClearConstraints();
-
   static std::variant<MultipleThreadsConstraintValidation, SingleThreadConstraintValidation> GetCreationFunction(
       const std::optional<durability::ParallelizedSchemaCreationInfo> &);
 
   void RunGC();
 
  private:
-  std::map<std::pair<LabelId, std::set<PropertyId>>, utils::SkipList<Entry>> constraints_;
-  std::map<LabelId, std::map<std::set<PropertyId>, utils::SkipList<Entry> *>> constraints_by_label_;
+  utils::Synchronized<std::map<std::pair<LabelId, std::set<PropertyId>>, IndividualConstraint>,
+                      utils::WritePrioritizedRWLock>
+      constraints_;
+  utils::Synchronized<std::map<LabelId, std::map<std::set<PropertyId>, IndividualConstraint *>>,
+                      utils::WritePrioritizedRWLock>
+      constraints_by_label_;
 };
 
 }  // namespace memgraph::storage

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,7 +40,7 @@ void Constraints::AbortEntries(std::span<Vertex const *const> const vertices,
 }
 
 void Constraints::DropGraphClearConstraints() const {
-  static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->DropGraphClearConstraints();
+  static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->Clear();
   existence_constraints_->DropGraphClearConstraints();
   type_constraints_->DropGraphClearConstraints();
 }
