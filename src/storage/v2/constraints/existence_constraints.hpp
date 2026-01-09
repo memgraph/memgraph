@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,14 +18,13 @@
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
 class ExistenceConstraints {
- private:
-  std::vector<std::pair<LabelId, PropertyId>> constraints_;
-
  public:
   struct MultipleThreadsConstraintValidation {
     std::optional<ConstraintViolation> operator()(
@@ -40,7 +39,9 @@ class ExistenceConstraints {
         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
   };
 
-  bool empty() const { return constraints_.empty(); }
+  bool empty() const {
+    return constraints_.WithReadLock([](auto &constraints) { return constraints.empty(); });
+  }
 
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
                                                                                      const LabelId &label,
@@ -70,6 +71,9 @@ class ExistenceConstraints {
   void LoadExistenceConstraints(const std::vector<std::string> &keys);
 
   void DropGraphClearConstraints();
+
+ private:
+  utils::Synchronized<std::vector<std::pair<LabelId, PropertyId>>, utils::WritePrioritizedRWLock> constraints_;
 };
 
 }  // namespace memgraph::storage

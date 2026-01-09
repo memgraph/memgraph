@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,41 +20,52 @@
 namespace memgraph::storage {
 
 bool ExistenceConstraints::ConstraintExists(LabelId label, PropertyId property) const {
-  return std::ranges::contains(constraints_, std::make_pair(label, property));
+  return constraints_.WithReadLock(
+      [&](auto &constraints) { return std::ranges::contains(constraints, std::make_pair(label, property)); });
 }
 
 void ExistenceConstraints::InsertConstraint(LabelId label, PropertyId property) {
-  if (ConstraintExists(label, property)) {
-    return;
-  }
-  constraints_.emplace_back(label, property);
+  constraints_.WithLock([&](auto &constraints) {
+    if (std::ranges::contains(constraints, std::make_pair(label, property))) {
+      return;
+    }
+    constraints.emplace_back(label, property);
+  });
 }
 
 bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
-  auto it = std::find(constraints_.begin(), constraints_.end(), std::make_pair(label, property));
-  if (it == constraints_.end()) {
-    return false;
-  }
-  constraints_.erase(it);
-  return true;
+  return constraints_.WithLock([&](auto &constraints) {
+    auto it = std::find(constraints.begin(), constraints.end(), std::make_pair(label, property));
+    if (it == constraints.end()) [[unlikely]] {
+      return false;
+    }
+    constraints.erase(it);
+    return true;
+  });
 }
 
-std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraints() const { return constraints_; }
+std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraints() const {
+  return constraints_.WithReadLock([](auto &constraints) { return constraints; });
+}
 
 [[nodiscard]] std::optional<ConstraintViolation> ExistenceConstraints::Validate(const Vertex &vertex) {
-  for (const auto &[label, property] : constraints_) {
-    if (auto violation = ValidateVertexOnConstraint(vertex, label, property); violation.has_value()) {
-      return violation;
+  return constraints_.WithReadLock([&](auto &constraints) -> std::optional<ConstraintViolation> {
+    for (const auto &[label, property] : constraints) {
+      if (auto violation = ValidateVertexOnConstraint(vertex, label, property); violation.has_value()) {
+        return violation;
+      }
     }
-  }
-  return std::nullopt;
+    return std::nullopt;
+  });
 }
 
 void ExistenceConstraints::LoadExistenceConstraints(const std::vector<std::string> &keys) {
-  for (const auto &key : keys) {
-    const std::vector<std::string> parts = utils::Split(key, ",");
-    constraints_.emplace_back(LabelId::FromString(parts[0]), PropertyId::FromString(parts[1]));
-  }
+  constraints_.WithLock([&](auto &constraints) {
+    for (const auto &key : keys) {
+      const std::vector<std::string> parts = utils::Split(key, ",");
+      constraints.emplace_back(LabelId::FromString(parts[0]), PropertyId::FromString(parts[1]));
+    }
+  });
 }
 
 [[nodiscard]] std::optional<ConstraintViolation> ExistenceConstraints::ValidateVertexOnConstraint(
@@ -130,6 +141,8 @@ std::optional<ConstraintViolation> ExistenceConstraints::SingleThreadConstraintV
   return std::nullopt;
 }
 
-void ExistenceConstraints::DropGraphClearConstraints() { constraints_.clear(); }
+void ExistenceConstraints::DropGraphClearConstraints() {
+  constraints_.WithLock([](auto &constraints) { constraints.clear(); });
+}
 
 }  // namespace memgraph::storage
