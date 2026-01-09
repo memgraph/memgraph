@@ -21,6 +21,16 @@ import mgp
 from rdflib import Graph, URIRef, Literal, BNode
 from rdflib.namespace import RDF, RDFS, OWL
 
+# Format name mapping for RDF parsers
+# Valid formats: Turtle, N-Triples, JSON-LD, RDF/XML
+FORMAT_MAP = {
+    "turtle": "turtle",
+    "nt": "nt",
+    "n-triples": "nt",
+    "json-ld": "json-ld",
+    "rdf/xml": "xml",
+}
+
 
 class Constants:
     """Constants used throughout the semantics module."""
@@ -337,7 +347,7 @@ def rdf_import_fetch(
     url : str
         URL to fetch RDF data from
     format : str
-        RDF format (turtle, rdfxml, n3, json-ld, etc.). Default: "turtle"
+        RDF format. Valid formats: Turtle, N-Triples, JSON-LD, RDF/XML. Default: "turtle"
     config : Map, optional
         Optional configuration overrides. If not provided, uses stored GraphConfig.
         Configuration options:
@@ -368,9 +378,13 @@ def rdf_import_fetch(
         raise Exception(f"Error reading RDF data: {e}")
 
     # Parse RDF
+    # Normalize format name (rdflib expects lowercase)
+    normalized_format = format.lower() if format else "turtle"
+    rdf_format = FORMAT_MAP.get(normalized_format, normalized_format)
+
     rdf_graph = Graph()
     try:
-        rdf_graph.parse(data=rdf_data, format=format)
+        rdf_graph.parse(data=rdf_data, format=rdf_format)
     except Exception as e:
         raise Exception(f"Failed to parse RDF data: {e}")
 
@@ -396,7 +410,9 @@ def rdf_import_fetch(
 
 
 @mgp.function
-def rdf_get_lang_value(lang: str, values: Any) -> mgp.Nullable[str]:
+def rdf_get_lang_value(
+    lang: mgp.Nullable[str], values: mgp.Nullable[mgp.Any]
+) -> mgp.Nullable[str]:
     """
     Get a language-specific value from a list of language-tagged values.
 
@@ -404,16 +420,39 @@ def rdf_get_lang_value(lang: str, values: Any) -> mgp.Nullable[str]:
 
     Parameters:
     -----------
-    lang : str
-        Language code (e.g., 'en', 'es', 'fr')
-    values : List or str
-        List of language-tagged values or a single value
+    lang : str, optional
+        Language code (e.g., 'en', 'es', 'fr'). If None, returns first value.
+    values : Any, optional
+        List of language-tagged values or a single value. If None, returns None.
 
     Returns:
     --------
     The value for the specified language, or None if not found
     """
     return _get_lang_value(lang, values)
+
+
+@mgp.function
+def rdf_get_value(literal: mgp.Nullable[mgp.Any]) -> mgp.Nullable[str]:
+    """
+    Get the value of a literal after stripping out datatype and language information.
+
+    Similar to n10s.rdf.getValue in Neo4j neosemantics.
+
+    Parameters:
+    -----------
+    literal : Any, optional
+        A literal value which may be:
+        - A plain string
+        - A dictionary/map with 'value' key (language-tagged or datatyped)
+        - A list of language-tagged values (returns first value)
+        - None
+
+    Returns:
+    --------
+    The string value without datatype/language information, or None if not found
+    """
+    return _get_value_from_literal(literal)
 
 
 @mgp.write_proc
@@ -449,9 +488,13 @@ def onto_import_inline(
     Record with import statistics
     """
     # Parse RDF
+    # Normalize format name (rdflib expects lowercase)
+    normalized_format = format.lower() if format else "turtle"
+    rdf_format = FORMAT_MAP.get(normalized_format, normalized_format)
+
     rdf_graph = Graph()
     try:
-        rdf_graph.parse(data=payload, format=format)
+        rdf_graph.parse(data=payload, format=rdf_format)
     except Exception as e:
         raise Exception(f"Failed to parse RDF data: {e}")
 
@@ -505,7 +548,9 @@ def inference_in_category(
 
 @mgp.read_proc
 def inference_nodes_in_category(
-    ctx: mgp.ProcCtx, category: mgp.Vertex, in_cat_rel: str, sub_class_of_rel: str
+    ctx: mgp.ProcCtx,
+    category: mgp.Vertex,
+    params: Optional[mgp.Map] = None,
 ) -> mgp.Record(node=mgp.Vertex):
     """
     Find all nodes that belong to a category through ontology inference.
@@ -516,15 +561,25 @@ def inference_nodes_in_category(
     -----------
     category : Vertex
         The category/class node
-    in_cat_rel : str
-        Relationship type that connects nodes to categories
-    sub_class_of_rel : str
-        Relationship type for subClassOf
+    params : Map, optional
+        Configuration parameters:
+        - inCatRel: Relationship type connecting instance nodes to category (default: "IN_CAT")
+        - subCatRel: Relationship type connecting child category to parent (default: "SCO")
 
     Returns:
     --------
     Records with nodes that belong to the category
     """
+    # Get parameters with defaults
+    in_cat_rel = "IN_CAT"
+    sub_class_of_rel = "SCO"
+
+    if params:
+        if "inCatRel" in params:
+            in_cat_rel = params["inCatRel"]
+        if "subCatRel" in params:
+            sub_class_of_rel = params["subCatRel"]
+
     results = []
 
     for vertex in ctx.graph.vertices:
@@ -584,37 +639,64 @@ def _get_or_create_resource_node(
     return vertex
 
 
-def _get_lang_value(lang: str, values: Union[List, Any]) -> Optional[str]:
+def _get_lang_value(
+    lang: Optional[str], values: Optional[Any]
+) -> Optional[str]:
     """
     Extract value for a specific language from a list of language-tagged values.
 
     Args:
-        lang: Language code (e.g., 'en', 'es', 'fr')
-        values: List of language-tagged values or single value
+        lang: Language code (e.g., 'en', 'es', 'fr'). If None, returns first value.
+        values: List of language-tagged values or single value. If None, returns None.
 
     Returns:
         The value for the specified language, or None if not found
     """
-    if not isinstance(values, list):
-        return str(values) if values is not None else None
+    if values is None:
+        return None
 
-    # Look for exact language match
-    for value in values:
-        if isinstance(value, dict):
-            if value.get("lang") == lang:
-                return value.get("value")
-        elif isinstance(value, str):
-            # If it's a plain string, return it (no language tag)
-            return value
+    if isinstance(values, str):
+        return values
 
-    # If no exact match, return first value
-    if values:
-        first_val = values[0]
+    # Check if it's an iterable collection (list, tuple, mgp.List)
+    if not isinstance(values, (mgp.List, list, tuple)):
+        # Not a list, treat as single value
+        return str(values)
+
+    # Convert to list for easier iteration (mgp.List is iterable but we need to handle it)
+    try:
+        values_list = list(values) if isinstance(values, mgp.List) else values
+    except (TypeError, AttributeError):
+        return str(values)
+
+    if not values_list:
+        return None
+
+    # If lang is None, return first value
+    if lang is None:
+        first_val = values_list[0]
         if isinstance(first_val, dict):
-            return first_val.get("value")
+            return str(first_val.get("value", ""))
+        elif isinstance(first_val, mgp.Map):
+            return str(first_val.get("value", ""))
         return str(first_val)
 
-    return None
+    # Look for exact language match
+    for value in values_list:
+        if isinstance(value, dict):
+            if value.get("lang") == lang:
+                return str(value.get("value", ""))
+        elif isinstance(value, mgp.Map):
+            if value.get("lang") == lang:
+                return str(value.get("value", ""))
+
+    # If no exact match, return first value
+    first_val = values_list[0]
+    if isinstance(first_val, dict):
+        return str(first_val.get("value", ""))
+    elif isinstance(first_val, mgp.Map):
+        return str(first_val.get("value", ""))
+    return str(first_val)
 
 
 def _get_value(value: Union[Dict, str, Any]) -> str:
@@ -624,6 +706,47 @@ def _get_value(value: Union[Dict, str, Any]) -> str:
     if isinstance(value, dict):
         return value.get("value", str(value))
     return str(value)
+
+
+def _get_value_from_literal(literal: Optional[Any]) -> Optional[str]:
+    """
+    Extract the value from a literal, stripping datatype and language information.
+
+    Args:
+        literal: A literal value which may be a string, dict/map with 'value' key,
+                 a list of values, or None
+
+    Returns:
+        The string value without datatype/language information, or None
+    """
+    if literal is None:
+        return None
+
+    if isinstance(literal, str):
+        return literal
+
+    # Handle dictionary/map with 'value' key
+    if isinstance(literal, dict):
+        return str(literal.get("value", ""))
+    elif isinstance(literal, mgp.Map):
+        return str(literal.get("value", ""))
+
+    # Handle list - return first value
+    if isinstance(literal, (mgp.List, list, tuple)):
+        try:
+            values_list = list(literal) if isinstance(literal, mgp.List) else literal
+            if values_list:
+                first_val = values_list[0]
+                if isinstance(first_val, dict):
+                    return str(first_val.get("value", ""))
+                elif isinstance(first_val, mgp.Map):
+                    return str(first_val.get("value", ""))
+                return str(first_val)
+        except (TypeError, AttributeError):
+            pass
+
+    # For any other type, convert to string
+    return str(literal)
 
 
 def _parse_rdf_literal(literal: Literal) -> Dict[str, Any]:
