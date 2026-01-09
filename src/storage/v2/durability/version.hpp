@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,13 +41,14 @@ constexpr uint64_t kTextIndexWithProperties{29};
 constexpr uint64_t kNumCommittedTxns{30};
 constexpr uint64_t kTtlSupport{30};
 constexpr uint64_t kTextEdgeIndex{31};
+constexpr uint64_t kVectorIndexId{32};
 
 // The current version of snapshot and WAL encoding / decoding.
 // IMPORTANT: Please bump this version for every snapshot and/or WAL format
 // change!!!
 
 // #### CURRENT VERSION vvv
-constexpr uint64_t kVersion{kTextEdgeIndex};
+constexpr uint64_t kVersion{kVectorIndexId};
 // #### CURRENT VERSION ^^^
 
 // Magic values written to the start of a snapshot/WAL file to identify it.
