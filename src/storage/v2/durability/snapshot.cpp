@@ -9150,7 +9150,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       throw RecoveryFailure("Couldn't read history size!");
     }
 
-    for (int i = 0; i < *history_size; ++i) {
+    for (uint64_t i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
