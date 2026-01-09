@@ -26,7 +26,9 @@ DEFAULT_FLAGS=(
     "--log-file="
     "--log-level=TRACE"
     "--query-execution-timeout-sec=1200"
+    "--storage-snapshot-interval-sec=300"
     "--storage-properties-on-edges=true"
+    "--storage-wal-enabled=true"
     "--telemetry-enabled=false"
 )
 

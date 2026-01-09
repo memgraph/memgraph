@@ -36,13 +36,15 @@ COORD_DIR_PREFIX="mg_coord"
 
 # Default flags for Memgraph Data Nodes
 DEFAULT_DATA_FLAGS=(
-    "--storage-properties-on-edges=true"
-    "--telemetry-enabled=false"
-    "--query-execution-timeout-sec=1200"
+    "--also-log-to-stderr=true"
     "--bolt-server-name-for-init=Neo4j/"
     "--log-file="
-    "--log-level=WARNING"
-    "--also-log-to-stderr=true"
+    "--log-level=TRACE"
+    "--storage-properties-on-edges=true"
+    "--storage-snapshot-interval-sec=300"
+    "--storage-wal-enabled=true"
+    "--telemetry-enabled=false"
+    "--query-execution-timeout-sec=1200"
 )
 
 # Default flags for Memgraph Coordinator Nodes
