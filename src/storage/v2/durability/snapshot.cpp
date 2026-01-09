@@ -198,6 +198,8 @@ class SafeTaskQueue {
 
 using task_results_t = std::vector<std::pair<SnapshotPartialRes, std::promise<bool>>>;
 
+namespace {
+
 void WaitAndCombine(task_results_t &partial_results, SnapshotEncoder &snapshot_encoder, uint64_t &element_count,
                     std::vector<BatchInfo> &batch_infos, std::unordered_set<uint64_t> &used_ids,
                     auto &&snapshot_aborted) {
@@ -528,6 +530,8 @@ SnapshotInfo ReadSnapshotInfoPreVersionNumCommittedTxns(const std::filesystem::p
   return info;
 }
 
+}  // namespace
+
 // Function used to read information about the snapshot file.
 SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
   // Check magic and version.
@@ -645,6 +649,8 @@ void OverwriteSnapshotUUID(std::filesystem::path const &path, utils::UUID const 
   snapshot.WriteString(std::string{uuid});
   snapshot.Sync();
 }
+
+namespace {
 
 std::vector<BatchInfo> ReadBatchInfos(Decoder &snapshot) {
   std::vector<BatchInfo> infos;
@@ -7753,14 +7759,14 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-static RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path const &path,
-                                               utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                               utils::SkipList<EdgeMetadata> *edges_metadata,
-                                               std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                               NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                               Config const &config, EnumStore *enum_store,
-                                               SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
-                                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
+RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path const &path,
+                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                        utils::SkipList<EdgeMetadata> *edges_metadata,
+                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                                        NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+                                        Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
+                                        memgraph::storage::ttl::TTL *ttl,
+                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
   // Cleanup of loaded data in case of failure.
 
   RecoveryInfo recovery_info;
@@ -8406,7 +8412,7 @@ static RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesyste
       throw RecoveryFailure("Couldn't read history size!");
     }
 
-    for (auto i = 0; i < *history_size; ++i) {
+    for (uint64_t i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
@@ -9228,6 +9234,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
+
+}  // namespace
 
 RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
                                utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
