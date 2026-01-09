@@ -1,0 +1,28 @@
+query: >
+    CALL mg_semantics.graphconfig_show()
+    YIELD param, value
+    RETURN param, value
+    ORDER BY param
+
+output:
+    - param: "classLabel"
+      value: "Class"
+    - param: "handleMultival"
+      value: "ARRAY"
+    - param: "handleRDFTypes"
+      value: "LABELS"
+    - param: "handleVocabUris"
+      value: "SHORTEN"
+    - param: "keepLangTag"
+      value: true
+    - param: "labelProperty"
+      value: "label"
+    - param: "nameProperty"
+      value: "name"
+    - param: "resourceLabel"
+      value: "Resource"
+    - param: "subClassOfRel"
+      value: "SCO"
+    - param: "uriProperty"
+      value: "uri"
+

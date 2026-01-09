@@ -1,0 +1,18 @@
+query: >
+    MATCH (item:Resource { name: "item1" })
+    RETURN 
+        item.name AS name,
+        item.label AS allLabels,
+        mg_semantics.rdf_get_lang_value("en", item.label) AS labelEn,
+        mg_semantics.rdf_get_lang_value("fr", item.label) AS labelFr,
+        mg_semantics.rdf_get_lang_value("de", item.label) AS labelDe,
+        mg_semantics.rdf_get_lang_value("es", item.label) AS labelEs
+    ORDER BY item.name
+
+output:
+    - name: "item1"
+      labelEn: "Cotton T-Shirt"
+      labelFr: "T-shirt en coton"
+      labelDe: "Baumwoll-T-Shirt"
+      labelEs: null
+

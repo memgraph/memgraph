@@ -1,0 +1,55 @@
+query: >
+    CALL mg_semantics.rdf_import_inline('
+    @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+    @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+    @prefix owl: <http://www.w3.org/2002/07/owl#> .
+    @prefix ex: <http://example.org/products#> .
+
+    ex:Product a owl:Class ;
+        rdfs:label "Product"@en ;
+        rdfs:label "Produit"@fr ;
+        rdfs:label "Produkt"@de ;
+        rdfs:comment "A general product"@en .
+
+    ex:Clothing a owl:Class ;
+        rdfs:subClassOf ex:Product ;
+        rdfs:label "Clothing"@en ;
+        rdfs:label "Vêtements"@fr ;
+        rdfs:label "Kleidung"@de .
+
+    ex:Footwear a owl:Class ;
+        rdfs:subClassOf ex:Product ;
+        rdfs:label "Footwear"@en ;
+        rdfs:label "Chaussures"@fr ;
+        rdfs:label "Schuhe"@de .
+
+    ex:Shoes a owl:Class ;
+        rdfs:subClassOf ex:Footwear ;
+        rdfs:label "Shoes"@en ;
+        rdfs:label "Chaussures"@fr ;
+        rdfs:label "Schuhe"@de .
+
+    ex:LeatherShoes a owl:Class ;
+        rdfs:subClassOf ex:Shoes ;
+        rdfs:label "Leather Shoes"@en ;
+        rdfs:label "Chaussures en cuir"@fr ;
+        rdfs:label "Lederschuhe"@de .
+
+    ex:item1 a ex:LeatherShoes ;
+        rdfs:label "Classic Leather Boots"@en ;
+        rdfs:label "Bottes en cuir classiques"@fr ;
+        rdfs:label "Klassische Lederstiefel"@de ;
+        ex:price "99.99"^^xsd:decimal .
+
+    ex:item2 a ex:Clothing ;
+        rdfs:label "Cotton T-Shirt"@en ;
+        rdfs:label "T-shirt en coton"@fr ;
+        rdfs:label "Baumwoll-T-Shirt"@de ;
+        ex:price "19.99"^^xsd:decimal .
+    ', "turtle")
+    YIELD triplesLoaded
+    RETURN triplesLoaded
+
+output:
+    - triplesLoaded: 25
+
