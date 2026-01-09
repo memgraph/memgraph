@@ -1047,15 +1047,32 @@ test_memgraph() {
       docker cp $build_container:$test_output_path $test_output_host_dest
     ;;
     stress-plain)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate "'&& ./continuous_integration'
-      # TODO: Add when mgconsole is available on CI
-      # docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& ./continuous_integration --config-file=configurations/templates/config_ha.yaml'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate "'&& ./continuous_integration --workload=native_standalone/workloads/config_small.yaml'
     ;;
     stress-ssl)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --config-file=configurations/templates/config_ssl.yaml"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --workload=native_standalone/workloads/config_ssl.yaml"
     ;;
     stress-large)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --config-file=configurations/templates/config_large.yaml"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --workload=native_standalone/workloads/config_large.yaml"
+    ;;
+    stress-native-standalone)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=native_standalone"
+    ;;
+    stress-native-ha)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=native_ha"
+    ;;
+    stress-docker-ha)
+      export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license
+      export MEMGRAPH_ORGANIZATION_NAME=$organization_name
+      if [[ ! -d "$PROJECT_ROOT/tests/ve3" ]]; then
+        python3 -m venv $PROJECT_ROOT/tests/ve3
+        source $PROJECT_ROOT/tests/ve3/bin/activate
+        pip install --upgrade pip
+        pip install -r $PROJECT_ROOT/tests/stress/requirements.txt
+      else
+        source $PROJECT_ROOT/tests/ve3/bin/activate
+      fi
+      cd $PROJECT_ROOT/tests/stress && ./continuous_integration --deployment=docker_ha
     ;;
     durability)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 durability --num-steps 5 --log-file=durability_test.log --verbose"

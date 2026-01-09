@@ -1,28 +1,59 @@
 #!/bin/bash
 
-MEMGRAPH_BINARY="../../build/memgraph"
-MGCONSOLE_BINARY="../../build/mgconsole"
+# Get absolute path to script directory and build directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUILD_DIR="$(cd "$SCRIPT_DIR/../../../../build" 2>/dev/null && pwd)"
+
+if [[ -z "$BUILD_DIR" || ! -d "$BUILD_DIR" ]]; then
+    echo "ERROR: Build directory not found. Expected at: $SCRIPT_DIR/../../../../build"
+    echo "Please build Memgraph first."
+    exit 1
+fi
+
+MEMGRAPH_BINARY="$BUILD_DIR/memgraph"
+
+if [[ ! -x "$MEMGRAPH_BINARY" ]]; then
+    echo "ERROR: Memgraph binary not found at: $MEMGRAPH_BINARY"
+    exit 1
+fi
+
+# Try to find mgconsole: first in build dir, then in toolchain, then in PATH
+if [[ -x "$BUILD_DIR/mgconsole" ]]; then
+    MGCONSOLE_BINARY="$BUILD_DIR/mgconsole"
+elif [[ -n "$MG_TOOLCHAIN_ROOT" && -x "$MG_TOOLCHAIN_ROOT/bin/mgconsole" ]]; then
+    MGCONSOLE_BINARY="$MG_TOOLCHAIN_ROOT/bin/mgconsole"
+elif [[ -x "/opt/toolchain-v7/bin/mgconsole" ]]; then
+    MGCONSOLE_BINARY="/opt/toolchain-v7/bin/mgconsole"
+elif command -v mgconsole &>/dev/null; then
+    MGCONSOLE_BINARY="$(command -v mgconsole)"
+else
+    echo "ERROR: mgconsole binary not found in build dir, toolchain, or PATH"
+    exit 1
+fi
+
 DATA_DIR_PREFIX="mg_data"
 COORD_DIR_PREFIX="mg_coord"
 
 # Default flags for Memgraph Data Nodes
 DEFAULT_DATA_FLAGS=(
-    "--storage-properties-on-edges=true"
-    "--storage-snapshot-on-exit=false"
-    "--storage-snapshot-interval-sec=600"
-    "--storage-snapshot-retention-count=1"
-    "--storage-wal-enabled=true"
-    "--query-execution-timeout-sec=1200"
-    "--log-file="
-    "--log-level=ERROR"
     "--also-log-to-stderr=true"
+    "--bolt-server-name-for-init=Neo4j/"
+    "--log-file="
+    "--log-level=TRACE"
+    "--storage-properties-on-edges=true"
+    "--storage-snapshot-interval-sec=300"
+    "--storage-wal-enabled=true"
+    "--telemetry-enabled=false"
+    "--query-execution-timeout-sec=1200"
 )
 
 # Default flags for Memgraph Coordinator Nodes
 DEFAULT_COORD_FLAGS=(
-    "--log-file="
-    "--log-level=ERROR"
     "--also-log-to-stderr=true"
+    "--bolt-server-name-for-init=Neo4j/"
+    "--log-file="
+    "--log-level=WARNING"
+    "--telemetry-enabled=false"
 )
 
 # Configuration for Data Nodes
@@ -80,6 +111,10 @@ merge_flags() {
 start_memgraph() {
     echo "Starting Memgraph HA Deployment..."
 
+    # Ensure enterprise license env vars are exported for child processes (required for HA)
+    export MEMGRAPH_ENTERPRISE_LICENSE
+    export MEMGRAPH_ORGANIZATION_NAME
+
     # Ensure clean data directories before startup
     clean_data_directories
 
@@ -116,24 +151,66 @@ start_memgraph() {
 
 setup_ha() {
     echo "Setting up HA configuration using mgconsole..."
+
+    # Check if mgconsole binary exists
+    if [[ ! -x "$MGCONSOLE_BINARY" ]]; then
+        echo "ERROR: mgconsole binary not found at $MGCONSOLE_BINARY"
+        stop_memgraph
+        exit 1
+    fi
+
     sleep 2  # Ensure coordinators are fully started
 
     echo "Adding coordinators..."
-    echo "
+    if ! echo "
     ADD COORDINATOR 1 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7691\", \"coordinator_server\": \"127.0.0.1:10111\", \"management_server\": \"127.0.0.1:12121\"};
     ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7692\", \"coordinator_server\": \"127.0.0.1:10112\", \"management_server\": \"127.0.0.1:12122\"};
     ADD COORDINATOR 3 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7693\", \"coordinator_server\": \"127.0.0.1:10113\", \"management_server\": \"127.0.0.1:12123\"};
-    " | $MGCONSOLE_BINARY --host 127.0.0.1 --port 7691
+    " | $MGCONSOLE_BINARY --host 127.0.0.1 --port 7691; then
+        echo "ERROR: Failed to add coordinators"
+        stop_memgraph
+        exit 1
+    fi
 
     echo "Registering instances..."
-    echo "
+    if ! echo "
     REGISTER INSTANCE instance_1 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7687\", \"management_server\": \"127.0.0.1:13011\", \"replication_server\": \"127.0.0.1:10001\"};
     REGISTER INSTANCE instance_2 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7688\", \"management_server\": \"127.0.0.1:13012\", \"replication_server\": \"127.0.0.1:10002\"};
     REGISTER INSTANCE instance_3 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7689\", \"management_server\": \"127.0.0.1:13013\", \"replication_server\": \"127.0.0.1:10003\"};
     SET INSTANCE instance_1 TO MAIN;
-    " | $MGCONSOLE_BINARY --host 127.0.0.1 --port 7691
+    " | $MGCONSOLE_BINARY --host 127.0.0.1 --port 7691; then
+        echo "ERROR: Failed to register instances"
+        stop_memgraph
+        exit 1
+    fi
+
+    # Wait for the cluster to become healthy
+    echo "Waiting for HA cluster to become healthy..."
+    if ! wait_for_healthy_cluster; then
+        echo "ERROR: HA cluster did not become healthy in time"
+        stop_memgraph
+        exit 1
+    fi
 
     echo "HA setup completed!"
+}
+
+wait_for_healthy_cluster() {
+    local max_retries=30
+    local retry_interval=2
+
+    for ((i=1; i<=max_retries; i++)); do
+        # Check if we have a healthy MAIN instance
+        result=$(echo "SHOW INSTANCES;" | $MGCONSOLE_BINARY --host 127.0.0.1 --port 7691 --output-format=csv 2>/dev/null)
+        if echo "$result" | grep -q "main" && echo "$result" | grep -q "up"; then
+            echo "HA cluster is healthy."
+            return 0
+        fi
+        echo "Waiting for cluster health check ($i/$max_retries)..."
+        sleep $retry_interval
+    done
+
+    return 1
 }
 
 stop_memgraph() {

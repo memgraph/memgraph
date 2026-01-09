@@ -1,0 +1,29 @@
+# Prometheus exporter configuration for Memgraph HA cluster
+# Used by memgraph/prometheus-exporter Docker image
+# See: https://github.com/memgraph/prometheus-exporter
+
+exporter:
+  port: 9100
+  pull_frequency_seconds: 5
+
+instances:
+  - name: data1
+    url: http://127.0.0.1
+    port: 9091
+    type: data_instance
+  - name: data2
+    url: http://127.0.0.1
+    port: 9092
+    type: data_instance
+  - name: coord1
+    url: http://127.0.0.1
+    port: 9094
+    type: coordinator
+  - name: coord2
+    url: http://127.0.0.1
+    port: 9095
+    type: coordinator
+  - name: coord3
+    url: http://127.0.0.1
+    port: 9096
+    type: coordinator
