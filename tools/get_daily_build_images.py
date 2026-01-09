@@ -1,10 +1,10 @@
 import os
-from typing import List
+from typing import Tuple
 
 from aggregate_build_tests import list_daily_release_packages
 
 
-def get_daily_build_images(date: int, mock: bool = False) -> List[str]:
+def get_daily_build_images(date: int, mock: bool = False) -> Tuple[str, str]:
     """
     Get the Releasse docker images for x86_64 and arm64 for the given date
     """
