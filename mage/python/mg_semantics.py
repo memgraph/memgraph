@@ -125,7 +125,7 @@ def graphconfig_init(
     # Find or create GraphConfig node
     config_node = None
     for vertex in ctx.graph.vertices:
-        if Constants.GRAPH_CONFIG_LABEL in [l.name for l in vertex.labels]:
+        if Constants.GRAPH_CONFIG_LABEL in [label.name for label in vertex.labels]:
             if (
                 vertex.properties.get(Constants.ID_PROPERTY)
                 == Constants.GRAPH_CONFIG_NODE_ID
@@ -164,7 +164,7 @@ def graphconfig_show(ctx: mgp.ProcCtx) -> mgp.Record(param=str, value=Any):
     # Find GraphConfig node
     config_node = None
     for vertex in ctx.graph.vertices:
-        if Constants.GRAPH_CONFIG_LABEL in [l.name for l in vertex.labels]:
+        if Constants.GRAPH_CONFIG_LABEL in [label.name for label in vertex.labels]:
             if (
                 vertex.properties.get(Constants.ID_PROPERTY)
                 == Constants.GRAPH_CONFIG_NODE_ID
@@ -209,7 +209,7 @@ def graphconfig_set(
     # Find GraphConfig node
     config_node = None
     for vertex in ctx.graph.vertices:
-        if Constants.GRAPH_CONFIG_LABEL in [l.name for l in vertex.labels]:
+        if Constants.GRAPH_CONFIG_LABEL in [label.name for label in vertex.labels]:
             if (
                 vertex.properties.get(Constants.ID_PROPERTY)
                 == Constants.GRAPH_CONFIG_NODE_ID
@@ -247,7 +247,7 @@ def graphconfig_drop(ctx: mgp.ProcCtx) -> mgp.Record():
     # Find and delete GraphConfig node
     config_node = None
     for vertex in ctx.graph.vertices:
-        if Constants.GRAPH_CONFIG_LABEL in [l.name for l in vertex.labels]:
+        if Constants.GRAPH_CONFIG_LABEL in [label.name for label in vertex.labels]:
             if (
                 vertex.properties.get(Constants.ID_PROPERTY)
                 == Constants.GRAPH_CONFIG_NODE_ID
@@ -276,7 +276,7 @@ def _get_graph_config(ctx: mgp.ProcCtx) -> Dict[str, Any]:
     """
     config_node = None
     for vertex in ctx.graph.vertices:
-        if Constants.GRAPH_CONFIG_LABEL in [l.name for l in vertex.labels]:
+        if Constants.GRAPH_CONFIG_LABEL in [label.name for label in vertex.labels]:
             if (
                 vertex.properties.get(Constants.ID_PROPERTY)
                 == Constants.GRAPH_CONFIG_NODE_ID
@@ -636,6 +636,113 @@ def _parse_rdf_literal(literal: Literal) -> Dict[str, Any]:
     return result
 
 
+def _handle_rdf_type_predicate(
+    subject_node: mgp.Vertex, obj: Any, class_label: str
+) -> None:
+    """Handle RDF.type predicate."""
+    if obj == OWL.Class:
+        if class_label not in [label.name for label in subject_node.labels]:
+            subject_node.add_label(class_label)
+
+
+def _handle_subclassof_predicate(
+    ctx: mgp.ProcCtx,
+    subject_node: mgp.Vertex,
+    obj: Any,
+    rdf_graph: Graph,
+    config: Dict[str, Any],
+    nodes_by_uri: Dict[str, mgp.Vertex],
+    node_properties: Dict[str, Dict[str, Any]],
+    stats: Dict[str, int],
+) -> None:
+    """Handle RDFS.subClassOf predicate."""
+    if isinstance(obj, URIRef):
+        obj_uri = str(obj)
+        class_label = config.get(Constants.CONFIG_CLASS_LABEL)
+        sub_class_of_rel = config.get(Constants.CONFIG_SUB_CLASS_OF_REL)
+
+        if obj_uri not in nodes_by_uri:
+            obj_node = _get_or_create_resource_node(
+                ctx, obj_uri, class_label, config, nodes_by_uri
+            )
+            nodes_by_uri[obj_uri] = obj_node
+            node_properties[obj_uri] = {}
+            stats["nodesCreated"] += 1
+        else:
+            obj_node = nodes_by_uri[obj_uri]
+
+        # Check if relationship already exists
+        relationship_exists = False
+        for edge in subject_node.out_edges:
+            if edge.type.name == sub_class_of_rel and edge.to_vertex == obj_node:
+                relationship_exists = True
+                break
+
+        if not relationship_exists:
+            ctx.graph.create_edge(
+                subject_node, obj_node, mgp.EdgeType(sub_class_of_rel)
+            )
+            stats["relationshipsCreated"] += 1
+
+
+def _handle_label_predicate(
+    subject_uri: str,
+    obj: Any,
+    label_property: str,
+    keep_lang_tag: bool,
+    handle_multival: str,
+    node_properties: Dict[str, Dict[str, Any]],
+) -> None:
+    """Handle RDFS.label predicate."""
+    if isinstance(obj, Literal):
+        label_data = _parse_rdf_literal(obj)
+        if subject_uri not in node_properties:
+            node_properties[subject_uri] = {}
+
+        if label_property not in node_properties[subject_uri]:
+            if keep_lang_tag and handle_multival == Constants.HANDLE_MULTIVAL_ARRAY:
+                node_properties[subject_uri][label_property] = []
+            else:
+                node_properties[subject_uri][label_property] = None
+
+        if keep_lang_tag and handle_multival == Constants.HANDLE_MULTIVAL_ARRAY:
+            if isinstance(node_properties[subject_uri][label_property], list):
+                node_properties[subject_uri][label_property].append(label_data)
+            else:
+                node_properties[subject_uri][label_property] = [label_data]
+        else:
+            node_properties[subject_uri][label_property] = label_data
+
+
+def _handle_comment_predicate(
+    subject_uri: str,
+    obj: Any,
+    keep_lang_tag: bool,
+    handle_multival: str,
+    node_properties: Dict[str, Dict[str, Any]],
+) -> None:
+    """Handle RDFS.comment predicate."""
+    if isinstance(obj, Literal):
+        comment_data = _parse_rdf_literal(obj)
+        if subject_uri not in node_properties:
+            node_properties[subject_uri] = {}
+
+        prop_name = Constants.COMMENT_PROPERTY
+        if prop_name not in node_properties[subject_uri]:
+            if keep_lang_tag and handle_multival == Constants.HANDLE_MULTIVAL_ARRAY:
+                node_properties[subject_uri][prop_name] = []
+            else:
+                node_properties[subject_uri][prop_name] = None
+
+        if keep_lang_tag and handle_multival == Constants.HANDLE_MULTIVAL_ARRAY:
+            if isinstance(node_properties[subject_uri][prop_name], list):
+                node_properties[subject_uri][prop_name].append(comment_data)
+            else:
+                node_properties[subject_uri][prop_name] = [comment_data]
+        else:
+            node_properties[subject_uri][prop_name] = comment_data
+
+
 def _import_rdf_graph(
     ctx: mgp.ProcCtx, rdf_graph: Graph, config: Dict[str, Any]
 ) -> Dict[str, int]:
@@ -705,7 +812,6 @@ def _import_rdf_graph(
             continue
 
         subject_uri = str(subject)
-        predicate_uri = str(predicate)
 
         # Get or create subject node
         if subject_uri not in nodes_by_uri:
@@ -725,86 +831,31 @@ def _import_rdf_graph(
 
         # Handle special predicates
         if predicate == RDF.type:
-            # Handle type assertions
-            if obj == OWL.Class:
-                if class_label not in [l.name for l in subject_node.labels]:
-                    subject_node.add_label(class_label)
+            _handle_rdf_type_predicate(subject_node, obj, class_label)
         elif predicate == RDFS.subClassOf:
-            # Create subClassOf relationship
-            if isinstance(obj, URIRef):
-                obj_uri = str(obj)
-                if obj_uri not in nodes_by_uri:
-                    obj_node = _get_or_create_resource_node(
-                        ctx, obj_uri, class_label, config, nodes_by_uri
-                    )
-                    nodes_by_uri[obj_uri] = obj_node
-                    node_properties[obj_uri] = {}
-                    stats["nodesCreated"] += 1
-                else:
-                    obj_node = nodes_by_uri[obj_uri]
-
-                # Check if relationship already exists
-                relationship_exists = False
-                for edge in subject_node.out_edges:
-                    if (
-                        edge.type.name == sub_class_of_rel
-                        and edge.to_vertex == obj_node
-                    ):
-                        relationship_exists = True
-                        break
-
-                if not relationship_exists:
-                    ctx.graph.create_edge(
-                        subject_node, obj_node, mgp.EdgeType(sub_class_of_rel)
-                    )
-                    stats["relationshipsCreated"] += 1
+            _handle_subclassof_predicate(
+                ctx,
+                subject_node,
+                obj,
+                rdf_graph,
+                config,
+                nodes_by_uri,
+                node_properties,
+                stats,
+            )
         elif predicate == RDFS.label:
-            # Handle labels with language tags
-            if isinstance(obj, Literal):
-                label_data = _parse_rdf_literal(obj)
-                if subject_uri not in node_properties:
-                    node_properties[subject_uri] = {}
-
-                if label_property not in node_properties[subject_uri]:
-                    if (
-                        keep_lang_tag
-                        and handle_multival == Constants.HANDLE_MULTIVAL_ARRAY
-                    ):
-                        node_properties[subject_uri][label_property] = []
-                    else:
-                        node_properties[subject_uri][label_property] = None
-
-                if keep_lang_tag and handle_multival == Constants.HANDLE_MULTIVAL_ARRAY:
-                    if isinstance(node_properties[subject_uri][label_property], list):
-                        node_properties[subject_uri][label_property].append(label_data)
-                    else:
-                        node_properties[subject_uri][label_property] = [label_data]
-                else:
-                    node_properties[subject_uri][label_property] = label_data
+            _handle_label_predicate(
+                subject_uri,
+                obj,
+                label_property,
+                keep_lang_tag,
+                handle_multival,
+                node_properties,
+            )
         elif predicate == RDFS.comment:
-            # Handle comments (similar to labels)
-            if isinstance(obj, Literal):
-                comment_data = _parse_rdf_literal(obj)
-                if subject_uri not in node_properties:
-                    node_properties[subject_uri] = {}
-
-                prop_name = Constants.COMMENT_PROPERTY
-                if prop_name not in node_properties[subject_uri]:
-                    if (
-                        keep_lang_tag
-                        and handle_multival == Constants.HANDLE_MULTIVAL_ARRAY
-                    ):
-                        node_properties[subject_uri][prop_name] = []
-                    else:
-                        node_properties[subject_uri][prop_name] = None
-
-                if keep_lang_tag and handle_multival == Constants.HANDLE_MULTIVAL_ARRAY:
-                    if isinstance(node_properties[subject_uri][prop_name], list):
-                        node_properties[subject_uri][prop_name].append(comment_data)
-                    else:
-                        node_properties[subject_uri][prop_name] = [comment_data]
-                else:
-                    node_properties[subject_uri][prop_name] = comment_data
+            _handle_comment_predicate(
+                subject_uri, obj, keep_lang_tag, handle_multival, node_properties
+            )
 
         stats["triplesLoaded"] += 1
 
