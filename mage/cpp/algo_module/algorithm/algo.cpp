@@ -11,6 +11,7 @@
 
 #include "algo.hpp"
 
+#include <algorithm>
 #include <ranges>
 #include <utility>
 
@@ -21,9 +22,9 @@ Algo::PathFinder::PathFinder(mgp::Node start_node, const mgp::Node &end_node, in
     : start_node_(std::move(start_node)),
       end_node_id_(end_node.Id()),
       max_length_(max_length),
-      record_factory_(record_factory),
       any_incoming_(false),
-      any_outgoing_(false) {
+      any_outgoing_(false),
+      record_factory_(record_factory) {
   UpdateRelationshipDirection(rel_types);
 }
 
@@ -354,15 +355,10 @@ bool Algo::RelOk(const mgp::Relationship &rel, const Config &config,
 bool Algo::IsLabelOk(const mgp::Node &node, const Config &config) {
   const bool whitelist_empty = config.whitelist.empty();
 
-  for (auto label : node.Labels()) {
-    if (config.blacklist.contains(std::string(label))) {
-      return false;
-    }
-    if (!whitelist_empty && !config.whitelist.contains(std::string(label))) {
-      return false;
-    }
-  }
-  return true;
+  return std::all_of(node.Labels().begin(), node.Labels().end(), [&](auto label) {
+    return !config.blacklist.contains(std::string(label)) &&
+           (whitelist_empty || config.whitelist.contains(std::string(label)));
+  });
 }
 void Algo::ExpandRelationships(const std::shared_ptr<NodeObject> &prev, const RelationshipType rel_type,
                                const GoalNodes &nodes, TrackingLists &lists, const Config &config) {

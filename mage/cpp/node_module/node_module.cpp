@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,14 +15,13 @@
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard{memory};
-    AddProcedure(Node::RelationshipsExist, std::string(Node::kProcedureRelationshipsExist).c_str(),
-                 mgp::ProcedureType::Read,
-                 {mgp::Parameter(std::string(Node::kArgumentNodesRelationshipsExist).c_str(), mgp::Type::Node),
-                  mgp::Parameter(std::string(Node::kArgumentRelationshipsRelationshipsExist).c_str(),
+    const mgp::MemoryDispatcherGuard guard{memory};
+    AddProcedure(Node::RelationshipsExist, std::string(Node::kProcedureRelationshipsExist), mgp::ProcedureType::Read,
+                 {mgp::Parameter(std::string(Node::kArgumentNodesRelationshipsExist), mgp::Type::Node),
+                  mgp::Parameter(std::string(Node::kArgumentRelationshipsRelationshipsExist),
                                  {mgp::Type::List, mgp::Type::String})},
-                 {mgp::Return(std::string(Node::kReturnRelationshipsExist).c_str(), {mgp::Type::Map, mgp::Type::Any})},
-                 module, memory);
+                 {mgp::Return(std::string(Node::kReturnRelationshipsExist), {mgp::Type::Map, mgp::Type::Any})}, module,
+                 memory);
 
     AddProcedure(
         Node::RelationshipExists, Node::kProcedureRelationshipExists, mgp::ProcedureType::Read,

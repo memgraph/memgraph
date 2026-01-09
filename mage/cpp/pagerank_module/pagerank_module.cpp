@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,11 +26,11 @@ PageRankGraph CreatePageRankGraph(mgp_graph *memgraph_graph, mgp_memory *memory)
   graph.ordered_edges_.reserve(approx_edge_count);
 
   auto *vertices_it = mgp::graph_iter_vertices(memgraph_graph, memory);  // Safe vertex iterator creation
-  mg_utility::OnScopeExit delete_vertices_it([&vertices_it] { mgp::vertices_iterator_destroy(vertices_it); });
+  const mg_utility::OnScopeExit delete_vertices_it([&vertices_it] { mgp::vertices_iterator_destroy(vertices_it); });
   for (auto *source = mgp::vertices_iterator_get(vertices_it); source;
        source = mgp::vertices_iterator_next(vertices_it)) {
     auto *edges_it = mgp::vertex_iter_out_edges(source, memory);  // Safe edge iterator creation
-    mg_utility::OnScopeExit delete_edges_it([&edges_it] { mgp::edges_iterator_destroy(edges_it); });
+    const mg_utility::OnScopeExit delete_edges_it([&edges_it] { mgp::edges_iterator_destroy(edges_it); });
 
     auto source_id = mgp::vertex_get_id(source).as_int;
     for (auto *out_edge = mgp::edges_iterator_get(edges_it); out_edge; out_edge = mgp::edges_iterator_next(edges_it)) {
@@ -114,10 +114,10 @@ void PagerankWrapper(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resu
 }  // namespace
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
-  mgp_value *default_max_iterations;
-  mgp_value *default_damping_factor;
-  mgp_value *default_stop_epsilon;
-  mgp_value *default_num_threads;
+  mgp_value *default_max_iterations = nullptr;
+  mgp_value *default_damping_factor = nullptr;
+  mgp_value *default_stop_epsilon = nullptr;
+  mgp_value *default_num_threads = nullptr;
   try {
     auto *pagerank_proc = mgp::module_add_read_procedure(module, kProcedureGet, PagerankWrapper);
 

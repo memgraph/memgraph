@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,20 +15,19 @@
 std::string Util::Md5(mgp::List arguments) {
   if (arguments[0].IsList()) {
     const mgp::List arg_list = arguments[0].ValueList();
-    std::string return_string{""};
+    std::string return_string;
     for (auto value : arg_list) {
       return_string += value.ToString();
     }
 
     return md5(return_string);
-  } else {
-    auto string_value = std::string(arguments[0].ToString());
-    return md5(string_value);
   }
+  auto string_value = std::string(arguments[0].ToString());
+  return md5(string_value);
 }
 
-void Util::Md5Procedure(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+void Util::Md5Procedure(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -41,8 +40,8 @@ void Util::Md5Procedure(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
   }
 }
 
-void Util::Md5Function(mgp_list *args, mgp_func_context *func_context, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+void Util::Md5Function(mgp_list *args, mgp_func_context * /*func_context*/, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {

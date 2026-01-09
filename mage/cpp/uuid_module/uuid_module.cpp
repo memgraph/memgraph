@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <uuid/uuid.h>
+#include <array>
 #include <mg_exceptions.hpp>
 #include <mg_utils.hpp>
 
@@ -24,15 +25,15 @@ namespace {
 // This way of generating UUID is also used in Memgraph repo
 std::string GenerateUUID() {
   uuid_t uuid;
-  char decoded[37];  // 36 bytes for UUID + 1 for null-terminator
+  std::array<char, 37> decoded{};  // 36 bytes for UUID + 1 for null-terminator
   uuid_generate(uuid);
-  uuid_unparse(uuid, decoded);
-  return {decoded};
+  uuid_unparse(uuid, decoded.data());
+  return {decoded.data()};
 }
 
 }  // namespace
 
-void Generate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+void Generate(mgp_list * /*args*/, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
   try {
     auto const uuid = GenerateUUID();
     auto *record = mgp::result_new_record(result);
@@ -44,7 +45,7 @@ void Generate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp
 }
 }  // namespace
 
-extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
+extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory * /*memory*/) {
   try {
     struct mgp_proc *uuid_proc = mgp::module_add_read_procedure(module, kProcedureGenerate, Generate);
 

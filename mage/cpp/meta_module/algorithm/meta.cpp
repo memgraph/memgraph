@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,6 +44,7 @@ struct Metadata {
 };
 
 // Global variable
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 Metadata metadata;
 
 void LockAndExecuteMaybe(std::mutex &mutex, bool online, auto function) {
@@ -158,18 +159,18 @@ void OutputFromMetadata(Metadata &data, const mgp::RecordFactory &record_factory
   auto record = record_factory.NewRecord();
   mgp::Map stats{};
 
-  int64_t label_count = LockAndExecuteMaybeReturn(metadata.labels_mutex, online,
-                                                  [&]() { return static_cast<int64_t>(data.labels.size()); });
+  const int64_t label_count = LockAndExecuteMaybeReturn(metadata.labels_mutex, online,
+                                                        [&]() { return static_cast<int64_t>(data.labels.size()); });
   record.Insert(std::string(kReturnStats1).c_str(), label_count);
   stats.Insert("labelCount", mgp::Value(label_count));
 
-  int64_t relationship_type_count = LockAndExecuteMaybeReturn(metadata.relationship_types_cnt_mutex, online, [&]() {
-    return static_cast<int64_t>(data.relationship_types_cnt.size());
-  });
+  const int64_t relationship_type_count =
+      LockAndExecuteMaybeReturn(metadata.relationship_types_cnt_mutex, online,
+                                [&]() { return static_cast<int64_t>(data.relationship_types_cnt.size()); });
   record.Insert(std::string(kReturnStats2).c_str(), relationship_type_count);
   stats.Insert("relationshipTypeCount", mgp::Value(relationship_type_count));
 
-  int64_t property_key_count = LockAndExecuteMaybeReturn(
+  const int64_t property_key_count = LockAndExecuteMaybeReturn(
       metadata.property_key_cnt_mutex, online, [&]() { return static_cast<int64_t>(data.property_key_cnt.size()); });
   record.Insert(std::string(kReturnStats3).c_str(), property_key_count);
   stats.Insert("propertyKeyCount", mgp::Value(property_key_count));
@@ -207,8 +208,8 @@ void OutputFromMetadata(Metadata &data, const mgp::RecordFactory &record_factory
 
 }  // namespace
 
-void Update(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+void Update(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
 
@@ -284,12 +285,12 @@ void Update(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
 }
 
 void StatsOnline(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
 
   try {
-    bool update_stats = arguments[0].ValueBool();
+    const bool update_stats = arguments[0].ValueBool();
 
     if (update_stats) {
       Meta::metadata.Reset();
@@ -306,7 +307,7 @@ void StatsOnline(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, 
 }
 
 void StatsOffline(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
 
@@ -321,8 +322,8 @@ void StatsOffline(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
   }
 }
 
-void Reset(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+void Reset(mgp_list * /*args*/, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto record_factory = mgp::RecordFactory(result);
 
   try {

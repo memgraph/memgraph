@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,15 +21,15 @@
 
 namespace {
 
-const char *kProcedureGet = "get";
-const char *kProcedureGetSubgraph = "get_subgraph";
-const char *kArgumentSubgraphNodes = "subgraph_nodes";
-const char *kArgumentSubgraphRelationships = "subgraph_relationships";
+constexpr const char *kProcedureGet = "get";
+constexpr const char *kProcedureGetSubgraph = "get_subgraph";
+constexpr const char *kArgumentSubgraphNodes = "subgraph_nodes";
+constexpr const char *kArgumentSubgraphRelationships = "subgraph_relationships";
 
-const char *kFieldNode = "node";
-const char *kFieldCommunity = "community_id";
-const char *kFieldCommunities = "communities";
-const char *kDefaultWeightProperty = "weight";
+constexpr const char *kFieldNode = "node";
+constexpr const char *kFieldCommunity = "community_id";
+constexpr const char *kFieldCommunities = "communities";
+constexpr const char *kDefaultWeightProperty = "weight";
 const double kDefaultGamma = 1.0;
 const double kDefaultTheta = 0.01;
 const double kDefaultResolutionParameter = 0.01;
@@ -37,18 +37,18 @@ const std::uint64_t kDefaultMaxIterations = std::numeric_limits<std::uint64_t>::
 
 void InsertLeidenRecord(mgp_graph *graph, mgp_result *result, mgp_memory *memory, const std::uint64_t node_id,
                         const std::vector<std::uint64_t> &community) {
-  auto *vertex = mg_utility::GetNodeForInsertion(node_id, graph, memory);
+  auto *vertex = mg_utility::GetNodeForInsertion(static_cast<int>(node_id), graph, memory);
   if (!vertex) return;
 
   mgp_result_record *record = mgp::result_new_record(result);
   if (record == nullptr) throw mg_exception::NotEnoughMemoryException();
 
   mg_utility::InsertNodeValueResult(record, kFieldNode, vertex, memory);
-  mg_utility::InsertIntValueResult(record, kFieldCommunity, community.back(), memory);
+  mg_utility::InsertIntValueResult(record, kFieldCommunity, static_cast<int>(community.back()), memory);
 
   auto *community_list = mgp::list_make_empty(0, memory);
   for (const auto &community_id : community) {
-    mgp::list_append_extend(community_list, mgp::value_make_int(community_id, memory));
+    mgp::list_append_extend(community_list, mgp::value_make_int(static_cast<int64_t>(community_id), memory));
   }
 
   mg_utility::InsertListValueResult(record, kFieldCommunities, community_list, memory);
@@ -87,7 +87,7 @@ void LeidenCommunityDetection(mgp_list *args, mgp_graph *memgraph_graph, mgp_res
 }
 
 void OnGraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   try {
     LeidenCommunityDetection(args, memgraph_graph, result, memory, false);
   } catch (const std::exception &e) {
@@ -97,7 +97,7 @@ void OnGraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_
 }
 
 void OnSubgraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   try {
     LeidenCommunityDetection(args, memgraph_graph, result, memory, true);
   } catch (const std::exception &e) {
@@ -107,13 +107,13 @@ void OnSubgraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, m
 }
 
 extern "C" int mgp_init_module(mgp_module *module, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   try {
     auto *const default_weight_property = mgp::value_make_string(kDefaultWeightProperty, memory);
     auto *const default_gamma = mgp::value_make_double(kDefaultGamma, memory);
     auto *const default_theta = mgp::value_make_double(kDefaultTheta, memory);
     auto *const default_resolution_parameter = mgp::value_make_double(kDefaultResolutionParameter, memory);
-    auto *const default_max_iterations = mgp::value_make_int(kDefaultMaxIterations, memory);
+    auto *const default_max_iterations = mgp::value_make_int(static_cast<int64_t>(kDefaultMaxIterations), memory);
 
     {
       auto *proc = mgp::module_add_read_procedure(module, kProcedureGet, OnGraph);

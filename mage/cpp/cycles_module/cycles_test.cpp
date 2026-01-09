@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <chrono>
 #include <random>
+#include <ranges>
 
 #include <gtest/gtest.h>
 #include <mg_generate.hpp>
@@ -23,16 +24,17 @@ namespace {
 bool CheckCycles(std::vector<std::vector<mg_graph::Node<>>> user, std::vector<std::vector<std::uint64_t>> correct) {
   // normalize cycles
   for (auto &cycle : correct) {
-    std::rotate(cycle.begin(), std::min_element(cycle.begin(), cycle.end()), cycle.end());
+    std::ranges::rotate(cycle, std::ranges::min_element(cycle));
   }
 
   std::vector<std::vector<std::uint64_t>> user_cycles;
   for (const auto &cycle : user) {
     std::vector<std::uint64_t> user_cycle;
+    user_cycle.reserve(cycle.size());
     for (const auto &node : cycle) {
       user_cycle.push_back(node.id);
     }
-    std::rotate(user_cycle.begin(), std::min_element(user_cycle.begin(), user_cycle.end()), user_cycle.end());
+    std::ranges::rotate(user_cycle, std::ranges::min_element(user_cycle));
     user_cycles.push_back(user_cycle);
   }
 
@@ -50,8 +52,8 @@ bool CheckCycles(std::vector<std::vector<mg_graph::Node<>>> user, std::vector<st
     if (correct[i][1] > correct[i][correct[i].size() - 2]) std::reverse(correct[i].begin(), correct[i].end());
   }
 
-  std::sort(correct.begin(), correct.end());
-  std::sort(user_cycles.begin(), user_cycles.end());
+  std::ranges::sort(correct);
+  std::ranges::sort(user_cycles);
 
   return user_cycles == correct;
 }
@@ -100,7 +102,7 @@ TEST(Cycles, Triangle) {
 }
 
 TEST(Cycles, BigCycle) {
-  int nodes = 1000;
+  const int nodes = 1000;
   std::vector<std::pair<uint64_t, uint64_t>> edges;
   for (int i = 1; i < nodes; ++i) {
     edges.emplace_back(i - 1, i);
@@ -112,7 +114,7 @@ TEST(Cycles, BigCycle) {
   auto cycles = cycles_alg::GetCycles(*graph);
 
   std::vector<std::vector<uint64_t>> correct;
-  correct.push_back({});
+  correct.emplace_back();
   for (int i = 0; i < nodes; ++i) correct.back().push_back(i);
 
   ASSERT_TRUE(CheckCycles(cycles, correct));
@@ -226,7 +228,7 @@ TEST(Cycles, HandmadeComplexCycle) {
   //    (10)        (7)
   //      \        /
   //       (9)--(8)
-  int nodes = 12;
+  const int nodes = 12;
   std::vector<std::pair<std::uint64_t, std::uint64_t>> edges;
   for (int i = 1; i < nodes; ++i) {
     edges.emplace_back(i - 1, i);

@@ -27,7 +27,7 @@ std::vector<int64_t> GrappoloCommunityDetection(GrappoloGraph &grappolo_graph, m
   auto number_of_vertices = grappolo_graph.numVertices;
 
   auto *cluster_array = static_cast<long *>(malloc(number_of_vertices * sizeof(long)));
-#pragma omp parallel for
+#pragma omp parallel for default(none) shared(number_of_vertices, cluster_array)
   for (long i = 0; i < number_of_vertices; i++) {
     cluster_array[i] = -1;
   }
@@ -162,11 +162,11 @@ void GetGrappoloSuitableGraph(GrappoloGraph &grappolo_graph, int num_threads, co
     throw mg_exception::NotEnoughMemoryException();
   }
 
-#pragma omp parallel for
+#pragma omp parallel for default(none) shared(number_of_vertices, edge_list_ptrs)
   for (std::size_t i = 0; i <= number_of_vertices; i++) edge_list_ptrs[i] = 0;  // For first touch purposes
 
     // Build the EdgeListPtr Array: Cumulative addition
-#pragma omp parallel for
+#pragma omp parallel for default(none) shared(number_of_edges, tmp_edge_list, edge_list_ptrs)
   for (std::size_t i = 0; i < number_of_edges; i++) {
     __sync_fetch_and_add(&edge_list_ptrs[tmp_edge_list[i].head + 1], 1);  // Leave 0th position intact
     __sync_fetch_and_add(&edge_list_ptrs[tmp_edge_list[i].tail + 1], 1);  // Leave 0th position intact
@@ -186,12 +186,12 @@ void GetGrappoloSuitableGraph(GrappoloGraph &grappolo_graph, int num_threads, co
   } catch (const std::bad_alloc &) {
     throw mg_exception::NotEnoughMemoryException();
   }
-#pragma omp parallel for
+#pragma omp parallel for default(none) shared(number_of_vertices, added)
   for (std::size_t i = 0; i < number_of_vertices; i++) added[i] = 0;
 
     // Build the edgeList from edgeListTmp:
 
-#pragma omp parallel for
+#pragma omp parallel for default(none) shared(number_of_edges, tmp_edge_list, edge_list_ptrs, added, edge_list)
   for (std::size_t i = 0; i < number_of_edges; i++) {
     auto head = tmp_edge_list[i].head;
     auto tail = tmp_edge_list[i].tail;

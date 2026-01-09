@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,17 +16,17 @@
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard{memory};
+    const mgp::MemoryDispatcherGuard guard{memory};
 
-    mgp::AddFunction(Map::Flatten, std::string(Map::kProcedureFlatten).c_str(),
-                     {mgp::Parameter(std::string(Map::kArgumentMapFlatten).c_str(), {mgp::Type::Map, mgp::Type::Any}),
-                      mgp::Parameter(std::string(Map::kArgumentDelimiterFlatten).c_str(), {mgp::Type::String}, ".")},
+    mgp::AddFunction(Map::Flatten, std::string(Map::kProcedureFlatten),
+                     {mgp::Parameter(std::string(Map::kArgumentMapFlatten), {mgp::Type::Map, mgp::Type::Any}),
+                      mgp::Parameter(std::string(Map::kArgumentDelimiterFlatten), mgp::Type::String, ".")},
                      module, memory);
 
     mgp::AddFunction(
-        Map::FromLists, std::string(Map::kProcedureFromLists).c_str(),
-        {mgp::Parameter(std::string(Map::kArgumentListKeysFromLists).c_str(), {mgp::Type::List, mgp::Type::String}),
-         mgp::Parameter(std::string(Map::kArgumentListValuesFromLists).c_str(), {mgp::Type::List, mgp::Type::Any})},
+        Map::FromLists, std::string(Map::kProcedureFromLists),
+        {mgp::Parameter(std::string(Map::kArgumentListKeysFromLists), {mgp::Type::List, mgp::Type::String}),
+         mgp::Parameter(std::string(Map::kArgumentListValuesFromLists), {mgp::Type::List, mgp::Type::Any})},
         module, memory);
 
     mgp::AddFunction(
@@ -44,17 +44,16 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
       //                   mgp::Parameter(Map::kArgumentsInputMap2, mgp::Type::Any, mgp::Value(mgp::Map()))},
       //                  module, memory);
 
-      auto *func = mgp::module_add_function(module, Map::kProcedureMerge.data(), Map::Merge);
-      mgp::func_add_arg(func, Map::kArgumentsInputMap1.data(), mgp::type_nullable(mgp::type_map()));
-      mgp::func_add_arg(func, Map::kArgumentsInputMap2.data(), mgp::type_nullable(mgp::type_map()));
+      auto *func = mgp::module_add_function(module, std::string(Map::kProcedureMerge).c_str(), Map::Merge);
+      mgp::func_add_arg(func, std::string(Map::kArgumentsInputMap1).c_str(), mgp::type_nullable(mgp::type_map()));
+      mgp::func_add_arg(func, std::string(Map::kArgumentsInputMap2).c_str(), mgp::type_nullable(mgp::type_map()));
     }
 
     mgp::AddFunction(
-        Map::RemoveKeys, std::string(Map::kProcedureRemoveKeys).c_str(),
-        {mgp::Parameter(std::string(Map::kArgumentsInputMapRemoveKeys).c_str(), mgp::Type::Map),
-         mgp::Parameter(std::string(Map::kArgumentsKeysListRemoveKeys).c_str(), {mgp::Type::List, mgp::Type::String}),
-         mgp::Parameter(std::string(Map::kArgumentsRecursiveRemoveKeys).c_str(), mgp::Type::Map,
-                        mgp::Value(mgp::Map()))},
+        Map::RemoveKeys, std::string(Map::kProcedureRemoveKeys),
+        {mgp::Parameter(std::string(Map::kArgumentsInputMapRemoveKeys), mgp::Type::Map),
+         mgp::Parameter(std::string(Map::kArgumentsKeysListRemoveKeys), {mgp::Type::List, mgp::Type::String}),
+         mgp::Parameter(std::string(Map::kArgumentsRecursiveRemoveKeys), mgp::Type::Map, mgp::Value(mgp::Map()))},
         module, memory);
 
     AddProcedure(Map::FromNodes, Map::kProcedureFromNodes, mgp::ProcedureType::Read,

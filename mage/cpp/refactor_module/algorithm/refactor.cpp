@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #include "refactor.hpp"
 
+#include <compare>
 #include <string_view>
 #include <unordered_set>
 
@@ -35,7 +36,7 @@ void CopyRelProperties(mgp::Relationship &to, mgp::Relationship const &from) {
 }  // namespace
 
 void Refactor::From(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -57,7 +58,7 @@ void Refactor::From(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
 }
 
 void Refactor::To(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -78,8 +79,8 @@ void Refactor::To(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
   }
 }
 
-void Refactor::RenameLabel(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+void Refactor::RenameLabel(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
   auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -107,8 +108,9 @@ void Refactor::RenameLabel(mgp_list *args, mgp_graph *memgraph_graph, mgp_result
   }
 }
 
-void Refactor::RenameNodeProperty(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+void Refactor::RenameNodeProperty(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result,
+                                  mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
   auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -156,6 +158,8 @@ void Refactor::InsertCloneNodesRecord(mgp_graph *graph, mgp_result *result, mgp_
   mg_utility::InsertStringValueResult(record, std::string(kResultCloneNodeError).c_str(), "", memory);
 }
 
+namespace {
+
 mgp::Node GetStandinOrCopy(const mgp::List &standin_nodes, const mgp::Node node,
                            const std::map<mgp::Node, mgp::Node> &old_new_node_mirror) {
   for (auto pair : standin_nodes) {
@@ -187,45 +191,48 @@ bool CheckIfStandin(const mgp::Node &node, const mgp::List &standin_nodes) {
   return false;
 }
 
-void CloneNodes(const std::vector<mgp::Node> &nodes, const mgp::List &standin_nodes, mgp::Graph &graph,
-                const std::unordered_set<mgp::Value> &skip_props_searchable,
-                std::map<mgp::Node, mgp::Node> &old_new_node_mirror, mgp_graph *memgraph_graph, mgp_result *result,
-                mgp_memory *memory) {
-  for (auto node : nodes) {
+void CloneNodesImpl(const std::vector<mgp::Node> &nodes, const mgp::List &standin_nodes, mgp::Graph &graph,
+                    const std::unordered_set<mgp::Value> &skip_props_searchable,
+                    std::map<mgp::Node, mgp::Node> &old_new_node_mirror, mgp_graph *memgraph_graph, mgp_result *result,
+                    mgp_memory *memory) {
+  for (const auto &node : nodes) {
     if (CheckIfStandin(node, standin_nodes)) {
       continue;
     }
     mgp::Node new_node = graph.CreateNode();
 
-    for (auto label : node.Labels()) {
+    for (const auto &label : node.Labels()) {
       new_node.AddLabel(label);
     }
 
-    for (auto prop : node.Properties()) {
+    for (const auto &prop : node.Properties()) {
       if (skip_props_searchable.empty() || !skip_props_searchable.contains(mgp::Value(prop.first))) {
         new_node.SetProperty(prop.first, prop.second);
       }
     }
     old_new_node_mirror.insert({node, new_node});
-    Refactor::InsertCloneNodesRecord(memgraph_graph, result, memory, node.Id().AsInt(), new_node.Id().AsInt());
+    Refactor::InsertCloneNodesRecord(memgraph_graph, result, memory, static_cast<int>(node.Id().AsInt()),
+                                     static_cast<int>(new_node.Id().AsInt()));
   }
 }
 
-void CloneRels(const std::vector<mgp::Relationship> &rels, const mgp::List &standin_nodes, mgp::Graph &graph,
-               const std::unordered_set<mgp::Value> &skip_props_searchable,
-               std::map<mgp::Node, mgp::Node> &old_new_node_mirror, mgp_graph *memgraph_graph, mgp_result *result,
-               mgp_memory *memory) {
-  for (auto rel : rels) {
+void CloneRelsImpl(const std::vector<mgp::Relationship> &rels, const mgp::List &standin_nodes, mgp::Graph &graph,
+                   const std::unordered_set<mgp::Value> &skip_props_searchable,
+                   std::map<mgp::Node, mgp::Node> &old_new_node_mirror, mgp_graph * /*memgraph_graph*/,
+                   mgp_result * /*result*/, mgp_memory * /*memory*/) {
+  for (const auto &rel : rels) {
     mgp::Relationship new_relationship =
         graph.CreateRelationship(GetStandinOrCopy(standin_nodes, rel.From(), old_new_node_mirror),
                                  GetStandinOrCopy(standin_nodes, rel.To(), old_new_node_mirror), rel.Type());
-    for (auto prop : rel.Properties()) {
+    for (const auto &prop : rel.Properties()) {
       if (skip_props_searchable.empty() || !skip_props_searchable.contains(mgp::Value(prop.first))) {
         new_relationship.SetProperty(prop.first, prop.second);
       }
     }
   }
 }
+
+}  // namespace
 
 void Refactor::CloneNodesAndRels(mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory,
                                  const std::vector<mgp::Node> &nodes, const std::vector<mgp::Relationship> &rels,
@@ -242,18 +249,19 @@ void Refactor::CloneNodesAndRels(mgp_graph *memgraph_graph, mgp_result *result, 
   if (!config_map.At("skipProperties").IsNull()) {
     skip_props = config_map.At("skipProperties").ValueList();
   }
-  std::unordered_set<mgp::Value> skip_props_searchable{skip_props.begin(), skip_props.end()};
+  const std::unordered_set<mgp::Value> skip_props_searchable{skip_props.begin(), skip_props.end()};
 
   auto graph = mgp::Graph(memgraph_graph);
 
   std::map<mgp::Node, mgp::Node> old_new_node_mirror;
-  CloneNodes(nodes, standin_nodes, graph, skip_props_searchable, old_new_node_mirror, memgraph_graph, result, memory);
-  CloneRels(rels, standin_nodes, graph, skip_props_searchable, old_new_node_mirror, memgraph_graph, result, memory);
+  CloneNodesImpl(nodes, standin_nodes, graph, skip_props_searchable, old_new_node_mirror, memgraph_graph, result,
+                 memory);
+  CloneRelsImpl(rels, standin_nodes, graph, skip_props_searchable, old_new_node_mirror, memgraph_graph, result, memory);
 }
 
 void Refactor::CloneSubgraphFromPaths(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
                                       mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   try {
     const auto paths = arguments[0].ValueList();
@@ -269,8 +277,8 @@ void Refactor::CloneSubgraphFromPaths(mgp_list *args, mgp_graph *memgraph_graph,
       }
       distinct_nodes.insert(path.GetNodeAt(path.Length()));
     }
-    std::vector<mgp::Node> nodes_vector{distinct_nodes.begin(), distinct_nodes.end()};
-    std::vector<mgp::Relationship> rels_vector{distinct_relationships.begin(), distinct_relationships.end()};
+    const std::vector<mgp::Node> nodes_vector{distinct_nodes.begin(), distinct_nodes.end()};
+    const std::vector<mgp::Relationship> rels_vector{distinct_relationships.begin(), distinct_relationships.end()};
     CloneNodesAndRels(memgraph_graph, result, memory, nodes_vector, rels_vector, config_map);
 
   } catch (const std::exception &e) {
@@ -280,7 +288,7 @@ void Refactor::CloneSubgraphFromPaths(mgp_list *args, mgp_graph *memgraph_graph,
 }
 
 void Refactor::CloneSubgraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   try {
     const auto nodes = arguments[0].ValueList();
@@ -297,8 +305,8 @@ void Refactor::CloneSubgraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_resu
       distinct_rels.insert(rel.ValueRelationship());
     }
 
-    if (distinct_rels.size() == 0 && distinct_nodes.size() > 0) {
-      for (auto node : distinct_nodes) {
+    if (distinct_rels.empty() && !distinct_nodes.empty()) {
+      for (const auto &node : distinct_nodes) {
         for (auto rel : node.OutRelationships()) {
           if (distinct_nodes.contains(rel.To())) {
             distinct_rels.insert(rel);
@@ -307,8 +315,8 @@ void Refactor::CloneSubgraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_resu
       }
     }
 
-    std::vector<mgp::Node> nodes_vector{distinct_nodes.begin(), distinct_nodes.end()};
-    std::vector<mgp::Relationship> rels_vector{distinct_rels.begin(), distinct_rels.end()};
+    const std::vector<mgp::Node> nodes_vector{distinct_nodes.begin(), distinct_nodes.end()};
+    const std::vector<mgp::Relationship> rels_vector{distinct_rels.begin(), distinct_rels.end()};
 
     CloneNodesAndRels(memgraph_graph, result, memory, nodes_vector, rels_vector, config_map);
 
@@ -318,9 +326,11 @@ void Refactor::CloneSubgraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_resu
   }
 }
 
+namespace {
+
 mgp::Node getCategoryNode(mgp::Graph &graph, std::unordered_set<mgp::Node> &created_nodes,
                           std::string_view new_prop_name_key, mgp::Value &new_node_name, std::string_view new_label) {
-  for (auto node : created_nodes) {
+  for (const auto &node : created_nodes) {
     if (node.GetProperty(std::string(new_prop_name_key)) == new_node_name) {
       return node;
     }
@@ -332,8 +342,10 @@ mgp::Node getCategoryNode(mgp::Graph &graph, std::unordered_set<mgp::Node> &crea
   return category_node;
 }
 
+}  // namespace
+
 void Refactor::Categorize(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto graph = mgp::Graph(memgraph_graph);
   const auto record_factory = mgp::RecordFactory(result);
@@ -382,7 +394,7 @@ void Refactor::Categorize(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 }
 
 void Refactor::CloneNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto graph = mgp::Graph(memgraph_graph);
   try {
@@ -396,7 +408,7 @@ void Refactor::CloneNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
     }
 
     for (const auto &node : nodes) {
-      mgp::Node old_node = node.ValueNode();
+      const mgp::Node old_node = node.ValueNode();
       mgp::Node new_node = graph.CreateNode();
 
       for (auto label : old_node.Labels()) {
@@ -439,7 +451,7 @@ mgp::Relationship Refactor::InvertRel(mgp::Graph &graph, mgp::Relationship &rel)
 }
 
 void Refactor::Invert(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -484,11 +496,11 @@ void Refactor::Collapse(mgp::Graph &graph, const mgp::Node &node, const std::str
 }
 
 void Refactor::CollapseNode(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
-    mgp::Graph graph = mgp::Graph(memgraph_graph);
+    auto graph = mgp::Graph(memgraph_graph);
     const mgp::Value input = arguments[0];
     const std::string type{arguments[1].ValueString()};
 
@@ -530,6 +542,7 @@ Refactor::Config::Config(const mgp::Map &config) {
 
   if (rel_strategy_string.IsNull()) {
     SetRelStrategy("incoming");
+    SetPropStrategy("combine");
     return;
   }
   SetRelStrategy(rel_strategy_string.ValueString());
@@ -564,8 +577,9 @@ void Refactor::Config::SetPropStrategy(std::string_view strategy) {
   }
 }
 
-void Refactor::RenameTypeProperty(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+void Refactor::RenameTypeProperty(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result,
+                                  mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -599,7 +613,7 @@ void Refactor::RenameTypeProperty(mgp_list *args, mgp_graph *memgraph_graph, mgp
 namespace {
 
 template <typename T>
-concept GraphObject = std::is_same<T, mgp::Node>::value || std::is_same<T, mgp::Relationship>::value;
+concept GraphObject = std::is_same_v<T, mgp::Node> || std::is_same_v<T, mgp::Relationship>;
 
 template <GraphObject NodeOrRel>
 void NormalizeToBoolean(NodeOrRel object, const std::string &property_key,
@@ -610,8 +624,8 @@ void NormalizeToBoolean(NodeOrRel object, const std::string &property_key,
     return;
   }
 
-  bool property_in_true_vals = true_values.contains(old_value);
-  bool property_in_false_vals = false_values.contains(old_value);
+  const bool property_in_true_vals = true_values.contains(old_value);
+  const bool property_in_false_vals = false_values.contains(old_value);
 
   if (property_in_true_vals && !property_in_false_vals) {
     object.SetProperty(property_key, mgp::Value(true));
@@ -628,7 +642,7 @@ void NormalizeToBoolean(NodeOrRel object, const std::string &property_key,
 }  // namespace
 
 void Refactor::DeleteAndReconnect(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -641,7 +655,7 @@ void Refactor::DeleteAndReconnect(mgp_list *args, mgp_graph *memgraph_graph, mgp
       nodes_to_delete.insert(node.ValueNode().Id().AsInt());
     }
 
-    Config config{config_map};
+    const Config config{config_map};
     mgp::List nodes;
     mgp::List relationships;
     int64_t prev_non_deleted_path_index{-1};
@@ -651,7 +665,7 @@ void Refactor::DeleteAndReconnect(mgp_list *args, mgp_graph *memgraph_graph, mgp
 
     for (size_t i = 0; i < path.Length() + 1; ++i) {
       auto node = path.GetNodeAt(i);
-      int64_t id = node.Id().AsInt();
+      const int64_t id = node.Id().AsInt();
       auto delete_node = nodes_to_delete.contains(id);
 
       const auto modify_relationship = [&graph, &relationships](mgp::Relationship relationship, const mgp::Node &node,
@@ -682,7 +696,8 @@ void Refactor::DeleteAndReconnect(mgp_list *args, mgp_graph *memgraph_graph, mgp
       };
 
       if (!delete_node && prev_non_deleted_path_index != -1 &&
-          (prev_non_deleted_path_index != static_cast<int64_t>(i - 1))) {  // there was a deleted node in between
+          std::cmp_not_equal(prev_non_deleted_path_index,
+                             static_cast<int64_t>(i - 1))) {  // there was a deleted node in between
         if (config.rel_strategy == RelSelectStrategy::INCOMING) {
           modify_relationship(path.GetRelationshipAt(prev_non_deleted_path_index), node, prev_non_deleted_node_id);
         } else if (config.rel_strategy == RelSelectStrategy::OUTGOING) {
@@ -705,12 +720,15 @@ void Refactor::DeleteAndReconnect(mgp_list *args, mgp_graph *memgraph_graph, mgp
 
           if (config.prop_strategy == PropertiesStrategy::DISCARD) {
             auto modified_rel = modify_relationship(new_relationship, node, prev_non_deleted_node_id);
+            // NOLINTNEXTLINE(readability-suspicious-call-argument)
             merge_relationships(modified_rel, old_rel);
           } else if (config.prop_strategy == PropertiesStrategy::OVERRIDE) {
             auto modified_rel = modify_relationship(new_relationship, path.GetNodeAt(prev_non_deleted_path_index), id);
+            // NOLINTNEXTLINE(readability-suspicious-call-argument)
             merge_relationships(modified_rel, old_rel);
           } else {  // PropertiesStrategy::COMBINE
             auto modified_rel = modify_relationship(new_relationship, node, prev_non_deleted_node_id);
+            // NOLINTNEXTLINE(readability-suspicious-call-argument)
             merge_relationships(modified_rel, old_rel, true);
           }
         }
@@ -741,8 +759,9 @@ void Refactor::DeleteAndReconnect(mgp_list *args, mgp_graph *memgraph_graph, mgp
   }
 }
 
-void Refactor::NormalizeAsBoolean(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+void Refactor::NormalizeAsBoolean(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result,
+                                  mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -780,7 +799,7 @@ void Refactor::NormalizeAsBoolean(mgp_list *args, mgp_graph *memgraph_graph, mgp
 }
 
 void Refactor::ExtractNode(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -846,7 +865,7 @@ void Refactor::ExtractNode(mgp_list *args, mgp_graph *memgraph_graph, mgp_result
 }
 
 void Refactor::RenameType(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -876,7 +895,7 @@ void Refactor::RenameType(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 }
 
 void Refactor::MergeNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto graph = mgp::Graph(memgraph_graph);
   const auto record_factory = mgp::RecordFactory(result);
@@ -884,21 +903,21 @@ void Refactor::MergeNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
   try {
     const auto nodes = arguments[0].ValueList();
     if (nodes.Empty()) {
-      throw mgp::ValueException(kMergeNodesEmptyListError.data());
+      throw mgp::ValueException(std::string(kMergeNodesEmptyListError));
     }
 
     // Verify all elements are nodes
     for (const auto &node_value : nodes) {
       if (!node_value.IsNode()) {
-        throw mgp::ValueException(kMergeNodesInvalidTypeError.data());
+        throw mgp::ValueException(std::string(kMergeNodesInvalidTypeError));
       }
     }
 
     const auto config = arguments[1].ValueMap();
-    const bool mergeRels = [&config, &kMergeNodesRelationshipsStrategy]() -> bool {
+    const bool mergeRels = [&config]() -> bool {
       if (config.KeyExists(kMergeNodesRelationshipsStrategy)) {
         if (!config.At(kMergeNodesRelationshipsStrategy).IsBool()) {
-          throw mgp::ValueException(kMergeRelationshipsInvalidValueError.data());
+          throw mgp::ValueException(std::string(kMergeRelationshipsInvalidValueError));
         }
 
         return config.At(kMergeNodesRelationshipsStrategy).ValueBool();
@@ -908,8 +927,7 @@ void Refactor::MergeNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
     }();
 
     // Get properties strategy from config
-    std::string prop_strategy = [&config, &kMergeNodesPropertiesStrategy, &kMergeNodesPropertiesStrategyAlternative,
-                                 &kMergeNodesPropertiesCombine]() -> std::string {
+    std::string prop_strategy = [&config]() -> std::string {
       if (config.KeyExists(kMergeNodesPropertiesStrategy)) {
         return std::string(config.At(kMergeNodesPropertiesStrategy).ValueString());
       }
@@ -920,13 +938,14 @@ void Refactor::MergeNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
     }();
 
     // Convert to lowercase for case-insensitive comparison
+    // NOLINTNEXTLINE(modernize-use-ranges, boost-use-ranges)
     std::transform(prop_strategy.begin(), prop_strategy.end(), prop_strategy.begin(),
                    [](unsigned char c) { return std::tolower(c); });
 
     // Validate property strategy
     if (prop_strategy != kMergeNodesPropertiesCombine && prop_strategy != kMergeNodesPropertiesDiscard &&
         prop_strategy != kMergeNodesPropertiesOverride && prop_strategy != kMergeNodesPropertiesOverwrite) {
-      throw mgp::ValueException(kMergeNodesInvalidPropertyStrategyError.data());
+      throw mgp::ValueException(std::string(kMergeNodesInvalidPropertyStrategyError));
     }
 
     // Get the first node as the target node
@@ -967,7 +986,7 @@ void Refactor::MergeNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
       // Copy labels from source to target
       auto source_labels = source_node.Labels();
       for (size_t j = 0; j < source_labels.Size(); ++j) {
-        target_node.AddLabel(std::move(source_labels[j]));
+        target_node.AddLabel(source_labels[j]);
       }
 
       // Handle relationships
@@ -990,7 +1009,7 @@ void Refactor::MergeNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 
     // Return the merged node
     auto record = record_factory.NewRecord();
-    record.Insert(kMergeNodesResult.data(), target_node);
+    record.Insert(std::string(kMergeNodesResult).c_str(), target_node);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());

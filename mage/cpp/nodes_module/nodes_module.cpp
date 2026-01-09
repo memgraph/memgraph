@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,11 +16,11 @@
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard{memory};
+    const mgp::MemoryDispatcherGuard guard{memory};
 
-    AddProcedure(Nodes::Link, std::string(Nodes::kProcedureLink).c_str(), mgp::ProcedureType::Write,
-                 {mgp::Parameter(std::string(Nodes::kArgumentNodesLink).c_str(), {mgp::Type::List, mgp::Type::Node}),
-                  mgp::Parameter(std::string(Nodes::kArgumentTypeLink).c_str(), mgp::Type::String)},
+    AddProcedure(Nodes::Link, std::string(Nodes::kProcedureLink), mgp::ProcedureType::Write,
+                 {mgp::Parameter(std::string(Nodes::kArgumentNodesLink), {mgp::Type::List, mgp::Type::Node}),
+                  mgp::Parameter(std::string(Nodes::kArgumentTypeLink), mgp::Type::String)},
                  {}, module, memory);
 
     AddProcedure(
@@ -32,14 +32,12 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     AddProcedure(Nodes::Delete, Nodes::kProcedureDelete, mgp::ProcedureType::Write,
                  {mgp::Parameter(Nodes::kDeleteArg1, mgp::Type::Any)}, {}, module, memory);
 
-    AddProcedure(Nodes::RelationshipsExist, std::string(Nodes::kProcedureRelationshipsExist).c_str(),
-                 mgp::ProcedureType::Read,
-                 {mgp::Parameter(std::string(Nodes::kArgumentNodesRelationshipsExist).c_str(),
-                                 {mgp::Type::List, mgp::Type::Any}),
-                  mgp::Parameter(std::string(Nodes::kArgumentRelationshipsRelationshipsExist).c_str(),
-                                 {mgp::Type::List, mgp::Type::String})},
-                 {mgp::Return(std::string(Nodes::kReturnRelationshipsExist).c_str(), {mgp::Type::Map, mgp::Type::Any})},
-                 module, memory);
+    AddProcedure(
+        Nodes::RelationshipsExist, std::string(Nodes::kProcedureRelationshipsExist), mgp::ProcedureType::Read,
+        {mgp::Parameter(std::string(Nodes::kArgumentNodesRelationshipsExist), {mgp::Type::List, mgp::Type::Any}),
+         mgp::Parameter(std::string(Nodes::kArgumentRelationshipsRelationshipsExist),
+                        {mgp::Type::List, mgp::Type::String})},
+        {mgp::Return(std::string(Nodes::kReturnRelationshipsExist), {mgp::Type::Map, mgp::Type::Any})}, module, memory);
 
   } catch (const std::exception &e) {
     return 1;

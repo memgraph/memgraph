@@ -501,12 +501,16 @@ std::unordered_map<std::uint64_t, double> OnlineBC::EdgeUpdate(
 
   omp_set_dynamic(0);
   omp_set_num_threads(static_cast<int>(threads));
-#pragma omp parallel for
+  // Store this pointer to avoid clang-tidy error with 'this' in OpenMP shared clause
+  auto *this_ptr = this;  // NOLINT
+#pragma omp parallel for default(none) shared(                                                                      \
+    array_size, affected_bcc_nodes_array, distances_first, distances_second, graph_without_updated_edge, operation, \
+    affected_bcc_nodes, affected_bcc_articulation_points, updated_edge, peripheral_subgraph_orders, this_ptr)
   for (std::uint64_t i = 0; i < array_size; i++) {
     auto node_id = affected_bcc_nodes_array[i];
     if (distances_first.at(node_id) != distances_second.at(node_id)) {
-      iCentralIteration(graph_without_updated_edge, operation, node_id, affected_bcc_nodes,
-                        affected_bcc_articulation_points, updated_edge, peripheral_subgraph_orders);
+      this_ptr->iCentralIteration(graph_without_updated_edge, operation, node_id, affected_bcc_nodes,
+                                  affected_bcc_articulation_points, updated_edge, peripheral_subgraph_orders);
     }
   }
 

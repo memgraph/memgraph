@@ -12,6 +12,7 @@
 #include "collections.hpp"
 #include <algorithm>
 #include <list>
+#include <ranges>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -19,31 +20,44 @@
 void Collections::SetResult(mgp::Result &result, const mgp::Value &value) {
   switch (value.Type()) {
     case mgp::Type::Bool:
-      return result.SetValue(value.ValueBool());
+      result.SetValue(value.ValueBool());
+      break;
     case mgp::Type::Int:
-      return result.SetValue(value.ValueInt());
+      result.SetValue(value.ValueInt());
+      break;
     case mgp::Type::Double:
-      return result.SetValue(value.ValueDouble());
+      result.SetValue(value.ValueDouble());
+      break;
     case mgp::Type::String:
-      return result.SetValue(value.ValueString());
+      result.SetValue(value.ValueString());
+      break;
     case mgp::Type::List:
-      return result.SetValue(value.ValueList());
+      result.SetValue(value.ValueList());
+      break;
     case mgp::Type::Map:
-      return result.SetValue(value.ValueMap());
+      result.SetValue(value.ValueMap());
+      break;
     case mgp::Type::Node:
-      return result.SetValue(value.ValueNode());
+      result.SetValue(value.ValueNode());
+      break;
     case mgp::Type::Relationship:
-      return result.SetValue(value.ValueRelationship());
+      result.SetValue(value.ValueRelationship());
+      break;
     case mgp::Type::Path:
-      return result.SetValue(value.ValuePath());
+      result.SetValue(value.ValuePath());
+      break;
     case mgp::Type::Date:
-      return result.SetValue(value.ValueDate());
+      result.SetValue(value.ValueDate());
+      break;
     case mgp::Type::LocalTime:
-      return result.SetValue(value.ValueLocalTime());
+      result.SetValue(value.ValueLocalTime());
+      break;
     case mgp::Type::LocalDateTime:
-      return result.SetValue(value.ValueLocalDateTime());
+      result.SetValue(value.ValueLocalDateTime());
+      break;
     case mgp::Type::Duration:
-      return result.SetValue(value.ValueDuration());
+      result.SetValue(value.ValueDuration());
+      break;
 
     default:
       std::ostringstream oss;
@@ -54,7 +68,7 @@ void Collections::SetResult(mgp::Result &result, const mgp::Value &value) {
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::SumLongs(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
 
@@ -80,7 +94,7 @@ void Collections::SumLongs(mgp_list *args, mgp_func_context *ctx, mgp_func_resul
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Avg(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
 
@@ -96,7 +110,7 @@ void Collections::Avg(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
       }
       average += list_item.ValueNumeric();
     }
-    average /= list.Size();
+    average /= static_cast<double>(list.Size());
 
     result.SetValue(average);
 
@@ -108,7 +122,7 @@ void Collections::Avg(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::ContainsAll(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
 
@@ -120,7 +134,7 @@ void Collections::ContainsAll(mgp_list *args, mgp_func_context *ctx, mgp_func_re
 
     std::unordered_set<mgp::Value> values(list2.begin(), list2.end());
 
-    result.SetValue(std::all_of(values.begin(), values.end(), [&set](const auto &x) { return set.contains(x); }));
+    result.SetValue(std::ranges::all_of(values, [&set](const auto &x) { return set.contains(x); }));
 
   } catch (const std::exception &e) {
     result.SetErrorMessage(e.what());
@@ -130,7 +144,7 @@ void Collections::ContainsAll(mgp_list *args, mgp_func_context *ctx, mgp_func_re
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Intersection(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
 
@@ -148,7 +162,7 @@ void Collections::Intersection(mgp_list *args, mgp_func_context *ctx, mgp_func_r
     mgp::List intersection{};
     for (const auto &element : set1) {
       if (set2.contains(element)) {
-        intersection.AppendExtend(std::move(element));
+        intersection.AppendExtend(element);
       }
     }
 
@@ -162,7 +176,7 @@ void Collections::Intersection(mgp_list *args, mgp_func_context *ctx, mgp_func_r
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::RemoveAll(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
 
@@ -184,7 +198,7 @@ void Collections::RemoveAll(mgp_list *args, mgp_func_context *ctx, mgp_func_resu
 
     mgp::List final_list = mgp::List();
     for (const auto &element : searchable) {
-      final_list.AppendExtend(std::move(element));
+      final_list.AppendExtend(element);
     }
 
     result.SetValue(final_list);
@@ -197,7 +211,7 @@ void Collections::RemoveAll(mgp_list *args, mgp_func_context *ctx, mgp_func_resu
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Sum(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
@@ -221,7 +235,7 @@ void Collections::Sum(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Union(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
@@ -231,7 +245,7 @@ void Collections::Union(mgp_list *args, mgp_func_context *ctx, mgp_func_result *
     std::unordered_map<int64_t, std::vector<mgp::Value>> unionMap;
 
     for (const auto value : list1) {
-      if (auto search = unionMap.find(std::hash<mgp::Value>{}(value)); search != unionMap.end()) {
+      if (auto search = unionMap.find(static_cast<int64_t>(std::hash<mgp::Value>{}(value))); search != unionMap.end()) {
         if (std::find(search->second.begin(), search->second.end(), value) != search->second.end()) {
           continue;
         }
@@ -240,7 +254,7 @@ void Collections::Union(mgp_list *args, mgp_func_context *ctx, mgp_func_result *
       unionMap.insert({std::hash<mgp::Value>{}(value), std::vector<mgp::Value>{value}});
     }
     for (const auto value : list2) {
-      if (auto search = unionMap.find(std::hash<mgp::Value>{}(value)); search != unionMap.end()) {
+      if (auto search = unionMap.find(static_cast<int64_t>(std::hash<mgp::Value>{}(value))); search != unionMap.end()) {
         if (std::find(search->second.begin(), search->second.end(), value) != search->second.end()) {
           continue;
         }
@@ -251,9 +265,9 @@ void Collections::Union(mgp_list *args, mgp_func_context *ctx, mgp_func_result *
 
     mgp::List unionList;
 
-    for (auto pair : unionMap) {
-      for (auto value : pair.second) {
-        unionList.AppendExtend(std::move(value));
+    for (const auto &pair : unionMap) {
+      for (const auto &value : pair.second) {
+        unionList.AppendExtend(value);
       }
     }
 
@@ -267,7 +281,7 @@ void Collections::Union(mgp_list *args, mgp_func_context *ctx, mgp_func_result *
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Sort(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
@@ -275,10 +289,10 @@ void Collections::Sort(mgp_list *args, mgp_func_context *ctx, mgp_func_result *r
     std::vector<mgp::Value> sorted;
 
     for (const auto value : list) {
-      sorted.push_back(std::move(value));
+      sorted.push_back(value);
     }
 
-    std::sort(sorted.begin(), sorted.end());
+    std::ranges::sort(sorted, [](const mgp::Value &a, const mgp::Value &b) { return a < b; });
 
     result.SetValue(mgp::List(std::move(sorted)));
 
@@ -290,7 +304,7 @@ void Collections::Sort(mgp_list *args, mgp_func_context *ctx, mgp_func_result *r
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::ContainsSorted(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
@@ -300,14 +314,15 @@ void Collections::ContainsSorted(mgp_list *args, mgp_func_context *ctx, mgp_func
 
     int left{0};
     int right{static_cast<int>(list.Size() - 1)};
-    int check;
+    int check = 0;
 
     while (left <= right) {
       check = (left + right) / 2;
       if (list[check] == element) {
         contains = true;
         break;
-      } else if (element < list[check]) {
+      }
+      if (element < list[check]) {
         right = check - 1;
       } else {
         left = check + 1;
@@ -324,7 +339,7 @@ void Collections::ContainsSorted(mgp_list *args, mgp_func_context *ctx, mgp_func
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Max(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
@@ -352,7 +367,7 @@ void Collections::Max(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Split(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
 
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
@@ -383,7 +398,7 @@ void Collections::Split(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
       return;
     }
     auto record = record_factory.NewRecord();
-    record.Insert(std::string(Collections::kResultSplit).c_str(), std::move(part));
+    record.Insert(std::string(Collections::kResultSplit).c_str(), part);
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
     return;
@@ -392,7 +407,7 @@ void Collections::Split(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Pairs(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
@@ -424,7 +439,7 @@ void Collections::Pairs(mgp_list *args, mgp_func_context *ctx, mgp_func_result *
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Contains(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
@@ -453,7 +468,7 @@ void Collections::Contains(mgp_list *args, mgp_func_context *ctx, mgp_func_resul
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::UnionAll(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
@@ -473,7 +488,7 @@ void Collections::UnionAll(mgp_list *args, mgp_func_context *ctx, mgp_func_resul
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Min(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
@@ -486,11 +501,11 @@ void Collections::Min(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
     if (type == mgp::Type::Map || type == mgp::Type::Path || type == mgp::Type::List) {
       std::ostringstream oss;
       oss << type;
-      std::string s = oss.str();
+      const std::string s = oss.str();
       throw mgp::ValueException("Unsuppported type for this operation, receieved type: " + s);
     }
 
-    bool isListNumeric = list[0].IsNumeric();
+    const bool isListNumeric = list[0].IsNumeric();
     mgp::Value min{list[0]};
     for (size_t i = 0; i < list.Size(); i++) {
       if (list[i].Type() != type && !(isListNumeric && list[i].IsNumeric())) {
@@ -512,16 +527,16 @@ void Collections::Min(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::ToSet(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
-    mgp::List list = arguments[0].ValueList();
-    std::unordered_set<mgp::Value> set(list.begin(), list.end());
+    const mgp::List list = arguments[0].ValueList();
+    const std::unordered_set<mgp::Value> set(list.begin(), list.end());
 
     mgp::List return_list;
-    for (auto elem : set) {
-      return_list.AppendExtend(std::move(elem));
+    for (const auto &elem : set) {
+      return_list.AppendExtend(elem);
     }
     result.SetValue(std::move(return_list));
 
@@ -533,33 +548,33 @@ void Collections::ToSet(mgp_list *args, mgp_func_context *ctx, mgp_func_result *
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Partition(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
-    mgp::List input_list = arguments[0].ValueList();
+    const mgp::List input_list = arguments[0].ValueList();
     const int64_t partition_size = arguments[1].ValueInt();
 
     int64_t current_size = 0;
     mgp::List temp;
-    mgp::List result;
-    for (mgp::Value list_value : input_list) {
+    const mgp::List result;
+    for (const mgp::Value list_value : input_list) {
       if (current_size == 0) {
         temp = mgp::List();
       }
-      temp.AppendExtend(std::move(list_value));
+      temp.AppendExtend(list_value);
       current_size++;
 
       if (current_size == partition_size) {
         auto record = record_factory.NewRecord();
-        record.Insert(std::string(kReturnValuePartition).c_str(), std::move(temp));
+        record.Insert(std::string(kReturnValuePartition).c_str(), temp);
         current_size = 0;
       }
     }
 
     if (current_size != partition_size && current_size != 0) {
       auto record = record_factory.NewRecord();
-      record.Insert(std::string(kReturnValuePartition).c_str(), std::move(temp));
+      record.Insert(std::string(kReturnValuePartition).c_str(), temp);
     }
 
   } catch (const std::exception &e) {
@@ -591,7 +606,7 @@ void FlattenHelper(const mgp::Value &value, mgp::List &result) {
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::Flatten(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
 
@@ -621,7 +636,7 @@ void Collections::Flatten(mgp_list *args, mgp_func_context *ctx, mgp_func_result
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::FrequenciesAsMap(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   auto const arguments = mgp::List(args);
   auto result = mgp::Result(res);
 

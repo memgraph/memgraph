@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,14 +16,13 @@
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard{memory};
+    const mgp::MemoryDispatcherGuard guard{memory};
 
-    mgp::AddFunction(
-        Math::Round, Math::kProcedureRound,
-        {mgp::Parameter(std::string(Math::kArgumentValue).c_str(), mgp::Type::Double, 0.0),
-         mgp::Parameter(std::string(Math::kArgumentPrecision).c_str(), mgp::Type::Int, static_cast<int64_t>(0)),
-         mgp::Parameter(std::string(Math::kArgumentMode).c_str(), mgp::Type::String, "HALF_UP")},
-        module, memory);
+    mgp::AddFunction(Math::Round, Math::kProcedureRound,
+                     {mgp::Parameter(std::string(Math::kArgumentValue), mgp::Type::Double, 0.0),
+                      mgp::Parameter(std::string(Math::kArgumentPrecision), mgp::Type::Int, static_cast<int64_t>(0)),
+                      mgp::Parameter(std::string(Math::kArgumentMode), mgp::Type::String, "HALF_UP")},
+                     module, memory);
 
   } catch (const std::exception &e) {
     return 1;

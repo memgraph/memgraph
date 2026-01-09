@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "nodes.hpp"
+#include <algorithm>
+#include <ranges>
 #include <unordered_set>
 #include "mgp.hpp"
 
@@ -17,7 +19,8 @@ bool Nodes::RelationshipExist(const mgp::Node &node, std::string &rel_type) {
   char direction{' '};
   if (rel_type[0] == '<' && rel_type[rel_type.size() - 1] == '>') {
     throw mgp::ValueException("Invalid relationship specification!");
-  } else if (rel_type[rel_type.size() - 1] == '>') {
+  }
+  if (rel_type[rel_type.size() - 1] == '>') {
     direction = rel_type[rel_type.size() - 1];
     rel_type.pop_back();
   } else if (rel_type[0] == '<') {
@@ -29,16 +32,13 @@ bool Nodes::RelationshipExist(const mgp::Node &node, std::string &rel_type) {
       return true;
     }
   }
-  for (const auto rel : node.InRelationships()) {
-    if (std::string(rel.Type()) == rel_type && direction != '>') {
-      return true;
-    }
-  }
-  return false;
+  return std::any_of(
+      node.InRelationships().begin(), node.InRelationships().end(),
+      [&rel_type, &direction](const auto &rel) { return std::string(rel.Type()) == rel_type && direction != '>'; });
 }
 
 void Nodes::RelationshipsExist(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -53,7 +53,8 @@ void Nodes::RelationshipsExist(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
       if (!element.IsNode() && !element.IsInt()) {
         throw mgp::ValueException("Input arguments must be nodes or their ID's");
       }
-      mgp::Node node = element.IsNode() ? element.ValueNode() : graph.GetNodeById(mgp::Id::FromInt(element.ValueInt()));
+      const mgp::Node node =
+          element.IsNode() ? element.ValueNode() : graph.GetNodeById(mgp::Id::FromInt(element.ValueInt()));
       mgp::Map return_map = mgp::Map();
       mgp::Map relationship_map = mgp::Map();
       for (auto rel : relationships) {
@@ -64,10 +65,10 @@ void Nodes::RelationshipsExist(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
           relationship_map.Insert(rel.ValueString(), mgp::Value(false));
         }
       }
-      return_map.Insert(std::string(kNodeRelationshipsExist).c_str(), mgp::Value(node));
-      return_map.Insert(std::string(kRelationshipsExistStatus).c_str(), mgp::Value(std::move(relationship_map)));
+      return_map.Insert(std::string(kNodeRelationshipsExist), mgp::Value(node));
+      return_map.Insert(std::string(kRelationshipsExistStatus), mgp::Value(std::move(relationship_map)));
       auto record = record_factory.NewRecord();
-      record.Insert(std::string(kReturnRelationshipsExist).c_str(), std::move(return_map));
+      record.Insert(std::string(kReturnRelationshipsExist).c_str(), return_map);
     }
 
   } catch (const std::exception &e) {
@@ -98,12 +99,12 @@ mgp::Value InsertNodeRelationshipTypes(const mgp::Node &node,
     }
   } else {
     for (const auto relationship : node.InRelationships()) {
-      if (type_direction[std::string(relationship.Type())] & 1) {
+      if ((type_direction[std::string(relationship.Type())] & 1U) != 0) {
         types.insert(relationship.Type());
       }
     }
     for (const auto relationship : node.OutRelationships()) {
-      if (type_direction[std::string(relationship.Type())] & 2) {
+      if ((type_direction[std::string(relationship.Type())] & 2U) != 0) {
         types.insert(relationship.Type());
       }
     }
@@ -129,13 +130,13 @@ std::unordered_map<std::string, uint8_t> GetTypeDirection(const mgp::Value &type
         throw mgp::ValueException("<type> format not allowed. Use type instead.");
       }
       auto key = std::string(type.substr(1, type.size() - 1));
-      result[key] |= 1;
+      result[key] |= 1U;
     } else if (type.ends_with('>')) {
       auto key = std::string(type.substr(0, type.size() - 1));
-      result[key] |= 2;
+      result[key] |= 2U;
     } else {
       auto key = std::string(type);
-      result[key] |= 3;
+      result[key] |= 3U;
     }
   }
   return result;
@@ -182,7 +183,7 @@ void DetachDeleteNode(const mgp::Value &node, mgp::Graph &graph) {
 }  // namespace
 
 void Nodes::RelationshipTypes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -197,7 +198,7 @@ void Nodes::RelationshipTypes(mgp_list *args, mgp_graph *memgraph_graph, mgp_res
 }
 
 void Nodes::Delete(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -220,11 +221,11 @@ void Nodes::Delete(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result
 }
 
 void Nodes::Link(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
-    mgp::Graph graph = mgp::Graph(memgraph_graph);
+    auto graph = mgp::Graph(memgraph_graph);
     const mgp::List list_nodes = arguments[0].ValueList();
     const std::string_view type{arguments[1].ValueString()};
     const size_t size = list_nodes.Size();

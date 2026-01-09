@@ -14,7 +14,7 @@
 namespace degree_centrality_alg {
 
 std::vector<double> GetDegreeCentrality(const mg_graph::GraphView<> &graph, const AlgorithmType algorithm_type) {
-  const auto nodes = graph.Nodes();
+  const auto &nodes = graph.Nodes();
   auto number_of_nodes = nodes.size();
 
   // Initialize centrality values

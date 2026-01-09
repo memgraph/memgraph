@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,27 +12,29 @@
 #include <mg_exceptions.hpp>
 #include <mg_utils.hpp>
 
+#include <ranges>
+
 #include "algorithm/degree_centrality.hpp"
 
 namespace {
 
-const char *kProcedureGet = "get";
-const char *kProcedureGetSubgraph = "get_subgraph";
+constexpr const char *kProcedureGet = "get";
+constexpr const char *kProcedureGetSubgraph = "get_subgraph";
 
-const char *kArgumentSubgraphNodes = "subgraph_nodes";
-const char *kArgumentSubgraphRelationships = "subgraph_relationships";
-const char *kArgumentType = "type";
+constexpr const char *kArgumentSubgraphNodes = "subgraph_nodes";
+constexpr const char *kArgumentSubgraphRelationships = "subgraph_relationships";
+constexpr const char *kArgumentType = "type";
 
-const char *kFieldNode = "node";
-const char *kFieldDegree = "degree";
+constexpr const char *kFieldNode = "node";
+constexpr const char *kFieldDegree = "degree";
 
-const char *kAlgorithmUndirected = "undirected";
-const char *kAlgorithmOut = "out";
-const char *kAlgorithmIn = "in";
+constexpr const char *kAlgorithmUndirected = "undirected";
+constexpr const char *kAlgorithmOut = "out";
+constexpr const char *kAlgorithmIn = "in";
 
 void InsertDegreeCentralityRecord(mgp_graph *graph, mgp_result *result, mgp_memory *memory, std::uint64_t node_id,
                                   double degree) {
-  auto *node = mg_utility::GetNodeForInsertion(node_id, graph, memory);
+  auto *node = mg_utility::GetNodeForInsertion(static_cast<int>(node_id), graph, memory);
   if (!node) return;
 
   auto *record = mgp::result_new_record(result);
@@ -46,8 +48,8 @@ degree_centrality_alg::AlgorithmType ParseType(mgp_value *algorithm_type) {
   if (mgp::value_is_null(algorithm_type)) return degree_centrality_alg::AlgorithmType::kUndirected;
 
   auto algorithm_type_str = std::string(mgp::value_get_string(algorithm_type));
-  std::transform(algorithm_type_str.begin(), algorithm_type_str.end(), algorithm_type_str.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
+  std::ranges::transform(algorithm_type_str, algorithm_type_str.begin(),
+                         [](unsigned char c) { return std::tolower(c); });
 
   if (algorithm_type_str == kAlgorithmUndirected) return degree_centrality_alg::AlgorithmType::kUndirected;
   if (algorithm_type_str == kAlgorithmOut) return degree_centrality_alg::AlgorithmType::kOut;
@@ -60,12 +62,13 @@ void GetDegreeCentralityWrapper(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
                                 bool subgraph) {
   try {
     int i = 0;
-    mgp_list *subgraph_nodes, *subgraph_relationships;
+    mgp_list *subgraph_nodes = nullptr;
+    mgp_list *subgraph_relationships = nullptr;
     if (subgraph) {
       subgraph_nodes = mgp::value_get_list(mgp::list_at(args, i++));
       subgraph_relationships = mgp::value_get_list(mgp::list_at(args, i++));
     }
-    auto algorithm_type_value = mgp::list_at(args, i++);
+    auto *algorithm_type_value = mgp::list_at(args, i++);
 
     auto graph = subgraph
                      ? mg_utility::GetSubgraphView(memgraph_graph, result, memory, subgraph_nodes,
@@ -100,7 +103,7 @@ void GetSubgraphDegreeCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_
 // Here you can register multiple procedures your module supports.
 extern "C" int mgp_init_module(mgp_module *module, mgp_memory *memory) {
   try {
-    auto default_type = mgp::value_make_null(memory);
+    auto *default_type = mgp::value_make_null(memory);
     {
       auto *proc = mgp::module_add_read_procedure(module, kProcedureGet, GetDegreeCentrality);
 

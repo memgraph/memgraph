@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,8 +14,10 @@
 #include <cstdint>
 #include <deque>
 #include <future>
+#include <limits>
 #include <memory>
 #include <random>
+#include <ranges>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -25,6 +27,7 @@
 #include "leiden_utils/leiden_utils.hpp"
 namespace leiden_alg {
 
+namespace {
 const double MAX_DOUBLE = std::numeric_limits<double>::max();
 
 ///
@@ -82,7 +85,7 @@ std::uint64_t MoveNodesFast(Partitions &partitions, const Graph &graph, double g
 
     // delta - current modularity gain, (-1 because don't count the node itself as a part of the community)
     const auto current_delta = static_cast<double>(edge_weights_per_community[best_community]) -
-                               (static_cast<double>(partitions.GetCommunityWeight(best_community)) - 1) * gamma;
+                               (((static_cast<double>(partitions.GetCommunityWeight(best_community)) - 1)) * gamma);
     auto best_delta = current_delta;
     for (std::uint64_t i = 0; i < number_of_neighbor_communities; i++) {
       const auto community_id_of_neighbor = neighbor_communities[i];
@@ -90,7 +93,7 @@ std::uint64_t MoveNodesFast(Partitions &partitions, const Graph &graph, double g
       // look only at the neighbors that are not in the same community
       if (community_id_of_neighbor != best_community) {
         const auto delta = edge_weights_per_community[community_id_of_neighbor] -
-                           static_cast<double>(partitions.GetCommunityWeight(community_id_of_neighbor)) * gamma;
+                           ((static_cast<double>(partitions.GetCommunityWeight(community_id_of_neighbor))) * gamma);
         if (delta > best_delta + resolution_parameter) {
           best_delta = delta;
           best_community = community_id_of_neighbor;
@@ -105,7 +108,7 @@ std::uint64_t MoveNodesFast(Partitions &partitions, const Graph &graph, double g
     if (current_community != best_community) {
       // remove the node from the current community
       auto &community = partitions.communities[partitions.GetCommunityForNode(node_id)];
-      auto iterator = std::find(community.begin(), community.end(), node_id);
+      auto iterator = std::ranges::find(community, node_id);
 
       std::iter_swap(iterator, community.end() - 1);
       community.pop_back();
@@ -119,8 +122,7 @@ std::uint64_t MoveNodesFast(Partitions &partitions, const Graph &graph, double g
       // add neighbors to the queue
       for (const auto &[neighbor_id, _] : graph.Neighbors(node_id)) {
         // if the neighbor is not in the queue and it's not in the same community as the node, add it to the queue
-        if (nodes_set.find(neighbor_id) == nodes_set.end() &&
-            partitions.GetCommunityForNode(neighbor_id) != best_community) {
+        if (!nodes_set.contains(neighbor_id) && partitions.GetCommunityForNode(neighbor_id) != best_community) {
           nodes.push_back(neighbor_id);
           nodes_set.insert(neighbor_id);
         }
@@ -245,7 +247,7 @@ void MergeNodesSubset(Partitions &refined_partitions, const Graph &graph, const 
         if (external_edge_weight[neighbor_community] >= right_term) {
           // delta - current modularity gain
           const auto delta = edge_weights[neighbor_community] -
-                             static_cast<double>(refined_partitions.GetCommunityWeight(neighbor_community)) * gamma;
+                             ((static_cast<double>(refined_partitions.GetCommunityWeight(neighbor_community))) * gamma);
 
           if (delta > resolution_parameter) {
             total_cum_sum += std::exp(delta / theta);
@@ -389,8 +391,7 @@ std::pair<Partitions, Graph> AggregateGraph(const Partitions &refined_partitions
         continue;  // if the nodes are in the same community, we don't need to add the edge
       // first check if the edge already exists
       auto edge_exists_iter = edge_exists.find(new_community_id);
-      if (edge_exists_iter != edge_exists.end() &&
-          edge_exists_iter->second.find(new_neighbor_community_id) != edge_exists_iter->second.end())
+      if (edge_exists_iter != edge_exists.end() && edge_exists_iter->second.contains(new_neighbor_community_id))
         continue;  // edge already exists
 
       // add edge to the adjacency list, update node weights and add the edge to the edge_exists
@@ -490,8 +491,7 @@ Dendrogram Leiden(const mg_graph::GraphView<> &memgraph_graph, double gamma, dou
                                                          : 1.0;  // Make it positive and cast to Double, fixed to 1.0
     // always add the edge, because the algorithm works on undirected graphs
 
-    if (edge_exists.find(std::make_pair(from, to)) != edge_exists.end() ||
-        edge_exists.find(std::make_pair(to, from)) != edge_exists.end()) {
+    if (edge_exists.contains(std::make_pair(from, to)) || edge_exists.contains(std::make_pair(to, from))) {
       continue;
     }
 
@@ -503,14 +503,14 @@ Dendrogram Leiden(const mg_graph::GraphView<> &memgraph_graph, double gamma, dou
     sum_of_weights += edge_weight;
   }
   edge_exists.clear();
-  bool any_isolated_nodes = memgraph_graph.Nodes().size() != graph.Size();
+  const bool any_isolated_nodes = memgraph_graph.Nodes().size() != graph.Size();
 
   // initialize partitions and leafs of the dendrogram
   partitions = CreateSingletonPartition(graph);
   intermediary_communities[0].reserve(memgraph_graph.Nodes().size());
   for (std::uint64_t i = 0; i < memgraph_graph.Nodes().size(); i++) {
-    intermediary_communities[0].push_back(
-        std::make_shared<IntermediaryCommunityId>(IntermediaryCommunityId{i, 0, nullptr}));
+    intermediary_communities[0].push_back(std::make_shared<IntermediaryCommunityId>(
+        IntermediaryCommunityId{.community_id = i, .level = 0, .parent = nullptr}));
   }
 
   gamma /= sum_of_weights;
@@ -551,6 +551,7 @@ Dendrogram Leiden(const mg_graph::GraphView<> &memgraph_graph, double gamma, dou
 
   return intermediary_communities;
 }
+}  // namespace
 
 std::vector<std::vector<std::uint64_t>> GetCommunities(const mg_graph::GraphView<> &graph, double gamma, double theta,
                                                        double resolution_parameter, std::uint64_t max_iterations) {

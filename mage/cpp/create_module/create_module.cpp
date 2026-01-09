@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard{memory};
+    const mgp::MemoryDispatcherGuard guard{memory};
 
     AddProcedure(Create::SetRelProperty, Create::kProcedureSetRelProp, mgp::ProcedureType::Write,
                  {mgp::Parameter(Create::kArgumentsRelationship, mgp::Type::Any),
@@ -39,24 +39,21 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                   mgp::Parameter(Create::kArgumentsProperties, mgp::Type::Map)},
                  {mgp::Return(Create::kReturnNode, mgp::Type::Node)}, module, memory);
 
-    AddProcedure(
-        Create::Nodes, std::string(Create::kProcedureNodes).c_str(), mgp::ProcedureType::Write,
-        {mgp::Parameter(std::string(Create::kArgumentLabelsNodes).c_str(), {mgp::Type::List, mgp::Type::String}),
-         mgp::Parameter(std::string(Create::kArgumentPropertiesNodes).c_str(), {mgp::Type::List, mgp::Type::Map})},
-        {mgp::Return(std::string(Create::kReturnNodes).c_str(), mgp::Type::Node)}, module, memory);
+    AddProcedure(Create::Nodes, Create::kProcedureNodes, mgp::ProcedureType::Write,
+                 {mgp::Parameter(Create::kArgumentLabelsNodes, {mgp::Type::List, mgp::Type::String}),
+                  mgp::Parameter(Create::kArgumentPropertiesNodes, {mgp::Type::List, mgp::Type::Map})},
+                 {mgp::Return(Create::kReturnNodes, mgp::Type::Node)}, module, memory);
 
-    AddProcedure(Create::RemoveProperties, std::string(Create::kProcedureRemoveProperties).c_str(),
-                 mgp::ProcedureType::Write,
-                 {mgp::Parameter(std::string(Create::kArgumentNodeRemoveProperties).c_str(), mgp::Type::Any),
-                  mgp::Parameter(std::string(Create::kArgumentKeysRemoveProperties).c_str(),
-                                 {mgp::Type::List, mgp::Type::String})},
-                 {mgp::Return(std::string(Create::kReturntRemoveProperties).c_str(), mgp::Type::Node)}, module, memory);
+    AddProcedure(Create::RemoveProperties, Create::kProcedureRemoveProperties, mgp::ProcedureType::Write,
+                 {mgp::Parameter(Create::kArgumentNodeRemoveProperties, mgp::Type::Any),
+                  mgp::Parameter(Create::kArgumentKeysRemoveProperties, {mgp::Type::List, mgp::Type::String})},
+                 {mgp::Return(Create::kReturntRemoveProperties, mgp::Type::Node)}, module, memory);
 
-    AddProcedure(Create::SetProperty, std::string(Create::kProcedureSetProperty).c_str(), mgp::ProcedureType::Write,
-                 {mgp::Parameter(std::string(Create::kArgumentNodeSetProperty).c_str(), mgp::Type::Any),
-                  mgp::Parameter(std::string(Create::kArgumentKeySetProperty).c_str(), mgp::Type::String),
-                  mgp::Parameter(std::string(Create::kArgumentValueSetProperty).c_str(), mgp::Type::Any)},
-                 {mgp::Return(std::string(Create::kReturntSetProperty).c_str(), mgp::Type::Node)}, module, memory);
+    AddProcedure(Create::SetProperty, Create::kProcedureSetProperty, mgp::ProcedureType::Write,
+                 {mgp::Parameter(Create::kArgumentNodeSetProperty, mgp::Type::Any),
+                  mgp::Parameter(Create::kArgumentKeySetProperty, mgp::Type::String),
+                  mgp::Parameter(Create::kArgumentValueSetProperty, mgp::Type::Any)},
+                 {mgp::Return(Create::kReturntSetProperty, mgp::Type::Node)}, module, memory);
 
     AddProcedure(Create::RemoveRelProperties, Create::kProcedureRemoveRelProperties, mgp::ProcedureType::Write,
                  {mgp::Parameter(Create::kRemoveRelPropertiesArg1, mgp::Type::Any),

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,7 +45,7 @@ void FindNonSpanningTreeEdges(std::uint64_t node_id, const mg_graph::GraphView<>
 
     // Check if is returning edge or already visited neighbour
     if (const auto parent = state->GetParent(node_id);
-        parent && (next_id == *parent || unique_neighbour.find(next_id) != unique_neighbour.end())) {
+        parent && (next_id == *parent || unique_neighbour.contains(next_id))) {
       continue;
     }
 
@@ -104,10 +104,11 @@ std::vector<std::uint64_t> FindFundamentalCycle(std::uint64_t node_a, std::uint6
 }
 
 void CombineCycles(std::uint32_t mask, const std::vector<std::vector<std::uint64_t>> &fundamental_cycles,
-                   const mg_graph::GraphView<> &graph, std::vector<std::vector<mg_graph::Node<>>> *cycles) {
+                   const mg_graph::GraphView<> &graph [[maybe_unused]],
+                   std::vector<std::vector<mg_graph::Node<>>> *cycles) {
   std::map<std::pair<std::uint64_t, std::uint64_t>, std::uint64_t> edge_cnt;
   for (std::size_t i = 0; i < fundamental_cycles.size(); ++i) {
-    if ((mask & (1 << i)) == 0) continue;
+    if ((mask & (1U << i)) == 0) continue;
     for (std::size_t j = 1; j < fundamental_cycles[i].size(); ++j) {
       auto edge = std::minmax(fundamental_cycles[i][j], fundamental_cycles[i][j - 1]);
       edge_cnt[edge]++;
@@ -135,11 +136,11 @@ void CombineCycles(std::uint32_t mask, const std::vector<std::vector<std::uint64
   std::vector<mg_graph::Node<>> cycle;
   auto curr_node = *nodes.begin();
 
-  while (visited.find(curr_node) == visited.end()) {
+  while (visited.contains(curr_node)) {
     cycle.push_back({curr_node});
     visited.insert(curr_node);
     for (const auto next_node : adj_list[curr_node]) {
-      if (visited.find(next_node) == visited.end()) {
+      if (visited.contains(next_node)) {
         curr_node = next_node;
         break;
       }
@@ -147,7 +148,7 @@ void CombineCycles(std::uint32_t mask, const std::vector<std::vector<std::uint64
   }
 
   for (const auto node : nodes) {
-    if (visited.find(node) == visited.end()) {
+    if (visited.contains(node)) {
       return;
     }
   }
@@ -159,7 +160,7 @@ void CombineCycles(std::uint32_t mask, const std::vector<std::vector<std::uint64
 
 void GetCyclesFromFundamentals(const std::vector<std::vector<uint64_t>> &fundamental_cycles,
                                const mg_graph::GraphView<> &graph, std::vector<std::vector<mg_graph::Node<>>> *cycles) {
-  std::uint32_t size = 1 << fundamental_cycles.size();
+  const std::uint32_t size = 1U << fundamental_cycles.size();
   for (std::uint32_t mask = 1; mask < size; ++mask) {
     CombineCycles(mask, fundamental_cycles, graph, cycles);
   }
@@ -199,7 +200,7 @@ std::vector<std::vector<mg_graph::Node<>>> GetCycles(const mg_graph::GraphView<>
   std::set<std::pair<std::uint64_t, std::uint64_t>> multi_edges;
   for (const auto &edge : graph.Edges()) {
     const auto sorted_edge = std::minmax(edge.from, edge.to);
-    if (multi_edges.find(sorted_edge) != multi_edges.end()) {
+    if (multi_edges.contains(sorted_edge)) {
       continue;
     }
     multi_edges.insert(sorted_edge);

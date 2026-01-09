@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <future>
 #include <numeric>
+#include <ranges>
 
 namespace pagerank_alg {
 
@@ -89,7 +90,7 @@ void ThreadPageRankIteration(const PageRankGraph &graph, const std::vector<doubl
   for (std::size_t edge_id = lo; edge_id < hi; edge_id++) {
     const auto [source, target] = graph.GetOrderedEdges()[edge_id];
     // Add the score of target node to the sum.
-    new_rank[source] += old_rank[target] / graph.GetOutDegree(target);
+    new_rank[source] += old_rank[target] / static_cast<double>(graph.GetOutDegree(target));
   }
   new_rank_promise.set_value(std::move(new_rank));
 }
@@ -100,7 +101,7 @@ void ThreadPageRankIteration(const PageRankGraph &graph, const std::vector<doubl
 /// @param damping_factor -- damping factor
 /// @param block -- PageRank block calculated in ThreadPageRankIteration
 /// @param rank_next -- PageRanks which will be updated
-void AddCurrentBlockToRankNext(const PageRankGraph &graph, const double damping_factor,
+void AddCurrentBlockToRankNext(const PageRankGraph & /*graph*/, const double damping_factor,
                                const std::vector<double> &block, std::vector<double> &rank_next) {
   // The block vector contains partially precalculated sums of PR(page)/C(page)
   // for each node. Node index in the block vector corresponds to the node index
@@ -120,7 +121,7 @@ void AddCurrentBlockToRankNext(const PageRankGraph &graph, const double damping_
 /// @param rank_next -- PageRank which will be updated
 void CompleteRankNext(const PageRankGraph &graph, const double damping_factor, std::vector<double> &rank_next) {
   while (rank_next.size() < graph.GetNodeCount()) {
-    rank_next.push_back((1.0 - damping_factor) / graph.GetNodeCount());
+    rank_next.push_back((1.0 - damping_factor) / static_cast<double>(graph.GetNodeCount()));
   }
 }
 
@@ -153,7 +154,7 @@ bool CheckContinueIterate(const std::vector<double> &rank, const std::vector<dou
 ///
 /// @param rank -- PageRank
 void NormalizeRank(std::vector<double> &rank) {
-  const double sum = std::accumulate(rank.begin(), rank.end(), 0.0);
+  const double sum = std::accumulate(rank.begin(), rank.end(), 0.0);  // NOLINT(modernize-use-ranges,boost-use-ranges)
   for (double &value : rank) {
     value /= sum;
   }
@@ -195,7 +196,7 @@ std::vector<double> ParallelIterativePageRank(const PageRankGraph &graph, std::s
 
   auto borders = CalculateOptimalBorders(graph, number_of_threads);
 
-  std::vector<double> rank(graph.GetNodeCount(), 1.0 / graph.GetNodeCount());
+  std::vector<double> rank(graph.GetNodeCount(), 1.0 / static_cast<double>(graph.GetNodeCount()));
   // Because we increment number_of_iterations at the end of while loop.
   bool continue_iterate = max_iterations != 0;
 
@@ -206,8 +207,8 @@ std::vector<double> ParallelIterativePageRank(const PageRankGraph &graph, std::s
     std::vector<std::future<std::vector<double>>> page_rank_future;
     page_rank_future.reserve(number_of_threads);
 
-    std::transform(page_rank_promise.begin(), page_rank_promise.end(), std::back_inserter(page_rank_future),
-                   [](auto &pr_promise) { return pr_promise.get_future(); });
+    std::ranges::transform(page_rank_promise, std::back_inserter(page_rank_future),
+                           [](auto &pr_promise) { return pr_promise.get_future(); });
 
     std::vector<std::thread> my_threads;
     my_threads.reserve(number_of_threads);
@@ -217,9 +218,10 @@ std::vector<double> ParallelIterativePageRank(const PageRankGraph &graph, std::s
                               std::move(page_rank_promise[cluster_id]));
     }
 
-    std::vector<double> rank_next(graph.GetNodeCount(), (1.0 - damping_factor) / graph.GetNodeCount());
+    std::vector<double> rank_next(graph.GetNodeCount(),
+                                  (1.0 - damping_factor) / static_cast<double>(graph.GetNodeCount()));
     for (std::size_t cluster_id = 0; cluster_id < number_of_threads; cluster_id++) {
-      std::vector<double> block = page_rank_future[cluster_id].get();
+      const std::vector<double> block = page_rank_future[cluster_id].get();
       AddCurrentBlockToRankNext(graph, damping_factor, block, rank_next);
     }
     CompleteRankNext(graph, damping_factor, rank_next);

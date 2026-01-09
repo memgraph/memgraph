@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -95,7 +95,8 @@ void Relationship(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
 
 void SetProperty(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 
-void RemoveElementProperties(mgp::Node &element, const mgp::List &labels, const mgp::RecordFactory &record_factory);
+void RemoveElementProperties(mgp::Node &element, const mgp::List &properties_keys,
+                             const mgp::RecordFactory &record_factory);
 
 void RemoveProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 
@@ -113,7 +114,7 @@ void SetProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result
 
 void RemoveElementLabels(mgp::Node &element, const mgp::List &labels, const mgp::RecordFactory &record_factory);
 
-void ProcessElement(const mgp::Value &element, const mgp::Graph graph, const mgp::List &labels,
+void ProcessElement(const mgp::Value &element, const mgp::Graph graph, const mgp::List &list_keys,
                     const bool labels_or_props, const mgp::RecordFactory &record_factory);
 
 void RemoveLabels(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);

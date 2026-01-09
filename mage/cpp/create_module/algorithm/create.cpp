@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,12 +45,12 @@ void ModifyAndOutput(mgp::Relationship &relationship, const mgp::List &keys, con
 }  // namespace
 
 void Create::RemoveRelProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
 
   try {
-    mgp::Graph graph{memgraph_graph};
+    const mgp::Graph graph{memgraph_graph};
     const auto keys{arguments[1].ValueList()};
 
     std::unordered_set<int64_t> ids;
@@ -91,12 +91,12 @@ void Create::RemoveRelProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_
 }
 
 void Create::SetRelProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
 
   try {
-    mgp::Graph graph{memgraph_graph};
+    const mgp::Graph graph{memgraph_graph};
     const auto keys{arguments[1].ValueList()};
     const auto values{arguments[2].ValueList()};
 
@@ -142,7 +142,7 @@ void Create::SetRelProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_res
 }
 
 void Create::Relationship(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
 
@@ -173,13 +173,13 @@ void Create::SetElementProp(mgp::Relationship &element, const mgp::List &prop_ke
   for (size_t i = 0; i < prop_key_list.Size(); i++) {
     element.SetProperty(std::string(prop_key_list[i].ValueString()), prop_value_list[i]);
     auto record = record_factory.NewRecord();
-    record.Insert(std::string(kResultRelProp).c_str(), std::move(element));
+    record.Insert(std::string(kResultRelProp).c_str(), element);
   }
 }
 
-void Create::ProcessElement(const mgp::Value &element, const mgp::Graph graph, const mgp::List &prop_key_list,
-                            const mgp::List &prop_value_list, const mgp::RecordFactory &record_factory,
-                            std::unordered_set<mgp::Id> &relIds) {
+void Create::ProcessElement(const mgp::Value &element, const mgp::Graph graph [[maybe_unused]],
+                            const mgp::List &prop_key_list, const mgp::List &prop_value_list,
+                            const mgp::RecordFactory &record_factory, std::unordered_set<mgp::Id> &relIds) {
   if (!(element.IsRelationship() || element.IsInt())) {
     throw mgp::ValueException("First argument must be a relationship, id or a list of those.");
   }
@@ -192,7 +192,7 @@ void Create::ProcessElement(const mgp::Value &element, const mgp::Graph graph, c
 }
 
 void Create::SetRelProperty(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto graph = mgp::Graph(memgraph_graph);
   const auto record_factory = mgp::RecordFactory(result);
@@ -228,7 +228,7 @@ void Create::SetRelProperty(mgp_list *args, mgp_graph *memgraph_graph, mgp_resul
 void Create::RemoveElementProperties(mgp::Node &element, const mgp::List &properties_keys,
                                      const mgp::RecordFactory &record_factory) {
   for (auto key : properties_keys) {
-    std::string key_str(key.ValueString());
+    const std::string key_str(key.ValueString());
     element.RemoveProperty(key_str);
   }
   auto record = record_factory.NewRecord();
@@ -241,7 +241,7 @@ void Create::RemoveElementLabels(mgp::Node &element, const mgp::List &labels,
     element.RemoveLabel(label.ValueString());
   }
   auto record = record_factory.NewRecord();
-  record.Insert(std::string(kResultRemoveLabels).c_str(), std::move(element));
+  record.Insert(std::string(kResultRemoveLabels).c_str(), element);
 }
 
 void Create::ProcessElement(const mgp::Value &element, const mgp::Graph graph, const mgp::List &list_keys,
@@ -267,7 +267,7 @@ void Create::ProcessElement(const mgp::Value &element, const mgp::Graph graph, c
 }
 
 void Create::RemoveLabels(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto graph = mgp::Graph(memgraph_graph);
   const auto record_factory = mgp::RecordFactory(result);
@@ -276,11 +276,11 @@ void Create::RemoveLabels(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 
     if (arguments[0].IsList()) {
       for (const auto element : arguments[0].ValueList()) {
-        ProcessElement(element, graph, labels, 0, record_factory);
+        ProcessElement(element, graph, labels, false, record_factory);
       }
       return;
     }
-    ProcessElement(arguments[0], graph, labels, 0, record_factory);
+    ProcessElement(arguments[0], graph, labels, false, record_factory);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -289,20 +289,20 @@ void Create::RemoveLabels(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 }
 
 void Create::RemoveProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
-    mgp::Graph graph = mgp::Graph(memgraph_graph);
+    const auto graph = mgp::Graph(memgraph_graph);
     const auto list_keys = arguments[1].ValueList();
 
     if (arguments[0].IsList()) {
       for (const auto element : arguments[0].ValueList()) {
-        ProcessElement(element, graph, list_keys, 1, record_factory);
+        ProcessElement(element, graph, list_keys, false, record_factory);
       }
       return;
     }
-    ProcessElement(arguments[0], graph, list_keys, 1, record_factory);
+    ProcessElement(arguments[0], graph, list_keys, false, record_factory);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -315,7 +315,7 @@ void Create::SetElementProp(mgp::Node &element, const mgp::List &prop_key_list, 
   for (size_t i = 0; i < prop_key_list.Size(); i++) {
     element.SetProperty(std::string(prop_key_list[i].ValueString()), prop_value_list[i]);
     auto record = record_factory.NewRecord();
-    record.Insert(std::string(kResultProperties).c_str(), std::move(element));
+    record.Insert(std::string(kResultProperties).c_str(), element);
   }
 }
 
@@ -335,7 +335,7 @@ void Create::ProcessElement(const mgp::Value &element, const mgp::Graph graph, c
 }
 
 void Create::SetProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto graph = mgp::Graph(memgraph_graph);
   const auto record_factory = mgp::RecordFactory(result);
@@ -362,7 +362,7 @@ void Create::SetProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result
 }
 
 void Create::Node(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto graph = mgp::Graph(memgraph_graph);
   const auto record_factory = mgp::RecordFactory(result);
@@ -381,7 +381,7 @@ void Create::Node(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
     }
 
     auto record = record_factory.NewRecord();
-    record.Insert(std::string(kResultNode).c_str(), std::move(node));
+    record.Insert(std::string(kResultNode).c_str(), node);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -390,14 +390,14 @@ void Create::Node(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
 }
 
 void Create::Nodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
-    mgp::Graph graph = mgp::Graph(memgraph_graph);
+    auto graph = mgp::Graph(memgraph_graph);
     const mgp::List labels = arguments[0].ValueList();
     const mgp::List properties = arguments[1].ValueList();
-    const int64_t num_of_nodes = properties.Size();
+    const auto num_of_nodes = static_cast<int64_t>(properties.Size());
     for (auto i = 0; i < num_of_nodes; i++) {
       mgp::Node node = graph.CreateNode();
       for (auto label : labels) {
@@ -405,7 +405,7 @@ void Create::Nodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result
       }
       const mgp::Map node_properties = properties[i].ValueMap();
       for (auto item : node_properties) {
-        node.SetProperty(std::string(item.key), std::move(item.value));
+        node.SetProperty(std::string(item.key), item.value);
       }
       auto record = record_factory.NewRecord();
       record.Insert(std::string(Create::kReturnNodes).c_str(), node);
@@ -418,11 +418,11 @@ void Create::Nodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result
 }
 
 void Create::SetProperty(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
-    mgp::Graph graph = mgp::Graph(memgraph_graph);
+    const auto graph = mgp::Graph(memgraph_graph);
     mgp::List key;
     key.AppendExtend(arguments[1]);
     mgp::List value;

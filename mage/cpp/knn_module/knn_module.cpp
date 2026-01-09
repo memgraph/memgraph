@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,6 +44,7 @@ constexpr int kDefaultMaxIterations = 100;
 constexpr int kDefaultConcurrency = 1;
 constexpr double kDefaultSampleRate = 0.5;
 
+namespace {
 // Helper function to validate parameter ranges
 void ValidateParameterRanges(const knn_util::KNNConfig &config) {
   // Validate range [0, 1] parameters
@@ -80,6 +81,7 @@ void ValidateParameterRanges(const knn_util::KNNConfig &config) {
 }
 
 // Helper function to parse nodeProperties configuration
+// NOLINTNEXTLINE(clang-analyzer-optin.cplusplus.UninitializedObject)
 std::vector<std::string> ParseNodeProperties(const mgp::Value &node_props_value) {
   std::vector<std::string> properties;
 
@@ -101,10 +103,12 @@ std::vector<std::string> ParseNodeProperties(const mgp::Value &node_props_value)
       if (prop_list[i].IsString()) {
         const std::string prop_name = std::string(prop_list[i].ValueString());
         if (prop_name.empty()) {
+          // NOLINTNEXTLINE(clang-analyzer-optin.cplusplus.UninitializedObject)
           throw mgp::ValueException(fmt::format("Property name at index {} cannot be empty", i));
         }
         properties.push_back(prop_name);
       } else {
+        // NOLINTNEXTLINE(clang-analyzer-optin.cplusplus.UninitializedObject)
         throw mgp::ValueException(fmt::format("Property list element at index {} must be a string", i));
       }
     }
@@ -126,15 +130,15 @@ void InsertResults(const std::vector<std::tuple<mgp::Node, mgp::Node, double>> &
                    const mgp::RecordFactory &record_factory) {
   for (const auto &result : results) {
     auto new_record = record_factory.NewRecord();
-    new_record.Insert(kFieldNode.data(), std::get<0>(result));
-    new_record.Insert(kFieldNeighbour.data(), std::get<1>(result));
-    new_record.Insert(kFieldSimilarity.data(), std::get<2>(result));
+    new_record.Insert(std::string(kFieldNode).c_str(), std::get<0>(result));
+    new_record.Insert(std::string(kFieldNeighbour).c_str(), std::get<1>(result));
+    new_record.Insert(std::string(kFieldSimilarity).c_str(), std::get<2>(result));
   }
 }
 
 // Get procedure - returns similarity pairs
 void Get(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto record_factory = mgp::RecordFactory(result);
   const auto &arguments = mgp::List(args);
   const auto &config_map = arguments[0].ValueMap();
@@ -192,18 +196,19 @@ void Get(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
     record_factory.SetErrorMessage(fmt::format("Unexpected error: {}", e.what()));
   }
 }
+}  // namespace
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard{memory};
+    const mgp::MemoryDispatcherGuard guard{memory};
 
     // Return types for get procedure
-    std::vector<mgp::Return> returns = {mgp::Return(kFieldNode, mgp::Type::Node),
-                                        mgp::Return(kFieldNeighbour, mgp::Type::Node),
-                                        mgp::Return(kFieldSimilarity, mgp::Type::Double)};
+    const std::vector<mgp::Return> returns = {mgp::Return(kFieldNode, mgp::Type::Node),
+                                              mgp::Return(kFieldNeighbour, mgp::Type::Node),
+                                              mgp::Return(kFieldSimilarity, mgp::Type::Double)};
 
     // Single config parameter
-    std::vector<mgp::Parameter> parameters = {mgp::Parameter(kArgumentConfig, mgp::Type::Map)};
+    const std::vector<mgp::Parameter> parameters = {mgp::Parameter(kArgumentConfig, mgp::Type::Map)};
 
     // Add the single get procedure
     mgp::AddProcedure(Get, kProcedureGet, mgp::ProcedureType::Read, parameters, returns, module, memory);

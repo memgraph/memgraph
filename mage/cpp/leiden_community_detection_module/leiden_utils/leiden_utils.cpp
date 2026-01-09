@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,8 +19,8 @@ void CreateIntermediaryCommunities(Dendrogram &intermediary_communities,
                                    const std::vector<std::vector<std::uint64_t>> &communities,
                                    std::uint64_t current_level) {
   for (std::uint64_t i = 0; i < communities.size(); i++) {
-    const auto new_intermediary_community_id =
-        std::make_shared<IntermediaryCommunityId>(IntermediaryCommunityId{i, current_level + 1, nullptr});
+    const auto new_intermediary_community_id = std::make_shared<IntermediaryCommunityId>(
+        IntermediaryCommunityId{.community_id = i, .level = current_level + 1, .parent = nullptr});
     for (const auto &node_id : communities[i]) {
       intermediary_communities[current_level][node_id]->parent = new_intermediary_community_id;
     }

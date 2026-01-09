@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,7 +44,7 @@ void GetKatzCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
     auto katz_centralities = katz_alg::SetKatz(*graph, alpha, epsilon);
 
     for (auto &[vertex_id, centrality] : katz_centralities) {
-      InsertKatzRecord(memgraph_graph, result, memory, centrality, vertex_id);
+      InsertKatzRecord(memgraph_graph, result, memory, centrality, static_cast<int>(vertex_id));
     }
   } catch (const std::exception &e) {
     mgp::result_set_error_msg(result, e.what());
@@ -58,8 +58,8 @@ extern "C" int mgp_init_module(mgp_module *module, mgp_memory *memory) {
   try {
     // Static Katz centrality
     {
-      auto default_alpha = mgp::value_make_double(0.2, memory);
-      auto default_epsilon = mgp::value_make_double(1e-2, memory);
+      auto *default_alpha = mgp::value_make_double(0.2, memory);
+      auto *default_epsilon = mgp::value_make_double(1e-2, memory);
 
       auto *proc = mgp::module_add_read_procedure(module, kProcedureGet, GetKatzCentrality);
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,24 +17,26 @@
 #include "algorithms/descendants.hpp"
 #include "algorithms/topological_sort.hpp"
 
-const char *kProcedureAncestors = "ancestors";
-const char *kProcedureChainNodes = "chain_nodes";
-const char *kProcedureConnectNodes = "connect_nodes";
-const char *kProcedureDescendants = "descendants";
-const char *kProcedureTopologicalSort = "topological_sort";
+namespace {
+constexpr const char *kProcedureAncestors = "ancestors";
+constexpr const char *kProcedureChainNodes = "chain_nodes";
+constexpr const char *kProcedureConnectNodes = "connect_nodes";
+constexpr const char *kProcedureDescendants = "descendants";
+constexpr const char *kProcedureTopologicalSort = "topological_sort";
 
-const char *kReturnAncestors = "ancestors";
-const char *kReturnConnections = "connections";
-const char *kReturnDescendants = "descendants";
-const char *kReturnSortedNodes = "sorted_nodes";
+constexpr const char *kReturnAncestors = "ancestors";
+constexpr const char *kReturnConnections = "connections";
+constexpr const char *kReturnDescendants = "descendants";
+constexpr const char *kReturnSortedNodes = "sorted_nodes";
 
-const char *kArgumentEdgeType = "edge_type";
-const char *kArgumentNode = "node";
-const char *kArgumentNodes = "nodes";
+constexpr const char *kArgumentEdgeType = "edge_type";
+constexpr const char *kArgumentNode = "node";
+constexpr const char *kArgumentNodes = "nodes";
+}  // namespace
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard{memory};
+    const mgp::MemoryDispatcherGuard guard{memory};
 
     // Register ancestors procedure
     const auto ancestors_return = std::make_pair(mgp::Type::List, mgp::Type::Node);

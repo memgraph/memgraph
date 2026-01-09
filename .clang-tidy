@@ -67,7 +67,8 @@ Checks: '*,
          -bugprone-easily-swappable-parameters,
          -bugprone-unchecked-optional-access'
 WarningsAsErrors: ''
-HeaderFilterRegex: '(src|mage/cpp)/.*'
+HeaderFilterRegex: '(^|/)(src|mage/cpp)/'
+ExcludeHeaderFilterRegex: '.*/_deps/.*'
 FormatStyle:     none
 CheckOptions:
   - key:             google-readability-braces-around-statements.ShortStatementLines

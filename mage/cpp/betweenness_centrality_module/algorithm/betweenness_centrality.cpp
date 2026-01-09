@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,9 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <atomic>
 #include <future>
 #include <queue>
+#include <ranges>
 #include <stack>
 #include <vector>
 
@@ -74,11 +76,12 @@ std::vector<double> BetweennessCentrality(const mg_graph::GraphView<> &graph, bo
 
   auto process_nodes = [&](std::uint64_t start, std::uint64_t end) {
     // Thread-local BFS resources
-    thread_local std::vector<std::uint64_t> shortest_paths_counter(number_of_nodes, 0);
-    thread_local std::vector<int> distance(number_of_nodes, -1);
-    thread_local std::vector<std::vector<std::uint64_t>> predecessors(number_of_nodes, std::vector<std::uint64_t>{});
-    thread_local std::vector<double> dependency(number_of_nodes, 0.0);
-    thread_local std::stack<std::uint64_t> visited;
+    static thread_local std::vector<std::uint64_t> shortest_paths_counter(number_of_nodes, 0);
+    static thread_local std::vector<int> distance(number_of_nodes, -1);
+    static thread_local std::vector<std::vector<std::uint64_t>> predecessors(number_of_nodes,
+                                                                             std::vector<std::uint64_t>{});
+    static thread_local std::vector<double> dependency(number_of_nodes, 0.0);
+    static thread_local std::stack<std::uint64_t> visited;
 
     for (auto node_id = start; node_id < end; ++node_id) {
       shortest_paths_counter[node_id] = 1;
@@ -103,9 +106,9 @@ std::vector<double> BetweennessCentrality(const mg_graph::GraphView<> &graph, bo
       }
 
       // Reset BFS resources
-      std::fill(shortest_paths_counter.begin(), shortest_paths_counter.end(), 0);
-      std::fill(distance.begin(), distance.end(), -1);
-      std::fill(dependency.begin(), dependency.end(), 0.0);
+      std::ranges::fill(shortest_paths_counter, 0);
+      std::ranges::fill(distance, -1);
+      std::ranges::fill(dependency, 0.0);
       for (auto &preds : predecessors) preds.clear();
     }
   };

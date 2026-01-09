@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,14 +16,14 @@
 
 extern "C" int mgp_init_module(mgp_module *module, mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard(memory);
+    const mgp::MemoryDispatcherGuard guard(memory);
     mgp::AddProcedure(CsvUtils::CreateCsvFile, CsvUtils::kProcedureCreateCsvFile, mgp::ProcedureType::Read,
                       {
                           mgp::Parameter(CsvUtils::kArgumentCreateCsvFile1, mgp::Type::String),
                           mgp::Parameter(CsvUtils::kArgumentCreateCsvFile2, mgp::Type::String),
                           mgp::Parameter(CsvUtils::kArgumentCreateCsvFile3, mgp::Type::Bool, false),
                       },
-                      {mgp::Return(CsvUtils::kArgumentDeleteCsvFile1, {mgp::Type::String})}, module, memory);
+                      {mgp::Return(CsvUtils::kArgumentDeleteCsvFile1, mgp::Type::String)}, module, memory);
     mgp::AddProcedure(CsvUtils::DeleteCsvFile, CsvUtils::kProcedureDeleteCsvFile, mgp::ProcedureType::Read,
                       {
                           mgp::Parameter(CsvUtils::kArgumentDeleteCsvFile1, mgp::Type::String),

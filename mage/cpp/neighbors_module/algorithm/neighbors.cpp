@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,16 +12,15 @@
 #include "neighbors.hpp"
 
 #include <fmt/format.h>
+#include <algorithm>
 #include <list>
+#include <ranges>
 #include <unordered_set>
 
+namespace {
+
 bool Known(const mgp::Node &node, std::list<std::unordered_set<mgp::Node>> &list) {
-  for (auto element : list) {
-    if (element.contains(node)) {
-      return true;
-    }
-  }
-  return false;
+  return std::ranges::any_of(list, [&node](const auto &element) { return element.contains(node); });
 }
 
 void DetermineDirection(mgp::List &rel_types, std::unordered_set<std::string_view> &in_rels,
@@ -43,13 +42,15 @@ void DetermineDirection(mgp::List &rel_types, std::unordered_set<std::string_vie
       out_rels.insert(rel_type.substr(0, rel_type.size() - 1));
       continue;
     }
-    in_rels.insert(std::move(rel_type));
-    out_rels.insert(std::move(rel_type));
+    in_rels.insert(rel_type);
+    out_rels.insert(rel_type);
   }
 }
 
-void Neighbors::AtHop(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+}  // namespace
+
+void Neighbors::AtHop(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -69,7 +70,7 @@ void Neighbors::AtHop(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *res
 
     while (list.size() <= distance) {
       std::unordered_set<mgp::Node> set;
-      for (auto node : list.back()) {
+      for (const auto &node : list.back()) {
         if (!in_rels.empty()) {
           for (auto relationship : node.InRelationships()) {
             if ((in_rels.contains("") || in_rels.contains(relationship.Type())) && !Known(relationship.From(), list)) {
@@ -91,9 +92,9 @@ void Neighbors::AtHop(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *res
       list.push_back(set);
     }
 
-    for (auto node : list.back()) {
+    for (const auto &node : list.back()) {
       auto record = record_factory.NewRecord();
-      record.Insert(std::string(kResultAtHop).c_str(), std::move(node));
+      record.Insert(std::string(kResultAtHop).c_str(), node);
     }
 
   } catch (const std::exception &e) {
@@ -102,8 +103,8 @@ void Neighbors::AtHop(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *res
   }
 }
 
-void Neighbors::ByHop(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+void Neighbors::ByHop(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -123,7 +124,7 @@ void Neighbors::ByHop(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *res
 
     while (list.size() <= distance) {
       std::unordered_set<mgp::Node> set;
-      for (auto node : list.back()) {
+      for (const auto &node : list.back()) {
         if (!in_rels.empty()) {
           for (auto relationship : node.InRelationships()) {
             if ((in_rels.contains("") || in_rels.contains(relationship.Type())) && !Known(relationship.From(), list)) {
@@ -143,7 +144,7 @@ void Neighbors::ByHop(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *res
     }
 
     list.pop_front();
-    for (auto set_element : list) {
+    for (const auto &set_element : list) {
       mgp::List return_list;
       for (auto node_element : set_element) {
         return_list.AppendExtend(mgp::Value(std::move(node_element)));

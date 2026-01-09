@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,10 @@
 // licenses/APL.txt.
 
 #include "path.hpp"
+
+#include <algorithm>
+#include <ranges>
+#include <utility>
 
 #include "mgp.hpp"
 
@@ -96,8 +100,8 @@ bool Path::PathHelper::AreLabelsValid(const LabelBools &label_bools) const {
 }
 
 bool Path::PathHelper::ContinueExpanding(const LabelBools &label_bools, size_t path_size) const {
-  return (static_cast<int64_t>(path_size) <= config_.max_hops && !label_bools.blacklisted && !label_bools.terminated &&
-          (label_bools.end_node || Whitelisted(label_bools.whitelisted)));
+  return (std::cmp_less_equal(path_size, static_cast<size_t>(config_.max_hops)) && !label_bools.blacklisted &&
+          !label_bools.terminated && (label_bools.end_node || Whitelisted(label_bools.whitelisted)));
 }
 
 bool Path::PathHelper::PathSizeOk(const int64_t path_size) const {
@@ -176,9 +180,9 @@ void Path::PathHelper::ParseRelationships(const mgp::List &list_of_relationships
   }
 
   for (const auto &rel : list_of_relationships) {
-    std::string rel_type{std::string(rel.ValueString())};
-    bool starts_with = rel_type.starts_with('<');
-    bool ends_with = rel_type.ends_with('>');
+    const std::string rel_type{std::string(rel.ValueString())};
+    const bool starts_with = rel_type.starts_with('<');
+    const bool ends_with = rel_type.ends_with('>');
 
     if (rel_type.size() == 1) {
       if (starts_with) {
@@ -203,16 +207,16 @@ void Path::PathHelper::ParseRelationships(const mgp::List &list_of_relationships
   }
 }
 
-void Path::Elements(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+void Path::Elements(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard(memory);
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
 
   try {
     const auto path{arguments[0].ValuePath()};
-    size_t path_length = path.Length();
-    mgp::List split_path(path_length * 2 + 1);
-    for (int i = 0; i < path_length; ++i) {
+    const size_t path_length = path.Length();
+    mgp::List split_path((path_length * 2) + 1);
+    for (size_t i = 0; i < path_length; ++i) {
       split_path.Append(mgp::Value(path.GetNodeAt(i)));
       split_path.Append(mgp::Value(path.GetRelationshipAt(i)));
     }
@@ -224,8 +228,8 @@ void Path::Elements(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res,
   }
 }
 
-void Path::Combine(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+void Path::Combine(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard(memory);
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
 
@@ -238,15 +242,15 @@ void Path::Combine(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, 
       path1.Expand(path2.GetRelationshipAt(i));
     }
 
-    result.SetValue(std::move(path1));
+    result.SetValue(path1);
 
   } catch (const std::exception &e) {
     result.SetErrorMessage(e.what());
   }
 }
 
-void Path::Slice(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+void Path::Slice(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard(memory);
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
 
@@ -256,21 +260,21 @@ void Path::Slice(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mg
     const auto length{arguments[2].ValueInt()};
 
     mgp::Path new_path{path.GetNodeAt(offset)};
-    size_t old_path_length = path.Length();
-    size_t max_iteration = std::min((length == -1 ? old_path_length : offset + length), old_path_length);
-    for (int i = static_cast<int>(offset); i < max_iteration; ++i) {
+    const size_t old_path_length = path.Length();
+    const size_t max_iteration = std::min((length == -1 ? old_path_length : offset + length), old_path_length);
+    for (size_t i = offset; i < max_iteration; ++i) {
       new_path.Expand(path.GetRelationshipAt(i));
     }
 
-    result.SetValue(std::move(new_path));
+    result.SetValue(new_path);
 
   } catch (const std::exception &e) {
     result.SetErrorMessage(e.what());
   }
 }
 
-void Path::Create(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+void Path::Create(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -298,12 +302,9 @@ void Path::Create(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
       }
 
       auto contains = [](mgp::Relationships relationships, const mgp::Id id) {
-        for (const auto relationship : relationships) {
-          if (relationship.To().Id() == id) {
-            return true;
-          }
-        }
-        return false;
+        // NOLINTNEXTLINE(modernize-use-ranges,boost-use-ranges)
+        return std::any_of(relationships.begin(), relationships.end(),
+                           [&id](const auto &relationship) { return relationship.To().Id() == id; });
       };
 
       if ((endpoint_is_from && !contains(rel.From().OutRelationships(), rel.To().Id())) ||
@@ -343,7 +344,7 @@ void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationshi
       continue;
     }
 
-    RelDirection curr_direction = outgoing ? RelDirection::kOutgoing : RelDirection::kIncoming;
+    const RelDirection curr_direction = outgoing ? RelDirection::kOutgoing : RelDirection::kIncoming;
 
     if (wanted_direction == RelDirection::kAny || curr_direction == wanted_direction ||
         path_data_.helper_.AnyDirected(outgoing)) {
@@ -362,7 +363,7 @@ void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationshi
 void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
   const mgp::Node node{path.GetNodeAt(path_size)};
 
-  LabelBools label_bools = path_data_.helper_.GetLabelBools(node);
+  const LabelBools label_bools = path_data_.helper_.GetLabelBools(node);
   if (path_data_.helper_.PathSizeOk(path_size) && path_data_.helper_.AreLabelsValid(label_bools)) {
     auto record = path_data_.record_factory_.NewRecord();
     record.Insert(std::string(kResultExpand).c_str(), path);
@@ -399,16 +400,16 @@ void Path::PathExpand::RunAlgorithm() {
 }
 
 void Path::Expand(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
     auto graph = mgp::Graph(memgraph_graph);
     const mgp::Value start_value = arguments[0];
-    mgp::List relationships{arguments[1].ValueList()};
+    const mgp::List relationships{arguments[1].ValueList()};
     const mgp::List labels{arguments[2].ValueList()};
-    int64_t min_hops{arguments[3].ValueInt()};
-    int64_t max_hops{arguments[4].ValueInt()};
+    const int64_t min_hops{arguments[3].ValueInt()};
+    const int64_t max_hops{arguments[4].ValueInt()};
 
     PathExpand path_expand{PathData(PathHelper{labels, relationships, min_hops, max_hops}, record_factory, graph)};
 
@@ -455,16 +456,16 @@ void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int6
       }
     }
 
-    RelDirection curr_direction = outgoing ? RelDirection::kOutgoing : RelDirection::kIncoming;
+    const RelDirection curr_direction = outgoing ? RelDirection::kOutgoing : RelDirection::kIncoming;
 
     if (wanted_direction == RelDirection::kAny || curr_direction == wanted_direction ||
         path_data_.helper_.AnyDirected(outgoing)) {
       path_data_.visited_.insert(next_node.Id().AsInt());
-      queue.push({next_node, pair.second + 1});
+      queue.emplace(next_node, pair.second + 1);
     } else if (wanted_direction == RelDirection::kBoth) {
       if (outgoing && seen.contains({type, relationship.To().Id().AsInt()})) {
         path_data_.visited_.insert(next_node.Id().AsInt());
-        queue.push({next_node, pair.second + 1});
+        queue.emplace(next_node, pair.second + 1);
         to_be_returned_nodes_.AppendExtend(mgp::Value{next_node});
       } else {
         seen.insert({type, relationship.From().Id().AsInt()});
@@ -491,7 +492,7 @@ mgp::List Path::PathSubgraph::BFS() {
   std::unordered_set<int64_t> visited;
 
   for (const auto &node : path_data_.start_nodes_) {
-    queue.push({node, 0});
+    queue.emplace(node, 0);
     visited.insert(node.Id().AsInt());
   }
 
@@ -518,7 +519,7 @@ mgp::List Path::PathSubgraph::BFS() {
 }
 
 void Path::SubgraphNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto graph = mgp::Graph(memgraph_graph);
   const auto record_factory = mgp::RecordFactory(result);
@@ -549,7 +550,7 @@ void Path::SubgraphNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *
 }
 
 void Path::SubgraphAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto graph = mgp::Graph(memgraph_graph);
   const auto record_factory = mgp::RecordFactory(result);
@@ -570,9 +571,9 @@ void Path::SubgraphAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
 
     std::unordered_set<mgp::Node> to_be_returned_nodes_searchable;
 
-    std::transform(to_be_returned_nodes.begin(), to_be_returned_nodes.end(),
-                   std::inserter(to_be_returned_nodes_searchable, to_be_returned_nodes_searchable.begin()),
-                   [](const mgp::Value &node) { return node.ValueNode(); });
+    for (const auto &node : to_be_returned_nodes) {
+      to_be_returned_nodes_searchable.insert(node.ValueNode());
+    }
 
     mgp::List to_be_returned_rels;
     for (auto node : to_be_returned_nodes) {

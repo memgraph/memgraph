@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,9 @@
 #include "merge.hpp"
 #include <algorithm>
 #include <optional>
+#include <ranges>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include "mgp.hpp"
 
@@ -22,7 +24,7 @@ bool Merge::LabelsContained(const std::unordered_set<std::string_view> &labels, 
   size_t counter = 0;
 
   for (const auto label : node.Labels()) {
-    if (labels.find(label) != labels.end()) {
+    if (labels.contains(label)) {
       counter++;
     }
   }
@@ -45,7 +47,7 @@ bool Merge::IdentProp(const mgp::Map &ident_prop, const mgp::Node &node) {
 }
 
 void Merge::Node(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -111,16 +113,13 @@ void Merge::Node(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, 
 namespace {
 
 template <typename T>
-concept GraphObject = std::is_same<T, mgp::Node>::value || std::is_same<T, mgp::Relationship>::value;
+concept GraphObject = std::is_same_v<T, mgp::Node> || std::is_same_v<T, mgp::Relationship>;
 
 template <GraphObject NodeOrRel>
 bool SameProps(const NodeOrRel &node_or_rel, const mgp::Map &props) {
-  for (const auto &[k, v] : props) {
-    if (node_or_rel.GetProperty(std::string(k)) != v) {
-      return false;
-    }
-  }
-  return true;
+  return std::all_of(props.begin(), props.end(), [&node_or_rel](const auto &kv) {
+    return node_or_rel.GetProperty(std::string(kv.key)) == kv.value;
+  });
 }
 
 std::vector<mgp::Relationship> MatchRelationship(const mgp::Node &from, const mgp::Node &to, std::string_view type,
@@ -138,7 +137,7 @@ std::vector<mgp::Relationship> MatchRelationship(const mgp::Node &from, const mg
 }  // namespace
 
 void Merge::Relationship(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {

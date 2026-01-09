@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -282,7 +282,7 @@ std::vector<std::tuple<mgp::Node, mgp::Node, double>> CalculateKNN(const mgp::Gr
   uint64_t sample_rate_size =
       std::max<uint64_t>(1ULL, static_cast<uint64_t>(config.sample_rate * static_cast<double>(config.top_k)));
   double update_termination_convergence = config.delta_threshold * num_nodes * config.top_k;
-  std::mt19937 rng{config.random_seed};  // NOSONAR
+  std::mt19937 rng{static_cast<std::mt19937::result_type>(config.random_seed)};  // NOSONAR
 
   std::vector<std::vector<knn_util::KNNNeighbour>> B = InitializeNeighborhoodLists(node_data, config, num_nodes, rng);
 

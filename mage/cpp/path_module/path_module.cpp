@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard{memory};
+    const mgp::MemoryDispatcherGuard guard{memory};
 
     mgp::AddFunction(Path::Elements, Path::kProcedureElements, {mgp::Parameter(Path::kElementsArg1, mgp::Type::Path)},
                      module, memory);
@@ -31,14 +31,13 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                       mgp::Parameter(Path::kSliceArg3, mgp::Type::Int, static_cast<int64_t>(-1))},
                      module, memory);
 
-    AddProcedure(
-        Path::Expand, std::string(Path::kProcedureExpand).c_str(), mgp::ProcedureType::Read,
-        {mgp::Parameter(std::string(Path::kArgumentStartExpand).c_str(), mgp::Type::Any),
-         mgp::Parameter(std::string(Path::kArgumentRelationshipsExpand).c_str(), {mgp::Type::List, mgp::Type::String}),
-         mgp::Parameter(std::string(Path::kArgumentLabelsExpand).c_str(), {mgp::Type::List, mgp::Type::String}),
-         mgp::Parameter(std::string(Path::kArgumentMinHopsExpand).c_str(), mgp::Type::Int),
-         mgp::Parameter(std::string(Path::kArgumentMaxHopsExpand).c_str(), mgp::Type::Int)},
-        {mgp::Return(std::string(Path::kResultExpand).c_str(), mgp::Type::Path)}, module, memory);
+    AddProcedure(Path::Expand, std::string(Path::kProcedureExpand), mgp::ProcedureType::Read,
+                 {mgp::Parameter(std::string(Path::kArgumentStartExpand), mgp::Type::Any),
+                  mgp::Parameter(std::string(Path::kArgumentRelationshipsExpand), {mgp::Type::List, mgp::Type::String}),
+                  mgp::Parameter(std::string(Path::kArgumentLabelsExpand), {mgp::Type::List, mgp::Type::String}),
+                  mgp::Parameter(std::string(Path::kArgumentMinHopsExpand), mgp::Type::Int),
+                  mgp::Parameter(std::string(Path::kArgumentMaxHopsExpand), mgp::Type::Int)},
+                 {mgp::Return(std::string(Path::kResultExpand), mgp::Type::Path)}, module, memory);
 
     auto empty_list = mgp::Value(mgp::List{});
     auto empty_map = mgp::Map{};

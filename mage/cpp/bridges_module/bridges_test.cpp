@@ -63,7 +63,8 @@ std::vector<std::pair<std::uint64_t, std::uint64_t>> GetBridgesBruteforce(mg_gra
 
 /// Checks if obtained list of bridges is correct.
 bool CheckBridges(std::vector<mg_graph::Edge<>> user, std::vector<std::pair<std::uint64_t, std::uint64_t>> correct) {
-  std::set<std::pair<std::uint64_t, std::uint64_t>> user_bridge_set, correct_bridge_set;
+  std::set<std::pair<std::uint64_t, std::uint64_t>> user_bridge_set;
+  std::set<std::pair<std::uint64_t, std::uint64_t>> correct_bridge_set;
   for (auto [from, to] : correct) {
     correct_bridge_set.emplace(from, to);
     correct_bridge_set.emplace(to, from);

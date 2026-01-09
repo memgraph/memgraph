@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,10 +15,10 @@
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard{memory};
-    AddProcedure(Util::Md5Procedure, std::string(Util::kProcedureMd5).c_str(), mgp::ProcedureType::Read,
-                 {mgp::Parameter(std::string(Util::kArgumentValuesMd5).c_str(), mgp::Type::Any)},
-                 {mgp::Return(std::string(Util::kArgumentResultMd5).c_str(), mgp::Type::String)}, module, memory);
+    const mgp::MemoryDispatcherGuard guard{memory};
+    AddProcedure(Util::Md5Procedure, std::string(Util::kProcedureMd5), mgp::ProcedureType::Read,
+                 {mgp::Parameter(std::string(Util::kArgumentValuesMd5), mgp::Type::Any)},
+                 {mgp::Return(std::string(Util::kArgumentResultMd5), mgp::Type::String)}, module, memory);
 
     mgp::AddFunction(Util::Md5Function, std::string(Util::kProcedureMd5),
                      {mgp::Parameter(std::string(Util::kArgumentStringToHash), mgp::Type::Any)}, module, memory);

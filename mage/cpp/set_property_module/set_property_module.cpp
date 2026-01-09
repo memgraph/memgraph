@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,18 +16,17 @@
 #include <mgp.hpp>
 
 constexpr static std::string_view kResult = "result";
-constexpr static std::string_view kQueryExecuted = "queryExecuted";
 constexpr static std::string_view kSourceProperties = "sourceProperties";
-constexpr static std::string_view kSourceVariable = "sourceVariable";
 constexpr static std::string_view kSourceNode = "sourceNode";
 constexpr static std::string_view kSourceRel = "sourceRel";
 constexpr static std::string_view kTargetProperties = "targetProperties";
-constexpr static std::string_view kTargetVariable = "targetVariable";
 constexpr static std::string_view kTargetNode = "targetNode";
 constexpr static std::string_view kTargetRel = "targetRel";
 
-void CopyPropertyNode2Node(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+namespace {
+
+void CopyPropertyNode2Node(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard(memory);
 
   auto arguments = mgp::List(args);
   auto record_factory = mgp::RecordFactory(result);
@@ -48,7 +47,7 @@ void CopyPropertyNode2Node(mgp_list *args, mgp_graph *memgraph_graph, mgp_result
     auto target_properties = arguments[3].ValueList();
 
     if (source_properties.Empty() && target_properties.Empty()) {
-      record.Insert(kResult.data(), true);
+      record.Insert(std::string(kResult).c_str(), true);
       return;
     }
 
@@ -66,15 +65,15 @@ void CopyPropertyNode2Node(mgp_list *args, mgp_graph *memgraph_graph, mgp_result
 
     target_node.SetProperties(target_prop_map);
 
-    record.Insert(kResult.data(), true);
+    record.Insert(std::string(kResult).c_str(), true);
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
-    record.Insert(kResult.data(), false);
+    record.Insert(std::string(kResult).c_str(), false);
   }
 }
 
-void CopyPropertyNode2Rel(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+void CopyPropertyNode2Rel(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard(memory);
 
   auto arguments = mgp::List(args);
   auto record_factory = mgp::RecordFactory(result);
@@ -95,7 +94,7 @@ void CopyPropertyNode2Rel(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
     auto target_properties = arguments[3].ValueList();
 
     if (source_properties.Empty() && target_properties.Empty()) {
-      record.Insert(kResult.data(), true);
+      record.Insert(std::string(kResult).c_str(), true);
       return;
     }
 
@@ -113,15 +112,15 @@ void CopyPropertyNode2Rel(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 
     target_rel.SetProperties(target_prop_map);
 
-    record.Insert(kResult.data(), true);
+    record.Insert(std::string(kResult).c_str(), true);
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
-    record.Insert(kResult.data(), false);
+    record.Insert(std::string(kResult).c_str(), false);
   }
 }
 
-void CopyPropertyRel2Node(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+void CopyPropertyRel2Node(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard(memory);
 
   auto arguments = mgp::List(args);
   auto record_factory = mgp::RecordFactory(result);
@@ -142,7 +141,7 @@ void CopyPropertyRel2Node(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
     auto target_properties = arguments[3].ValueList();
 
     if (source_properties.Empty() && target_properties.Empty()) {
-      record.Insert(kResult.data(), true);
+      record.Insert(std::string(kResult).c_str(), true);
       return;
     }
 
@@ -160,15 +159,15 @@ void CopyPropertyRel2Node(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 
     target_node.SetProperties(target_prop_map);
 
-    record.Insert(kResult.data(), true);
+    record.Insert(std::string(kResult).c_str(), true);
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
-    record.Insert(kResult.data(), false);
+    record.Insert(std::string(kResult).c_str(), false);
   }
 }
 
-void CopyPropertyRel2Rel(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+void CopyPropertyRel2Rel(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard(memory);
 
   auto arguments = mgp::List(args);
   auto record_factory = mgp::RecordFactory(result);
@@ -189,7 +188,7 @@ void CopyPropertyRel2Rel(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *
     auto target_properties = arguments[3].ValueList();
 
     if (source_properties.Empty() && target_properties.Empty()) {
-      record.Insert(kResult.data(), true);
+      record.Insert(std::string(kResult).c_str(), true);
       return;
     }
 
@@ -206,16 +205,18 @@ void CopyPropertyRel2Rel(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *
 
     target_rel.SetProperties(target_prop_map);
 
-    record.Insert(kResult.data(), true);
+    record.Insert(std::string(kResult).c_str(), true);
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
-    record.Insert(kResult.data(), false);
+    record.Insert(std::string(kResult).c_str(), false);
   }
 }
 
+}  // namespace
+
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard(memory);
+    const mgp::MemoryDispatcherGuard guard(memory);
     AddProcedure(CopyPropertyNode2Node, "copyPropertyNode2Node", mgp::ProcedureType::Write,
                  {mgp::Parameter(kSourceNode, mgp::Type::Node),
                   mgp::Parameter(kSourceProperties, {mgp::Type::List, mgp::Type::String}),

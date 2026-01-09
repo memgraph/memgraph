@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
+#include <ranges>
 #include <string_view>
 
 #include <fmt/core.h>
@@ -44,6 +46,7 @@ struct QueryResults {
   mgp::List results;
 };
 
+namespace {
 ParamNames ExtractParamNames(const mgp::Map &parameters) {
   ParamNames res;
   for (const auto &map_item : parameters) {
@@ -63,7 +66,7 @@ ParamNames ExtractParamNames(const mgp::Map &parameters) {
 }
 
 std::string Join(std::vector<std::string> const &strings, std::string_view delimiter) {
-  if (!strings.size()) {
+  if (strings.empty()) {
     return "";
   }
 
@@ -73,12 +76,12 @@ std::string Join(std::vector<std::string> const &strings, std::string_view delim
   }
 
   std::string joined_strings;
-  joined_strings.reserve(joined_strings_size + delimiter.size() * (strings.size() - 1));
+  joined_strings.reserve(joined_strings_size + (delimiter.size() * (strings.size() - 1)));
 
-  joined_strings += std::move(strings[0]);
+  joined_strings += strings[0];
   for (size_t i = 1; i < strings.size(); i++) {
     joined_strings += delimiter;
-    joined_strings += std::move(strings[i]);
+    joined_strings += strings[i];
   }
 
   return joined_strings;
@@ -94,6 +97,7 @@ std::string GetPrimitiveEntityAlias(const std::string &primitive_name) {
 
 std::string ConstructWithStatement(const ParamNames &names) {
   std::vector<std::string> with_entity_vector;
+  with_entity_vector.reserve(names.node_names.size() + names.relationship_names.size() + names.primitive_names.size());
   for (const auto &node_name : names.node_names) {
     with_entity_vector.emplace_back(GetGraphFirstClassEntityAlias(node_name));
   }
@@ -104,7 +108,7 @@ std::string ConstructWithStatement(const ParamNames &names) {
     with_entity_vector.emplace_back(GetPrimitiveEntityAlias(prim_name));
   }
 
-  return fmt::format("WITH {}", Join(std::move(with_entity_vector), ", "));
+  return fmt::format("WITH {}", Join(with_entity_vector, ", "));
 }
 
 std::string ConstructMatchingNodeById(const std::string &node_name) {
@@ -116,8 +120,9 @@ std::string ConstructMatchingRelationshipById(const std::string &rel_name) {
 }
 
 std::string ConstructMatchGraphEntitiesById(const ParamNames &names) {
-  std::string match_string{""};
+  std::string match_string;
   std::vector<std::string> match_by_id_vector;
+  match_by_id_vector.reserve(names.node_names.size() + names.relationship_names.size());
   for (const auto &node_name : names.node_names) {
     match_by_id_vector.emplace_back(ConstructMatchingNodeById(node_name));
   }
@@ -125,27 +130,30 @@ std::string ConstructMatchGraphEntitiesById(const ParamNames &names) {
     match_by_id_vector.emplace_back(ConstructMatchingRelationshipById(rel_name));
   }
 
-  if (match_by_id_vector.size()) {
+  if (!match_by_id_vector.empty()) {
     match_string = Join(match_by_id_vector, " ");
   }
 
   return match_string;
 }
 
+// NOLINTNEXTLINE(clang-analyzer-optin.cplusplus.UninitializedObject)
 std::string ConstructQueryPreffix(const ParamNames &names) {
-  if (!names.node_names.size() && !names.relationship_names.size() && !names.primitive_names.size()) {
-    return std::string();
+  if (names.node_names.empty() && names.relationship_names.empty() && names.primitive_names.empty()) {
+    return {};
   }
 
   auto with_variables = ConstructWithStatement(names);
   auto match_string = ConstructMatchGraphEntitiesById(names);
 
-  return fmt::format("{} {}", with_variables, match_string);
+  return fmt::format("{} {}", with_variables,
+                     match_string);  // NOLINT(clang-analyzer-optin.cplusplus.UninitializedObject)
 }
 
+// NOLINTNEXTLINE(clang-diagnostic-unused-function)
 std::string ConstructPreffixQuery(const mgp::Map &parameters) {
   const auto param_names = ExtractParamNames(parameters);
-
+  // NOLINTNEXTLINE(clang-analyzer-optin.cplusplus.UninitializedObject)
   return ConstructQueryPreffix(param_names);
 }
 
@@ -169,11 +177,11 @@ QueryResults ExecuteQuery(const mgp::QueryExecution &query_execution, const std:
       break;
     }
 
-    auto result = *maybe_result;
+    const auto &result = *maybe_result;
     result_list.AppendExtend(mgp::Value(result.Values()));
   }
 
-  return QueryResults{.columns = std::move(headers), .results = std::move(result_list)};
+  return QueryResults{.columns = headers, .results = std::move(result_list)};
 }
 
 void InsertConditionalResults(const mgp::RecordFactory &record_factory, const QueryResults &query_results) {
@@ -184,16 +192,12 @@ void InsertConditionalResults(const mgp::RecordFactory &record_factory, const Qu
 }
 
 bool IsGlobalOperation(std::string_view query) {
-  for (const auto &global_op : kGlobalOperations) {
-    if (query.starts_with(global_op)) {
-      return true;
-    }
-  }
-  return false;
+  return std::ranges::any_of(kGlobalOperations,
+                             [&query](const auto &global_op) { return query.starts_with(global_op); });
 }
 
 void When(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
 
   const auto arguments = mgp::List(args);
   const auto condition = arguments[0].ValueBool();
@@ -220,7 +224,7 @@ void When(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_mem
 }
 
 void Case(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
 
   const auto arguments = mgp::List(args);
   const auto conditionals = arguments[0].ValueList();
@@ -240,7 +244,8 @@ void Case(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_mem
   for (size_t i = 0; i < conditionals_size; i++) {
     if (!(i % 2) && !conditionals[i].IsBool()) {
       throw std::runtime_error(fmt::format("Argument on index {} in do.case conditionals is not bool!", i));
-    } else if (i % 2 && !conditionals[i].IsString()) {
+    }
+    if (i % 2 && !conditionals[i].IsString()) {
       throw std::runtime_error(fmt::format("Argument on index {} in do.case conditionals is not string!", i));
     }
   }
@@ -249,7 +254,7 @@ void Case(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_mem
   for (size_t i = 0; i < conditionals_size; i += 2) {
     const auto conditional = conditionals[i].ValueBool();
     if (conditional) {
-      found_true_conditional = i;
+      found_true_conditional = static_cast<int>(i);
       break;
     }
   }
@@ -274,10 +279,11 @@ void Case(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_mem
     return;
   }
 }
+}  // namespace
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard{memory};
+    const mgp::MemoryDispatcherGuard guard{memory};
 
     mgp::AddProcedure(Case, kProcedureCase, mgp::ProcedureType::Read,
                       {mgp::Parameter(kArgumentConditionals, {mgp::Type::List, mgp::Type::Any}),

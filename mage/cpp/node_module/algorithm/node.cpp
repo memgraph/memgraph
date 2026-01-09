@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,8 @@
 
 #include "node.hpp"
 
+#include <algorithm>
+#include <ranges>
 #include <unordered_set>
 
 #include "mgp.hpp"
@@ -25,11 +27,11 @@ std::unordered_map<std::string_view, uint8_t> GetTypeDirection(const mgp::Value 
       if (type.ends_with('>')) {
         throw mgp::ValueException("<type> format not allowed. Use type instead.");
       }
-      result[type.substr(1, type.size() - 1)] |= 1;
+      result[type.substr(1, type.size() - 1)] |= 1U;
     } else if (type.ends_with('>')) {
-      result[type.substr(0, type.size() - 1)] |= 2;
+      result[type.substr(0, type.size() - 1)] |= 2U;
     } else {
-      result[type] |= 3;
+      result[type] |= 3U;
     }
   }
   return result;
@@ -49,12 +51,12 @@ mgp::List GetRelationshipTypes(const mgp::Value &node_value, const mgp::Value &t
     }
   } else {
     for (const auto relationship : node.InRelationships()) {
-      if (type_direction[relationship.Type()] & 1) {
+      if ((type_direction[relationship.Type()] & 1U) != 0) {
         types.insert(relationship.Type());
       }
     }
     for (const auto relationship : node.OutRelationships()) {
-      if (type_direction[relationship.Type()] & 2) {
+      if ((type_direction[relationship.Type()] & 2U) != 0) {
         types.insert(relationship.Type());
       }
     }
@@ -73,7 +75,8 @@ bool Node::RelationshipExist(const mgp::Node &node, std::string &rel_type) {
   char direction{' '};
   if (rel_type[0] == '<' && rel_type[rel_type.size() - 1] == '>') {
     throw mgp::ValueException("Invalid relationship specification!");
-  } else if (rel_type[rel_type.size() - 1] == '>') {
+  }
+  if (rel_type[rel_type.size() - 1] == '>') {
     direction = rel_type[rel_type.size() - 1];
     rel_type.pop_back();
   } else if (rel_type[0] == '<') {
@@ -85,16 +88,13 @@ bool Node::RelationshipExist(const mgp::Node &node, std::string &rel_type) {
       return true;
     }
   }
-  for (auto rel : node.InRelationships()) {
-    if (std::string(rel.Type()) == rel_type && direction != '>') {
-      return true;
-    }
-  }
-  return false;
+  return std::any_of(
+      node.InRelationships().begin(), node.InRelationships().end(),
+      [&rel_type, &direction](const auto &rel) { return std::string(rel.Type()) == rel_type && direction != '>'; });
 }
 
-void Node::RelationshipsExist(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+void Node::RelationshipsExist(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -113,7 +113,7 @@ void Node::RelationshipsExist(mgp_list *args, mgp_graph *memgraph_graph, mgp_res
       }
     }
     auto record = record_factory.NewRecord();
-    record.Insert(std::string(kReturnRelationshipsExist).c_str(), std::move(relationship_map));
+    record.Insert(std::string(kReturnRelationshipsExist).c_str(), relationship_map);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -125,16 +125,14 @@ bool Node::FindRelationship(std::unordered_set<std::string_view> types, mgp::Rel
   if (types.contains("") && relationships.cbegin() != relationships.cend()) {
     return true;
   }
-  for (auto relationship : relationships) {
-    if (types.contains(relationship.Type())) {
-      return true;
-    }
-  }
-  return false;
+
+  // NOLINTNEXTLINE(modernize-use-ranges, boost-use-ranges)
+  return std::any_of(relationships.begin(), relationships.end(),
+                     [&types](const auto &relationship) { return types.contains(relationship.Type()); });
 }
 
-void Node::RelationshipExists(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+void Node::RelationshipExists(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -175,8 +173,8 @@ void Node::RelationshipExists(mgp_list *args, mgp_graph *memgraph_graph, mgp_res
   }
 }
 
-void Node::RelationshipTypes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+void Node::RelationshipTypes(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -189,14 +187,14 @@ void Node::RelationshipTypes(mgp_list *args, mgp_graph *memgraph_graph, mgp_resu
   }
 }
 
-void Node::DegreeIn(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+void Node::DegreeIn(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
     const auto node = arguments[0].ValueNode();
     const auto type = arguments[1].ValueString();
-    if (type.size() == 0) {
+    if (type.empty()) {
       result.SetValue((int64_t)node.InDegree());
       return;
     }
@@ -214,14 +212,14 @@ void Node::DegreeIn(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res,
   }
 }
 
-void Node::DegreeOut(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
+void Node::DegreeOut(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
     const auto node = arguments[0].ValueNode();
     const auto type = arguments[1].ValueString();
-    if (type.size() == 0) {
+    if (type.empty()) {
       result.SetValue((int64_t)node.OutDegree());
       return;
     }

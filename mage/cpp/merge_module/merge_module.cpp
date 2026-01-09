@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,13 +15,13 @@
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard{memory};
-    AddProcedure(Merge::Node, std::string(Merge::kProcedureNode).c_str(), mgp::ProcedureType::Write,
-                 {mgp::Parameter(std::string(Merge::kNodeArg1).c_str(), {mgp::Type::List, mgp::Type::String}),
-                  mgp::Parameter(std::string(Merge::kNodeArg2).c_str(), {mgp::Type::Map, mgp::Type::Any}),
-                  mgp::Parameter(std::string(Merge::kNodeArg3).c_str(), {mgp::Type::Map, mgp::Type::Any}),
-                  mgp::Parameter(std::string(Merge::kNodeArg4).c_str(), {mgp::Type::Map, mgp::Type::Any})},
-                 {mgp::Return(std::string(Merge::kNodeRes).c_str(), mgp::Type::Node)}, module, memory);
+    const mgp::MemoryDispatcherGuard guard{memory};
+    AddProcedure(Merge::Node, std::string(Merge::kProcedureNode), mgp::ProcedureType::Write,
+                 {mgp::Parameter(std::string(Merge::kNodeArg1), {mgp::Type::List, mgp::Type::String}),
+                  mgp::Parameter(std::string(Merge::kNodeArg2), {mgp::Type::Map, mgp::Type::Any}),
+                  mgp::Parameter(std::string(Merge::kNodeArg3), {mgp::Type::Map, mgp::Type::Any}),
+                  mgp::Parameter(std::string(Merge::kNodeArg4), {mgp::Type::Map, mgp::Type::Any})},
+                 {mgp::Return(std::string(Merge::kNodeRes), mgp::Type::Node)}, module, memory);
 
     AddProcedure(Merge::Relationship, Merge::kProcedureRelationship, mgp::ProcedureType::Write,
                  {mgp::Parameter(Merge::kRelationshipArg1, mgp::Type::Node),
