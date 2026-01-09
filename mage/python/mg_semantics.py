@@ -396,7 +396,7 @@ def rdf_import_fetch(
 
 
 @mgp.function
-def rdf_get_lang_value(lang: str, values: Union[mgp.List, str, Any]) -> Optional[str]:
+def rdf_get_lang_value(lang: str, values: Any) -> mgp.Nullable[str]:
     """
     Get a language-specific value from a list of language-tagged values.
 
