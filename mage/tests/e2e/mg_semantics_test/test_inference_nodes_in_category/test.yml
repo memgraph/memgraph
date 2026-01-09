@@ -1,0 +1,13 @@
+query: >
+    MATCH (phyOpt:LCSHTopic { authoritativeLabel: "Physical optics"})
+    CALL mg_semantics.inference_nodes_in_category(phyOpt, { inCatRel: "HAS_SUBJECT", subCatRel: "NARROWER_THAN" })
+    YIELD node AS book
+    RETURN book.identifier AS id, book.title AS title
+    ORDER BY book.identifier
+
+output:
+    - id: "2167673"
+      title: "Crystals and light"
+    - id: "11916857"
+      title: "Optical crystallography"
+
