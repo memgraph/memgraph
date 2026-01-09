@@ -136,11 +136,11 @@ void CombineCycles(std::uint32_t mask, const std::vector<std::vector<std::uint64
   std::vector<mg_graph::Node<>> cycle;
   auto curr_node = *nodes.begin();
 
-  while (visited.contains(curr_node)) {
+  while (!visited.contains(curr_node)) {
     cycle.push_back({curr_node});
     visited.insert(curr_node);
     for (const auto next_node : adj_list[curr_node]) {
-      if (visited.contains(next_node)) {
+      if (!visited.contains(next_node)) {
         curr_node = next_node;
         break;
       }
@@ -148,7 +148,7 @@ void CombineCycles(std::uint32_t mask, const std::vector<std::vector<std::uint64
   }
 
   for (const auto node : nodes) {
-    if (visited.contains(node)) {
+    if (!visited.contains(node)) {
       return;
     }
   }
