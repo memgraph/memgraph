@@ -456,7 +456,7 @@ def rdf_get_value(literal: mgp.Nullable[mgp.Any]) -> mgp.Nullable[str]:
 
 
 @mgp.write_proc
-def onto_import_inline(
+def rdf_import_inline(
     ctx: mgp.ProcCtx,
     payload: str,
     format: str = "turtle",
