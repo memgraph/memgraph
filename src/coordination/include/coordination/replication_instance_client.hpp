@@ -14,8 +14,8 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_state.hpp"
+#include "coordination/replication_lag_info.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/client.hpp"
 #include "utils/event_counter.hpp"
@@ -54,7 +54,8 @@ using ReplicationClientsInfo = std::vector<ReplicationClientInfo>;
 
 class ReplicationInstanceClient {
  public:
-  explicit ReplicationInstanceClient(DataInstanceConfig config, CoordinatorInstance *coord_instance,
+  explicit ReplicationInstanceClient(std::string instance_name, io::network::Endpoint mgt_server,
+                                     CoordinatorInstance *coord_instance,
                                      std::chrono::seconds instance_health_check_frequency_sec);
 
   ~ReplicationInstanceClient() = default;
@@ -70,34 +71,21 @@ class ReplicationInstanceClient {
   void PauseStateCheck();
   void ResumeStateCheck();
 
-  auto InstanceName() const -> std::string;
-  auto BoltSocketAddress() const -> std::string;
-  auto ManagementSocketAddress() const -> std::string;
-  auto ReplicationSocketAddress() const -> std::string;
+  auto InstanceName() const -> std::string const &;
 
   auto SendGetDatabaseHistoriesRpc() const -> std::optional<replication_coordination_glue::InstanceInfo>;
   auto SendGetReplicationLagRpc() const -> std::optional<ReplicationLagInfo>;
-  auto GetReplicationClientInfo() const -> ReplicationClientInfo;
   auto RpcClient() const -> rpc::Client & { return rpc_client_; }
 
   friend bool operator==(ReplicationInstanceClient const &first, ReplicationInstanceClient const &second) {
-    return first.config_ == second.config_;
+    return first.instance_name_ == second.instance_name_;
   }
 
   template <rpc::IsRpc T, typename... Args>
   auto SendRpc(Args &&...args) const -> bool {
     utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
     try {
-      // Instead of retrieving config_.replication_client_info and sending it again into this function, we have this
-      // compile-time switch which decides specifically to ship config_.replication_client_info for
-      // DemoteMainToReplicaRpc
-      auto stream = std::invoke([&]() {
-        if constexpr (std::same_as<T, DemoteMainToReplicaRpc>) {
-          return rpc_client_.Stream<T>(config_.replication_client_info, std::forward<Args>(args)...);
-        } else {
-          return rpc_client_.Stream<T>(std::forward<Args>(args)...);
-        }
-      });
+      auto stream = rpc_client_.Stream<T>(std::forward<Args>(args)...);
 
       if (!stream.SendAndWait().success) {
         spdlog::error("Received unsuccessful response to {}.", T::Request::kType.name);
@@ -120,7 +108,7 @@ class ReplicationInstanceClient {
   communication::ClientContext rpc_context_;
   mutable rpc::Client rpc_client_;
 
-  DataInstanceConfig config_;
+  std::string instance_name_;
   CoordinatorInstance *coord_instance_;
 
   std::chrono::seconds instance_health_check_frequency_sec_{1};

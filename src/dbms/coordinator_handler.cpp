@@ -90,6 +90,11 @@ auto CoordinatorHandler::GetLeaderCoordinatorData() const -> std::optional<coord
   return coordinator_state_.GetLeaderCoordinatorData();
 }
 
+auto CoordinatorHandler::UpdateConfig(std::variant<int32_t, std::string> const &instance,
+                                      io::network::Endpoint const &bolt_endpoint) -> coordination::UpdateConfigStatus {
+  return coordinator_state_.UpdateConfig(instance, bolt_endpoint);
+}
+
 }  // namespace memgraph::dbms
 
 #endif

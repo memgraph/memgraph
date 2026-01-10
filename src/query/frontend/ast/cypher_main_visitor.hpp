@@ -282,6 +282,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return CoordinatorQuery*
    */
+  antlrcpp::Any visitUpdateConfig(MemgraphCypher::UpdateConfigContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
   antlrcpp::Any visitForceResetClusterStateOnCoordinator(
       MemgraphCypher::ForceResetClusterStateOnCoordinatorContext *ctx) override;
 
