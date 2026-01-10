@@ -298,11 +298,11 @@ void Create::RemoveProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_res
 
     if (arguments[0].IsList()) {
       for (const auto element : arguments[0].ValueList()) {
-        ProcessElement(element, graph, list_keys, false, record_factory);
+        ProcessElement(element, graph, list_keys, true, record_factory);
       }
       return;
     }
-    ProcessElement(arguments[0], graph, list_keys, false, record_factory);
+    ProcessElement(arguments[0], graph, list_keys, true, record_factory);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
