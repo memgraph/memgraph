@@ -1,0 +1,7 @@
+query: >
+    MATCH (a)-[]->(b)
+    CALL distance_calculator.single(a, b) YIELD distance
+    RETURN distance;
+
+output:
+    - distance: 197568.16

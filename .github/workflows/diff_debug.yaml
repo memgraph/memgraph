@@ -155,7 +155,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh.sh
 
   integration:
     if: ${{ inputs.run_integration == 'true' }}
@@ -226,4 +226,4 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh.sh

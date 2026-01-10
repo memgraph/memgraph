@@ -1,0 +1,9 @@
+- query: >-
+        CALL node_classification.train(5) YIELD epoch RETURN epoch;
+  output:
+        - epoch: 5
+
+- query: >-
+        CALL node_classification.train(5) YIELD epoch RETURN epoch;
+  output:
+        - epoch: 5

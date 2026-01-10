@@ -137,7 +137,7 @@ jobs:
         run: echo "$GH_CONTEXT" >> "$GH_CONTEXT_FILE_NAME"
       - name: Set up package execution
         id: setup
-        run: ./tools/package_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME"
+        run: ./tools/ci/package_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME"
 
   CentOS9:
     needs: PackageSetup

@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.mysql('SELECT decimal_col FROM dummy_table', {
+      host: 'mysql_test',
+      port: 3306,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.decimal_col) AS decimal_col_type, row.decimal_col AS decimal_col
+
+output:
+  - decimal_col_type: 'FLOAT'
+    decimal_col: 123.45

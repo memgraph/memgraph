@@ -1,0 +1,11 @@
+apiVersion: kubeadm.k8s.io/v1beta3 # To figure out run `kubeadm config print init-defaults | head`.
+kind: JoinConfiguration
+nodeRegistration:
+  kubeletExtraArgs:
+    node-ip: 100.99.96.28 # Put the IP accessible from the master node.
+discovery:
+  bootstrapToken:
+    token: <BOOTSTRAP_TOKEN>
+    apiServerEndpoint: 100.94.19.81:6443 # Put the IP of the master node.
+    caCertHashes:
+    - <CA_CERT_HASH>

@@ -1,0 +1,4 @@
+memgraph_query: >
+  MATCH (d:Dog), (h:Human)
+  CALL create.remove_properties([d, id(h)],["key", "key2"]) YIELD node RETURN node;
+neo4j_query: MATCH (n:Dog), (h:Human) CALL apoc.create.removeProperties([n, h],["key", "key2"]) YIELD node RETURN node;

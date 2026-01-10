@@ -1,0 +1,18 @@
+query: >
+    CALL weakly_connected_components.get() YIELD node, component_id
+    RETURN node.id AS node_id, component_id
+    ORDER BY node_id, component_id
+
+output:
+    - node_id: 0
+      component_id: 0
+    - node_id: 1
+      component_id: 0
+    - node_id: 2
+      component_id: 0
+    - node_id: 3
+      component_id: 1
+    - node_id: 4
+      component_id: 1
+    - node_id: 5
+      component_id: 1

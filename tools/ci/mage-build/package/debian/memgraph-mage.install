@@ -1,0 +1,3 @@
+build/usr/lib/memgraph/query_modules/* usr/lib/memgraph/query_modules/
+build/usr/lib/memgraph/mage-requirements.txt usr/lib/memgraph/
+build/usr/lib/memgraph/install_python_requirements.sh usr/lib/memgraph/

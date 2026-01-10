@@ -1,0 +1,11 @@
+query: >
+        MATCH (n)
+        WITH collect(n) as nodes
+
+        CALL node_similarity.cosine_pairwise("score", nodes, 1) YIELD *
+
+        RETURN node1.id as node1, node2.id as node2, similarity
+
+
+exception: >
+        Invalid type of second argument

@@ -1,0 +1,9 @@
+query: >
+  MATCH (n4:Employee {name: 'David'}), (n5:Manager {name: 'Eve'})
+  CALL refactor.merge_nodes([n4, n5], {properties: 'combine'}) YIELD node
+  RETURN node.name as name, node.salary as salary, node.department as department, labels(node) as labels;
+output:
+- name: [David, Eve]
+  salary: 50000
+  department: IT
+  labels: [Employee, Manager]

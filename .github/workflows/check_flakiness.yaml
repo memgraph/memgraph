@@ -34,6 +34,10 @@ on:
       malloc_build:
         type: boolean
         default: true
+      mage:
+        type: string
+        default: 'amd'
+        description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
       flakiness_runs:
         type: number
         default: 3
@@ -55,6 +59,9 @@ jobs:
       run_release_stress: ${{ steps.setup.outputs.run_release_stress }}
       run_release_query_modules: ${{ steps.setup.outputs.run_release_query_modules }}
       run_malloc_build: ${{ steps.setup.outputs.run_malloc_build }}
+      run_mage_amd: ${{ steps.setup.outputs.run_mage_amd }}
+      run_mage_arm: ${{ steps.setup.outputs.run_mage_arm }}
+      run_mage_cuda: ${{ steps.setup.outputs.run_mage_cuda }}
       runs: ${{ steps.setup_flakiness.outputs.runs }}
     env:
       GH_CONTEXT: ${{ toJson(github) }}
@@ -69,7 +76,7 @@ jobs:
         run: echo "$GH_CONTEXT" >> "$GH_CONTEXT_FILE_NAME"
       - name: Set up diff execution
         id: setup
-        run: ./tools/diff_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME" --base-branch "origin/master"
+        run: ./tools/ci/diff_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME" --base-branch "origin/master"
       - name: Set up flakiness runs
         id: setup_flakiness
         run: |
@@ -174,5 +181,20 @@ jobs:
       arch: 'amd'
       os: 'ubuntu-24.04'
       run_build: ${{ needs.DiffSetup.outputs.run_malloc_build }}
+      run_id: "${{ matrix.run_no }}"
+    secrets: inherit
+
+  Mage:
+    needs: DiffSetup
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        run_no: ${{ fromJSON(needs.DiffSetup.outputs.runs) }}
+    uses: ./.github/workflows/diff_mage.yml
+    with:
+      run_amd: ${{ needs.DiffSetup.outputs.run_mage_amd == 'true' }}
+      run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
+      run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
       run_id: "${{ matrix.run_no }}"
     secrets: inherit

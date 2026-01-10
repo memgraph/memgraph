@@ -1,0 +1,48 @@
+query: >
+    CALL biconnected_components.get() YIELD bcc_id, node_from, node_to
+    RETURN bcc_id AS component, node_from.id AS from_id, node_to.id AS to_id
+    ORDER BY component, from_id, to_id
+
+output:
+    - component: 0
+      from_id: 1
+      to_id: 2
+    - component: 0
+      from_id: 1
+      to_id: 3
+    - component: 0
+      from_id: 2
+      to_id: 3
+    - component: 0
+      from_id: 2
+      to_id: 4
+    - component: 0
+      from_id: 3
+      to_id: 4
+    - component: 1
+      from_id: 8
+      to_id: 9
+    - component: 2
+      from_id: 5
+      to_id: 7
+    - component: 2
+      from_id: 5
+      to_id: 8
+    - component: 2
+      from_id: 7
+      to_id: 8
+    - component: 3
+      from_id: 0
+      to_id: 1
+    - component: 3
+      from_id: 0
+      to_id: 6
+    - component: 3
+      from_id: 1
+      to_id: 5
+    - component: 3
+      from_id: 5
+      to_id: 6
+    - component: 4
+      from_id: 10
+      to_id: 11

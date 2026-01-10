@@ -1,0 +1,28 @@
+query: >
+  MATCH (d:Dog) CALL path.expand(d,[">","<OWNS"],[">Zadar","/Human"],3,3) YIELD
+  result RETURN result;
+output:
+  - result:
+      nodes:
+        - labels:
+            - Dog
+          properties:
+            name: Rex
+        - labels:
+            - Cat
+          properties:
+            name: Tom
+        - labels:
+            - Mouse
+          properties:
+            name: Squiggles
+        - labels:
+            - Zadar
+          properties: {}
+      relationships:
+        - label: HUNTS
+          properties: {}
+        - label: CATCHES
+          properties: {}
+        - label: RUNS_THROUGH
+          properties: {}

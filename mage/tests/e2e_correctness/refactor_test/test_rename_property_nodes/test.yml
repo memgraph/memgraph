@@ -1,0 +1,4 @@
+memgraph_query: >
+  MATCH (n) WHERE n:Node1 OR n:Node2 WITH collect(n) as nodes CALL refactor.rename_node_property("title", "description", nodes) YIELD nodes_changed RETURN nodes_changed;
+neo4j_query: >
+  MATCH (n) WHERE n:Node1 OR n:Node2 WITH collect(n) as nodes CALL apoc.refactor.rename.nodeProperty("title", "description", nodes) YIELD batches RETURN batches;

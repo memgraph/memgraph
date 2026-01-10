@@ -1,0 +1,7 @@
+query: >
+  MATCH (source {id: 5}), (sink {id: 0})
+  CALL igraphalg.get_all_simple_paths(source, sink)
+  YIELD path
+  RETURN extract(node in path | node.id) AS path;
+
+output: []

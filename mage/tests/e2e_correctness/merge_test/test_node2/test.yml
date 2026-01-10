@@ -1,0 +1,5 @@
+memgraph_query: >
+  CALL merge.node([],{name: "Rex"},{},{name:"Carlito"}) YIELD node RETURN node;
+
+neo4j_query: >
+  MERGE (n {name: "Rex" }) ON CREATE SET n += {} ON MATCH SET n += {name: "Carlito"} RETURN n;

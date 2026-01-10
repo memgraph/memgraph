@@ -1,0 +1,4 @@
+query: >
+  CALL text.format("Memgraph is a number {} {} in the world.", [1, "graph database"]) YIELD result RETURN result;
+output:
+  - result: "Memgraph is a number 1 graph database in the world."

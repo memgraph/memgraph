@@ -1,0 +1,4 @@
+query: >
+  RETURN math.round(3.5, 0, "HALF_EVEN") AS result;
+output:
+  - result: 4.0

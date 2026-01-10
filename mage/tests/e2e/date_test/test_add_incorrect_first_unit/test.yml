@@ -1,0 +1,5 @@
+query: >
+    RETURN date.add(100, "incorrect_unit", 66, "m") AS sum;
+
+exception: >
+    The unit incorrect_unit is not correct.

@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT integer_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.integer_col) AS integer_col_type, row.integer_col AS integer_col
+
+output:
+  - integer_col_type: 'INTEGER'
+    integer_col: 2147483647

@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT bit_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.bit_col) AS bit_col_type, toString(row.bit_col) AS bit_col
+
+output:
+  - bit_col_type: 'STRING'
+    bit_col: '10101010'

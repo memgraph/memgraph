@@ -1,0 +1,7 @@
+query: >
+    WITH "https://www.w3schools.com/xml/simple.xml" AS xmlUrl
+    CALL xml_module.load(xmlUrl, true, "", '', {}) YIELD output_map as value
+    RETURN value
+
+output:
+  - value: {"_breakfast_menu": [{"_food": [{"_text": "Belgian Waffles","_type": "name"},{"_text": "$5.95","_type": "price"},{"_text": "Two of our famous Belgian Waffles with plenty of real maple syrup","_type": "description"},{"_text": "650","_type": "calories"}], "_type": "food"},{"_food": [{"_text": "Strawberry Belgian Waffles","_type": "name"},{"_text": "$7.95","_type": "price"},{"_text": "Light Belgian waffles covered with strawberries and whipped cream","_type": "description"},{"_text": "900","_type": "calories"}],"_type": "food"},{"_food": [{"_text": "Berry-Berry Belgian Waffles","_type": "name"},{"_text": "$8.95","_type": "price"},{"_text": "Light Belgian waffles covered with an assortment of fresh berries and whipped cream","_type": "description"},{"_text": "900","_type": "calories"}],"_type": "food"},{"_food": [{"_text": "French Toast","_type": "name"},{"_text": "$4.50","_type": "price"},{"_text": "Thick slices made from our homemade sourdough bread","_type": "description"},{"_text": "600","_type": "calories"}],"_type": "food"},{"_food": [{"_text": "Homestyle Breakfast","_type": "name"},{"_text": "$6.95","_type": "price"},{"_text": "Two eggs, bacon or sausage, toast, and our ever-popular hash browns","_type": "description"},{"_text": "950","_type": "calories"}],"_type": "food"}],"_type": "breakfast_menu"}

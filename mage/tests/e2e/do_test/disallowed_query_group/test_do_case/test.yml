@@ -1,0 +1,7 @@
+query: >
+    CALL do.case([TRUE, "CREATE INDEX ON :Node(id);"],
+                "")
+    YIELD value;
+
+exception: >
+    The query "CREATE INDEX ON :Node(id);" isn’t supported by `do.case` because it would execute a global operation.

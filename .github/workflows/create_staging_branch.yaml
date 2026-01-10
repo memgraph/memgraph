@@ -53,7 +53,7 @@ jobs:
         id: get_branch_name
         run: |
           # Run the script and read the output into variables
-          read pr_number branch_name commit_sha staging_branch short_sha repo_url repo_owner <<< "$(./tools/external-contributions/get_pr_info.sh "${{ github.event.inputs.pr_number }}" "${{ github.token }}" "${{ inputs.base_master }}")"
+          read pr_number branch_name commit_sha staging_branch short_sha repo_url repo_owner <<< "$(./tools/ci/external-contributions/get_pr_info.sh "${{ github.event.inputs.pr_number }}" "${{ github.token }}" "${{ inputs.base_master }}")"
 
           # Set GitHub output variables
           echo "pr_number=$pr_number" >> $GITHUB_OUTPUT
@@ -78,7 +78,7 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "github-actions@github.com"
 
-          ./tools/external-contributions/create_staging_branch.sh \
+          ./tools/ci/external-contributions/create_staging_branch.sh \
             "${{ github.event.inputs.base_master }}" \
             "${{ steps.get_branch_name.outputs.branch_name }}" \
             "${{ steps.get_branch_name.outputs.commit_sha }}" \
@@ -99,7 +99,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Run the Python script and capture its output
-          output=$(python3 ./tools/external-contributions/pr_comment.py \
+          output=$(python3 ./tools/ci/external-contributions/pr_comment.py \
             "${{ github.event.inputs.pr_number }}" \
             "${{ steps.get_branch_name.outputs.staging_branch }}")
 

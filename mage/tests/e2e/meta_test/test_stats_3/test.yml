@@ -1,0 +1,13 @@
+query: |
+  CALL meta.stats_offline() YIELD stats RETURN stats;
+output:
+  - stats:
+      labelCount: 1
+      labels:
+        Node: 6
+      nodeCount: 6
+      propertyKeyCount: 1
+      relationshipCount: 0
+      relationshipTypeCount: 0
+      relationshipTypes: {}
+      relationshipTypesCount: {}

@@ -1,0 +1,7 @@
+query: >
+  MATCH (source {id: 5}), (sink {id: 0})
+  CALL igraphalg.shortest_path_length(source, sink,"weight")
+  YIELD length RETURN toString(length) as length;
+
+output:
+    - length: inf

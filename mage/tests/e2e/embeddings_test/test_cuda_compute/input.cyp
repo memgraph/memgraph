@@ -1,0 +1,1 @@
+CREATE (n:Document {title: "Magnetospheric Field Line Resonances", content: "Magnetospherc Field Line Resonances (FLRs) are a phenomenon that occurs when the closed magnetic field lines of a planet are excited by Kelvin-Helmholtz waves on the magnetopause directing magnetosonic waves into the inner magnetosphere."});

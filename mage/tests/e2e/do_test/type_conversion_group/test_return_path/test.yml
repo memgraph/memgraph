@@ -1,0 +1,7 @@
+query: >
+    CALL do.case([TRUE, "MATCH p = ()-[*2]-() RETURN p LIMIT 1;"], "RETURN 1")
+    YIELD value
+    RETURN size(value.p) AS path_size;
+
+output:
+  - path_size: 2

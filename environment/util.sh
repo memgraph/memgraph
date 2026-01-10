@@ -121,7 +121,7 @@ function install_custom_packages() {
                 install_custom_golang "1.18.9"
                 ;;
             custom-rust)
-                install_rust "1.80"
+                install_rust "1.85"
                 ;;
             custom-node)
                 install_node "20"

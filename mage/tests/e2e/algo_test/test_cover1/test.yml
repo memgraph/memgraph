@@ -1,0 +1,9 @@
+query: >
+    MATCH (n)
+    WITH collect(n) AS list
+    CALL algo.cover(list) YIELD rel RETURN rel;
+
+output:
+    - rel: {'label': 'LIVES_IN','properties': {}}
+    - rel: {'label': 'LOVES','properties': {}}
+    - rel: {'label': 'SELF_REL','properties': {}}

@@ -1,0 +1,8 @@
+query: >
+    CALL do.case([TRUE, "MATCH (m)-[e]-(n) WHERE m.id = 1 AND n.id = 2 RETURN m, e, n;"],
+                 "")
+    YIELD value
+    RETURN type(value.e) as relationship;
+
+output:
+  - relationship: "RELATIONSHIP"

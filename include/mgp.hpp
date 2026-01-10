@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -4579,25 +4579,25 @@ inline void Result::SetErrorMessage(const char *error_msg) const {
 
 // Parameter:
 
-inline Parameter::Parameter(std::string_view name, Type type) : name(name), type_(type) {}
+inline Parameter::Parameter(std::string_view name, Type type) : name(name), type_(type), list_item_type_(Type::Any) {}
 
 inline Parameter::Parameter(std::string_view name, Type type, bool default_value)
-    : name(name), type_(type), optional(true), default_value(Value(default_value)) {}
+    : name(name), type_(type), list_item_type_(Type::Any), optional(true), default_value(Value(default_value)) {}
 
 inline Parameter::Parameter(std::string_view name, Type type, int64_t default_value)
-    : name(name), type_(type), optional(true), default_value(Value(default_value)) {}
+    : name(name), type_(type), list_item_type_(Type::Any), optional(true), default_value(Value(default_value)) {}
 
 inline Parameter::Parameter(std::string_view name, Type type, double default_value)
-    : name(name), type_(type), optional(true), default_value(Value(default_value)) {}
+    : name(name), type_(type), list_item_type_(Type::Any), optional(true), default_value(Value(default_value)) {}
 
 inline Parameter::Parameter(std::string_view name, Type type, std::string_view default_value)
-    : name(name), type_(type), optional(true), default_value(Value(default_value)) {}
+    : name(name), type_(type), list_item_type_(Type::Any), optional(true), default_value(Value(default_value)) {}
 
 inline Parameter::Parameter(std::string_view name, Type type, const char *default_value)
-    : name(name), type_(type), optional(true), default_value(Value(default_value)) {}
+    : name(name), type_(type), list_item_type_(Type::Any), optional(true), default_value(Value(default_value)) {}
 
 inline Parameter::Parameter(std::string_view name, Type type, Value default_value)
-    : name(name), type_(type), optional(true), default_value(std::move(default_value)) {}
+    : name(name), type_(type), list_item_type_(Type::Any), optional(true), default_value(std::move(default_value)) {}
 
 inline Parameter::Parameter(std::string_view name, std::pair<Type, Type> list_type)
     : name(name), type_(list_type.first), list_item_type_(list_type.second) {}
@@ -4619,7 +4619,7 @@ inline mgp_type *Parameter::GetMGPType() const {
 
 // Return:
 
-inline Return::Return(std::string_view name, Type type) : name(name), type_(type) {}
+inline Return::Return(std::string_view name, Type type) : name(name), type_(type), list_item_type_(Type::Any) {}
 
 inline Return::Return(std::string_view name, std::pair<Type, Type> list_type)
     : name(name), type_(list_type.first), list_item_type_(list_type.second) {}
@@ -4713,17 +4713,19 @@ namespace detail {
 inline void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &parameters,
                                    const std::vector<Return> &returns) {
   for (const auto &parameter : parameters) {
-    const auto *parameter_name = parameter.name.data();
+    // Ensure null-terminated string for proc_add_arg which uses std::regex_match
+    const std::string parameter_name(parameter.name);
     if (!parameter.optional) {
-      mgp::proc_add_arg(proc, parameter_name, parameter.GetMGPType());
+      mgp::proc_add_arg(proc, parameter_name.c_str(), parameter.GetMGPType());
     } else {
-      mgp::proc_add_opt_arg(proc, parameter_name, parameter.GetMGPType(), parameter.default_value.ptr());
+      mgp::proc_add_opt_arg(proc, parameter_name.c_str(), parameter.GetMGPType(), parameter.default_value.ptr());
     }
   }
 
   for (const auto return_ : returns) {
-    const auto *return_name = return_.name.data();
-    mgp::proc_add_result(proc, return_name, return_.GetMGPType());
+    // Ensure null-terminated string for proc_add_result which uses std::regex_match
+    const std::string return_name(return_.name);
+    mgp::proc_add_result(proc, return_name.c_str(), return_.GetMGPType());
   }
 }
 }  // namespace detail

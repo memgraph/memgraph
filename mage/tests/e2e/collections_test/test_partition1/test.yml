@@ -1,0 +1,7 @@
+query: >
+  CALL collections.partition([1,2,3,4,5], 2) YIELD result RETURN result;
+
+output:
+  - result: [1,2]
+  - result: [3,4]
+  - result: [5]

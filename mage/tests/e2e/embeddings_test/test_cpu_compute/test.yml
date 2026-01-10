@@ -1,0 +1,9 @@
+query: >
+    WITH {device: "cpu"} AS configuration
+    CALL embeddings.node_sentence(NULL, configuration)
+    YIELD success, dimension
+    RETURN success, dimension;
+
+output:
+    - success: true
+      dimension: 384

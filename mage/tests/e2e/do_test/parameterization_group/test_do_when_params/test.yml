@@ -1,0 +1,11 @@
+query: >
+    CALL do.when(TRUE,
+                 "MATCH (n {id: $id}) RETURN n;",
+                 "MATCH (n {id: 1) RETURN n;",
+                 {id: 0})
+    YIELD value
+    WITH collect(value.n) as nodes
+    RETURN SIZE(nodes) AS n_nodes;
+
+output:
+  - n_nodes: 1

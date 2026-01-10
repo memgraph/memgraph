@@ -1,0 +1,7 @@
+query: >
+    CALL igraphalg.community_leiden("CPM",NULL,1.0,0.1,NULL,2,[0.1,0.1,1.0,1.0])
+    YIELD node, community_id
+    RETURN COUNT(node) AS count;
+
+output:
+    - count: 6

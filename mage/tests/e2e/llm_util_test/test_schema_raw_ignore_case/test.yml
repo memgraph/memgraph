@@ -1,0 +1,9 @@
+query: >
+    CALL llm_util.schema('RaW') YIELD schema WITH schema.node_props AS nodes WITH nodes['Student'] AS properties UNWIND properties AS property RETURN property["property"] AS prop, property["type"] AS type ORDER BY prop ASC;
+output:
+  - prop: "age"
+    type: "int"
+  - prop: "name"
+    type: "str"
+  - prop: "year"
+    type: "str"

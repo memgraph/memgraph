@@ -1,0 +1,8 @@
+- query: >-
+    CALL util_module.md5(["string",[1,2,3]]) YIELD result RETURN result;
+  output:
+    - result: 7c45115a3283a86ecc2ad9b1b678cce0
+- query: >-
+    CALL util_module.md5(["string",[1,2,3]]) YIELD result RETURN result;
+  output:
+    - result: 7c45115a3283a86ecc2ad9b1b678cce0

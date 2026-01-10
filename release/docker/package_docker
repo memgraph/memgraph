@@ -123,7 +123,7 @@ fi
 if [[ "$generate_sbom" == true ]]; then
   echo "Generating SBOM for Docker image"
   cd ../../
-  ./tools/sbom/docker-sbom.sh "${tag}"
+  ./tools/ci/sbom/docker-sbom.sh "${tag}"
 fi
 docker image rm $image_name || true
 echo "Built Docker image at '${working_dir}/${image_package_name}'"

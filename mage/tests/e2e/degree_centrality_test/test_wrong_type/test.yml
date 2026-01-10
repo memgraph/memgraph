@@ -1,0 +1,7 @@
+query: >
+    CALL degree_centrality.get("not_existing") YIELD node, degree
+    RETURN node.id AS node, degree
+    ORDER BY degree DESC, node ASC
+
+exception: >
+    The algorithm type is not supported

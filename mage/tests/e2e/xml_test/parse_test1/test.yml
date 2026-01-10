@@ -1,0 +1,6 @@
+query: >
+    WITH '<catalog><book id="1"><title>Book 1</title><author>Author 1</author><publication><year>2022</year><publisher>Publisher A</publisher></publication></book><book id="2"><title>Book 2</title><author>Author 2</author><publication><year>2023</year><publisher>Publisher B</publisher></publication></book></catalog>' AS xmlString
+    RETURN xml_module.parse(xmlString) AS value
+
+output:
+    - value: {"_children": [{"_children": [{"_text": "Book 1","_type": "title"},{"_text": "Author 1","_type": "author"},{"_children": [{"_text": "2022","_type": "year"},{"_text": "Publisher A","_type": "publisher"}],"_type": "publication"}],"_type": "book","id": "1"},{"_children": [{"_text": "Book 2","_type": "title"},{"_text": "Author 2","_type": "author"},{"_children": [{"_text": "2023","_type": "year"},{"_text": "Publisher B","_type": "publisher"}],"_type": "publication"}],"_type": "book","id": "2"}],"_type": "catalog"}

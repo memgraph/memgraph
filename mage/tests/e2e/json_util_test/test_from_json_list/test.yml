@@ -1,0 +1,4 @@
+query: >
+  RETURN json_util.from_json_list('[1, 2, 3]') AS result;
+output:
+  - result: [1, 2, 3]

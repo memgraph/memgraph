@@ -1,0 +1,9 @@
+query: >
+    MATCH (p1:Person)
+    WHERE p1.name IN ["Michael", "Person30", "Person60"]
+    WITH collect(p1) AS people
+    CALL nodes.relationships_exist(people, ["KNOWS>","FOLLOWS","<KNOWS"]) YIELD result RETURN result["Relationships_exist_status"] AS status;
+output:
+  - status: {"<KNOWS": false, "FOLLOWS": true,"KNOWS>": true}
+  - status: {"<KNOWS": true, "FOLLOWS": true,"KNOWS>": false}
+  - status: {"<KNOWS": true, "FOLLOWS": false,"KNOWS>": false}

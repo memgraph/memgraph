@@ -1,0 +1,16 @@
+# Try to train and then predict on homogeneous graph
+- query: >-
+    CALL link_prediction.train()
+    YIELD training_results, validation_results
+    RETURN count(training_results) > 0 as res
+  output:
+    - res: true
+
+- query: >-
+    MATCH (c1:Customer {id: 10})
+    MATCH (s1:Service {id: 12})
+    CALL link_prediction.predict(c1, s1)
+    YIELD score
+    RETURN score >= 0.0 AND score <= 1.0 as res
+  output:
+    - res: true

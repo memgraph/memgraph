@@ -1,0 +1,5 @@
+query: >
+    CALL periodic.iterate("MATCH (n) RETURN n", "SET n.prop = 1", {}) YIELD success RETURN success;
+
+exception: >
+    Configuration parameter batch_size is not set.
