@@ -354,12 +354,15 @@ bool Algo::RelOk(const mgp::Relationship &rel, const Config &config,
 
 bool Algo::IsLabelOk(const mgp::Node &node, const Config &config) {
   const bool whitelist_empty = config.whitelist.empty();
+  auto labels = node.Labels();
 
-  return std::all_of(node.Labels().begin(), node.Labels().end(), [&](auto label) {
-    return !config.blacklist.contains(std::string(label)) &&
-           (whitelist_empty || config.whitelist.contains(std::string(label)));
+  // NOLINTNEXTLINE(boost-use-ranges,modernize-use-ranges)
+  return std::all_of(labels.begin(), labels.end(), [&](auto label) {
+    const std::string s(label);
+    return !config.blacklist.contains(s) && (whitelist_empty || config.whitelist.contains(s));
   });
 }
+
 void Algo::ExpandRelationships(const std::shared_ptr<NodeObject> &prev, const RelationshipType rel_type,
                                const GoalNodes &nodes, TrackingLists &lists, const Config &config) {
   auto rels = rel_type == RelationshipType::IN ? prev->node.InRelationships() : prev->node.OutRelationships();
