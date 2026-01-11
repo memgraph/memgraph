@@ -117,9 +117,13 @@ concept GraphObject = std::is_same_v<T, mgp::Node> || std::is_same_v<T, mgp::Rel
 
 template <GraphObject NodeOrRel>
 bool SameProps(const NodeOrRel &node_or_rel, const mgp::Map &props) {
-  return std::all_of(props.begin(), props.end(), [&node_or_rel](const auto &kv) {
-    return node_or_rel.GetProperty(std::string(kv.key)) == kv.value;
-  });
+  // NOLINTNEXTLINE(readability-use-anyofallof)
+  for (const auto &[k, v] : props) {
+    if (node_or_rel.GetProperty(std::string(k)) != v) {
+      return false;
+    }
+  }
+  return true;
 }
 
 std::vector<mgp::Relationship> MatchRelationship(const mgp::Node &from, const mgp::Node &to, std::string_view type,
