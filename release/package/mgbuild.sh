@@ -1324,7 +1324,7 @@ package_mage_docker() {
   local image_tag=""
   local memgraph_ref=""
   local cache_present=false
-  local custom_mirror="https://archive.ubuntu.com/ubuntu"
+  local custom_mirror="http://archive.ubuntu.com/ubuntu"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --docker-repository-name)
@@ -1359,6 +1359,16 @@ package_mage_docker() {
   else
     docker_target="prod"
   fi
+
+  echo -e "${YELLOW_BOLD}build options:"
+  echo -e "  docker_repository_name: $docker_repository_name"
+  echo -e "  image_tag: $image_tag"
+  echo -e "  memgraph_ref: $memgraph_ref"
+  echo -e "  cache_present: $cache_present"
+  echo -e "  custom_mirror: $custom_mirror"
+  echo -e "  docker_target: $docker_target"
+  echo -e "  arch: $arch"
+  echo -e "  build_type: $build_type${RESET}"
 
   if [[ -z "$docker_repository_name" || -z "$image_tag" || -z "$memgraph_ref" ]]; then
     echo -e "${RED_BOLD}Error: package_mage_docker requires --docker-repository-name, --image-tag, --memgraph-ref${RESET}"
