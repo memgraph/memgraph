@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -394,7 +394,8 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
       throw RecoveryFailure("The existence constraint failed because it couldn't be validated!");
     }
 
-    constraints->existence_constraints_->InsertConstraint(label, property);
+    constraints->existence_constraints_->InsertConstraint(label, property,
+                                                          ExistenceConstraints::ValidationStatus::VALIDATED);
     spdlog::info("Existence constraint on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
                  name_id_mapper->IdToName(property.AsUint()));
   }

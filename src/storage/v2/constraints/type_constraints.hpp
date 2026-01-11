@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,9 @@
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/observer.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
@@ -35,6 +37,11 @@ class TypeConstraints {
   struct SingleThreadConstraintValidation {
     std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
                                                   const LabelId &label, const PropertyId &property);
+  };
+
+  struct Container {
+    absl::flat_hash_map<std::pair<LabelId, PropertyId>, TypeConstraintKind> constraints_;
+    absl::flat_hash_map<LabelId, absl::flat_hash_map<PropertyId, TypeConstraintKind>> l2p_constraints_;
   };
 
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
@@ -57,8 +64,7 @@ class TypeConstraints {
   void DropGraphClearConstraints();
 
  private:
-  absl::flat_hash_map<std::pair<LabelId, PropertyId>, TypeConstraintKind> constraints_;
-  absl::flat_hash_map<LabelId, absl::flat_hash_map<PropertyId, TypeConstraintKind>> l2p_constraints_;  // TODO: maintain
+  utils::Synchronized<Container, utils::WritePrioritizedRWLock> container_;
 };
 
 }  // namespace memgraph::storage

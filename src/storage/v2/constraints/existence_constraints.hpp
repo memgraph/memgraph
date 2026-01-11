@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <absl/container/flat_hash_set.h>
 #include <optional>
 #include <variant>
 
@@ -39,6 +40,23 @@ class ExistenceConstraints {
         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
   };
 
+  enum class ValidationStatus : bool { PENDING, VALIDATED };
+
+  struct IndividualConstraint {
+    LabelId label;
+    PropertyId property;
+    ValidationStatus status{ValidationStatus::PENDING};
+
+    bool operator==(const IndividualConstraint &rhs) const {
+      return std::tie(label, property) == std::tie(rhs.label, rhs.property);
+    }
+
+    template <typename H>
+    friend H AbslHashValue(H h, const IndividualConstraint &c) {
+      return H::combine(std::move(h), c.label, c.property);
+    }
+  };
+
   bool empty() const {
     return constraints_.WithReadLock([](auto &constraints) { return constraints.empty(); });
   }
@@ -56,8 +74,10 @@ class ExistenceConstraints {
       const std::optional<durability::ParallelizedSchemaCreationInfo> &);
 
   bool ConstraintExists(LabelId label, PropertyId property) const;
+  bool ConstraintExists(LabelId label, PropertyId property, ValidationStatus status) const;
 
-  void InsertConstraint(LabelId label, PropertyId property);
+  void InsertConstraint(LabelId label, PropertyId property, ValidationStatus status);
+  void UpdateConstraint(LabelId label, PropertyId property, ValidationStatus status);
 
   /// Returns true if the constraint was removed, and false if it doesn't exist.
   bool DropConstraint(LabelId label, PropertyId property);
@@ -73,7 +93,7 @@ class ExistenceConstraints {
   void DropGraphClearConstraints();
 
  private:
-  utils::Synchronized<std::vector<std::pair<LabelId, PropertyId>>, utils::WritePrioritizedRWLock> constraints_;
+  utils::Synchronized<absl::flat_hash_set<IndividualConstraint>, utils::WritePrioritizedRWLock> constraints_;
 };
 
 }  // namespace memgraph::storage

@@ -1846,7 +1846,7 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
       violation.has_value()) {
     return std::unexpected{StorageExistenceConstraintDefinitionError{violation.value()}};
   }
-  existence_constraints->InsertConstraint(label, property);
+  existence_constraints->UpdateConstraint(label, property, ExistenceConstraints::ValidationStatus::VALIDATED);
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }

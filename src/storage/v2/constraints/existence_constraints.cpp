@@ -10,33 +10,39 @@
 // licenses/APL.txt.
 
 #include "storage/v2/constraints/existence_constraints.hpp"
-#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/mvcc.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::storage {
 
 bool ExistenceConstraints::ConstraintExists(LabelId label, PropertyId property) const {
-  return constraints_.WithReadLock(
-      [&](auto &constraints) { return std::ranges::contains(constraints, std::make_pair(label, property)); });
+  return constraints_.WithReadLock([&](auto &constraints) { return constraints.contains({label, property}); });
 }
 
-void ExistenceConstraints::InsertConstraint(LabelId label, PropertyId property) {
+bool ExistenceConstraints::ConstraintExists(LabelId label, PropertyId property, ValidationStatus status) const {
+  return constraints_.WithReadLock([&](auto &constraints) {
+    auto it = constraints.find({label, property});
+    return it != constraints.end() && it->status == status;
+  });
+}
+
+void ExistenceConstraints::InsertConstraint(LabelId label, PropertyId property, ValidationStatus status) {
+  constraints_.WithLock([&](auto &constraints) { constraints.insert({label, property, status}); });
+}
+
+void ExistenceConstraints::UpdateConstraint(LabelId label, PropertyId property, ValidationStatus status) {
   constraints_.WithLock([&](auto &constraints) {
-    if (std::ranges::contains(constraints, std::make_pair(label, property))) {
-      return;
-    }
-    constraints.emplace_back(label, property);
+    constraints.erase({label, property});
+    constraints.insert({label, property, status});
   });
 }
 
 bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
   return constraints_.WithLock([&](auto &constraints) {
-    auto it = std::find(constraints.begin(), constraints.end(), std::make_pair(label, property));
-    if (it == constraints.end()) [[unlikely]] {
+    auto it = constraints.find({label, property});
+    if (it == constraints.end() || it->status == ValidationStatus::PENDING) [[unlikely]] {
       return false;
     }
     constraints.erase(it);
@@ -45,13 +51,20 @@ bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
 }
 
 std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraints() const {
-  return constraints_.WithReadLock([](auto &constraints) { return constraints; });
+  return constraints_.WithReadLock([](auto &constraints) {
+    return constraints | std::views::filter([](const auto &c) { return c.status == ValidationStatus::VALIDATED; }) |
+           std::views::transform([](const auto &c) {
+             return std::pair{c.label, c.property};
+           }) |
+           std::ranges::to<std::vector<std::pair<LabelId, PropertyId>>>();
+  });
 }
 
 [[nodiscard]] std::optional<ConstraintViolation> ExistenceConstraints::Validate(const Vertex &vertex) {
   return constraints_.WithReadLock([&](auto &constraints) -> std::optional<ConstraintViolation> {
-    for (const auto &[label, property] : constraints) {
-      if (auto violation = ValidateVertexOnConstraint(vertex, label, property); violation.has_value()) {
+    for (const auto &constraint : constraints) {
+      if (auto violation = ValidateVertexOnConstraint(vertex, constraint.label, constraint.property);
+          violation.has_value()) {
         return violation;
       }
     }
@@ -59,11 +72,13 @@ std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraint
   });
 }
 
+// only used for on disk
 void ExistenceConstraints::LoadExistenceConstraints(const std::vector<std::string> &keys) {
   constraints_.WithLock([&](auto &constraints) {
     for (const auto &key : keys) {
       const std::vector<std::string> parts = utils::Split(key, ",");
-      constraints.emplace_back(LabelId::FromString(parts[0]), PropertyId::FromString(parts[1]));
+      constraints.insert(
+          {LabelId::FromString(parts[0]), PropertyId::FromString(parts[1]), ValidationStatus::VALIDATED});
     }
   });
 }

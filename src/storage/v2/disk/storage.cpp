@@ -2225,9 +2225,7 @@ std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAcces
 
 std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::DiskAccessor::CreateExistenceConstraint(
     LabelId label, PropertyId property) {
-  // UNIQUE access will be done only through schema.assert
-  MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
-            "Creating existence constraint requires a read only or unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Creating existence constraint requires unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
   if (existence_constraints->ConstraintExists(label, property)) {
@@ -2237,16 +2235,14 @@ std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::Disk
       check.has_value()) {
     return std::unexpected{StorageExistenceConstraintDefinitionError{check.value()}};
   }
-  existence_constraints->InsertConstraint(label, property);
+  existence_constraints->InsertConstraint(label, property, ExistenceConstraints::ValidationStatus::VALIDATED);
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
 
 std::expected<void, StorageExistenceConstraintDroppingError> DiskStorage::DiskAccessor::DropExistenceConstraint(
     LabelId label, PropertyId property) {
-  // UNIQUE access will be done only through schema.assert
-  MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
-            "Dropping existence constraint requires a read only or unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Dropping existence constraint requires unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
   if (!existence_constraints->DropConstraint(label, property)) {
