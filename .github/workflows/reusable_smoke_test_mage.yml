@@ -31,6 +31,12 @@ on:
 env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  INPUT_NEXT_VERSION: ${{ inputs.next_version }}
+  INPUT_LAST_VERSION: ${{ inputs.last_version }}
+  INPUT_ARCH: ${{ inputs.arch }}
+  INPUT_MALLOC: ${{ inputs.malloc }}
+  INPUT_CUDA: ${{ inputs.cuda }}
+  INPUT_RELWITHDEBINFO: ${{ inputs.relwithdebinfo }}
 
 jobs:
   smoke-test-image:
@@ -59,24 +65,24 @@ jobs:
       - name: Determine Input Types
         run: |
           # default to latest daily build (from the previous day)
-          if [ -z "${{ inputs.next_version }}" ]; then
+          if [ -z "$INPUT_NEXT_VERSION" ]; then
             next_version="$(date -d "yesterday" +%Y%m%d)"
           else
-            next_version="${{ inputs.next_version }}"
+            next_version="$INPUT_NEXT_VERSION"
           fi
 
           # default to latest release version
-          if [ -z "${{ inputs.last_version }}" ]; then
+          if [ -z "$INPUT_LAST_VERSION" ]; then
             tag="$( git tag | grep -v rc | tail -n 1)"
             last_version="${tag#v}"
           else
-            last_version="${{ inputs.last_version }}"
+            last_version="$INPUT_LAST_VERSION"
           fi
 
-          read next_type next_image < <(python3 tools/ci/workflow_image_setup.py "${next_version}" "${{ inputs.arch }}" "${{ inputs.malloc }}" "${{ inputs.cuda }}" "${{ inputs.relwithdebinfo }}")
+          read next_type next_image < <(python3 tools/ci/workflow_image_setup.py "${next_version}" "$INPUT_ARCH" "$INPUT_MALLOC" "$INPUT_CUDA" "$INPUT_RELWITHDEBINFO")
           echo "NEXT_IMAGE=${next_image}" >> $GITHUB_ENV
           echo "NEXT_TYPE=${next_type}" >> $GITHUB_ENV
-          read last_type last_image < <(python3 tools/ci/workflow_image_setup.py "${last_version}" "${{ inputs.arch }}" "${{ inputs.malloc }}" "${{ inputs.cuda }}" "${{ inputs.relwithdebinfo }}")
+          read last_type last_image < <(python3 tools/ci/workflow_image_setup.py "${last_version}" "$INPUT_ARCH" "$INPUT_MALLOC" "$INPUT_CUDA" "$INPUT_RELWITHDEBINFO")
           echo "LAST_IMAGE=${last_image}" >> $GITHUB_ENV
           echo "LAST_TYPE=${last_type}" >> $GITHUB_ENV
 

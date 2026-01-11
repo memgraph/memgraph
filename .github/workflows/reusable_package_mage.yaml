@@ -94,6 +94,7 @@ env:
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
   MEMGRAPH_DOWNLOAD_LINK: ${{ inputs.memgraph_download_link }}
   VERSION: "${{ inputs.version }}"
+  CI_BRANCH: "${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}"
 
 jobs:
   BuildAndPush:
@@ -185,10 +186,6 @@ jobs:
           read IMAGE_TAG ARTIFACT_NAME < <(tools/ci/mage-artifact-name-tag.sh "$MEMGRAPH_VERSION" "$SHORTEN_TAG" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA")
           echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
           echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
-
-      - name: Set CI branch name for PR events
-        if: ${{ github.event_name == 'pull_request' }}
-        run: echo "CI_BRANCH=${{ github.event.pull_request.head.ref }}" >> $GITHUB_ENV
 
       - name: Get Current Memgraph Commit/Tag
         env:

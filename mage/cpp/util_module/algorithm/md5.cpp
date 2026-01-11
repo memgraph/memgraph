@@ -222,7 +222,7 @@ void MD5::transform(const uint1 block[blocksize]) {
   state[3] += d;
 
   // Zeroize sensitive information.
-  memset(x, 0, sizeof x);
+  memset_s(x, 0, sizeof x);
 }
 
 //////////////////////////////

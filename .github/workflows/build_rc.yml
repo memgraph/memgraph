@@ -306,10 +306,13 @@ jobs:
 
       - name: Set Image URLs
         id: set_image_urls
+        env:
+          MOCK: "${{ inputs.mock }}"
+          VERSION: "${{ inputs.version }}"
         run: |
           echo "Setting next image URLs"
-          amd_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker/memgraph-${{ inputs.version }}-docker.tar.gz"
-          arm_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker-aarch64/memgraph-${{ inputs.version }}-docker.tar.gz"
+          amd_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker/memgraph-${VERSION}-docker.tar.gz"
+          arm_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker-aarch64/memgraph-${VERSION}-docker.tar.gz"
           echo "amd_image_url=$amd_image_url" >> $GITHUB_OUTPUT
           echo "arm_image_url=$arm_image_url" >> $GITHUB_OUTPUT
           echo "AMD Image URL: $amd_image_url"
