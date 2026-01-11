@@ -90,11 +90,14 @@ print_help () {
   echo -e "  copy [OPTIONS]                     Copy an artifact from mgbuild container to host"
   echo -e "  package-memgraph                   Create memgraph package from built binary inside mgbuild container"
   echo -e "  package-docker [OPTIONS]           Create memgraph docker image and pack it as .tar.gz"
+  echo -e "  package-mage-deb [OPTIONS]         Create MAGE DEB package"
+  echo -e "  package-mage-docker [OPTIONS]      Create MAGE docker image"
   echo -e "  pull                               Pull mgbuild image from dockerhub"
   echo -e "  push [OPTIONS]                     Push mgbuild image to dockerhub"
   echo -e "  run [OPTIONS]                      Run mgbuild container"
   echo -e "  stop [OPTIONS]                     Stop mgbuild container"
   echo -e "  test-memgraph TEST                 Run a selected test TEST (see supported tests below) inside mgbuild container"
+  echo -e "  test-mage TEST                     Run a selected test TEST (see supported tests below) inside MAGE docker image"
   echo -e "  generate-memgraph-build-sbom       Generate Memgraph build SBOM"
   echo -e "  generate-mage-image-sbom [OPTIONS] Generate MAGE image SBOM"
   echo -e "  build-pymgclient                   Build pymgclient inside mgbuild container"
@@ -1312,6 +1315,79 @@ package_mage_deb() {
   echo "Package: $package_name"
 }
 
+
+package_mage_docker() {
+
+  echo -e "${GREEN_BOLD}Packaging MAGE Docker image${RESET}"
+
+  local docker_repository_name="memgraph/memgraph-mage"
+  local image_tag=""
+  local memgraph_ref=""
+  local cache_present=false
+  local custom_mirror="https://archive.ubuntu.com/ubuntu"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --docker-repository-name)
+        docker_repository_name=$2
+        shift 2
+      ;;
+      --image-tag)
+        image_tag=$2
+        shift 2
+      ;;
+      --memgraph-ref)
+        memgraph_ref=$2
+        shift 2
+      ;;
+      --cache-present)
+        cache_present=$2
+        shift 2
+      ;;
+      --custom-mirror)
+        custom_mirror=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        exit 1
+      ;;
+    esac
+  done
+
+  if [[ "$build_type" = "RelWithDebInfo" ]]; then
+    docker_target="relwithdebinfo"
+  else
+    docker_target="prod"
+  fi
+
+  if [[ -z "$docker_repository_name" || -z "$image_tag" || -z "$memgraph_ref" ]]; then
+    echo -e "${RED_BOLD}Error: package_mage_docker requires --docker-repository-name, --image-tag, --memgraph-ref${RESET}"
+    exit 1
+  fi
+
+  # copy scripts to mage directory so they can be used in the docker build
+  cp $PROJECT_ROOT/src/auth/reference_modules/requirements.txt $PROJECT_ROOT/mage/auth-module-requirements.txt
+  cp $PROJECT_ROOT/release/docker/run_with_gdb.sh $PROJECT_ROOT/mage/run_with_gdb.sh
+  cd $PROJECT_ROOT/mage
+
+  # build the docker image
+  docker buildx build \
+    --target $docker_target \
+    --platform linux/${arch}64 \
+    --tag ${docker_repository_name}:$image_tag \
+    --file Dockerfile.release \
+    --build-arg MEMGRAPH_REF=$memgraph_ref \
+    --build-arg BUILD_TYPE=$build_type \
+    --build-arg CACHE_PRESENT=$cache_present \
+    --build-arg CUSTOM_MIRROR=$custom_mirror \
+    --load .
+
+  # print the image size in both SI and IEC units
+  $PROJECT_ROOT/tools/ci/print_image_size.sh ${docker_repository_name} $image_tag
+
+  echo -e "${GREEN_BOLD}Docker image packaged successfully${RESET}"
+}
+
 test_mage() {
   # TODO: move other tests into this function like the test_memgraph function
 
@@ -2071,6 +2147,9 @@ case $command in
     ;;
     package-mage-deb)
       package_mage_deb $@
+    ;;
+    package-mage-docker)
+      package_mage_docker $@
     ;;
     test-mage)
       test_mage $@

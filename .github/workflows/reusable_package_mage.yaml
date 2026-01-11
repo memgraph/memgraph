@@ -409,27 +409,17 @@ jobs:
 
       - name: Build image
         run: |
-          cp src/auth/reference_modules/requirements.txt mage/auth-module-requirements.txt
-          cp release/docker/run_with_gdb.sh mage/run_with_gdb.sh
-          cd mage
-          if [[ "$BUILD_TYPE" = "RelWithDebInfo" ]]; then
-            DOCKER_TARGET=relwithdebinfo
-          else
-            DOCKER_TARGET=prod
-          fi
-          docker buildx build \
-          --target $DOCKER_TARGET \
-          --platform linux/${ARCH}64 \
-          --tag ${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG \
-          --file Dockerfile.release \
-          --build-arg BUILD_TYPE=$BUILD_TYPE \
-          --build-arg MEMGRAPH_REF=$MEMGRAPH_REF \
-          --build-arg CACHE_PRESENT=$CACHE_PRESENT \
-          --build-arg CUSTOM_MIRROR=$CUSTOM_MIRROR \
-          --load .
-
-          # print the image size in both SI and IEC units
-          ../tools/ci/print_image_size.sh ${DOCKER_REPOSITORY_NAME} $IMAGE_TAG
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            package-mage-docker \
+            --docker-repository-name $DOCKER_REPOSITORY_NAME \
+            --image-tag $IMAGE_TAG \
+            --memgraph-ref $MEMGRAPH_REF
+            --cache-present $CACHE_PRESENT \
+            --custom-mirror $CUSTOM_MIRROR
 
       - name: Generate SBOM
         if: ${{ inputs.generate_sbom == true }}
