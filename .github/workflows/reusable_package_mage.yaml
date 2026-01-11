@@ -414,7 +414,7 @@ jobs:
             package-mage-docker \
             --docker-repository-name $DOCKER_REPOSITORY_NAME \
             --image-tag $IMAGE_TAG \
-            --memgraph-ref $MEMGRAPH_REF
+            --memgraph-ref $MEMGRAPH_REF \
             --cache-present $CACHE_PRESENT \
             --custom-mirror $CUSTOM_MIRROR
 
