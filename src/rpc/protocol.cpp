@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -156,7 +156,7 @@ void RpcMessageDeliverer::Execute() {
   // over them.
   auto const it = server_->callbacks_.find(maybe_message_header->message_id);
   if (it == server_->callbacks_.end()) {
-    throw SessionException("Session trying to execute an unregistered RPC call!. Request id: {}",
+    throw SessionException("Session trying to execute an unregistered RPC call! Request id: {}",
                            static_cast<uint64_t>(maybe_message_header->message_id));
   }
 
