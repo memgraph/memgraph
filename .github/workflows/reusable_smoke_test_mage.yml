@@ -144,7 +144,6 @@ jobs:
           --next-image "$MEMGRAPH_NEXT_DOCKERHUB_IMAGE" \
           --last-image "$MEMGRAPH_LAST_DOCKERHUB_IMAGE"
 
-
       - name: Clean up Docker images
         if: always()
         run: |
