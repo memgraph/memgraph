@@ -4,7 +4,6 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  push: # DO NOT MERGE THIS!
   workflow_dispatch:
     inputs:
       arch:
@@ -56,20 +55,4 @@ jobs:
       run_grype: ${{ github.event.inputs.run_grype == 'true' }}
       run_cbt: ${{ github.event.inputs.run_cbt == 'true' }}
       send_slack_message: ${{ github.event.inputs.send_slack_message == 'true' }}
-    secrets: inherit
-
-
-  # DO NOT MERGE THIS!
-  push-cve-scan:
-    name: Push CVE Scan
-    if: ${{ github.event_name == 'push' }}
-    uses: ./.github/workflows/reusable_cve_scan.yml
-    with:
-      arch: amd
-      image_url: https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph-mock-rc/v0.0.6-rc1/docker/memgraph-0.0.6-docker.tar.gz
-      image_type: memgraph
-      run_trivy: true
-      run_grype: true
-      run_cbt: false
-      send_slack_message: false
     secrets: inherit
