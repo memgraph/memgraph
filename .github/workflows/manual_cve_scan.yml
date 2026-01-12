@@ -4,7 +4,7 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  #push: DO NOT MERGE THIS!
+  push: # DO NOT MERGE THIS!
   workflow_dispatch:
     inputs:
       arch:
@@ -66,7 +66,7 @@ jobs:
     uses: ./.github/workflows/reusable_cve_scan.yml
     with:
       arch: amd
-      image_url: https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph/v0.0.1-rc1/docker/memgraph-0.0.1-docker.tar.gz
+      image_url: https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph-mock-rc/v0.0.6-rc1/docker/memgraph-0.0.6-docker.tar.gz
       image_type: memgraph
       run_trivy: true
       run_grype: true
