@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #ifdef MG_ENTERPRISE
 
 namespace memgraph::coordination {
@@ -63,6 +65,8 @@ enum class RemoveCoordinatorInstanceStatus : uint8_t {
   SUCCESS = 0,
   NO_SUCH_ID,
 };
+
+enum class UpdateConfigStatus : uint8_t { SUCCESS = 0, NO_SUCH_COORD, NO_SUCH_REPL_INSTANCE, RAFT_FAILURE };
 
 enum class DemoteInstanceCoordinatorStatus : uint8_t {
   NO_INSTANCE_WITH_NAME = 0,

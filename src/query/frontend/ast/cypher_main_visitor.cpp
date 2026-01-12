@@ -754,6 +754,22 @@ antlrcpp::Any CypherMainVisitor::visitRemoveCoordinatorInstance(MemgraphCypher::
   return coordinator_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitUpdateConfig(MemgraphCypher::UpdateConfigContext *ctx) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::UPDATE_CONFIG;
+  // Instance name is used when updating the config for the replication instance
+  if (ctx->instanceName()) {
+    coordinator_query->instance_name_ = std::any_cast<std::string>(ctx->instanceName()->symbolicName()->accept(this));
+  } else {
+    // coordinator id is used when updating the config for the coordinator instance
+    coordinator_query->coordinator_id_ = std::any_cast<Expression *>(ctx->coordinatorServerId()->accept(this));
+  }
+  coordinator_query->configs_ =
+      std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
+
+  return coordinator_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitAddCoordinatorInstance(MemgraphCypher::AddCoordinatorInstanceContext *ctx) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
 
