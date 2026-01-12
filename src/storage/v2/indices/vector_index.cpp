@@ -405,42 +405,36 @@ std::vector<VectorIndexSpec> VectorIndex::ListIndices() const {
   return result;
 }
 
-void VectorIndex::SerializeVectorIndices(durability::BaseEncoder *encoder) const {
-  encoder->WriteUint(pimpl->index_.size());
+void VectorIndex::SerializeVectorIndex(durability::BaseEncoder *encoder, std::string_view index_name) const {
+  const auto label_prop = pimpl->index_name_to_label_prop_.find(index_name);
+  if (label_prop == pimpl->index_name_to_label_prop_.end()) {
+    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
+  }
+  auto &[mg_index, spec] = pimpl->index_.at(label_prop->second);
+  auto locked_index = mg_index->ReadLock();
+  const auto index_size = locked_index->size();
+  const auto dimension = locked_index->dimensions();
 
-  for (const auto &[_, index_item] : pimpl->index_) {
-    const auto &[mg_index, spec] = index_item;
+  if (index_size == 0) {
+    encoder->WriteUint(0);
+    return;
+  }
 
-    encoder->WriteString(spec.index_name);
-    encoder->WriteUint(spec.label_id.AsUint());
-    encoder->WriteUint(spec.property.AsUint());
-    encoder->WriteString(NameFromMetric(spec.metric_kind));
-    encoder->WriteUint(spec.dimension);
-    encoder->WriteUint(spec.resize_coefficient);
-    encoder->WriteUint(spec.capacity);
-    encoder->WriteUint(static_cast<uint64_t>(spec.scalar_kind));
+  std::vector<Vertex *> vertices(index_size);
+  locked_index->export_keys(vertices.data(), 0, index_size);
 
-    auto locked_index = mg_index->ReadLock();
-    const auto index_size = locked_index->size();
-    const auto dimension = locked_index->dimensions();
+  const auto valid_count = std::ranges::count_if(vertices, [](const auto *vertex) {
+    // This is safe because even if the vertex->deleted gets aborted, recovery process is going through vertices skip
+    // list and it will restore the vertex.
+    return !vertex->deleted;
+  });
+  encoder->WriteUint(valid_count);
 
-    if (index_size == 0) {
-      encoder->WriteUint(0);
-      continue;
-    }
-
-    std::vector<Vertex *> vertices(index_size);
-    locked_index->export_keys(vertices.data(), 0, index_size);
-
-    const auto valid_count = std::ranges::count_if(vertices, [](const auto *vertex) { return !vertex->deleted; });
-    encoder->WriteUint(valid_count);
-
-    std::vector<float> buffer(dimension);
-    for (auto *vertex : vertices) {
-      encoder->WriteUint(vertex->gid.AsUint());
-      locked_index->get(vertex, buffer.data());
-      std::ranges::for_each(buffer, [&](auto value) { encoder->WriteDouble(static_cast<double>(value)); });
-    }
+  std::vector<float> buffer(dimension);
+  for (auto *vertex : vertices) {
+    encoder->WriteUint(vertex->gid.AsUint());
+    locked_index->get(vertex, buffer.data());
+    std::ranges::for_each(buffer, [&](auto value) { encoder->WriteDouble(static_cast<double>(value)); });
   }
 }
 

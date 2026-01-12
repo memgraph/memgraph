@@ -269,7 +269,7 @@ class VectorIndex {
   /// index.
   std::vector<float> GetVectorFromVertex(Vertex *vertex, std::string_view index_name) const;
 
-  void SerializeVectorIndices(durability::BaseEncoder *encoder) const;
+  void SerializeVectorIndex(durability::BaseEncoder *encoder, std::string_view index_name) const;
 
  private:
   void RemoveVertexFromIndex(Vertex *vertex, std::string_view index_name);

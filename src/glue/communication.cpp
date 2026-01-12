@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -230,6 +230,7 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
   if (!maybe_properties) return std::unexpected{maybe_properties.error()};
   bolt_map_t properties;
   for (const auto &prop : *maybe_properties) {
+    if (prop.second.IsVectorIndexId()) continue;
     properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
   }
   // Introduced in Bolt v5 (for now just send the ID)

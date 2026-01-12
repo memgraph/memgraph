@@ -8904,10 +8904,11 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
     // Recover vector indices.
     {
-      auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Couldn't recover the number of vector indices!");
-      spdlog::info("Recovering metadata of {} vector indices.", *size);
-      for (uint64_t i = 0; i < *size; ++i) {
+      auto num_indices = snapshot.ReadUint();
+      if (!num_indices) throw RecoveryFailure("Couldn't recover the number of vector indices!");
+      spdlog::info("Recovering {} vector indices.", *num_indices);
+
+      for (uint64_t i = 0; i < *num_indices; ++i) {
         auto index_name = snapshot.ReadString();
         if (!index_name) throw RecoveryFailure("Couldn't read vector index name!");
 
@@ -8924,7 +8925,6 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         if (!property) throw RecoveryFailure("Couldn't read vector index property!");
         auto metric = snapshot.ReadString();
         if (!metric) throw RecoveryFailure("Couldn't read vector index metric!");
-        auto metric_kind = MetricFromName(metric.value());
         auto dimension = snapshot.ReadUint();
         if (!dimension) throw RecoveryFailure("Couldn't read vector index dimension!");
         auto resize_coefficient = snapshot.ReadUint();
@@ -8933,32 +8933,49 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         if (!capacity) throw RecoveryFailure("Couldn't read vector index capacity!");
         auto scalar_kind = snapshot.ReadUint();
         if (!scalar_kind) throw RecoveryFailure("Couldn't read vector index scalar kind!");
-        SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})", *index_name,
-                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
-                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
-                                    .property = get_property_from_id(*property),
-                                    .metric_kind = metric_kind,
-                                    .dimension = static_cast<uint16_t>(*dimension),
-                                    .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
-                                    .capacity = *capacity,
-                                    .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+        VectorIndexSpec spec{.index_name = std::move(*index_name),
+                             .label_id = LabelId::FromUint(*label),
+                             .property = PropertyId::FromUint(*property),
+                             .metric_kind = MetricFromName(*metric),
+                             .dimension = static_cast<uint16_t>(*dimension),
+                             .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+                             .capacity = *capacity,
+                             .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)};
+
+        auto entry_count = snapshot.ReadUint();
+        if (!entry_count) throw RecoveryFailure("Couldn't read vector index entry count!");
+
+        std::unordered_map<Gid, std::vector<float>> index_entries;
+        index_entries.reserve(*entry_count);
+
+        for (uint64_t j = 0; j < *entry_count; ++j) {
+          auto gid = snapshot.ReadUint();
+          if (!gid) throw RecoveryFailure("Couldn't read vector index entry gid!");
+
+          std::vector<float> vector(*dimension);
+          for (uint64_t k = 0; k < *dimension; ++k) {
+            auto value = snapshot.ReadDouble();
+            if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
+            vector[k] = static_cast<float>(*value);
+          }
+          index_entries.emplace(Gid::FromUint(*gid), std::move(vector));
+        }
+
         indices_constraints.indices.vector_indices.emplace_back(
-            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = {}});
+            VectorIndexRecoveryInfo{.spec = std::move(spec), .index_entries = std::move(index_entries)});
       }
-      spdlog::info("Metadata of vector indices are recovered.");
+      spdlog::info("Vector indices are recovered.");
     }
 
     // Recover vector edge indices.
     {
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Couldn't recover the number of vector indices!");
-      spdlog::info("Recovering metadata of {} vector indices.", *size);
+      if (!size) throw RecoveryFailure("Couldn't recover the number of vector edge indices!");
+      spdlog::info("Recovering {} vector edge indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto index_name = snapshot.ReadString();
-        if (!index_name) throw RecoveryFailure("Couldn't read vector index name!");
+        if (!index_name) throw RecoveryFailure("Couldn't read vector edge index name!");
 
         if (r::any_of(indices_constraints.indices.vector_indices,
                       [&index_name](const auto &vector_index) { return vector_index.spec.index_name == index_name; }) ||
@@ -8968,30 +8985,26 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         }
 
         auto edge_type = snapshot.ReadUint();
-        if (!edge_type) throw RecoveryFailure("Couldn't read vector index edge type!");
+        if (!edge_type) throw RecoveryFailure("Couldn't read vector edge index edge type!");
         auto property = snapshot.ReadUint();
-        if (!property) throw RecoveryFailure("Couldn't read vector index property!");
+        if (!property) throw RecoveryFailure("Couldn't read vector edge index property!");
         auto metric = snapshot.ReadString();
-        if (!metric) throw RecoveryFailure("Couldn't read vector index metric!");
-        auto metric_kind = MetricFromName(metric.value());
+        if (!metric) throw RecoveryFailure("Couldn't read vector edge index metric!");
         auto dimension = snapshot.ReadUint();
-        if (!dimension) throw RecoveryFailure("Couldn't read vector index dimension!");
+        if (!dimension) throw RecoveryFailure("Couldn't read vector edge index dimension!");
         auto resize_coefficient = snapshot.ReadUint();
-        if (!resize_coefficient) throw RecoveryFailure("Couldn't read vector index resize coefficient!");
+        if (!resize_coefficient) throw RecoveryFailure("Couldn't read vector edge index resize coefficient!");
         auto capacity = snapshot.ReadUint();
-        if (!capacity) throw RecoveryFailure("Couldn't read vector index capacity!");
+        if (!capacity) throw RecoveryFailure("Couldn't read vector edge index capacity!");
         auto scalar_kind = snapshot.ReadUint();
-        if (!scalar_kind) throw RecoveryFailure("Couldn't read vector index scalar kind!");
-        SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})", *index_name,
-                     name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)),
-                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+        if (!scalar_kind) throw RecoveryFailure("Couldn't read vector edge index scalar kind!");
 
         indices_constraints.indices.vector_edge_indices.emplace_back(
             std::move(index_name.value()), get_edge_type_from_id(*edge_type), get_property_from_id(*property),
-            metric_kind, static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
-            static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
+            MetricFromName(*metric), static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient),
+            *capacity, static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
       }
-      spdlog::info("Metadata of vector indices are recovered.");
+      spdlog::info("Vector edge indices are recovered.");
     }
 
     // Recover text indices.
@@ -9938,6 +9951,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
         snapshot.WriteUint(resize_coefficient);
         snapshot.WriteUint(capacity);
         snapshot.WriteUint(static_cast<uint64_t>(scalar_kind));
+        storage->indices_.vector_index_.SerializeVectorIndex(&snapshot, index_name);
       }
       if (snapshot_aborted()) {
         return std::nullopt;
