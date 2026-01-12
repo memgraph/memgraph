@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,7 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/priorities.hpp"
 #include "utils/thread.hpp"
+#include "utils/tsc.hpp"
 #include "utils/yielder.hpp"
 
 namespace {
@@ -210,17 +211,23 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
   utils::ThreadSetName(ThreadPriority == Priority::HIGH ? "high prior." : "low prior.");
 
   // Both mixed and high priority worker only steal from mixed worker
-  const auto other_workers = std::invoke([&workers_pool, ptr = this]() mutable {
-    std::vector<Worker *> other_workers;
-    for (const auto &worker : workers_pool) {
-      // Only mixed work threads can have work stolen, workers_pool will not contain hp threads
-      if constexpr (ThreadPriority != Priority::HIGH) {
-        if (worker.get() == ptr) continue;
+  const auto other_workers = std::invoke([&workers_pool, self = this, worker_id]() mutable {
+    if constexpr (ThreadPriority != Priority::HIGH) {
+      // Only mixed work threads can have work stolen, workers_pool does not contain hp threads (skip self)
+      std::vector<Worker *> other_workers(workers_pool.size() - 1, nullptr);
+      size_t i = other_workers.size() - worker_id;  // Optimization to mix thread stealing between workers
+      for (const auto &worker : workers_pool) {
+        if (worker.get() == self) continue;
+        other_workers[i % other_workers.size()] = worker.get();
+        ++i;
       }
-      other_workers.push_back(worker.get());
+      return other_workers;
+    } else {
+      // Hp threads steal from any mixed work thread (workers_pool contains only mixed work threads)
+      (void)self;
+      (void)worker_id;
+      return workers_pool | std::views::transform([](auto &o) { return o.get(); }) | std::ranges::to<std::vector>();
     }
-    (void)ptr;
-    return other_workers;
   });
 
   std::optional<TaskSignature> task;
@@ -294,11 +301,12 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
       continue;
     }
 
-    // Phase 3 - spin for a while waiting on work
-    {
-      const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(1);
-      yielder y;  // NOLINT (misc-const-correctness)
-      while (std::chrono::steady_clock::now() < end) {
+    // Phase 3 - spin for a while waiting on work (available only if TSC is available)
+    const auto freq = utils::GetTSCFrequency();
+    if (freq) {
+      utils::TSCTimer timer{freq};
+      yielder y;                         // NOLINT (misc-const-correctness)
+      while (timer.Elapsed() < 0.001) {  // 1ms
         if (y([this] { return has_pending_work_.load(std::memory_order_acquire); }, 1024U, 0U)) break;
       }
     }
