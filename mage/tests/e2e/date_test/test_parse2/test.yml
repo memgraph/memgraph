@@ -1,5 +1,5 @@
 query: >
-    CALL date.parse("21 June, 2018", "d", "%d %B, %Y", "US/Samoa") YIELD parsed
+    CALL date.parse("21 June, 2018", "d", "%d %B, %Y", "Pacific/Samoa") YIELD parsed
     RETURN parsed
 
 output:
