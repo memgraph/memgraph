@@ -288,9 +288,9 @@ jobs:
       version: ${{ inputs.version }}
     secrets: inherit
 
-  SetupDailyBuildImageOutputs:
+  SetupRCBuildImageOutputs:
     if: ${{ inputs.run_issu_test }}
-    name: Setup Daily Build Image Outputs
+    name: Setup RC Build Image Outputs
     needs: [PrepareReleaseBranch, DockerArtifact]
     runs-on: ubuntu-24.04
     outputs:
@@ -328,17 +328,18 @@ jobs:
   RunISSUTest:
     if: ${{ inputs.run_issu_test }}
     name: Run ISSU Tests
-    needs: [SetupDailyBuildImageOutputs]
+    needs: [SetupRCBuildImageOutputs, PrepareReleaseBranch]
     uses: ./.github/workflows/reusable_issu_test.yaml
     strategy:
       matrix:
         include:
           - arch: amd
-            next_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_image_url }}
+            next_image: ${{ needs.SetupRCBuildImageOutputs.outputs.amd_image_url }}
           - arch: arm
-            next_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.arm_image_url }}
+            next_image: ${{ needs.SetupRCBuildImageOutputs.outputs.arm_image_url }}
     with:
-      last_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.last_image_version }}
+      last_image: ${{ needs.SetupRCBuildImageOutputs.outputs.last_image_version }}
       next_image: ${{ matrix.next_image }}
       arch: ${{ matrix.arch }}
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
     secrets: inherit

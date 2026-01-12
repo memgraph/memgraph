@@ -617,4 +617,5 @@ jobs:
       malloc: ${{ inputs.malloc }}
       cuda: ${{ inputs.cuda }}
       relwithdebinfo: ${{ inputs.build_type == 'RelWithDebInfo' }}
+      ref: ${{ inputs.ref }}
     secrets: inherit

@@ -16,6 +16,11 @@ on:
         required: false
         type: string
         default: 'amd'
+      ref:
+        description: 'Branch or tag to test'
+        required: false
+        type: string
+        default: ''
 
 env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -28,6 +33,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login

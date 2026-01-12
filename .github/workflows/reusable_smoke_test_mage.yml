@@ -27,6 +27,10 @@ on:
         type: boolean
         default: false
         description: "Used if next_type or last_type is of 'date'"
+      ref:
+        type: string
+        description: "Branch or tag to build"
+        default: ''
 
 env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -51,6 +55,7 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
