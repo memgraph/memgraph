@@ -1,6 +1,7 @@
 name: "Package mage"
 
 on:
+  push:
   pull_request:
   workflow_dispatch:
     inputs:
@@ -141,4 +142,25 @@ jobs:
       package_deb: ${{ matrix.package_deb }}
       generate_sbom: ${{ matrix.generate_sbom }}
       ref: ${{ matrix.ref }}
+    secrets: inherit
+
+  TemporaryPushJob:
+    if: ${{ github.event_name == 'push' }}
+    name: Temporary Push Job#
+    uses: ./.github/workflows/reusable_package_mage.yaml
+    with:
+      arch: "amd"
+      build_type: "Release"
+      memgraph_download_link: ""
+      s3_dest_dir: "mage-unofficial/temporary-push-job"
+      shorten_tag: true
+      cuda: false
+      push_to_s3: true
+      push_to_github: true
+      malloc: false
+      run_smoke_tests: true
+      run_tests: true
+      package_deb: true
+      generate_sbom: true
+      ref: ${{ github.ref }}
     secrets: inherit
