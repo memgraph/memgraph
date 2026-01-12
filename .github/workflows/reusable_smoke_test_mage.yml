@@ -107,6 +107,7 @@ jobs:
             | head -n1)
 
           rm next.tar.gz
+          echo "MEMGRAPH_NEXT_DOCKERHUB_IMAGE=${repo_tag}" >> $GITHUB_ENV
 
       - name: Load Last Image (Docker)
         if: ${{ env.LAST_TYPE == 'docker' }}
@@ -126,6 +127,7 @@ jobs:
             | head -n1)
 
           rm last.tar.gz
+          echo "MEMGRAPH_LAST_DOCKERHUB_IMAGE=${repo_tag}" >> $GITHUB_ENV
 
       - name: Run Tests
         env:
@@ -139,8 +141,8 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-mage smoke \
-          --next-image "$NEXT_IMAGE" \
-          --last-image "$LAST_IMAGE"
+          --next-image "$MEMGRAPH_NEXT_DOCKERHUB_IMAGE" \
+          --last-image "$MEMGRAPH_LAST_DOCKERHUB_IMAGE"
 
 
       - name: Clean up Docker images
