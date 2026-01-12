@@ -13,7 +13,6 @@
 #include <algorithm>
 #include <array>
 #include <bitset>
-#include <memory>
 #include <ranges>
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/utils.hpp"
@@ -326,19 +325,19 @@ bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
   const auto thread_count = std::min(parallel_exec_info.thread_count, vertex_batches.size());
 
   std::atomic<uint64_t> batch_counter = 0;
-  utils::Synchronized<std::optional<ConstraintViolation>, utils::RWSpinLock> has_error;
+  utils::Synchronized<std::expected<void, ConstraintViolation>, utils::RWSpinLock> result{};
   {
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([&has_error, &vertex_batches, &batch_counter, &vertex_accessor, &constraint_accessor, &label,
+      threads.emplace_back([&result, &vertex_batches, &batch_counter, &vertex_accessor, &constraint_accessor, &label,
                             &properties, &snapshot_info]() {
-        do_per_thread_validation(has_error, DoValidate, vertex_batches, batch_counter, vertex_accessor, snapshot_info,
+        do_per_thread_validation(result, DoValidate, vertex_batches, batch_counter, vertex_accessor, snapshot_info,
                                  constraint_accessor, label, properties);
       });
     }
   }
-  return has_error.Lock()->has_value();
+  return !result->has_value();
 }
 
 bool InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
@@ -346,7 +345,8 @@ bool InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
     const LabelId &label, const std::set<PropertyId> &properties,
     std::optional<SnapshotObserverInfo> const &snapshot_info) {
   for (const Vertex &vertex : vertex_accessor) {
-    if (const auto violation = DoValidate(vertex, constraint_accessor, label, properties); violation.has_value()) {
+    if (const auto result = DoValidate(vertex, constraint_accessor, label, properties); !result.has_value()) {
+      // TODO(ivan): what, why return true
       return true;
     }
     if (snapshot_info) {
@@ -356,26 +356,26 @@ bool InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
   return false;
 }
 
-std::optional<ConstraintViolation> InMemoryUniqueConstraints::DoValidate(
+std::expected<void, ConstraintViolation> InMemoryUniqueConstraints::DoValidate(
     const Vertex &vertex, utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
     const std::set<PropertyId> &properties) {
   if (vertex.deleted || !std::ranges::contains(vertex.labels, label)) {
-    return std::nullopt;
+    return {};
   }
   auto values = vertex.properties.ExtractPropertyValues(properties);
   if (!values) {
-    return std::nullopt;
+    return {};
   }
 
   // Check whether there already is a vertex with the same values for the
   // given label and property.
   auto it = constraint_accessor.find_equal_or_greater(*values);
   if (it != constraint_accessor.end() && it->values == *values) {
-    return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
+    return std::unexpected{ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties}};
   }
 
   constraint_accessor.insert(Entry{std::move(*values), &vertex, 0});
-  return std::nullopt;
+  return {};
 }
 
 void InMemoryUniqueConstraints::AbortEntries(std::span<Vertex const *const> const vertices,
@@ -421,7 +421,7 @@ InMemoryUniqueConstraints::CreateConstraint(
       container_.WithLock([&](auto &container) -> std::expected<IndividualConstraint *, CreationStatus> {
         auto [it, inserted] = container.constraints_.try_emplace(
             std::make_pair(label, properties),
-            IndividualConstraint{.skiplist = utils::SkipList<Entry>{}, .status = ValidationStatus::PENDING});
+            IndividualConstraint{.skiplist = utils::SkipList<Entry>{}, .status = ValidationStatus::VALIDATING});
         if (!inserted) return std::unexpected{CreationStatus::ALREADY_EXISTS};
         return &it->second;
       });
@@ -448,7 +448,7 @@ InMemoryUniqueConstraints::CreateConstraint(
   container_.WithLock([&](auto &container) {
     auto it = container.constraints_.find({label, properties});
     if (it != container.constraints_.end()) {
-      it->second.status = ValidationStatus::VALIDATED;
+      it->second.status = ValidationStatus::READY;
       container.constraints_by_label_[label].insert({properties, &it->second});
     }
   });
@@ -464,7 +464,7 @@ InMemoryUniqueConstraints::DeletionStatus InMemoryUniqueConstraints::DropConstra
 
   auto erased = container_.WithLock([&](auto &container) -> bool {
     auto it = container.constraints_.find({label, properties});
-    if (it == container.constraints_.end() || it->second.status != ValidationStatus::VALIDATED) [[unlikely]] {
+    if (it == container.constraints_.end() || it->second.status != ValidationStatus::READY) [[unlikely]] {
       return false;
     }
     container.constraints_.erase(it);
@@ -490,12 +490,13 @@ bool InMemoryUniqueConstraints::ConstraintExists(LabelId label, const std::set<P
   });
 }
 
-std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Vertex &vertex, const Transaction &tx,
-                                                                       uint64_t commit_timestamp) const {
+std::expected<void, ConstraintViolation> InMemoryUniqueConstraints::Validate(const Vertex &vertex,
+                                                                             const Transaction &tx,
+                                                                             uint64_t commit_timestamp) const {
   if (vertex.deleted) {
-    return std::nullopt;
+    return {};
   }
-  return container_.WithReadLock([&](const auto &container) -> std::optional<ConstraintViolation> {
+  return container_.WithReadLock([&](const auto &container) -> std::expected<void, ConstraintViolation> {
     for (const auto &label : vertex.labels) {
       const auto &constraint = container.constraints_by_label_.find(label);
       if (constraint == container.constraints_by_label_.end()) {
@@ -532,12 +533,12 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Ver
 
         for (auto const *v : possible_conflicting) {
           if (LastCommittedVersionHasLabelProperty(*v, label, properties, *value_array, tx, commit_timestamp)) {
-            return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
+            return std::unexpected{ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties}};
           }
         }
       }
     }
-    return std::nullopt;
+    return {};
   });
 }
 
@@ -546,7 +547,7 @@ std::vector<std::pair<LabelId, std::set<PropertyId>>> InMemoryUniqueConstraints:
     std::vector<std::pair<LabelId, std::set<PropertyId>>> ret;
     ret.reserve(container.constraints_.size());
     for (const auto &[label_props, individual_constraint] : container.constraints_) {
-      if (individual_constraint.status != ValidationStatus::VALIDATED) [[unlikely]] {
+      if (individual_constraint.status != ValidationStatus::READY) [[unlikely]] {
         continue;
       }
       ret.emplace_back(label_props);
@@ -591,6 +592,13 @@ void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t const oldest_acti
 }
 
 void InMemoryUniqueConstraints::Clear() {
+  container_.WithLock([](auto &container) {
+    container.constraints_.clear();
+    container.constraints_by_label_.clear();
+  });
+}
+
+void InMemoryUniqueConstraints::DropGraphClearConstraints() {
   container_.WithLock([](auto &container) {
     container.constraints_.clear();
     container.constraints_by_label_.clear();

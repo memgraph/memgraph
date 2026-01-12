@@ -40,7 +40,7 @@ void Constraints::AbortEntries(std::span<Vertex const *const> const vertices,
 }
 
 void Constraints::DropGraphClearConstraints() const {
-  static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->Clear();
+  static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->DropGraphClearConstraints();
   existence_constraints_->DropGraphClearConstraints();
   type_constraints_->DropGraphClearConstraints();
 }

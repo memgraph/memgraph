@@ -48,9 +48,10 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     bool operator==(const std::vector<PropertyValue> &rhs) const;
   };
 
-  static std::optional<ConstraintViolation> DoValidate(const Vertex &vertex,
-                                                       utils::SkipList<Entry>::Accessor &constraint_accessor,
-                                                       const LabelId &label, const std::set<PropertyId> &properties);
+  static std::expected<void, ConstraintViolation> DoValidate(const Vertex &vertex,
+                                                             utils::SkipList<Entry>::Accessor &constraint_accessor,
+                                                             const LabelId &label,
+                                                             const std::set<PropertyId> &properties);
 
  public:
   struct MultipleThreadsConstraintValidation {
@@ -69,14 +70,14 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   };
 
   // TODO (ivan): better name for this?
-  enum class ValidationStatus : bool { PENDING, VALIDATED };
+  enum class ValidationStatus : bool { VALIDATING, READY };
 
   // constraints are created and dropped with read only access
   // a status is needed to not drop the constraint before it gets validated
   // new writes can't happen during this time due to read only access
   struct IndividualConstraint {
     utils::SkipList<Entry> skiplist;
-    ValidationStatus status{ValidationStatus::PENDING};
+    ValidationStatus status{ValidationStatus::VALIDATING};
   };
 
   struct Container {
@@ -126,8 +127,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// This method should be called while commit lock is active with
   /// `commit_timestamp` being a potential commit timestamp of the transaction.
   /// @throw std::bad_alloc
-  std::optional<ConstraintViolation> Validate(const Vertex &vertex, const Transaction &tx,
-                                              uint64_t commit_timestamp) const;
+  std::expected<void, ConstraintViolation> Validate(const Vertex &vertex, const Transaction &tx,
+                                                    uint64_t commit_timestamp) const;
 
   std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const override;
 
@@ -135,6 +136,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
   void Clear() override;
+
+  void DropGraphClearConstraints();
 
   static std::variant<MultipleThreadsConstraintValidation, SingleThreadConstraintValidation> GetCreationFunction(
       const std::optional<durability::ParallelizedSchemaCreationInfo> &);

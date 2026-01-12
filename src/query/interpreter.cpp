@@ -7372,7 +7372,8 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
 struct QueryTransactionRequirements : QueryVisitor<void> {
   using QueryVisitor<void>::Visit;
 
-  QueryTransactionRequirements(bool is_schema_assert_query, bool is_cypher_read, storage::StorageMode storage_mode)
+  QueryTransactionRequirements(bool is_schema_assert_query, bool is_cypher_read,
+                               std::optional<storage::StorageMode> storage_mode)
       : is_schema_assert_query_(is_schema_assert_query), is_cypher_read_(is_cypher_read), storage_mode_(storage_mode) {}
 
   // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
@@ -7453,6 +7454,10 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   // Complex access logic
   void Visit(IndexQuery &index_query) override {
+    if (!storage_mode_) [[unlikely]] {
+      throw DatabaseContextRequiredException("Database required for the transaction setup.");
+    }
+
     using enum storage::StorageAccessType;
     if (storage_mode_ == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       // Concurrent population of index requires snapshot isolation
@@ -7464,6 +7469,10 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     }
   }
   void Visit(EdgeIndexQuery &edge_index_query) override {
+    if (!storage_mode_) [[unlikely]] {
+      throw DatabaseContextRequiredException("Database required for the transaction setup.");
+    }
+
     using enum storage::StorageAccessType;
     if (storage_mode_ == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       // Concurrent population of index requires snapshot isolation
@@ -7475,7 +7484,11 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     }
   }
 
-  void Visit(ConstraintQuery &constraint_query) override {
+  void Visit(ConstraintQuery & /*constraint_query*/) override {
+    if (!storage_mode_) [[unlikely]] {
+      throw DatabaseContextRequiredException("Database required for the transaction setup.");
+    }
+
     using enum storage::StorageAccessType;
     if (storage_mode_ == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
       accessor_type_ = UNIQUE;
@@ -7497,7 +7510,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   bool const is_schema_assert_query_;
   bool const is_cypher_read_;
-  storage::StorageMode const storage_mode_;
+  std::optional<storage::StorageMode> const storage_mode_;
 
   bool could_commit_ = false;
   std::optional<storage::IsolationLevel> isolation_level_override_;
@@ -7597,9 +7610,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     });
 
     if (!in_explicit_transaction_) {
-      // TODO(ivan): when is !current_db_.db_acc_ possible?
-      auto const storage_mode = current_db_.db_acc_ ? (*current_db_.db_acc_)->storage()->GetStorageMode()
-                                                    : storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
+      auto storage_mode = current_db_.db_acc_
+                              ? std::optional<storage::StorageMode>{(*current_db_.db_acc_)->storage()->GetStorageMode()}
+                              : std::nullopt;
       auto transaction_requirements =
           QueryTransactionRequirements{parse_info.is_schema_assert_query, parsed_query.is_cypher_read, storage_mode};
       parsed_query.query->Accept(transaction_requirements);

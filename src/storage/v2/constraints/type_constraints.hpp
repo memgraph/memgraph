@@ -38,11 +38,11 @@ class TypeConstraints {
                                                   const LabelId &label, const PropertyId &property);
   };
 
-  enum class ValidationStatus : bool { PENDING, VALIDATED };
+  enum class ValidationStatus : bool { VALIDATING, READY };
 
   struct IndividualConstraint {
     TypeConstraintKind type;
-    ValidationStatus status{ValidationStatus::PENDING};
+    ValidationStatus status{ValidationStatus::VALIDATING};
   };
 
   struct Container {

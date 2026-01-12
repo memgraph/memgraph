@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <absl/container/flat_hash_set.h>
 #include <optional>
 #include <variant>
 
@@ -28,24 +27,23 @@ namespace memgraph::storage {
 class ExistenceConstraints {
  public:
   struct MultipleThreadsConstraintValidation {
-    std::optional<ConstraintViolation> operator()(
+    std::expected<void, ConstraintViolation> operator()(
         const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
   struct SingleThreadConstraintValidation {
-    std::optional<ConstraintViolation> operator()(
+    std::expected<void, ConstraintViolation> operator()(
         const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
   };
 
-  enum class ValidationStatus : bool { PENDING, VALIDATED };
+  enum class ValidationStatus : bool { VALIDATING, READY };
 
   struct IndividualConstraint {
     LabelId label;
     PropertyId property;
-    ValidationStatus status{ValidationStatus::PENDING};
 
     bool operator==(const IndividualConstraint &rhs) const {
       return std::tie(label, property) == std::tie(rhs.label, rhs.property);
@@ -61,11 +59,11 @@ class ExistenceConstraints {
     return constraints_.WithReadLock([](auto &constraints) { return constraints.empty(); });
   }
 
-  [[nodiscard]] static std::optional<ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
-                                                                                     const LabelId &label,
-                                                                                     const PropertyId &property);
+  [[nodiscard]] static std::expected<void, ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
+                                                                                           const LabelId &label,
+                                                                                           const PropertyId &property);
 
-  [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
+  [[nodiscard]] static std::expected<void, ConstraintViolation> ValidateVerticesOnConstraint(
       utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property,
       const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
@@ -74,7 +72,6 @@ class ExistenceConstraints {
       const std::optional<durability::ParallelizedSchemaCreationInfo> &);
 
   bool ConstraintExists(LabelId label, PropertyId property) const;
-  bool ConstraintExists(LabelId label, PropertyId property, ValidationStatus status) const;
 
   bool InsertConstraint(LabelId label, PropertyId property, ValidationStatus status);
   void UpdateConstraint(LabelId label, PropertyId property, ValidationStatus status);
@@ -84,7 +81,7 @@ class ExistenceConstraints {
 
   ///  Returns `std::nullopt` if all checks pass, and `ConstraintViolation` describing the violated constraint
   ///  otherwise.
-  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex);
+  [[nodiscard]] std::expected<void, ConstraintViolation> Validate(const Vertex &vertex);
 
   std::vector<std::pair<LabelId, PropertyId>> ListConstraints() const;
 
@@ -93,7 +90,8 @@ class ExistenceConstraints {
   void DropGraphClearConstraints();
 
  private:
-  utils::Synchronized<absl::flat_hash_set<IndividualConstraint>, utils::WritePrioritizedRWLock> constraints_;
+  utils::Synchronized<absl::flat_hash_map<IndividualConstraint, ValidationStatus>, utils::WritePrioritizedRWLock>
+      constraints_;
 };
 
 }  // namespace memgraph::storage

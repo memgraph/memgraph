@@ -177,7 +177,7 @@ bool TypeConstraints::InsertConstraint(LabelId label, PropertyId property, TypeC
     container.constraints_.emplace(std::make_pair(label, property),
                                    IndividualConstraint{.type = type, .status = status});
 
-    if (status == ValidationStatus::VALIDATED) {
+    if (status == ValidationStatus::READY) {
       // maintain l2p_constraints_
       {
         auto it = container.l2p_constraints_.find(label);
@@ -200,7 +200,7 @@ void TypeConstraints::UpdateConstraint(LabelId label, PropertyId property, TypeC
     container.constraints_.emplace(std::make_pair(label, property),
                                    IndividualConstraint{.type = type, .status = status});
 
-    if (status == ValidationStatus::VALIDATED) {
+    if (status == ValidationStatus::READY) {
       // maintain l2p_constraints_
       {
         auto it = container.l2p_constraints_.find(label);
@@ -232,7 +232,7 @@ bool TypeConstraints::DropConstraint(LabelId label, PropertyId property, TypeCon
       container.constraints_.erase(it);
     }
 
-    if (status == ValidationStatus::VALIDATED) {
+    if (status == ValidationStatus::READY) {
       // maintain l2p_constraints_
       auto it = container.l2p_constraints_.find(label);
       if (it == container.l2p_constraints_.end()) {
@@ -254,7 +254,7 @@ std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> TypeConstraints
     std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> constraints;
     constraints.reserve(container.constraints_.size());
     for (const auto &[label_props, type] : container.constraints_) {
-      if (type.status != ValidationStatus::VALIDATED) [[unlikely]] {
+      if (type.status != ValidationStatus::READY) [[unlikely]] {
         continue;
       }
       constraints.emplace_back(label_props.first, label_props.second, type.type);

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -88,21 +88,21 @@ bool DiskUniqueConstraints::InsertConstraint(
   return status.ok();
 }
 
-std::optional<ConstraintViolation> DiskUniqueConstraints::Validate(
+std::expected<void, ConstraintViolation> DiskUniqueConstraints::Validate(
     const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const {
   for (const auto &[constraint_label, constraint_properties] : constraints_) {
     if (IsVertexUnderConstraint(vertex, constraint_label, constraint_properties)) {
       if (auto vertex_check_result =
               TestIfVertexSatisifiesUniqueConstraint(vertex, unique_storage, constraint_label, constraint_properties);
-          vertex_check_result.has_value()) {
-        return vertex_check_result.value();
+          !vertex_check_result.has_value()) {
+        return std::unexpected{vertex_check_result.error()};
       }
     }
   }
-  return std::nullopt;
+  return {};
 }
 
-std::optional<ConstraintViolation> DiskUniqueConstraints::TestIfVertexSatisifiesUniqueConstraint(
+std::expected<void, ConstraintViolation> DiskUniqueConstraints::TestIfVertexSatisifiesUniqueConstraint(
     const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,
     const std::set<PropertyId> &constraint_properties) const {
   auto property_values = vertex.properties.ExtractPropertyValues(constraint_properties);
@@ -111,10 +111,11 @@ std::optional<ConstraintViolation> DiskUniqueConstraints::TestIfVertexSatisifies
   if (property_values.has_value() &&
       VertexIsUnique(property_values.value(), unique_storage, constraint_label, constraint_properties, vertex.gid)) {
     unique_storage.emplace_back(std::move(property_values.value()));
-    return std::nullopt;
+    return {};
   }
 
-  return ConstraintViolation{ConstraintViolation::Type::UNIQUE, constraint_label, constraint_properties};
+  return std::unexpected{
+      ConstraintViolation{ConstraintViolation::Type::UNIQUE, constraint_label, constraint_properties}};
 }
 
 bool DiskUniqueConstraints::VertexIsUnique(const std::vector<PropertyValue> &property_values,

@@ -1248,14 +1248,14 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
 [[nodiscard]] std::expected<void, StorageManipulationError> DiskStorage::CheckVertexConstraintsBeforeCommit(
     const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const {
   if (auto existence_constraint_validation_result = constraints_.existence_constraints_->Validate(vertex);
-      existence_constraint_validation_result.has_value()) {
-    return std::unexpected{StorageManipulationError{existence_constraint_validation_result.value()}};
+      !existence_constraint_validation_result.has_value()) {
+    return std::unexpected{StorageManipulationError{existence_constraint_validation_result.error()}};
   }
 
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
   if (auto unique_constraint_validation_result = disk_unique_constraints->Validate(vertex, unique_storage);
-      unique_constraint_validation_result.has_value()) {
-    return std::unexpected{StorageManipulationError{unique_constraint_validation_result.value()}};
+      !unique_constraint_validation_result.has_value()) {
+    return std::unexpected{StorageManipulationError{unique_constraint_validation_result.error()}};
   }
   return {};
 }
@@ -2235,7 +2235,7 @@ std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::Disk
       check.has_value()) {
     return std::unexpected{StorageExistenceConstraintDefinitionError{check.value()}};
   }
-  existence_constraints->InsertConstraint(label, property, ExistenceConstraints::ValidationStatus::VALIDATED);
+  existence_constraints->InsertConstraint(label, property, ExistenceConstraints::ValidationStatus::READY);
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
@@ -2245,7 +2245,7 @@ std::expected<void, StorageExistenceConstraintDroppingError> DiskStorage::DiskAc
   MG_ASSERT(type() == UNIQUE, "Dropping existence constraint requires unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
-  if (!existence_constraints->DropConstraint(label, property, ExistenceConstraints::ValidationStatus::VALIDATED)) {
+  if (!existence_constraints->DropConstraint(label, property, ExistenceConstraints::ValidationStatus::READY)) {
     return std::unexpected{StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);

@@ -708,7 +708,7 @@ void InMemoryStorage::UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from
   edge_to_modify->from_vertex = from_vertex;
 }
 
-std::optional<ConstraintViolation> InMemoryStorage::InMemoryAccessor::ExistenceConstraintsViolation() const {
+std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::ExistenceConstraintsViolation() const {
   // ExistenceConstraints validation block
   auto const has_any_existence_constraints = !storage_->constraints_.existence_constraints_->empty();
   if (has_any_existence_constraints && transaction_.constraint_verification_info &&
@@ -719,15 +719,15 @@ std::optional<ConstraintViolation> InMemoryStorage::InMemoryAccessor::ExistenceC
       // No need to take any locks here because we modified this vertex and no
       // one else can touch it until we commit.
       if (auto validation_result = storage_->constraints_.existence_constraints_->Validate(*vertex);
-          validation_result.has_value()) {
-        return validation_result;
+          !validation_result.has_value()) {
+        return std::unexpected{validation_result.error()};
       }
     }
   }
-  return std::nullopt;
+  return {};
 }
 
-std::optional<ConstraintViolation> InMemoryStorage::InMemoryAccessor::UniqueConstraintsViolation() const {
+std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::UniqueConstraintsViolation() const {
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
 
@@ -752,14 +752,13 @@ std::optional<ConstraintViolation> InMemoryStorage::InMemoryAccessor::UniqueCons
     for (auto const *vertex : vertices_to_update) {
       // No need to take any locks here because we modified this vertex and no
       // one else can touch it until we commit.
-      if (auto const maybe_unique_constraint_violation =
-              mem_unique_constraints->Validate(*vertex, transaction_, *commit_timestamp_);
-          maybe_unique_constraint_violation.has_value()) {
-        return maybe_unique_constraint_violation;
+      if (auto const validation_result = mem_unique_constraints->Validate(*vertex, transaction_, *commit_timestamp_);
+          !validation_result.has_value()) {
+        return std::unexpected{validation_result.error()};
       }
     }
   }
-  return std::nullopt;
+  return {};
 }
 
 void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
@@ -815,23 +814,22 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     return std::unexpected{ReplicaShouldNotWriteError{}};
   }
 
-  if (auto const maybe_violation = ExistenceConstraintsViolation(); maybe_violation.has_value()) {
+  if (auto const validation_result = ExistenceConstraintsViolation(); !validation_result.has_value()) {
     Abort();
     // We have not started a commit timestamp no cleanup needed for that
     DMG_ASSERT(!commit_timestamp_.has_value());
-    return std::unexpected{*maybe_violation};
+    return std::unexpected{validation_result.error()};
   }
 
   auto engine_guard = std::unique_lock{storage_->engine_lock_};
   commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
   // Unique constraints violated
-  if (auto const maybe_unique_constraint_violation = UniqueConstraintsViolation();
-      maybe_unique_constraint_violation.has_value()) {
+  if (auto const validation_result = UniqueConstraintsViolation(); !validation_result.has_value()) {
     // Release engine lock because we don't have to hold it anymore
     engine_guard.unlock();
     AbortAndResetCommitTs();
-    return std::unexpected{*maybe_unique_constraint_violation};
+    return std::unexpected{validation_result.error()};
   }
   // Currently there are queries that write to some subsystem that are allowed on a replica
   // ex. analyze graph stats
@@ -1838,16 +1836,16 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
             "Creating existence requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
-  if (!existence_constraints->InsertConstraint(label, property, ExistenceConstraints::ValidationStatus::PENDING)) {
+  if (!existence_constraints->InsertConstraint(label, property, ExistenceConstraints::ValidationStatus::VALIDATING)) {
     return std::unexpected{StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
-  if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label,
-                                                                          property, std::nullopt, std::nullopt);
-      violation.has_value()) {
-    existence_constraints->DropConstraint(label, property, ExistenceConstraints::ValidationStatus::PENDING);
-    return std::unexpected{StorageExistenceConstraintDefinitionError{violation.value()}};
+  if (auto result = ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property,
+                                                                       std::nullopt, std::nullopt);
+      result.has_value()) {
+    existence_constraints->DropConstraint(label, property, ExistenceConstraints::ValidationStatus::VALIDATING);
+    return std::unexpected{StorageExistenceConstraintDefinitionError{result.error()}};
   }
-  existence_constraints->UpdateConstraint(label, property, ExistenceConstraints::ValidationStatus::VALIDATED);
+  existence_constraints->UpdateConstraint(label, property, ExistenceConstraints::ValidationStatus::READY);
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
@@ -1859,7 +1857,7 @@ std::expected<void, StorageExistenceConstraintDroppingError> InMemoryStorage::In
             "Dropping existence constraint requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
-  if (!existence_constraints->DropConstraint(label, property, ExistenceConstraints::ValidationStatus::VALIDATED)) {
+  if (!existence_constraints->DropConstraint(label, property, ExistenceConstraints::ValidationStatus::READY)) {
     return std::unexpected{StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);
@@ -1908,16 +1906,16 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
             "Creating IS TYPED constraint requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
-  if (!type_constraints->InsertConstraint(label, property, kind, TypeConstraints::ValidationStatus::PENDING)) {
+  if (!type_constraints->InsertConstraint(label, property, kind, TypeConstraints::ValidationStatus::VALIDATING)) {
     return std::unexpected{StorageTypeConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
   if (auto violation =
           TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, kind);
       violation.has_value()) {
-    type_constraints->DropConstraint(label, property, kind, TypeConstraints::ValidationStatus::PENDING);
+    type_constraints->DropConstraint(label, property, kind, TypeConstraints::ValidationStatus::VALIDATING);
     return std::unexpected{StorageTypeConstraintDefinitionError{violation.value()}};
   }
-  type_constraints->UpdateConstraint(label, property, kind, TypeConstraints::ValidationStatus::VALIDATED);
+  type_constraints->UpdateConstraint(label, property, kind, TypeConstraints::ValidationStatus::READY);
   transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, kind);
   return {};
 }
@@ -1930,7 +1928,7 @@ std::expected<void, StorageTypeConstraintDroppingError> InMemoryStorage::InMemor
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
   auto deleted_constraint =
-      type_constraints->DropConstraint(label, property, kind, TypeConstraints::ValidationStatus::VALIDATED);
+      type_constraints->DropConstraint(label, property, kind, TypeConstraints::ValidationStatus::READY);
   if (!deleted_constraint) {
     return std::unexpected{StorageTypeConstraintDroppingError{ConstraintDefinitionError{}}};
   }

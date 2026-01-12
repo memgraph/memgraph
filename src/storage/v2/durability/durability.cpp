@@ -395,7 +395,7 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
     }
 
     constraints->existence_constraints_->InsertConstraint(label, property,
-                                                          ExistenceConstraints::ValidationStatus::VALIDATED);
+                                                          ExistenceConstraints::ValidationStatus::READY);
     spdlog::info("Existence constraint on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
                  name_id_mapper->IdToName(property.AsUint()));
   }
@@ -436,7 +436,7 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
   spdlog::info("Recreating {} type constraints from metadata.", constraints_metadata.type.size());
   for (const auto &[label, property, type] : constraints_metadata.type) {
     if (!constraints->type_constraints_->InsertConstraint(label, property, type,
-                                                          TypeConstraints::ValidationStatus::VALIDATED)) {
+                                                          TypeConstraints::ValidationStatus::READY)) {
       throw RecoveryFailure("The type constraint already exists!");
     }
   }

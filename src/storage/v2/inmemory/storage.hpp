@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -164,9 +164,9 @@ class InMemoryStorage final : public Storage {
                               StorageMode storage_mode,
                               std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
-    std::optional<ConstraintViolation> ExistenceConstraintsViolation() const;
+    std::expected<void, ConstraintViolation> ExistenceConstraintsViolation() const;
 
-    std::optional<ConstraintViolation> UniqueConstraintsViolation() const;
+    std::expected<void, ConstraintViolation> UniqueConstraintsViolation() const;
 
     void CheckForFastDiscardOfDeltas();
 
