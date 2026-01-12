@@ -57,6 +57,7 @@ struct SchemaTrackingInterface {
   virtual void UpdateLabels(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
                             const utils::small_vector<LabelId> &new_labels, bool prop_on_edges) = 0;
   virtual void CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type) = 0;
+  virtual void CreateEdgeWithLabels(EdgeTypeId edge_type, const VertexKey &from_labels, const VertexKey &to_labels) = 0;
   virtual void DeleteEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) = 0;
   virtual void SetProperty(Vertex *vertex, PropertyId property, const ExtendedPropertyType &now,
                            const ExtendedPropertyType &before) = 0;
@@ -106,6 +107,7 @@ struct SchemaTracking final : public SchemaTrackingInterface {
                     const utils::small_vector<LabelId> &new_labels, bool prop_on_edges) override;
 
   void CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type) override;
+  void CreateEdgeWithLabels(EdgeTypeId edge_type, const VertexKey &from_labels, const VertexKey &to_labels) override;
 
   void DeleteEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) override;
 

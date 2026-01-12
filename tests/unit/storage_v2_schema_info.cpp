@@ -2577,6 +2577,357 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
   auto t4 = std::jthread(read_schema);
 }
 
+// Deterministic test for the interleaved delta edge label bug
+// Reproduces the issue where edges created with uncommitted labels aren't updated
+TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCreatedWithUncommittedLabelCommit) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices
+  {
+    auto acc = in_memory->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Transaction A: Add label L1 to v1 (uncommitted)
+  auto tx_a = in_memory->Access();
+  auto v1_a = tx_a->FindVertex(v1_gid, View::NEW);
+  ASSERT_TRUE(v1_a.has_value());
+  ASSERT_TRUE(v1_a->AddLabel(l1).has_value());
+
+  // Transaction B: Create edge from v1 to v2
+  auto tx_b = in_memory->Access();
+  auto v1_b = tx_b->FindVertex(v1_gid, View::NEW);
+  auto v2_b = tx_b->FindVertex(v2_gid, View::NEW);
+  ASSERT_TRUE(v1_b.has_value() && v2_b.has_value());
+  ASSERT_TRUE(tx_b->CreateEdge(&*v1_b, &*v2_b, e1).has_value());
+
+  // Transaction A commits (L1 becomes committed) @TODO these have been interchanged.
+  ASSERT_TRUE(tx_a->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx_a.reset();
+
+  // Transaction B commits (edge created WITH L1, but L1 is still uncommitted from tx_a)
+  ASSERT_TRUE(tx_b->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx_b.reset();
+
+  // Check schema: edge should have L1 (updated), node should have L1
+  // The bug: edge might not have been updated when L1 was added, so it still shows no labels
+  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+
+  // Extract edge labels and node labels
+  bool edge_has_l1 = false;
+  bool node_has_l1 = false;
+
+  if (json.contains("edges") && json["edges"].is_array() && json["edges"].size() > 0) {
+    const auto &edge = json["edges"][0];
+    if (edge.contains("start_node_labels") && edge["start_node_labels"].is_array()) {
+      for (const auto &label : edge["start_node_labels"]) {
+        if (label == "L1") {
+          edge_has_l1 = true;
+          break;
+        }
+      }
+    }
+  }
+
+  if (json.contains("nodes") && json["nodes"].is_array()) {
+    for (const auto &node : json["nodes"]) {
+      if (node.contains("labels") && node["labels"].is_array()) {
+        for (const auto &label : node["labels"]) {
+          if (label == "L1") {
+            node_has_l1 = true;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // Both should have L1 - they must match
+  ASSERT_EQ(edge_has_l1, node_has_l1) << "BUG: Edge and node label tracking mismatch! Edge has L1: " << edge_has_l1
+                                      << ", Node has L1: " << node_has_l1 << ". Full schema: " << json.dump(2);
+
+  // Also verify they both have L1 (the expected correct state after L1 is added)
+  ASSERT_TRUE(edge_has_l1) << "Edge should have L1 after label is added. Actual: " << json.dump(2);
+  ASSERT_TRUE(node_has_l1) << "Node should have L1. Actual: " << json.dump(2);
+}
+
+// Test the abort case: edge created with uncommitted label, then label transaction aborts
+// Note: Skip in analytical mode as abort doesn't work (no deltas to undo)
+TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCreatedWithUncommittedLabelAbort) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+
+  // Skip in analytical mode - abort doesn't work without deltas
+  if (in_memory->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
+    GTEST_SKIP() << "Abort not supported in analytical mode (no deltas)";
+  }
+
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices
+  {
+    auto acc = in_memory->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Transaction A: Add label L1 to v1 (uncommitted)
+  auto tx_a = in_memory->Access();
+  auto v1_a = tx_a->FindVertex(v1_gid, View::NEW);
+  ASSERT_TRUE(v1_a.has_value());
+  ASSERT_TRUE(v1_a->AddLabel(l1).has_value());
+
+  // Transaction B: Create edge from v1 to v2 (sees L1 in v1->labels)
+  auto tx_b = in_memory->Access();
+  auto v1_b = tx_b->FindVertex(v1_gid, View::NEW);
+  auto v2_b = tx_b->FindVertex(v2_gid, View::NEW);
+  ASSERT_TRUE(v1_b.has_value() && v2_b.has_value());
+  ASSERT_TRUE(tx_b->CreateEdge(&*v1_b, &*v2_b, e1).has_value());
+
+  // Transaction B commits (edge created with L1)
+  ASSERT_TRUE(tx_b->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx_b.reset();
+
+  // Transaction A aborts (L1 is removed)
+  tx_a->Abort();
+  tx_a.reset();
+
+  // Check schema: edge should NOT have L1, node should NOT have L1
+  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+  const auto expected = nlohmann::json::parse(
+      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+  ASSERT_TRUE(ConfrontJSON(json, expected)) << "Schema mismatch. Actual: " << json.dump(2);
+}
+
+// Test Case 1: T_ce commits first, then T_l1 commits
+// Edge created with uncommitted L1, then L1 commits - should work
+TYPED_TEST(SchemaInfoTestWEdgeProp, Case1_EdgeCommitsFirst_LabelCommitsAfter) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices
+  {
+    auto acc = in_memory->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Transaction T_l1: Add label L1 to v1 (uncommitted)
+  auto tx_l1 = in_memory->Access();
+  auto v1_l1 = tx_l1->FindVertex(v1_gid, View::NEW);
+  ASSERT_TRUE(v1_l1.has_value());
+  ASSERT_TRUE(v1_l1->AddLabel(l1).has_value());
+
+  // Transaction T_ce: Create edge from v1 to v2 (sees L1 in v1->labels)
+  auto tx_ce = in_memory->Access();
+  auto v1_ce = tx_ce->FindVertex(v1_gid, View::NEW);
+  auto v2_ce = tx_ce->FindVertex(v2_gid, View::NEW);
+  ASSERT_TRUE(v1_ce.has_value() && v2_ce.has_value());
+  ASSERT_TRUE(tx_ce->CreateEdge(&*v1_ce, &*v2_ce, e1).has_value());
+
+  // T_ce commits first (edge created with L1, added to post_process)
+  ASSERT_TRUE(tx_ce->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx_ce.reset();
+
+  // T_l1 commits (L1 becomes committed)
+  ASSERT_TRUE(tx_l1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx_l1.reset();
+
+  // Check schema: edge should have L1, node should have L1
+  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+  const auto expected = nlohmann::json::parse(
+      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+  ASSERT_TRUE(ConfrontJSON(json, expected)) << "Case 1 failed. Actual: " << json.dump(2);
+}
+
+// Test Case 2: T_l1 commits first, then T_ce commits
+// Label commits first, then edge created with committed L1 - should work
+TYPED_TEST(SchemaInfoTestWEdgeProp, Case2_LabelCommitsFirst_EdgeCommitsAfter) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices
+  {
+    auto acc = in_memory->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Transaction T_l1: Add label L1 to v1
+  auto tx_l1 = in_memory->Access();
+  auto v1_l1 = tx_l1->FindVertex(v1_gid, View::NEW);
+  ASSERT_TRUE(v1_l1.has_value());
+  ASSERT_TRUE(v1_l1->AddLabel(l1).has_value());
+
+  // T_l1 commits first (L1 becomes committed)
+  ASSERT_TRUE(tx_l1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx_l1.reset();
+
+  // Transaction T_ce: Create edge from v1 to v2 (sees committed L1)
+  auto tx_ce = in_memory->Access();
+  auto v1_ce = tx_ce->FindVertex(v1_gid, View::NEW);
+  auto v2_ce = tx_ce->FindVertex(v2_gid, View::NEW);
+  ASSERT_TRUE(v1_ce.has_value() && v2_ce.has_value());
+  ASSERT_TRUE(tx_ce->CreateEdge(&*v1_ce, &*v2_ce, e1).has_value());
+
+  // T_ce commits (edge created with committed L1)
+  ASSERT_TRUE(tx_ce->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx_ce.reset();
+
+  // Check schema: edge should have L1, node should have L1
+  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+  const auto expected = nlohmann::json::parse(
+      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+  ASSERT_TRUE(ConfrontJSON(json, expected)) << "Case 2 failed. Actual: " << json.dump(2);
+}
+
+// Test Case 3: T_ce commits first, then T_l1 aborts
+// Edge created with uncommitted L1, then L1 aborts - should fail (this is the bug)
+// Note: Skip in analytical mode as abort doesn't work (no deltas to undo)
+TYPED_TEST(SchemaInfoTestWEdgeProp, Case3_EdgeCommitsFirst_LabelAbortsAfter) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+
+  // Skip in analytical mode - abort doesn't work without deltas
+  if (in_memory->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
+    GTEST_SKIP() << "Abort not supported in analytical mode (no deltas)";
+  }
+
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices
+  {
+    auto acc = in_memory->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Transaction T_l1: Add label L1 to v1 (uncommitted)
+  auto tx_l1 = in_memory->Access();
+  auto v1_l1 = tx_l1->FindVertex(v1_gid, View::NEW);
+  ASSERT_TRUE(v1_l1.has_value());
+  ASSERT_TRUE(v1_l1->AddLabel(l1).has_value());
+
+  // Transaction T_ce: Create edge from v1 to v2 (sees L1 in v1->labels)
+  auto tx_ce = in_memory->Access();
+  auto v1_ce = tx_ce->FindVertex(v1_gid, View::NEW);
+  auto v2_ce = tx_ce->FindVertex(v2_gid, View::NEW);
+  ASSERT_TRUE(v1_ce.has_value() && v2_ce.has_value());
+  ASSERT_TRUE(tx_ce->CreateEdge(&*v1_ce, &*v2_ce, e1).has_value());
+
+  // T_ce commits first (edge created with L1, added to post_process)
+  ASSERT_TRUE(tx_ce->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx_ce.reset();
+
+  // T_l1 aborts (L1 is removed)
+  tx_l1->Abort();
+  tx_l1.reset();
+
+  // Check schema: edge should NOT have L1, node should NOT have L1
+  // This should fail with current code (the bug)
+  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+  const auto expected = nlohmann::json::parse(
+      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+  ASSERT_TRUE(ConfrontJSON(json, expected))
+      << "Case 3 failed (expected to fail - this is the bug). Actual: " << json.dump(2);
+}
+
+// Test Case 4: T_l1 aborts first, then T_ce commits
+// Label aborts first, then edge created without L1 - should work
+// Note: Skip in analytical mode as abort doesn't work (no deltas to undo)
+TYPED_TEST(SchemaInfoTestWEdgeProp, Case4_LabelAbortsFirst_EdgeCommitsAfter) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+
+  // Skip in analytical mode - abort doesn't work without deltas
+  if (in_memory->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
+    GTEST_SKIP() << "Abort not supported in analytical mode (no deltas)";
+  }
+
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices
+  {
+    auto acc = in_memory->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Transaction T_l1: Add label L1 to v1
+  auto tx_l1 = in_memory->Access();
+  auto v1_l1 = tx_l1->FindVertex(v1_gid, View::NEW);
+  ASSERT_TRUE(v1_l1.has_value());
+  ASSERT_TRUE(v1_l1->AddLabel(l1).has_value());
+
+  // T_l1 aborts first (L1 is removed)
+  tx_l1->Abort();
+  tx_l1.reset();
+
+  // Transaction T_ce: Create edge from v1 to v2 (v1 has no labels since L1 aborted)
+  auto tx_ce = in_memory->Access();
+  auto v1_ce = tx_ce->FindVertex(v1_gid, View::NEW);
+  auto v2_ce = tx_ce->FindVertex(v2_gid, View::NEW);
+  ASSERT_TRUE(v1_ce.has_value() && v2_ce.has_value());
+  ASSERT_TRUE(tx_ce->CreateEdge(&*v1_ce, &*v2_ce, e1).has_value());
+
+  // T_ce commits (edge created without L1)
+  ASSERT_TRUE(tx_ce->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx_ce.reset();
+
+  // Check schema: edge should NOT have L1, node should NOT have L1
+  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+  const auto expected = nlohmann::json::parse(
+      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+  ASSERT_TRUE(ConfrontJSON(json, expected)) << "Case 4 failed. Actual: " << json.dump(2);
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(SchemaInfoTest, AllPropertyTypes) {
   auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
@@ -2961,5 +3312,485 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, AllPropertyTypes) {
 
     check_json(json["nodes"], 50.0);
     check_json(json["edges"], 100.0);
+  }
+}
+
+// Test for potential double-processing: Interleaved transactions modify labels on opposite endpoints
+TYPED_TEST(SchemaInfoTestWEdgeProp, InterleavedLabelChangesOnBothEndpoints) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto l2 = in_memory->NameToLabel("L2");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices and an edge
+  {
+    auto acc = in_memory->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&v1, &v2, e1);
+    ASSERT_TRUE(edge.has_value());
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // T1: Add L1 to v1 (uncommitted)
+  auto tx1 = in_memory->Access();
+  auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
+  ASSERT_TRUE(v1_tx1.has_value());
+  ASSERT_TRUE(v1_tx1->AddLabel(l1).has_value());
+
+  // T2: Add L2 to v2 (while T1 uncommitted)
+  auto tx2 = in_memory->Access();
+  auto v2_tx2 = tx2->FindVertex(v2_gid, View::NEW);
+  ASSERT_TRUE(v2_tx2.has_value());
+  ASSERT_TRUE(v2_tx2->AddLabel(l2).has_value());
+
+  // T2 commits first
+  ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx2.reset();
+
+  // T1 commits after
+  ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx1.reset();
+
+  // After both commit: edge should be [L1]:[L2], not duplicated
+  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+  const auto expected = nlohmann::json::parse(
+      R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+  ASSERT_TRUE(ConfrontJSON(json, expected))
+      << "After both commits, edge should be counted once with both labels. Actual: " << json.dump(2);
+}
+
+// Test: Edge created, then label added with interleaved transactions
+TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeExistsThenLabelAdded) {  // @TODO Rename
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices
+  {
+    auto acc = in_memory->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // T2: Add L1 to v1 (while T1 uncommitted)
+  auto tx2 = in_memory->Access();
+  auto v1_tx2 = tx2->FindVertex(v1_gid, View::NEW);
+  ASSERT_TRUE(v1_tx2.has_value());
+  ASSERT_TRUE(v1_tx2->AddLabel(l1).has_value());
+
+  // T1: Create edge (uncommitted)
+  auto tx1 = in_memory->Access();
+  auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
+  auto v2_tx1 = tx1->FindVertex(v2_gid, View::NEW);
+  ASSERT_TRUE(v1_tx1.has_value() && v2_tx1.has_value());
+  auto edge = tx1->CreateEdge(&*v1_tx1, &*v2_tx1, e1);
+  ASSERT_TRUE(edge.has_value());
+
+  // T2 commits first
+  ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx2.reset();
+
+  // T1 commits after
+  ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx1.reset();
+
+  // Edge should be [L1]:[]
+  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+  const auto expected = nlohmann::json::parse(
+      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+  ASSERT_TRUE(ConfrontJSON(json, expected)) << "Edge should be updated with new label. Actual: " << json.dump(2);
+}
+
+// Test: Single transaction modifies labels on both endpoints
+TYPED_TEST(SchemaInfoTestWEdgeProp, BothEndpointsModifiedSameTransaction) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto l2 = in_memory->NameToLabel("L2");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices and an edge
+  {
+    auto acc = in_memory->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&v1, &v2, e1);
+    ASSERT_TRUE(edge.has_value());
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Add labels to both v1 and v2 in same transaction
+  {
+    auto tx = in_memory->Access();
+    auto v1 = tx->FindVertex(v1_gid, View::NEW);
+    auto v2 = tx->FindVertex(v2_gid, View::NEW);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+    ASSERT_TRUE(v1->AddLabel(l1).has_value());
+    ASSERT_TRUE(v2->AddLabel(l2).has_value());
+    ASSERT_TRUE(tx->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Edge should be [L1]:[L2], counted once
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto expected = nlohmann::json::parse(
+        R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+    ASSERT_TRUE(ConfrontJSON(json, expected))
+        << "Edge should be counted once with both labels. Actual: " << json.dump(2);
+  }
+}
+
+// Test: Edge deleted and recreated after label change
+TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeDeletedAndRecreatedAfterLabelChange) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+
+  // Skip in analytical mode - edge deletion doesn't work
+  if (in_memory->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
+    GTEST_SKIP() << "Edge deletion not supported in analytical mode";
+  }
+
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices and an edge
+  {
+    auto acc = in_memory->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&v1, &v2, e1);
+    ASSERT_TRUE(edge.has_value());
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // T1: Add label L1 to v1
+  {
+    auto tx1 = in_memory->Access();
+    auto v1 = tx1->FindVertex(v1_gid, View::NEW);
+    ASSERT_TRUE(v1.has_value());
+    ASSERT_TRUE(v1->AddLabel(l1).has_value());
+    ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // After T1: edge should be [L1]:[]
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto expected = nlohmann::json::parse(
+        R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+    ASSERT_TRUE(ConfrontJSON(json, expected)) << "After T1, edge should have L1. Actual: " << json.dump(2);
+  }
+
+  // T2: Delete edge and recreate it
+  {
+    auto tx2 = in_memory->Access();
+    auto v1 = tx2->FindVertex(v1_gid, View::NEW);
+    auto v2 = tx2->FindVertex(v2_gid, View::NEW);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+
+    // Find and delete the edge
+    auto out_edges = v1->OutEdges(View::NEW);
+    ASSERT_TRUE(out_edges.has_value());
+    ASSERT_FALSE(out_edges->edges.empty());
+    auto edge_accessor = out_edges->edges.front();
+    ASSERT_TRUE(tx2->DeleteEdge(&edge_accessor).has_value());
+
+    // Recreate the edge
+    auto new_edge = tx2->CreateEdge(&*v1, &*v2, e1);
+    ASSERT_TRUE(new_edge.has_value());
+
+    ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // After T2: edge should still be [L1]:[], counted once (not duplicated)
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto expected = nlohmann::json::parse(
+        R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+    ASSERT_TRUE(ConfrontJSON(json, expected))
+        << "After T2 (delete/recreate), edge should be counted once. Actual: " << json.dump(2);
+  }
+}
+
+// Test: Label added/removed/added with interleaved edge creation
+TYPED_TEST(SchemaInfoTestWEdgeProp, LabelAddedThenRemoved) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices
+  {
+    auto acc = in_memory->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // T1: Add L1 to v1 (uncommitted)
+  auto tx1 = in_memory->Access();
+  auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
+  ASSERT_TRUE(v1_tx1.has_value());
+  ASSERT_TRUE(v1_tx1->AddLabel(l1).has_value());
+
+  // T2: Create edge (while T1 uncommitted)
+  auto tx2 = in_memory->Access();
+  auto v1_tx2 = tx2->FindVertex(v1_gid, View::NEW);
+  auto v2_tx2 = tx2->FindVertex(v2_gid, View::NEW);
+  ASSERT_TRUE(v1_tx2.has_value() && v2_tx2.has_value());
+  auto edge1 = tx2->CreateEdge(&*v1_tx2, &*v2_tx2, e1);
+  ASSERT_TRUE(edge1.has_value());
+
+  // T2 commits first
+  ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx2.reset();
+
+  // T1 commits after
+  ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx1.reset();
+
+  // Edge should be [L1]:[]
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto expected = nlohmann::json::parse(
+        R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+    ASSERT_TRUE(ConfrontJSON(json, expected)) << "After add, edge should be [L1]:[] . Actual: " << json.dump(2);
+  }
+
+  // T3: Remove L1 (committed normally for simplicity)
+  {
+    auto tx = in_memory->Access();
+    auto v1 = tx->FindVertex(v1_gid, View::NEW);
+    ASSERT_TRUE(v1.has_value());
+    ASSERT_TRUE(v1->RemoveLabel(l1).has_value());
+    ASSERT_TRUE(tx->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Edge should be []:[]
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto expected = nlohmann::json::parse(
+        R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+    ASSERT_TRUE(ConfrontJSON(json, expected)) << "After remove, edge should be []:[] . Actual: " << json.dump(2);
+  }
+
+  // T4: Add L1 again (committed normally)
+  {
+    auto tx = in_memory->Access();
+    auto v1 = tx->FindVertex(v1_gid, View::NEW);
+    ASSERT_TRUE(v1.has_value());
+    ASSERT_TRUE(v1->AddLabel(l1).has_value());
+    ASSERT_TRUE(tx->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Edge should be [L1]:[] again, not duplicated
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto expected = nlohmann::json::parse(
+        R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+    ASSERT_TRUE(ConfrontJSON(json, expected))
+        << "After re-add, edge should be [L1]:[], not duplicated. Actual: " << json.dump(2);
+  }
+}
+
+// Test: Multiple labels on same vertex with interleaved transactions
+TYPED_TEST(SchemaInfoTestWEdgeProp, MultipleLabelsSameVertex) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto l2 = in_memory->NameToLabel("L2");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices
+  {
+    auto acc = in_memory->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // T1: Add L1 to v1 (uncommitted)
+  auto tx1 = in_memory->Access();
+  auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
+  ASSERT_TRUE(v1_tx1.has_value());
+  ASSERT_TRUE(v1_tx1->AddLabel(l1).has_value());
+
+  // T2: Create edge (while T1 uncommitted)
+  auto tx2 = in_memory->Access();
+  auto v1_tx2 = tx2->FindVertex(v1_gid, View::NEW);
+  auto v2_tx2 = tx2->FindVertex(v2_gid, View::NEW);
+  ASSERT_TRUE(v1_tx2.has_value() && v2_tx2.has_value());
+  auto edge = tx2->CreateEdge(&*v1_tx2, &*v2_tx2, e1);
+  ASSERT_TRUE(edge.has_value());
+
+  // T2 commits first
+  ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx2.reset();
+
+  // T1 commits after
+  ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx1.reset();
+
+  // Add L2 to same vertex (interleaved with another operation)
+  {
+    auto tx = in_memory->Access();
+    auto v1 = tx->FindVertex(v1_gid, View::NEW);
+    ASSERT_TRUE(v1.has_value());
+    ASSERT_TRUE(v1->AddLabel(l2).has_value());
+    ASSERT_TRUE(tx->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Edge should have both labels (sorted)
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto expected = nlohmann::json::parse(
+        R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1","L2"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1","L2"],"properties":[]}]})");
+    ASSERT_TRUE(ConfrontJSON(json, expected)) << "Edge should have both labels. Actual: " << json.dump(2);
+  }
+
+  // Remove L1 (L2 remains)
+  {
+    auto tx = in_memory->Access();
+    auto v1 = tx->FindVertex(v1_gid, View::NEW);
+    ASSERT_TRUE(v1.has_value());
+    ASSERT_TRUE(v1->RemoveLabel(l1).has_value());
+    ASSERT_TRUE(tx->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Edge should have only L2
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto expected = nlohmann::json::parse(
+        R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L2"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+    ASSERT_TRUE(ConfrontJSON(json, expected)) << "Edge should have only L2. Actual: " << json.dump(2);
+  }
+}
+
+// Test: Alternating label changes on both endpoints with interleaved edge creation
+TYPED_TEST(SchemaInfoTestWEdgeProp, AlternatingLabelChanges) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto l2 = in_memory->NameToLabel("L2");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices with L1 on v1
+  {
+    auto acc = in_memory->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    ASSERT_TRUE(v1.AddLabel(l1).has_value());
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // T1: Remove L1 from v1 (uncommitted)
+  auto tx1 = in_memory->Access();
+  auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
+  ASSERT_TRUE(v1_tx1.has_value());
+  ASSERT_TRUE(v1_tx1->RemoveLabel(l1).has_value());
+
+  // T2: Create edge (while T1 uncommitted)
+  auto tx2 = in_memory->Access();
+  auto v1_tx2 = tx2->FindVertex(v1_gid, View::NEW);
+  auto v2_tx2 = tx2->FindVertex(v2_gid, View::NEW);
+  ASSERT_TRUE(v1_tx2.has_value() && v2_tx2.has_value());
+  auto edge = tx2->CreateEdge(&*v1_tx2, &*v2_tx2, e1);
+  ASSERT_TRUE(edge.has_value());
+
+  // T2 commits first
+  ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx2.reset();
+
+  // T1 commits after
+  ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx1.reset();
+
+  // Add L2 to v2
+  {
+    auto tx = in_memory->Access();
+    auto v2 = tx->FindVertex(v2_gid, View::NEW);
+    ASSERT_TRUE(v2.has_value());
+    ASSERT_TRUE(v2->AddLabel(l2).has_value());
+    ASSERT_TRUE(tx->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Edge should be []:[L2]
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto expected = nlohmann::json::parse(
+        R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+    ASSERT_TRUE(ConfrontJSON(json, expected)) << "Edge should be []:[L2]. Actual: " << json.dump(2);
+  }
+
+  // Add L1 back to v1
+  {
+    auto tx = in_memory->Access();
+    auto v1 = tx->FindVertex(v1_gid, View::NEW);
+    ASSERT_TRUE(v1.has_value());
+    ASSERT_TRUE(v1->AddLabel(l1).has_value());
+    ASSERT_TRUE(tx->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Edge should be [L1]:[L2], not duplicated
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto expected = nlohmann::json::parse(
+        R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+    ASSERT_TRUE(ConfrontJSON(json, expected)) << "Edge should be [L1]:[L2], not duplicated. Actual: " << json.dump(2);
+  }
+
+  // Remove L2 from v2
+  {
+    auto tx = in_memory->Access();
+    auto v2 = tx->FindVertex(v2_gid, View::NEW);
+    ASSERT_TRUE(v2.has_value());
+    ASSERT_TRUE(v2->RemoveLabel(l2).has_value());
+    ASSERT_TRUE(tx->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Edge should be [L1]:[]
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto expected = nlohmann::json::parse(
+        R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+    ASSERT_TRUE(ConfrontJSON(json, expected)) << "Edge should be [L1]:[]. Actual: " << json.dump(2);
   }
 }
