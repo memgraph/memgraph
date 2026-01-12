@@ -291,7 +291,7 @@ jobs:
   SetupISSUTestInputs:
     if: ${{ inputs.run_issu_test }}
     name: Setup ISSU Test Inputs
-    needs: [PrepareReleaseBranch, PackageArtifact]
+    needs: [PrepareReleaseBranch, DockerArtifact]
     runs-on: ubuntu-24.04
     outputs:
       amd_image_url: ${{ steps.set_image_urls.outputs.amd_image_url }}
