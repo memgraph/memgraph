@@ -245,7 +245,7 @@ jobs:
       malloc: ${{ matrix.malloc }}
       run_smoke_tests: true
       run_tests: true
-      package_deb: true
+      package_deb: "default"
       generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc && !matrix.cuda }}
     secrets: inherit
 
