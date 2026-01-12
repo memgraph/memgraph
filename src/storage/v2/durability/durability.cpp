@@ -434,15 +434,15 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
   // TODO: parallel recovery
   spdlog::info("Recreating {} type constraints from metadata.", constraints_metadata.type.size());
   for (const auto &[label, property, type] : constraints_metadata.type) {
-    if (!constraints->type_constraints_->InsertConstraint(label, property, type,
-                                                          TypeConstraints::ValidationStatus::READY)) {
+    if (constraints->type_constraints_->ConstraintExists(label, property)) {
       throw RecoveryFailure("The type constraint already exists!");
     }
+    constraints->type_constraints_->PublishConstraint(label, property, type);
   }
 
   if (constraints->HasTypeConstraints()) {
-    if (auto violation = constraints->type_constraints_->ValidateVertices(vertices->access(), snapshot_info);
-        violation.has_value()) {
+    if (auto validation_result = constraints->type_constraints_->ValidateVertices(vertices->access(), snapshot_info);
+        !validation_result.has_value()) {
       throw RecoveryFailure("Type constraint recovery failed because they couldn't be validated!");
     }
   }

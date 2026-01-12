@@ -1906,16 +1906,16 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
             "Creating IS TYPED constraint requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
-  if (!type_constraints->InsertConstraint(label, property, kind, TypeConstraints::ValidationStatus::VALIDATING)) {
+  if (!type_constraints->RegisterConstraint(label, property, kind)) {
     return std::unexpected{StorageTypeConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
-  if (auto violation =
+  if (auto validation_result =
           TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, kind);
-      violation.has_value()) {
-    type_constraints->DropConstraint(label, property, kind, TypeConstraints::ValidationStatus::VALIDATING);
-    return std::unexpected{StorageTypeConstraintDefinitionError{violation.value()}};
+      !validation_result.has_value()) {
+    type_constraints->DropConstraint(label, property, kind);
+    return std::unexpected{StorageTypeConstraintDefinitionError{validation_result.error()}};
   }
-  type_constraints->UpdateConstraint(label, property, kind, TypeConstraints::ValidationStatus::READY);
+  type_constraints->PublishConstraint(label, property, kind);
   transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, kind);
   return {};
 }
@@ -1927,8 +1927,7 @@ std::expected<void, StorageTypeConstraintDroppingError> InMemoryStorage::InMemor
             "Dropping IS TYPED constraint requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
-  auto deleted_constraint =
-      type_constraints->DropConstraint(label, property, kind, TypeConstraints::ValidationStatus::READY);
+  auto deleted_constraint = type_constraints->DropConstraint(label, property, kind);
   if (!deleted_constraint) {
     return std::unexpected{StorageTypeConstraintDroppingError{ConstraintDefinitionError{}}};
   }

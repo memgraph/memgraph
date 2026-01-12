@@ -66,9 +66,9 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
 
 }  // namespace
 
-[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex) const {
-  return container_.WithReadLock([&](const auto &container) -> std::optional<ConstraintViolation> {
-    if (container.constraints_.empty()) return std::nullopt;
+[[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex) const {
+  return container_.WithReadLock([&](const auto &container) -> std::expected<void, ConstraintViolation> {
+    if (container.constraints_.empty()) return {};
 
     auto validator = TypeConstraintsValidator{};
     for (auto label : vertex.labels) {
@@ -77,19 +77,19 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
       validator.add(label, it->second);
     }
 
-    if (validator.empty()) return std::nullopt;
+    if (validator.empty()) return {};
 
     auto violation = vertex.properties.PropertiesMatchTypes(validator);
-    if (!violation) return std::nullopt;
+    if (!violation) return {};
 
     auto const &[prop_id, label, kind] = *violation;
-    return ConstraintViolation{ConstraintViolation::Type::TYPE, label, kind, std::set{prop_id}};
+    return std::unexpected{ConstraintViolation{ConstraintViolation::Type::TYPE, label, kind, std::set{prop_id}}};
   });
 }
 
-[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex, PropertyId property_id,
-                                                                           const PropertyValue &property_value) const {
-  return container_.WithReadLock([&](const auto &container) -> std::optional<ConstraintViolation> {
+[[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::Validate(
+    const Vertex &vertex, PropertyId property_id, const PropertyValue &property_value) const {
+  return container_.WithReadLock([&](const auto &container) -> std::expected<void, ConstraintViolation> {
     for (auto const label : vertex.labels) {
       auto constraint_type_it = container.constraints_.find({label, property_id});
       if (constraint_type_it == container.constraints_.end()) continue;
@@ -104,43 +104,42 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
         if (PropertyValueToTypeConstraintKind(property_value) == constraint_type) continue;
       }
 
-      return ConstraintViolation{
-          ConstraintViolation::Type::TYPE, {label}, constraint_type, std::set<PropertyId>{property_id}};
+      return std::unexpected{ConstraintViolation{
+          ConstraintViolation::Type::TYPE, {label}, constraint_type, std::set<PropertyId>{property_id}}};
     }
-
-    return std::nullopt;
+    return {};
   });
 }
 
-[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex, LabelId label) const {
-  return container_.WithReadLock([&](const auto &container) -> std::optional<ConstraintViolation> {
+[[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex,
+                                                                                 LabelId label) const {
+  return container_.WithReadLock([&](const auto &container) -> std::expected<void, ConstraintViolation> {
     auto validator = TypeConstraintsValidator{};
     auto it = container.l2p_constraints_.find(label);
-    if (it == container.l2p_constraints_.end()) return std::nullopt;
+    if (it == container.l2p_constraints_.end()) return {};
     validator.add(label, it->second);
 
     auto violation = vertex.properties.PropertiesMatchTypes(validator);
-    if (!violation) return std::nullopt;
-
+    if (!violation) return {};
     auto const &[prop_id, _, kind] = *violation;
-    return ConstraintViolation{ConstraintViolation::Type::TYPE, label, kind, std::set{prop_id}};
+    return std::unexpected{ConstraintViolation{ConstraintViolation::Type::TYPE, label, kind, std::set{prop_id}}};
   });
 }
 
-[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVertices(
+[[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::ValidateVertices(
     utils::SkipList<Vertex>::Accessor vertices, std::optional<SnapshotObserverInfo> const &snapshot_info) const {
   for (auto const &vertex : vertices) {
-    if (auto violation = Validate(vertex); violation.has_value()) {
-      return violation;
+    if (auto validation_result = Validate(vertex); !validation_result.has_value()) {
+      return std::unexpected{validation_result.error()};
     }
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::VERTICES);
     }
   }
-  return std::nullopt;
+  return {};
 }
 
-[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVerticesOnConstraint(
+[[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::ValidateVerticesOnConstraint(
     utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintKind type) {
   auto validator = TypeConstraintsValidator{};
   auto constraint = absl::flat_hash_map<PropertyId, TypeConstraintKind>{{property, type}};
@@ -153,9 +152,9 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
     auto violation = vertex.properties.PropertiesMatchTypes(validator);
     if (!violation) continue;
 
-    return ConstraintViolation{ConstraintViolation::Type::TYPE, label, type, std::set{property}};
+    return std::unexpected{ConstraintViolation{ConstraintViolation::Type::TYPE, label, type, std::set{property}}};
   }
-  return std::nullopt;
+  return {};
 }
 
 bool TypeConstraints::empty() const {
@@ -168,55 +167,37 @@ bool TypeConstraints::ConstraintExists(LabelId label, PropertyId property) const
   });
 }
 
-bool TypeConstraints::InsertConstraint(LabelId label, PropertyId property, TypeConstraintKind type,
-                                       ValidationStatus status) {
+bool TypeConstraints::RegisterConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
   return container_.WithLock([&](auto &container) -> bool {
-    if (container.constraints_.contains({label, property})) {
-      return false;
-    }
-    container.constraints_.emplace(std::make_pair(label, property),
-                                   IndividualConstraint{.type = type, .status = status});
-
-    if (status == ValidationStatus::READY) {
-      // maintain l2p_constraints_
-      {
-        auto it = container.l2p_constraints_.find(label);
-        if (it != container.l2p_constraints_.end()) {
-          it->second.emplace(property, type);
-        } else {
-          container.l2p_constraints_.emplace(label,
-                                             absl::flat_hash_map<PropertyId, TypeConstraintKind>{{property, type}});
-        }
-      }
-    }
-    return true;
+    auto [it, inserted] = container.constraints_.try_emplace(
+        {label, property}, IndividualConstraint{.type = type, .status = ValidationStatus::VALIDATING});
+    return inserted;
   });
 }
 
-void TypeConstraints::UpdateConstraint(LabelId label, PropertyId property, TypeConstraintKind type,
-                                       ValidationStatus status) {
+void TypeConstraints::PublishConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
   container_.WithLock([&](auto &container) {
-    container.constraints_.erase({label, property});
-    container.constraints_.emplace(std::make_pair(label, property),
-                                   IndividualConstraint{.type = type, .status = status});
+    auto [it, inserted] = container.constraints_.try_emplace(
+        {label, property}, IndividualConstraint{.type = type, .status = ValidationStatus::READY});
+    if (!inserted) {
+      // recovery, immediate publish, no registration
+      it->second.status = ValidationStatus::READY;
+    }
 
-    if (status == ValidationStatus::READY) {
-      // maintain l2p_constraints_
-      {
-        auto it = container.l2p_constraints_.find(label);
-        if (it != container.l2p_constraints_.end()) {
-          it->second.emplace(property, type);
-        } else {
-          container.l2p_constraints_.emplace(label,
-                                             absl::flat_hash_map<PropertyId, TypeConstraintKind>{{property, type}});
-        }
+    // maintain l2p_constraints_
+    {
+      auto it = container.l2p_constraints_.find(label);
+      if (it != container.l2p_constraints_.end()) {
+        it->second.emplace(property, type);
+      } else {
+        container.l2p_constraints_.emplace(label,
+                                           absl::flat_hash_map<PropertyId, TypeConstraintKind>{{property, type}});
       }
     }
   });
 }
 
-bool TypeConstraints::DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type,
-                                     ValidationStatus status) {
+bool TypeConstraints::DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
   return container_.WithLock([&](auto &container) -> bool {
     // process constraints_
     {
@@ -226,23 +207,22 @@ bool TypeConstraints::DropConstraint(LabelId label, PropertyId property, TypeCon
       }
       // dropping pending -> violation doing creation during create constraint, l2p didn't get created
       // dropping validated -> drop constraint cypher query
-      if (it->second.type != type || it->second.status != status) {
+      if (it->second.type != type) {
         return false;
       }
       container.constraints_.erase(it);
     }
 
-    if (status == ValidationStatus::READY) {
-      // maintain l2p_constraints_
-      auto it = container.l2p_constraints_.find(label);
-      if (it == container.l2p_constraints_.end()) {
-        DMG_ASSERT("logic bug, l2p_constraints_ not matching constraints_");
-      }
+    // maintain l2p_constraints_
+    auto it = container.l2p_constraints_.find(label);
+    if (it == container.l2p_constraints_.end()) {
+      // possible if violation during constraint creation
+      return true;
+    }
 
-      it->second.erase(property);
-      if (it->second.empty()) {
-        container.l2p_constraints_.erase(it);
-      }
+    it->second.erase(property);
+    if (it->second.empty()) {
+      container.l2p_constraints_.erase(it);
     }
 
     return true;

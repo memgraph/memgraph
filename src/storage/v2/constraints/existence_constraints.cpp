@@ -32,12 +32,11 @@ bool ExistenceConstraints::RegisterConstraint(LabelId label, PropertyId property
 
 void ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property) {
   constraints_.WithLock([&](auto &constraints) {
-    auto it = constraints.find({label, property});
-    if (it == constraints.end()) [[unlikely]] {
-      constraints.emplace(IndividualConstraint{.label = label, .property = property}, ValidationStatus::READY);
-      return;
+    auto [it, inserted] =
+        constraints.try_emplace(IndividualConstraint{.label = label, .property = property}, ValidationStatus::READY);
+    if (!inserted) {
+      it->second = ValidationStatus::READY;
     }
-    it->second = ValidationStatus::READY;
   });
 }
 

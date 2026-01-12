@@ -50,22 +50,24 @@ class TypeConstraints {
     absl::flat_hash_map<LabelId, absl::flat_hash_map<PropertyId, TypeConstraintKind>> l2p_constraints_;
   };
 
-  [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
+  [[nodiscard]] static std::expected<void, ConstraintViolation> ValidateVerticesOnConstraint(
       utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintKind type);
 
-  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex) const;
-  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, LabelId label) const;
-  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, PropertyId property_id,
-                                                            const PropertyValue &property_value) const;
-  [[nodiscard]] std::optional<ConstraintViolation> ValidateVertices(
+  [[nodiscard]] std::expected<void, ConstraintViolation> Validate(const Vertex &vertex) const;
+  [[nodiscard]] std::expected<void, ConstraintViolation> Validate(const Vertex &vertex, LabelId label) const;
+  [[nodiscard]] std::expected<void, ConstraintViolation> Validate(const Vertex &vertex, PropertyId property_id,
+                                                                  const PropertyValue &property_value) const;
+  [[nodiscard]] std::expected<void, ConstraintViolation> ValidateVertices(
       utils::SkipList<Vertex>::Accessor vertices,
       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const;
 
   bool empty() const;
+
   bool ConstraintExists(LabelId label, PropertyId property) const;
-  bool InsertConstraint(LabelId label, PropertyId property, TypeConstraintKind type, ValidationStatus status);
-  void UpdateConstraint(LabelId label, PropertyId property, TypeConstraintKind type, ValidationStatus status);
-  bool DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type, ValidationStatus status);
+
+  bool RegisterConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
+  void PublishConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
+  bool DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
 
   std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> ListConstraints() const;
   void DropGraphClearConstraints();

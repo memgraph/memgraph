@@ -581,7 +581,7 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedNoVertices
 
   auto maybe_violation =
       ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop, std::nullopt, snapshot_info);
-  ASSERT_FALSE(maybe_violation.has_value());
+  ASSERT_TRUE(maybe_violation.has_value());
 }
 
 TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedVertices) {
@@ -610,7 +610,7 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedVertices) 
 
   auto maybe_violation =
       ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop, std::nullopt, snapshot_info);
-  ASSERT_FALSE(maybe_violation.has_value());
+  ASSERT_TRUE(maybe_violation.has_value());
 }
 
 TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsMultiThreadedVertices) {
@@ -643,7 +643,7 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsMultiThreadedVertices) {
 
   auto maybe_violation = ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop,
                                                                             par_schema_info, snapshot_info);
-  ASSERT_FALSE(maybe_violation.has_value());
+  ASSERT_TRUE(maybe_violation.has_value());
 }
 
 TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedNoVertices) {
@@ -744,10 +744,8 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedNoVertices) {
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
 
   TypeConstraints type_constraints;
-  ASSERT_TRUE(type_constraints.InsertConstraint(label, prop, TypeConstraintKind::INTEGER,
-                                                TypeConstraints::ValidationStatus::READY));
-
-  ASSERT_FALSE(type_constraints.ValidateVertices(vertices.access(), snapshot_info).has_value());
+  type_constraints.PublishConstraint(label, prop, TypeConstraintKind::INTEGER);
+  ASSERT_TRUE(type_constraints.ValidateVertices(vertices.access(), snapshot_info).has_value());
 }
 
 TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedVertices) {
@@ -776,7 +774,6 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedVertices) {
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
 
   TypeConstraints type_constraints;
-  ASSERT_TRUE(type_constraints.InsertConstraint(label, prop, TypeConstraintKind::INTEGER,
-                                                TypeConstraints::ValidationStatus::READY));
-  ASSERT_FALSE(type_constraints.ValidateVertices(vertices.access(), snapshot_info).has_value());
+  type_constraints.PublishConstraint(label, prop, TypeConstraintKind::INTEGER);
+  ASSERT_TRUE(type_constraints.ValidateVertices(vertices.access(), snapshot_info).has_value());
 }
