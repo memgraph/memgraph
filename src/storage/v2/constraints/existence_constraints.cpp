@@ -28,8 +28,8 @@ bool ExistenceConstraints::ConstraintExists(LabelId label, PropertyId property, 
   });
 }
 
-void ExistenceConstraints::InsertConstraint(LabelId label, PropertyId property, ValidationStatus status) {
-  constraints_.WithLock([&](auto &constraints) { constraints.insert({label, property, status}); });
+bool ExistenceConstraints::InsertConstraint(LabelId label, PropertyId property, ValidationStatus status) {
+  return constraints_.WithLock([&](auto &constraints) { return constraints.insert({label, property, status}).second; });
 }
 
 void ExistenceConstraints::UpdateConstraint(LabelId label, PropertyId property, ValidationStatus status) {

@@ -19,7 +19,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/observer.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
@@ -39,8 +38,15 @@ class TypeConstraints {
                                                   const LabelId &label, const PropertyId &property);
   };
 
+  enum class ValidationStatus : bool { PENDING, VALIDATED };
+
+  struct IndividualConstraint {
+    TypeConstraintKind type;
+    ValidationStatus status{ValidationStatus::PENDING};
+  };
+
   struct Container {
-    absl::flat_hash_map<std::pair<LabelId, PropertyId>, TypeConstraintKind> constraints_;
+    absl::flat_hash_map<std::pair<LabelId, PropertyId>, IndividualConstraint> constraints_;
     absl::flat_hash_map<LabelId, absl::flat_hash_map<PropertyId, TypeConstraintKind>> l2p_constraints_;
   };
 
@@ -57,11 +63,15 @@ class TypeConstraints {
 
   bool empty() const;
   bool ConstraintExists(LabelId label, PropertyId property) const;
-  bool InsertConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
-  bool DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
+  bool InsertConstraint(LabelId label, PropertyId property, TypeConstraintKind type, ValidationStatus status);
+  void UpdateConstraint(LabelId label, PropertyId property, TypeConstraintKind type, ValidationStatus status);
+  bool DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type, ValidationStatus status);
 
   std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> ListConstraints() const;
   void DropGraphClearConstraints();
+
+  /// Returns constraints for a specific label, used for registration in property store
+  absl::flat_hash_map<PropertyId, TypeConstraintKind> GetTypeConstraintsForLabel(LabelId label) const;
 
  private:
   utils::Synchronized<Container, utils::WritePrioritizedRWLock> container_;

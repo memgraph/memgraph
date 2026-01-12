@@ -1838,7 +1838,7 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
             "Creating existence requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
-  if (existence_constraints->ConstraintExists(label, property)) {
+  if (!existence_constraints->InsertConstraint(label, property, ExistenceConstraints::ValidationStatus::PENDING)) {
     return std::unexpected{StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
   if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label,
@@ -1907,15 +1907,16 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
             "Creating IS TYPED constraint requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
-  if (type_constraints->ConstraintExists(label, property)) {
+  if (!type_constraints->InsertConstraint(label, property, kind, TypeConstraints::ValidationStatus::PENDING)) {
     return std::unexpected{StorageTypeConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
   if (auto violation =
           TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, kind);
       violation.has_value()) {
+    type_constraints->DropConstraint(label, property, kind, TypeConstraints::ValidationStatus::PENDING);
     return std::unexpected{StorageTypeConstraintDefinitionError{violation.value()}};
   }
-  type_constraints->InsertConstraint(label, property, kind);
+  type_constraints->UpdateConstraint(label, property, kind, TypeConstraints::ValidationStatus::VALIDATED);
   transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, kind);
   return {};
 }
@@ -1927,7 +1928,8 @@ std::expected<void, StorageTypeConstraintDroppingError> InMemoryStorage::InMemor
             "Dropping IS TYPED constraint requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
-  auto deleted_constraint = type_constraints->DropConstraint(label, property, kind);
+  auto deleted_constraint =
+      type_constraints->DropConstraint(label, property, kind, TypeConstraints::ValidationStatus::VALIDATED);
   if (!deleted_constraint) {
     return std::unexpected{StorageTypeConstraintDroppingError{ConstraintDefinitionError{}}};
   }
