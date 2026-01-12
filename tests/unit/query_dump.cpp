@@ -814,7 +814,6 @@ TYPED_TEST(DumpTest, CompositeIndicesKeys) {
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess();
     auto index_acc = this->CreateIndexAccessor();
     ASSERT_TRUE(
         index_acc
@@ -822,7 +821,7 @@ TYPED_TEST(DumpTest, CompositeIndicesKeys) {
                           {this->db->storage()->NameToProperty("prop_a"), this->db->storage()->NameToProperty("prop_b"),
                            this->db->storage()->NameToProperty("prop_c")})
             .has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(index_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1297,36 +1296,35 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto read_only_access = this->db->ReadOnlyAccess();
-    auto ret = read_only_access->CreateExistenceConstraint(this->db->storage()->NameToLabel("Person"),
-                                                           this->db->storage()->NameToProperty("name"));
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto ret = constraint_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("Person"),
+                                                         this->db->storage()->NameToProperty("name"));
     ASSERT_TRUE(ret.has_value());
-    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto read_only_access = this->db->ReadOnlyAccess();
-    auto ret = read_only_access->CreateUniqueConstraint(this->db->storage()->NameToLabel("Person"),
-                                                        {this->db->storage()->NameToProperty("name")});
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto ret = constraint_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("Person"),
+                                                      {this->db->storage()->NameToProperty("name")});
     ASSERT_TRUE(ret.has_value());
     ASSERT_EQ(ret.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess();
+    auto index_acc = this->CreateIndexAccessor();
     ASSERT_FALSE(
-        !unique_acc
-             ->CreateIndex(this->db->storage()->NameToLabel("Person"), {this->db->storage()->NameToProperty("id")})
+        !index_acc->CreateIndex(this->db->storage()->NameToLabel("Person"), {this->db->storage()->NameToProperty("id")})
              .has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(index_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    ASSERT_TRUE(unique_acc
+    auto index_acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(index_acc
                     ->CreateIndex(this->db->storage()->NameToLabel("Person"),
                                   {this->db->storage()->NameToProperty("unexisting_property")})
                     .has_value());
-    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(index_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = this->db->UniqueAccess();

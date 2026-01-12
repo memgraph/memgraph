@@ -52,11 +52,16 @@ bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property, Va
 
 std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraints() const {
   return constraints_.WithReadLock([](auto &constraints) {
-    return constraints | std::views::filter([](const auto &c) { return c.status == ValidationStatus::VALIDATED; }) |
-           std::views::transform([](const auto &c) {
-             return std::pair{c.label, c.property};
-           }) |
-           std::ranges::to<std::vector<std::pair<LabelId, PropertyId>>>();
+    auto result = constraints |
+                  std::views::filter([](const auto &c) { return c.status == ValidationStatus::VALIDATED; }) |
+                  std::views::transform([](const auto &c) {
+                    return std::pair{c.label, c.property};
+                  }) |
+                  std::ranges::to<std::vector<std::pair<LabelId, PropertyId>>>();
+
+    std::ranges::sort(
+        result, [](const auto &a, const auto &b) { return std::tie(a.first, a.second) < std::tie(b.first, b.second); });
+    return result;
   });
 }
 
