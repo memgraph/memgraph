@@ -394,8 +394,7 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
       throw RecoveryFailure("The existence constraint failed because it couldn't be validated!");
     }
 
-    constraints->existence_constraints_->InsertConstraint(label, property,
-                                                          ExistenceConstraints::ValidationStatus::READY);
+    constraints->existence_constraints_->PublishConstraint(label, property);
     spdlog::info("Existence constraint on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
                  name_id_mapper->IdToName(property.AsUint()));
   }

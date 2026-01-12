@@ -22,27 +22,29 @@ bool ExistenceConstraints::ConstraintExists(LabelId label, PropertyId property) 
   return constraints_.WithReadLock([&](auto &constraints) { return constraints.contains({label, property}); });
 }
 
-bool ExistenceConstraints::InsertConstraint(LabelId label, PropertyId property, ValidationStatus status) {
+bool ExistenceConstraints::RegisterConstraint(LabelId label, PropertyId property) {
   return constraints_.WithLock([&](auto &constraints) {
-    auto [it, inserted] = constraints.emplace(IndividualConstraint{.label = label, .property = property}, status);
+    auto [it, inserted] =
+        constraints.emplace(IndividualConstraint{.label = label, .property = property}, ValidationStatus::VALIDATING);
     return inserted;
   });
 }
 
-void ExistenceConstraints::UpdateConstraint(LabelId label, PropertyId property, ValidationStatus status) {
+void ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property) {
   constraints_.WithLock([&](auto &constraints) {
     auto it = constraints.find({label, property});
     if (it == constraints.end()) [[unlikely]] {
+      constraints.emplace(IndividualConstraint{.label = label, .property = property}, ValidationStatus::READY);
       return;
     }
-    it->second = status;
+    it->second = ValidationStatus::READY;
   });
 }
 
-bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property, ValidationStatus status) {
+bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
   return constraints_.WithLock([&](auto &constraints) {
     auto it = constraints.find({label, property});
-    if (it == constraints.end() || it->second != status) [[unlikely]] {
+    if (it == constraints.end()) [[unlikely]] {
       return false;
     }
     constraints.erase(it);

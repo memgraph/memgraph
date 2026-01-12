@@ -1649,8 +1649,8 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
   return result;
 }
 
-[[nodiscard]] std::optional<ConstraintViolation> DiskStorage::CheckExistingVerticesBeforeCreatingExistenceConstraint(
-    LabelId label, PropertyId property) const {
+[[nodiscard]] std::expected<void, ConstraintViolation>
+DiskStorage::CheckExistingVerticesBeforeCreatingExistenceConstraint(LabelId label, PropertyId property) const {
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
   rocksdb::Slice ts(strTs);
@@ -1660,10 +1660,11 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
     std::vector<LabelId> labels = utils::DeserializeLabelsFromMainDiskStorage(it->key().ToString());
     PropertyStore properties = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToStringView());
     if (std::ranges::contains(labels, label) && !properties.HasProperty(property)) {
-      return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
+      return std::unexpected{
+          ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}}};
     }
   }
-  return std::nullopt;
+  return {};
 }
 
 [[nodiscard]] std::expected<std::vector<std::pair<std::string, std::string>>, ConstraintViolation>
@@ -2232,10 +2233,11 @@ std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::Disk
     return std::unexpected{StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
   if (auto check = on_disk->CheckExistingVerticesBeforeCreatingExistenceConstraint(label, property);
-      check.has_value()) {
-    return std::unexpected{StorageExistenceConstraintDefinitionError{check.value()}};
+      !check.has_value()) {
+    return std::unexpected{StorageExistenceConstraintDefinitionError{check.error()}};
   }
-  existence_constraints->InsertConstraint(label, property, ExistenceConstraints::ValidationStatus::READY);
+  // no need to register due to unique access
+  existence_constraints->PublishConstraint(label, property);
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
@@ -2245,7 +2247,7 @@ std::expected<void, StorageExistenceConstraintDroppingError> DiskStorage::DiskAc
   MG_ASSERT(type() == UNIQUE, "Dropping existence constraint requires unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
-  if (!existence_constraints->DropConstraint(label, property, ExistenceConstraints::ValidationStatus::READY)) {
+  if (!existence_constraints->DropConstraint(label, property)) {
     return std::unexpected{StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);

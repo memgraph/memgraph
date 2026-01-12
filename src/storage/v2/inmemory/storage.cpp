@@ -1836,16 +1836,16 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
             "Creating existence requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
-  if (!existence_constraints->InsertConstraint(label, property, ExistenceConstraints::ValidationStatus::VALIDATING)) {
+  if (!existence_constraints->RegisterConstraint(label, property)) {
     return std::unexpected{StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
-  if (auto result = ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property,
-                                                                       std::nullopt, std::nullopt);
-      result.has_value()) {
-    existence_constraints->DropConstraint(label, property, ExistenceConstraints::ValidationStatus::VALIDATING);
-    return std::unexpected{StorageExistenceConstraintDefinitionError{result.error()}};
+  if (auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label,
+                                                                                  property, std::nullopt, std::nullopt);
+      !validation_result.has_value()) {
+    existence_constraints->DropConstraint(label, property);
+    return std::unexpected{StorageExistenceConstraintDefinitionError{validation_result.error()}};
   }
-  existence_constraints->UpdateConstraint(label, property, ExistenceConstraints::ValidationStatus::READY);
+  existence_constraints->PublishConstraint(label, property);
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
@@ -1857,7 +1857,7 @@ std::expected<void, StorageExistenceConstraintDroppingError> InMemoryStorage::In
             "Dropping existence constraint requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
-  if (!existence_constraints->DropConstraint(label, property, ExistenceConstraints::ValidationStatus::READY)) {
+  if (!existence_constraints->DropConstraint(label, property)) {
     return std::unexpected{StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);
