@@ -1,4 +1,4 @@
-name: "Build and Upload Packages"
+name: "Post-PR Merge: Build and Upload MAGE Packages"
 
 on:
   pull_request:
