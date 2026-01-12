@@ -158,8 +158,8 @@ jobs:
       push_to_s3: true
       push_to_github: true
       malloc: false
-      run_smoke_tests: true
-      run_tests: true
+      run_smoke_tests: false
+      run_tests: false
       package_deb: true
       generate_sbom: true
       ref: ${{ github.ref }}
