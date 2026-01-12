@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -67,10 +67,8 @@ class GlobalS3APIManager {
 
  private:
   GlobalS3APIManager() {
-    if (auto const status = arrow::fs::EnsureS3Initialized(); !status.ok()) {
-      spdlog::error("Failed to initialize S3 file system: {}", status.message());
-      std::exit(1);
-    }
+    auto const status = arrow::fs::EnsureS3Initialized();
+    MG_ASSERT(status.ok(), "Failed to initialize S3 file system: {}", status.message());
   }
 
   ~GlobalS3APIManager() {

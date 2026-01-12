@@ -1,16 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+Memgraph Stress Test Runner
+
+Usage:
+  # Run all enabled workloads for a deployment type
+  ./continuous_integration --deployment docker_ha
+
+  # Run a specific workload
+  ./continuous_integration --workload docker_ha/workloads/rag/workload.yaml
+"""
 import argparse
 import multiprocessing
 import os
 import subprocess
+import sys
 import time
 from argparse import Namespace as Args
-from typing import Dict, List, Optional
-from gqlalchemy import Memgraph
-import yaml
-from workers import get_worker_object, get_worker_steps
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
+import yaml
+from gqlalchemy import Memgraph
+from workers import get_worker_object, get_worker_steps
 
 # Paths
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -19,30 +31,171 @@ BUILD_DIR = os.path.join(BASE_DIR, "build")
 MEASUREMENTS_FILE = os.path.join(SCRIPT_DIR, ".apollo_measurements")
 KEY_FILE = os.path.join(SCRIPT_DIR, ".key.pem")
 CERT_FILE = os.path.join(SCRIPT_DIR, ".cert.pem")
-DEPLOYMENTS_DIR = os.path.join(SCRIPT_DIR, "configurations/deployments")
-
-# Long running stats file
 STATS_FILE = os.path.join(SCRIPT_DIR, ".long_running_stats")
 
 # Get number of threads
 THREADS = os.environ["THREADS"] if "THREADS" in os.environ else multiprocessing.cpu_count()
 
 
+# =============================================================================
+# Deployment
+# =============================================================================
+
+
+class DeploymentType(str, Enum):
+    """Supported deployment types for stress testing."""
+
+    NATIVE_STANDALONE = "native_standalone"
+    NATIVE_HA = "native_ha"
+    DOCKER_HA = "docker_ha"
+    EKS_HA = "eks_ha"
+
+    def __str__(self) -> str:
+        return self.value
+
+    @classmethod
+    def values(cls) -> List[str]:
+        """Return list of all deployment type values."""
+        return [d.value for d in cls]
+
+
+def get_deployment_path(deployment: str) -> str:
+    """Get the full path to a deployment folder."""
+    return os.path.join(SCRIPT_DIR, deployment)
+
+
+def get_workloads_registry(deployment: str) -> Optional[str]:
+    """Get the path to workloads.yaml for a deployment."""
+    registry_path = os.path.join(get_deployment_path(deployment), "workloads.yaml")
+    if os.path.exists(registry_path):
+        return registry_path
+    return None
+
+
+def load_workloads_registry(deployment: str) -> List[Dict[str, Any]]:
+    """
+    Load the workloads registry for a deployment.
+    Returns list of enabled workload configs.
+    """
+    registry_path = get_workloads_registry(deployment)
+    if not registry_path:
+        print(f"Warning: No workloads.yaml found for deployment '{deployment}'")
+        return []
+
+    with open(registry_path) as f:
+        registry = yaml.safe_load(f)
+
+    workloads = registry.get("workloads", [])
+    enabled_workloads = []
+
+    for workload in workloads:
+        config_path = workload.get("config")
+        enabled = workload.get("enabled", True)
+
+        if not enabled:
+            print(f"  Skipping (disabled): {config_path}")
+            continue
+
+        # Resolve full path (relative to deployment folder)
+        full_config_path = os.path.join(get_deployment_path(deployment), config_path)
+        if not os.path.exists(full_config_path):
+            print(f"  Warning: Config not found: {full_config_path}")
+            continue
+
+        enabled_workloads.append(
+            {
+                "config_path": full_config_path,
+                "relative_path": config_path,
+            }
+        )
+
+    return enabled_workloads
+
+
+def start_deployment(deployment_script: str, args: List[str], env: Dict[str, str] = None) -> None:
+    cmd = [deployment_script, "start"] + args
+    print(f"Starting Memgraph with: {' '.join(cmd)}")
+
+    # Merge provided env with current environment
+    run_env = os.environ.copy()
+    if env:
+        for key, value in env.items():
+            # Only set if value is non-empty, otherwise use existing env var
+            if value:
+                run_env[key] = str(value)
+
+    subprocess.run(cmd, check=True, env=run_env)
+    time.sleep(2)  # Ensure the server has time to start
+
+
+def stop_deployment(deployment_script: str) -> None:
+    cmd = [deployment_script, "stop"]
+    print(f"Stopping Memgraph with: {' '.join(cmd)}")
+    subprocess.run(cmd, check=True)
+
+
+def check_deployment_status(deployment_script: str) -> bool:
+    cmd = [deployment_script, "status"]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return result.returncode == 0
+
+
+# =============================================================================
+# Config Class
+# =============================================================================
+
+
 class Config:
-    def __init__(self, config):
+    def __init__(self, config, config_file: str):
+        self._config_file = config_file
         self._verbose = config.get("general", {}).get("verbose", False)
         self._use_ssl = config.get("general", {}).get("use_ssl", False)
 
         # Memgraph configuration
         memgraph = config.get("memgraph", {})
-        self._script = memgraph.get("deployment", {}).get("script", None)
-        self._memgraph_args = memgraph.get("args", [])
+        deployment = memgraph.get("deployment", {})
+        self._externally_managed = deployment.get("externally_managed", True)
+
+        # Validate: externally managed deployments should not have other memgraph keys
+        if self._externally_managed:
+            allowed_keys = {"deployment"}
+            extra_keys = set(memgraph.keys()) - allowed_keys
+            if extra_keys:
+                raise ValueError(
+                    "Externally managed deployments should not have any other keys under 'memgraph' "
+                    "in the workload configuration. If you want to override any behaviour, you need to "
+                    "manage the workload yourself. If you have made a mistake in configuration and you "
+                    "want the workload to be externally managed, please remove the extra keys and keep "
+                    "the externally managed flag to true."
+                )
+            self._memgraph_args = []
+            self._env = {}
+        else:
+            self._memgraph_args = memgraph.get("args", [])
+            self._env = memgraph.get("env", {})
+
+        # Cluster configuration (for HA deployments)
+        cluster_config = config.get("cluster", {})
+        self._coordinators = cluster_config.get("coordinators", [])
+        self._data_instances = cluster_config.get("data_instances", [])
 
         # Dataset tests
         dataset = config.get("dataset", {})
         self._tests = dataset.get("tests", [])
 
         self._custom_workloads = config.get("customWorkloads", {}).get("tests", [])
+
+        # Derive script path
+        self._deployment_script = self._derive_deployment_script()
+
+    def _derive_deployment_script(self) -> str:
+        """Derive deployment script path from config file location."""
+        if self._externally_managed:
+            return None
+
+        config_rel_path = os.path.relpath(self._config_file, SCRIPT_DIR)
+        deployment_type = config_rel_path.split(os.sep)[0]
+        return os.path.join(SCRIPT_DIR, deployment_type, "deployment", "deployment.sh")
 
     @property
     def uses_ssl(self):
@@ -53,8 +206,16 @@ class Config:
         return self._verbose
 
     @property
-    def script(self):
-        return self._script
+    def externally_managed(self):
+        return self._externally_managed
+
+    @property
+    def deployment_script(self):
+        return self._deployment_script
+
+    @property
+    def manage_deployment(self):
+        return not self._externally_managed
 
     @property
     def tests(self):
@@ -68,31 +229,52 @@ class Config:
     def memgraph_args(self):
         return self._memgraph_args
 
+    @property
+    def env(self):
+        return self._env
 
-def start_deployment(script_path: str, args: List[str]) -> None:
-    cmd = [script_path, "start"] + args
-    print(f"Starting Memgraph with: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
-    time.sleep(2)  # Ensure the server has time to start
+    @property
+    def coordinators(self):
+        return self._coordinators
+
+    @property
+    def data_instances(self):
+        return self._data_instances
 
 
-def stop_deployment(script_path: str) -> None:
-    cmd = [script_path, "stop"]
-    print(f"Stopping Memgraph with: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
-
-
-def check_deployment_status(script_path: str) -> bool:
-    cmd = [script_path, "status"]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    return result.returncode == 0
+# =============================================================================
+# Test Execution
+# =============================================================================
 
 
 def parse_arguments() -> Args:
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Run stress tests on Memgraph.")
-    parser.add_argument("--config-file", default=os.path.join(SCRIPT_DIR, "configurations/templates/config_small.yaml"))
-    parser.add_argument("--python", default=os.path.join(BASE_DIR, "tests","ve3", "bin", "python3"), type=str)
+    parser = argparse.ArgumentParser(
+        description="Run stress tests on Memgraph.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run all enabled workloads for a deployment
+  ./continuous_integration --deployment docker_ha
+
+  # Run a specific workload
+  ./continuous_integration --workload docker_ha/workloads/rag/workload.yaml
+        """,
+    )
+
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--deployment", choices=DeploymentType.values(), help="Run all enabled workloads for a deployment type"
+    )
+    group.add_argument("--workload", help="Path to a specific workload YAML file")
+
+    parser.add_argument(
+        "--python",
+        default=os.path.join(BASE_DIR, "tests", "ve3", "bin", "python3"),
+        type=str,
+        help="Path to Python interpreter",
+    )
+
     return parser.parse_args()
 
 
@@ -126,117 +308,190 @@ def _find_test_binary(args: Args, config: Config, test: str) -> List[str]:
     raise Exception(f"Test '{test}' binary not supported!")
 
 
-def run_custom_workloads(script_path: str, config: Config) -> Optional[Dict[str, float]]:
-    """Runs custom workloads on Memgraph using GQLAlchemy."""
+def run_workload_script(workload: Dict[str, Any], args: Args, timeout_sec: int) -> None:
+    """Executes a custom Python script for a workload."""
+    workload_script = workload["script"]
+    script_args = workload.get("script_args", [])
+
+    # Resolve script path (relative to stress directory or absolute)
+    if not os.path.isabs(workload_script):
+        workload_script = os.path.join(SCRIPT_DIR, workload_script)
+
+    if not os.path.exists(workload_script):
+        raise Exception(f"Workload script not found: {workload_script}")
+
+    # Build command
+    cmd = [args.python, "-u", workload_script]
+    cmd.extend(script_args)
+
+    print(f"Executing workload script: {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=SCRIPT_DIR, timeout=timeout_sec)
+
+    if result.returncode != 0:
+        raise Exception(f"Workload script returned non-zero ({result.returncode})!")
+
+
+def run_custom_workloads(config: Config, args: Args) -> Dict[str, Any]:
+    """Runs custom workloads on Memgraph using GQLAlchemy or custom scripts."""
     print("Running custom workloads...")
     runtimes = {}
-    err = False
 
     for workload in config.custom_workloads:
         workload_name = workload["name"]
         print(f"Running workload '{workload_name}'")
         start = time.time()
 
-        try:
-            # Start Memgraph deployment
-            start_deployment(script_path, config.memgraph_args + workload.get("memgraph_args", []))
+        # Start Memgraph deployment (skip if externally managed)
+        if config.manage_deployment:
+            try:
+                start_deployment(
+                    config.deployment_script, config.memgraph_args + workload.get("memgraph_args", []), config.env
+                )
+            except Exception as ex:
+                stop_deployment(config.deployment_script)
+                return {"error": f"Failed to start deployment for workload '{workload_name}': {ex}"}
 
+        try:
             # Run import queries
             print(f"Started import for workload '{workload_name}'")
-            
+
             query_host = workload.get("querying", {}).get("host", "127.0.0.1")
             query_port = workload.get("querying", {}).get("port", 7687)
-            
+
             memgraph = Memgraph(host=query_host, port=query_port)
             for query in workload.get("import", {}).get("queries", []):
                 print(f"Executing query: {query}")
                 memgraph.execute(query)
             print(f"Finished import for workload '{workload_name}'")
 
-            # Execute workers in steps
-            processes = []
-            workers = workload.get("workers", [])
-            steps = get_worker_steps(workers)
+            timeout_sec = workload.get("timeout_min", 10) * 60
 
-            for step in steps:
-                print(f"Running step {step}.")
+            # Check if workload uses a custom script or workers
+            if "script" in workload:
+                run_workload_script(workload, args, timeout_sec)
+            else:
+                # Execute workers in steps
+                processes = []
+                workers = workload.get("workers", [])
+                steps = get_worker_steps(workers)
 
-                for worker in [x for x in workers if x.get("step", 1) == step]:              
-                    # Override with workload global querying if not set on the worker
-                    if "querying" not in worker.keys():
-                        worker["querying"] = {"host": query_host, "port": query_port}
-                    worker_object = get_worker_object(worker)
+                for step in steps:
+                    print(f"Running step {step}.")
 
-                    for i in range(worker.get("replicas", 1)):
-                        process = multiprocessing.Process(target=worker_object.run)
-                        processes.append((process, workload.get("timeout_min", 10) * 60))
-                        process.start()
+                    for worker in [x for x in workers if x.get("step", 1) == step]:
+                        # Override with workload global querying if not set on the worker
+                        if "querying" not in worker.keys():
+                            worker["querying"] = {"host": query_host, "port": query_port}
+                        worker_object = get_worker_object(worker)
 
-                # Monitor processes and enforce timeouts
-                for process, timeout in processes:
-                    process.join(timeout)
-                    if process.is_alive():
-                        print(f"Worker process exceeded timeout of {timeout // 60} minutes. Terminating...")
-                        process.terminate()
-                        process.join()
+                        for i in range(worker.get("replicas", 1)):
+                            process = multiprocessing.Process(target=worker_object.run)
+                            processes.append((process, timeout_sec))
+                            process.start()
+
+                    # Monitor processes and enforce timeouts
+                    for process, timeout in processes:
+                        process.join(timeout)
+                        if process.is_alive():
+                            print(f"Worker process exceeded timeout of {timeout // 60} minutes. Terminating...")
+                            process.terminate()
+                            process.join()
 
             print(f"Finished workload '{workload_name}'")
             end = time.time()
             runtimes[workload_name] = end - start
 
         except Exception as ex:
-            print(f"Failed to execute workload {workload_name} with exception:", ex)
-            err = True
+            if config.manage_deployment:
+                stop_deployment(config.deployment_script)
+            return {"error": f"Failed to execute workload '{workload_name}': {ex}"}
         finally:
-            stop_deployment(script_path)
-
-        if err:
-            return None
+            if config.manage_deployment:
+                stop_deployment(config.deployment_script)
 
     return runtimes
 
 
-def run_stress_test_suite(args: Args, config: Config) -> Optional[Dict[str, float]]:
-    """Runs the stress test suite on Memgraph."""
+def run_config_file(args: Args, config_file: str) -> Dict[str, Any]:
+    """Run tests from a single config file."""
     runtimes = {}
 
-    script_path = config.script
-    if not script_path:
-        raise Exception("Memgraph deployment script not found!")
-    script_path = os.path.join(DEPLOYMENTS_DIR, script_path)
-    if not os.path.exists(script_path):
-        raise Exception(f"Memgraph deployment script not found: {script_path}!")
+    config = Config(yaml.safe_load(open(config_file)), config_file)
 
+    # Validate script path if managing deployment
+    if config.manage_deployment:
+        if not os.path.exists(config.deployment_script):
+            return {"error": f"Deployment script not found: {config.deployment_script}!"}
+    else:
+        print("Externally managed cluster - skipping deployment start/stop")
+
+    # Run dataset tests
     for test in config.tests:
         test_name = test["name"]
         test_flags = test["test_args"]
         timeout = test["timeout_min"]
         memgraph_flags = config.memgraph_args + test.get("memgraph_args", [])
 
-        try:
-            start_deployment(script_path, memgraph_flags)
-        except Exception as ex:
-            print("Exception occurred while starting Memgraph:", ex)
-            return None
+        if config.manage_deployment:
+            try:
+                start_deployment(config.deployment_script, memgraph_flags, config.env)
+            except Exception as ex:
+                return {"error": f"Failed to start deployment for test '{test_name}': {ex}"}
 
-        err = False
         try:
             runtime = run_test(args, config, test_name, test_flags, timeout)
             runtimes[os.path.splitext(test_name)[0]] = runtime
         except Exception as ex:
-            print(f"Failed to execute {test_name} with exception:", ex)
-            err = True
+            if config.manage_deployment:
+                stop_deployment(config.deployment_script)
+            return {"error": f"Failed to execute test '{test_name}': {ex}"}
         finally:
-            stop_deployment(script_path)
+            if config.manage_deployment:
+                stop_deployment(config.deployment_script)
 
-        if err:
-            return None
+    # Run custom workloads
+    workload_result = run_custom_workloads(config, args)
+    if "error" in workload_result:
+        return workload_result
 
-    workload_runtimes = run_custom_workloads(script_path, config)
-    if workload_runtimes is None:
-        return None
+    return runtimes | workload_result
 
-    return runtimes | workload_runtimes
+
+def run_deployment(args: Args, deployment: str) -> Dict[str, Any]:
+    """
+    Run all enabled workloads for a deployment type.
+    Reads from {deployment}/workloads.yaml.
+    """
+    print(f"\n{'='*60}")
+    print(f"Running deployment: {deployment}")
+    print(f"{'='*60}\n")
+
+    workloads = load_workloads_registry(deployment)
+
+    if not workloads:
+        return {"error": f"No enabled workloads found for deployment '{deployment}'"}
+
+    all_runtimes = {}
+
+    for i, workload in enumerate(workloads, 1):
+        config_path = workload["config_path"]
+        relative_path = workload["relative_path"]
+
+        print(f"\n[{i}/{len(workloads)}] Running: {relative_path}")
+        print("-" * 60)
+
+        result = run_config_file(args, config_path)
+
+        if "error" in result:
+            print(f"Error in workload: {result['error']}")
+            return result
+
+        # Prefix runtimes with workload name to avoid collisions
+        workload_prefix = os.path.splitext(os.path.basename(relative_path))[0]
+        for key, value in result.items():
+            all_runtimes[f"{workload_prefix}.{key}"] = value
+
+    return all_runtimes
 
 
 def write_stats(runtimes: Dict[str, float]) -> None:
@@ -245,15 +500,31 @@ def write_stats(runtimes: Dict[str, float]) -> None:
         f.write("\n".join(f"{key}.runtime {value}" for key, value in runtimes.items()))
 
 
+# =============================================================================
+# Main Entry Point
+# =============================================================================
+
+
 if __name__ == "__main__":
     args = parse_arguments()
-    config = Config(yaml.safe_load(open(args.config_file)))
 
-    runtimes = run_stress_test_suite(args, config)
+    # Handle --deployment
+    if args.deployment:
+        result = run_deployment(args, args.deployment)
+    # Handle --workload
+    elif args.workload:
+        workload_file = args.workload
+        if not os.path.isabs(workload_file):
+            workload_file = os.path.join(SCRIPT_DIR, workload_file)
+        result = run_config_file(args, workload_file)
+    else:
+        print("Error: No deployment or workload specified.")
+        print("Usage: ./continuous_integration --deployment <type> OR --workload <path>")
+        sys.exit(1)
 
-    if runtimes is None:
-        print("Some stress tests have failed")
-        exit(1)
+    if "error" in result:
+        print(f"\nStress test failed: {result['error']}")
+        sys.exit(1)
 
-    write_stats(runtimes)
-    print("Successfully ran stress tests!")
+    write_stats(result)
+    print("\nSuccessfully ran stress tests!")
