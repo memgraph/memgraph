@@ -30,6 +30,10 @@ of various algorithms in multiple programming languages, all runnable inside
 Memgraph. This project aims to give everyone the tools they need to tackle the
 most challenging graph problems.
 
+**NOTE**: As of January 2026, MAGE has become part of the Memgraph repository;
+the previously separate MAGE repository can be found
+[here](https://github.com/memgraph/mage.git) and is now archived.
+
 ### Introduction to query modules with MAGE
 
 Memgraph introduces the concept of [query
