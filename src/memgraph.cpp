@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -303,6 +303,18 @@ int main(int argc, char **argv) {
             "storage directory, please stop it first before starting this "
             "process!",
             data_directory);
+
+  // Clean tmp folders from the data directory
+  // These tmp folders are used for storing snapshots and WALs received from main on replica and they should be deleted
+  // during the normal cluster functioning but if the node goes down, files will never be deleted, so we delete them
+  // immediately on the restart
+  auto const mg_db_tmp = data_directory / "tmp";
+  memgraph::utils::DeleteDir(mg_db_tmp);
+  auto const dbs = data_directory / "databases";
+  std::error_code ec;
+  for (auto const &db : std::filesystem::directory_iterator(dbs, ec)) {
+    memgraph::utils::DeleteDir(db.path() / "tmp");
+  }
 
   const auto memory_limit = memgraph::flags::GetMemoryLimit();
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
