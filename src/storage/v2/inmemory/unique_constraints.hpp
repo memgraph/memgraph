@@ -79,6 +79,11 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     ValidationStatus status{ValidationStatus::PENDING};
   };
 
+  struct Container {
+    std::map<std::pair<LabelId, std::set<PropertyId>>, IndividualConstraint> constraints_;
+    std::map<LabelId, std::map<std::set<PropertyId>, IndividualConstraint *>> constraints_by_label_;
+  };
+
   /// Indexes the given vertex for relevant labels and properties.
   /// This method should be called before committing and validating vertices
   /// against unique constraints.
@@ -137,12 +142,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   void RunGC();
 
  private:
-  utils::Synchronized<std::map<std::pair<LabelId, std::set<PropertyId>>, IndividualConstraint>,
-                      utils::WritePrioritizedRWLock>
-      constraints_;
-  utils::Synchronized<std::map<LabelId, std::map<std::set<PropertyId>, IndividualConstraint *>>,
-                      utils::WritePrioritizedRWLock>
-      constraints_by_label_;
+  utils::Synchronized<Container, utils::WritePrioritizedRWLock> container_;
 };
 
 }  // namespace memgraph::storage
