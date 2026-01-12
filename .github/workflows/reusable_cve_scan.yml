@@ -245,3 +245,4 @@ jobs:
           docker stop memgraph || true
           docker wait memgraph || true
           docker rmi ${{ env.IMAGE_TAG }} || true
+          ./tools/ci/docker_cleanup.sh
