@@ -741,5 +741,68 @@ def test_durability_with_vector_index_nodes_before_index_creation(connection):
     interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
 
 
+def test_durability_with_vector_index_snapshot_and_wal(connection):
+    # Goal: That vector indices and their data are correctly restored after snapshot and WAL replay.
+    # 1/ Create vector index, add nodes with vector properties
+    # 2/ Create snapshot
+    # 3/ Add more nodes with vector properties
+    # 4/ Kill and restart
+    # 5/ Validate vector index and data are restored correctly
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_vector_snapshot_and_wal.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    execute_and_fetch_all(
+        cursor,
+        """CREATE (:L1 {prop1: [1.0, 2.0]})
+           CREATE (:L1 {prop1: [3.0, 4.0]});""",
+    )
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert index_info[0][6] == 2
+
+    execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+
+    execute_and_fetch_all(cursor, "CREATE (:L1 {prop1: [5.0, 6.0]});")
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert index_info[0][6] == 3
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == 3
+
+    props = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1 ORDER BY n.prop1[0];")
+    assert len(props) == 3
+    assert props[0][0] == [1.0, 2.0]
+    assert props[1][0] == [3.0, 4.0]
+    assert props[2][0] == [5.0, 6.0]
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
