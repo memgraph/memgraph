@@ -224,7 +224,9 @@ bool TypeConstraints::DropConstraint(LabelId label, PropertyId property, TypeCon
       if (it == container.constraints_.end()) {
         return false;
       }
-      if (it->second.type != type || it->second.status != ValidationStatus::VALIDATED) {
+      // dropping pending -> violation doing creation during create constraint, l2p didn't get created
+      // dropping validated -> drop constraint cypher query
+      if (it->second.type != type || it->second.status != status) {
         return false;
       }
       container.constraints_.erase(it);

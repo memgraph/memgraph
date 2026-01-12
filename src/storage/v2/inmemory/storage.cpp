@@ -1844,6 +1844,7 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
   if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label,
                                                                           property, std::nullopt, std::nullopt);
       violation.has_value()) {
+    existence_constraints->DropConstraint(label, property, ExistenceConstraints::ValidationStatus::PENDING);
     return std::unexpected{StorageExistenceConstraintDefinitionError{violation.value()}};
   }
   existence_constraints->UpdateConstraint(label, property, ExistenceConstraints::ValidationStatus::VALIDATED);
@@ -1858,7 +1859,7 @@ std::expected<void, StorageExistenceConstraintDroppingError> InMemoryStorage::In
             "Dropping existence constraint requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
-  if (!existence_constraints->DropConstraint(label, property)) {
+  if (!existence_constraints->DropConstraint(label, property, ExistenceConstraints::ValidationStatus::VALIDATED)) {
     return std::unexpected{StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);

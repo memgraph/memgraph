@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -744,7 +744,8 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedNoVertices) {
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
 
   TypeConstraints type_constraints;
-  ASSERT_TRUE(type_constraints.InsertConstraint(label, prop, TypeConstraintKind::INTEGER));
+  ASSERT_TRUE(type_constraints.InsertConstraint(label, prop, TypeConstraintKind::INTEGER,
+                                                TypeConstraints::ValidationStatus::VALIDATED));
 
   ASSERT_FALSE(type_constraints.ValidateVertices(vertices.access(), snapshot_info).has_value());
 }
@@ -775,6 +776,7 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedVertices) {
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
 
   TypeConstraints type_constraints;
-  ASSERT_TRUE(type_constraints.InsertConstraint(label, prop, TypeConstraintKind::INTEGER));
+  ASSERT_TRUE(type_constraints.InsertConstraint(label, prop, TypeConstraintKind::INTEGER,
+                                                TypeConstraints::ValidationStatus::VALIDATED));
   ASSERT_FALSE(type_constraints.ValidateVertices(vertices.access(), snapshot_info).has_value());
 }

@@ -80,7 +80,7 @@ class ExistenceConstraints {
   void UpdateConstraint(LabelId label, PropertyId property, ValidationStatus status);
 
   /// Returns true if the constraint was removed, and false if it doesn't exist.
-  bool DropConstraint(LabelId label, PropertyId property);
+  bool DropConstraint(LabelId label, PropertyId property, ValidationStatus status);
 
   ///  Returns `std::nullopt` if all checks pass, and `ConstraintViolation` describing the violated constraint
   ///  otherwise.

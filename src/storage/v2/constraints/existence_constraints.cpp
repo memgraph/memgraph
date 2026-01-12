@@ -39,10 +39,10 @@ void ExistenceConstraints::UpdateConstraint(LabelId label, PropertyId property, 
   });
 }
 
-bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
+bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property, ValidationStatus status) {
   return constraints_.WithLock([&](auto &constraints) {
     auto it = constraints.find({label, property});
-    if (it == constraints.end() || it->status == ValidationStatus::PENDING) [[unlikely]] {
+    if (it == constraints.end() || it->status != status) [[unlikely]] {
       return false;
     }
     constraints.erase(it);

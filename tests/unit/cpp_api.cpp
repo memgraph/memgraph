@@ -57,6 +57,22 @@ struct CppApiTestFixture : public ::testing::Test {
     }
   }
 
+  auto CreateConstraintAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+      return this->storage->ReadOnlyAccess();
+    } else {
+      return this->storage->UniqueAccess();
+    }
+  }
+
+  auto DropConstraintAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+      return this->storage->ReadOnlyAccess();
+    } else {
+      return this->storage->UniqueAccess();
+    }
+  }
+
   const std::string testSuite = "cpp_api";
 
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
@@ -1194,8 +1210,8 @@ TYPED_TEST(CppApiTestFixture, TestNestedIndex) {
 }
 
 TYPED_TEST(CppApiTestFixture, TestExistenceConstraint) {
-  auto read_only_acc = this->storage->Access(AccessorType::READ_ONLY);
-  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(read_only_acc.get());
+  auto constraint_acc = this->CreateConstraintAccessor();
+  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(constraint_acc.get());
   mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
   ASSERT_TRUE(mgp::CreateExistenceConstraint(&raw_graph, "User", "email"));
@@ -1213,8 +1229,8 @@ TYPED_TEST(CppApiTestFixture, TestExistenceConstraint) {
 }
 
 TYPED_TEST(CppApiTestFixture, TestUniqueConstraint) {
-  auto read_only_acc = this->storage->Access(AccessorType::READ_ONLY);
-  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(read_only_acc.get());
+  auto constraint_acc = this->CreateConstraintAccessor();
+  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(constraint_acc.get());
   mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
   // Prepare the properties list: ["username"]

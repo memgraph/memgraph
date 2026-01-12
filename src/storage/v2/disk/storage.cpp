@@ -2245,7 +2245,7 @@ std::expected<void, StorageExistenceConstraintDroppingError> DiskStorage::DiskAc
   MG_ASSERT(type() == UNIQUE, "Dropping existence constraint requires unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
-  if (!existence_constraints->DropConstraint(label, property)) {
+  if (!existence_constraints->DropConstraint(label, property, ExistenceConstraints::ValidationStatus::VALIDATED)) {
     return std::unexpected{StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);
