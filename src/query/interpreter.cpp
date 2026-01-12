@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -5101,21 +5101,20 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
   auto path_value = recover_query->snapshot_->Accept(evaluator);
 
-  auto maybe_config_map = ParseConfigMap(recover_query->configs_, evaluator);
-  if (!maybe_config_map) {
-    throw QueryRuntimeException("Failed to parse config map for the RECOVER SNAPSHOT query!");
-  }
-
-  if (maybe_config_map->size() > 4) {
-    throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
-                                utils::kAwsRegionQuerySetting, utils::kAwsAccessKeyQuerySetting,
-                                utils::kAwsSecretKeyQuerySetting, utils::kAwsEndpointUrlQuerySetting);
-  }
-
   constexpr auto s3_matcher = ctre::starts_with<"s3://">;
 
   std::optional<utils::S3Config> s3_config;
   if (s3_matcher(path_value.ValueString())) {
+    auto maybe_config_map = ParseConfigMap(recover_query->configs_, evaluator);
+    if (!maybe_config_map) {
+      throw QueryRuntimeException("Failed to parse config map for the RECOVER SNAPSHOT query!");
+    }
+
+    if (maybe_config_map->size() > 4) {
+      throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
+                                  utils::kAwsRegionQuerySetting, utils::kAwsAccessKeyQuerySetting,
+                                  utils::kAwsSecretKeyQuerySetting, utils::kAwsEndpointUrlQuerySetting);
+    }
     s3_config.emplace(utils::S3Config::Build(std::move(*maybe_config_map), BuildRunTimeS3Config()));
   }
 
