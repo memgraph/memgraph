@@ -93,6 +93,7 @@ jobs:
         if: ${{ env.NEXT_TYPE == 'docker' }}
         run: |
           docker pull "$NEXT_IMAGE"
+          echo "MEMGRAPH_NEXT_DOCKERHUB_IMAGE=${NEXT_IMAGE}" >> $GITHUB_ENV
 
       - name: Load Next Image (URL)
         if: ${{ env.NEXT_TYPE == 'url' }}
@@ -113,6 +114,7 @@ jobs:
         if: ${{ env.LAST_TYPE == 'docker' }}
         run: |
           docker pull "$LAST_IMAGE"
+          echo "MEMGRAPH_LAST_DOCKERHUB_IMAGE=${LAST_IMAGE}" >> $GITHUB_ENV
 
       - name: Load Last Image (URL)
         if: ${{ env.LAST_TYPE == 'url' }}
