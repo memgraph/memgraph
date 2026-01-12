@@ -138,7 +138,7 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          smoke \
+          test-mage smoke \
           --next-image "$NEXT_IMAGE" \
           --last-image "$LAST_IMAGE"
 
