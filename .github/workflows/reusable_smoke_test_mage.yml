@@ -37,6 +37,9 @@ env:
   INPUT_MALLOC: ${{ inputs.malloc }}
   INPUT_CUDA: ${{ inputs.cuda }}
   INPUT_RELWITHDEBINFO: ${{ inputs.relwithdebinfo }}
+  TOOLCHAIN: v7
+  OS: ubuntu-24.04
+  ARCH: ${{ inputs.arch }}
 
 jobs:
   smoke-test-image:
