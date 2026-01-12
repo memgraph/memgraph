@@ -98,7 +98,7 @@ env:
 
 jobs:
   BuildAndPush:
-    name: "Build and Push MAGE for ${{ inputs.arch }}${{ inputs.build_type }}${{ inputs.cuda && ' CUDA' || '' }}${{ inputs.malloc && 'Malloc' || '' }}"
+    name: "Build and Push MAGE for ${{ inputs.arch }} ${{ inputs.build_type }}${{ inputs.cuda && ' CUDA' || '' }}${{ inputs.malloc && ' Malloc' || '' }}"
     runs-on: [self-hosted, DockerMgBuild, Linux, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 30
     outputs:
