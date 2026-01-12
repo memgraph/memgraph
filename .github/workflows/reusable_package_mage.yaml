@@ -515,22 +515,22 @@ jobs:
         if: ${{ inputs.push_to_github }}
         uses: actions/upload-artifact@v4
         with:
-          name: "${ARTIFACT_NAME}-query-modules"
-          path: "mage.tar.gz"
+          name: "${{ env.ARTIFACT_NAME }}-query-modules"
+          path: "mage/mage.tar.gz"
 
       - name: Push DEB package to GitHub
         if: ${{ inputs.push_to_github && env.PACKAGE_DEB == 'true' }}
         uses: actions/upload-artifact@v4
         with:
-          name: "${ARTIFACT_NAME}-deb"
-          path: "${DEB_PACKAGE}"
+          name: "${{ env.ARTIFACT_NAME }}-deb"
+          path: "${{ env.DEB_PACKAGE }}"
 
       - name: Push docker image to GitHub
         if: ${{ inputs.push_to_github }}
         uses: actions/upload-artifact@v4
         with:
-          name: "${IMAGE_TAG}-docker"
-          path: "output/${ARTIFACT_NAME}.tar.gz"
+          name: "${{ env.IMAGE_TAG }}-docker"
+          path: "output/${{ env.ARTIFACT_NAME }}.tar.gz"
 
       - name: Push to S3 with retry
         if: ${{ inputs.push_to_s3 }}
