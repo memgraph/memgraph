@@ -100,4 +100,4 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/ci/docker_cleanup.sh.sh
+          ./tools/ci/docker_cleanup.sh
