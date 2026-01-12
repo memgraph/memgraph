@@ -82,8 +82,8 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --enterprise-license ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }} \
-          --organization-name ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }} \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph stress-native-standalone
 
       - name: Copy stress test logs
@@ -167,8 +167,8 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --enterprise-license ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }} \
-          --organization-name ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }} \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph stress-native-ha
 
       - name: Stop mgbuild container
@@ -236,8 +236,8 @@ jobs:
       - name: Run stress tests (docker HA)
         run: |
           ./release/package/mgbuild.sh \
-          --enterprise-license ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }} \
-          --organization-name ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }} \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph stress-docker-ha
         env:
           MEMGRAPH_IMAGE: ${{ env.MEMGRAPH_IMAGE }}
