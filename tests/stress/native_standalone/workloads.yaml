@@ -1,0 +1,7 @@
+# Native Standalone Workload Registry
+# List all workloads to run for this deployment type.
+# Set enabled: false to skip a workload.
+
+workloads:
+  - config: workloads/supernode_edge_abort/workload.yaml
+    enabled: true
