@@ -31,14 +31,14 @@ void do_per_thread_validation(ResultType &result, Func &&func,
     auto vertex_curr = vertices.find(gid_start);
     DMG_ASSERT(vertex_curr != vertices.end(), "No vertex was found with given gid");
     for (auto i{0U}; i < batch_size; ++i, ++vertex_curr) {
-      const auto violation = func(*vertex_curr, std::forward<Args>(args)...);
-      if (!violation) [[likely]] {
+      const auto validation_result = func(*vertex_curr, std::forward<Args>(args)...);
+      if (validation_result) [[likely]] {
         if (snapshot_info) {
           snapshot_info->Update(UpdateType::VERTICES);
         }
         continue;
       }
-      result.WithLock([&violation](auto &result) { result = std::unexpected{violation.error()}; });
+      result.WithLock([&validation_result](auto &result) { result = std::unexpected{validation_result.error()}; });
       break;
     }
   }
