@@ -47,6 +47,7 @@ env:
   package_deb_arm: memgraph_${{ github.event.inputs.release_version }}-1_arm64.deb
   package_docker: memgraph-${{ github.event.inputs.release_version }}-docker.tar.gz
   package_docker_relwithdebinfo: memgraph-${{ github.event.inputs.release_version }}-relwithdebinfo-docker.tar.gz
+  package_docker_relwithdebinfo_malloc: memgraph-${{ github.event.inputs.release_version }}-relwithdebinfo-malloc-docker.tar.gz
   docker_repo_rc: memgraph/memgraph
   docker_repo_release: memgraph/memgraph${{ github.event.inputs.test == 'true' && '-release-test' || '' }}
   docker_repo_rc_mage: memgraph/memgraph-mage
@@ -137,6 +138,8 @@ jobs:
           elif [[ $os == docker ]]; then
             if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
               package_name=${package_docker_relwithdebinfo}
+            elif [[ "${{ matrix.malloc }}" == "true" ]]; then
+              package_name=${package_docker_relwithdebinfo_malloc}
             else
               package_name=${package_docker}
             fi

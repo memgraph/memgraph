@@ -232,6 +232,10 @@ jobs:
       - name: "Create docker image"
         if: ${{ env.FOR_DOCKER == 'true' }}
         run: |
+          malloc=false
+          if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
+            malloc=true
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os "$OS" \
@@ -240,7 +244,8 @@ jobs:
           package-docker \
           --src-dir $PACKAGE_ARTIFACT_DIR \
           --dest-dir $DOCKER_ARTIFACT_DIR \
-          --generate-sbom $GENERATE_SBOM
+          --generate-sbom $GENERATE_SBOM \
+          --malloc $malloc
 
       - name: "Generate Build SBOM"
         if: ${{ env.GENERATE_SBOM == 'true'  && env.FOR_DOCKER != 'true' }}

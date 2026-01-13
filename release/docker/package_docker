@@ -19,6 +19,7 @@ arch=""
 src_path=""
 custom_mirror=""
 generate_sbom=false
+malloc=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --latest)
@@ -54,6 +55,10 @@ while [[ $# -gt 0 ]]; do
         generate_sbom=$2
         shift 2
     ;;
+    --malloc)
+        malloc=$2
+        shift 2
+    ;;
     *)
         echo -e "Error: Unknown option '$1'"
         exit 1
@@ -74,6 +79,10 @@ if [[ -n "$src_path" ]]; then
   dockerfile_path_rwdi_extension="_relwithdebinfo"
   docker_arg_source_code="--build-arg SOURCE_CODE=src"
   tag_extension="-relwithdebinfo"
+fi
+
+if [[ "$malloc" == true ]]; then
+  tag_extension="${tag_extension}-malloc"
 fi
 
 # Copy the .deb to working directory.

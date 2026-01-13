@@ -797,6 +797,7 @@ package_docker() {
   local package_dir="$PROJECT_ROOT/build/output/$os"
   local docker_host_folder="$PROJECT_ROOT/build/output/docker/${arch}/${toolchain_version}"
   local generate_sbom=false
+  local malloc=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dest-dir)
@@ -809,6 +810,10 @@ package_docker() {
       ;;
       --generate-sbom)
         generate_sbom=$2
+        shift 2
+      ;;
+      --malloc)
+        malloc=$2
         shift 2
       ;;
       *)
@@ -833,10 +838,10 @@ package_docker() {
 
   if [[ "$build_type" == "Release" ]]; then
     echo "Package release"
-    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --custom-mirror "$mirror" --generate-sbom $generate_sbom
+    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --custom-mirror "$mirror" --generate-sbom $generate_sbom --malloc $malloc
   else
     echo "Package other"
-    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --src-path "$PROJECT_ROOT/src" --custom-mirror "$mirror" --generate-sbom $generate_sbom
+    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --src-path "$PROJECT_ROOT/src" --custom-mirror "$mirror" --generate-sbom $generate_sbom --malloc $malloc
   fi
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
