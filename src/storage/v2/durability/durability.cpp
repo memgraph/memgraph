@@ -388,9 +388,9 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
       throw RecoveryFailure("The existence constraint already exists!");
     }
 
-    if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property,
-                                                                            parallel_exec_info, snapshot_info);
-        violation.has_value()) {
+    if (auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property,
+                                                                                    parallel_exec_info, snapshot_info);
+        !validation_result.has_value()) [[unlikely]] {
       throw RecoveryFailure("The existence constraint failed because it couldn't be validated!");
     }
 
