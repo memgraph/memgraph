@@ -99,7 +99,15 @@ set(PYTHON_QUERY_MODULES_FILES
 )
 add_custom_target(copy_python_query_modules ALL
     COMMAND ${CMAKE_COMMAND} -E copy ${PYTHON_QUERY_MODULES_FILES} ${QUERY_MODULES_BUILD_DIR}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${QUERY_MODULES_BUILD_DIR}/mage
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/mage/python/mage/date ${QUERY_MODULES_BUILD_DIR}/mage/date
     COMMENT "Copying Python query modules to build/query_modules"
+)
+
+file(GLOB MAGE_PYTHON_QUERY_MODULES "${CMAKE_SOURCE_DIR}/mage/python/*.py")
+add_custom_target(copy_mage_python_query_modules ALL
+    COMMAND ${CMAKE_COMMAND} -E copy ${MAGE_PYTHON_QUERY_MODULES} ${QUERY_MODULES_BUILD_DIR}
+    COMMENT "Copying MAGE Python query modules to build/query_modules"
 )
 
 # Install C++ query modules
@@ -116,5 +124,9 @@ install(FILES nxalg.py DESTINATION lib/memgraph/query_modules)
 install(FILES wcc.py DESTINATION lib/memgraph/query_modules)
 install(FILES mgps.py DESTINATION lib/memgraph/query_modules)
 install(FILES date.py DESTINATION lib/memgraph/query_modules)
+
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/mage/python/mage/date DESTINATION lib/memgraph/query_modules/mage)
+file(GLOB MAGE_PYTHON_INSTALL_FILES "${CMAKE_SOURCE_DIR}/mage/python/*.py")
+install(FILES ${MAGE_PYTHON_INSTALL_FILES} DESTINATION lib/memgraph/query_modules)
 
 # IMPORTANT: when adding enterprise module add its name to kEnterpriseModuleList in src/query/procedure/module.cpp

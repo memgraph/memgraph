@@ -1,5 +1,5 @@
 query: >
-    CALL date.format(74976, "h", "%Y/%m/%d %H:%M:%S %Z", "Mexico/BajaNorte") YIELD formatted
+    CALL date.format(74976, "h", "%Y/%m/%d %H:%M:%S %Z", "America/Tijuana") YIELD formatted
     RETURN formatted
 
 output:
