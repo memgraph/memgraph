@@ -3,20 +3,10 @@ set -euo pipefail
 # generate the MAGE artifact name and Docker tag
 
 MEMGRAPH_VERSION=$1
-SHORTEN_TAG=$2
-ARCH=$3
-BUILD_TYPE=$4
-MALLOC=$5
-CUDA=$6
-
-# remove patch version if it's 0
-if [[ $SHORTEN_TAG == "true" ]]; then
-    MEMGRAPH_VERSION=${MEMGRAPH_VERSION%%-*}
-    memgraph_patch_version=${MEMGRAPH_VERSION##*.}
-    if [[ "$memgraph_patch_version" == "0" ]]; then
-        MEMGRAPH_VERSION=${MEMGRAPH_VERSION%.*}
-    fi
-fi
+ARCH=$2
+BUILD_TYPE=$3
+MALLOC=$4
+CUDA=$5
 
 IMAGE_TAG="${MEMGRAPH_VERSION}"
 IMAGE_TAG="${IMAGE_TAG//+/_}"
