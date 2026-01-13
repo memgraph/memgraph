@@ -427,17 +427,21 @@ InMemoryUniqueConstraints::CreateConstraint(
       });
 
   if (!constraint_ptr) return constraint_ptr.error();
-  // constraint can't get dropped before it gets validated/fails -> this is safe
-  auto constraint_accessor = constraint_ptr.value()->skiplist.access();
 
-  auto multi_single_thread_processing = GetCreationFunction(par_exec_info);
+  bool const violation_found = std::invoke([&] {
+    // `constraint_accessor` is inside this IILE on purpose.
+    // This accessor MUST be released before we erase if a violation was found
+    auto constraint_accessor = constraint_ptr.value()->skiplist.access();
 
-  bool const violation_found = std::visit(
-      [&vertex_accessor, &constraint_accessor, &label, &properties,
-       &snapshot_info](auto &multi_single_thread_processing) {
-        return multi_single_thread_processing(vertex_accessor, constraint_accessor, label, properties, snapshot_info);
-      },
-      multi_single_thread_processing);
+    auto multi_single_thread_processing = GetCreationFunction(par_exec_info);
+
+    return std::visit(
+        [&vertex_accessor, &constraint_accessor, &label, &properties,
+         &snapshot_info](auto &multi_single_thread_processing) {
+          return multi_single_thread_processing(vertex_accessor, constraint_accessor, label, properties, snapshot_info);
+        },
+        multi_single_thread_processing);
+  });
 
   if (violation_found) {
     container_.WithLock([&](auto &container) { container.constraints_.erase({label, properties}); });
