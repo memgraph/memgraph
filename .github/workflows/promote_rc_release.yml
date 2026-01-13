@@ -514,15 +514,15 @@ jobs:
         run: |
           sleep 5
           if [ "${has_rc_package_amd}" = "true" ]; then
-            echo "Deleting temporary image ${release_image_amd} ..."
-            curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${release_image_amd}/
+            echo "Deleting temporary image ${release_image#*:}-amd64 ..."
+            curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${release_image#*:}-amd64/
           else
             echo "Skipping deletion for amd64: image not promoted."
           fi
 
           if [ "${has_rc_package_arm}" = "true" ]; then
-            echo "Deleting temporary image ${release_image_arm} ..."
-            curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${release_image_arm}/
+            echo "Deleting temporary image ${release_image#*:}-arm64 ..."
+            curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${release_image#*:}-arm64/
           else
             echo "Skipping deletion for arm64: image not promoted."
           fi
