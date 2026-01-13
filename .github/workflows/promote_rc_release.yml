@@ -136,7 +136,7 @@ jobs:
               package_name=${package_rpm_amd}
             fi
           elif [[ $os == docker ]]; then
-            if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
+            if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" && "${{ matrix.malloc }}" == "false" ]]; then
               package_name=${package_docker_relwithdebinfo}
             elif [[ "${{ matrix.malloc }}" == "true" ]]; then
               package_name=${package_docker_relwithdebinfo_malloc}
@@ -221,7 +221,11 @@ jobs:
             os_arm="docker-malloc-aarch64"  # TODO(matt): reorder this in packaging workflow
           fi
           if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
-            package="${package_docker_relwithdebinfo}"
+            if [[ "${{ matrix.malloc }}" == "false" ]]; then
+              package="${package_docker_relwithdebinfo}"
+            else
+              package="${package_docker_relwithdebinfo_malloc}"
+            fi
             os_x86="${os_x86}-relwithdebinfo"
             os_arm="${os_arm}-relwithdebinfo"
           fi
