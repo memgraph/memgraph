@@ -1,6 +1,7 @@
 name: "Package mage"
 
 on:
+ push:
  pull_request:
   workflow_dispatch:
     inputs:
@@ -140,4 +141,25 @@ jobs:
       package_deb: ${{ matrix.package_deb }}
       generate_sbom: ${{ matrix.generate_sbom }}
       ref: ${{ matrix.ref }}
+    secrets: inherit
+
+
+  PushBuild:
+    if: ${{ github.event_name == 'push' }}
+    needs: BuildMage
+    name: Push MAGE for ${{ matrix.arch }} ${{ matrix.build_type }}${{ matrix.cuda && ' CUDA' || '' }}${{ matrix.malloc && ' Malloc' || '' }}
+    uses: ./.github/workflows/reusable_package_mage.yaml
+    with:
+      arch: amd
+      build_type: Release
+      memgraph_download_link: ""
+      push_to_s3: true
+      s3_dest_dir: "mage-unofficial/test"
+      cuda: false
+      malloc: false
+      run_smoke_tests: false
+      run_tests: false
+      package_deb: "default"
+      generate_sbom: false
+      ref: ${{ github.ref }}
     secrets: inherit
