@@ -211,14 +211,16 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
   utils::ThreadSetName(ThreadPriority == Priority::HIGH ? "high prior." : "low prior.");
 
   // Both mixed and high priority worker only steal from mixed worker
-  const auto other_workers = std::invoke([&workers_pool, self = this, worker_id]() mutable {
+  const auto other_workers = std::invoke([&workers_pool, self = this, worker_id]() -> std::vector<Worker *> {
     if constexpr (ThreadPriority != Priority::HIGH) {
       // Only mixed work threads can have work stolen, workers_pool does not contain hp threads (skip self)
-      std::vector<Worker *> other_workers(workers_pool.size() - 1, nullptr);
-      size_t i = other_workers.size() - worker_id;  // Optimization to mix thread stealing between workers
+      const auto other_workers_size = workers_pool.size() - 1;
+      if (other_workers_size == 0) return {};
+      std::vector<Worker *> other_workers(other_workers_size, nullptr);
+      size_t i = other_workers_size - worker_id;  // Optimization to mix thread stealing between workers
       for (const auto &worker : workers_pool) {
         if (worker.get() == self) continue;
-        other_workers[i % other_workers.size()] = worker.get();
+        other_workers[i % other_workers_size] = worker.get();
         ++i;
       }
       return other_workers;
