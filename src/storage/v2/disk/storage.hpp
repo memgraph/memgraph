@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -565,7 +565,7 @@ class DiskStorage final : public Storage {
 
   uint64_t GetDiskSpaceUsage() const;
 
-  [[nodiscard]] std::optional<ConstraintViolation> CheckExistingVerticesBeforeCreatingExistenceConstraint(
+  [[nodiscard]] std::expected<void, ConstraintViolation> CheckExistingVerticesBeforeCreatingExistenceConstraint(
       LabelId label, PropertyId property) const;
 
   [[nodiscard]] std::expected<std::vector<std::pair<std::string, std::string>>, ConstraintViolation>

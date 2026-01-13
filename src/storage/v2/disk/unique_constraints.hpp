@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,8 +32,8 @@ class DiskUniqueConstraints : public UniqueConstraints {
       LabelId label, const std::set<PropertyId> &properties,
       const std::vector<std::pair<std::string, std::string>> &vertices_under_constraint);
 
-  std::optional<ConstraintViolation> Validate(const Vertex &vertex,
-                                              std::vector<std::vector<PropertyValue>> &unique_storage) const;
+  std::expected<void, ConstraintViolation> Validate(const Vertex &vertex,
+                                                    std::vector<std::vector<PropertyValue>> &unique_storage) const;
 
   [[nodiscard]] bool ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const;
 
@@ -67,7 +67,7 @@ class DiskUniqueConstraints : public UniqueConstraints {
   std::set<std::pair<LabelId, std::set<PropertyId>>> constraints_;
   std::unique_ptr<RocksDBStorage> kvstore_;
 
-  [[nodiscard]] std::optional<ConstraintViolation> TestIfVertexSatisifiesUniqueConstraint(
+  [[nodiscard]] std::expected<void, ConstraintViolation> TestIfVertexSatisifiesUniqueConstraint(
       const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,
       const std::set<PropertyId> &constraint_properties) const;
 

@@ -7372,10 +7372,9 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
 struct QueryTransactionRequirements : QueryVisitor<void> {
   using QueryVisitor<void>::Visit;
 
-  QueryTransactionRequirements(bool is_schema_assert_query, bool is_cypher_read, bool is_in_memory_transactional)
-      : is_schema_assert_query_{is_schema_assert_query},
-        is_cypher_read_{is_cypher_read},
-        is_in_memory_transactional_{is_in_memory_transactional} {}
+  QueryTransactionRequirements(bool is_schema_assert_query, bool is_cypher_read,
+                               std::optional<storage::StorageMode> storage_mode)
+      : is_schema_assert_query_(is_schema_assert_query), is_cypher_read_(is_cypher_read), storage_mode_(storage_mode) {}
 
   // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
   // case for use database which overwrites the current database)
@@ -7424,7 +7423,6 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(CreateTextEdgeIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(VectorIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(CreateVectorEdgeIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-  void Visit(ConstraintQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(DropAllIndexesQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(DropAllConstraintsQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(DropGraphQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
@@ -7456,8 +7454,12 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   // Complex access logic
   void Visit(IndexQuery &index_query) override {
+    if (!storage_mode_) [[unlikely]] {
+      throw DatabaseContextRequiredException("Database required for index query.");
+    }
+
     using enum storage::StorageAccessType;
-    if (is_in_memory_transactional_) {
+    if (storage_mode_ == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       // Concurrent population of index requires snapshot isolation
       isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
       accessor_type_ = (index_query.action_ == IndexQuery::Action::CREATE) ? READ_ONLY : READ;
@@ -7467,8 +7469,12 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     }
   }
   void Visit(EdgeIndexQuery &edge_index_query) override {
+    if (!storage_mode_) [[unlikely]] {
+      throw DatabaseContextRequiredException("Database required for edge index query.");
+    }
+
     using enum storage::StorageAccessType;
-    if (is_in_memory_transactional_) {
+    if (storage_mode_ == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       // Concurrent population of index requires snapshot isolation
       isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
       accessor_type_ = (edge_index_query.action_ == EdgeIndexQuery::Action::CREATE) ? READ_ONLY : READ;
@@ -7478,6 +7484,14 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     }
   }
 
+  void Visit(ConstraintQuery & /*constraint_query*/) override {
+    if (!storage_mode_) [[unlikely]] {
+      throw DatabaseContextRequiredException("Database required for constraint query.");
+    }
+
+    using enum storage::StorageAccessType;
+    accessor_type_ = storage_mode_ == storage::StorageMode::ON_DISK_TRANSACTIONAL ? UNIQUE : READ_ONLY;
+  }
   // helper methods
   auto cypher_access_type() const -> storage::StorageAccessType {
     using enum storage::StorageAccessType;
@@ -7492,7 +7506,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   bool const is_schema_assert_query_;
   bool const is_cypher_read_;
-  bool const is_in_memory_transactional_;
+  std::optional<storage::StorageMode> storage_mode_;
 
   bool could_commit_ = false;
   std::optional<storage::IsolationLevel> isolation_level_override_;
@@ -7592,12 +7606,11 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     });
 
     if (!in_explicit_transaction_) {
-      auto const is_in_memory_transactional =
-          current_db_.db_acc_
-              ? ((*current_db_.db_acc_)->storage()->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL)
-              : false;
-      auto transaction_requirements = QueryTransactionRequirements{
-          parse_info.is_schema_assert_query, parsed_query.is_cypher_read, is_in_memory_transactional};
+      auto storage_mode = current_db_.db_acc_
+                              ? std::optional<storage::StorageMode>{(*current_db_.db_acc_)->storage()->GetStorageMode()}
+                              : std::nullopt;
+      auto transaction_requirements =
+          QueryTransactionRequirements{parse_info.is_schema_assert_query, parsed_query.is_cypher_read, storage_mode};
       parsed_query.query->Accept(transaction_requirements);
       if (transaction_requirements.accessor_type_) {
         if (transaction_requirements.isolation_level_override_) {
@@ -7905,13 +7918,16 @@ void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privi
     Abort();
     if (!db) {
       throw QueryException(
-          "You are not authorized to execute this query! Please contact your database administrator. This issue comes "
-          "from the user having not enough role-based access privileges to execute this query. If you want this issue "
+          "You are not authorized to execute this query! Please contact your database administrator. This issue "
+          "comes "
+          "from the user having not enough role-based access privileges to execute this query. If you want this "
+          "issue "
           "to be resolved, ask your database administrator to grant you a specific privilege for query execution.");
     }
     throw QueryException(
         "You are not authorized to execute this query on database \"{}\"! Please contact your database "
-        "administrator. This issue comes from the user having not enough role-based access privileges to execute this "
+        "administrator. This issue comes from the user having not enough role-based access privileges to execute "
+        "this "
         "query. If you want this issue to be resolved, ask your database administrator to grant you a specific "
         "privilege for query execution.",
         db.value());
@@ -8049,7 +8065,8 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                            trigger.Name());
             } else if constexpr (std::is_same_v<ErrorType, storage::StrictSyncReplicationError>) {
               spdlog::warn(
-                  "At least one STRICT_SYNC replica has not confirmed execution of the trigger '{}'. Transaction will "
+                  "At least one STRICT_SYNC replica has not confirmed execution of the trigger '{}'. Transaction "
+                  "will "
                   "be "
                   "aborted. ",
                   trigger.Name());

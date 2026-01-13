@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1247,15 +1247,15 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
 
 [[nodiscard]] std::expected<void, StorageManipulationError> DiskStorage::CheckVertexConstraintsBeforeCommit(
     const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const {
-  if (auto existence_constraint_validation_result = constraints_.existence_constraints_->Validate(vertex);
-      existence_constraint_validation_result.has_value()) {
-    return std::unexpected{StorageManipulationError{existence_constraint_validation_result.value()}};
+  if (auto existence_constraint_validation_result = constraints_.existence_constraints_->PerVertexValidate(vertex);
+      !existence_constraint_validation_result.has_value()) {
+    return std::unexpected{StorageManipulationError{existence_constraint_validation_result.error()}};
   }
 
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
   if (auto unique_constraint_validation_result = disk_unique_constraints->Validate(vertex, unique_storage);
-      unique_constraint_validation_result.has_value()) {
-    return std::unexpected{StorageManipulationError{unique_constraint_validation_result.value()}};
+      !unique_constraint_validation_result.has_value()) {
+    return std::unexpected{StorageManipulationError{unique_constraint_validation_result.error()}};
   }
   return {};
 }
@@ -1649,8 +1649,8 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
   return result;
 }
 
-[[nodiscard]] std::optional<ConstraintViolation> DiskStorage::CheckExistingVerticesBeforeCreatingExistenceConstraint(
-    LabelId label, PropertyId property) const {
+[[nodiscard]] std::expected<void, ConstraintViolation>
+DiskStorage::CheckExistingVerticesBeforeCreatingExistenceConstraint(LabelId label, PropertyId property) const {
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
   rocksdb::Slice ts(strTs);
@@ -1660,10 +1660,11 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
     std::vector<LabelId> labels = utils::DeserializeLabelsFromMainDiskStorage(it->key().ToString());
     PropertyStore properties = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToStringView());
     if (std::ranges::contains(labels, label) && !properties.HasProperty(property)) {
-      return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
+      return std::unexpected{
+          ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}}};
     }
   }
-  return std::nullopt;
+  return {};
 }
 
 [[nodiscard]] std::expected<std::vector<std::pair<std::string, std::string>>, ConstraintViolation>
@@ -2225,24 +2226,25 @@ std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAcces
 
 std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::DiskAccessor::CreateExistenceConstraint(
     LabelId label, PropertyId property) {
-  MG_ASSERT(type() == UNIQUE, "Create existence constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Creating existence constraint requires unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
   if (existence_constraints->ConstraintExists(label, property)) {
     return std::unexpected{StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
   if (auto check = on_disk->CheckExistingVerticesBeforeCreatingExistenceConstraint(label, property);
-      check.has_value()) {
-    return std::unexpected{StorageExistenceConstraintDefinitionError{check.value()}};
+      !check.has_value()) {
+    return std::unexpected{StorageExistenceConstraintDefinitionError{check.error()}};
   }
-  existence_constraints->InsertConstraint(label, property);
+  // no need to register due to unique access
+  existence_constraints->PublishConstraint(label, property);
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
 
 std::expected<void, StorageExistenceConstraintDroppingError> DiskStorage::DiskAccessor::DropExistenceConstraint(
     LabelId label, PropertyId property) {
-  MG_ASSERT(type() == UNIQUE, "Drop existence constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Dropping existence constraint requires unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
   if (!existence_constraints->DropConstraint(label, property)) {
@@ -2254,7 +2256,7 @@ std::expected<void, StorageExistenceConstraintDroppingError> DiskStorage::DiskAc
 
 std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
 DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(type() == UNIQUE, "Create unique constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Creating unique constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
   if (auto constraint_check = disk_unique_constraints->CheckIfConstraintCanBeCreated(label, properties);
@@ -2274,7 +2276,7 @@ DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<
 
 UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstraint(
     LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(type() == UNIQUE, "Drop unique constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Dropping unique constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
   if (auto ret = disk_unique_constraints->DropConstraint(label, properties);
