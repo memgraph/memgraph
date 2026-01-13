@@ -434,10 +434,9 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
   // TODO: parallel recovery
   spdlog::info("Recreating {} type constraints from metadata.", constraints_metadata.type.size());
   for (const auto &[label, property, type] : constraints_metadata.type) {
-    if (constraints->type_constraints_->ConstraintExists(label, property)) {
-      throw RecoveryFailure("The type constraint already exists!");
+    if (!constraints->type_constraints_->RegisterConstraint(label, property, type)) {
+      throw RecoveryFailure("Failed to register type constraint!");
     }
-    constraints->type_constraints_->RegisterConstraint(label, property, type);
   }
 
   if (constraints->HasTypeConstraints()) {

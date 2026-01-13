@@ -7506,7 +7506,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   bool const is_schema_assert_query_;
   bool const is_cypher_read_;
-  std::optional<storage::StorageMode> const storage_mode_;
+  std::optional<storage::StorageMode> storage_mode_;
 
   bool could_commit_ = false;
   std::optional<storage::IsolationLevel> isolation_level_override_;

@@ -78,6 +78,7 @@ std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraint
       return {};
     };
 
+    // NOLINTNEXTLINE(bugprone-nondeterministic-pointer-iteration-order)
     for (auto const *vertex : vertices_to_update) {
       // No need to take any locks here because we modified this vertex and no
       // one else can touch it until we commit.
