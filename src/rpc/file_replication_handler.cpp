@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,13 +13,26 @@
 
 #include "flags/general.hpp"
 #include "slk/streams.hpp"
-#include "storage/v2/durability/paths.hpp"
 #include "storage/v2/replication/serialization.hpp"
-#include "utils/logging.hpp"
 
 namespace memgraph::rpc {
 
-FileReplicationHandler::~FileReplicationHandler() { ResetCurrentFile(); }
+FileReplicationHandler::~FileReplicationHandler() {
+  if (file_.IsOpen()) {
+    // The file will be deleted so I don't care about syncing it before closing
+    file_.Close();
+  }
+  // Nobody should be using paths_ after the FileReplicationHandler gets destructed
+  // When snapshot is received, it is moved to data directory folder so we shouldn't delete snapshot files here
+  // All received WAL files should be deleted.
+  std::ranges::for_each(paths_ | std::views::filter([](auto const &path) {
+                          std::error_code ec;
+                          return std::filesystem::exists(path, ec);
+                        }),
+                        [](auto const &path) { utils::DeleteFile(path); }
+
+  );
+}
 
 // The assumption is that the header, request, file name and file size will always fit into the buffer size = 64KiB
 // Currently, they are taking few hundred bytes at most so this should be a valid assumption. Also, we aren't expecting
