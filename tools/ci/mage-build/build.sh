@@ -1,5 +1,4 @@
 #!/bin/bash
-echo "here"
 set -eo pipefail
 
 config_only=false

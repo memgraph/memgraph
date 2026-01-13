@@ -69,7 +69,7 @@ docker cp . $CONTAINER_NAME:/home/mg/memgraph
 docker exec -i -u root $CONTAINER_NAME bash -c "chown -R mg:mg /home/mg/memgraph"
 
 echo -e "${GREEN_BOLD}Building inside container${RESET}"
-docker exec -i $CONTAINER_NAME bash -c "cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh $BUILD_TYPE $RUST_VERSION"
+docker exec -i $CONTAINER_NAME bash -c "cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh --build-type $BUILD_TYPE --rust-version $RUST_VERSION"
 
 echo -e "${GREEN_BOLD}Compressing query modules${RESET}"
 docker exec -i $CONTAINER_NAME bash -c "cd /home/mg/memgraph/mage && ../tools/ci/mage-build/compress-query-modules.sh"
