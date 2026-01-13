@@ -65,6 +65,7 @@ SUPPORTED_TESTS=(
     code-coverage drivers drivers-high-availability durability e2e gql-behave
     integration leftover-CTest macro-benchmark
     mgbench stress-plain stress-ssl
+    query_modules_e2e query_modules_unit
     unit unit-coverage upload-to-bench-graph
 )
 DEFAULT_THREADS=0
@@ -1208,6 +1209,11 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
       docker exec -u mg $build_container bash -c "pip install --break-system-packages --user -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests/query_modules && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 -m pytest ."
+    ;;
+    query_modules_unit)
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
+      docker exec -u mg $build_container bash -c "pip install --break-system-packages --user -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
+      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR/tests/query_modules && PYTHONPATH=$MGBUILD_ROOT_DIR/mage/python:\$PYTHONPATH source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 -m pytest \$(find . -path '*/unit/test_*.py') -v"
     ;;
     *)
       echo "Error: Unknown test '$1'"
