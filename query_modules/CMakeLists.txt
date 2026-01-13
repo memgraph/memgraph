@@ -93,6 +93,7 @@ set(PYTHON_QUERY_MODULES_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/graph_analyzer.py
     ${CMAKE_CURRENT_SOURCE_DIR}/mgp_networkx.py
     ${CMAKE_CURRENT_SOURCE_DIR}/nxalg.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/wcc.py
     ${CMAKE_CURRENT_SOURCE_DIR}/mgps.py
     ${CMAKE_CURRENT_SOURCE_DIR}/date.py
 )
@@ -120,6 +121,7 @@ install(FILES example.py DESTINATION lib/memgraph/query_modules RENAME py_exampl
 install(FILES graph_analyzer.py DESTINATION lib/memgraph/query_modules)
 install(FILES mgp_networkx.py DESTINATION lib/memgraph/query_modules)
 install(FILES nxalg.py DESTINATION lib/memgraph/query_modules)
+install(FILES wcc.py DESTINATION lib/memgraph/query_modules)
 install(FILES mgps.py DESTINATION lib/memgraph/query_modules)
 install(FILES date.py DESTINATION lib/memgraph/query_modules)
 
