@@ -3509,6 +3509,60 @@ TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
   EXPECT_EQ(config_map.find(kCoordinatorServer)->second, "127.0.0.1:10111");
 }
 
+TEST_P(CypherMainVisitorTest, TestUpdateConfigCoordinator) {
+  auto &ast_generator = *GetParam();
+
+  std::string const correct_query = R"(UPDATE CONFIG FOR COORDINATOR 1 {"bolt_server": "localhost:7691"})";
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(correct_query));
+
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::UPDATE_CONFIG);
+  ast_generator.CheckLiteral(parsed_query->coordinator_id_, TypedValue(1));
+
+  auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+      -> std::map<std::string, std::string, std::less<>> {
+    auto const expr_to_str = [&ast_generator](Expression *expression) {
+      return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+    };
+
+    return ranges::views::transform(config_map,
+                                    [&expr_to_str](auto const &expr_pair) {
+                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                    }) |
+           ranges::to<std::map<std::string, std::string, std::less<>>>;
+  };
+
+  auto const config_map = evaluate_config_map(parsed_query->configs_);
+  ASSERT_EQ(config_map.size(), 1);
+  EXPECT_EQ(config_map.find(kBoltServer)->second, "localhost:7691");
+}
+
+TEST_P(CypherMainVisitorTest, TestUpdateConfigReplInstance) {
+  auto &ast_generator = *GetParam();
+
+  std::string const correct_query = R"(UPDATE CONFIG FOR INSTANCE instance_1 {"bolt_server": "localhost:7687"})";
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(correct_query));
+
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::UPDATE_CONFIG);
+  EXPECT_EQ(parsed_query->instance_name_, "instance_1");
+
+  auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+      -> std::map<std::string, std::string, std::less<>> {
+    auto const expr_to_str = [&ast_generator](Expression *expression) {
+      return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+    };
+
+    return ranges::views::transform(config_map,
+                                    [&expr_to_str](auto const &expr_pair) {
+                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                    }) |
+           ranges::to<std::map<std::string, std::string, std::less<>>>;
+  };
+
+  auto const config_map = evaluate_config_map(parsed_query->configs_);
+  ASSERT_EQ(config_map.size(), 1);
+  EXPECT_EQ(config_map.find(kBoltServer)->second, "localhost:7687");
+}
+
 TEST_P(CypherMainVisitorTest, TestShowInstance) {
   auto &ast_generator = *GetParam();
   std::string const query = "SHOW INSTANCE";
@@ -5019,6 +5073,28 @@ TEST_P(CypherMainVisitorTest, RecoverSnapshotQuery) {
   auto &ast_generator = *GetParam();
   ASSERT_TRUE(dynamic_cast<RecoverSnapshotQuery *>(ast_generator.ParseQuery(R"(RECOVER SNAPSHOT "a/b/c")")));
   ASSERT_TRUE(dynamic_cast<RecoverSnapshotQuery *>(ast_generator.ParseQuery(R"(RECOVER SNAPSHOT "a/b/c" FORCE)")));
+  auto *query = dynamic_cast<RecoverSnapshotQuery *>(ast_generator.ParseQuery(
+      R"(RECOVER SNAPSHOT "a/b/c" WITH CONFIG {'aws_region': 'eu-west-1', 'aws_access_key': 'acc_key', 'aws_secret_key': 'secret_key'} FORCE)"));
+  ASSERT_TRUE(query);
+
+  auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+      -> std::unordered_map<std::string, std::string> {
+    auto const expr_to_str = [&ast_generator](Expression *expression) {
+      return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+    };
+
+    return ranges::views::transform(config_map,
+                                    [&expr_to_str](auto const &expr_pair) {
+                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                    }) |
+           ranges::to<std::unordered_map<std::string, std::string>>;
+  };
+
+  auto const config_map = evaluate_config_map(query->configs_);
+  ASSERT_EQ(config_map.size(), 3);
+  ASSERT_EQ(config_map.at("aws_region"), "eu-west-1");
+  ASSERT_EQ(config_map.at("aws_access_key"), "acc_key");
+  ASSERT_EQ(config_map.at("aws_secret_key"), "secret_key");
 }
 
 TEST_P(CypherMainVisitorTest, ShowSnapshotsQuery) {

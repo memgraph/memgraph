@@ -24,7 +24,6 @@ module;
 
 #include "spdlog/spdlog.h"
 #include "utils/counter.hpp"
-#include "utils/exceptions.hpp"
 
 export module memgraph.utils.aws;
 
@@ -48,29 +47,33 @@ struct S3Config {
   std::optional<std::string> aws_secret_key;
   std::optional<std::string> aws_endpoint_url;
 
-  void Validate() const {
+  auto Validate() const -> bool {
     if (!aws_region.has_value()) {
-      throw BasicException(
+      spdlog::error(
           "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} "
           "or "
           "env variable {}",
           kAwsRegionQuerySetting, kAwsRegionEnv);
+      return false;
     }
     if (!aws_access_key.has_value()) {
-      throw BasicException(
+      spdlog::error(
           "AWS access key configuration parameter not provided. Please provide it through the query, run-time setting "
           "{} "
           "or env variable {}",
           kAwsAccessKeyQuerySetting, kAwsAccessKeyEnv);
+      return false;
     }
 
     if (!aws_secret_key.has_value()) {
-      throw BasicException(
+      spdlog::error(
           "AWS secret key configuration parameter not provided. Please provide it through the query, run-time setting "
           "{} "
           "or env variable {}",
           kAwsSecretKeyQuerySetting, kAwsSecretKeyEnv);
+      return false;
     }
+    return true;
   }
 
   // Query settings -> run_time flags -> env variables
@@ -157,51 +160,64 @@ auto BuildGetObjectRequest(std::string_view bucket_name, std::string_view object
   return request;
 }
 
-auto ExtractBucketAndObjectKey(std::string_view uri) -> std::pair<std::string_view, std::string_view> {
+auto ExtractBucketAndObjectKey(std::string_view uri) -> std::optional<std::pair<std::string_view, std::string_view>> {
   constexpr std::string_view s3_prefix = "s3://";
 
   // Validate and remove prefix
   if (!uri.starts_with(s3_prefix)) {
-    throw std::invalid_argument("URI must start with s3://");
+    spdlog::error("URI must start with s3://");
+    return {};
   }
   uri.remove_prefix(s3_prefix.size());
 
   // Find first slash separating bucket from the object key
   auto const slash_pos = uri.find('/');
   if (slash_pos == std::string_view::npos || slash_pos == uri.size() - 1) {
-    throw std::invalid_argument("URI must contain bucket and object key");
+    spdlog::error("URI must contain bucket and object key");
+    return {};
   }
 
-  return {uri.substr(0, slash_pos), uri.substr(slash_pos + 1)};
+  return std::make_pair(uri.substr(0, slash_pos), uri.substr(slash_pos + 1));
 }
 
-auto GetS3ObjectOutcome(std::string uri, S3Config const &s3_config) -> Aws::S3::Model::GetObjectOutcome {
+auto GetS3ObjectOutcome(std::string_view uri, S3Config const &s3_config)
+    -> std::optional<Aws::S3::Model::GetObjectOutcome> {
   Aws::Auth::AWSCredentials const credentials(*s3_config.aws_access_key, *s3_config.aws_secret_key);
   // Use path-style for S3-compatible services (4th param = false)
   Aws::S3::S3Client const s3_client(credentials,
                                     BuildClientConfiguration(*s3_config.aws_region, s3_config.aws_endpoint_url),
                                     Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
 
-  auto outcome = s3_client.GetObject(std::apply(BuildGetObjectRequest, ExtractBucketAndObjectKey(uri)));
-
-  if (!outcome.IsSuccess()) {
-    throw BasicException("Failed to get object from S3 {}. Error: {}", uri, outcome.GetError().GetMessage());
-  }
-
-  spdlog::trace("File {} successfully downloaded. ", uri);
-
-  return outcome;
+  return ExtractBucketAndObjectKey(uri).transform(
+      [&s3_client](
+          std::pair<std::string_view, std::string_view> const &bucket_info) -> Aws::S3::Model::GetObjectOutcome {
+        return s3_client.GetObject(BuildGetObjectRequest(bucket_info.first, bucket_info.second));
+      });
 }
 
 // Writes the content of the S3 object from the uri into ostream
-void GetS3Object(std::string uri, S3Config const &s3_config, std::ostream &ostream) {
-  s3_config.Validate();
+auto GetS3Object(std::string uri, S3Config const &s3_config, std::ostream &ostream) -> bool {
+  if (!s3_config.Validate()) {
+    return false;
+  }
   GlobalS3APIManager::GetInstance();
-  ostream << GetS3ObjectOutcome(std::move(uri), s3_config).GetResult().GetBody().rdbuf();
+  auto const outcome = GetS3ObjectOutcome(uri, s3_config);
+
+  auto const res = outcome.transform([&](auto const &outcome) -> bool {
+    if (!outcome.IsSuccess()) {
+      spdlog::error("Failed to get object from S3 {}. Error: {}", uri, outcome.GetError().GetMessage());
+      return false;
+    }
+
+    spdlog::trace("File {} successfully downloaded. ", uri);
+    ostream << outcome.GetResult().GetBody().rdbuf();
+    return true;
+  });
+  return res.value_or(false);
 }
 
 // Writes the content of the S3 object from the uri into a file on the local disk
-void GetS3Object(std::string uri, S3Config const &s3_config, std::string local_file_path) {
+auto GetS3Object(std::string uri, S3Config const &s3_config, std::string local_file_path) -> bool {
   s3_config.Validate();
   GlobalS3APIManager::GetInstance();
 
@@ -225,16 +241,23 @@ void GetS3Object(std::string uri, S3Config const &s3_config, std::string local_f
   config.s3Client = s3_client;
 
   auto const transfer_manager = Aws::Transfer::TransferManager::Create(config);
-  auto const [bucket_name, object_key] = ExtractBucketAndObjectKey(uri);
-  auto const transfer_handle =
-      transfer_manager->DownloadFile(Aws::String{bucket_name}, Aws::String{object_key}, Aws::String{local_file_path});
-  transfer_handle->WaitUntilFinished();
-  if (transfer_handle->GetStatus() == Aws::Transfer::TransferStatus::COMPLETED) {
-    spdlog::trace("Downloaded {} bytes of the file {}", transfer_handle->GetBytesTotalSize(), uri);
-  } else {
-    throw utils::BasicException("Error occurred while downloading file {}. Error: {}", uri,
-                                transfer_handle->GetLastError().GetMessage());
-  }
+  auto const result =
+      ExtractBucketAndObjectKey(uri).transform([&](std::pair<std::string_view, std::string_view> const &bucket_info) {
+        auto const transfer_handle = transfer_manager->DownloadFile(
+            Aws::String{bucket_info.first}, Aws::String{bucket_info.second}, Aws::String{local_file_path});
+        transfer_handle->WaitUntilFinished();
+
+        if (transfer_handle->GetStatus() == Aws::Transfer::TransferStatus::COMPLETED) {
+          spdlog::trace("Downloaded {} bytes of the file {}", transfer_handle->GetBytesTotalSize(), uri);
+          return true;
+        }
+
+        spdlog::error("Error occurred while downloading file {}. Error: {}", uri,
+                      transfer_handle->GetLastError().GetMessage());
+        return false;
+      });
+
+  return result.value_or(false);
 }
 
 }  // namespace memgraph::utils

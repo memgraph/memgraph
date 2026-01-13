@@ -3075,7 +3075,7 @@ class CoordinatorQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action {
+  enum class Action : uint8_t {
     REGISTER_INSTANCE,
     UNREGISTER_INSTANCE,
     SET_INSTANCE_TO_MAIN,
@@ -3088,10 +3088,11 @@ class CoordinatorQuery : public memgraph::query::Query {
     YIELD_LEADERSHIP,
     SET_COORDINATOR_SETTING,
     SHOW_COORDINATOR_SETTINGS,
-    SHOW_REPLICATION_LAG
+    SHOW_REPLICATION_LAG,
+    UPDATE_CONFIG
   };
 
-  enum class SyncMode { SYNC, ASYNC, STRICT_SYNC };
+  enum class SyncMode : uint8_t { SYNC, ASYNC, STRICT_SYNC };
 
   CoordinatorQuery() = default;
 
@@ -3484,13 +3485,17 @@ class RecoverSnapshotQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   RecoverSnapshotQuery *Clone(AstStorage *storage) const override {
-    RecoverSnapshotQuery *object = storage->Create<RecoverSnapshotQuery>();
+    auto *object = storage->Create<RecoverSnapshotQuery>();
     object->snapshot_ = snapshot_ ? snapshot_->Clone(storage) : nullptr;
+    for (auto const &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
     object->force_ = force_;
     return object;
   }
 
   Expression *snapshot_;
+  std::unordered_map<Expression *, Expression *> configs_;
   bool force_;
 };
 
