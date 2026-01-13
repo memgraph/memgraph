@@ -267,6 +267,7 @@ class VectorIndex {
   /// @return The vector from the vertex.
   /// NOTE: Currently used only in the tests but we will use it in the future when we'll store vectors only in the
   /// index.
+  /// TODO(@DavIvek): delete?
   utils::small_vector<float> GetVectorFromVertex(Vertex *vertex, std::string_view index_name) const;
 
   void SerializeVectorIndex(durability::BaseEncoder *encoder, std::string_view index_name) const;

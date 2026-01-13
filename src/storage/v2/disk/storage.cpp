@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -2219,6 +2219,12 @@ std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAcces
 
 utils::small_vector<uint64_t> DiskStorage::DiskAccessor::GetVectorIndexIdsForVertex(Vertex *vertex,
                                                                                     PropertyId property) {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
+utils::small_vector<float> DiskStorage::DiskAccessor::GetVectorFromVectorIndex(Vertex *vertex,
+                                                                               std::string_view index_name) const {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }

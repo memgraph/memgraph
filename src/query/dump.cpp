@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,6 +42,7 @@
 #include "utils/temporal.hpp"
 
 #include "range/v3/all.hpp"
+#include "vertex_accessor.hpp"
 
 namespace r = ranges;
 namespace rv = ranges::views;
@@ -233,7 +234,10 @@ void DumpPropertyValue(std::ostream *os, const storage::ExternalPropertyValue &v
       return;
     }
     case storage::PropertyValue::Type::VectorIndexId: {
-      // TODO(@DavIvek): Add vector index id dump -> probably we should dump the index name instead of the id?
+      const auto &vector = value.ValueVectorIndexList();
+      *os << "[";
+      utils::PrintIterable(*os, vector, ", ", [](auto &os, const auto &item) { os << item; });
+      *os << "]";
       return;
     }
   }
@@ -249,9 +253,6 @@ void DumpProperties(std::ostream *os, query::DbAccessor *dba,
   }
   utils::PrintIterable(*os, store, ", ", [&dba](auto &os, const auto &kv) {
     os << EscapeName(dba->PropertyToName(kv.first)) << ": ";
-
-    // Convert PropertyValue to ExternalPropertyValue to map keys from PropertyId to strings, preserving property order
-    // compatibility with previous database dumps.
     DumpPropertyValue(&os, storage::ToExternalPropertyValue(kv.second, dba->GetStorageAccessor()->GetNameIdMapper()),
                       dba);
   });
@@ -291,6 +292,15 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
         throw query::QueryRuntimeException("Unexpected error when getting properties.");
     }
   }
+
+  // For VectorIndexId properties, fetch the actual vector from the index
+  for (auto &prop_value :
+       *maybe_props | std::views::values | std::views::filter([](const auto &pv) { return pv.IsVectorIndexId(); })) {
+    auto index_name = dba->GetStorageAccessor()->GetNameIdMapper()->IdToName(prop_value.ValueVectorIndexIds()[0]);
+    auto vector = dba->GetStorageAccessor()->GetVectorFromVectorIndex(vertex.impl_.vertex_, index_name);
+    prop_value.ValueVectorIndexList() = std::move(vector);
+  }
+
   DumpProperties(os, dba, *maybe_props, vertex.CypherId());
   *os << ");";
 }

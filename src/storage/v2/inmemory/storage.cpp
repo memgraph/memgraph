@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1757,6 +1757,12 @@ utils::small_vector<uint64_t> InMemoryStorage::InMemoryAccessor::GetVectorIndexI
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   return in_memory->indices_.vector_index_.GetVectorIndexIdsForVertex(vertex, property,
                                                                       in_memory->name_id_mapper_.get());
+}
+
+utils::small_vector<float> InMemoryStorage::InMemoryAccessor::GetVectorFromVectorIndex(
+    Vertex *vertex, std::string_view index_name) const {
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  return in_memory->indices_.vector_index_.GetVectorFromVertex(vertex, index_name);
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateVectorEdgeIndex(

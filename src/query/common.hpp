@@ -204,7 +204,7 @@ storage::PropertyValue HandleVectorProperty(const storage::PropertyValue &proper
       if (!value) {
         throw QueryRuntimeException("Expected to evaluate vector index of Double or Int type");
       }
-      const auto float_value = std::visit([](const auto &val) -> float { return static_cast<float>(val); }, *value);
+      auto float_value = std::visit([](const auto &val) { return static_cast<float>(val); }, *value);
       vector.push_back(float_value);
     }
   } else {
