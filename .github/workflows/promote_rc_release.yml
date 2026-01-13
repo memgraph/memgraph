@@ -365,10 +365,14 @@ jobs:
       - name: Setup environment variables
         run: |
           mage_version="$RELEASE_VERSION"
+          image_tag="${mage_version}${{ matrix.image_ext }}"
           echo "docker_tar_amd=mage-${mage_version}${{ matrix.image_ext }}.tar.gz" >> $GITHUB_ENV
           echo "docker_tar_arm=mage-${mage_version}-arm64${{ matrix.image_ext }}.tar.gz" >> $GITHUB_ENV
-          echo "rc_image=${docker_repo_rc_mage}:${mage_version}${{ matrix.image_ext }}" >> $GITHUB_ENV
-          echo "release_image=${docker_repo_release_mage}:${mage_version}${{ matrix.image_ext }}" >> $GITHUB_ENV
+          echo "rc_image=${docker_repo_rc_mage}:${image_tag}" >> $GITHUB_ENV
+          echo "release_image=${docker_repo_release_mage}:${image_tag}" >> $GITHUB_ENV
+          echo "image_tag=${image_tag}" >> $GITHUB_ENV
+          echo "image_tag_amd=${image_tag}-amd64" >> $GITHUB_ENV
+          echo "image_tag_arm=${image_tag}-arm64" >> $GITHUB_ENV
 
       - name: Setup S3 Paths
         run: |
@@ -516,17 +520,17 @@ jobs:
         run: |
           sleep 5
           if [ "${has_rc_package_amd}" = "true" ]; then
-            echo "Deleting temporary image ${release_image#*:}-amd64 ..."
-            echo "https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${release_image#*:}-amd64/"
-            curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${release_image#*:}-amd64/
+            echo "Deleting temporary image ${image_tag_amd} ..."
+            echo "https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${image_tag_amd}/"
+            curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${image_tag_amd}/
           else
             echo "Skipping deletion for amd64: image not promoted."
           fi
 
           if [ "${has_rc_package_arm}" = "true" ]; then
-            echo "Deleting temporary image ${release_image#*:}-arm64 ..."
-            echo "https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${release_image#*:}-arm64/"
-            curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${release_image#*:}-arm64/
+            echo "Deleting temporary image ${image_tag_arm} ..."
+            echo "https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${image_tag_arm}/"
+            curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${image_tag_arm}/
           else
             echo "Skipping deletion for arm64: image not promoted."
           fi
