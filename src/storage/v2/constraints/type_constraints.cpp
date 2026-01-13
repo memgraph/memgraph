@@ -178,9 +178,7 @@ bool TypeConstraints::RegisterConstraint(LabelId label, PropertyId property, Typ
 void TypeConstraints::PublishConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
   container_.WithLock([&](auto &container) {
     auto it = container.constraints_.find({label, property});
-    if (it == container.constraints_.end()) {
-      MG_ASSERT(false, "Type constraint not found");
-    }
+    DMG_ASSERT(it != container.constraints_.end(), "Type constraint not found");
     // recovery, immediate publish, no registration
     it->second.status = ValidationStatus::READY;
 

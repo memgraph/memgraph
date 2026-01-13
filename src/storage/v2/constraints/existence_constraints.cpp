@@ -54,7 +54,7 @@ bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
 std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraints() const {
   namespace r = std::ranges;
   namespace rv = std::views;
-  return constraints_.WithReadLock([](auto &constraints) {
+  return constraints_.WithReadLock([](const auto &constraints) {
     auto result = constraints | rv::filter([](const auto &c) { return c.second == ValidationStatus::READY; }) |
                   rv::transform([](const auto &c) {
                     return std::pair{c.first.label, c.first.property};

@@ -57,7 +57,7 @@ class ExistenceConstraints {
   };
 
   bool empty() const {
-    return constraints_.WithReadLock([](auto &constraints) { return constraints.empty(); });
+    return constraints_.WithReadLock([](const auto &constraints) { return constraints.empty(); });
   }
 
   [[nodiscard]] static std::expected<void, ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
@@ -74,13 +74,13 @@ class ExistenceConstraints {
 
   bool ConstraintExists(LabelId label, PropertyId property) const;
 
-  bool RegisterConstraint(LabelId label, PropertyId property);
+  [[nodiscard]] bool RegisterConstraint(LabelId label, PropertyId property);
   void PublishConstraint(LabelId label, PropertyId property);
   bool DropConstraint(LabelId label, PropertyId property);
 
   std::expected<void, ConstraintViolation> Validate(std::unordered_set<Vertex const *> vertices_to_update);
 
-  // performantly bad but disk will be removed soon
+  // performs poorly but disk will be removed soon
   std::expected<void, ConstraintViolation> PerVertexValidate(Vertex const &vertex);
 
   std::vector<std::pair<LabelId, PropertyId>> ListConstraints() const;

@@ -68,7 +68,7 @@ class TypeConstraints {
 
   bool ConstraintExists(LabelId label, PropertyId property) const;
 
-  bool RegisterConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
+  [[nodiscard]] bool RegisterConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
   void PublishConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
   bool DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
 

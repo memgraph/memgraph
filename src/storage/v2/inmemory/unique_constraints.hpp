@@ -55,18 +55,20 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
  public:
   struct MultipleThreadsConstraintValidation {
-    bool operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
+    auto operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
                     const std::set<PropertyId> &properties,
-                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const;
+                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
+        -> std::expected<void, ConstraintViolation>;
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
   struct SingleThreadConstraintValidation {
-    bool operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
+    auto operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
                     const std::set<PropertyId> &properties,
-                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const;
+                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
+        -> std::expected<void, ConstraintViolation>;
   };
 
   enum class ValidationStatus : bool { VALIDATING, READY };
@@ -101,10 +103,11 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// exceeds the maximum allowed number of properties, and
   /// `CreationStatus::SUCCESS` on success.
   /// @throw std::bad_alloc
-  std::expected<CreationStatus, ConstraintViolation> CreateConstraint(
-      LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
-      const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
-      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+  auto CreateConstraint(LabelId label, const std::set<PropertyId> &properties,
+                        const utils::SkipList<Vertex>::Accessor &vertex_accessor,
+                        const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
+                        std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt)
+      -> std::expected<CreationStatus, ConstraintViolation>;
 
   /// Deletes the specified constraint. Returns `DeletionStatus::NOT_FOUND` if
   /// there is not such constraint in the storage,
@@ -126,8 +129,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// This method should be called while commit lock is active with
   /// `commit_timestamp` being a potential commit timestamp of the transaction.
   /// @throw std::bad_alloc
-  std::expected<void, ConstraintViolation> Validate(const std::unordered_set<Vertex const *> &vertices,
-                                                    const Transaction &tx, uint64_t commit_timestamp) const;
+  auto Validate(const std::unordered_set<Vertex const *> &vertices, const Transaction &tx,
+                uint64_t commit_timestamp) const -> std::expected<void, ConstraintViolation>;
 
   std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const override;
 
