@@ -495,7 +495,7 @@ std::expected<void, ConstraintViolation> InMemoryUniqueConstraints::Validate(
   return container_.WithReadLock([&](const auto &container) -> std::expected<void, ConstraintViolation> {
     for (const auto *const vertex : vertices) {
       if (vertex->deleted) {
-        return {};
+        continue;
       }
       for (const auto &label : vertex->labels) {
         const auto &constraint = container.constraints_by_label_.find(label);
