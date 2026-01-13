@@ -3485,13 +3485,17 @@ class RecoverSnapshotQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   RecoverSnapshotQuery *Clone(AstStorage *storage) const override {
-    RecoverSnapshotQuery *object = storage->Create<RecoverSnapshotQuery>();
+    auto *object = storage->Create<RecoverSnapshotQuery>();
     object->snapshot_ = snapshot_ ? snapshot_->Clone(storage) : nullptr;
+    for (auto const &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
     object->force_ = force_;
     return object;
   }
 
   Expression *snapshot_;
+  std::unordered_map<Expression *, Expression *> configs_;
   bool force_;
 };
 

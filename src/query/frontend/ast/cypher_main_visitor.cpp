@@ -1117,6 +1117,11 @@ antlrcpp::Any CypherMainVisitor::visitRecoverSnapshotQuery(MemgraphCypher::Recov
   }
   recover_snapshot->snapshot_ = std::any_cast<Expression *>(ctx->path->accept(this));
 
+  if (ctx->configsMap) {
+    recover_snapshot->configs_ =
+        std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
+  }
+
   recover_snapshot->force_ = ctx->FORCE();
   query_ = recover_snapshot;
   return query_;

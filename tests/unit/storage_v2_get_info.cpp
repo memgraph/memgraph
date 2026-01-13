@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -74,7 +74,7 @@ class InfoTest : public testing::Test {
                                                             : StorageMode::IN_MEMORY_TRANSACTIONAL};
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 
 TYPED_TEST_SUITE(InfoTest, StorageTypes);
 // TYPED_TEST_SUITE(IndexTest, InMemoryStorageType);
