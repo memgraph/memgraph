@@ -1762,7 +1762,7 @@ utils::small_vector<uint64_t> InMemoryStorage::InMemoryAccessor::GetVectorIndexI
 utils::small_vector<float> InMemoryStorage::InMemoryAccessor::GetVectorFromVectorIndex(
     Vertex *vertex, std::string_view index_name) const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  return in_memory->indices_.vector_index_.GetVectorFromVertex(vertex, index_name);
+  return in_memory->indices_.vector_index_.GetVectorProperty(vertex, index_name);
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateVectorEdgeIndex(

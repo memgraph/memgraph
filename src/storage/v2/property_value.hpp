@@ -101,7 +101,6 @@ inline std::partial_ordering CompareNumericValues(const std::variant<int, double
 ///
 /// Values can be of a number of predefined types that are enumerated in
 /// PropertyValue::Type. Each such type corresponds to exactly one C++ type.
-/// TODO(@DavIvek): unify KeyType and VectorIndexIdType here.
 template <typename Alloc, typename KeyType, typename VectorIndexIdType>
 class PropertyValueImpl {
  public:

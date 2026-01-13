@@ -736,16 +736,4 @@ void VectorIndexRecovery::UpdateOnPropertyChange(PropertyId property, PropertyVa
   }
 }
 
-utils::small_vector<float> VectorIndex::GetVectorFromVertex(Vertex *vertex, std::string_view index_name) const {
-  const auto label_prop = pimpl->index_name_to_label_prop_.find(index_name);
-  if (label_prop == pimpl->index_name_to_label_prop_.end()) {
-    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
-  }
-  auto &[mg_index, _] = pimpl->index_.at(label_prop->second);
-  auto locked_index = mg_index->ReadLock();
-  utils::small_vector<float> vector(locked_index->dimensions());
-  locked_index->get(vertex, &*vector.begin());
-  return vector;
-}
-
 }  // namespace memgraph::storage

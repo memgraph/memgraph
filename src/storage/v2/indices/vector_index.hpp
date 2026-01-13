@@ -261,15 +261,9 @@ class VectorIndex {
   /// @return A map of label ids to index names.
   std::unordered_map<LabelId, std::string> GetLabels(PropertyId property) const;
 
-  /// @brief Returns the vector from a vertex for a given index.
-  /// @param vertex The vertex to get the vector from.
-  /// @param index_name The name of the index to get the vector from.
-  /// @return The vector from the vertex.
-  /// NOTE: Currently used only in the tests but we will use it in the future when we'll store vectors only in the
-  /// index.
-  /// TODO(@DavIvek): delete?
-  utils::small_vector<float> GetVectorFromVertex(Vertex *vertex, std::string_view index_name) const;
-
+  /// @brief Serializes a vector index to a durability encoder.
+  /// @param encoder The durability encoder to serialize to.
+  /// @param index_name The name of the index to serialize.
   void SerializeVectorIndex(durability::BaseEncoder *encoder, std::string_view index_name) const;
 
  private:
