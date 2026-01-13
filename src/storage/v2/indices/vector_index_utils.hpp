@@ -25,8 +25,19 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
-#include "usearch/index_plugins.hpp"
 #include "utils/synchronized.hpp"
+
+// Suppress usearch library warnings
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-W#warnings"
+#endif
+
+#include "usearch/index_plugins.hpp"
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 namespace memgraph::storage {
 

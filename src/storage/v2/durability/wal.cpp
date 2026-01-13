@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <type_traits>
-#include <usearch/index_plugins.hpp>
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"

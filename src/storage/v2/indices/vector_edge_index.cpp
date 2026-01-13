@@ -10,18 +10,16 @@
 // licenses/APL.txt.
 
 #include <ranges>
-#include <usearch/index_dense.hpp>
 
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
+#include "usearch/index_dense.hpp"
 #include "utils/synchronized.hpp"
 
 namespace r = ranges;
-namespace rv = r::views;
-
 namespace memgraph::storage {
 
 // unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent

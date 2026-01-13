@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include <shared_mutex>
-#include <usearch/index_plugins.hpp>
 
 #include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
@@ -227,7 +226,7 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
     return false;
   }
   auto label_prop = it->second;
-  auto &[mg_index, _] = pimpl->index_.at(label_prop);
+  auto &[mg_index, spec] = pimpl->index_.at(label_prop);
   auto locked_index = mg_index->MutableSharedLock();
 
   auto restore_vector_from_index = [&](auto *vertex) {
@@ -369,7 +368,7 @@ PropertyValue VectorIndex::GetPropertyValue(Vertex *vertex, std::string_view ind
   if (it == pimpl->index_name_to_label_prop_.end()) {
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
-  auto &[mg_index, _] = pimpl->index_.at(it->second);
+  auto &[mg_index, spec] = pimpl->index_.at(it->second);
   return GetVectorAsPropertyValue(mg_index, vertex);
 }
 
@@ -378,7 +377,7 @@ utils::small_vector<float> VectorIndex::GetVectorProperty(Vertex *vertex, std::s
   if (it == pimpl->index_name_to_label_prop_.end()) {
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
-  auto &[mg_index, _] = pimpl->index_.at(it->second);
+  auto &[mg_index, spec] = pimpl->index_.at(it->second);
   return GetVector(mg_index, vertex);
 }
 
@@ -442,7 +441,7 @@ std::optional<uint64_t> VectorIndex::ApproximateNodesVectorCount(LabelId label, 
   if (it == pimpl->index_.end()) {
     return std::nullopt;
   }
-  auto &[mg_index, _] = it->second;
+  auto &[mg_index, spec] = it->second;
   auto locked_index = mg_index->ReadLock();
   return locked_index->size();
 }
@@ -453,7 +452,7 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
   if (label_prop == pimpl->index_name_to_label_prop_.end()) {
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
-  auto &[mg_index, _] = pimpl->index_.at(label_prop->second);
+  auto &[mg_index, spec] = pimpl->index_.at(label_prop->second);
 
   // The result vector will contain pairs of vertices and their score.
   VectorSearchNodeResults result;
@@ -481,7 +480,7 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
     if (maybe_stop() && token.stop_requested()) {
       return;
     }
-    auto &[mg_index, _] = index_item;
+    auto &[mg_index, spec] = index_item;
     auto locked_index = mg_index->MutableSharedLock();
     std::vector<Vertex *> vertices_to_remove(locked_index->size());
     locked_index->export_keys(vertices_to_remove.data(), 0, locked_index->size());
@@ -540,7 +539,7 @@ void VectorIndex::RemoveVertexFromIndex(Vertex *vertex, std::string_view index_n
     throw query::VectorSearchException(
         fmt::format("Error in removing vertex from index: index name {} does not exist.", index_name));
   }
-  auto &[mg_index, _] = pimpl->index_.at(it->second);
+  auto &[mg_index, spec] = pimpl->index_.at(it->second);
   auto locked_index = mg_index->MutableSharedLock();
   if (locked_index->contains(vertex)) {
     locked_index->remove(vertex);

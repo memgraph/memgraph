@@ -24,7 +24,6 @@
 #include <ranges>
 #include <string>
 #include <thread>
-#include <usearch/index_plugins.hpp>
 
 #include "flags/experimental.hpp"
 #include "query/frontend/ast/ast.hpp"
