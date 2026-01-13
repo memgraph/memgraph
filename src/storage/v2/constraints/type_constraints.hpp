@@ -50,11 +50,13 @@ class TypeConstraints {
     absl::flat_hash_map<LabelId, absl::flat_hash_map<PropertyId, TypeConstraintKind>> l2p_constraints_;
   };
 
+  using ReadLockedPtr = utils::Synchronized<Container, utils::WritePrioritizedRWLock>::ReadLockedPtr;
+
   [[nodiscard]] static std::expected<void, ConstraintViolation> ValidateVerticesOnConstraint(
       utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintKind type);
 
-  [[nodiscard]] std::expected<void, ConstraintViolation> Validate(
-      const Vertex &vertex, std::optional<Container> const &container = std::nullopt) const;
+  [[nodiscard]] static std::expected<void, ConstraintViolation> Validate(const Vertex &vertex,
+                                                                         ReadLockedPtr const &container);
   [[nodiscard]] std::expected<void, ConstraintViolation> Validate(const Vertex &vertex, LabelId label) const;
   [[nodiscard]] std::expected<void, ConstraintViolation> Validate(const Vertex &vertex, PropertyId property_id,
                                                                   const PropertyValue &property_value) const;
@@ -69,6 +71,8 @@ class TypeConstraints {
   bool RegisterConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
   void PublishConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
   bool DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
+
+  ReadLockedPtr ReadLock() const { return container_.ReadLock(); }
 
   std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> ListConstraints() const;
   void DropGraphClearConstraints();

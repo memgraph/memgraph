@@ -58,7 +58,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     bool operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
                     const std::set<PropertyId> &properties,
-                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const;
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
@@ -66,7 +66,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     bool operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
                     const std::set<PropertyId> &properties,
-                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const;
   };
 
   enum class ValidationStatus : bool { VALIDATING, READY };

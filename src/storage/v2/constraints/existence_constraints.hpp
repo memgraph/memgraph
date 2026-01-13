@@ -30,14 +30,14 @@ class ExistenceConstraints {
   struct MultipleThreadsConstraintValidation {
     std::expected<void, ConstraintViolation> operator()(
         const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
-        std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+        std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const;
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
   struct SingleThreadConstraintValidation {
     std::expected<void, ConstraintViolation> operator()(
         const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
-        std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+        std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const;
   };
 
   enum class ValidationStatus : bool { VALIDATING, READY };
@@ -81,7 +81,7 @@ class ExistenceConstraints {
   std::expected<void, ConstraintViolation> Validate(std::unordered_set<Vertex const *> vertices_to_update);
 
   // performantly bad but disk will be removed soon
-  std::expected<void, ConstraintViolation> DiskValidate(Vertex const &vertex);
+  std::expected<void, ConstraintViolation> PerVertexValidate(Vertex const &vertex);
 
   std::vector<std::pair<LabelId, PropertyId>> ListConstraints() const;
 

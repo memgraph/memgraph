@@ -7455,7 +7455,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   // Complex access logic
   void Visit(IndexQuery &index_query) override {
     if (!storage_mode_) [[unlikely]] {
-      throw DatabaseContextRequiredException("Database required for the transaction setup.");
+      throw DatabaseContextRequiredException("Database required for index query.");
     }
 
     using enum storage::StorageAccessType;
@@ -7470,7 +7470,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   }
   void Visit(EdgeIndexQuery &edge_index_query) override {
     if (!storage_mode_) [[unlikely]] {
-      throw DatabaseContextRequiredException("Database required for the transaction setup.");
+      throw DatabaseContextRequiredException("Database required for edge index query.");
     }
 
     using enum storage::StorageAccessType;
@@ -7486,15 +7486,11 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(ConstraintQuery & /*constraint_query*/) override {
     if (!storage_mode_) [[unlikely]] {
-      throw DatabaseContextRequiredException("Database required for the transaction setup.");
+      throw DatabaseContextRequiredException("Database required for constraint query.");
     }
 
     using enum storage::StorageAccessType;
-    if (storage_mode_ == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-      accessor_type_ = UNIQUE;
-    } else {
-      accessor_type_ = READ_ONLY;
-    }
+    accessor_type_ = storage_mode_ == storage::StorageMode::ON_DISK_TRANSACTIONAL ? UNIQUE : READ_ONLY;
   }
   // helper methods
   auto cypher_access_type() const -> storage::StorageAccessType {

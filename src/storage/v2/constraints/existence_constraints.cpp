@@ -52,12 +52,14 @@ bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
 }
 
 std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraints() const {
+  namespace r = std::ranges;
+  namespace rv = std::views;
   return constraints_.WithReadLock([](auto &constraints) {
-    auto result = constraints | std::views::filter([](const auto &c) { return c.second == ValidationStatus::READY; }) |
-                  std::views::transform([](const auto &c) {
+    auto result = constraints | rv::filter([](const auto &c) { return c.second == ValidationStatus::READY; }) |
+                  rv::transform([](const auto &c) {
                     return std::pair{c.first.label, c.first.property};
                   }) |
-                  std::ranges::to<std::vector<std::pair<LabelId, PropertyId>>>();
+                  r::to<std::vector<std::pair<LabelId, PropertyId>>>();
     std::ranges::sort(result);
     return result;
   });
@@ -87,7 +89,7 @@ std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraint
   });
 }
 
-[[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::DiskValidate(Vertex const &vertex) {
+[[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::PerVertexValidate(Vertex const &vertex) {
   return constraints_.WithReadLock([&](auto &constraints) -> std::expected<void, ConstraintViolation> {
     for (const auto &[constraint, status] : constraints) {
       if (auto validation_result = ValidateVertexOnConstraint(vertex, constraint.label, constraint.property);
@@ -142,7 +144,7 @@ ExistenceConstraints::GetCreationFunction(
 
 std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsConstraintValidation::operator()(
     const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) {
+    std::optional<SnapshotObserverInfo> const &snapshot_info) const {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
@@ -165,15 +167,12 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsCo
           });
     }
   }
-  if (!maybe_error.Lock()->has_value()) {
-    return std::unexpected{maybe_error->error()};
-  }
-  return {};
+  return *maybe_error.Lock();
 }
 
 std::expected<void, ConstraintViolation> ExistenceConstraints::SingleThreadConstraintValidation::operator()(
     const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) {
+    std::optional<SnapshotObserverInfo> const &snapshot_info) const {
   for (const Vertex &vertex : vertices) {
     if (auto validation_result = ValidateVertexOnConstraint(vertex, label, property); !validation_result.has_value()) {
       return std::unexpected{validation_result.error()};

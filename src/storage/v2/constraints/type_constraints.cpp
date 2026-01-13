@@ -66,34 +66,24 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
 
 }  // namespace
 
-[[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::Validate(
-    const Vertex &vertex, std::optional<Container> const &container) const {
-  auto wrapper = [&](auto &&func) -> std::expected<void, ConstraintViolation> {
-    if (container) {
-      return func(*container);
-    }
-    return container_.WithReadLock(
-        [&](const auto &container) -> std::expected<void, ConstraintViolation> { return func(container); });
-  };
+[[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex,
+                                                                                 ReadLockedPtr const &container) {
+  if (container->constraints_.empty()) return {};
 
-  return wrapper([&](const auto &container) -> std::expected<void, ConstraintViolation> {
-    if (container.constraints_.empty()) return {};
+  auto validator = TypeConstraintsValidator{};
+  for (auto label : vertex.labels) {
+    auto it = container->l2p_constraints_.find(label);
+    if (it == container->l2p_constraints_.cend()) continue;
+    validator.add(label, it->second);
+  }
 
-    auto validator = TypeConstraintsValidator{};
-    for (auto label : vertex.labels) {
-      auto it = container.l2p_constraints_.find(label);
-      if (it == container.l2p_constraints_.cend()) continue;
-      validator.add(label, it->second);
-    }
+  if (validator.empty()) return {};
 
-    if (validator.empty()) return {};
+  auto violation = vertex.properties.PropertiesMatchTypes(validator);
+  if (!violation) return {};
 
-    auto violation = vertex.properties.PropertiesMatchTypes(validator);
-    if (!violation) return {};
-
-    auto const &[prop_id, label, kind] = *violation;
-    return std::unexpected{ConstraintViolation{ConstraintViolation::Type::TYPE, label, kind, std::set{prop_id}}};
-  });
+  auto const &[prop_id, label, kind] = *violation;
+  return std::unexpected{ConstraintViolation{ConstraintViolation::Type::TYPE, label, kind, std::set{prop_id}}};
 }
 
 [[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::Validate(
@@ -137,17 +127,16 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
 
 [[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::ValidateVertices(
     utils::SkipList<Vertex>::Accessor vertices, std::optional<SnapshotObserverInfo> const &snapshot_info) const {
-  return container_.WithReadLock([&](const auto &container) -> std::expected<void, ConstraintViolation> {
-    for (auto const &vertex : vertices) {
-      if (auto validation_result = Validate(vertex, container); !validation_result.has_value()) {
-        return std::unexpected{validation_result.error()};
-      }
-      if (snapshot_info) {
-        snapshot_info->Update(UpdateType::VERTICES);
-      }
+  auto locked_container = container_.ReadLock();
+  for (auto const &vertex : vertices) {
+    if (auto validation_result = Validate(vertex, locked_container); !validation_result.has_value()) {
+      return std::unexpected{validation_result.error()};
     }
-    return {};
-  });
+    if (snapshot_info) {
+      snapshot_info->Update(UpdateType::VERTICES);
+    }
+  }
+  return {};
 }
 
 [[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::ValidateVerticesOnConstraint(
@@ -188,12 +177,12 @@ bool TypeConstraints::RegisterConstraint(LabelId label, PropertyId property, Typ
 
 void TypeConstraints::PublishConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
   container_.WithLock([&](auto &container) {
-    auto [it, inserted] = container.constraints_.try_emplace(
-        {label, property}, IndividualConstraint{.type = type, .status = ValidationStatus::READY});
-    if (!inserted) {
-      // recovery, immediate publish, no registration
-      it->second.status = ValidationStatus::READY;
+    auto it = container.constraints_.find({label, property});
+    if (it == container.constraints_.end()) {
+      MG_ASSERT(false, "Type constraint not found");
     }
+    // recovery, immediate publish, no registration
+    it->second.status = ValidationStatus::READY;
 
     // maintain l2p_constraints_
     {

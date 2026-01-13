@@ -579,9 +579,9 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedNoVertices
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
 
-  auto maybe_violation =
+  auto validation_result =
       ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop, std::nullopt, snapshot_info);
-  ASSERT_TRUE(maybe_violation.has_value());
+  ASSERT_TRUE(validation_result.has_value());
 }
 
 TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedVertices) {
@@ -608,9 +608,9 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedVertices) 
   snapshot_info.emplace(mocked_observer, 4);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
 
-  auto maybe_violation =
+  auto validation_result =
       ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop, std::nullopt, snapshot_info);
-  ASSERT_TRUE(maybe_violation.has_value());
+  ASSERT_TRUE(validation_result.has_value());
 }
 
 TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsMultiThreadedVertices) {
@@ -641,9 +641,9 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsMultiThreadedVertices) {
       .vertex_recovery_info = std::vector<std::pair<Gid, uint64_t>>{{Gid::FromUint(1), 3}, {Gid::FromUint(4), 3}},
       .thread_count = 2};
 
-  auto maybe_violation = ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop,
-                                                                            par_schema_info, snapshot_info);
-  ASSERT_TRUE(maybe_violation.has_value());
+  auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop,
+                                                                              par_schema_info, snapshot_info);
+  ASSERT_TRUE(validation_result.has_value());
 }
 
 TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedNoVertices) {

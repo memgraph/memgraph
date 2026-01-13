@@ -437,7 +437,7 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
     if (constraints->type_constraints_->ConstraintExists(label, property)) {
       throw RecoveryFailure("The type constraint already exists!");
     }
-    constraints->type_constraints_->PublishConstraint(label, property, type);
+    constraints->type_constraints_->RegisterConstraint(label, property, type);
   }
 
   if (constraints->HasTypeConstraints()) {
@@ -445,6 +445,10 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
         !validation_result.has_value()) {
       throw RecoveryFailure("Type constraint recovery failed because they couldn't be validated!");
     }
+  }
+
+  for (const auto &[label, property, type] : constraints_metadata.type) {
+    constraints->type_constraints_->PublishConstraint(label, property, type);
   }
 
   spdlog::info("Type constraints are recreated from metadata.");
