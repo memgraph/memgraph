@@ -20,9 +20,12 @@
 #include <optional>
 #include <system_error>
 
+#include "ctre.hpp"
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "memory/global_memory_control.hpp"
+#include "requests/requests.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -60,6 +63,8 @@
 #include "utils/stat.hpp"
 #include "utils/temporal.hpp"
 #include "utils/variant_helpers.hpp"
+
+import memgraph.utils.aws;
 
 namespace r = ranges;
 namespace rv = r::views;
@@ -3074,31 +3079,60 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
 
 // NOTE: Make sure this function is called while exclusively holding on to the main lock
 std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::RecoverSnapshot(
-    std::filesystem::path path, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+    std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role,
+    std::optional<utils::S3Config> s3_config) {
   using memgraph::replication_coordination_glue::ReplicationRole;
   if (replication_role == ReplicationRole::REPLICA) {
     return std::unexpected{InMemoryStorage::RecoverSnapshotError::DisabledForReplica};
   }
-  if (!std::filesystem::exists(path) || std::filesystem::is_directory(path)) {
-    return std::unexpected{InMemoryStorage::RecoverSnapshotError::MissingFile};
-  }
 
-  // Copy to local snapshot dir
-  std::error_code ec{};
-  const auto local_path = recovery_.snapshot_directory_ / path.filename();
-  const bool file_in_local_dir = local_path == path;
-  if (!file_in_local_dir) {
-    std::filesystem::copy_file(path, local_path, std::filesystem::copy_options::overwrite_existing, ec);
-    if (ec) {
-      spdlog::warn("Failed to copy snapshot into local snapshots directory. Err: {}", ec.message());
-      return std::unexpected{InMemoryStorage::RecoverSnapshotError::CopyFailure};
-    }
-  }
+  auto const uri_str = uri.string();
+  const auto local_path = recovery_.snapshot_directory_ / uri.filename();
+  const bool file_in_local_dir = local_path == uri;
 
   auto handler_error = [&]() {
     // If file was copied over, delete...
     if (!file_in_local_dir) file_retainer_.DeleteFile(local_path);
   };
+
+  constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
+  constexpr auto s3_matcher = ctre::starts_with<"s3://">;
+
+  if (url_matcher(uri_str)) {
+    constexpr auto file_mode = "wbx";
+    utils::FileUniquePtr file(std::fopen(local_path.string().data(), file_mode), &std::fclose);
+
+    if (!requests::CreateAndDownloadFile(uri_str, std::move(file),
+                                         memgraph::flags::run_time::GetFileDownloadConnTimeoutSec())) {
+      // Delete the empty or partially written file
+      handler_error();
+      return std::unexpected{InMemoryStorage::RecoverSnapshotError::DownloadFailure};
+    }
+
+    spdlog::trace("Downloaded snapshot file from {} to {}", uri_str, local_path.string());
+
+  } else if (s3_matcher(uri_str)) {
+    DMG_ASSERT(s3_config.has_value(), "S3Config doesn't have a value");
+    if (!utils::GetS3Object(uri, *s3_config, local_path.string())) {
+      spdlog::error("Failed to download file {}", uri.string());
+      return std::unexpected{InMemoryStorage::RecoverSnapshotError::S3GetFailure};
+    }
+
+  } else {  // local filesystem path
+    if (!std::filesystem::exists(uri) || std::filesystem::is_directory(uri)) {
+      return std::unexpected{InMemoryStorage::RecoverSnapshotError::MissingFile};
+    }
+
+    // Copy to local snapshot dir
+    std::error_code ec{};
+    if (!file_in_local_dir) {
+      std::filesystem::copy_file(uri, local_path, std::filesystem::copy_options::overwrite_existing, ec);
+      if (ec) {
+        spdlog::warn("Failed to copy snapshot into local snapshots directory. Err: {}", ec.message());
+        return std::unexpected{InMemoryStorage::RecoverSnapshotError::CopyFailure};
+      }
+    }
+  }
 
   auto file_locker = file_retainer_.AddLocker();
   (void)file_locker.Access().AddPath(local_path);

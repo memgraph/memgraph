@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #include "query/interpreter.hpp"
 #include <bits/ranges_algo.h>
 #include <fmt/core.h>
+#include "ctre.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -128,6 +129,8 @@
 #include "flags/experimental.hpp"
 #endif
 
+import memgraph.utils.aws;
+
 namespace r = ranges;
 namespace rv = ranges::views;
 
@@ -147,6 +150,42 @@ extern const Event ActiveTransactions;
 
 extern const Event ShowSchema;
 }  // namespace memgraph::metrics
+
+namespace {
+// Builds a map of run-time settings
+auto BuildRunTimeS3Config() -> std::map<std::string, std::string, std::less<>> {
+  std::map<std::string, std::string, std::less<>> config;
+  config.emplace(memgraph::utils::kAwsRegionQuerySetting, memgraph::flags::run_time::GetAwsRegion());
+  config.emplace(memgraph::utils::kAwsAccessKeyQuerySetting, memgraph::flags::run_time::GetAwsAccessKey());
+  config.emplace(memgraph::utils::kAwsSecretKeyQuerySetting, memgraph::flags::run_time::GetAwsSecretKey());
+  config.emplace(memgraph::utils::kAwsEndpointUrlQuerySetting, memgraph::flags::run_time::GetAwsEndpointUrl());
+  return config;
+}
+
+using memgraph::query::Expression;
+using memgraph::query::ExpressionVisitor;
+using memgraph::query::TypedValue;
+auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
+                    ExpressionVisitor<TypedValue> &evaluator)
+    -> std::optional<std::map<std::string, std::string, std::less<>>> {
+  if (std::ranges::any_of(config_map, [&evaluator](const auto &entry) {
+        auto key_expr = entry.first->Accept(evaluator);
+        auto value_expr = entry.second->Accept(evaluator);
+        return !key_expr.IsString() || !value_expr.IsString();
+      })) {
+    spdlog::error("Config map must contain only string keys and values!");
+    return std::nullopt;
+  }
+
+  return rv::all(config_map) | rv::transform([&evaluator](const auto &entry) {
+           auto key_expr = entry.first->Accept(evaluator);
+           auto value_expr = entry.second->Accept(evaluator);
+           return std::pair{key_expr.ValueString(), value_expr.ValueString()};
+         }) |
+         ranges::to<std::map<std::string, std::string, std::less<>>>;
+}
+
+}  // namespace
 
 // Accessors need to be able to throw if unable to gain access. Otherwise there could be a deadlock, where some queries
 // gained access during prepare, but can't execute (in PULL) because other queries are still preparing/waiting for
@@ -667,6 +706,23 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "find out more info!");
       case SUCCESS:
         break;
+    }
+  }
+
+  void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint const &bolt_endpoint) override {
+    switch (coordinator_handler_.UpdateConfig(instance, bolt_endpoint)) {
+      using enum memgraph::coordination::UpdateConfigStatus;
+      case NO_SUCH_COORD:
+        throw QueryRuntimeException("Couldn't update config for the coordinator {} because it doesn't exist!",
+                                    std::get<int32_t>(instance));
+      case NO_SUCH_REPL_INSTANCE:
+        throw QueryRuntimeException("Couldn't update config for the repl instance {} because it doesn't exist!",
+                                    std::get<std::string>(instance));
+      case RAFT_FAILURE:
+        throw QueryRuntimeException("Couldn't update config because appending to Raft log failed.");
+      case SUCCESS:
+        break;
+        std::unreachable();
     }
   }
 
@@ -1651,26 +1707,6 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
 
 #ifdef MG_ENTERPRISE
 
-auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
-                    ExpressionVisitor<TypedValue> &evaluator)
-    -> std::optional<std::map<std::string, std::string, std::less<>>> {
-  if (std::ranges::any_of(config_map, [&evaluator](const auto &entry) {
-        auto key_expr = entry.first->Accept(evaluator);
-        auto value_expr = entry.second->Accept(evaluator);
-        return !key_expr.IsString() || !value_expr.IsString();
-      })) {
-    spdlog::error("Config map must contain only string keys and values!");
-    return std::nullopt;
-  }
-
-  return rv::all(config_map) | rv::transform([&evaluator](const auto &entry) {
-           auto key_expr = entry.first->Accept(evaluator);
-           auto value_expr = entry.second->Accept(evaluator);
-           return std::pair{key_expr.ValueString(), value_expr.ValueString()};
-         }) |
-         ranges::to<std::map<std::string, std::string, std::less<>>>;
-}
-
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 coordination::CoordinatorState *coordinator_state,
                                 const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
@@ -1750,6 +1786,60 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::ADD_COORDINATOR_INSTANCE,
                                   fmt::format("Coordinator has added instance {} on coordinator server {}.",
                                               coordinator_query->instance_name_, coordinator_server_it->second));
+      return callback;
+    }
+    case CoordinatorQuery::Action::UPDATE_CONFIG: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can update config!");
+      }
+
+      // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+      // the argument to Callback.
+      EvaluationContext const evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      auto config_map = ParseConfigMap(coordinator_query->configs_, evaluator);
+
+      if (!config_map) {
+        throw QueryRuntimeException("Failed to parse config map!");
+      }
+
+      if (config_map->size() != 1) {
+        throw QueryRuntimeException("Config map must contain exactly 1 entry: {}!", kBoltServer);
+      }
+
+      auto const &bolt_server_it = config_map->find(kBoltServer);
+      if (bolt_server_it == config_map->end()) {
+        throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
+      }
+
+      auto data = std::invoke([coordinator_query, &evaluator]() -> std::variant<int32_t, std::string> {
+        if (!coordinator_query->instance_name_.empty()) {
+          return coordinator_query->instance_name_;
+        }
+        return static_cast<int32_t>(coordinator_query->coordinator_id_->Accept(evaluator).ValueInt());
+      });
+
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, bolt_server = bolt_server_it->second,
+                     data]() mutable {
+        auto const maybe_bolt_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(bolt_server);
+        if (!maybe_bolt_server) {
+          throw QueryRuntimeException("Invalid bolt socket address. {}", kSocketErrorExplanation);
+        }
+        handler.UpdateConfig(data, *maybe_bolt_server);
+
+        return std::vector<std::vector<TypedValue>>();
+      };
+
+      auto const notification_str = std::invoke([coordinator_query, &evaluator]() {
+        if (!coordinator_query->instance_name_.empty()) {
+          return fmt::format("for instance {}", coordinator_query->instance_name_);
+        }
+        auto coord_server_id = coordinator_query->coordinator_id_->Accept(evaluator).ValueInt();
+        return fmt::format("for coordinator {}", coord_server_id);
+      });
+      notifications->emplace_back(
+          SeverityLevel::INFO, NotificationCode::UPDATE_CONFIG,
+          fmt::format("Coordinator has updated bolt server to {} {}.", bolt_server_it->second, notification_str));
       return callback;
     }
     case CoordinatorQuery::Action::REGISTER_INSTANCE: {
@@ -5082,27 +5172,59 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
   auto path_value = recover_query->snapshot_->Accept(evaluator);
 
+  constexpr auto s3_matcher = ctre::starts_with<"s3://">;
+
+  std::optional<utils::S3Config> s3_config;
+  if (s3_matcher(path_value.ValueString())) {
+    auto maybe_config_map = ParseConfigMap(recover_query->configs_, evaluator);
+    if (!maybe_config_map) {
+      throw QueryRuntimeException("Failed to parse config map for the RECOVER SNAPSHOT query!");
+    }
+
+    if (maybe_config_map->size() > 4) {
+      throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
+                                  utils::kAwsRegionQuerySetting, utils::kAwsAccessKeyQuerySetting,
+                                  utils::kAwsSecretKeyQuerySetting, utils::kAwsEndpointUrlQuerySetting);
+    }
+    s3_config.emplace(utils::S3Config::Build(std::move(*maybe_config_map), BuildRunTimeS3Config()));
+  }
+
   return PreparedQuery{
       .header = {},
       .privileges = std::move(parsed_query.required_privileges),
       .query_handler = [db_acc = *current_db.db_acc_, replication_role, path = std::move(path_value.ValueString()),
-                        force = recover_query->force_](AnyStream * /*stream*/, std::optional<int> /*n*/) mutable
-      -> std::optional<QueryHandlerResult> {
+                        force = recover_query->force_, s3_cfg = std::move(s3_config)](
+                           AnyStream * /*stream*/,
+                           std::optional<int> /*n*/) mutable -> std::optional<QueryHandlerResult> {
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
-        if (auto maybe_error = mem_storage->RecoverSnapshot(path, force, replication_role); !maybe_error.has_value()) {
+        if (auto maybe_error = mem_storage->RecoverSnapshot(path, force, replication_role, std::move(s3_cfg));
+            !maybe_error.has_value()) {
           switch (maybe_error.error()) {
-            case storage::InMemoryStorage::RecoverSnapshotError::DisabledForReplica:
+            using enum storage::InMemoryStorage::RecoverSnapshotError;
+            case DisabledForReplica: {
               throw utils::BasicException(
                   "Failed to recover a snapshot. Replica instances are not allowed to create them.");
-            case storage::InMemoryStorage::RecoverSnapshotError::NonEmptyStorage:
+            }
+            case NonEmptyStorage: {
               throw utils::BasicException("Failed to recover a snapshot. Storage is not clean. Try using FORCE.");
-            case storage::InMemoryStorage::RecoverSnapshotError::MissingFile:
+            }
+            case MissingFile: {
               throw utils::BasicException("Failed to find the defined snapshot file.");
-            case storage::InMemoryStorage::RecoverSnapshotError::CopyFailure:
+            }
+            case CopyFailure: {
               throw utils::BasicException("Failed to copy snapshot over to local snapshots directory.");
-            case storage::InMemoryStorage::RecoverSnapshotError::BackupFailure:
+            }
+            case BackupFailure: {
               throw utils::BasicException(
                   "Failed to clear local wal and snapshots directories. Please clean them manually.");
+            }
+            case DownloadFailure: {
+              throw utils::BasicException("Failed to download snapshot file from {}", path);
+            }
+            case S3GetFailure: {
+              throw utils::BasicException("Failed to download snapshot file from s3 {}", path);
+            }
+              std::unreachable();
           }
         }
         // REPLICATION

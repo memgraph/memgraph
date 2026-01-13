@@ -12,11 +12,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "utils/exceptions.hpp"
+#include "utils/on_scope_exit.hpp"
 
 import memgraph.utils.aws;
 
-using memgraph::utils::BasicException;
 using memgraph::utils::ExtractBucketAndObjectKey;
 using memgraph::utils::kAwsAccessKeyEnv;
 using memgraph::utils::kAwsAccessKeyQuerySetting;
@@ -150,123 +149,125 @@ TEST(S3Config, ValidateOK) {
 
 TEST(S3Config, MissingSecretKey) {
   S3Config s3_config{.aws_region = "eu-west-1", .aws_access_key = "test", .aws_endpoint_url = "localhost:4566"};
-  ASSERT_THROW(s3_config.Validate(), BasicException);
+  ASSERT_FALSE(s3_config.Validate());
 }
 
 TEST(S3Config, MissingAccessKey) {
   S3Config s3_config{.aws_region = "eu-west-1", .aws_secret_key = "test", .aws_endpoint_url = "localhost:4566"};
-  ASSERT_THROW(s3_config.Validate(), BasicException);
+  ASSERT_FALSE(s3_config.Validate());
 }
 
 TEST(S3Config, MissingRegion) {
   S3Config s3_config{.aws_access_key = "test_123", .aws_secret_key = "test", .aws_endpoint_url = "localhost:4566"};
-  ASSERT_THROW(s3_config.Validate(), BasicException);
+  ASSERT_FALSE(s3_config.Validate());
 }
 
 TEST(ExtractBucketAndObjectKey, Regular) {
   constexpr auto test = "s3://deps.memgraph.io/pokec/dataset/nodes.csv";
-  auto const [bucket_name, object_key] = ExtractBucketAndObjectKey(test);
-  ASSERT_EQ(bucket_name, "deps.memgraph.io");
-  ASSERT_EQ(object_key, "pokec/dataset/nodes.csv");
+  auto const bucket_info = ExtractBucketAndObjectKey(test);
+  ASSERT_TRUE(bucket_info.has_value());
+  ASSERT_EQ(bucket_info->first, "deps.memgraph.io");
+  ASSERT_EQ(bucket_info->second, "pokec/dataset/nodes.csv");
 }
 
 TEST(ExtractBucketAndObjectKey, SimpleFile) {
   constexpr auto test = "s3://my-bucket/file.csv";
-  auto const [bucket_name, object_key] = ExtractBucketAndObjectKey(test);
-  ASSERT_EQ(bucket_name, "my-bucket");
-  ASSERT_EQ(object_key, "file.csv");
+  auto const bucket_info = ExtractBucketAndObjectKey(test);
+  ASSERT_TRUE(bucket_info.has_value());
+  ASSERT_EQ(bucket_info->first, "my-bucket");
+  ASSERT_EQ(bucket_info->second, "file.csv");
 }
 
 TEST(ExtractBucketAndObjectKey, NestedPath) {
   constexpr auto test = "s3://bucket/a/b/c/d/file.txt";
-  auto const [bucket_name, object_key] = ExtractBucketAndObjectKey(test);
-  ASSERT_EQ(bucket_name, "bucket");
-  ASSERT_EQ(object_key, "a/b/c/d/file.txt");
+  auto const bucket_info = ExtractBucketAndObjectKey(test);
+  ASSERT_TRUE(bucket_info.has_value());
+  ASSERT_EQ(bucket_info->first, "bucket");
+  ASSERT_EQ(bucket_info->second, "a/b/c/d/file.txt");
 }
 
 TEST(ExtractBucketAndObjectKey, BucketWithDashes) {
   constexpr auto test = "s3://my-test-bucket-123/data.json";
-  auto const [bucket_name, object_key] = ExtractBucketAndObjectKey(test);
-  ASSERT_EQ(bucket_name, "my-test-bucket-123");
-  ASSERT_EQ(object_key, "data.json");
+  auto const bucket_info = ExtractBucketAndObjectKey(test);
+  ASSERT_TRUE(bucket_info.has_value());
+  ASSERT_EQ(bucket_info->first, "my-test-bucket-123");
+  ASSERT_EQ(bucket_info->second, "data.json");
 }
 
 TEST(ExtractBucketAndObjectKey, BucketWithDots) {
   constexpr auto test = "s3://my.bucket.name/file.txt";
-  auto const [bucket_name, object_key] = ExtractBucketAndObjectKey(test);
-  ASSERT_EQ(bucket_name, "my.bucket.name");
-  ASSERT_EQ(object_key, "file.txt");
+  auto const bucket_info = ExtractBucketAndObjectKey(test);
+  ASSERT_TRUE(bucket_info.has_value());
+  ASSERT_EQ(bucket_info->first, "my.bucket.name");
+  ASSERT_EQ(bucket_info->second, "file.txt");
 }
 
 TEST(ExtractBucketAndObjectKey, ObjectKeyWithSpecialCharacters) {
   constexpr auto test = "s3://bucket/path/file-name_123.csv";
-  auto const [bucket_name, object_key] = ExtractBucketAndObjectKey(test);
-  ASSERT_EQ(bucket_name, "bucket");
-  ASSERT_EQ(object_key, "path/file-name_123.csv");
+  auto const bucket_info = ExtractBucketAndObjectKey(test);
+  ASSERT_TRUE(bucket_info.has_value());
+  ASSERT_EQ(bucket_info->first, "bucket");
+  ASSERT_EQ(bucket_info->second, "path/file-name_123.csv");
 }
 
 TEST(ExtractBucketAndObjectKey, ObjectKeyWithSpaces) {
   constexpr auto test = "s3://bucket/path/file%20with%20spaces.txt";
-  auto const [bucket_name, object_key] = ExtractBucketAndObjectKey(test);
-  ASSERT_EQ(bucket_name, "bucket");
-  ASSERT_EQ(object_key, "path/file%20with%20spaces.txt");
+  auto const bucket_info = ExtractBucketAndObjectKey(test);
+  ASSERT_TRUE(bucket_info.has_value());
+  ASSERT_EQ(bucket_info->first, "bucket");
+  ASSERT_EQ(bucket_info->second, "path/file%20with%20spaces.txt");
 }
 
 TEST(ExtractBucketAndObjectKey, LongPath) {
   constexpr auto test = "s3://my-bucket/very/long/nested/path/to/some/file/in/deep/directory/data.csv";
-  auto const [bucket_name, object_key] = ExtractBucketAndObjectKey(test);
-  ASSERT_EQ(bucket_name, "my-bucket");
-  ASSERT_EQ(object_key, "very/long/nested/path/to/some/file/in/deep/directory/data.csv");
+  auto const bucket_info = ExtractBucketAndObjectKey(test);
+  ASSERT_TRUE(bucket_info.has_value());
+  ASSERT_EQ(bucket_info->first, "my-bucket");
+  ASSERT_EQ(bucket_info->second, "very/long/nested/path/to/some/file/in/deep/directory/data.csv");
 }
 
 TEST(ExtractBucketAndObjectKey, ObjectKeyStartingWithSlash) {
   constexpr auto test = "s3://bucket//file.txt";
-  auto const [bucket_name, object_key] = ExtractBucketAndObjectKey(test);
-  ASSERT_EQ(bucket_name, "bucket");
-  ASSERT_EQ(object_key, "/file.txt");
+  auto const bucket_info = ExtractBucketAndObjectKey(test);
+  ASSERT_TRUE(bucket_info.has_value());
+  ASSERT_EQ(bucket_info->first, "bucket");
+  ASSERT_EQ(bucket_info->second, "/file.txt");
 }
 
 TEST(ExtractBucketAndObjectKey, MinimalBucketName) {
   constexpr auto test = "s3://b/key";
-  auto const [bucket_name, object_key] = ExtractBucketAndObjectKey(test);
-  ASSERT_EQ(bucket_name, "b");
-  ASSERT_EQ(object_key, "key");
+  auto const bucket_info = ExtractBucketAndObjectKey(test);
+  ASSERT_TRUE(bucket_info.has_value());
+  ASSERT_EQ(bucket_info->first, "b");
+  ASSERT_EQ(bucket_info->second, "key");
 }
 
 TEST(ExtractBucketAndObjectKey, ObjectWithMultipleExtensions) {
   constexpr auto test = "s3://bucket/file.tar.gz";
-  auto const [bucket_name, object_key] = ExtractBucketAndObjectKey(test);
-  ASSERT_EQ(bucket_name, "bucket");
-  ASSERT_EQ(object_key, "file.tar.gz");
+  auto const bucket_info = ExtractBucketAndObjectKey(test);
+  ASSERT_TRUE(bucket_info.has_value());
+  ASSERT_EQ(bucket_info->first, "bucket");
+  ASSERT_EQ(bucket_info->second, "file.tar.gz");
 }
 
 TEST(ExtractBucketAndObjectKey, NumericBucketName) {
   constexpr auto test = "s3://123456789/data.csv";
-  auto const [bucket_name, object_key] = ExtractBucketAndObjectKey(test);
-  ASSERT_EQ(bucket_name, "123456789");
-  ASSERT_EQ(object_key, "data.csv");
+  auto const bucket_info = ExtractBucketAndObjectKey(test);
+  ASSERT_TRUE(bucket_info.has_value());
+  ASSERT_EQ(bucket_info->first, "123456789");
+  ASSERT_EQ(bucket_info->second, "data.csv");
 }
 
-TEST(ExtractBucketAndObjectKey, MissingS3Prefix) {
-  EXPECT_THROW({ ExtractBucketAndObjectKey("http://bucket/key"); }, std::invalid_argument);
-}
+TEST(ExtractBucketAndObjectKey, MissingS3Prefix) { ASSERT_FALSE(ExtractBucketAndObjectKey("http://bucket/key")); }
 
-TEST(ExtractBucketAndObjectKey, MissingObjectKey) {
-  EXPECT_THROW({ ExtractBucketAndObjectKey("s3://bucket"); }, std::invalid_argument);
-}
+TEST(ExtractBucketAndObjectKey, MissingObjectKey) { ASSERT_FALSE(ExtractBucketAndObjectKey("s3://bucket")); }
 
 TEST(ExtractBucketAndObjectKey, MissingObjectKeyWithTrailingSlash) {
-  EXPECT_THROW({ ExtractBucketAndObjectKey("s3://bucket/"); }, std::invalid_argument);
+  ASSERT_FALSE(ExtractBucketAndObjectKey("s3://bucket/"));
 }
 
-TEST(ExtractBucketAndObjectKey, EmptyString) {
-  EXPECT_THROW({ ExtractBucketAndObjectKey(""); }, std::invalid_argument);
-}
+TEST(ExtractBucketAndObjectKey, EmptyString) { ASSERT_FALSE(ExtractBucketAndObjectKey("")); }
 
-TEST(ExtractBucketAndObjectKey, OnlyS3Prefix) {
-  EXPECT_THROW({ ExtractBucketAndObjectKey("s3://"); }, std::invalid_argument);
-}
+TEST(ExtractBucketAndObjectKey, OnlyS3Prefix) { ASSERT_FALSE(ExtractBucketAndObjectKey("s3://")); }
 
-TEST(ExtractBucketAndObjectKey, InvalidProtocol) {
-  EXPECT_THROW({ ExtractBucketAndObjectKey("s4://bucket/key"); }, std::invalid_argument);
-}
+TEST(ExtractBucketAndObjectKey, InvalidProtocol) { ASSERT_FALSE(ExtractBucketAndObjectKey("s4://bucket/key")); }
