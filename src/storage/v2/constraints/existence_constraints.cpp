@@ -68,9 +68,9 @@ std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraint
   return constraints_.WithReadLock([&](auto &constraints) -> std::expected<void, ConstraintViolation> {
     auto validate = [&](const Vertex &vertex) -> std::expected<void, ConstraintViolation> {
       for (const auto &[constraint, status] : constraints) {
-        if (auto violation = ValidateVertexOnConstraint(vertex, constraint.label, constraint.property);
-            violation.has_value()) {
-          return std::unexpected{violation.error()};
+        if (auto validation_result = ValidateVertexOnConstraint(vertex, constraint.label, constraint.property);
+            !validation_result.has_value()) [[unlikely]] {
+          return std::unexpected{validation_result.error()};
         }
       }
       return {};
@@ -90,9 +90,9 @@ std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraint
 [[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::DiskValidate(Vertex const &vertex) {
   return constraints_.WithReadLock([&](auto &constraints) -> std::expected<void, ConstraintViolation> {
     for (const auto &[constraint, status] : constraints) {
-      if (auto violation = ValidateVertexOnConstraint(vertex, constraint.label, constraint.property);
-          violation.has_value()) {
-        return std::unexpected{violation.error()};
+      if (auto validation_result = ValidateVertexOnConstraint(vertex, constraint.label, constraint.property);
+          !validation_result.has_value()) [[unlikely]] {
+        return std::unexpected{validation_result.error()};
       }
     }
     return {};
@@ -175,8 +175,8 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::SingleThreadConst
     const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
     std::optional<SnapshotObserverInfo> const &snapshot_info) {
   for (const Vertex &vertex : vertices) {
-    if (auto violation = ValidateVertexOnConstraint(vertex, label, property); violation.has_value()) {
-      return std::unexpected{violation.error()};
+    if (auto validation_result = ValidateVertexOnConstraint(vertex, label, property); !validation_result.has_value()) {
+      return std::unexpected{validation_result.error()};
     }
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::VERTICES);
