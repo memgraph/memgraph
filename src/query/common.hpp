@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,6 +28,7 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/logging.hpp"
+#include "utils/small_vector.hpp"
 
 namespace memgraph::query {
 
@@ -191,10 +192,10 @@ template <typename VectorIndexIds>
 storage::PropertyValue HandleVectorProperty(const storage::PropertyValue &property_value,
                                             VectorIndexIds &&vector_index_ids) {
   if (property_value.IsNull()) {
-    return storage::PropertyValue(std::forward<VectorIndexIds>(vector_index_ids), std::vector<float>{});
+    return storage::PropertyValue(std::forward<VectorIndexIds>(vector_index_ids), utils::small_vector<float>{});
   }
 
-  std::vector<float> vector;
+  utils::small_vector<float> vector;
   if (property_value.IsAnyList()) {
     const auto list_size = property_value.ListSize();
     vector.reserve(list_size);

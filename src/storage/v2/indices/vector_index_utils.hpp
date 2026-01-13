@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -256,13 +256,13 @@ inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double
 /// @param value The PropertyValue to convert. Must be a list of numeric values (floats or integers).
 /// @return A vector of float values.
 /// @throws query::VectorSearchException if the value is not a list or contains non-numeric values.
-inline std::vector<float> ListToVector(const PropertyValue &value) {
+inline utils::small_vector<float> ListToVector(const PropertyValue &value) {
   if (value.IsNull()) {
     return {};
   }
   if (value.IsAnyList()) {
     const auto list_size = value.ListSize();
-    std::vector<float> vector;
+    utils::small_vector<float> vector;
     vector.reserve(list_size);
     for (auto i = 0; i < list_size; i++) {
       const auto numeric_value = GetNumericValueAt(value, i);
@@ -281,7 +281,7 @@ inline std::vector<float> ListToVector(const PropertyValue &value) {
 /// @brief Converts a vector of floats to a vector of doubles (for PropertyValue storage).
 /// @param vector The vector of floats to convert.
 /// @return A vector of double values.
-inline std::vector<double> FloatVectorToDoubleVector(const std::vector<float> &vector) {
+inline std::vector<double> FloatVectorToDoubleVector(const utils::small_vector<float> &vector) {
   return vector | rv::transform([](float value) { return static_cast<double>(value); }) |
          ranges::to<std::vector<double>>();
 }
@@ -291,8 +291,8 @@ inline std::vector<double> FloatVectorToDoubleVector(const std::vector<float> &v
 /// @param expected_dimension The expected dimension of the vector.
 /// @return A vector of floats representing the property value.
 /// @throws query::VectorSearchException if the property is not a valid vector.
-[[nodiscard]] inline std::vector<float> PropertyToFloatVector(const PropertyValue &property,
-                                                              std::uint16_t expected_dimension) {
+[[nodiscard]] inline utils::small_vector<float> PropertyToFloatVector(const PropertyValue &property,
+                                                                      std::uint16_t expected_dimension) {
   if (!property.IsAnyList()) {
     throw query::VectorSearchException("Vector index property must be a list.");
   }
@@ -302,7 +302,7 @@ inline std::vector<double> FloatVectorToDoubleVector(const std::vector<float> &v
     throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
   }
 
-  std::vector<float> vector;
+  utils::small_vector<float> vector;
   vector.reserve(vector_size);
   for (size_t i = 0; i < vector_size; ++i) {
     const auto numeric_value = GetNumericValueAt(property, i);
@@ -318,7 +318,7 @@ inline std::vector<double> FloatVectorToDoubleVector(const std::vector<float> &v
 /// @param vector The vector to validate.
 /// @param expected_dimension The expected dimension.
 /// @throws query::VectorSearchException if dimensions don't match.
-inline void ValidateVectorDimension(const std::vector<float> &vector, std::uint16_t expected_dimension) {
+inline void ValidateVectorDimension(const utils::small_vector<float> &vector, std::uint16_t expected_dimension) {
   if (vector.size() != expected_dimension) {
     throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
   }
@@ -328,18 +328,9 @@ inline void ValidateVectorDimension(const std::vector<float> &vector, std::uint1
 /// @param vertex The vertex to restore the property on.
 /// @param property_id The property ID to restore.
 /// @param vector The vector of float values to restore.
-inline void RestoreVectorOnVertex(Vertex *vertex, PropertyId property_id, const std::vector<float> &vector) {
+inline void RestoreVectorOnVertex(Vertex *vertex, PropertyId property_id, const utils::small_vector<float> &vector) {
   auto double_vector = FloatVectorToDoubleVector(vector);
   vertex->properties.SetProperty(property_id, PropertyValue(std::move(double_vector)));
-}
-
-/// @brief Creates a PropertyValue from a vector and index IDs for vector index storage.
-/// @param vector The vector of float values (unused, kept for API compatibility).
-/// @param index_ids The index IDs associated with this vector.
-/// @return A PropertyValue containing the vector index ID and vector data.
-inline PropertyValue CreateVectorIndexIdProperty(const std::vector<float> & /*vector*/,
-                                                 const utils::small_vector<uint64_t> &index_ids) {
-  return PropertyValue(index_ids, std::vector<float>{});
 }
 
 /// @brief Removes an index ID from a property's vector index ID list.
@@ -389,12 +380,12 @@ PropertyValue GetVectorAsPropertyValue(const std::shared_ptr<utils::Synchronized
 /// @return A list of float values representing the vector.
 /// @throws query::VectorSearchException if the key is not found in the index or if retrieval fails.
 template <typename IndexType, typename KeyType>
-std::vector<float> GetVector(const std::shared_ptr<utils::Synchronized<IndexType, std::shared_mutex>> &index,
-                             KeyType key) {
+utils::small_vector<float> GetVector(const std::shared_ptr<utils::Synchronized<IndexType, std::shared_mutex>> &index,
+                                     KeyType key) {
   auto locked_index = index->ReadLock();
   const auto dimension = locked_index->dimensions();
-  std::vector<unum::usearch::f32_t> vector(dimension);
-  const auto retrieved_count = locked_index->get(key, vector.data(), 1);
+  utils::small_vector<unum::usearch::f32_t> vector(dimension);
+  const auto retrieved_count = locked_index->get(key, &*vector.begin(), 1);
   if (retrieved_count == 0) {
     return {};
   }
@@ -413,11 +404,9 @@ inline std::size_t GetVectorIndexThreadCount() {
 /// @param index_item The index item containing the synchronized index and spec.
 /// @param key The key to add/update in the index.
 /// @param vector The vector data to add.
-/// @param update_capacity Whether to update the spec.capacity after resizing (default: true).
 /// @throws query::VectorSearchException if dimension mismatch or resize fails.
 template <typename IndexItemType, typename KeyType>
-void UpdateSingleVectorIndex(IndexItemType &index_item, KeyType key, const std::vector<float> &vector,
-                             bool update_capacity = true) {
+void UpdateSingleVectorIndex(IndexItemType &index_item, KeyType key, const utils::small_vector<float> &vector) {
   auto &[mg_index, spec] = index_item;
   bool is_index_full = false;
   {
@@ -436,9 +425,7 @@ void UpdateSingleVectorIndex(IndexItemType &index_item, KeyType key, const std::
     if (!exclusively_locked_index->try_reserve(new_limits)) {
       throw query::VectorSearchException("Failed to resize vector index.");
     }
-    if (update_capacity) {
-      spec.capacity = exclusively_locked_index->capacity();  // capacity might be larger than the requested capacity
-    }
+    spec.capacity = exclusively_locked_index->capacity();  // capacity might be larger than the requested capacity
   }
 
   if (vector.empty()) {
@@ -450,7 +437,7 @@ void UpdateSingleVectorIndex(IndexItemType &index_item, KeyType key, const std::
   }
 
   auto locked_index = mg_index->MutableSharedLock();
-  locked_index->add(key, vector.data());
+  locked_index->add(key, &*vector.begin());
 }
 
 /// @brief Adds an entry to the vector index with automatic resize if the index is full.
@@ -461,16 +448,16 @@ void UpdateSingleVectorIndex(IndexItemType &index_item, KeyType key, const std::
 /// @param mg_index The synchronized index wrapper.
 /// @param spec The index specification (will be updated if resize occurs).
 /// @param key The key to add to the index.
-/// @param vector_data Pointer to the float vector data.
+/// @param vector The float vector data.
 /// @param thread_id Optional thread ID hint for usearch's internal thread-local optimizations.
 /// @throws query::VectorSearchException if add fails for reasons other than capacity.
 template <typename Index, typename Key, typename Spec>
 void AddToVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, Spec &spec, const Key &key,
-                      const float *vector_data, std::optional<std::size_t> thread_id = std::nullopt) {
+                      const utils::small_vector<float> &vector, std::optional<std::size_t> thread_id = std::nullopt) {
   const auto thread_id_for_adding = thread_id ? *thread_id : Index::any_thread();
   {
     auto locked_index = mg_index.MutableSharedLock();
-    auto result = locked_index->add(key, vector_data, thread_id_for_adding);
+    auto result = locked_index->add(key, &*vector.begin(), thread_id_for_adding);
     if (!result.error) return;
     if (locked_index->size() >= locked_index->capacity()) {
       // Error is due to capacity, release the error because we will resize the index.
@@ -488,7 +475,7 @@ void AddToVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, S
       }
       spec.capacity = exclusively_locked_index->capacity();
     }
-    auto result = exclusively_locked_index->add(key, vector_data, thread_id_for_adding);
+    auto result = exclusively_locked_index->add(key, &*vector.begin(), thread_id_for_adding);
   }
 }
 
@@ -515,12 +502,12 @@ void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertic
 template <typename ProcessFunc, typename... Args>
 void PopulateVectorIndexMultiThreaded(utils::SkipList<Vertex>::Accessor &vertices, const ProcessFunc &process,
                                       Args... args) {
-  const auto thread_count = FLAGS_storage_recovery_thread_count;
-  auto vertices_chunks = vertices.create_chunks(thread_count);
+  auto vertices_chunks = vertices.create_chunks(FLAGS_storage_recovery_thread_count);
+  const auto actual_chunk_count = vertices_chunks.size();
   std::vector<std::jthread> threads;
-  threads.reserve(thread_count);
+  threads.reserve(actual_chunk_count);
 
-  for (std::size_t i = 0; i < thread_count; ++i) {
+  for (std::size_t i = 0; i < actual_chunk_count; ++i) {
     threads.emplace_back([&vertices_chunks, &process, args..., i]() {
       auto &chunk = vertices_chunks[i];
       for (auto &vertex : chunk) {

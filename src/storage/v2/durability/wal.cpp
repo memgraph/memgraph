@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1403,8 +1403,8 @@ std::optional<RecoveryInfo> LoadWal(
                                     .resize_coefficient = data.resize_coefficient,
                                     .capacity = data.capacity,
                                     .scalar_kind = scalar_kind};
-        indices_constraints->indices.vector_indices.emplace_back(
-            VectorIndexRecoveryInfo{.spec = spec, .index_entries = std::unordered_map<Gid, std::vector<float>>{}});
+        indices_constraints->indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{
+            .spec = spec, .index_entries = std::unordered_map<Gid, utils::small_vector<float>>{}});
       },
       [&](WalVectorEdgeIndexCreate const &data) {
         const auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));

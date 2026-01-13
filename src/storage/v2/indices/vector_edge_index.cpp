@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -89,7 +89,7 @@ void TryAddEdgesToIndex(SyncVectorEdgeIndex &mg_index, VectorEdgeIndexSpec &spec
     }
     auto vector = PropertyToFloatVector(property, spec.dimension);
     const EdgeIndexEntry entry{&from_vertex, to_vertex, edge};
-    AddToVectorIndex(mg_index, spec, entry, vector.data(), thread_id);
+    AddToVectorIndex(mg_index, spec, entry, vector, thread_id);
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::VECTOR_EDGE_IDX);
     }
@@ -230,7 +230,7 @@ bool VectorEdgeIndex::UpdateVectorIndex(EdgeIndexEntry entry, const EdgeTypeProp
   }
 
   auto vector = PropertyToFloatVector(property, spec.dimension);
-  AddToVectorIndex(*mg_index, spec, entry, vector.data());
+  AddToVectorIndex(*mg_index, spec, entry, vector);
   return true;
 }
 

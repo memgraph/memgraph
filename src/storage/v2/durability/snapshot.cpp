@@ -8946,18 +8946,19 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         auto entry_count = snapshot.ReadUint();
         if (!entry_count) throw RecoveryFailure("Couldn't read vector index entry count!");
 
-        std::unordered_map<Gid, std::vector<float>> index_entries;
+        std::unordered_map<Gid, utils::small_vector<float>> index_entries;
         index_entries.reserve(*entry_count);
 
         for (uint64_t j = 0; j < *entry_count; ++j) {
           auto gid = snapshot.ReadUint();
           if (!gid) throw RecoveryFailure("Couldn't read vector index entry gid!");
 
-          std::vector<float> vector(*dimension);
+          utils::small_vector<float> vector;
+          vector.reserve(*dimension);
           for (uint64_t k = 0; k < *dimension; ++k) {
             auto value = snapshot.ReadDouble();
             if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
-            vector[k] = static_cast<float>(*value);
+            vector.push_back(static_cast<float>(*value));
           }
           index_entries.emplace(Gid::FromUint(*gid), std::move(vector));
         }

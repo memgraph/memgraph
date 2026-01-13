@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -620,7 +620,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
       }
       size = ReadSize(this);
       if (!size) return std::nullopt;
-      std::vector<float> list;
+      utils::small_vector<float> list;
       list.reserve(*size);
       for (auto i = 0; i < *size; ++i) {
         auto item = ReadExternalPropertyValue();

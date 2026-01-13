@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -146,13 +146,13 @@ class PropertyValueImpl {
       : alloc_{alloc}, point2d_data_v{.val_ = value} {}
   explicit PropertyValueImpl(const Point3d value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, point3d_data_v{.val_ = value} {}
-  explicit PropertyValueImpl(vector_index_id_t const &vector_index_ids, std::vector<float> const &vector,
+  explicit PropertyValueImpl(vector_index_id_t const &vector_index_ids, utils::small_vector<float> const &vector,
                              allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, vector_index_id_v{.vector_index_ids_ = vector_index_ids, .vector_ = vector} {}
-  explicit PropertyValueImpl(vector_index_id_t const &vector_index_ids, std::vector<float> &&vector,
+  explicit PropertyValueImpl(vector_index_id_t const &vector_index_ids, utils::small_vector<float> &&vector,
                              allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, vector_index_id_v{.vector_index_ids_ = vector_index_ids, .vector_ = std::move(vector)} {}
-  explicit PropertyValueImpl(vector_index_id_t &&vector_index_ids, std::vector<float> &&vector,
+  explicit PropertyValueImpl(vector_index_id_t &&vector_index_ids, utils::small_vector<float> &&vector,
                              allocator_type const &alloc = allocator_type{})
       : alloc_{alloc},
         vector_index_id_v{.vector_index_ids_ = std::move(vector_index_ids), .vector_ = std::move(vector)} {}
@@ -163,7 +163,7 @@ class PropertyValueImpl {
         vector_index_id_v{
             .vector_index_ids_ = vector_index_ids,
             .vector_ = std::invoke([&]() {
-              std::vector<float> vec;
+              utils::small_vector<float> vec;
               vec.reserve(list.size());
               std::transform(list.begin(), list.end(), std::back_inserter(vec), [](const auto &value) {
                 if (value.IsDouble()) {
@@ -684,7 +684,7 @@ class PropertyValueImpl {
     return vector_index_id_v.vector_index_ids_;
   }
 
-  auto ValueVectorIndexList() const -> std::vector<float> const & {
+  auto ValueVectorIndexList() const -> utils::small_vector<float> const & {
     if (type_ != Type::VectorIndexId) [[unlikely]] {
       throw PropertyValueException("The value isn't a vector index list!");
     }
@@ -693,7 +693,7 @@ class PropertyValueImpl {
   }
 
   // TODO: move this to proper place
-  auto ValueVectorIndexList() -> std::vector<float> & {
+  auto ValueVectorIndexList() -> utils::small_vector<float> & {
     if (type_ != Type::VectorIndexId) [[unlikely]] {
       throw PropertyValueException("The value isn't a vector index list!");
     }
@@ -813,7 +813,7 @@ class PropertyValueImpl {
     struct {
       Type type_ = Type::ZonedTemporalData;
       ZonedTemporalData val_;
-    } zoned_temporal_data_v;
+    } zoned_temporal_data_v;  // FYI: current largest member at 40B
     struct {
       Type type_ = Type::Enum;
       Enum val_;
@@ -829,8 +829,8 @@ class PropertyValueImpl {
     struct {
       Type type_ = Type::VectorIndexId;
       vector_index_id_t vector_index_ids_;
-      std::vector<float> vector_;
-    } vector_index_id_v;  // FYI: current largest member at 48B, can we use small_vector here?
+      utils::small_vector<float> vector_;
+    } vector_index_id_v;
     struct {
       Type type_ = Type::IntList;
       int_list_t val_;
@@ -1553,7 +1553,7 @@ inline PropertyValue ToPropertyValue(const ExternalPropertyValue &value, NameIdM
         vector_index_ids.push_back(mapper->NameToId(str));
       }
 
-      std::vector<float> vector;
+      utils::small_vector<float> vector;
       const auto &internal_vector = value.ValueVectorIndexList();
       vector.reserve(internal_vector.size());
       for (const auto &elem : internal_vector) {
@@ -1616,7 +1616,7 @@ inline ExternalPropertyValue ToExternalPropertyValue(const PropertyValue &value,
         vector_index_ids.push_back(mapper->IdToName(id));
       }
 
-      std::vector<float> vector;
+      utils::small_vector<float> vector;
       const auto &internal_vector = value.ValueVectorIndexList();
       vector.reserve(internal_vector.size());
       for (const auto &elem : internal_vector) {
@@ -1662,7 +1662,7 @@ struct ExtendedPropertyType {
   }
 };
 
-static_assert(sizeof(PropertyValue) == 48);
+static_assert(sizeof(PropertyValue) == 40);
 static_assert(sizeof(pmr::PropertyValue) == 56);
 
 /**

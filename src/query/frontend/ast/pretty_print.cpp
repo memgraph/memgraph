@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 #include "query/string_helpers.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/small_vector.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::query {
@@ -115,6 +116,9 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Extern
 
 template <typename T, typename A>
 void PrintObject(std::ostream *out, const DbAccessor *dba, const std::vector<T, A> &vec);
+
+template <typename T>
+void PrintObject(std::ostream *out, const DbAccessor *dba, const utils::small_vector<T> &vec);
 
 template <typename K, typename V, typename C, typename A>
 void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V, C, A> &map);
@@ -331,6 +335,13 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const std::variant<T,
 
 template <typename T, typename A>
 void PrintObject(std::ostream *out, const DbAccessor *dba, const std::vector<T, A> &vec) {
+  *out << "[";
+  utils::PrintIterable(*out, vec, ", ", [&dba](auto &stream, const auto &item) { PrintObject(&stream, dba, item); });
+  *out << "]";
+}
+
+template <typename T>
+void PrintObject(std::ostream *out, const DbAccessor *dba, const utils::small_vector<T> &vec) {
   *out << "[";
   utils::PrintIterable(*out, vec, ", ", [&dba](auto &stream, const auto &item) { PrintObject(&stream, dba, item); });
   *out << "]";

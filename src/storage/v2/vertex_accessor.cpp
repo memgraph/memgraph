@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,8 +42,6 @@
 #include "utils/variant_helpers.hpp"
 
 namespace r = ranges;
-namespace rv = r::views;
-
 namespace memgraph::storage {
 
 namespace {
@@ -502,13 +500,18 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
       return;
     }
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
-      if (skip_duplicate_update && old_value == new_value) continue;
-      // TODO: fix this also as everything above
       if (new_value.IsVectorIndexId()) {
-        // TODO: fix this also as everything above
+        auto old_value_vector = storage->indices_.vector_index_.GetVectorProperty(
+            vertex, storage->name_id_mapper_->IdToName(new_value.ValueVectorIndexIds()[0]));
+        if (skip_duplicate_update && old_value_vector == new_value.ValueVectorIndexList()) continue;
+        if (old_value.IsVectorIndexId()) {
+          old_value.ValueVectorIndexList() = std::move(old_value_vector);
+        }
+        storage->indices_.vector_index_.UpdateIndex(new_value, vertex, std::nullopt, storage->name_id_mapper_.get());
       } else {
-        CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
+        if (skip_duplicate_update && old_value == new_value) continue;
       }
+      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
       storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
       transaction->UpdateOnSetProperty(id, old_value, new_value, vertex);
       if (transaction->constraint_verification_info) {
@@ -593,13 +596,12 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     delta = vertex_->delta;
 
     auto prop_value = vertex_->properties.GetProperty(property);
-    if (prop_value.IsVectorIndexId()) [[unlikely]] {
+    if (prop_value.IsVectorIndexId()) {
       is_in_vector_index = true;
       return storage_->indices_.vector_index_.GetPropertyValue(
           vertex_, storage_->name_id_mapper_->IdToName(prop_value.ValueVectorIndexIds()[0]));
-    } else {
-      return prop_value;
     }
+    return prop_value;
   });
 
   // Checking cache has a cost, only do it if we have any deltas

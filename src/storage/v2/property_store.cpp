@@ -1162,7 +1162,7 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
         if (!id) return false;
         vector_index_ids.emplace_back(*id);
       }
-      value = PropertyValue(std::move(vector_index_ids), std::vector<float>{});
+      value = PropertyValue(std::move(vector_index_ids), utils::small_vector<float>{});
       return true;
     }
   }

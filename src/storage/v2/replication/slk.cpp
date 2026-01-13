@@ -403,7 +403,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       for (size_t i = 0; i < size; ++i) {
         slk::Load(&ids[i], reader);
       }
-      std::vector<float> list;
+      utils::small_vector<float> list;
       slk::Load(&list, reader);
       *value = storage::ExternalPropertyValue(std::move(ids), std::move(list));
       return;

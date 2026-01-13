@@ -21,11 +21,10 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/small_vector.hpp"
 #include "utils/synchronized.hpp"
 
 namespace r = ranges;
-namespace rv = r::views;
-
 namespace memgraph::storage {
 
 namespace {
@@ -50,10 +49,10 @@ void TryAddVertexToIndex(SyncVectorIndex &mg_index, VectorIndexSpec &spec, Verte
     return;
   }
   auto vector = PropertyToFloatVector(property, spec.dimension);
-  AddToVectorIndex(mg_index, spec, &vertex, vector.data(), thread_id);
-  vertex.properties.SetProperty(
-      spec.property,
-      PropertyValue(utils::small_vector<uint64_t>{name_id_mapper->NameToId(spec.index_name)}, std::vector<float>{}));
+  AddToVectorIndex(mg_index, spec, &vertex, vector, thread_id);
+  vertex.properties.SetProperty(spec.property,
+                                PropertyValue(utils::small_vector<uint64_t>{name_id_mapper->NameToId(spec.index_name)},
+                                              utils::small_vector<float>{}));
   if (snapshot_info) {
     snapshot_info->Update(UpdateType::VECTOR_IDX);
   }
@@ -154,7 +153,7 @@ void VectorIndex::RecoverIndex(const VectorIndexRecoveryInfo &recovery_info,
   auto process_vertex_for_recovery = [&mg_index, &mutable_spec, &recovery_entries, &snapshot_info, name_id_mapper](
                                          Vertex &vertex, std::optional<std::size_t> thread_id) {
     const auto index_id = name_id_mapper->NameToId(mutable_spec.index_name);
-    std::vector<float> vector;
+    utils::small_vector<float> vector;
     bool should_set_property = false;
 
     // First check if we have a pre-computed vector from recovery entries
@@ -178,11 +177,11 @@ void VectorIndex::RecoverIndex(const VectorIndexRecoveryInfo &recovery_info,
     }
 
     ValidateVectorDimension(vector, mutable_spec.dimension);
-    AddToVectorIndex(*mg_index, mutable_spec, &vertex, vector.data(), thread_id);
+    AddToVectorIndex(*mg_index, mutable_spec, &vertex, vector, thread_id);
 
     if (should_set_property) {
-      vertex.properties.SetProperty(mutable_spec.property,
-                                    PropertyValue(utils::small_vector<uint64_t>{index_id}, std::vector<float>{}));
+      vertex.properties.SetProperty(
+          mutable_spec.property, PropertyValue(utils::small_vector<uint64_t>{index_id}, utils::small_vector<float>{}));
     }
 
     if (snapshot_info) {
@@ -190,7 +189,7 @@ void VectorIndex::RecoverIndex(const VectorIndexRecoveryInfo &recovery_info,
     }
   };
 
-  if (FLAGS_storage_parallel_index_recovery) {
+  if (FLAGS_storage_parallel_schema_recovery && FLAGS_storage_recovery_thread_count > 1) {
     PopulateVectorIndexMultiThreaded(vertices, process_vertex_for_recovery);
   } else {
     PopulateVectorIndexSingleThreaded(vertices, process_vertex_for_recovery);
@@ -341,7 +340,7 @@ void VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *vertex, std::o
     });
 
     auto &index_item = pimpl->index_.at(it->second);
-    UpdateSingleVectorIndex(index_item, vertex, vector_property, true);
+    UpdateSingleVectorIndex(index_item, vertex, vector_property);
     return;
   }
 
@@ -361,7 +360,7 @@ void VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *vertex, std::o
       locked_index->remove(vertex);
       continue;
     }
-    UpdateSingleVectorIndex(index_item, vertex, vector_property, false);
+    UpdateSingleVectorIndex(index_item, vertex, vector_property);
   }
 }
 
@@ -374,7 +373,7 @@ PropertyValue VectorIndex::GetPropertyValue(Vertex *vertex, std::string_view ind
   return GetVectorAsPropertyValue(mg_index, vertex);
 }
 
-std::vector<float> VectorIndex::GetVectorProperty(Vertex *vertex, std::string_view index_name) const {
+utils::small_vector<float> VectorIndex::GetVectorProperty(Vertex *vertex, std::string_view index_name) const {
   auto it = pimpl->index_name_to_label_prop_.find(index_name);
   if (it == pimpl->index_name_to_label_prop_.end()) {
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
@@ -621,7 +620,7 @@ std::vector<VectorIndexRecoveryInfo *> VectorIndexRecovery::FindMatchingIndices(
   return indices;
 }
 
-std::vector<float> VectorIndexRecovery::ExtractVectorForRecovery(
+utils::small_vector<float> VectorIndexRecovery::ExtractVectorForRecovery(
     const PropertyValue &value, Vertex *vertex, const std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
     NameIdMapper *name_id_mapper) {
   if (value.IsVectorIndexId()) {
@@ -686,10 +685,9 @@ void VectorIndexRecovery::UpdateOnLabelAddition(LabelId label, Vertex *vertex, N
         vertex->properties.SetProperty(recovery_info->spec.property, old_property_value);
       } else {
         auto index_id = name_id_mapper->NameToId(recovery_info->spec.index_name);
-        std::vector<float> empty_vector;
-        utils::small_vector<uint64_t> index_ids{index_id};
-        vertex->properties.SetProperty(recovery_info->spec.property,
-                                       CreateVectorIndexIdProperty(empty_vector, index_ids));
+        vertex->properties.SetProperty(
+            recovery_info->spec.property,
+            PropertyValue(utils::small_vector<uint64_t>{index_id}, utils::small_vector<float>{}));
       }
 
       recovery_info->index_entries.emplace(vertex->gid, std::move(vector_to_add));
@@ -738,15 +736,15 @@ void VectorIndexRecovery::UpdateOnPropertyChange(PropertyId property, PropertyVa
   }
 }
 
-std::vector<float> VectorIndex::GetVectorFromVertex(Vertex *vertex, std::string_view index_name) const {
+utils::small_vector<float> VectorIndex::GetVectorFromVertex(Vertex *vertex, std::string_view index_name) const {
   const auto label_prop = pimpl->index_name_to_label_prop_.find(index_name);
   if (label_prop == pimpl->index_name_to_label_prop_.end()) {
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
   auto &[mg_index, _] = pimpl->index_.at(label_prop->second);
   auto locked_index = mg_index->ReadLock();
-  std::vector<float> vector(locked_index->dimensions());
-  locked_index->get(vertex, vector.data());
+  utils::small_vector<float> vector(locked_index->dimensions());
+  locked_index->get(vertex, &*vector.begin());
   return vector;
 }
 

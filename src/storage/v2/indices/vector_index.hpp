@@ -62,7 +62,7 @@ struct VectorIndexSpec {
 
 struct VectorIndexRecoveryInfo {
   VectorIndexSpec spec;
-  std::unordered_map<Gid, std::vector<float>> index_entries;
+  std::unordered_map<Gid, utils::small_vector<float>> index_entries;
 };
 
 // Forward declaration
@@ -122,9 +122,9 @@ struct VectorIndexRecovery {
   /// @param recovery_info_vec The recovery info vector to look up vectors in.
   /// @param name_id_mapper Mapper for name/ID conversions.
   /// @return The extracted vector of floats.
-  static std::vector<float> ExtractVectorForRecovery(const PropertyValue &value, Vertex *vertex,
-                                                     const std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
-                                                     NameIdMapper *name_id_mapper);
+  static utils::small_vector<float> ExtractVectorForRecovery(
+      const PropertyValue &value, Vertex *vertex, const std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
+      NameIdMapper *name_id_mapper);
 };
 
 /// @class VectorIndex
@@ -207,7 +207,7 @@ class VectorIndex {
   /// @param vertex The vertex to retrieve the vector from.
   /// @param index_name The name of the index to retrieve the vector from.
   /// @return The vector of the vertex as a list of float values.
-  std::vector<float> GetVectorProperty(Vertex *vertex, std::string_view index_name) const;
+  utils::small_vector<float> GetVectorProperty(Vertex *vertex, std::string_view index_name) const;
 
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.
@@ -267,7 +267,7 @@ class VectorIndex {
   /// @return The vector from the vertex.
   /// NOTE: Currently used only in the tests but we will use it in the future when we'll store vectors only in the
   /// index.
-  std::vector<float> GetVectorFromVertex(Vertex *vertex, std::string_view index_name) const;
+  utils::small_vector<float> GetVectorFromVertex(Vertex *vertex, std::string_view index_name) const;
 
   void SerializeVectorIndex(durability::BaseEncoder *encoder, std::string_view index_name) const;
 
