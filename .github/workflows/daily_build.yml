@@ -239,7 +239,6 @@ jobs:
       arch: ${{ matrix.build_arch }}
       build_type: ${{ matrix.build_type }}
       s3_dest_dir: "daily-build/mage${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
-      shorten_tag: true
       cuda: ${{ matrix.cuda }}
       push_to_s3: true
       malloc: ${{ matrix.malloc }}
