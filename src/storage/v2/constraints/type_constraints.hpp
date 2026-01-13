@@ -53,7 +53,8 @@ class TypeConstraints {
   [[nodiscard]] static std::expected<void, ConstraintViolation> ValidateVerticesOnConstraint(
       utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintKind type);
 
-  [[nodiscard]] std::expected<void, ConstraintViolation> Validate(const Vertex &vertex) const;
+  [[nodiscard]] std::expected<void, ConstraintViolation> Validate(
+      const Vertex &vertex, std::optional<Container> const &container = std::nullopt) const;
   [[nodiscard]] std::expected<void, ConstraintViolation> Validate(const Vertex &vertex, LabelId label) const;
   [[nodiscard]] std::expected<void, ConstraintViolation> Validate(const Vertex &vertex, PropertyId property_id,
                                                                   const PropertyValue &property_value) const;

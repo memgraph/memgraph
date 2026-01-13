@@ -66,8 +66,17 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
 
 }  // namespace
 
-[[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex) const {
-  return container_.WithReadLock([&](const auto &container) -> std::expected<void, ConstraintViolation> {
+[[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::Validate(
+    const Vertex &vertex, std::optional<Container> const &container) const {
+  auto wrapper = [&](auto &&func) -> std::expected<void, ConstraintViolation> {
+    if (container) {
+      return func(*container);
+    }
+    return container_.WithReadLock(
+        [&](const auto &container) -> std::expected<void, ConstraintViolation> { return func(container); });
+  };
+
+  return wrapper([&](const auto &container) -> std::expected<void, ConstraintViolation> {
     if (container.constraints_.empty()) return {};
 
     auto validator = TypeConstraintsValidator{};
@@ -128,15 +137,17 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
 
 [[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::ValidateVertices(
     utils::SkipList<Vertex>::Accessor vertices, std::optional<SnapshotObserverInfo> const &snapshot_info) const {
-  for (auto const &vertex : vertices) {
-    if (auto validation_result = Validate(vertex); !validation_result.has_value()) {
-      return std::unexpected{validation_result.error()};
+  return container_.WithReadLock([&](const auto &container) -> std::expected<void, ConstraintViolation> {
+    for (auto const &vertex : vertices) {
+      if (auto validation_result = Validate(vertex, container); !validation_result.has_value()) {
+        return std::unexpected{validation_result.error()};
+      }
+      if (snapshot_info) {
+        snapshot_info->Update(UpdateType::VERTICES);
+      }
     }
-    if (snapshot_info) {
-      snapshot_info->Update(UpdateType::VERTICES);
-    }
-  }
-  return {};
+    return {};
+  });
 }
 
 [[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::ValidateVerticesOnConstraint(

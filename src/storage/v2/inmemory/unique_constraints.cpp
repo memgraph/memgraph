@@ -490,50 +490,51 @@ bool InMemoryUniqueConstraints::ConstraintExists(LabelId label, const std::set<P
   });
 }
 
-std::expected<void, ConstraintViolation> InMemoryUniqueConstraints::Validate(const Vertex &vertex,
-                                                                             const Transaction &tx,
-                                                                             uint64_t commit_timestamp) const {
-  if (vertex.deleted) {
-    return {};
-  }
+std::expected<void, ConstraintViolation> InMemoryUniqueConstraints::Validate(
+    const std::unordered_set<Vertex const *> &vertices, const Transaction &tx, uint64_t commit_timestamp) const {
   return container_.WithReadLock([&](const auto &container) -> std::expected<void, ConstraintViolation> {
-    for (const auto &label : vertex.labels) {
-      const auto &constraint = container.constraints_by_label_.find(label);
-      if (constraint == container.constraints_by_label_.end()) {
-        continue;
+    for (const auto *const vertex : vertices) {
+      if (vertex->deleted) {
+        return {};
       }
-
-      for (const auto &[properties, individual_constraint] : constraint->second) {
-        auto value_array = vertex.properties.ExtractPropertyValues(properties);
-
-        if (!value_array) {
+      for (const auto &label : vertex->labels) {
+        const auto &constraint = container.constraints_by_label_.find(label);
+        if (constraint == container.constraints_by_label_.end()) {
           continue;
         }
 
-        auto possible_conflicting = std::invoke([&] {
-          // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
-          auto acc = individual_constraint->skiplist.access();
-          auto it = acc.find_equal_or_greater(*value_array);
-          std::unordered_set<Vertex const *> res;
-          for (; it != acc.end(); ++it) {
-            if (*value_array != it->values) {
-              break;
-            }
+        for (const auto &[properties, individual_constraint] : constraint->second) {
+          auto value_array = vertex->properties.ExtractPropertyValues(properties);
 
-            // The `vertex` that is going to be committed violates a unique constraint
-            // if it's different than a vertex indexed in the list of constraints and
-            // has the same label and property value as the last committed version of
-            // the vertex from the list.
-            if (&vertex != it->vertex) {
-              res.insert(it->vertex);
-            }
+          if (!value_array) {
+            continue;
           }
-          return res;
-        });
 
-        for (auto const *v : possible_conflicting) {
-          if (LastCommittedVersionHasLabelProperty(*v, label, properties, *value_array, tx, commit_timestamp)) {
-            return std::unexpected{ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties}};
+          auto possible_conflicting = std::invoke([&] {
+            // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
+            auto acc = individual_constraint->skiplist.access();
+            auto it = acc.find_equal_or_greater(*value_array);
+            std::unordered_set<Vertex const *> res;
+            for (; it != acc.end(); ++it) {
+              if (*value_array != it->values) {
+                break;
+              }
+
+              // The `vertex` that is going to be committed violates a unique constraint
+              // if it's different than a vertex indexed in the list of constraints and
+              // has the same label and property value as the last committed version of
+              // the vertex from the list.
+              if (vertex != it->vertex) {
+                res.insert(it->vertex);
+              }
+            }
+            return res;
+          });
+
+          for (auto const *v : possible_conflicting) {
+            if (LastCommittedVersionHasLabelProperty(*v, label, properties, *value_array, tx, commit_timestamp)) {
+              return std::unexpected{ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties}};
+            }
           }
         }
       }

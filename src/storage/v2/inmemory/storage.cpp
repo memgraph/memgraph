@@ -744,13 +744,9 @@ std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::Uniq
     // aborted txn could delete one of vertices being deleted.
     auto acc = mem_storage->vertices_.access();
 
-    for (auto const *vertex : vertices_to_update) {
-      // No need to take any locks here because we modified this vertex and no
-      // one else can touch it until we commit.
-      if (auto const validation_result = mem_unique_constraints->Validate(*vertex, transaction_, *commit_timestamp_);
-          !validation_result.has_value()) {
-        return std::unexpected{validation_result.error()};
-      }
+    auto validation_result = mem_unique_constraints->Validate(vertices_to_update, transaction_, *commit_timestamp_);
+    if (!validation_result.has_value()) {
+      return std::unexpected{validation_result.error()};
     }
   }
   return {};

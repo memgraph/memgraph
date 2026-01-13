@@ -69,7 +69,6 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
   };
 
-  // TODO (ivan): better name for this?
   enum class ValidationStatus : bool { VALIDATING, READY };
 
   // constraints are created and dropped with read only access
@@ -127,8 +126,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// This method should be called while commit lock is active with
   /// `commit_timestamp` being a potential commit timestamp of the transaction.
   /// @throw std::bad_alloc
-  std::expected<void, ConstraintViolation> Validate(const Vertex &vertex, const Transaction &tx,
-                                                    uint64_t commit_timestamp) const;
+  std::expected<void, ConstraintViolation> Validate(const std::unordered_set<Vertex const *> &vertices,
+                                                    const Transaction &tx, uint64_t commit_timestamp) const;
 
   std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const override;
 
