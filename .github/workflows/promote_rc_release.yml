@@ -243,10 +243,10 @@ jobs:
             IMAGE_TAG="${IMAGE_TAG}-relwithdebinfo"
           fi
           # TODO(matt): fix packaging to add "malloc" to the tag
-          RC_IMAGE_TAG="${IMAGE_TAG}"
           if [[ "${{ matrix.malloc }}" == "true" ]]; then
             IMAGE_TAG="${IMAGE_TAG}-malloc"
           fi
+          RC_IMAGE_TAG="${IMAGE_TAG}"
           IMAGE_TAG_AMD="${IMAGE_TAG}-amd64"
           IMAGE_TAG_ARM="${IMAGE_TAG}-arm64"
           echo "Docker image tag: ${IMAGE_TAG}"
