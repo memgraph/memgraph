@@ -63,7 +63,31 @@ std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraint
   });
 }
 
-[[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::Validate(const Vertex &vertex) {
+[[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::Validate(
+    std::unordered_set<Vertex const *> vertices_to_update) {
+  return constraints_.WithReadLock([&](auto &constraints) -> std::expected<void, ConstraintViolation> {
+    auto validate = [&](const Vertex &vertex) -> std::expected<void, ConstraintViolation> {
+      for (const auto &[constraint, status] : constraints) {
+        if (auto violation = ValidateVertexOnConstraint(vertex, constraint.label, constraint.property);
+            violation.has_value()) {
+          return std::unexpected{violation.error()};
+        }
+      }
+      return {};
+    };
+
+    for (auto const *vertex : vertices_to_update) {
+      // No need to take any locks here because we modified this vertex and no
+      // one else can touch it until we commit.
+      if (auto validation_result = validate(*vertex); !validation_result.has_value()) {
+        return std::unexpected{validation_result.error()};
+      }
+    }
+    return {};
+  });
+}
+
+[[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::DiskValidate(Vertex const &vertex) {
   return constraints_.WithReadLock([&](auto &constraints) -> std::expected<void, ConstraintViolation> {
     for (const auto &[constraint, status] : constraints) {
       if (auto violation = ValidateVertexOnConstraint(vertex, constraint.label, constraint.property);

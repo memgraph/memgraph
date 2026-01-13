@@ -713,15 +713,10 @@ std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::Exis
   auto const has_any_existence_constraints = !storage_->constraints_.existence_constraints_->empty();
   if (has_any_existence_constraints && transaction_.constraint_verification_info &&
       transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
-    const auto vertices_to_update =
-        transaction_.constraint_verification_info->GetVerticesForExistenceConstraintChecking();
-    for (auto const *vertex : vertices_to_update) {
-      // No need to take any locks here because we modified this vertex and no
-      // one else can touch it until we commit.
-      if (auto validation_result = storage_->constraints_.existence_constraints_->Validate(*vertex);
-          !validation_result.has_value()) {
-        return std::unexpected{validation_result.error()};
-      }
+    auto validation_result = storage_->constraints_.existence_constraints_->Validate(
+        transaction_.constraint_verification_info->GetVerticesForExistenceConstraintChecking());
+    if (!validation_result.has_value()) {
+      return std::unexpected{validation_result.error()};
     }
   }
   return {};

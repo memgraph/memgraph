@@ -1247,7 +1247,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
 
 [[nodiscard]] std::expected<void, StorageManipulationError> DiskStorage::CheckVertexConstraintsBeforeCommit(
     const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const {
-  if (auto existence_constraint_validation_result = constraints_.existence_constraints_->Validate(vertex);
+  if (auto existence_constraint_validation_result = constraints_.existence_constraints_->DiskValidate(vertex);
       !existence_constraint_validation_result.has_value()) {
     return std::unexpected{StorageManipulationError{existence_constraint_validation_result.error()}};
   }

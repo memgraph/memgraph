@@ -14,6 +14,7 @@
 #include <optional>
 #include <variant>
 
+#include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
@@ -77,9 +78,10 @@ class ExistenceConstraints {
   void PublishConstraint(LabelId label, PropertyId property);
   bool DropConstraint(LabelId label, PropertyId property);
 
-  ///  Returns `std::nullopt` if all checks pass, and `ConstraintViolation` describing the violated constraint
-  ///  otherwise.
-  [[nodiscard]] std::expected<void, ConstraintViolation> Validate(const Vertex &vertex);
+  std::expected<void, ConstraintViolation> Validate(std::unordered_set<Vertex const *> vertices_to_update);
+
+  // performantly bad but disk will be removed soon
+  std::expected<void, ConstraintViolation> DiskValidate(Vertex const &vertex);
 
   std::vector<std::pair<LabelId, PropertyId>> ListConstraints() const;
 

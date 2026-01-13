@@ -544,15 +544,10 @@ std::expected<void, ConstraintViolation> InMemoryUniqueConstraints::Validate(con
 
 std::vector<std::pair<LabelId, std::set<PropertyId>>> InMemoryUniqueConstraints::ListConstraints() const {
   return container_.WithReadLock([&](const auto &container) {
-    std::vector<std::pair<LabelId, std::set<PropertyId>>> ret;
-    ret.reserve(container.constraints_.size());
-    for (const auto &[label_props, individual_constraint] : container.constraints_) {
-      if (individual_constraint.status != ValidationStatus::READY) [[unlikely]] {
-        continue;
-      }
-      ret.emplace_back(label_props);
-    }
-    return ret;
+    return container.constraints_ |
+           std::views::filter([](const auto &entry) { return entry.second.status == ValidationStatus::READY; }) |
+           std::views::transform([](const auto &entry) { return entry.first; }) |
+           std::ranges::to<std::vector<std::pair<LabelId, std::set<PropertyId>>>>();
   });
 }
 
