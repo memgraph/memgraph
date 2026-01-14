@@ -467,9 +467,8 @@ class DbmsHandler {
       auto &db_gk = db_gatekeeper_;
 #endif
       auto db_acc = db_gk.access();
-      if (!db_acc) continue;  // This isn't an error, just a defunct db
       // Stop when the result of the function is false
-      if (!f(*db_acc)) {
+      if (db_acc && !f(*db_acc)) {
         return false;
       }
     }
