@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,6 +20,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/file.hpp"
+#include "utils/small_vector.hpp"
 #include "utils/temporal.hpp"
 
 static const std::string kTestMagic{"MGtest"};
@@ -157,7 +158,9 @@ GENERATE_READ_TEST(
     memgraph::storage::ExternalPropertyValue(memgraph::storage::Point3d{
         memgraph::storage::CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, 3.0}),
     memgraph::storage::ExternalPropertyValue(memgraph::storage::Point3d{
-        memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
+        memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}),
+    memgraph::storage::ExternalPropertyValue(memgraph::storage::ExternalPropertyValue::vector_index_id_t{"test_index"},
+                                             memgraph::utils::small_vector<float>{1.0f, 2.0f, 3.0f}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_SKIP_TEST(name, type, ...)                              \
@@ -219,7 +222,9 @@ GENERATE_SKIP_TEST(
     memgraph::storage::ExternalPropertyValue(memgraph::storage::Point3d{
         memgraph::storage::CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, 3.0}),
     memgraph::storage::ExternalPropertyValue(memgraph::storage::Point3d{
-        memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
+        memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}),
+    memgraph::storage::ExternalPropertyValue(memgraph::storage::ExternalPropertyValue::vector_index_id_t{"test_index"},
+                                             memgraph::utils::small_vector<float>{1.0f, 2.0f, 3.0f}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_PARTIAL_READ_TEST(name, value)                                                \
@@ -301,7 +306,10 @@ GENERATE_PARTIAL_READ_TEST(
         memgraph::storage::ExternalPropertyValue(memgraph::storage::Point3d{
             memgraph::storage::CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, 3.0}),
         memgraph::storage::ExternalPropertyValue(memgraph::storage::Point3d{
-            memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0})}));
+            memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}),
+        memgraph::storage::ExternalPropertyValue(
+            memgraph::storage::ExternalPropertyValue::vector_index_id_t{"test_index"},
+            memgraph::utils::small_vector<float>{1.0f, 2.0f, 3.0f})}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_PARTIAL_SKIP_TEST(name, value)                                                \
@@ -369,7 +377,10 @@ GENERATE_PARTIAL_SKIP_TEST(
         memgraph::storage::ExternalPropertyValue(memgraph::storage::Point3d{
             memgraph::storage::CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, 3.0}),
         memgraph::storage::ExternalPropertyValue(memgraph::storage::Point3d{
-            memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0})}));
+            memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}),
+        memgraph::storage::ExternalPropertyValue(
+            memgraph::storage::ExternalPropertyValue::vector_index_id_t{"test_index"},
+            memgraph::utils::small_vector<float>{1.0F, 2.0F, 3.0F})}));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
@@ -398,6 +409,7 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::TYPE_ENUM:
         case memgraph::storage::durability::Marker::TYPE_POINT_2D:
         case memgraph::storage::durability::Marker::TYPE_POINT_3D:
+        case memgraph::storage::durability::Marker::TYPE_VECTOR_INDEX_ID:
           valid_marker = true;
           break;
 

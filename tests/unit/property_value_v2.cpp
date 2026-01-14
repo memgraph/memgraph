@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
+#include "utils/small_vector.hpp"
 
 using namespace memgraph::storage;
 using enum CoordinateReferenceSystem;
@@ -30,23 +31,23 @@ using enum CoordinateReferenceSystem;
 ///!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 // helpers
-template <typename Alloc, typename KeyType>
-bool IsOnlyOneType(const PropertyValueImpl<Alloc, KeyType> &pv) {
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+bool IsOnlyOneType(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &pv) {
   auto count = pv.IsNull() + pv.IsBool() + pv.IsInt() + pv.IsDouble() + pv.IsString() + pv.IsList() + pv.IsMap() +
-               pv.IsEnum() + pv.IsPoint2d() + pv.IsPoint3d();
+               pv.IsEnum() + pv.IsPoint2d() + pv.IsPoint3d() + pv.IsVectorIndexId();
   return count == 1;
 }
 
-template <typename Alloc, typename KeyType>
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
 struct PropertyTestCase {
-  PropertyValueImpl<Alloc, KeyType> value;
+  PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> value;
   PropertyValue::Type expected_type;
   std::string expected_type_str;
   std::string expected_value_str;
 };
 
-template <typename Alloc, typename KeyType>
-void RunCommonPropertyValueChecks(const PropertyTestCase<Alloc, KeyType> &tc) {
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+void RunCommonPropertyValueChecks(const PropertyTestCase<Alloc, KeyType, VectorIndexIdType> &tc) {
   const auto &pv = tc.value;
   ASSERT_EQ(pv.type(), tc.expected_type);
   ASSERT_TRUE(IsOnlyOneType(pv));
@@ -83,8 +84,8 @@ void RunCommonPropertyValueChecks(const PropertyTestCase<Alloc, KeyType> &tc) {
   }
 }
 
-template <typename TPropertyValue, typename MapKey>
-std::vector<TPropertyValue> MakeTestPropertyValues(MapKey map_key) {
+template <typename TPropertyValue, typename MapKey, typename VectorIndexIdKey>
+std::vector<TPropertyValue> MakeTestPropertyValues(MapKey map_key, VectorIndexIdKey vector_index_key) {
   std::vector<TPropertyValue> vec{TPropertyValue(true), TPropertyValue(123)};
   typename TPropertyValue::map_t map{{map_key, TPropertyValue(false)}};
   const auto zdt_dur = memgraph::utils::AsSysTime(23);
@@ -92,6 +93,10 @@ std::vector<TPropertyValue> MakeTestPropertyValues(MapKey map_key) {
   std::vector<TPropertyValue> int_list{TPropertyValue(1), TPropertyValue(2), TPropertyValue(3)};
   std::vector<TPropertyValue> double_list{TPropertyValue(1.5), TPropertyValue(2.5), TPropertyValue(3.5)};
   std::vector<TPropertyValue> numeric_list{TPropertyValue(1), TPropertyValue(2.5), TPropertyValue(3.5)};
+
+  // VectorIndexId test data
+  typename TPropertyValue::vector_index_id_t vector_index_ids{vector_index_key};
+  memgraph::utils::small_vector<float> vector_data{1.0f, 2.0f, 3.0f};
 
   return {
       TPropertyValue(),
@@ -114,6 +119,7 @@ std::vector<TPropertyValue> MakeTestPropertyValues(MapKey map_key) {
       TPropertyValue{IntListTag{}, int_list},
       TPropertyValue{DoubleListTag{}, double_list},
       TPropertyValue{NumericListTag{}, numeric_list},
+      TPropertyValue{vector_index_ids, vector_data},
   };
 }
 
@@ -406,7 +412,7 @@ TEST(PropertyValue, Point3d) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, CopyConstructor) {
   auto property_id = PropertyId::FromUint(1);
-  auto data = MakeTestPropertyValues<PropertyValue>(property_id);
+  auto data = MakeTestPropertyValues<PropertyValue>(property_id, 1UL);
 
   for (const auto &item : data) {
     PropertyValue pv(item);
@@ -457,6 +463,10 @@ TEST(PropertyValue, CopyConstructor) {
       case PropertyValue::Type::Point3d:
         ASSERT_EQ(pv.ValuePoint3d(), item.ValuePoint3d());
         break;
+      case PropertyValue::Type::VectorIndexId:
+        ASSERT_EQ(pv.ValueVectorIndexIds(), item.ValueVectorIndexIds());
+        ASSERT_EQ(pv.ValueVectorIndexList(), item.ValueVectorIndexList());
+        break;
     }
   }
 }
@@ -464,7 +474,7 @@ TEST(PropertyValue, CopyConstructor) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MoveConstructor) {
   auto property_id = PropertyId::FromUint(1);
-  auto data = MakeTestPropertyValues<PropertyValue>(property_id);
+  auto data = MakeTestPropertyValues<PropertyValue>(property_id, 1UL);
 
   for (auto &item : data) {
     PropertyValue copy(item);
@@ -516,6 +526,10 @@ TEST(PropertyValue, MoveConstructor) {
       case PropertyValue::Type::Point3d:
         ASSERT_EQ(pv.ValuePoint3d(), copy.ValuePoint3d());
         break;
+      case PropertyValue::Type::VectorIndexId:
+        ASSERT_EQ(pv.ValueVectorIndexIds(), copy.ValueVectorIndexIds());
+        ASSERT_EQ(pv.ValueVectorIndexList(), copy.ValueVectorIndexList());
+        break;
     }
   }
 }
@@ -523,7 +537,7 @@ TEST(PropertyValue, MoveConstructor) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, CopyAssignment) {
   auto property_id = PropertyId::FromUint(1);
-  auto data = MakeTestPropertyValues<PropertyValue>(property_id);
+  auto data = MakeTestPropertyValues<PropertyValue>(property_id, 1UL);
 
   for (const auto &item : data) {
     PropertyValue pv(123);
@@ -575,6 +589,10 @@ TEST(PropertyValue, CopyAssignment) {
       case PropertyValue::Type::Point3d:
         ASSERT_EQ(pv.ValuePoint3d(), item.ValuePoint3d());
         break;
+      case PropertyValue::Type::VectorIndexId:
+        ASSERT_EQ(pv.ValueVectorIndexIds(), item.ValueVectorIndexIds());
+        ASSERT_EQ(pv.ValueVectorIndexList(), item.ValueVectorIndexList());
+        break;
     }
   }
 }
@@ -582,7 +600,7 @@ TEST(PropertyValue, CopyAssignment) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MoveAssignment) {
   auto property_id = PropertyId::FromUint(1);
-  auto data = MakeTestPropertyValues<PropertyValue>(property_id);
+  auto data = MakeTestPropertyValues<PropertyValue>(property_id, 1UL);
 
   for (auto &item : data) {
     PropertyValue copy(item);
@@ -635,6 +653,10 @@ TEST(PropertyValue, MoveAssignment) {
       case PropertyValue::Type::Point3d:
         ASSERT_EQ(pv.ValuePoint3d(), copy.ValuePoint3d());
         break;
+      case PropertyValue::Type::VectorIndexId:
+        ASSERT_EQ(pv.ValueVectorIndexIds(), copy.ValueVectorIndexIds());
+        ASSERT_EQ(pv.ValueVectorIndexList(), copy.ValueVectorIndexList());
+        break;
     }
   }
 }
@@ -664,7 +686,7 @@ TEST(PropertyValue, MoveAssignmentSelf) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Equal) {
   auto property_id = PropertyId::FromUint(1);
-  const auto data = MakeTestPropertyValues<PropertyValue>(property_id);
+  const auto data = MakeTestPropertyValues<PropertyValue>(property_id, 1UL);
 
   auto same_type = [](const auto &a, const auto &b) { return a.type() == b.type(); };
   auto same_point2d = [](const auto &a, const auto &b) { return a.ValuePoint2d().crs() == b.ValuePoint2d().crs(); };
@@ -910,7 +932,7 @@ TEST(PMRPropertyValue, InteropWithPropertyValue) {
 TEST(PropertyValue, PropertyValueToExternalPropertyValue) {
   memgraph::storage::NameIdMapper name_id_mapper;
   auto property_id = PropertyId::FromUint(name_id_mapper.NameToId("id"));
-  auto data = MakeTestPropertyValues<ExternalPropertyValue>("id");
+  auto data = MakeTestPropertyValues<ExternalPropertyValue>("id", std::string("test_index"));
 
   for (const auto &val : data) {
     auto pv = ToPropertyValue(val, &name_id_mapper);
@@ -964,6 +986,10 @@ TEST(PropertyValue, PropertyValueToExternalPropertyValue) {
       case PropertyValue::Type::Point3d:
         ASSERT_EQ(pv.ValuePoint3d(), val.ValuePoint3d());
         break;
+      case PropertyValue::Type::VectorIndexId:
+        ASSERT_EQ(pv.ValueVectorIndexIds().size(), val.ValueVectorIndexIds().size());
+        ASSERT_EQ(pv.ValueVectorIndexList().size(), val.ValueVectorIndexList().size());
+        break;
     }
   }
 }
@@ -971,7 +997,7 @@ TEST(PropertyValue, PropertyValueToExternalPropertyValue) {
 TEST(PropertyValue, ExternalPropertyValueToPropertyValue) {
   memgraph::storage::NameIdMapper name_id_mapper;
   auto property_id = PropertyId::FromUint(name_id_mapper.NameToId("id"));
-  auto data = MakeTestPropertyValues<PropertyValue>(property_id);
+  auto data = MakeTestPropertyValues<PropertyValue>(property_id, 1UL);
 
   for (const auto &val : data) {
     auto pv = ToExternalPropertyValue(val, &name_id_mapper);
@@ -1024,6 +1050,10 @@ TEST(PropertyValue, ExternalPropertyValueToPropertyValue) {
         break;
       case PropertyValue::Type::Point3d:
         ASSERT_EQ(pv.ValuePoint3d(), val.ValuePoint3d());
+        break;
+      case PropertyValue::Type::VectorIndexId:
+        ASSERT_EQ(pv.ValueVectorIndexIds().size(), val.ValueVectorIndexIds().size());
+        ASSERT_EQ(pv.ValueVectorIndexList().size(), val.ValueVectorIndexList().size());
         break;
     }
   }

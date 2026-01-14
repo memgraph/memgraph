@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -533,7 +533,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
-  ASSERT_TRUE(vector_idx.CreateIndex(spec, vertices_acc, snapshot_info));
+  ASSERT_TRUE(vector_idx.CreateIndex(spec, vertices_acc, storage.name_id_mapper_.get(), snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
@@ -566,7 +566,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 4000);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(vector_idx.CreateIndex(spec, vertices_acc, snapshot_info));
+  ASSERT_TRUE(vector_idx.CreateIndex(spec, vertices_acc, storage.name_id_mapper_.get(), snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedNoVertices) {

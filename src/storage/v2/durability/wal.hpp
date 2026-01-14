@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -505,7 +505,7 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl, memgraph::storage::Indices *indices);
+    memgraph::storage::ttl::TTL *ttl);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {

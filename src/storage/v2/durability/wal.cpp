@@ -958,7 +958,7 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl, memgraph::storage::Indices *indices) {
+    memgraph::storage::ttl::TTL *ttl) {
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;

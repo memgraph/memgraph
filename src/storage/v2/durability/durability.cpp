@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -617,7 +617,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
-                            edge_count, config.salient.items, enum_store, schema_info, find_edge, ttl, indices);
+                            edge_count, config.salient.items, enum_store, schema_info, find_edge, ttl);
         // Update recovery info data only if WAL file was used and its deltas loaded
 
         bool wal_contains_changes{false};
