@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,13 +26,14 @@ namespace {
 
 inline auto &GetQueryTracker() {
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-  static thread_local utils::QueryMemoryTracker *query_memory_tracker_ = nullptr;
+  constinit static thread_local utils::QueryMemoryTracker *query_memory_tracker_ [[gnu::tls_model("initial-exec")]] =
+      nullptr;
   return query_memory_tracker_;
 }
 
 inline auto &GetUserTracker() {
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-  static thread_local utils::UserResources *user_resource_ = nullptr;
+  constinit static thread_local utils::UserResources *user_resource_ [[gnu::tls_model("initial-exec")]] = nullptr;
   return user_resource_;
 }
 

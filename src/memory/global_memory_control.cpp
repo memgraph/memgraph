@@ -12,7 +12,6 @@
 #include <cstdint>
 
 #include "global_memory_control.hpp"
-#include "memory/query_memory_control.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -143,101 +142,97 @@ static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t siz
 void SetHooks() {
 #if USE_JEMALLOC
 
-  uint64_t allocated{0};
-  uint64_t sz{sizeof(allocated)};
-
-  sz = sizeof(unsigned);
-  unsigned n_arenas{0};
-  int err = je_mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
-
-  if (err) {
-    return;
-  }
-
   if (nullptr != old_hooks) {
     return;
   }
 
-  for (int i = 0; i < n_arenas; i++) {
+  unsigned n_arenas = 0;
+  size_t sz = sizeof(n_arenas);
+  int err = je_mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
+  if (err) {
+    LOG_FATAL("Error getting number of jemalloc arenas");
+  }
+
+  for (unsigned i = 0; i < n_arenas; i++) {
     std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
 
-    size_t hooks_len = sizeof(old_hooks);
+    extent_hooks_t *current_old_hooks = nullptr;
+    size_t hooks_len = sizeof(extent_hooks_t *);
 
-    int err = je_mallctl(func_name.c_str(), &old_hooks, &hooks_len, nullptr, 0);
-
+    err = je_mallctl(func_name.c_str(), (void *)&current_old_hooks, &hooks_len, nullptr, 0);
     if (err) {
       LOG_FATAL("Error getting hooks for jemalloc arena {}", i);
     }
 
+    MG_ASSERT(current_old_hooks);
+    MG_ASSERT(current_old_hooks->alloc);
+    MG_ASSERT(current_old_hooks->dalloc);
+    MG_ASSERT(current_old_hooks->destroy);
+    MG_ASSERT(current_old_hooks->commit);
+    MG_ASSERT(current_old_hooks->decommit);
+    MG_ASSERT(current_old_hooks->purge_forced);
+    MG_ASSERT(current_old_hooks->purge_lazy);
+    MG_ASSERT(current_old_hooks->split);
+    MG_ASSERT(current_old_hooks->merge);
+
+    // First arena
+    if (old_hooks == nullptr) {
+      old_hooks = current_old_hooks;
+      // Setup remaining hooks (reuse from old hooks)
+      custom_hooks.purge_lazy = old_hooks->purge_lazy;
+      custom_hooks.split = old_hooks->split;
+      custom_hooks.merge = old_hooks->merge;
+    } else {
+      MG_ASSERT(old_hooks == current_old_hooks, "Inconsistent jemalloc hooks across arenas");
+    }
+
     // Due to the way jemalloc works, we need first to set their hooks
     // which will trigger creating arena, then we can set our custom hook wrappers
-
-    err = je_mallctl(func_name.c_str(), nullptr, nullptr, &old_hooks, sizeof(old_hooks));
-
-    MG_ASSERT(old_hooks);
-    MG_ASSERT(old_hooks->alloc);
-    MG_ASSERT(old_hooks->dalloc);
-    MG_ASSERT(old_hooks->destroy);
-    MG_ASSERT(old_hooks->commit);
-    MG_ASSERT(old_hooks->decommit);
-    MG_ASSERT(old_hooks->purge_forced);
-    MG_ASSERT(old_hooks->purge_lazy);
-    MG_ASSERT(old_hooks->split);
-    MG_ASSERT(old_hooks->merge);
-
-    custom_hooks.purge_lazy = old_hooks->purge_lazy;
-    custom_hooks.split = old_hooks->split;
-    custom_hooks.merge = old_hooks->merge;
-
+    err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&old_hooks, sizeof(extent_hooks_t *));
     if (err) {
       LOG_FATAL("Error setting jemalloc hooks for jemalloc arena {}", i);
     }
 
-    err = je_mallctl(func_name.c_str(), nullptr, nullptr, &new_hooks, sizeof(new_hooks));
-
+    // Update hooks
+    err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&new_hooks, sizeof(extent_hooks_t *));
     if (err) {
       LOG_FATAL("Error setting custom hooks for jemalloc arena {}", i);
     }
   }
-
 #endif
 }
 
 void UnsetHooks() {
 #if USE_JEMALLOC
-
-  uint64_t allocated{0};
-  uint64_t sz{sizeof(allocated)};
-
-  sz = sizeof(unsigned);
-  unsigned n_arenas{0};
-  int err = je_mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
-
-  if (err) {
-    LOG_FATAL("Error setting default hooks for jemalloc arenas");
+  if (nullptr == old_hooks) {
+    return;
   }
 
-  for (int i = 0; i < n_arenas; i++) {
+  MG_ASSERT(old_hooks);
+  MG_ASSERT(old_hooks->alloc);
+  MG_ASSERT(old_hooks->dalloc);
+  MG_ASSERT(old_hooks->destroy);
+  MG_ASSERT(old_hooks->commit);
+  MG_ASSERT(old_hooks->decommit);
+  MG_ASSERT(old_hooks->purge_forced);
+  MG_ASSERT(old_hooks->purge_lazy);
+  MG_ASSERT(old_hooks->split);
+  MG_ASSERT(old_hooks->merge);
+
+  unsigned n_arenas{0};
+  size_t sz = sizeof(n_arenas);
+  int err = je_mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
+  if (err) {
+    LOG_FATAL("Error getting number of jemalloc arenas");
+  }
+
+  for (unsigned i = 0; i < n_arenas; i++) {
     std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
-
-    MG_ASSERT(old_hooks);
-    MG_ASSERT(old_hooks->alloc);
-    MG_ASSERT(old_hooks->dalloc);
-    MG_ASSERT(old_hooks->destroy);
-    MG_ASSERT(old_hooks->commit);
-    MG_ASSERT(old_hooks->decommit);
-    MG_ASSERT(old_hooks->purge_forced);
-    MG_ASSERT(old_hooks->purge_lazy);
-    MG_ASSERT(old_hooks->split);
-    MG_ASSERT(old_hooks->merge);
-
-    err = je_mallctl(func_name.c_str(), nullptr, nullptr, &old_hooks, sizeof(old_hooks));
-
+    err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&old_hooks, sizeof(extent_hooks_t *));
     if (err) {
       LOG_FATAL("Error setting default hooks for jemalloc arena {}", i);
     }
   }
-
 #endif
 }
 
