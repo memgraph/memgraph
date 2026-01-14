@@ -10,7 +10,6 @@
              [generator :as gen]
              [client :as jclient]]
             [jepsen.checker.timeline :as timeline]
-            [memgraph.high-availability.utils :as hautils]
             [memgraph.high-availability.create.nemesis :as nemesis]
             [memgraph.utils :as utils]
             [memgraph.query :as mgquery]))
@@ -33,15 +32,6 @@
 
 (def setup-cluster? (atom false))
 
-
-; By modifying batch-size, we are testing the configuration in a different replication sitauations.
-; Each situation won't last equally because of a different number of deltas.
-(defn batch-size
-  "Number of nodes to import in the batch."
-  []
-  (let [res (rand-nth [100 1000 5000 10000 50000])]
-    (info "Batch size:" res)
-    res))
 
 (def delay-requests-sec 5)
 (defn hamming-sim
@@ -231,7 +221,7 @@
     (let [bolt-conn (:bolt-conn this)
           node (:node this)]
       (case (:f op)
-        :get-nodes (if (hautils/data-instance? node)
+        :get-nodes (if (utils/data-instance? node)
                      (try
                        #_{:clj-kondo/ignore [:unresolved-symbol]}
                        (utils/with-session bolt-conn session
@@ -243,7 +233,7 @@
                          (assoc op :type :fail :value (str e))))
                      (assoc op :type :info :value "Not data instance."))
 
-        :create-unique-constraint (if (and (hautils/data-instance? node) (is-main? bolt-conn))
+        :create-unique-constraint (if (and (utils/data-instance? node) (is-main? bolt-conn))
                                     (try
                                       #_{:clj-kondo/ignore [:unresolved-symbol]}
                                       (utils/with-session bolt-conn session
@@ -268,20 +258,20 @@
 
                                     (assoc op :type :info :value "Not main data instance."))
 
-        :add-nodes (if (hautils/coord-instance? node)
+        :add-nodes (if (utils/coord-instance? node)
                      (try
                        #_{:clj-kondo/ignore [:unresolved-symbol]}
                        (utils/with-session bolt-conn session
                          (let [instances (reduce conj [] #_{:clj-kondo/ignore [:unresolved-var]}
                                                  (mgquery/get-all-instances session))
-                               current-leader (hautils/get-current-leader instances)]
+                               current-leader (utils/get-current-leader instances)]
                            (if (= current-leader node)
                              (let [bolt-routing-conn (utils/open-bolt-routing node)
                                    max-idx (atom nil)]
                                (try
                                  (utils/with-session bolt-routing-conn session
                                    (let [local-idx (->> #_{:clj-kondo/ignore [:unresolved-var]}
-                                                    (mgquery/add-nodes session {:batchSize (batch-size)})
+                                                    (mgquery/add-nodes session {:batchSize (utils/batch-size)})
                                                         (map :id)
                                                         (reduce conj [])
                                                         first)]
@@ -334,7 +324,7 @@
                      (assoc op :type :info :value "Not coordinator instance."))
 
 ; Show instances should be run only on coordinators/
-        :show-instances-read (if (hautils/coord-instance? node)
+        :show-instances-read (if (utils/coord-instance? node)
                                (try
                                  #_{:clj-kondo/ignore [:unresolved-symbol]}
                                  (utils/with-session bolt-conn session ; Use bolt connection for running show instances.
