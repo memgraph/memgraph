@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.to_set([]) AS result;
+
+output:
+  - result: []

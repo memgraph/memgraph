@@ -1,0 +1,21 @@
+query: >
+    CALL llm_util.schema('raw') YIELD schema WITH schema.relationships AS relationships UNWIND relationships AS relationship RETURN relationship['start'] AS start, relationship['type'] AS type, relationship['end'] AS end ORDER BY start, type, end;
+output:
+  - start: "Person"
+    type: "IS_FRIENDS_WITH"
+    end: "Person"
+  - start: "Person"
+    type: "IS_FRIENDS_WITH"
+    end: "Student"
+  - start: "Person"
+    type: "LIVES_IN"
+    end: "City"
+  - start: "Person"
+    type: "STUDIES_AT"
+    end: "University"
+  - start: "Student"
+    type: "LIVES_IN"
+    end: "City"
+  - start: "Student"
+    type: "STUDIES_AT"
+    end: "University"

@@ -1,0 +1,7 @@
+query: >
+    MATCH (n:Dog), (p:Player), (h:Human)
+    WITH labels(n) as n_labels, labels(p) as p_labels, labels(h) as h_labels
+    RETURN collections.union_all([n_labels, p_labels], [h_labels]) AS return_list;
+
+output:
+  - return_list: [["Dog"],["Player"],["Human"]]

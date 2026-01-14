@@ -1,0 +1,12 @@
+query: |
+  CALL migrate.postgresql('SELECT tsvector_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.tsvector_col) AS tsvector_col_type, toString(row.tsvector_col) AS tsvector_col
+
+exception: true

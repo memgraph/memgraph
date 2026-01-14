@@ -1,0 +1,11 @@
+- query: >
+      MATCH (n)-[:CONNECTED_TO]->(m)
+      RETURN n.id AS nid, m.id AS mid
+
+  output:
+      - nid: 1
+        mid: 2
+      - nid: 2
+        mid: 3
+      - nid: 3
+        mid: 4

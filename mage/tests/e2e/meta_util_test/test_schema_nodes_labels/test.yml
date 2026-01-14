@@ -1,0 +1,8 @@
+query: >
+    CALL meta_util.schema() YIELD nodes, relationships UNWIND nodes AS node UNWIND node.labels AS label RETURN label ORDER BY label DESC;
+output:
+  - label: "University"
+  - label: "Student"
+  - label: "Person"
+  - label: "Person"
+  - label: "City"

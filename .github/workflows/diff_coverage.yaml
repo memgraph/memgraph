@@ -166,7 +166,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   clang-tidy-community:
     if: ${{ inputs.run_clang_tidy == 'true' }}
@@ -216,6 +216,15 @@ jobs:
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
 
+      - name: Configure mage
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --no-ccache \
+          build-mage --config-only
+
       - name: Run clang-tidy
         run: |
           ./release/package/mgbuild.sh \
@@ -240,7 +249,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   clang-tidy-enterprise:
     if: ${{ inputs.run_clang_tidy == 'true' }}
@@ -290,6 +299,15 @@ jobs:
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
 
+      - name: Configure mage
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --no-ccache \
+          build-mage --config-only
+
       - name: Run clang-tidy
         run: |
           ./release/package/mgbuild.sh \
@@ -314,4 +332,4 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh

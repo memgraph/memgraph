@@ -182,7 +182,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
@@ -302,7 +302,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   e2e:
     if: ${{ inputs.run_e2e == 'true' }}
@@ -419,7 +419,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   stress:
     if: ${{ inputs.run_stress == 'true' }}
@@ -544,7 +544,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   query_modules:
     if: ${{ inputs.run_query_modules == 'true' }}
@@ -632,4 +632,4 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh

@@ -1,0 +1,7 @@
+query: >
+  MATCH (n)
+  RETURN COUNT(n.embedding) as embeddings_num;
+
+
+output:
+    - embeddings_num: 5

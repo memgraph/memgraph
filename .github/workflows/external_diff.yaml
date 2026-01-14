@@ -35,6 +35,10 @@ on:
       malloc_build:
         type: boolean
         default: true
+      mage:
+        type: string
+        default: 'amd,arm,cuda'
+        description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
 
 jobs:
   CallCreateStagingBranch:
@@ -55,6 +59,7 @@ jobs:
       jepsen_core: ${{ inputs.jepsen_core }}
       release: ${{ inputs.release }}
       malloc_build: ${{ inputs.malloc_build }}
+      mage: ${{ inputs.mage }}
       ref: ${{ needs.CallCreateStagingBranch.outputs.staging_branch }}
     secrets: inherit
 
@@ -79,7 +84,7 @@ jobs:
             echo "❌ Diff workflow failed"
           fi
 
-          python3 ./tools/external-contributions/pr_comment_update.py \
+          python3 ./tools/ci/external-contributions/pr_comment_update.py \
             "${{ needs.CallCreateStagingBranch.outputs.comment_id }}" \
             "${{ github.event.inputs.pr_number }}" \
             "${{ needs.CallCreateStagingBranch.outputs.staging_branch }}" \

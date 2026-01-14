@@ -29,6 +29,10 @@ on:
       malloc_build:
         type: boolean
         default: true
+      mage:
+        type: string
+        default: 'amd,arm,cuda'
+        description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
   workflow_call:
     inputs:
       community_core:
@@ -54,6 +58,10 @@ on:
       malloc_build:
         type: boolean
         default: true
+      mage:
+        type: string
+        default: 'amd,arm,cuda'
+        description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -76,6 +84,9 @@ jobs:
       run_release_stress: ${{ steps.setup.outputs.run_release_stress }}
       run_release_query_modules: ${{ steps.setup.outputs.run_release_query_modules }}
       run_malloc_build: ${{ steps.setup.outputs.run_malloc_build }}
+      run_mage_amd: ${{ steps.setup.outputs.run_mage_amd }}
+      run_mage_arm: ${{ steps.setup.outputs.run_mage_arm }}
+      run_mage_cuda: ${{ steps.setup.outputs.run_mage_cuda }}
     env:
       GH_CONTEXT: ${{ toJson(github) }}
       GH_CONTEXT_FILE_NAME: github_context.json
@@ -89,7 +100,7 @@ jobs:
         run: echo "$GH_CONTEXT" >> "$GH_CONTEXT_FILE_NAME"
       - name: Set up diff execution
         id: setup
-        run: ./tools/diff_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME" --base-branch "origin/master"
+        run: ./tools/ci/diff_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME" --base-branch "origin/master"
 
   Community:
     needs: DiffSetup
@@ -153,4 +164,15 @@ jobs:
       arch: 'amd'
       os: 'ubuntu-24.04'
       run_build: ${{ needs.DiffSetup.outputs.run_malloc_build }}
+    secrets: inherit
+
+  Mage:
+    needs: DiffSetup
+    uses: ./.github/workflows/diff_mage.yml
+    with:
+      ref: ${{ inputs.ref || github.ref }}
+      os: 'ubuntu-24.04'
+      run_amd: ${{ needs.DiffSetup.outputs.run_mage_amd == 'true' }}
+      run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
+      run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
     secrets: inherit

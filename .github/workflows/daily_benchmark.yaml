@@ -94,7 +94,7 @@ jobs:
         id: load-parquet
         continue-on-error: true
         run: |
-          ./tools/loop-benchmark.sh \
+          ./tools/ci/loop-benchmark.sh \
             mgbench-load-parquet \
             load-parquet \
             ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
@@ -106,7 +106,7 @@ jobs:
         id: macro-benchmark
         continue-on-error: true
         run: |
-          ./tools/loop-benchmark.sh \
+          ./tools/ci/loop-benchmark.sh \
             macro-benchmark \
             macro_benchmark \
             .harness_summary \
@@ -119,7 +119,7 @@ jobs:
         id: mgbench-supernode
         continue-on-error: true
         run: |
-          ./tools/loop-benchmark.sh \
+          ./tools/ci/loop-benchmark.sh \
             mgbench-supernode \
             supernode \
             ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
@@ -132,7 +132,7 @@ jobs:
         id: mgbench
         continue-on-error: true
         run: |
-          ./tools/loop-benchmark.sh \
+          ./tools/ci/loop-benchmark.sh \
             mgbench \
             mgbench \
             ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
@@ -145,7 +145,7 @@ jobs:
         id: planner
         continue-on-error: true
         run: |
-          ./tools/loop-benchmark.sh \
+          ./tools/ci/loop-benchmark.sh \
             "mgbench --dataset pokec_planner_optimizations --size medium" \
             mgbench-planner-optimizations \
             benchmark_result_extended.json \
@@ -167,7 +167,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
       - name: Trigger Regression Detection Job
         env:

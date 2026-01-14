@@ -48,6 +48,11 @@ on:
         description: "Generate SBOM"
         default: false
 
+    outputs:
+      package_s3_url:
+        description: "The URL of the package in the S3 bucket."
+        value: ${{ jobs.PackageAndUpload.outputs.package_s3_url }}
+
 env:
   TOOLCHAIN: v7
   GENERATE_SBOM: ${{ inputs.generate_sbom }}
@@ -69,6 +74,8 @@ jobs:
   PackageAndUpload:
     runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "DockerMgBuild", "ARM64"]') || fromJSON((inputs.os == 'centos-10' || inputs.os == 'rocky-10') && '["self-hosted", "DockerMgBuild", "X64", "x86-64-v3"]' || '["self-hosted", "DockerMgBuild", "X64"]') }}
     timeout-minutes: ${{ inputs.arch == 'arm' && 120 || 60 }}
+    outputs:
+      package_s3_url: ${{ steps.output_package_s3_url.outputs.package_s3_url }}
     steps:
       - name: "Validate S3 dest dir for official package"
         if: ${{ inputs.push_to_s3 == 'true' && inputs.s3_bucket == 'download.memgraph.com' }}
@@ -225,6 +232,10 @@ jobs:
       - name: "Create docker image"
         if: ${{ env.FOR_DOCKER == 'true' }}
         run: |
+          malloc=false
+          if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
+            malloc=true
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os "$OS" \
@@ -233,12 +244,13 @@ jobs:
           package-docker \
           --src-dir $PACKAGE_ARTIFACT_DIR \
           --dest-dir $DOCKER_ARTIFACT_DIR \
-          --generate-sbom $GENERATE_SBOM
+          --generate-sbom $GENERATE_SBOM \
+          --malloc $malloc
 
       - name: "Generate Build SBOM"
         if: ${{ env.GENERATE_SBOM == 'true'  && env.FOR_DOCKER != 'true' }}
         run: |
-          ./tools/sbom/build-sbom.sh
+          ./tools/ci/sbom/build-sbom.sh
 
       - name: "Upload SBOM Files"
         if: ${{ env.GENERATE_SBOM == 'true' }}
@@ -255,7 +267,7 @@ jobs:
           # if on master, then store the latest PR number and the commit
 
           # get the latest tagged version
-          tag="$(tools/get_latest_tag.sh)"
+          tag="$(tools/ci/get_latest_tag.sh)"
 
           # fetch the most recent PR number from git log
           pr="$(git log --pretty=%B | grep -oP '(?<=\(#)\d+(?=\))' | head -n 1)"
@@ -294,6 +306,19 @@ jobs:
           # rename it
           mv -v $old_name "$artifact_path/$new_name"
 
+      - name: Output Package S3 URL
+        id: output_package_s3_url
+        run: |
+          if [[ "$FOR_DOCKER" == "true" ]]; then
+            filename="$(ls -1 $DOCKER_ARTIFACT_DIR/memgraph* 2>/dev/null | head -n 1)"
+          else
+            filename="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph* 2>/dev/null | head -n 1)"
+          fi
+          # URL-encode the filename to handle unsafe characters like +, ~, etc.
+          encoded_filename=$(python3 -c "import urllib.parse; import sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$(basename "$filename")")
+          S3_URL="https://s3.eu-west-1.amazonaws.com/${S3_BUCKET}/${S3_DEST_DIR}/${{ env.ARTIFACT_NAME }}/${encoded_filename}"
+          echo "package_s3_url=$S3_URL" >> $GITHUB_OUTPUT
+
       - name: "Upload to Github"
         if: ${{  inputs.push_to_github == 'true' }}
         uses: actions/upload-artifact@v4
@@ -321,4 +346,4 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh

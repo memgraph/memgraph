@@ -1,0 +1,6 @@
+query: >
+    MATCH (d:Dog)
+    WHERE d.name IN ["Rex"]
+    CALL node.relationships_exist(d, ["KNOWS>","FOLLOWS","<KNOWS"]) YIELD result RETURN result;
+output:
+  - result: {"<KNOWS": false, "FOLLOWS": true,"KNOWS>": true}

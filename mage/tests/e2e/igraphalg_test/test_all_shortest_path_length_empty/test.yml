@@ -1,0 +1,6 @@
+query: >
+  CALL igraphalg.all_shortest_path_lengths()
+  YIELD *
+  RETURN *;
+
+output: []

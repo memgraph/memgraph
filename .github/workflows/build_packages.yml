@@ -1,4 +1,4 @@
-name: "Build and Upload Packages"
+name: "Post-PR Merge: Build and Upload MAGE Packages"
 
 on:
   pull_request:
@@ -11,6 +11,8 @@ on:
         type: string
         description: "PR number to use for the build (e.g., 1234)"
         required: true
+
+run-name: "Build and Upload Packages for PR merge"
 
 jobs:
   get-pr-number:
@@ -39,46 +41,19 @@ jobs:
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
           echo "PR Number: $PR_NUMBER"
 
-  build-packages:
+  build-packages-mage:
     if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch'
     name: "Build ${{ matrix.arch }} Package"
     needs: get-pr-number
-    uses: ./.github/workflows/reusable_package.yaml
+    uses: ./.github/workflows/reusable_package_mage.yaml
     secrets: inherit
     strategy:
       matrix:
         arch: [amd, arm]
     with:
-      os: ubuntu-24.04
       arch: ${{ matrix.arch }}
       build_type: RelWithDebInfo
       push_to_s3: true
-      s3_bucket: deps.memgraph.io
-      s3_dest_dir: pr-build/memgraph/pr${{ needs.get-pr-number.outputs.pr_number }}
+      s3_dest_dir: pr-build/mage/pr${{ needs.get-pr-number.outputs.pr_number }}
       ref: refs/heads/master
-
-  trigger-repository-dispatch:
-    if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch'
-    name: "Trigger Repository Dispatch"
-    needs: [get-pr-number, build-packages]
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Send Repository Dispatch
-        env:
-          GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
-        run: |
-          # Create the payload with the PR number
-          payload="{\"event_type\": \"trigger_pr_build\", \"client_payload\": {\"pr\": \"pr${{ needs.get-pr-number.outputs.pr_number }}\"}}"
-          echo "Payload: $payload"
-
-          # Send the dispatch request to the mage repository
-          curl -X POST \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: token $GITHUB_TOKEN" \
-            https://api.github.com/repos/memgraph/mage/dispatches \
-            -d "$payload"
+      print_output_url: true

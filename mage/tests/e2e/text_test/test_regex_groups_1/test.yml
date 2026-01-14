@@ -1,0 +1,4 @@
+query: >
+  CALL text.regexGroups("", "") YIELD results RETURN results;
+output:
+  - results: [[]]

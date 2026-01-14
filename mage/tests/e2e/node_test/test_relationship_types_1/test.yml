@@ -1,0 +1,6 @@
+query: >
+  MATCH (n:Intern) CALL node.relationship_types(n) yield relationship_types return relationship_types;
+output:
+  - relationship_types: ["KNOWS", "SEES"]
+  - relationship_types: ["HEARS", "KNOWS"]
+  - relationship_types: ["SEES", "HEARS"]

@@ -1,0 +1,143 @@
+name: "Package mage"
+
+on:
+  pull_request:
+    workflow_dispatch:
+      inputs:
+        build_arch:
+          type: choice
+          description: "Mage build architecture"
+          default: 'amd'
+          options:
+            - "amd"
+            - "arm"
+        build_type:
+          type: choice
+          description: "Mage build type"
+          default: 'Release'
+          options:
+            - "Release"
+            - "RelWithDebInfo"
+        memgraph_download_link:
+          description: "Memgraph package download link. Leave empty to use the official download link."
+          default: ""
+          type: string
+        cuda:
+          type: boolean
+          description: "Build the image for CUDA"
+          default: false
+        push_to_s3:
+          type: boolean
+          description: "Push the image to S3?"
+          default: false
+        s3_dest_dir:
+          type: string
+          description: "Destination directory in S3 bucket"
+          default: "mage-unofficial"
+        matrix_build:
+          type: boolean
+          description: "Enable multiple builds via a matrix configuration?"
+          default: false
+        malloc:
+          type: boolean
+          description: "Use malloc build of memgraph (no jemalloc)"
+          default: false
+        run_smoke_tests:
+          type: boolean
+          description: "Run smoke tests on images after building (tests against previous tagged image)"
+          default: false
+        ref:
+          type: string
+          description: "Branch or tag to build"
+          default: ''
+
+  workflow_call:
+    inputs:
+      arch:
+        type: string
+        description: "Architecture to build the image for"
+        required: true
+      build_type:
+        type: string
+        description: "Mage build type"
+        default: 'Release'
+      memgraph_download_link:
+        description: "Memgraph package download link. Leave empty to use the official download link."
+        default: ""
+        type: string
+      cuda:
+        type: boolean
+        description: "Build the image for CUDA"
+        default: false
+      push_to_s3:
+        type: boolean
+        description: "Push the image to S3?"
+        default: false
+      s3_dest_dir:
+        type: string
+        description: "Destination directory in S3 bucket"
+        default: "mage-unofficial"
+      matrix_build:
+        type: boolean
+        description: "Enable multiple builds via a matrix configuration?"
+        default: false
+      malloc:
+        type: boolean
+        description: "Use malloc build of memgraph (no jemalloc)"
+        default: false
+      run_smoke_tests:
+        type: boolean
+        description: "Run smoke tests on images after building (tests against previous tagged image)"
+        default: false
+      ref:
+        type: string
+        description: "Branch or tag to build"
+        default: ''
+
+
+jobs:
+  PackageSetup:
+    runs-on: ubuntu-latest
+    outputs:
+      build_packages: ${{ steps.setup.outputs.build_packages }}
+      package_suite: ${{ steps.setup.outputs.package_suite }}
+    env:
+      GH_CONTEXT: ${{ toJson(github) }}
+      GH_CONTEXT_FILE_NAME: github_context.json
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Dump GitHub context
+        run: echo "$GH_CONTEXT" >> "$GH_CONTEXT_FILE_NAME"
+
+      - name: Set up package execution
+        id: setup
+        run: python3 tools/ci/package_mage_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME"
+
+
+  BuildMage:
+    needs: PackageSetup
+    if: ${{ needs.PackageSetup.outputs.build_packages == 'true' }}
+    name: Build MAGE for ${{ matrix.arch }} ${{ matrix.build_type }}${{ matrix.cuda && ' CUDA' || '' }}${{ matrix.malloc && 'Malloc' || '' }}
+    uses: ./.github/workflows/reusable_package_mage.yaml
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.PackageSetup.outputs.package_suite) }}
+    with:
+      arch: ${{ matrix.arch }}
+      build_type: ${{ matrix.build_type }}
+      memgraph_download_link: ${{ matrix.memgraph_download_link }}
+      s3_dest_dir: ${{ matrix.s3_dest_dir }}
+      cuda: ${{ matrix.cuda }}
+      push_to_s3: ${{ matrix.push_to_s3 }}
+      malloc: ${{ matrix.malloc }}
+      run_smoke_tests: ${{ matrix.run_smoke_tests }}
+      run_tests: ${{ matrix.run_tests }}
+      package_deb: ${{ matrix.package_deb }}
+      generate_sbom: ${{ matrix.generate_sbom }}
+      ref: ${{ matrix.ref }}
+    secrets: inherit

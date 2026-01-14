@@ -1,0 +1,7 @@
+query: >
+    MATCH (n) RETURN n.prop as prop
+
+output:
+    - prop: 1
+    - prop: 1
+    - prop: 1

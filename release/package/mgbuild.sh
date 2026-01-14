@@ -65,6 +65,7 @@ SUPPORTED_TESTS=(
     code-coverage drivers drivers-high-availability durability e2e gql-behave
     integration leftover-CTest macro-benchmark
     mgbench stress-plain stress-ssl
+    query_modules_e2e query_modules_unit
     unit unit-coverage upload-to-bench-graph
 )
 DEFAULT_THREADS=0
@@ -77,24 +78,31 @@ DEFAULT_MGDEPS_CACHE_PORT="80"
 DEFAULT_CCACHE_ENABLED="true"
 DEFAULT_CONAN_CACHE_ENABLED="true"
 DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
+DEFAULT_RUST_VERSION="1.85"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
   echo -e "\nInteract with mgbuild containers"
 
   echo -e "\nCommands:"
-  echo -e "  build [OPTIONS]               Build mgbuild image"
-  echo -e "  build-memgraph [OPTIONS]      Build memgraph binary inside mgbuild container"
-  echo -e "  build-ssl [OPTIONS]           Build OpenSSL inside mgbuild container"
-  echo -e "  init-tests                    Initialize tests inside mgbuild container"
-  echo -e "  copy [OPTIONS]                Copy an artifact from mgbuild container to host"
-  echo -e "  package-memgraph              Create memgraph package from built binary inside mgbuild container"
-  echo -e "  package-docker [OPTIONS]      Create memgraph docker image and pack it as .tar.gz"
-  echo -e "  pull                          Pull mgbuild image from dockerhub"
-  echo -e "  push [OPTIONS]                Push mgbuild image to dockerhub"
-  echo -e "  run [OPTIONS]                 Run mgbuild container"
-  echo -e "  stop [OPTIONS]                Stop mgbuild container"
-  echo -e "  test-memgraph TEST            Run a selected test TEST (see supported tests below) inside mgbuild container"
+  echo -e "  build [OPTIONS]                    Build mgbuild image"
+  echo -e "  build-memgraph [OPTIONS]           Build memgraph binary inside mgbuild container"
+  echo -e "  init-tests                         Initialize tests inside mgbuild container"
+  echo -e "  copy [OPTIONS]                     Copy an artifact from mgbuild container to host"
+  echo -e "  package-memgraph                   Create memgraph package from built binary inside mgbuild container"
+  echo -e "  package-docker [OPTIONS]           Create memgraph docker image and pack it as .tar.gz"
+  echo -e "  package-mage-deb [OPTIONS]         Create MAGE DEB package"
+  echo -e "  package-mage-docker [OPTIONS]      Create MAGE docker image"
+  echo -e "  pull                               Pull mgbuild image from dockerhub"
+  echo -e "  push [OPTIONS]                     Push mgbuild image to dockerhub"
+  echo -e "  run [OPTIONS]                      Run mgbuild container"
+  echo -e "  stop [OPTIONS]                     Stop mgbuild container"
+  echo -e "  test-memgraph TEST                 Run a selected test TEST (see supported tests below) inside mgbuild container"
+  echo -e "  test-mage TEST                     Run a selected test TEST (see supported tests below) inside MAGE docker image"
+  echo -e "  generate-memgraph-build-sbom       Generate Memgraph build SBOM"
+  echo -e "  generate-mage-image-sbom [OPTIONS] Generate MAGE image SBOM"
+  echo -e "  build-pymgclient                   Build pymgclient inside mgbuild container"
+  echo -e "  build-ssl [OPTIONS]                Build OpenSSL inside mgbuild container"
 
   echo -e "\nSupported tests:"
   echo -e "  \"${SUPPORTED_TESTS[*]}\""
@@ -116,7 +124,7 @@ print_help () {
 
   echo -e "\nbuild options:"
   echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
-  echo -e "  --rust-version number         Specify rustc and cargo version which be installed (default \"1.80\")"
+  echo -e "  --rust-version number         Specify rustc and cargo version which be installed (default \"$DEFAULT_RUST_VERSION\")"
   echo -e "  --node-version number         Specify nodejs version which be installed (default \"20\")"
 
   echo -e "\nbuild-memgraph options:"
@@ -170,6 +178,9 @@ print_help () {
   echo -e "  --size string                 Specify dataset size: (for pokec: small, medium, large) (default \"medium\")"
   echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result.json\")"
 
+  echo -e "\ngenerate-mage-image-sbom options:"
+  echo -e "  --image-name string           Specify the image name (required)"
+
   echo -e "\nToolchain v4 supported OSs:"
   echo -e "  \"${SUPPORTED_OS_V4[*]}\""
 
@@ -195,6 +206,12 @@ print_help () {
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd copy --use-make-install --dest-dir build/install"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd stop --remove"
 }
+
+# Color codes
+RED_BOLD='\033[1;31m'
+YELLOW_BOLD='\033[1;33m'
+GREEN_BOLD='\033[1;32m'
+RESET='\033[0m'
 
 check_support() {
   local is_supported=false
@@ -781,6 +798,7 @@ package_docker() {
   local package_dir="$PROJECT_ROOT/build/output/$os"
   local docker_host_folder="$PROJECT_ROOT/build/output/docker/${arch}/${toolchain_version}"
   local generate_sbom=false
+  local malloc=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dest-dir)
@@ -793,6 +811,10 @@ package_docker() {
       ;;
       --generate-sbom)
         generate_sbom=$2
+        shift 2
+      ;;
+      --malloc)
+        malloc=$2
         shift 2
       ;;
       *)
@@ -808,7 +830,7 @@ package_docker() {
   cd "$docker_build_folder"
   if [[ "$os" == "ubuntu-24.04" && "$arch" == "amd" ]]; then
     echo "Finding best mirror"
-    mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh)"
+    mirror="$(${PROJECT_ROOT}/tools/ci/test-mirrors.sh)"
   else
     echo "Using default mirror"
     mirror=""
@@ -817,10 +839,10 @@ package_docker() {
 
   if [[ "$build_type" == "Release" ]]; then
     echo "Package release"
-    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --custom-mirror "$mirror" --generate-sbom $generate_sbom
+    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --custom-mirror "$mirror" --generate-sbom $generate_sbom --malloc $malloc
   else
     echo "Package other"
-    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --src-path "$PROJECT_ROOT/src" --custom-mirror "$mirror" --generate-sbom $generate_sbom
+    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --src-path "$PROJECT_ROOT/src" --custom-mirror "$mirror" --generate-sbom $generate_sbom --malloc $malloc
   fi
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
@@ -1193,6 +1215,11 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "pip install --break-system-packages --user -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests/query_modules && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 -m pytest ."
     ;;
+    query_modules_unit)
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
+      docker exec -u mg $build_container bash -c "pip install --break-system-packages --user -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
+      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR/tests/query_modules && PYTHONPATH=$MGBUILD_ROOT_DIR/mage/python:\$PYTHONPATH source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 unit_runner.py"
+    ;;
     *)
       echo "Error: Unknown test '$1'"
       print_help
@@ -1207,7 +1234,7 @@ build_heaptrack() {
   docker exec -i -u root $build_container bash -c "apt-get update && apt-get install -y libdw-dev libboost-all-dev"
   docker exec -i -u root $build_container bash -c "mkdir -p /tmp/heaptrack && chown mg:mg /tmp/heaptrack"
 
-  docker cp tools/build-heaptrack.sh $build_container:$MGBUILD_HOME_DIR/build-heaptrack.sh
+  docker cp tools/ci/build-heaptrack.sh $build_container:$MGBUILD_HOME_DIR/build-heaptrack.sh
   docker exec -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd $MGBUILD_HOME_DIR && ./build-heaptrack.sh"
 }
 
@@ -1226,6 +1253,486 @@ copy_heaptrack() {
     esac
   done
   docker cp $build_container:/tmp/heaptrack/ $dest_dir
+}
+
+build_mage() {
+  echo -e "${GREEN_BOLD}Building MAGE${RESET}"
+  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+  local rust_version=$DEFAULT_RUST_VERSION
+  local config_only=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --rust-version)
+        rust_version=$2
+        shift 2
+      ;;
+      --config-only)
+        config_only=true
+        shift 1
+      ;;
+    esac
+  done
+
+  # check if the repo has already been copied
+  if ! docker exec -u mg $build_container ls /home/mg/memgraph > /dev/null 2>&1; then
+    echo -e "${YELLOW_BOLD}Copying repo into container${RESET}"
+    docker exec -i -u mg $build_container mkdir -p /home/mg/memgraph
+    docker cp . $build_container:/home/mg/memgraph
+    docker exec -i -u root $build_container bash -c "chown -R mg:mg /home/mg/memgraph"
+  else
+    echo -e "${YELLOW_BOLD}Repo already copied into container${RESET}"
+  fi
+
+  echo -e "${GREEN_BOLD}Building MAGE in container${RESET}"
+  build_args=(
+    --build-type $build_type
+    --rust-version $rust_version
+  )
+  if [[ "$config_only" = true ]]; then
+    build_args+=("--config-only")
+  fi
+
+  docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh ${build_args[*]}"
+  if [[ "$config_only" = true ]]; then
+    echo -e "${GREEN_BOLD}Configuration done successfully${RESET}"
+    exit 0
+  fi
+
+  echo -e "${GREEN_BOLD}Compressing query modules${RESET}"
+  docker exec -i $build_container bash -c "cd /home/mg/memgraph/mage && ../tools/ci/mage-build/compress-query-modules.sh"
+
+  echo -e "${GREEN_BOLD}Copying compressed query modules to host${RESET}"
+  docker cp $build_container:/home/mg/mage.tar.gz ./mage/mage.tar.gz
+}
+
+package_mage_deb() {
+
+  local version=""
+  local malloc=false
+  local cuda=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --version)
+        version=$2
+        shift 2
+      ;;
+      --malloc)
+        malloc=true
+        shift 1
+      ;;
+      --cuda)
+        cuda=true
+        shift 1
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  echo -e "${GREEN_BOLD}Packaging MAGE DEB package${RESET}"
+  docker exec -i -u root $build_container bash -c "apt-get update && apt-get install -y debhelper"
+
+  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && ./build-deb.sh '${arch}64' $build_type $version $malloc $cuda"
+
+  package_name="$(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.deb")"
+  mkdir -pv output
+  docker cp $build_container:$package_name output/
+  echo "Package: $package_name"
+}
+
+
+package_mage_docker() {
+
+  echo -e "${GREEN_BOLD}Packaging MAGE Docker image${RESET}"
+
+  local docker_repository_name="memgraph/memgraph-mage"
+  local image_tag=""
+  local memgraph_ref=""
+  local cache_present=false
+  local custom_mirror="http://archive.ubuntu.com/ubuntu"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --docker-repository-name)
+        docker_repository_name=$2
+        shift 2
+      ;;
+      --image-tag)
+        image_tag=$2
+        shift 2
+      ;;
+      --memgraph-ref)
+        memgraph_ref=$2
+        shift 2
+      ;;
+      --cache-present)
+        cache_present=$2
+        shift 2
+      ;;
+      --custom-mirror)
+        custom_mirror=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        exit 1
+      ;;
+    esac
+  done
+
+  if [[ "$build_type" = "RelWithDebInfo" ]]; then
+    docker_target="relwithdebinfo"
+  else
+    docker_target="prod"
+  fi
+
+  echo -e "${YELLOW_BOLD}build options:"
+  echo -e "  docker_repository_name: $docker_repository_name"
+  echo -e "  image_tag: $image_tag"
+  echo -e "  memgraph_ref: $memgraph_ref"
+  echo -e "  cache_present: $cache_present"
+  echo -e "  custom_mirror: $custom_mirror"
+  echo -e "  docker_target: $docker_target"
+  echo -e "  arch: $arch"
+  echo -e "  build_type: $build_type${RESET}"
+
+  if [[ -z "$docker_repository_name" || -z "$image_tag" || -z "$memgraph_ref" ]]; then
+    echo -e "${RED_BOLD}Error: package_mage_docker requires --docker-repository-name, --image-tag, --memgraph-ref${RESET}"
+    exit 1
+  fi
+
+  # copy scripts to mage directory so they can be used in the docker build
+  cp $PROJECT_ROOT/src/auth/reference_modules/requirements.txt $PROJECT_ROOT/mage/auth-module-requirements.txt
+  cp $PROJECT_ROOT/release/docker/run_with_gdb.sh $PROJECT_ROOT/mage/run_with_gdb.sh
+  cd $PROJECT_ROOT/mage
+
+  # build the docker image
+  docker buildx build \
+    --target $docker_target \
+    --platform linux/${arch}64 \
+    --tag ${docker_repository_name}:$image_tag \
+    --file Dockerfile.release \
+    --build-arg MEMGRAPH_REF=$memgraph_ref \
+    --build-arg BUILD_TYPE=$build_type \
+    --build-arg CACHE_PRESENT=$cache_present \
+    --build-arg CUSTOM_MIRROR=$custom_mirror \
+    --load .
+
+  # print the image size in both SI and IEC units
+  $PROJECT_ROOT/tools/ci/print_image_size.sh ${docker_repository_name} $image_tag
+
+  echo -e "${GREEN_BOLD}Docker image packaged successfully${RESET}"
+}
+
+test_mage() {
+  # TODO: move other tests into this function like the test_memgraph function
+
+  function create_e2e_test_env() {
+    cd $PROJECT_ROOT/mage
+    if [[ -d env ]]; then
+      echo -e "${YELLOW_BOLD}E2E test environment already exists${RESET}"
+      return
+    fi
+    python3 -m venv env
+    source env/bin/activate
+    pip install -r python/tests/requirements.txt --break-system-packages
+  }
+
+  case "$1" in
+    unit)
+      shift 1
+      local ci=true
+      local cache_present=false
+      local cuda=false
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --ci)
+            ci=true
+            shift 1
+          ;;
+          --cache-present)
+            cache_present=true
+            shift 1
+          ;;
+          --cuda)
+            cuda=true
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$1'"
+            print_help
+            exit 1
+          ;;
+        esac
+      done
+
+      local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+
+      echo -e "${GREEN_BOLD}Running tests in container: $build_container${RESET}"
+
+      echo -e "${GREEN_BOLD}Running Rust tests${RESET}"
+      docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && source \$HOME/.cargo/env && cd \$HOME/memgraph/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
+
+      echo -e "${GREEN_BOLD}Running C++ tests${RESET}"
+      docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd \$HOME/memgraph/mage/cpp/build/ && ctest --output-on-failure -j\$(nproc)"
+
+      echo -e "${GREEN_BOLD}Running Python tests${RESET}"
+      if [[ "$CUDA" == true ]]; then
+        requirements_file="requirements-gpu.txt"
+      else
+        requirements_file="requirements.txt"
+      fi
+      docker cp mage/python/$requirements_file $build_container:/tmp/$requirements_file
+      docker cp src/auth/reference_modules/requirements.txt $build_container:/tmp/auth_module-requirements.txt
+      docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/ && \
+        ./install_python_requirements.sh --ci --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
+        pip install -r \$HOME/memgraph/mage/python/tests/requirements.txt --break-system-packages"
+      docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/python/ && python3 -m pytest ."
+    ;;
+    e2e)
+      shift 1
+      local clean_env=false
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --clean-env)
+            clean_env=true
+            shift 1
+          ;;
+        esac
+      done
+      create_e2e_test_env
+      cd $PROJECT_ROOT/mage
+      source env/bin/activate
+      cd tests/e2e/ && python3 -m pytest . -k "not cugraph and not embeddings_test-test_cuda_compute"
+      if [[ "$clean_env" = true ]]; then
+        rm -rf env
+      fi
+    ;;
+    e2e-correctness)
+      shift 1
+      local memgraph_port=7687
+      local neo4j_port=7688
+      local neo4j_container=neo4j
+      local mage_container=mage
+      local memgraph_network=memgraph_network
+      local clean_env=false
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --memgraph-port)
+            memgraph_port=$2
+            shift 2
+          ;;
+          --neo4j-port)
+            neo4j_port=$2
+            shift 2
+          ;;
+          --neo4j-container)
+            neo4j_container=$2
+            shift 2
+          ;;
+          --mage-container)
+            mage_container=$2
+            shift 2
+          ;;
+          --memgraph-network)
+            memgraph_network=$2
+            shift 2
+          ;;
+          --clean-env)
+            clean_env=true
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$1'"
+            print_help
+            exit 1
+          ;;
+        esac
+      done
+      cleanup_container() {
+        docker stop $neo4j_container || true
+        docker rm $neo4j_container || true
+      }
+      trap cleanup_container EXIT INT TERM
+      create_e2e_test_env
+      cd $PROJECT_ROOT/mage/tests
+      source ../env/bin/activate
+      ./run_e2e_correctness_tests.sh \
+        $memgraph_port \
+        $neo4j_port \
+        $neo4j_container \
+        $mage_container \
+        $memgraph_network
+      cleanup_container
+      if [[ "$clean_env" = true ]]; then
+        rm -rf ../env
+      fi
+      trap - EXIT INT TERM
+    ;;
+    e2e-migration)
+      shift 1
+      local mage_container=mage
+      local mysql_container=mysql
+      local postgresql_container=postgresql
+      local clean_env=false
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --mage-container)
+            mage_container=$2
+            shift 2
+          ;;
+          --mysql-container)
+            mysql_container=$2
+            shift 2
+          ;;
+          --postgresql-container)
+            postgresql_container=$2
+            shift 2
+          ;;
+          --clean-env)
+            clean_env=true
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$1'"
+            print_help
+            exit 1
+          ;;
+        esac
+      done
+      # Define cleanup function for this case branch
+      cleanup_containers() {
+        docker stop $mage_container || true
+        docker rm $mage_container || true
+        docker stop $mysql_container || true
+        docker rm $mysql_container || true
+        docker stop $postgresql_container || true
+        docker rm $postgresql_container || true
+      }
+      # Set trap to cleanup on exit/interrupt (scoped to this case branch)
+      trap cleanup_containers EXIT INT TERM
+      create_e2e_test_env
+      cd $PROJECT_ROOT/mage/tests
+      source ../env/bin/activate
+      ./run_e2e_migration_tests.sh \
+        --mage-container $mage_container \
+        --mysql-container $mysql_container \
+        --postgresql-container $postgresql_container
+      # Normal cleanup
+      cleanup_containers
+      if [[ "$clean_env" = true ]]; then
+        rm -rf ../env
+      fi
+      # Remove trap since we're done with this branch
+      trap - EXIT INT TERM
+    ;;
+    smoke)
+      shift 1
+      next_image=""
+      last_image=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --next-image)
+            next_image=$2
+            shift 2
+          ;;
+          --last-image)
+            last_image=$2
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$1'"
+            print_help
+            exit 1
+          ;;
+        esac
+      done
+      export MEMGRAPH_NEXT_DOCKERHUB_IMAGE=$next_image
+      export MEMGRAPH_LAST_DOCKERHUB_IMAGE=$last_image
+      cleanup() {
+        local status=$?
+        rm -rf env || true
+        rm -rf "$HOME/go-install" || true
+        docker rmi -f $next_image || true
+        docker rmi -f $last_image || true
+        exit $status
+      }
+      trap cleanup EXIT INT TERM
+      cd "$PROJECT_ROOT/mage/tests/smoke-release-testing"
+      ./init_workflow.bash
+      python3 -m venv env
+      source env/bin/activate
+      pip install -r "$PROJECT_ROOT/mage/tests/smoke-release-testing/requirements.txt"
+      ./test_single_mage.bash
+    ;;
+    *)
+      echo "Error: Unknown test '$1'"
+      print_help
+      exit 1
+    ;;
+  esac
+}
+
+build_pymgclient() {
+  echo -e "${GREEN_BOLD}Packaging pymgclient${RESET}"
+  if [[ -d wheels ]]; then
+    echo -e "${YELLOW_BOLD}Wheels directory already exists${RESET}"
+  else
+    mkdir -p wheels
+  fi
+  docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/tools/ci && ./build-pymgclient.sh"
+  package_name=$(docker exec -i -u mg $build_container bash -c "ls \$HOME/memgraph/tools/ci/pymgclient/dist/")
+  docker cp $build_container:/home/mg/memgraph/tools/ci/pymgclient/dist/$package_name mage/wheels/
+  echo -e "${GREEN_BOLD}Package: ${RED_BOLD}$package_name${RESET}"
+}
+
+generate_memgraph_build_sbom() {
+  local conan_remote=""
+
+  if [[ -z "$conan_remote" ]]; then
+    echo -e "${YELLOW_BOLD}CONAN_REMOTE not set${RESET}"
+  fi
+
+  if [[ -d sbom ]]; then
+    echo -e "${YELLOW_BOLD}SBOM directory already exists${RESET}"
+  else
+    mkdir -p sbom
+  fi
+
+  # generate the Memgraph SBOM
+  echo -e "${GREEN_BOLD}Generating Memgraph SBOM within container${RESET}"
+  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph && export CONAN_REMOTE=$conan_remote && ./tools/ci/sbom/build-sbom.sh"
+  docker cp $build_container:/home/mg/memgraph/sbom/memgraph-build-sbom.json sbom/
+  echo -e "${GREEN_BOLD}Memgraph SBOM: ${RED_BOLD}sbom/memgraph-build-sbom.json${RESET}"
+}
+
+generate_mage_image_sbom() {
+  local image_name=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --image-name)
+        image_name=$2
+        shift 2
+      ;;
+    esac
+  done
+
+  if [[ -z "$image_name" ]]; then
+    echo -e "${RED_BOLD}Image name not provided${RESET}"
+    exit 1
+  fi
+
+  if [[ ! -f sbom/memgraph-build-sbom.json ]]; then
+    echo -e "${RED_BOLD}Memgraph SBOM not found, please generate it first${RESET}"
+    exit 1
+  fi
+
+  # generate the MAGE image SBOM
+  echo -e "${GREEN_BOLD}Generating MAGE image SBOM${RESET}"
+  ./tools/ci/sbom/mage-sbom.sh "${image_name}"
+  echo -e "${GREEN_BOLD}MAGE image SBOM: ${RED_BOLD}sbom/mage-image-sbom.json${RESET}"
 }
 
 build_ssl() {
@@ -1264,7 +1771,7 @@ build_ssl() {
   if [[ -n "$conan_remote" ]]; then
     conan_remote_flag="--conan-remote $conan_remote"
   fi
-  ./tools/openssl/container-build.sh $build_container $conan_remote_flag --version $ssl_version
+  ./tools/ci/openssl/container-build.sh $build_container $conan_remote_flag --version $ssl_version
 
   if [[ -n "$conan_username" ]] && [[ -n "$conan_password" ]]; then
     upload_conan_cache $conan_username $conan_password "openssl/$ssl_version"
@@ -1409,7 +1916,7 @@ case $command in
       cd $SCRIPT_DIR
       # Default values for --git-ref, --rust-version and --node-version
       git_ref_flag="--build-arg GIT_REF=master"
-      rust_version_flag="--build-arg RUST_VERSION=1.80"
+      rust_version_flag="--build-arg RUST_VERSION=$DEFAULT_RUST_VERSION"
       node_version_flag="--build-arg NODE_VERSION=20"
       while [[ "$#" -gt 0 ]]; do
         case "$1" in
@@ -1484,7 +1991,7 @@ case $command in
         # set local mirror for Ubuntu
         if [[ "$os" =~ ^"ubuntu".* && "$arch" == "amd" ]]; then
           if [[ "$os" == "ubuntu-22.04" ]]; then
-            if mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh 'jammy')"; then
+            if mirror="$(${PROJECT_ROOT}/tools/ci/test-mirrors.sh 'jammy')"; then
               # set custom mirror within build container
               docker exec -i -u root \
                 -e CUSTOM_MIRROR=$mirror \
@@ -1500,7 +2007,7 @@ case $command in
               '
             fi
           else
-            if mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh)"; then
+            if mirror="$(${PROJECT_ROOT}/tools/ci/test-mirrors.sh)"; then
               # set custom mirror within build container
               docker exec -i -u root \
                 -e CUSTOM_MIRROR=$mirror \
@@ -1601,8 +2108,10 @@ case $command in
       done
 
       # clean up conan cache inside container
-      if docker exec -u mg $build_container bash -c "test -d /home/mg/.conan2"; then
-        docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && ./tools/clean_conan.sh 1w"
+      conan_cache_exists=$(docker exec -u mg $build_container bash -c "test -d /home/mg/.conan2" && echo "true" || echo "false") || true
+      mgbuild_root_dir_exists=$(docker exec -u mg $build_container bash -c "test -d $MGBUILD_ROOT_DIR" && echo "true" || echo "false") || true
+      if [[ "$conan_cache_exists" == "true" && "$mgbuild_root_dir_exists" == "true" ]]; then
+        docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && ./tools/ci/clean_conan.sh 1w"
       fi
 
       # remove the build container from the `mgbuild_network` network
@@ -1670,6 +2179,27 @@ case $command in
     ;;
     copy-heaptrack)
       copy_heaptrack $@
+    ;;
+    build-mage)
+      build_mage $@
+    ;;
+    package-mage-deb)
+      package_mage_deb $@
+    ;;
+    package-mage-docker)
+      package_mage_docker $@
+    ;;
+    test-mage)
+      test_mage $@
+    ;;
+    build-pymgclient)
+      build_pymgclient $@
+    ;;
+    generate-memgraph-build-sbom)
+      generate_memgraph_build_sbom $@
+    ;;
+    generate-mage-image-sbom)
+      generate_mage_image_sbom $@
     ;;
     build-ssl)
       build_ssl $@

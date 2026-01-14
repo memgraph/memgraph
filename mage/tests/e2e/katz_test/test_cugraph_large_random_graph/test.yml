@@ -1,0 +1,37 @@
+query: >
+  CALL cugraph.katz_centrality.get()
+  YIELD node, katz_centrality
+  RETURN node.id AS node_id, katz_centrality
+  ORDER BY node.id ASC;
+
+output:
+  - node_id: 0
+    katz_centrality: 0.3772
+  - node_id: 1
+    katz_centrality: 0.2586
+  - node_id: 2
+    katz_centrality: 0.1857
+  - node_id: 3
+    katz_centrality: 0.2777
+  - node_id: 4
+    katz_centrality: 0.2253
+  - node_id: 5
+    katz_centrality: 0.2567
+  - node_id: 6
+    katz_centrality: 0.2472
+  - node_id: 7
+    katz_centrality: 0.2647
+  - node_id: 8
+    katz_centrality: 0.2563
+  - node_id: 9
+    katz_centrality: 0.3098
+  - node_id: 10
+    katz_centrality: 0.2328
+  - node_id: 11
+    katz_centrality: 0.2949
+  - node_id: 12
+    katz_centrality: 0.1575
+  - node_id: 13
+    katz_centrality: 0.1575
+  - node_id: 14
+    katz_centrality: 0.281

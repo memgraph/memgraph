@@ -1,0 +1,26 @@
+query: >
+    MATCH (n)-[e:RELATION]->(m)
+    WHERE n.id <= 6 AND m.id <= 6
+    WITH COLLECT(e) AS edges
+    MATCH (n)
+    WHERE n.id <= 6
+    WITH COLLECT(n) AS nodes, edges
+    CALL degree_centrality.get_subgraph(nodes, edges, "in") YIELD node, degree
+    RETURN node.id AS node, degree
+    ORDER BY node ASC
+
+output:
+- degree: 0.3333
+  node: 0.0
+- degree: 0.3333
+  node: 1.0
+- degree: 0.0000
+  node: 2.0
+- degree: 0.1667
+  node: 3.0
+- degree: 0.3333
+  node: 4.0
+- degree: 0.6667
+  node: 5.0
+- degree: 0.3333
+  node: 6.0

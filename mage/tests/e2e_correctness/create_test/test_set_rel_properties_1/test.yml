@@ -1,0 +1,9 @@
+memgraph_query: >
+  MATCH (:Person)-[friends:FRIENDS]->(:Person)
+  CALL create.set_rel_properties(friends,["good_friends"], ["yes"])
+  YIELD relationship;
+neo4j_query: >
+  MATCH (:Person)-[friends:FRIENDS]->(:Person)
+  CALL apoc.create.setRelProperties(friends,["good_friends"], ["yes"])
+  YIELD rel
+  RETURN rel;
