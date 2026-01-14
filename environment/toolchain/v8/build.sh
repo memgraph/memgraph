@@ -115,7 +115,7 @@ if [ ! -f gcc-$GCC_VERSION.tar.gz ]; then
     # wget https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz
     wget https://mirrorservice.org/sites/sourceware.org/pub/gcc/releases/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz
     wget https://mirrorservice.org/sites/sourceware.org/pub/gcc/releases/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz.sig
-    gpg --keyserver keyserver.ubuntu.com --recv-keys 6C35B99309B5FA62
+    gpg --keyserver keyserver.ubuntu.com --recv-keys 6C35B99309B5FA62 7F74F97C103468EE5D750B583AB00996FC26A641
     gpg --verify gcc-$GCC_VERSION.tar.gz.sig gcc-$GCC_VERSION.tar.gz
 fi
 if [ ! -f binutils-$BINUTILS_VERSION.tar.gz ]; then
