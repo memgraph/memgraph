@@ -14,7 +14,7 @@
 #include <string_view>
 #include <thread>
 
-#include <gflags/gflags.h>
+#include <gtest/gtest.h>
 #include <mgclient.hpp>
 #include "common.hpp"
 #include "utils/logging.hpp"
@@ -26,47 +26,11 @@ inline constexpr std::string_view kDefinerUser{"DEFINER_USER"};
 inline constexpr std::string_view kInvokerUser{"INVOKER_USER"};
 inline constexpr std::string_view kInvokerWithoutSet{"INVOKER_WITHOUT_SET"};
 inline constexpr std::string_view kDefinerWithoutSet{"DEFINER_WITHOUT_SET"};
+inline constexpr std::string_view kInvokerWithFineGrainedSet{"INVOKER_FG_SET"};
+inline constexpr std::string_view kInvokerWithoutFineGrainedSet{"INVOKER_FG_NO_SET"};
+inline constexpr std::string_view kDefinerWithFineGrainedSet{"DEFINER_FG_SET"};
+inline constexpr std::string_view kDefinerWithoutFineGrainedSet{"DEFINER_FG_NO_SET"};
 inline constexpr std::string_view kTriggerProperty{"triggered"};
-
-template <typename TException>
-bool FunctionThrows(const auto &function) {
-  try {
-    function();
-  } catch (const TException & /*unused*/) {
-    return true;
-  }
-  return false;
-}
-
-template <typename Predicate>
-bool PollUntilTrue(const Predicate &predicate, int max_attempts = 5, int delay_ms = 100) {
-  for (int attempt = 0; attempt < max_attempts; ++attempt) {
-    if (predicate()) {
-      return true;
-    }
-    if (attempt < max_attempts - 1) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
-    }
-  }
-  return false;
-}
-
-void CreateTrigger(mg::Client &client, std::string_view trigger_name, const std::string &phase,
-                   std::string_view security_mode = "") {
-  std::string security_clause = security_mode.empty() ? "" : fmt::format(" SECURITY {}", security_mode);
-  client.Execute(
-      fmt::format("CREATE TRIGGER {}{} ON CREATE "
-                  "{} COMMIT EXECUTE "
-                  "UNWIND createdVertices as createdVertex "
-                  "SET createdVertex.{} = true",
-                  trigger_name, security_clause, phase, kTriggerProperty));
-  client.DiscardAll();
-}
-
-void DropTrigger(mg::Client &client, std::string_view trigger_name) {
-  client.Execute(fmt::format("DROP TRIGGER {};", trigger_name));
-  client.DiscardAll();
-}
 
 void CreateUser(mg::Client &client, std::string_view username) {
   client.Execute(fmt::format("CREATE USER {};", username));
@@ -79,7 +43,7 @@ void DropUser(mg::Client &client, std::string_view username) {
 }
 
 void GrantAllPrivileges(mg::Client &client, std::string_view username) {
-  // Grant all global privileges
+  // Grant all role based privileges
   client.Execute(fmt::format("GRANT ALL PRIVILEGES TO {};", username));
   client.DiscardAll();
   // Grant all label-based privileges
@@ -87,8 +51,36 @@ void GrantAllPrivileges(mg::Client &client, std::string_view username) {
   client.DiscardAll();
 }
 
+void GrantAllRoleBasedPrivileges(mg::Client &client, std::string_view username) {
+  client.Execute(fmt::format("GRANT ALL PRIVILEGES TO {};", username));
+  client.DiscardAll();
+}
+
+void GrantFineGrainedPrivileges(mg::Client &client, std::string_view username, std::string_view privilege,
+                                std::string_view label) {
+  client.Execute(fmt::format("GRANT {} ON NODES CONTAINING LABELS :{} TO {};", privilege, label, username));
+  client.DiscardAll();
+}
+
 void DenySet(mg::Client &client, std::string_view username) {
   client.Execute(fmt::format("DENY SET TO {};", username));
+  client.DiscardAll();
+}
+
+void CreateTrigger(mg::Client &client, std::string_view trigger_name, const std::string &phase,
+                   std::string_view security_mode = "") {
+  std::string security_clause = security_mode.empty() ? "" : fmt::format("SECURITY {}", security_mode);
+  client.Execute(
+      fmt::format("CREATE TRIGGER {} {} ON CREATE "
+                  "{} COMMIT EXECUTE "
+                  "UNWIND createdVertices as createdVertex "
+                  "SET createdVertex.{} = true",
+                  trigger_name, security_clause, phase, kTriggerProperty));
+  client.DiscardAll();
+}
+
+void DropTrigger(mg::Client &client, std::string_view trigger_name) {
+  client.Execute(fmt::format("DROP TRIGGER {};", trigger_name));
   client.DiscardAll();
 }
 
@@ -110,190 +102,275 @@ bool VertexHasProperty(mg::Client &client, int vertex_id, std::string_view prope
   return value.type() == mg::Value::Type::Bool && value.ValueBool();
 }
 
-// Test 1: Default DEFINER mode - definer needs SET permission
-void TestDefaultInvoker(mg::Client &admin_client, const std::string &phase) {
+}  // namespace
+
+// Test fixture for privilege check tests
+class PrivilegeCheckTest : public ::testing::TestWithParam<std::string> {
+ protected:
+  static void SetUpTestSuite() {
+    memgraph::logging::RedirectToStderr();
+    mg::Client::Init();
+
+    admin_client_ = Connect();
+
+    // role based auth tests
+    CreateUser(*admin_client_, kDefinerUser);
+    CreateUser(*admin_client_, kDefinerWithoutSet);
+    CreateUser(*admin_client_, kInvokerUser);
+    CreateUser(*admin_client_, kInvokerWithoutSet);
+
+    GrantAllPrivileges(*admin_client_, kDefinerUser);
+    GrantAllPrivileges(*admin_client_, kDefinerWithoutSet);
+    GrantAllPrivileges(*admin_client_, kInvokerUser);
+    GrantAllPrivileges(*admin_client_, kInvokerWithoutSet);
+
+    DenySet(*admin_client_, kDefinerWithoutSet);
+    DenySet(*admin_client_, kInvokerWithoutSet);
+
+    // fine grained auth tests
+    CreateUser(*admin_client_, kInvokerWithFineGrainedSet);
+    CreateUser(*admin_client_, kInvokerWithoutFineGrainedSet);
+    CreateUser(*admin_client_, kDefinerWithFineGrainedSet);
+    CreateUser(*admin_client_, kDefinerWithoutFineGrainedSet);
+
+    GrantAllRoleBasedPrivileges(*admin_client_, kInvokerWithFineGrainedSet);
+    GrantAllRoleBasedPrivileges(*admin_client_, kInvokerWithoutFineGrainedSet);
+    GrantAllRoleBasedPrivileges(*admin_client_, kDefinerWithFineGrainedSet);
+    GrantAllRoleBasedPrivileges(*admin_client_, kDefinerWithoutFineGrainedSet);
+
+    GrantFineGrainedPrivileges(*admin_client_, kInvokerWithFineGrainedSet, "*", kVertexLabel);
+    GrantFineGrainedPrivileges(*admin_client_, kInvokerWithoutFineGrainedSet, "READ, CREATE", kVertexLabel);
+    GrantFineGrainedPrivileges(*admin_client_, kDefinerWithFineGrainedSet, "*", kVertexLabel);
+    GrantFineGrainedPrivileges(*admin_client_, kDefinerWithoutFineGrainedSet, "READ, CREATE", kVertexLabel);
+  }
+
+  static void TearDownTestSuite() {
+    DropUser(*admin_client_, kDefinerUser);
+    DropUser(*admin_client_, kDefinerWithoutSet);
+    DropUser(*admin_client_, kInvokerUser);
+    DropUser(*admin_client_, kInvokerWithoutSet);
+    DropUser(*admin_client_, kInvokerWithFineGrainedSet);
+    DropUser(*admin_client_, kInvokerWithoutFineGrainedSet);
+    DropUser(*admin_client_, kDefinerWithFineGrainedSet);
+
+    admin_client_.reset();
+  }
+
+  static std::unique_ptr<mg::Client> admin_client_;
+};
+
+std::unique_ptr<mg::Client> PrivilegeCheckTest::admin_client_ = nullptr;
+
+TEST_P(PrivilegeCheckTest, Default) {
+  const std::string &phase = GetParam();
+
   auto definer_client = ConnectWithUser(kDefinerUser);
   auto invoker_client = ConnectWithUser(kInvokerUser);
   auto invoker_without_set_client = ConnectWithUser(kInvokerWithoutSet);
 
-  const bool is_after = (phase == "AFTER");
+  // default privilege context is DEFINER
+  CreateTrigger(*definer_client, "DefaultDefiner", phase, "");
 
-  // Definer creates trigger (default is DEFINER)
-  CreateTrigger(*definer_client, "DefaultInvoker", phase, "");
-
-  // Any invoker can trigger it successfully (definer's permissions are used)
+  // any invoker can trigger successfully
   CreateVertex(*invoker_client, kVertexId);
-  if (is_after) {
-    MG_ASSERT(PollUntilTrue([&] {
-                return GetNumberOfAllVertices(*invoker_client) == 1 &&
-                       VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty);
-              }),
-              "After commit trigger should set property within timeout");
-  } else {
-    CheckNumberOfAllVertices(*invoker_client, 1);
-    MG_ASSERT(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty),
-              "Vertex should have trigger property set (definer's permissions)");
-  }
+  EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_client) == 1; }))
+      << "Vertex count should be 1";
+  EXPECT_TRUE(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty))
+      << "Vertex should have trigger property set (definer's permissions)";
 
-  CleanupVertices(*invoker_client);
+  CleanupVertices(*admin_client_);
 
-  // Invoker without SET can also trigger it successfully (definer's permissions are used)
+  // any invoker can trigger successfully
   CreateVertex(*invoker_without_set_client, kVertexId);
-  if (is_after) {
-    MG_ASSERT(PollUntilTrue([&] {
-                return GetNumberOfAllVertices(*invoker_without_set_client) == 1 &&
-                       VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty);
-              }),
-              "After commit trigger should set property within timeout");
-  } else {
-    CheckNumberOfAllVertices(*invoker_without_set_client, 1);
-    MG_ASSERT(VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty),
-              "Vertex should have trigger property set (definer's permissions)");
-  }
+  EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_without_set_client) == 1; }))
+      << "Vertex count should be 1";
+  EXPECT_TRUE(VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty))
+      << "Vertex should have trigger property set (definer's permissions)";
 
-  CleanupVertices(*invoker_without_set_client);
-  DropTrigger(admin_client, "DefaultInvoker");
+  CleanupVertices(*admin_client_);
+  DropTrigger(*admin_client_, "DefaultDefiner");
 }
 
-// Test 2: Explicit INVOKER mode - tests that explicit SECURITY INVOKER grammar works
-void TestExplicitInvoker(mg::Client &admin_client, const std::string &phase) {
+TEST_P(PrivilegeCheckTest, ExplicitInvoker) {
+  const std::string &phase = GetParam();
+  const bool is_after = (phase == "AFTER");
+
   auto definer_client = ConnectWithUser(kDefinerUser);
   auto invoker_client = ConnectWithUser(kInvokerUser);
   auto invoker_without_set_client = ConnectWithUser(kInvokerWithoutSet);
 
-  const bool is_after = (phase == "AFTER");
-
-  // Definer creates trigger with explicit INVOKER
   CreateTrigger(*definer_client, "ExplicitInvoker", phase, "INVOKER");
 
-  // Invoker with SET can trigger it successfully
+  // invoker with SET can trigger successfully
   CreateVertex(*invoker_client, kVertexId);
-  if (is_after) {
-    MG_ASSERT(PollUntilTrue([&] {
-                return GetNumberOfAllVertices(*invoker_client) == 1 &&
-                       VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty);
-              }),
-              "After commit trigger should set property within timeout");
-  } else {
-    CheckNumberOfAllVertices(*invoker_client, 1);
-    MG_ASSERT(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty),
-              "Vertex should have trigger property set");
-  }
+  EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_client) == 1; }))
+      << "Vertex count should be 1";
+  EXPECT_TRUE(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty))
+      << "Vertex should have trigger property set";
 
-  CleanupVertices(*invoker_client);
+  CleanupVertices(*admin_client_);
 
-  // Invoker without SET - behavior differs for BEFORE vs AFTER COMMIT
+  // invoker without SET can't trigger successfully
   if (!is_after) {
     // BEFORE COMMIT: transaction should fail
-    MG_ASSERT(FunctionThrows<mg::TransientException>([&] { CreateVertex(*invoker_without_set_client, kVertexId); }),
-              "BEFORE COMMIT trigger should fail transaction when invoker lacks SET privilege");
-    CheckNumberOfAllVertices(*invoker_without_set_client, 0);
+    EXPECT_THROW({ CreateVertex(*invoker_without_set_client, kVertexId); }, mg::TransientException)
+        << "BEFORE COMMIT trigger should fail transaction when invoker lacks SET privilege";
+    EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_without_set_client) == 0; }))
+        << "Vertex count should be 0";
   } else {
     // AFTER COMMIT: transaction succeeds but trigger fails, property not set
     CreateVertex(*invoker_without_set_client, kVertexId);
-    MG_ASSERT(PollUntilTrue([&] { return GetNumberOfAllVertices(*invoker_without_set_client) == 1; }),
-              "After commit trigger should create vertex within timeout");
-    MG_ASSERT(!VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty),
-              "Vertex should not have trigger property set when invoker lacks SET privilege");
+    EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_without_set_client) == 1; }))
+        << "Vertex count should be 1";
+    EXPECT_FALSE(VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty))
+        << "Vertex should not have trigger property set when invoker lacks SET privilege";
   }
 
-  CleanupVertices(*invoker_without_set_client);
-  DropTrigger(admin_client, "ExplicitInvoker");
+  CleanupVertices(*admin_client_);
+  DropTrigger(*admin_client_, "ExplicitInvoker");
 }
 
-// Test 3: DEFINER mode - definer needs SET permission
-void TestDefiner(mg::Client &admin_client, const std::string &phase) {
+TEST_P(PrivilegeCheckTest, Definer) {
+  const std::string &phase = GetParam();
   auto definer_client = ConnectWithUser(kDefinerUser);
-  auto definer_without_set_client = ConnectWithUser(kDefinerWithoutSet);
   auto invoker_client = ConnectWithUser(kInvokerUser);
   auto invoker_without_set_client = ConnectWithUser(kInvokerWithoutSet);
 
-  // Definer with SET creates trigger with DEFINER mode
   CreateTrigger(*definer_client, "Definer", phase, "DEFINER");
 
-  // Any invoker can trigger it successfully (definer's permissions are used)
+  // any invoker can trigger successfully
   CreateVertex(*invoker_client, kVertexId);
+  EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_client) == 1; }))
+      << "Vertex count should be 1";
+  EXPECT_TRUE(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty))
+      << "Vertex should have trigger property set (definer's permissions)";
 
-  const bool is_after = (phase == "AFTER");
-  if (is_after) {
-    MG_ASSERT(PollUntilTrue([&] {
-                return GetNumberOfAllVertices(*invoker_client) == 1 &&
-                       VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty);
-              }),
-              "After commit trigger should set property within timeout");
-  } else {
-    CheckNumberOfAllVertices(*invoker_client, 1);
-    MG_ASSERT(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty),
-              "Vertex should have trigger property set (definer's permissions)");
-  }
+  CleanupVertices(*admin_client_);
 
-  CleanupVertices(*invoker_client);
-
+  // any invoker can trigger successfully
   CreateVertex(*invoker_without_set_client, kVertexId);
-  if (is_after) {
-    MG_ASSERT(PollUntilTrue([&] {
-                return GetNumberOfAllVertices(*invoker_without_set_client) == 1 &&
-                       VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty);
-              }),
-              "After commit trigger should set property within timeout");
-  } else {
-    CheckNumberOfAllVertices(*invoker_without_set_client, 1);
-    MG_ASSERT(VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty),
-              "Vertex should have trigger property set (definer's permissions)");
-  }
+  EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_without_set_client) == 1; }))
+      << "Vertex count should be 1";
+  EXPECT_TRUE(VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty))
+      << "Vertex should have trigger property set (definer's permissions)";
 
-  CleanupVertices(*invoker_without_set_client);
-  DropTrigger(admin_client, "Definer");
+  CleanupVertices(*admin_client_);
+  DropTrigger(*admin_client_, "Definer");
 }
 
-// Test 4: DEFINER mode creation fails if definer lacks SET permission
-void TestDefinerCreationFails(const std::string &phase) {
+TEST_P(PrivilegeCheckTest, DefinerCreationFails) {
+  const std::string &phase = GetParam();
   auto definer_without_set_client = ConnectWithUser(kDefinerWithoutSet);
 
-  // Definer without SET cannot create trigger with DEFINER mode
-  MG_ASSERT(FunctionThrows<mg::TransientException>(
-                [&] { CreateTrigger(*definer_without_set_client, "DefinerFail", phase, "DEFINER"); }),
-            "Creating DEFINER trigger without SET privilege should fail");
+  // definer without SET cannot create trigger with DEFINER mode
+  EXPECT_THROW({ CreateTrigger(*definer_without_set_client, "DefinerFail", phase, "DEFINER"); }, mg::TransientException)
+      << "Creating DEFINER trigger without SET privilege should fail";
 }
 
-}  // namespace
+TEST_P(PrivilegeCheckTest, InvokerFineGrainedSet) {
+  const std::string &phase = GetParam();
+
+  auto definer_client = ConnectWithUser(kDefinerUser);
+  auto invoker_fg_set_client = ConnectWithUser(kInvokerWithFineGrainedSet);
+
+  CreateTrigger(*definer_client, "InvokerFGSet", phase, "INVOKER");
+
+  // invoker with SET on label can trigger successfully
+  CreateVertex(*invoker_fg_set_client, kVertexId);
+  EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_fg_set_client) == 1; }))
+      << "Vertex count should be 1";
+  EXPECT_TRUE(VertexHasProperty(*invoker_fg_set_client, kVertexId, kTriggerProperty))
+      << "Vertex should have trigger property set when invoker has SET on VERTEX label";
+
+  CleanupVertices(*admin_client_);
+  DropTrigger(*admin_client_, "InvokerFGSet");
+}
+
+TEST_P(PrivilegeCheckTest, InvokerFineGrainedNoSet) {
+  const std::string &phase = GetParam();
+  const bool is_after = (phase == "AFTER");
+
+  auto definer_client = ConnectWithUser(kDefinerUser);
+  auto invoker_fg_no_set_client = ConnectWithUser(kInvokerWithoutFineGrainedSet);
+
+  CreateTrigger(*definer_client, "InvokerFGNoSet", phase, "INVOKER");
+
+  // invoker without SET on label can't trigger successfully
+  if (!is_after) {
+    // BEFORE COMMIT: transaction should fail
+    EXPECT_THROW({ CreateVertex(*invoker_fg_no_set_client, kVertexId); }, mg::TransientException)
+        << "BEFORE COMMIT trigger should fail transaction when invoker lacks SET privilege";
+    EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_fg_no_set_client) == 0; }))
+        << "Vertex count should be 0";
+  } else {
+    // AFTER COMMIT: transaction succeeds but trigger fails, property not set
+    CreateVertex(*invoker_fg_no_set_client, kVertexId);
+    EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_fg_no_set_client) == 1; }))
+        << "Vertex count should be 1";
+    EXPECT_FALSE(VertexHasProperty(*invoker_fg_no_set_client, kVertexId, kTriggerProperty))
+        << "Vertex should not have trigger property set when invoker lacks SET on VERTEX label";
+  }
+
+  CleanupVertices(*admin_client_);
+  DropTrigger(*admin_client_, "InvokerFGNoSet");
+}
+
+TEST_P(PrivilegeCheckTest, DefinerFineGrainedSet) {
+  const std::string &phase = GetParam();
+
+  auto definer_fg_set_client = ConnectWithUser(kDefinerWithFineGrainedSet);
+  auto invoker_fg_no_set_client = ConnectWithUser(kInvokerWithoutFineGrainedSet);
+
+  // Definer with SET on VERTEX label creates trigger with DEFINER mode
+  CreateTrigger(*definer_fg_set_client, "DefinerFGSet", phase, "DEFINER");
+
+  // any invoker can trigger successfully
+  CreateVertex(*invoker_fg_no_set_client, kVertexId);
+  EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_fg_no_set_client) == 1; }))
+      << "Vertex count should be 1";
+  EXPECT_TRUE(VertexHasProperty(*invoker_fg_no_set_client, kVertexId, kTriggerProperty))
+      << "Vertex should have trigger property set (definer's fine-grained SET permissions)";
+
+  CleanupVertices(*admin_client_);
+  DropTrigger(*admin_client_, "DefinerFGSet");
+}
+
+TEST_P(PrivilegeCheckTest, DefinerFineGrainedNoSet) {
+  const std::string &phase = GetParam();
+  const bool is_after = (phase == "AFTER");
+
+  auto definer_fg_no_set_client = ConnectWithUser(kDefinerWithoutFineGrainedSet);
+  auto invoker_client = ConnectWithUser(kInvokerUser);
+
+  // Definer without SET on label creates trigger with DEFINER mode (creation succeeds)
+  CreateTrigger(*definer_fg_no_set_client, "DefinerFGNoSet", phase, "DEFINER");
+
+  // Trigger execution fails because definer lacks SET privilege
+  if (!is_after) {
+    // BEFORE COMMIT: transaction should fail
+    EXPECT_THROW({ CreateVertex(*invoker_client, kVertexId); }, mg::TransientException)
+        << "BEFORE COMMIT trigger should fail transaction when definer lacks SET privilege";
+    EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_client) == 0; }))
+        << "Vertex count should be 0";
+  } else {
+    // AFTER COMMIT: transaction succeeds but trigger fails, property not set
+    CreateVertex(*invoker_client, kVertexId);
+    EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_client) == 1; }))
+        << "Vertex count should be 1";
+    EXPECT_FALSE(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty))
+        << "Vertex should not have trigger property set when definer lacks SET on VERTEX label";
+  }
+
+  CleanupVertices(*admin_client_);
+  DropTrigger(*admin_client_, "DefinerFGNoSet");
+}
+
+INSTANTIATE_TEST_SUITE_P(TriggerPhases, PrivilegeCheckTest, testing::Values("BEFORE", "AFTER"),
+                         [](const testing::TestParamInfo<std::string> &info) {
+                           return info.param == "BEFORE" ? "BeforeCommit" : "AfterCommit";
+                         });
 
 int main(int argc, char **argv) {
-  gflags::SetUsageMessage("Memgraph E2E Triggers privilege check");
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  memgraph::logging::RedirectToStderr();
-
-  mg::Client::Init();
-
-  auto admin_client = Connect();
-
-  CreateUser(*admin_client, kDefinerUser);
-  CreateUser(*admin_client, kDefinerWithoutSet);
-  CreateUser(*admin_client, kInvokerUser);
-  CreateUser(*admin_client, kInvokerWithoutSet);
-
-  GrantAllPrivileges(*admin_client, kDefinerUser);
-  GrantAllPrivileges(*admin_client, kDefinerWithoutSet);
-  GrantAllPrivileges(*admin_client, kInvokerUser);
-  GrantAllPrivileges(*admin_client, kInvokerWithoutSet);
-
-  DenySet(*admin_client, kDefinerWithoutSet);
-  DenySet(*admin_client, kInvokerWithoutSet);
-
-  // Run tests for both BEFORE COMMIT and AFTER COMMIT triggers
-  TestDefaultInvoker(*admin_client, "BEFORE");
-  TestDefaultInvoker(*admin_client, "AFTER");
-  TestExplicitInvoker(*admin_client, "BEFORE");
-  TestExplicitInvoker(*admin_client, "AFTER");
-  TestDefiner(*admin_client, "BEFORE");
-  TestDefiner(*admin_client, "AFTER");
-  TestDefinerCreationFails("BEFORE");
-  TestDefinerCreationFails("AFTER");
-
-  DropUser(*admin_client, kDefinerUser);
-  DropUser(*admin_client, kDefinerWithoutSet);
-  DropUser(*admin_client, kInvokerUser);
-  DropUser(*admin_client, kInvokerWithoutSet);
-
-  return 0;
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

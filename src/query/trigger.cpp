@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,6 +27,9 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/memory.hpp"
+#ifdef MG_ENTERPRISE
+#include "license/license.hpp"
+#endif
 
 namespace memgraph::metrics {
 extern const Event TriggersExecuted;
@@ -215,7 +218,8 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
 void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
                       std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context, bool is_main,
-                      std::shared_ptr<QueryUserOrRole> triggering_user) const {
+                      std::shared_ptr<QueryUserOrRole> triggering_user,
+                      [[maybe_unused]] const AuthChecker *auth_checker) const {
   if (!context.ShouldEventTrigger(event_type_)) {
     return;
   }
@@ -243,6 +247,17 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   ctx.protector = dbms::DatabaseProtector{db_acc}.clone();
   ctx.is_main = is_main;
   ctx.user_or_role = privilege_context_ == TriggerPrivilegeContext::DEFINER ? creator_ : triggering_user;
+
+#ifdef MG_ENTERPRISE
+  if (license::global_license_checker.IsEnterpriseValidFast() && auth_checker && ctx.user_or_role &&
+      *ctx.user_or_role && dba) {
+    auto fine_grained_checker = auth_checker->GetFineGrainedAuthChecker(ctx.user_or_role, dba);
+    if (!fine_grained_checker->HasAllGlobalPrivilegesOnVertices() ||
+        !fine_grained_checker->HasAllGlobalPrivilegesOnEdges()) {
+      ctx.auth_checker = std::move(fine_grained_checker);
+    }
+  }
+#endif
 
   auto cursor = plan.plan().MakeCursor(execution_memory);
   Frame frame{plan.symbol_table().max_position(), execution_memory};
