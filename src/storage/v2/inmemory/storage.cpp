@@ -3051,7 +3051,7 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
       // For analytical no other write txn can be in play
       return ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION);  // Do we need snapshot isolation?
     }
-    return Access(IsolationLevel::SNAPSHOT_ISOLATION);
+    return Access(StorageAccessType::READ, IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt);
   });
 
   utils::Timer timer;
