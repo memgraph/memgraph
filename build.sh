@@ -251,7 +251,7 @@ if [[ "$update_lockfile" = true ]]; then
 fi
 
 # install conan dependencies
-MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install . --build=missing \
+MG_TOOLCHAIN_ROOT="/opt/toolchain-v8" conan install . --build=missing \
   "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}"
 
 source build/generators/conanbuild.sh
