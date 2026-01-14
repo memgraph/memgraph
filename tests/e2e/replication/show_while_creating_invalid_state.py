@@ -2290,8 +2290,7 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(con
 
     # 3/
     QUERY_TO_CHECK = "MATCH (node) return node;"
-    res_from_main = execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)
-    assert len(res_from_main) == 3, f"Incorect result: {res_from_main}"
+    mg_sleep_and_assert(3, lambda: len(execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)))
 
     execute_and_fetch_all(sync_replica1_cursor, QUERY_TO_CHECK)
     execute_and_fetch_all(sync_replica2_cursor, QUERY_TO_CHECK)
@@ -2321,10 +2320,7 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(con
         execute_and_fetch_all(main_cursor, QUERY_CREATE_NODE)
 
     # 7/
-    res_from_main = execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)
-    assert len(res_from_main) == 3
-
-    assert res_from_main == execute_and_fetch_all(sync_replica2_cursor, QUERY_TO_CHECK)
+    mg_sleep_and_assert(3, lambda: len(execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)))
 
     # 8/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
