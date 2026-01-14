@@ -41,19 +41,12 @@ fi
 TOOLCHAIN_VERSION=7
 # package versions used
 GCC_VERSION=15.2.0
-BINUTILS_VERSION=2.44
-case "$DISTRO" in
-    centos-7) # because GDB >= 9 does NOT compile with readline6.
-        GDB_VERSION=8.3
-    ;;
-    *)
-        GDB_VERSION=16.2
-    ;;
-esac
-CMAKE_VERSION=4.0.3
-CPPCHECK_VERSION=2.16.0
-LLVM_VERSION=20.1.7
-SWIG_VERSION=4.3.0 # used only for LLVM compilation
+BINUTILS_VERSION=2.45
+GDB_VERSION=17.1
+CMAKE_VERSION=4.2.1
+CPPCHECK_VERSION=2.19.0
+LLVM_VERSION=21.1.8
+SWIG_VERSION=4.4.1 # used only for LLVM compilation
 
 # define the name used to make the toolchain archive
 DISTRO_FULL_NAME=${DISTRO}
@@ -140,7 +133,7 @@ if [ ! -f gdb-$GDB_VERSION.tar.gz ]; then
 fi
 if [ ! -f cmake-$CMAKE_VERSION.tar.gz ]; then
     wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION.tar.gz
-    CMAKE_SHA256="8d3537b7b7732660ea247398f166be892fe6131d63cc291944b45b91279f3ffb"
+    CMAKE_SHA256="414aacfac54ba0e78e64a018720b64ed6bfca14b587047b8b3489f407a14a070"
     echo "$CMAKE_SHA256  cmake-$CMAKE_VERSION.tar.gz" | sha256sum -c -
 fi
 if [ ! -f cppcheck-$CPPCHECK_VERSION.tar.gz ]; then
@@ -375,7 +368,7 @@ if [ ! -f "$PREFIX/bin/ld" ]; then
 fi
 
 log_tool_name "GDB $GDB_VERSION"
-if [[ ! -f "$PREFIX/bin/gdb" && "$DISTRO" != "amzn-2" ]]; then
+if [[ ! -f "$PREFIX/bin/gdb" ]]; then
     if [[ -d "gdb-$GDB_VERSION" ]]; then
         rm -rf gdb-$GDB_VERSION
     fi
@@ -741,33 +734,28 @@ fi
 #   * extreme 2 -> build a granular package manager, each lib (for all variable) separated
 
 # Don't remove boost until pulsar can come from conan!
-BOOST_SHA256=2575e74ffc3ef1cd0babac2c1ee8bdb5782a0ee672b1912da40e5b4b591ca01f
-BOOST_VERSION=1.86.0
+BOOST_SHA256=913ca43d49e93d1b158c9862009add1518a4c665e7853b349a6492d158b036d4
+BOOST_VERSION=1.90.0
 BOOST_VERSION_UNDERSCORES=`echo "${BOOST_VERSION//./_}"`
 # Also, check that `asio` references in pulsar are fixed before going past this version of boost
 
 BZIP2_SHA256=ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
 BZIP2_VERSION=1.0.8
-DOUBLE_CONVERSION_SHA256=fe54901055c71302dcdc5c3ccbe265a6c191978f3761ce1414d0895d6b0ea90e
-DOUBLE_CONVERSION_VERSION=3.3.1
-FBLIBS_VERSION=2022.01.31.00
-FIZZ_SHA256=32a60e78d41ea2682ce7e5d741b964f0ea83642656e42d4fea90c0936d6d0c7d
-FOLLY_SHA256=7b8d5dd2eb51757858247af0ad27af2e3e93823f84033a628722b01e06cd68a9
-PROXYGEN_SHA256=5360a8ccdfb2f5a6c7b3eed331ec7ab0e2c792d579c6fff499c85c516c11fe14
-WANGLE_SHA256=1002e9c32b6f4837f6a760016e3b3e22f3509880ef3eaad191c80dc92655f23f
+DOUBLE_CONVERSION_SHA256=42fd4d980ea86426e457b24bdfa835a6f5ad9517ddb01cdb42b99ab9c8dd5dc9
+DOUBLE_CONVERSION_VERSION=3.4.0
 GFLAGS_COMMIT_HASH=b37ceb03a0e56c9f15ce80409438a555f8a67b7c
-GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
-GLOG_VERSION=0.5.0
+GLOG_SHA256=00e4a87e87b7e7612f519a41e491f16623b12423620006f59f5688bfd8d13b08
+GLOG_VERSION=0.7.1
 JEMALLOC_VERSION=5.2.1 # Some people complained about 5.3.0 performance.
-LIBAIO_VERSION=0.3.112
+LIBAIO_VERSION=0.3.113
 LIBEVENT_VERSION=2.1.12-stable
-LIBSODIUM_VERSION=1.0.20
-LIBUNWIND_VERSION=1.8.1
+LIBSODIUM_VERSION=1.0.21
+LIBUNWIND_VERSION=1.8.3
 SNAPPY_SHA256=90f74bc1fbf78a6c56b3c4a082a05103b3a56bb17bca1a27e052ea11723292dc
 SNAPPY_VERSION=1.2.2
-XZ_VERSION=5.6.3 # for LZMA
+XZ_VERSION=5.8.2 # for LZMA
 ZLIB_VERSION=1.3.1
-ZSTD_VERSION=1.5.6
+ZSTD_VERSION=1.5.7
 
 pushd archives
 if [[ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]]; then
@@ -780,13 +768,6 @@ if [[ ! -f bzip2-$BZIP2_VERSION.tar.gz ]]; then
 fi
 if [[ ! -f double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz ]]; then
     wget https://github.com/google/double-conversion/archive/refs/tags/v$DOUBLE_CONVERSION_VERSION.tar.gz -O double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz
-fi
-if [[ ! -f fizz-$FBLIBS_VERSION.tar.gz ]]; then
-    wget https://github.com/facebookincubator/fizz/releases/download/v$FBLIBS_VERSION/fizz-v$FBLIBS_VERSION.tar.gz -O fizz-$FBLIBS_VERSION.tar.gz
-fi
-
-if [[ ! -d folly-$FBLIBS_VERSION ]]; then
-    git clone --depth 1 --branch v$FBLIBS_VERSION https://github.com/facebook/folly.git folly-$FBLIBS_VERSION
 fi
 if [[ ! -f glog-$GLOG_VERSION.tar.gz ]]; then
     wget https://github.com/google/glog/archive/refs/tags/v$GLOG_VERSION.tar.gz -O glog-$GLOG_VERSION.tar.gz
@@ -803,9 +784,6 @@ fi
 if [[ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz ]]; then
     wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz -O libunwind-$LIBUNWIND_VERSION.tar.gz
 fi
-if [[ ! -f proxygen-$FBLIBS_VERSION.tar.gz ]]; then
-    wget https://github.com/facebook/proxygen/releases/download/v$FBLIBS_VERSION/proxygen-v$FBLIBS_VERSION.tar.gz -O proxygen-$FBLIBS_VERSION.tar.gz
-fi
 if [[ ! -f snappy-$SNAPPY_VERSION.tar.gz ]]; then
     wget https://github.com/google/snappy/archive/refs/tags/$SNAPPY_VERSION.tar.gz -O snappy-$SNAPPY_VERSION.tar.gz
 fi
@@ -818,9 +796,6 @@ fi
 if [[ ! -f zstd-$ZSTD_VERSION.tar.gz ]]; then
     wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz -O zstd-$ZSTD_VERSION.tar.gz
 fi
-if [[ ! -f wangle-$FBLIBS_VERSION.tar.gz ]]; then
-    wget https://github.com/facebook/wangle/releases/download/v$FBLIBS_VERSION/wangle-v$FBLIBS_VERSION.tar.gz -O wangle-$FBLIBS_VERSION.tar.gz
-fi
 
 # verify boost
 echo "$BOOST_SHA256 boost_$BOOST_VERSION_UNDERSCORES.tar.gz" | sha256sum -c
@@ -828,10 +803,6 @@ echo "$BOOST_SHA256 boost_$BOOST_VERSION_UNDERSCORES.tar.gz" | sha256sum -c
 echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
 # verify double-conversion
 echo "$DOUBLE_CONVERSION_SHA256 double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz" | sha256sum -c
-# verify fizz
-echo "$FIZZ_SHA256 fizz-$FBLIBS_VERSION.tar.gz" | sha256sum -c
-# verify folly
-# echo "$FOLLY_SHA256 folly-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify glog
 echo "$GLOG_SHA256  glog-$GLOG_VERSION.tar.gz" | sha256sum -c
 # verify libaio
@@ -860,8 +831,6 @@ fi
 $GPG --keyserver $KEYSERVER --recv-keys 0x75D2CFC56CC2E935A4143297015A268A17D55FA4
 $GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.sig libunwind-$LIBUNWIND_VERSION.tar.gz
 
-# verify proxygen
-echo "$PROXYGEN_SHA256 proxygen-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify snappy
 echo "$SNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
 # verify xz
@@ -885,8 +854,6 @@ fi
 $GPG --keyserver $KEYSERVER --recv-keys 0xEF8FE99528B52FFD
 $GPG --verify zstd-$ZSTD_VERSION.tar.gz.sig zstd-$ZSTD_VERSION.tar.gz
 
-# verify wangle
-echo "$WANGLE_SHA256 wangle-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 popd
 
 pushd build
@@ -1204,7 +1171,7 @@ if [[ ! -f "$PREFIX/lib/libnuraft.a" ]]; then
     popd
 fi
 
-PROTOBUF_TAG="v3.12.4"
+PROTOBUF_TAG="v6.34.0"
 log_tool_name "protobuf $PROTOBUF_TAG"
 if [[ ! -f "$PREFIX/lib/libprotobuf.a" ]]; then
     if [[ -d protobuf ]]; then
@@ -1220,7 +1187,7 @@ fi
 
 # Build OpenSSL and curl from source for RPM distributions
 if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
-    OPENSSL_TAG="openssl-3.5.2"
+    OPENSSL_TAG="openssl-3.6.0"
     log_tool_name "openssl $OPENSSL_TAG"
     if [[ ! -f "$PREFIX/lib64/libssl.a" ]] || [[ ! -f "$PREFIX/lib64/libcrypto.a" ]]; then
         if [ -d openssl ]; then
@@ -1246,7 +1213,7 @@ if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
 fi
 
 if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-|debian-) ]]; then
-    CURL_TAG="curl-8_15_0"
+    CURL_TAG="curl-8_18_0"
     log_tool_name "curl $CURL_TAG"
     if [[ ! -f "$PREFIX/lib/libcurl.a" ]]; then
         if [[ -d curl ]]; then
@@ -1271,7 +1238,7 @@ if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-|debian-) ]]; then
     fi
 fi
 
-PULSAR_TAG="v3.7.1"
+PULSAR_TAG="v4.0.0"
 log_tool_name "pulsar $PULSAR_TAG"
 if [[ ! -f "$PREFIX/lib/libpulsarwithdeps.a" ]]; then
     if [[ -d pulsar ]]; then
@@ -1317,13 +1284,7 @@ if [[ ! -f "$PREFIX/lib/libpulsarwithdeps.a" ]]; then
     popd && popd
 fi
 
-KAFKA_TAG="v2.6.1"
-# NOTE: The lib doesn't compile because of SSL, in the future try to use the
-# same version on all operating systems this was an exception to rollout
-# toolchain-v6 on time.
-if [[ "$DISTRO" == "centos-10" ]]; then
-    KAFKA_TAG="v2.8.0"
-fi
+KAFKA_TAG="v2.13.0"
 log_tool_name "kafka $KAFKA_TAG"
 if [[ ! -f "$PREFIX/lib/librdkafka++.a" ]]; then
     if [[ -d kafka ]]; then
@@ -1395,112 +1356,6 @@ if [[ ! -f "$PREFIX/lib/librdtsc.a" ]]; then
     fi
     cmake --build build -j$CPUS --target rdtsc install
     popd
-fi
-
-# NOTE: Skip FBLIBS -> only used on project-pineapples
-#   * older versions don't compile on the latest GCC
-#   * newer versions don't work with OpenSSL 1.0 which is critical for CentOS7
-if false; then
-  log_tool_name "folly $FBLIBS_VERSION"
-  if [[ ! -d "$PREFIX/include/folly" ]]; then
-      if [[ -d folly-$FBLIBS_VERSION ]]; then
-          rm -rf folly-$FBLIBS_VERSION
-      fi
-      cp -r ../archives/folly-$FBLIBS_VERSION ./folly-$FBLIBS_VERSION
-      pushd folly-$FBLIBS_VERSION
-      git apply $DIR/folly-$FBLIBS_VERSION.patch
-      # build is used by facebook builder
-      mkdir _build
-      pushd _build
-      cmake .. $COMMON_CMAKE_FLAGS \
-          -DBOOST_LINK_STATIC=ON \
-          -DBUILD_TESTS=OFF \
-          -DGFLAGS_NOTHREADS=OFF \
-          -DCXX_STD="c++20"
-      make -j$CPUS install
-      popd && popd
-  fi
-
-  log_tool_name "fizz $FBLIBS_VERSION"
-  if [[ ! -d "$PREFIX/include/fizz" ]]; then
-      if [[ -d fizz-$FBLIBS_VERSION ]]; then
-          rm -rf fizz-$FBLIBS_VERSION
-      fi
-      mkdir fizz-$FBLIBS_VERSION
-      tar -xzf ../archives/fizz-$FBLIBS_VERSION.tar.gz -C fizz-$FBLIBS_VERSION
-      pushd fizz-$FBLIBS_VERSION
-      # build is used by facebook builder
-      mkdir _build
-      pushd _build
-      cmake ../fizz $COMMON_CMAKE_FLAGS \
-          -DBUILD_TESTS=OFF \
-          -DBUILD_EXAMPLES=OFF \
-          -DGFLAGS_NOTHREADS=OFF
-      make -j$CPUS install
-      popd && popd
-  fi
-
-  log_tool_name "wangle FBLIBS_VERSION"
-  if [[ ! -d "$PREFIX/include/wangle" ]]; then
-      if [[ -d wangle-$FBLIBS_VERSION ]]; then
-          rm -rf wangle-$FBLIBS_VERSION
-      fi
-      mkdir wangle-$FBLIBS_VERSION
-      tar -xzf ../archives/wangle-$FBLIBS_VERSION.tar.gz -C wangle-$FBLIBS_VERSION
-      pushd wangle-$FBLIBS_VERSION
-      # build is used by facebook builder
-      mkdir _build
-      pushd _build
-      cmake ../wangle $COMMON_CMAKE_FLAGS \
-          -DBUILD_TESTS=OFF \
-          -DBUILD_EXAMPLES=OFF \
-          -DGFLAGS_NOTHREADS=OFF
-      make -j$CPUS install
-      popd && popd
-  fi
-
-  log_tool_name "proxygen $FBLIBS_VERSION"
-  if [[ ! -d "$PREFIX/include/proxygen" ]]; then
-      if [[ -d proxygen-$FBLIBS_VERSION ]]; then
-          rm -rf proxygen-$FBLIBS_VERSION
-      fi
-      mkdir proxygen-$FBLIBS_VERSION
-      tar -xzf ../archives/proxygen-$FBLIBS_VERSION.tar.gz -C proxygen-$FBLIBS_VERSION
-      pushd proxygen-$FBLIBS_VERSION
-      # build is used by facebook builder
-      mkdir _build
-      pushd _build
-      cmake .. $COMMON_CMAKE_FLAGS \
-          -DBUILD_TESTS=OFF \
-          -DBUILD_SAMPLES=OFF \
-          -DGFLAGS_NOTHREADS=OFF \
-          -DBUILD_QUIC=OFF
-      make -j$CPUS install
-      popd && popd
-  fi
-
-  log_tool_name "fbthrift $FBLIBS_VERSION"
-  if [[ ! -d "$PREFIX/include/thrift" ]]; then
-      if [[ -d fbthrift-$FBLIBS_VERSION ]]; then
-          rm -rf fbthrift-$FBLIBS_VERSION
-      fi
-      git clone --depth 1 --branch v$FBLIBS_VERSION https://github.com/facebook/fbthrift.git fbthrift-$FBLIBS_VERSION
-      pushd fbthrift-$FBLIBS_VERSION
-      # build is used by facebook builder
-      mkdir _build
-      pushd _build
-      if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
-          CMAKE_CXX_FLAGS="-fsized-deallocation"
-      else
-          CMAKE_CXX_FLAGS="-fsized-deallocation -stdlib=libc++"
-      fi
-      cmake .. $COMMON_CMAKE_FLAGS \
-          -Denable_tests=OFF \
-          -DGFLAGS_NOTHREADS=OFF \
-          -DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS"
-      make -j$CPUS install
-      popd
-  fi
 fi
 
 popd
