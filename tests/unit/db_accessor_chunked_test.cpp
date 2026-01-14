@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/resource_lock.hpp"
 
 namespace memgraph::query::test {
 
@@ -75,7 +76,7 @@ class DbAccessorChunkedTest : public ::testing::Test {
 TEST_F(DbAccessorChunkedTest, AllVerticesChunkIterator) {
   std::vector<Gid> gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(storage::StorageAccessType::WRITE);
     auto dba = DbAccessor(acc.get());
     for (int i = 0; i < 100; ++i) {
       auto v = dba.InsertVertex();
@@ -84,7 +85,7 @@ TEST_F(DbAccessorChunkedTest, AllVerticesChunkIterator) {
     ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(storage::StorageAccessType::WRITE);
   auto dba = DbAccessor(acc.get());
   auto chunks = dba.ChunkedVertices(View::OLD, 4);
   ASSERT_EQ(chunks.size(), 4);
@@ -104,7 +105,7 @@ TEST_F(DbAccessorChunkedTest, AllVerticesChunkIterator) {
 TEST_F(DbAccessorChunkedTest, LabeledVerticesChunkIterator) {
   std::vector<Gid> labeled_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(storage::StorageAccessType::WRITE);
     auto dba = DbAccessor(acc.get());
     for (int i = 0; i < 100; ++i) {
       auto v = dba.InsertVertex();
@@ -116,7 +117,7 @@ TEST_F(DbAccessorChunkedTest, LabeledVerticesChunkIterator) {
     ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(storage::StorageAccessType::WRITE);
   auto dba = DbAccessor(acc.get());
   auto chunks = dba.ChunkedVertices(View::OLD, label_id_, 4);
   ASSERT_EQ(chunks.size(), 4);
@@ -136,7 +137,7 @@ TEST_F(DbAccessorChunkedTest, LabeledVerticesChunkIterator) {
 TEST_F(DbAccessorChunkedTest, LabeledPropertyVerticesChunkIterator) {
   std::vector<Gid> matching_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(storage::StorageAccessType::WRITE);
     auto dba = DbAccessor(acc.get());
     for (int i = 0; i < 100; ++i) {
       auto v = dba.InsertVertex();
@@ -149,7 +150,7 @@ TEST_F(DbAccessorChunkedTest, LabeledPropertyVerticesChunkIterator) {
     ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(storage::StorageAccessType::WRITE);
   auto dba = DbAccessor(acc.get());
   std::vector<storage::PropertyPath> props = {{prop_id_}};
   std::vector<storage::PropertyValueRange> ranges = {storage::PropertyValueRange::Bounded(
@@ -173,7 +174,7 @@ TEST_F(DbAccessorChunkedTest, LabeledPropertyVerticesChunkIterator) {
 TEST_F(DbAccessorChunkedTest, EdgeTypeChunkIterator) {
   std::vector<Gid> edge_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(storage::StorageAccessType::WRITE);
     auto dba = DbAccessor(acc.get());
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
@@ -185,7 +186,7 @@ TEST_F(DbAccessorChunkedTest, EdgeTypeChunkIterator) {
     ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(storage::StorageAccessType::WRITE);
   auto dba = DbAccessor(acc.get());
   auto chunks = dba.ChunkedEdges(View::OLD, type_id_, 4);
   ASSERT_EQ(chunks.size(), 4);
@@ -205,7 +206,7 @@ TEST_F(DbAccessorChunkedTest, EdgeTypeChunkIterator) {
 TEST_F(DbAccessorChunkedTest, EdgeTypePropertyChunkIterator) {
   std::vector<Gid> edge_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(storage::StorageAccessType::WRITE);
     auto dba = DbAccessor(acc.get());
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
@@ -218,7 +219,7 @@ TEST_F(DbAccessorChunkedTest, EdgeTypePropertyChunkIterator) {
     ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(storage::StorageAccessType::WRITE);
   auto dba = DbAccessor(acc.get());
   auto chunks = dba.ChunkedEdges(View::OLD, type_id_, prop_id_, 4);
   ASSERT_EQ(chunks.size(), 4);
@@ -238,7 +239,7 @@ TEST_F(DbAccessorChunkedTest, EdgeTypePropertyChunkIterator) {
 TEST_F(DbAccessorChunkedTest, EdgeTypePropertyRangeChunkIterator) {
   std::vector<Gid> matching_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(storage::StorageAccessType::WRITE);
     auto dba = DbAccessor(acc.get());
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
@@ -253,7 +254,7 @@ TEST_F(DbAccessorChunkedTest, EdgeTypePropertyRangeChunkIterator) {
     ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(storage::StorageAccessType::WRITE);
   auto dba = DbAccessor(acc.get());
   auto lower = utils::MakeBoundInclusive(PropertyValue(int64_t{20}));
   auto upper = utils::MakeBoundExclusive(PropertyValue(int64_t{50}));
@@ -276,7 +277,7 @@ TEST_F(DbAccessorChunkedTest, EdgeTypePropertyRangeChunkIterator) {
 TEST_F(DbAccessorChunkedTest, PropertyChunkIterator) {
   std::vector<Gid> edge_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(storage::StorageAccessType::WRITE);
     auto dba = DbAccessor(acc.get());
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
@@ -289,7 +290,7 @@ TEST_F(DbAccessorChunkedTest, PropertyChunkIterator) {
     ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(storage::StorageAccessType::WRITE);
   auto dba = DbAccessor(acc.get());
   auto chunks = dba.ChunkedEdges(View::OLD, prop_id_, 4);
   ASSERT_EQ(chunks.size(), 4);
@@ -309,7 +310,7 @@ TEST_F(DbAccessorChunkedTest, PropertyChunkIterator) {
 TEST_F(DbAccessorChunkedTest, PropertyExactValueChunkIterator) {
   std::vector<Gid> matching_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(storage::StorageAccessType::WRITE);
     auto dba = DbAccessor(acc.get());
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
@@ -325,7 +326,7 @@ TEST_F(DbAccessorChunkedTest, PropertyExactValueChunkIterator) {
     ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(storage::StorageAccessType::WRITE);
   auto dba = DbAccessor(acc.get());
   auto chunks = dba.ChunkedEdges(View::OLD, prop_id_, PropertyValue(int64_t{42}), 4);
   ASSERT_GT(chunks.size(), 0);
@@ -345,7 +346,7 @@ TEST_F(DbAccessorChunkedTest, PropertyExactValueChunkIterator) {
 TEST_F(DbAccessorChunkedTest, PropertyRangeChunkIterator) {
   std::vector<Gid> matching_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(storage::StorageAccessType::WRITE);
     auto dba = DbAccessor(acc.get());
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
@@ -360,7 +361,7 @@ TEST_F(DbAccessorChunkedTest, PropertyRangeChunkIterator) {
     ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(storage::StorageAccessType::WRITE);
   auto dba = DbAccessor(acc.get());
   auto lower = utils::MakeBoundInclusive(PropertyValue(int64_t{20}));
   auto upper = utils::MakeBoundExclusive(PropertyValue(int64_t{50}));
