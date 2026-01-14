@@ -1,0 +1,62 @@
+services:
+  # NOTE: build > context > args are injected via mgbuild.sh script.
+
+  mgbuild_v8_debian-12-arm:
+    image: "memgraph/mgbuild:v8_debian-12-arm"
+    build:
+      context: debian-12-arm
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v8_debian-12-arm"
+
+  mgbuild_v8_debian-13-arm:
+    image: "memgraph/mgbuild:v8_debian-13-arm"
+    build:
+      context: debian-13-arm
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v8_debian-13-arm"
+
+  mgbuild_v8_ubuntu-24.04-arm:
+    image: "memgraph/mgbuild:v8_ubuntu-24.04-arm"
+    build:
+      context: ubuntu-24.04-arm
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v8_ubuntu-24.04-arm"
+
+  mgbuild_v8_ubuntu-26.04-arm:
+    image: "memgraph/mgbuild:v8_ubuntu-26.04-arm"
+    build:
+      context: ubuntu-26.04-arm
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v8_ubuntu-26.04-arm"
+
+  mgbuild_v8_fedora-42-arm:
+    image: "memgraph/mgbuild:v8_fedora-42-arm"
+    build:
+      context: fedora-42-arm
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v8_fedora-42-arm"
+
+  mgbuild_v8_fedora-43-arm:
+    image: "memgraph/mgbuild:v8_fedora-43-arm"
+    build:
+      context: fedora-43-arm
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v8_fedora-43-arm"
