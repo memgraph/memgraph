@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -208,7 +208,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
 
   // create empty vertex
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     expected_result["nodes"].push_back({{"count", 1}, {"labels", jarray({})}, {"properties", jarray({})}});
@@ -218,7 +218,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
 
   // delete vertex
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     for (auto v : acc->Vertices(memgraph::storage::View::NEW)) {
       ASSERT_TRUE(acc->DetachDelete({&v}, {}, true).has_value());
     }
@@ -231,7 +231,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
 
   // create vertex with label
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.AddLabel(l).has_value());
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -242,7 +242,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
 
   // delete vertex
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     for (auto v : acc->Vertices(memgraph::storage::View::NEW)) {
       ASSERT_TRUE(acc->DetachDelete({&v}, {}, true).has_value());
     }
@@ -255,7 +255,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
 
   // create vertex with label and property
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.AddLabel(l2).has_value());
     ASSERT_TRUE(v.SetProperty(p, memgraph::storage::PropertyValue{"12"}).has_value());
@@ -275,7 +275,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
 
   // delete vertex
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     for (auto v : acc->Vertices(memgraph::storage::View::NEW)) {
       ASSERT_TRUE(acc->DetachDelete({&v}, {}, true).has_value());
     }
@@ -291,7 +291,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
   // add property
   // remove property
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.AddLabel(l2).has_value());
     ASSERT_TRUE(v.AddLabel(l).has_value());
@@ -307,7 +307,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
 
   // delete vertex
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     for (auto v : acc->Vertices(memgraph::storage::View::NEW)) {
       ASSERT_TRUE(acc->DetachDelete({&v}, {}, true).has_value());
     }
@@ -325,7 +325,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
   // modify property
   // change property type
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     const auto gid = v.Gid();
     ASSERT_TRUE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).has_value());
@@ -347,7 +347,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
                                  {"types", jarray({{{"type", "List"}, {"count", 1}}})}}})}});
     const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_TRUE(ConfrontJSON(json, expected_result));
-    acc = in_memory->Access();
+    acc = in_memory->Access(memgraph::storage::WRITE);
     ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::OLD)
                     ->SetProperty(p2, memgraph::storage::PropertyValue{false})
                     .has_value());
@@ -360,7 +360,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
 
   // delete vertex
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     for (auto v : acc->Vertices(memgraph::storage::View::NEW)) {
       ASSERT_TRUE(acc->DetachDelete({&v}, {}, true).has_value());
     }
@@ -373,7 +373,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
 
   // create - delete - commit
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.AddLabel(l).has_value());
     ASSERT_TRUE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).has_value());
@@ -388,7 +388,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
 
   // create - rollback
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.AddLabel(l).has_value());
     ASSERT_TRUE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).has_value());
@@ -437,7 +437,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
 
   // create empty vertex
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
@@ -450,7 +450,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
 
   // create vertex with label
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.AddLabel(l).has_value());
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -476,7 +476,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
 
   // create vertex with label and property
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.AddLabel(l2).has_value());
     ASSERT_TRUE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).has_value());
@@ -514,7 +514,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
   // add property
   // remove property
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.AddLabel(l2).has_value());
     ASSERT_TRUE(v.AddLabel(l).has_value());
@@ -562,7 +562,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
   // modify property
   // change property type
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     tmp_gid = v.Gid();
     ASSERT_TRUE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).has_value());
@@ -571,7 +571,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         !v.SetProperty(p3, memgraph::storage::PropertyValue{memgraph::storage::PropertyValue::list_t{}}).has_value());
     ASSERT_TRUE(v.SetProperty(p2, memgraph::storage::PropertyValue{"abc"}).has_value());
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-    acc = in_memory->Access();
+    acc = in_memory->Access(memgraph::storage::WRITE);
     ASSERT_TRUE(acc->FindVertex(tmp_gid, memgraph::storage::View::OLD)
                     ->SetProperty(p2, memgraph::storage::PropertyValue{false})
                     .has_value());
@@ -626,7 +626,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
 
   // create - delete - commit
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.AddLabel(l).has_value());
     ASSERT_TRUE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).has_value());
@@ -683,7 +683,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
 
   // create - rollback
   if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.AddLabel(l).has_value());
     ASSERT_TRUE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).has_value());
@@ -739,7 +739,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
 
   // change property type
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v = acc->FindVertex(tmp_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v);
     ASSERT_TRUE(v->SetProperty(p2, memgraph::storage::PropertyValue{"String"}).has_value());
@@ -794,7 +794,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
 
   // add multiple vertices with same property id, different types
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     acc->CreateVertex();
     auto v3 = acc->CreateVertex();
@@ -861,7 +861,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
 
   // change label
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v = acc->FindVertex(tmp_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v);
     ASSERT_TRUE(v->AddLabel(l).has_value());
@@ -928,7 +928,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
 
   // remove vertex with properties
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v = acc->FindVertex(tmp_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v);
     ASSERT_TRUE(acc->DeleteVertex(&*v).has_value());
@@ -1001,7 +1001,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
 
   // create simple edge
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     v1_gid = v1.Gid();
     auto v2 = acc->CreateVertex();
@@ -1023,7 +1023,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
 
   // delete edge
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
@@ -1040,7 +1040,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
 
   // change from label
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
@@ -1049,7 +1049,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_TRUE(edge.has_value());
     edge_gid = edge->Gid();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-    acc = in_memory->Access();
+    acc = in_memory->Access(memgraph::storage::WRITE);
     v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
     ASSERT_TRUE(v1->AddLabel(l).has_value());
@@ -1066,7 +1066,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
 
   // delete edge - rollback
   if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
@@ -1087,7 +1087,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
 
   // change to label
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v2);
     ASSERT_TRUE(v2->AddLabel(l2).has_value());
@@ -1104,7 +1104,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
 
   // change to and from label
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
@@ -1124,7 +1124,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
 
   // create delete commit
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
@@ -1145,7 +1145,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
 
   // delete change labels commit
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
@@ -1165,7 +1165,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
 
   // delete vertices
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     for (auto v : acc->Vertices(memgraph::storage::View::NEW)) {
       ASSERT_TRUE(acc->DetachDelete({&v}, {}, true).has_value());
     }
@@ -1177,7 +1177,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
 
   // create edge change to and from label
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     ASSERT_TRUE(v1.AddLabel(l).has_value());
@@ -1218,7 +1218,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
 
   // create multiple edges
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     v1_gid = v1.Gid();
     auto v2 = acc->CreateVertex();
@@ -1261,7 +1261,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
 
   // delete edge
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
@@ -1293,7 +1293,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
 
   // change vertex label
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
     ASSERT_TRUE(v1->AddLabel(l).has_value());
@@ -1322,7 +1322,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
 
   // delete edge - rollback
   if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
@@ -1355,7 +1355,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
 
   // create multiple edges
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     ASSERT_TRUE(v1.AddLabel(l3).has_value());
@@ -1407,7 +1407,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
 
   // delete vertices
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     for (auto v : acc->Vertices(memgraph::storage::View::NEW)) {
       ASSERT_TRUE(acc->DetachDelete({&v}, {}, true).has_value());
     }
@@ -1440,7 +1440,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
 
   // create simple edge
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     v1_gid = v1.Gid();
     auto v2 = acc->CreateVertex();
@@ -1462,7 +1462,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
 
   // add edge properties
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
@@ -1501,7 +1501,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
 
   // change from label
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
     ASSERT_TRUE(v1->AddLabel(l).has_value());
@@ -1534,7 +1534,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
 
   // delete edge - rollback
   if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
@@ -1571,7 +1571,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
 
   // change to label
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v2);
     ASSERT_TRUE(v2->AddLabel(l2).has_value());
@@ -1604,7 +1604,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
 
   // change to and from label->edges
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
@@ -1640,7 +1640,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
 
   // delete edge property
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
     auto edges = v1->OutEdges(memgraph::storage::View::NEW);
@@ -1670,7 +1670,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
   // delete edge
   {
     {
-      auto acc = in_memory->Access();
+      auto acc = in_memory->Access(memgraph::storage::WRITE);
       auto v1 = acc->CreateVertex();
       v1_gid = v1.Gid();
       auto v2 = acc->CreateVertex();
@@ -1688,7 +1688,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
       ASSERT_EQ(json["edges"].size(), 2);
     }
 
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
@@ -1719,7 +1719,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
   // set property delete edge
   {
     {
-      auto acc = in_memory->Access();
+      auto acc = in_memory->Access(memgraph::storage::WRITE);
       auto v1 = acc->CreateVertex();
       v1_gid = v1.Gid();
       auto v2 = acc->CreateVertex();
@@ -1740,7 +1740,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
       ASSERT_EQ(json["edges"].size(), 2);
     }
 
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1);
@@ -1793,7 +1793,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
 
   // delete vertices
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     for (auto v : acc->Vertices(memgraph::storage::View::NEW)) {
       ASSERT_TRUE(acc->DetachDelete({&v}, {}, true).has_value());
     }
@@ -1828,7 +1828,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
     // Setup
     // CREATE (:A)-[:E{p:1}]->(:B);
     {
-      auto acc = in_memory->Access();
+      auto acc = in_memory->Access(memgraph::storage::WRITE);
       auto v1 = acc->CreateVertex();
       ASSERT_TRUE(v1.AddLabel(l).has_value());
       v1_gid = v1.Gid();
@@ -1852,8 +1852,8 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
     // 2 BEGIN;
     // 3 MATCH(n:B) SET n:L;
     // 6 COMMIT;
-    auto tx1 = in_memory->Access();
-    auto tx2 = in_memory->Access();
+    auto tx1 = in_memory->Access(memgraph::storage::WRITE);
+    auto tx2 = in_memory->Access(memgraph::storage::WRITE);
     auto v2 = tx2->FindVertex(v2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v2->AddLabel(l3).has_value());
     auto v1 = tx1->FindVertex(v1_gid, memgraph::storage::View::NEW);
@@ -1943,7 +1943,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
 
   // Clear
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     for (auto v : acc->Vertices(memgraph::storage::View::NEW)) {
       ASSERT_TRUE(acc->DetachDelete({&v}, {}, true).has_value());
     }
@@ -1958,7 +1958,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
     // Setup
     // CREATE (:A)-[:E{p:1}]->(:B);
     {
-      auto acc = in_memory->Access();
+      auto acc = in_memory->Access(memgraph::storage::WRITE);
       auto v1 = acc->CreateVertex();
       ASSERT_TRUE(v1.AddLabel(l).has_value());
       v1_gid = v1.Gid();
@@ -1982,8 +1982,8 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
     // 2 BEGIN;
     // 3 MATCH(n:A) SET n:L;
     // 6 ROLLBACK;
-    auto tx1 = in_memory->Access();
-    auto tx2 = in_memory->Access();
+    auto tx1 = in_memory->Access(memgraph::storage::WRITE);
+    auto tx2 = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = tx2->FindVertex(v1_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1->AddLabel(l3).has_value());
 
@@ -2102,7 +2102,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
 
   // Clear
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     for (auto v : acc->Vertices(memgraph::storage::View::NEW)) {
       ASSERT_TRUE(acc->DetachDelete({&v}, {}, true).has_value());
     }
@@ -2117,7 +2117,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
     // Setup
     // CREATE (:A)-[:E]->(:B);
     {
-      auto acc = in_memory->Access();
+      auto acc = in_memory->Access(memgraph::storage::WRITE);
       auto v1 = acc->CreateVertex();
       ASSERT_TRUE(v1.AddLabel(l).has_value());
       v1_gid = v1.Gid();
@@ -2140,8 +2140,8 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
     // 2 BEGIN;
     // 3 MATCH (:A)-[e:E]->(:B) SET e.p="";
     // 6 COMMIT;
-    auto tx1 = in_memory->Access();
-    auto tx2 = in_memory->Access();
+    auto tx1 = in_memory->Access(memgraph::storage::WRITE);
+    auto tx2 = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = tx1->FindVertex(v1_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v1->AddLabel(l3).has_value());
 
@@ -2292,7 +2292,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, BigCommit) {
     // MATCH (v:L1:L2) DETACH DELETE v;
     // MATCH (v4:L2:L3) CREATE (v4)<-[:E3{p3:0.0}]-();
     {
-      auto acc = in_memory->Access();
+      auto acc = in_memory->Access(memgraph::storage::WRITE);
       auto v1 = acc->CreateVertex();
       ASSERT_TRUE(v1.AddLabel(l1).has_value());
       auto v2 = acc->CreateVertex();
@@ -2357,7 +2357,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
 
   // SETUP
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     auto edge = acc->CreateEdge(&v1, &v2, e1);
@@ -2374,7 +2374,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
     uint8_t i = 0;
     while (running) {
       ++i;
-      auto acc = in_memory->Access();
+      auto acc = in_memory->Access(memgraph::storage::WRITE);
       bool can_commit = true;
       if (i % 2 == 0) {
         auto v = acc->FindVertex(from_gid, View::NEW);
@@ -2407,7 +2407,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
     while (running) {
       ++i;
       if (i % 5 == 0) {
-        auto acc = in_memory->Access();
+        auto acc = in_memory->Access(memgraph::storage::WRITE);
         auto edge = acc->FindEdge(edge_gid, View::NEW);
         if (!edge) continue;  // Other thread could delete the edge
         const auto props = edge->Properties(View::NEW);
@@ -2431,7 +2431,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
       if (i % 7 == 0) {
         if (i % 2 == 0) {
           // Modify property
-          auto acc = in_memory->Access();
+          auto acc = in_memory->Access(memgraph::storage::WRITE);
           auto edge = acc->FindEdge(edge_gid, View::NEW);
           if (!edge) continue;  // Edge could be deleted
           const auto props = edge->Properties(View::NEW);
@@ -2445,7 +2445,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
                    memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {  // Analytical doesn't support mt
                                                                                // deletion/modification
           // Delete/Create edge
-          auto acc = in_memory->Access();
+          auto acc = in_memory->Access(memgraph::storage::WRITE);
           auto edge = acc->FindEdge(edge_gid, View::NEW);
           bool can_commit = true;
           if (edge) {  // Edge exists, delete it
@@ -2590,7 +2590,7 @@ TYPED_TEST(SchemaInfoTest, AllPropertyTypes) {
 
   // create vertex and add all property types
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     ASSERT_TRUE(v1.SetProperty(p1, PropertyValue{}).has_value());
     ASSERT_TRUE(v1.SetProperty(p2, PropertyValue{true}).has_value());
@@ -2923,7 +2923,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, AllPropertyTypes) {
 
   // create vertex and edge; add all property types
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     auto edge = acc->CreateEdge(&v1, &v2, e);

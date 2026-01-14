@@ -2586,7 +2586,7 @@ StorageInfo InMemoryStorage::GetBaseInfo() {
 StorageInfo InMemoryStorage::GetInfo() {
   StorageInfo info = GetBaseInfo();
   {
-    auto access = Access();  // TODO: override isolation level?
+    auto access = Access(StorageAccessType::READ);  // TODO: override isolation level?
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_properties.size();

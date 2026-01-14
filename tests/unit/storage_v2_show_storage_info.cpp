@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,7 +44,7 @@ class ShowStorageInfoTest : public testing::Test {
 };
 
 TEST_F(ShowStorageInfoTest, CountOnAbort) {
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   auto src_vertex = acc->CreateVertex();
   auto dest_vertex = acc->CreateVertex();
   auto et = acc->NameToEdgeType("et5");

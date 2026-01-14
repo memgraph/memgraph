@@ -913,7 +913,7 @@ StorageInfo DiskStorage::GetBaseInfo() {
 StorageInfo DiskStorage::GetInfo() {
   StorageInfo info = GetBaseInfo();
   {
-    auto access = Access();
+    auto access = Access(StorageAccessType::READ);
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_properties.size();

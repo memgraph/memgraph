@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,7 +45,7 @@ void UpdateLabelFunc(int thread_id, memgraph::storage::Storage *storage,
 
   memgraph::utils::Timer timer;
   for (int iter = 0; iter < num_iterations; ++iter) {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::StorageAccessType::WRITE);
     memgraph::storage::Gid gid = vertices.at(vertex_dist(gen));
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     MG_ASSERT(vertex.has_value(), "Vertex with GID {} doesn't exist", gid.AsUint());
@@ -64,7 +64,7 @@ int main(int argc, char *argv[]) {
     std::unique_ptr<memgraph::storage::Storage> storage(new memgraph::storage::InMemoryStorage(config.second));
     std::vector<memgraph::storage::Gid> vertices;
     {
-      auto acc = storage->Access();
+      auto acc = storage->Access(memgraph::storage::StorageAccessType::WRITE);
       for (int i = 0; i < FLAGS_num_vertices; ++i) {
         vertices.push_back(acc->CreateVertex().Gid());
       }

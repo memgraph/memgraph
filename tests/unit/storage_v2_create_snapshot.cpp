@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -62,7 +62,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsPathOnSuccess) {
 
   // Create some data to ensure snapshot has content
   {
-    auto acc = mem_storage->Access();
+    auto acc = mem_storage->Access(memgraph::storage::WRITE);
     (void)acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -107,7 +107,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
 
   // Create some data and take a snapshot
   {
-    auto acc = mem_storage->Access();
+    auto acc = mem_storage->Access(memgraph::storage::WRITE);
     (void)acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -136,7 +136,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotPathFormat) {
 
   // Create some data
   {
-    auto acc = mem_storage->Access();
+    auto acc = mem_storage->Access(memgraph::storage::WRITE);
     (void)acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -186,7 +186,7 @@ TEST_F(CreateSnapshotTest, SuccessCaseWithPathRetrieval) {
 
   // Create some data
   {
-    auto acc = mem_storage->Access();
+    auto acc = mem_storage->Access(memgraph::storage::WRITE);
     (void)acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }

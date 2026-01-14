@@ -165,7 +165,7 @@ TYPED_TEST(InfoTest, InfoCheck) {
       ASSERT_TRUE(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
-    auto acc = db_acc->Access();
+    auto acc = db_acc->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     auto v3 = acc->CreateVertex();

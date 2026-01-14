@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -93,7 +93,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
 
   // Add some data
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -105,7 +105,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
 
   // Add more data
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -165,7 +165,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
       << "Recovered snapshot " << new_snapshot_path << " should have the same start timestamp as the original snapshot";
 
   // Verify there is only one vertex (the one created in the first transaction)
-  auto acc = storage->Access();
+  auto acc = storage->Access(memgraph::storage::WRITE);
   auto vertices = acc->Vertices(memgraph::storage::View::NEW);
   int count = 0;
   for (const auto &vertex : vertices) {
@@ -222,7 +222,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotFromLocalStorage) {
 
   // Add some data
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -245,7 +245,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotFromLocalStorage) {
 
   // Verify storage is empty
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertices = acc->Vertices(memgraph::storage::View::NEW);
     int count = 0;
     for (const auto &vertex : vertices) {
@@ -265,7 +265,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotFromLocalStorage) {
 
   // Verify storage is empty
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertices = acc->Vertices(memgraph::storage::View::NEW);
     int count = 0;
     for (const auto &vertex : vertices) {
@@ -322,7 +322,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
 
   // Add some data
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -334,7 +334,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
 
   // Add some data
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -346,7 +346,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
 
   // Verify storage has the snapshot data
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertices = acc->Vertices(memgraph::storage::View::NEW);
     int count = 0;
     for (const auto &vertex : vertices) {
@@ -410,7 +410,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
 
   // Add more data (generates more WALs)
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }

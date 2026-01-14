@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -57,14 +57,14 @@ class RocksDBStorageTest : public ::testing::TestWithParam<bool> {
 };
 
 TEST_F(RocksDBStorageTest, SerializeVertexGID) {
-  auto acc = storage->Access();
+  auto acc = storage->Access(memgraph::storage::WRITE);
   auto vertex = acc->CreateVertex();
   auto gid = vertex.Gid();
   ASSERT_EQ(memgraph::utils::SerializeVertex(*vertex.vertex_), "|" + gid.ToString());
 }
 
 TEST_F(RocksDBStorageTest, SerializeVertexGIDLabels) {
-  auto acc = storage->Access();
+  auto acc = storage->Access(memgraph::storage::WRITE);
   auto vertex = acc->CreateVertex();
   auto ser_player_label = acc->NameToLabel("Player");
   auto ser_user_label = acc->NameToLabel("User");

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -76,7 +76,7 @@ bool VerifyUnchangedUntil(Condition condition, std::chrono::steady_clock::time_p
 // Helper function to count visible vertices
 template <typename DbAccess>
 size_t CountVisibleVertices(DbAccess &db) {
-  auto acc = db->Access();
+  auto acc = db->Access(memgraph::storage::WRITE);
   size_t count = 0;
   for (const auto v : acc->Vertices(memgraph::storage::View::NEW))
     if (v.IsVisible(memgraph::storage::View::NEW)) ++count;
@@ -86,7 +86,7 @@ size_t CountVisibleVertices(DbAccess &db) {
 // Helper function to count visible edges
 template <typename DbAccess>
 size_t CountVisibleEdges(DbAccess &db) {
-  auto acc = db->Access();
+  auto acc = db->Access(memgraph::storage::WRITE);
   size_t edge_count = 0;
   for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) {
     if (v.IsVisible(memgraph::storage::View::NEW)) {
@@ -226,7 +226,7 @@ class TTLFixture : public ::testing::Test {
 
     // Wait for indices to be ready - matches TTL system's readiness check exactly
     for (int i = 0; i < 100; ++i) {  // Increased timeout to 10 seconds
-      auto acc = db_->Access();
+      auto acc = db_->Access(memgraph::storage::WRITE);
       bool label_prop_ready = acc->LabelPropertyIndexReady(ttl_label, ttl_property_path);
       bool edge_prop_ready = !should_run_edge_ttl || acc->EdgePropertyIndexReady(ttl_property);
 
@@ -289,7 +289,7 @@ TYPED_TEST(TTLFixture, Periodic) {
   auto newer = now + std::chrono::seconds(3);
   auto newer_ts = std::chrono::duration_cast<std::chrono::microseconds>(newer.time_since_epoch()).count();
   {
-    auto acc = this->db_->Access();
+    auto acc = this->db_->Access(memgraph::storage::WRITE);
     [[maybe_unused]] auto v1 = acc->CreateVertex();  // No label no property
     auto v2 = acc->CreateVertex();                   // A label a property
     auto v3 = acc->CreateVertex();                   // TTL label no ttl property
@@ -307,7 +307,7 @@ TYPED_TEST(TTLFixture, Periodic) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = this->db_->Access();
+    auto acc = this->db_->Access(memgraph::storage::WRITE);
     auto all_v = acc->Vertices(memgraph::storage::View::NEW);
     size_t size = 0;
     for (const auto _ : acc->Vertices(memgraph::storage::View::NEW)) ++size;
@@ -341,7 +341,7 @@ TYPED_TEST(TTLFixture, StartTime) {
   auto newer = now + std::chrono::seconds(4);
   auto newer_ts = std::chrono::duration_cast<std::chrono::microseconds>(newer.time_since_epoch()).count();
   {
-    auto acc = this->db_->Access();
+    auto acc = this->db_->Access(memgraph::storage::WRITE);
     [[maybe_unused]] auto v1 = acc->CreateVertex();  // No label no property
     auto v2 = acc->CreateVertex();                   // A label a property
     auto v3 = acc->CreateVertex();                   // TTL label no ttl property
@@ -359,7 +359,7 @@ TYPED_TEST(TTLFixture, StartTime) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = this->db_->Access();
+    auto acc = this->db_->Access(memgraph::storage::WRITE);
     auto all_v = acc->Vertices(memgraph::storage::View::NEW);
     size_t size = 0;
     for (const auto _ : acc->Vertices(memgraph::storage::View::NEW)) ++size;
@@ -399,7 +399,7 @@ TYPED_TEST(TTLFixture, Edge) {
   auto newer = now + std::chrono::seconds(3);
   auto newer_ts = std::chrono::duration_cast<std::chrono::microseconds>(newer.time_since_epoch()).count();
   {
-    auto acc = this->db_->Access();
+    auto acc = this->db_->Access(memgraph::storage::WRITE);
     [[maybe_unused]] auto v1 = acc->CreateVertex();  // No label no property
     auto v2 = acc->CreateVertex();                   // A label a property
     auto v3 = acc->CreateVertex();                   // TTL label no ttl property
@@ -435,7 +435,7 @@ TYPED_TEST(TTLFixture, Edge) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = this->db_->Access();
+    auto acc = this->db_->Access(memgraph::storage::WRITE);
     size_t size = 0;
     for (const auto _ : acc->Vertices(memgraph::storage::View::NEW)) ++size;
     EXPECT_EQ(size, 6);
@@ -588,7 +588,7 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
 
   // Create vertices: 2 with TTL label and older timestamp (should be deleted), 1 with newer timestamp (should stay)
   {
-    auto acc = db_acc->Access();
+    auto acc = db_acc->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();  // TTL label and older timestamp (should be deleted)
     auto v2 = acc->CreateVertex();  // TTL label and older timestamp (should be deleted)
     auto v3 = acc->CreateVertex();  // TTL label and newer timestamp (should stay)
@@ -633,7 +633,7 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
 
   // Test 3: Test dynamic behavior - create new vertices and toggle the check
   {
-    auto acc = db_acc->Access();
+    auto acc = db_acc->Access(memgraph::storage::WRITE);
     auto v4 = acc->CreateVertex();  // TTL label and older timestamp
     ASSERT_TRUE(v4.AddLabel(ttl_lbl).has_value());
     ASSERT_TRUE(v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());

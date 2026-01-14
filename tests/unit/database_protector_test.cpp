@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -64,7 +64,7 @@ struct AsyncIndexerNotifier {
 // Helper function to check if a specific index is ready by checking indices info
 bool IsIndexReady(memgraph::storage::InMemoryStorage *storage, memgraph::storage::LabelId label) {
   try {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto indices_info = acc->ListAllIndices();
 
     // Check if the label exists in the ready indices
@@ -130,7 +130,7 @@ bool WaitForAsyncIndexerStopped(memgraph::storage::InMemoryStorage *storage,
 // Helper function to create vertices with a label to trigger auto index creation
 void CreateVerticesWithLabel(memgraph::storage::InMemoryStorage *storage, memgraph::storage::LabelId label,
                              int vertex_count) {
-  auto acc = storage->Access();
+  auto acc = storage->Access(memgraph::storage::WRITE);
   for (int i = 0; i < vertex_count; ++i) {
     auto vertex = acc->CreateVertex();
     auto add_label = vertex.AddLabel(label);
@@ -146,7 +146,7 @@ void CreateVerticesWithLabel(memgraph::storage::InMemoryStorage *storage, memgra
 
 // Helper function to verify vertex count for a given label
 size_t CountVerticesWithLabel(memgraph::storage::InMemoryStorage *storage, memgraph::storage::LabelId label) {
-  auto acc = storage->Access();
+  auto acc = storage->Access(memgraph::storage::WRITE);
   size_t count = 0;
   for (auto vertex : acc->Vertices(label, memgraph::storage::View::NEW)) {
     (void)vertex;
@@ -213,7 +213,7 @@ TEST_F(DatabaseProtectorTest, FactoryHandlesNullProtector) {
 
   // Test that basic storage operations still work even when factory returns nullptr
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     ASSERT_TRUE(vertex.IsVisible(memgraph::storage::View::NEW)) << "Created vertex should be visible";
     auto commit_result = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());

@@ -37,7 +37,7 @@ class StorageUniqueConstraints : public ::testing::Test {
 
   void SetUp() override {
     // Create initial vertices.
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     // NOLINTNEXTLINE(modernize-loop-convert)
     for (int i = 0; i < kNumThreads; ++i) {
       auto vertex = acc->CreateVertex();
@@ -58,7 +58,7 @@ void SetProperties(memgraph::storage::Storage *storage, memgraph::storage::Gid g
                    const std::vector<PropertyId> &properties, const std::vector<PropertyValue> &values,
                    bool *commit_status) {
   ASSERT_EQ(properties.size(), values.size());
-  auto acc = storage->Access();
+  auto acc = storage->Access(memgraph::storage::WRITE);
   auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
   ASSERT_TRUE(vertex);
   int value = 0;
@@ -74,7 +74,7 @@ void SetProperties(memgraph::storage::Storage *storage, memgraph::storage::Gid g
 }
 
 void AddLabel(memgraph::storage::Storage *storage, memgraph::storage::Gid gid, LabelId label, bool *commit_status) {
-  auto acc = storage->Access();
+  auto acc = storage->Access(memgraph::storage::WRITE);
   auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
   ASSERT_TRUE(vertex);
   for (int iter = 0; iter < 40000; ++iter) {
@@ -101,7 +101,7 @@ TEST_F(StorageUniqueConstraints, ParallelAbortCommit) {
   auto const thread_func = [&]() {
     for (int j = 0; j < 100; j++) {
       spdlog::trace("iteration {}", j);
-      auto acc = storage->Access();
+      auto acc = storage->Access(memgraph::storage::WRITE);
       for (int i = 0; i < 5000; i++) {
         auto vertex = acc->CreateVertex();
         ASSERT_OK(vertex.AddLabel(label));
@@ -134,7 +134,7 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
   }
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     // NOLINTNEXTLINE(modernize-loop-convert)
     for (int i = 0; i < kNumThreads; ++i) {
       auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
@@ -223,7 +223,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
   // succeed, as the others should result with constraint violation.
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     // NOLINTNEXTLINE(modernize-loop-convert)
     for (int i = 0; i < kNumThreads; ++i) {
       auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
@@ -238,7 +238,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
   for (int iter = 0; iter < 20; ++iter) {
     // Clear labels.
     {
-      auto acc = storage->Access();
+      auto acc = storage->Access(memgraph::storage::WRITE);
       // NOLINTNEXTLINE(modernize-loop-convert)
       for (int i = 0; i < kNumThreads; ++i) {
         auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
@@ -269,7 +269,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
   // should succeed.
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     // NOLINTNEXTLINE(modernize-loop-convert)
     for (int i = 0; i < kNumThreads; ++i) {
       auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
@@ -284,7 +284,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
   for (int iter = 0; iter < 20; ++iter) {
     // Clear labels.
     {
-      auto acc = storage->Access();
+      auto acc = storage->Access(memgraph::storage::WRITE);
       // NOLINTNEXTLINE(modernize-loop-convert)
       for (int i = 0; i < kNumThreads; ++i) {
         auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);

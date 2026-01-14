@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -69,7 +69,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   ExpressionEvaluatorTest()
       : config(disk_test_utils::GenerateOnDiskConfig(testSuite)),
         db(new StorageType(config)),
-        storage_dba(db->Access()),
+        storage_dba(db->Access(memgraph::storage::WRITE)),
         dba(storage_dba.get()) {}
 
   ~ExpressionEvaluatorTest() override {

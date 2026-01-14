@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -77,7 +77,7 @@ class IndexTest : public testing::Test {
     config_.salient.items.properties_on_edges = true;
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
     this->storage = std::make_unique<StorageType>(config_);
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     this->prop_id = acc->NameToProperty("id");
     this->prop_val = acc->NameToProperty("val");
     this->label1 = acc->NameToLabel("label1");
@@ -171,13 +171,13 @@ TYPED_TEST_SUITE(IndexTest, StorageTypes);
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelIndexCreate) {
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->LabelIndexReady(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 10; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
@@ -192,13 +192,13 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 10; i < 20; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
@@ -220,7 +220,7 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 10; i < 20; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
@@ -241,7 +241,7 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW),
@@ -261,13 +261,13 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelIndexDrop) {
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->LabelIndexReady(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 10; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
@@ -282,7 +282,7 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
   }
@@ -293,7 +293,7 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->LabelIndexReady(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
@@ -304,13 +304,13 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->LabelIndexReady(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 10; i < 20; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
@@ -324,13 +324,13 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_TRUE(acc->LabelIndexReady(this->label1));
     EXPECT_THAT(acc->ListAllIndices().label, UnorderedElementsAre(this->label1));
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
 
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
@@ -366,7 +366,7 @@ TYPED_TEST(IndexTest, LabelIndexBasic) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   EXPECT_THAT(acc->ListAllIndices().label, UnorderedElementsAre(this->label1, this->label2));
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), IsEmpty());
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::OLD), View::OLD), IsEmpty());
@@ -440,7 +440,7 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 5; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
@@ -452,7 +452,7 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
 
     for (auto vertex : acc->Vertices(View::OLD)) {
@@ -487,9 +487,9 @@ TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc_before = this->storage->Access();
-  auto acc = this->storage->Access();
-  auto acc_after = this->storage->Access();
+  auto acc_before = this->storage->Access(memgraph::storage::WRITE);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  auto acc_after = this->storage->Access(memgraph::storage::WRITE);
 
   for (int i = 0; i < 5; ++i) {
     auto vertex = this->CreateVertex(acc.get());
@@ -504,7 +504,7 @@ TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
 
   ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
-  auto acc_after_commit = this->storage->Access();
+  auto acc_after_commit = this->storage->Access(memgraph::storage::WRITE);
 
   EXPECT_THAT(this->GetIds(acc_before->Vertices(this->label1, View::NEW), View::NEW), IsEmpty());
 
@@ -528,7 +528,7 @@ TYPED_TEST(IndexTest, LabelIndexCountEstimate) {
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 20; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 3 ? this->label1 : this->label2));
@@ -546,19 +546,19 @@ TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
       EXPECT_FALSE(!acc->CreateIndex(this->label1).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
-    auto acc1 = this->storage->Access();
+    auto acc1 = this->storage->Access(memgraph::storage::WRITE);
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
     auto vertex2 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
     EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     ASSERT_NO_ERROR(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    auto acc2 = this->storage->Access();
+    auto acc2 = this->storage->Access(memgraph::storage::WRITE);
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = acc2->DeleteVertex(&*vertex_to_delete);
     ASSERT_TRUE(res.has_value());
     ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    auto acc3 = this->storage->Access();
+    auto acc3 = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
   }
 }
@@ -570,19 +570,19 @@ TYPED_TEST(IndexTest, LabelIndexRemoveIndexedLabel) {
       EXPECT_FALSE(!acc->CreateIndex(this->label1).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
-    auto acc1 = this->storage->Access();
+    auto acc1 = this->storage->Access(memgraph::storage::WRITE);
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
     auto vertex2 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
     ASSERT_NO_ERROR(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    auto acc2 = this->storage->Access();
+    auto acc2 = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc2->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = vertex_to_delete->RemoveLabel(this->label1);
     ASSERT_TRUE(res.has_value());
     ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    auto acc3 = this->storage->Access();
+    auto acc3 = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
   }
 }
@@ -594,13 +594,13 @@ TYPED_TEST(IndexTest, LabelIndexRemoveAndAddIndexedLabel) {
       EXPECT_FALSE(!acc->CreateIndex(this->label1).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
-    auto acc1 = this->storage->Access();
+    auto acc1 = this->storage->Access(memgraph::storage::WRITE);
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
     auto vertex2 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
     ASSERT_NO_ERROR(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    auto acc2 = this->storage->Access();
+    auto acc2 = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc2->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res_remove = vertex_to_delete->RemoveLabel(this->label1);
@@ -608,7 +608,7 @@ TYPED_TEST(IndexTest, LabelIndexRemoveAndAddIndexedLabel) {
     auto res_add = vertex_to_delete->AddLabel(this->label1);
     ASSERT_TRUE(res_add.has_value());
     ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    auto acc3 = this->storage->Access();
+    auto acc3 = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
   }
 }
@@ -623,7 +623,7 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
       EXPECT_FALSE(!acc->CreateIndex(this->label1).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
-    auto acc1 = this->storage->Access();
+    auto acc1 = this->storage->Access(memgraph::storage::WRITE);
     auto vertex = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(10)));
@@ -632,14 +632,14 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
     auto *tx_db = disk_label_index->GetRocksDBStorage()->db_;
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
-    auto acc2 = this->storage->Access();
+    auto acc2 = this->storage->Access(memgraph::storage::WRITE);
     auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex2.SetProperty(this->prop_val, memgraph::storage::PropertyValue(10)).has_value());
     ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
-    auto acc3 = this->storage->Access();
+    auto acc3 = this->storage->Access(memgraph::storage::WRITE);
     auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex3.SetProperty(this->prop_val, memgraph::storage::PropertyValue(15)).has_value());
     ASSERT_TRUE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -651,7 +651,7 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_EQ(acc->ListAllIndices().label_properties.size(), 0);
   }
   {
@@ -660,17 +660,17 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_TRUE(acc->LabelPropertyIndexReady(this->label1, std::array{PropertyPath{this->prop_id}}));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(
         acc->ListAllIndices().label_properties,
         UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->LabelPropertyIndexReady(this->label2, std::array{PropertyPath{this->prop_id}}));
   }
 
@@ -681,7 +681,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(
         acc->ListAllIndices().label_properties,
         UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
@@ -694,12 +694,12 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_TRUE(acc->LabelPropertyIndexReady(this->label2, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(
         acc->ListAllIndices().label_properties,
         UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}}),
@@ -712,12 +712,12 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->LabelPropertyIndexReady(this->label1, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(
         acc->ListAllIndices().label_properties,
         UnorderedElementsAre(std::make_pair(this->label2, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
@@ -735,12 +735,12 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->LabelPropertyIndexReady(this->label2, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_EQ(acc->ListAllIndices().label_properties.size(), 0);
   }
 }
@@ -751,7 +751,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_EQ(acc->ListAllIndices().label_properties.size(), 0);
   }
   {
@@ -762,19 +762,19 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_TRUE(acc->LabelPropertyIndexReady(
         this->label1, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(acc->ListAllIndices().label_properties,
                 UnorderedElementsAre(std::make_pair(
                     this->label1,
                     std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->LabelPropertyIndexReady(
         this->label2, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
@@ -788,7 +788,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(acc->ListAllIndices().label_properties,
                 UnorderedElementsAre(std::make_pair(
                     this->label1,
@@ -804,13 +804,13 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_TRUE(acc->LabelPropertyIndexReady(
         this->label2, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(acc->ListAllIndices().label_properties,
                 UnorderedElementsAre(
                     std::make_pair(this->label1, std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b},
@@ -827,13 +827,13 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->LabelPropertyIndexReady(
         this->label1, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(acc->ListAllIndices().label_properties,
                 UnorderedElementsAre(std::make_pair(
                     this->label2,
@@ -856,13 +856,13 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->LabelPropertyIndexReady(
         this->label2, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_EQ(acc->ListAllIndices().label_properties.size(), 0);
   }
 }
@@ -885,7 +885,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                          std::array{pvr::IsNotNull()}, View::OLD),
                            View::OLD),
@@ -1036,7 +1036,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexBasic) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
                                          std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
                                                     PropertyPath{this->prop_c}},
@@ -1224,7 +1224,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 5; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
@@ -1240,7 +1240,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                            std::array{pvr::IsNotNull()}, View::OLD),
                              View::OLD),
@@ -1287,7 +1287,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
 
   ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}}), 0);
   {
@@ -1314,9 +1314,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc_before = this->storage->Access();
-  auto acc = this->storage->Access();
-  auto acc_after = this->storage->Access();
+  auto acc_before = this->storage->Access(memgraph::storage::WRITE);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  auto acc_after = this->storage->Access(memgraph::storage::WRITE);
 
   for (int i = 0; i < 5; ++i) {
     auto vertex = this->CreateVertex(acc.get());
@@ -1341,7 +1341,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
 
   ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
-  auto acc_after_commit = this->storage->Access();
+  auto acc_after_commit = this->storage->Access(memgraph::storage::WRITE);
 
   EXPECT_THAT(this->GetIds(acc_before->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                                 std::array{pvr::IsNotNull()}, View::NEW),
@@ -1374,7 +1374,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
 
     for (int i = 0; i < 10; ++i) {
       auto vertex = this->CreateVertex(acc.get());
@@ -1384,7 +1384,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 5; ++i) {
       EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                              std::array{pvr::Equal(PropertyValue(i))}, View::OLD)),
@@ -1472,7 +1472,7 @@ TYPED_TEST(IndexTest, ListOrderingNumericLists) {
   };
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (const auto &val : expected) {
       auto v = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(v.AddLabel(this->label1));
@@ -1481,7 +1481,7 @@ TYPED_TEST(IndexTest, ListOrderingNumericLists) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   auto lower = memgraph::storage::LowerBoundForType(memgraph::storage::PropertyValueType::List);
   auto upper = memgraph::storage::UpperBoundForType(memgraph::storage::PropertyValueType::List);
   auto iterable = acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
@@ -1513,7 +1513,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   for (int i = 1; i <= 10; ++i) {
     for (int j = 0; j < i; ++j) {
       auto vertex = this->CreateVertex(acc.get());
@@ -1547,7 +1547,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCountEstimate) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   for (int i = 1; i <= 10; ++i) {
     for (int j = 0; j < i; ++j) {
       auto vertex = this->CreateVertex(acc.get());
@@ -1592,7 +1592,7 @@ TYPED_TEST(IndexTest, LabelPropertyNestedIndexCountEstimate) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   for (int i = 1; i <= 10; ++i) {
     for (int j = 0; j < i; ++j) {
       auto vertex = this->CreateVertex(acc.get());
@@ -1671,7 +1671,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
 
   // Create vertices, each with one of the values above.
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (const auto &value : values) {
       auto v = acc->CreateVertex();
       ASSERT_TRUE(v.AddLabel(this->label1).has_value());
@@ -1682,7 +1682,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
 
   // Verify that all nodes are in the index.
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto iterable =
         acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}}, std::array{pvr::IsNotNull()}, View::OLD);
     auto it = iterable.begin();
@@ -1700,7 +1700,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   auto verify = [&](const std::optional<memgraph::utils::Bound<PropertyValue>> &from,
                     const std::optional<memgraph::utils::Bound<PropertyValue>> &to,
                     const std::vector<PropertyValue> &expected) {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto iterable = acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                   std::array{pvr::Range(from, to)}, View::OLD);
     size_t i = 0;
@@ -1871,7 +1871,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
   PropertyId prop_b;
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     prop_a = acc->NameToProperty("a");
     prop_b = acc->NameToProperty("b");
   }
@@ -1890,7 +1890,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
 
   // Create vertices with every cartesian product of a and b values
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (auto &&[a_val, b_val] : ranges::views::cartesian_product(a_values, b_values)) {
       auto v = acc->CreateVertex();
       ASSERT_TRUE(v.AddLabel(this->label1).has_value());
@@ -1914,7 +1914,8 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
   auto const test = [&](std::span<PropertyPath const> props,
                         std::span<memgraph::storage::PropertyValueRange const> ranges, size_t expected_num_vertices,
                         auto &&props_validator) {
-    EXPECT_EQ(CheckVertexProperties(this->storage->Access(), this->label1, props, ranges, props_validator),
+    EXPECT_EQ(CheckVertexProperties(this->storage->Access(memgraph::storage::WRITE), this->label1, props, ranges,
+                                    props_validator),
               expected_num_vertices);
   };
 
@@ -1973,7 +1974,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
       EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
-    auto acc1 = this->storage->Access();
+    auto acc1 = this->storage->Access(memgraph::storage::WRITE);
 
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
@@ -1986,13 +1987,13 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
     EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     ASSERT_NO_ERROR(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
-    auto acc2 = this->storage->Access();
+    auto acc2 = this->storage->Access(memgraph::storage::WRITE);
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = acc2->DeleteVertex(&*vertex_to_delete);
     ASSERT_TRUE(res.has_value());
     ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
-    auto acc3 = this->storage->Access();
+    auto acc3 = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                             std::array{pvr::IsNotNull()}, View::NEW),
                              View::NEW),
@@ -2008,7 +2009,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
       EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
-    auto acc1 = this->storage->Access();
+    auto acc1 = this->storage->Access(memgraph::storage::WRITE);
 
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
@@ -2021,13 +2022,13 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
     EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     ASSERT_NO_ERROR(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
-    auto acc2 = this->storage->Access();
+    auto acc2 = this->storage->Access(memgraph::storage::WRITE);
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = vertex_to_delete->RemoveLabel(this->label1);
     ASSERT_TRUE(res.has_value());
     ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
-    auto acc3 = this->storage->Access();
+    auto acc3 = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                             std::array{pvr::IsNotNull()}, View::NEW),
                              View::NEW),
@@ -2042,7 +2043,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
       EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
-    auto acc1 = this->storage->Access();
+    auto acc1 = this->storage->Access(memgraph::storage::WRITE);
 
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
@@ -2055,7 +2056,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
     EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     ASSERT_NO_ERROR(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
-    auto acc2 = this->storage->Access();
+    auto acc2 = this->storage->Access(memgraph::storage::WRITE);
     auto target_vertex = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto remove_res = target_vertex->RemoveLabel(this->label1);
     ASSERT_TRUE(remove_res.has_value());
@@ -2075,7 +2076,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
       EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).has_value());
       ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
-    auto acc1 = this->storage->Access();
+    auto acc1 = this->storage->Access(memgraph::storage::WRITE);
     auto vertex = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(10)));
@@ -2084,14 +2085,14 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
     auto *tx_db = disk_label_property_index->GetRocksDBStorage()->db_;
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
-    auto acc2 = this->storage->Access();
+    auto acc2 = this->storage->Access(memgraph::storage::WRITE);
     auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex2.SetProperty(this->prop_val, memgraph::storage::PropertyValue(10)).has_value());
     ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
-    auto acc3 = this->storage->Access();
+    auto acc3 = this->storage->Access(memgraph::storage::WRITE);
     auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex3.SetProperty(this->prop_val, memgraph::storage::PropertyValue(15)).has_value());
     ASSERT_TRUE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -2104,14 +2105,14 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
 TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       EXPECT_FALSE(acc->EdgeTypeIndexReady(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
       EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
     }
 
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       for (int i = 0; i < 10; ++i) {
         auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
         auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -2128,7 +2129,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
     }
 
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 5);
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
                   UnorderedElementsAre(1, 3, 5, 7, 9));
@@ -2137,7 +2138,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
     }
 
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       for (int i = 10; i < 20; ++i) {
         auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
         auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -2162,7 +2163,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
     }
 
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       for (int i = 10; i < 20; ++i) {
         auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
         auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -2186,7 +2187,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
     }
 
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
                   UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
@@ -2207,7 +2208,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
       // Double call to free memory: first run unlinks and marks for cleanup; second run deletes
       this->storage->FreeMemory({}, false);
       this->storage->FreeMemory({}, false);
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
                   UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
@@ -2215,7 +2216,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
     }
     {
       {
-        auto acc = this->storage->Access();
+        auto acc = this->storage->Access(memgraph::storage::WRITE);
         for (auto vertex : acc->Vertices(View::OLD)) {
           auto edges = vertex.OutEdges(View::OLD)->edges;
           for (auto &edge : edges) {
@@ -2229,13 +2230,13 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
       }
       this->storage->FreeMemory({}, false);
       this->storage->FreeMemory({}, false);
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
                   UnorderedElementsAre(1, 5, 7, 23, 25, 29));
     }
     {
       {
-        auto acc = this->storage->Access();
+        auto acc = this->storage->Access(memgraph::storage::WRITE);
         for (auto vertex : acc->Vertices(View::OLD)) {
           auto edges = vertex.OutEdges(View::OLD)->edges;
           for (auto &edge : edges) {
@@ -2250,7 +2251,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
       }
       this->storage->FreeMemory({}, false);
       this->storage->FreeMemory({}, false);
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
                   UnorderedElementsAre(1, 7, 23, 29));
     }
@@ -2261,13 +2262,13 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
 TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       EXPECT_FALSE(acc->EdgeTypeIndexReady(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
     }
 
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       for (int i = 0; i < 10; ++i) {
         auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
         auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -2283,7 +2284,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
     }
 
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
                   UnorderedElementsAre(1, 3, 5, 7, 9));
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
@@ -2297,7 +2298,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
       ASSERT_NO_ERROR(drop_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
       EXPECT_FALSE(acc->EdgeTypeIndexReady(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
@@ -2305,7 +2306,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
     }
 
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       for (int i = 10; i < 20; ++i) {
         auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
         auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -2320,13 +2321,13 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
       ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       EXPECT_TRUE(acc->EdgeTypeIndexReady(this->edge_type_id1));
       EXPECT_THAT(acc->ListAllIndices().edge_type, UnorderedElementsAre(this->edge_type_id1));
     }
 
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
 
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
                   UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
@@ -2362,7 +2363,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexBasic) {
       ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(acc->ListAllIndices().edge_type, UnorderedElementsAre(this->edge_type_id1, this->edge_type_id2));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD), IsEmpty());
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, View::OLD), View::OLD), IsEmpty());
@@ -2436,9 +2437,9 @@ TYPED_TEST(IndexTest, EdgeTypeIndexTransactionalIsolation) {
       ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
-    auto acc_before = this->storage->Access();
-    auto acc = this->storage->Access();
-    auto acc_after = this->storage->Access();
+    auto acc_before = this->storage->Access(memgraph::storage::WRITE);
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto acc_after = this->storage->Access(memgraph::storage::WRITE);
 
     for (int i = 0; i < 5; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
@@ -2455,7 +2456,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexTransactionalIsolation) {
 
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
-    auto acc_after_commit = this->storage->Access();
+    auto acc_after_commit = this->storage->Access(memgraph::storage::WRITE);
 
     EXPECT_THAT(this->GetIds(acc_before->Edges(this->edge_type_id1, View::NEW), View::NEW), IsEmpty());
 
@@ -2480,7 +2481,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCountEstimate) {
       ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 20; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -2501,7 +2502,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexRepeatingEdgeTypesBetweenSameVertices) {
       ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
     auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
 
@@ -2522,14 +2523,14 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
     return;
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 0);
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 10; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -2548,7 +2549,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 5);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9));
@@ -2557,7 +2558,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 10; i < 20; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -2584,7 +2585,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 10; i < 20; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -2610,7 +2611,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
@@ -2631,7 +2632,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
     // Double call to free memory: first run unlinks and marks for cleanup; second run deletes
     this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
@@ -2639,7 +2640,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
   }
   {
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       for (auto vertex : acc->Vertices(View::OLD)) {
         auto edges = vertex.OutEdges(View::OLD)->edges;
         for (auto &edge : edges) {
@@ -2653,13 +2654,13 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
     }
     this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 5, 7, 23, 25, 29));
   }
   {
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       for (auto vertex : acc->Vertices(View::OLD)) {
         auto edges = vertex.OutEdges(View::OLD)->edges;
         for (auto &edge : edges) {
@@ -2674,7 +2675,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
     }
     this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 7, 23, 29));
   }
@@ -2686,13 +2687,13 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
     return;
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 10; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -2710,7 +2711,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
@@ -2723,7 +2724,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
   }
@@ -2734,13 +2735,13 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 10; i < 20; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -2757,14 +2758,14 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_TRUE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_THAT(acc->ListAllIndices().edge_type_property,
                 UnorderedElementsAre(std::make_pair(this->edge_type_id1, this->edge_prop_id1)));
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
 
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
@@ -2801,7 +2802,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexBasic) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   EXPECT_THAT(acc->ListAllIndices().edge_type_property,
               UnorderedElementsAre(std::make_pair(this->edge_type_id1, this->edge_prop_id1),
                                    std::make_pair(this->edge_type_id2, this->edge_prop_id2)));
@@ -2884,9 +2885,9 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexTransactionalIsolation) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc_before = this->storage->Access();
-  auto acc = this->storage->Access();
-  auto acc_after = this->storage->Access();
+  auto acc_before = this->storage->Access(memgraph::storage::WRITE);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  auto acc_after = this->storage->Access(memgraph::storage::WRITE);
 
   for (int i = 0; i < 5; ++i) {
     auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
@@ -2906,7 +2907,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexTransactionalIsolation) {
 
   ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
-  auto acc_after_commit = this->storage->Access();
+  auto acc_after_commit = this->storage->Access(memgraph::storage::WRITE);
 
   EXPECT_THAT(this->GetIds(acc_before->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
               IsEmpty());
@@ -2934,7 +2935,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCountEstimate) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   for (int i = 0; i < 20; ++i) {
     auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
     auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -2962,7 +2963,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRepeatingEdgeTypesBetweenSameVertices
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
   auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
 
@@ -2992,14 +2993,14 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
     return;
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_prop_id1), 0);
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 10; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -3018,7 +3019,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_prop_id1), 10);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
@@ -3027,7 +3028,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 10; i < 20; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -3054,7 +3055,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 10; i < 20; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -3080,7 +3081,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::NEW), View::NEW),
@@ -3101,7 +3102,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
     // Double call to free memory: first run unlinks and marks for cleanup; second run deletes
     this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::NEW), View::NEW),
@@ -3109,7 +3110,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
   }
   {
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       for (auto vertex : acc->Vertices(View::OLD)) {
         auto edges = vertex.OutEdges(View::OLD)->edges;
         for (auto &edge : edges) {
@@ -3123,13 +3124,13 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
     }
     this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 2, 4, 5, 7, 8, 20, 22, 23, 25, 26, 28, 29));
   }
   {
     {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       for (auto vertex : acc->Vertices(View::OLD)) {
         auto edges = vertex.OutEdges(View::OLD)->edges;
         for (auto &edge : edges) {
@@ -3144,7 +3145,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
     }
     this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 2, 4, 7, 8, 22, 23, 26, 28, 29));
   }
@@ -3156,13 +3157,13 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
     return;
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_property.size(), 0);
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 10; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -3180,7 +3181,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::NEW), View::NEW),
@@ -3193,7 +3194,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_property.size(), 0);
   }
@@ -3204,13 +3205,13 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_property.size(), 0);
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 10; i < 20; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -3227,13 +3228,13 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_TRUE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_THAT(acc->ListAllIndices().edge_property, UnorderedElementsAre(this->edge_prop_id1));
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
 
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19));
@@ -3270,7 +3271,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexBasic) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   EXPECT_THAT(acc->ListAllIndices().edge_property, UnorderedElementsAre(this->edge_prop_id1, this->edge_prop_id2));
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::OLD), View::OLD), IsEmpty());
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id2, View::OLD), View::OLD), IsEmpty());
@@ -3340,9 +3341,9 @@ TYPED_TEST(IndexTest, EdgePropertyIndexTransactionalIsolation) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc_before = this->storage->Access();
-  auto acc = this->storage->Access();
-  auto acc_after = this->storage->Access();
+  auto acc_before = this->storage->Access(memgraph::storage::WRITE);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  auto acc_after = this->storage->Access(memgraph::storage::WRITE);
 
   for (int i = 0; i < 5; ++i) {
     auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
@@ -3359,7 +3360,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexTransactionalIsolation) {
 
   ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
-  auto acc_after_commit = this->storage->Access();
+  auto acc_after_commit = this->storage->Access(memgraph::storage::WRITE);
 
   EXPECT_THAT(this->GetIds(acc_before->Edges(this->edge_prop_id1, View::NEW), View::NEW), IsEmpty());
 
@@ -3385,7 +3386,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCountEstimate) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   for (int i = 0; i < 20; ++i) {
     auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
     auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -3413,7 +3414,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexRepeatingEdgeTypesBetweenSameVertices) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
   auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
 
@@ -3451,7 +3452,7 @@ TYPED_TEST(IndexTest, CanIterateNestedLabelPropertyIndex) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 20; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 3 < 2 ? this->label1 : this->label2));
@@ -3481,7 +3482,7 @@ TYPED_TEST(IndexTest, CanIterateNestedLabelPropertyIndex) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   EXPECT_THAT(
       this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b, this->prop_c}},
                                  std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
@@ -3559,7 +3560,7 @@ TYPED_TEST(IndexTest, CompositeIndicesReadOutOfOrderProperties) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   {
     for (int i = 0; i < 10; ++i) {
       auto vertex = this->CreateVertex(acc.get());
@@ -3658,7 +3659,7 @@ TYPED_TEST(IndexTest, NestedIndicesReadOutOfOrderProperties) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   {
     for (int i = 0; i < 10; ++i) {
       auto vertex = this->CreateVertex(acc.get());
@@ -3732,7 +3733,7 @@ TYPED_TEST(IndexTest, DeltaDoesNotLeak) {
     return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
   };
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto vertex = this->CreateVertex(acc.get());
     (void)vertex.SetProperty(this->prop_a, make_map(this->prop_b, make_map(this->prop_c, PropertyValue("hello"))));
     // vvv This create a `Delta` containing the above `PropertyValue` map,
@@ -3757,7 +3758,7 @@ TYPED_TEST(IndexTest, LabelPropertiesIndicesScansOnlyStringsForRegexes) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
 
   for (auto &&value : values) {
     auto vertex = this->CreateVertex(acc.get());
@@ -3802,7 +3803,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexRemoveObsoleteEntriesWithActiveTransactio
   Gid edge_gid;
   // Transaction 1: Create edge with property
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
     auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
     auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
@@ -3812,13 +3813,13 @@ TYPED_TEST(IndexTest, EdgePropertyIndexRemoveObsoleteEntriesWithActiveTransactio
   }
 
   // Transaction 2: Start a transaction that can see the edge
-  auto acc_old_transaction = this->storage->Access();
+  auto acc_old_transaction = this->storage->Access(memgraph::storage::WRITE);
   EXPECT_THAT(this->GetIds(acc_old_transaction->Edges(this->edge_prop_id1, View::NEW), View::NEW),
               UnorderedElementsAre(0));
 
   // Transaction 3: Delete the edge
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
     ASSERT_NO_ERROR(acc->DetachDelete({}, {&edge}, false));
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
@@ -3843,7 +3844,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexRemoveObsoleteEntriesWithActiveTransactio
 
   // A new transaction should not see the deleted edge
   {
-    auto acc_new = this->storage->Access();
+    auto acc_new = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc_new->Edges(this->edge_prop_id1, View::NEW), View::NEW), IsEmpty());
   }
 }
@@ -3865,7 +3866,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexRemoveObsoleteEntriesWithActiveTransaction) {
   Gid edge_gid;
   // Transaction 1: Create edge
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
     auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
     auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
@@ -3874,13 +3875,13 @@ TYPED_TEST(IndexTest, EdgeTypeIndexRemoveObsoleteEntriesWithActiveTransaction) {
   }
 
   // Transaction 2: Start a transaction that can see the edge
-  auto acc_old_transaction = this->storage->Access();
+  auto acc_old_transaction = this->storage->Access(memgraph::storage::WRITE);
   EXPECT_THAT(this->GetIds(acc_old_transaction->Edges(this->edge_type_id1, View::NEW), View::NEW),
               UnorderedElementsAre(0));
 
   // Transaction 3: Delete the edge
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
     ASSERT_NO_ERROR(acc->DetachDelete({}, {&edge}, false));
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
@@ -3903,7 +3904,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexRemoveObsoleteEntriesWithActiveTransaction) {
 
   // A new transaction should not see the deleted edge
   {
-    auto acc_new = this->storage->Access();
+    auto acc_new = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc_new->Edges(this->edge_type_id1, View::NEW), View::NEW), IsEmpty());
   }
 }
@@ -3925,7 +3926,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRemoveObsoleteEntriesWithActiveTransa
   Gid edge_gid;
   // Transaction 1: Create edge with property
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
     auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
     auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
@@ -3935,13 +3936,13 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRemoveObsoleteEntriesWithActiveTransa
   }
 
   // Transaction 2: Start a transaction that can see the edge
-  auto acc_old_transaction = this->storage->Access();
+  auto acc_old_transaction = this->storage->Access(memgraph::storage::WRITE);
   EXPECT_THAT(this->GetIds(acc_old_transaction->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
               UnorderedElementsAre(0));
 
   // Transaction 3: Delete the edge
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
     ASSERT_NO_ERROR(acc->DetachDelete({}, {&edge}, false));
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
@@ -3964,7 +3965,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRemoveObsoleteEntriesWithActiveTransa
 
   // A new transaction should not see the deleted edge
   {
-    auto acc_new = this->storage->Access();
+    auto acc_new = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(this->GetIds(acc_new->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
                 IsEmpty());
   }

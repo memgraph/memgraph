@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@ int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   spdlog::set_level(spdlog::level::err);
   std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   RunInteractivePlanning(&dba);
   return 0;

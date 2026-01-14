@@ -200,7 +200,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   const auto *vertex_property_value = "vertex_property_value";
   std::optional<Gid> vertex_gid;
   {
-    auto acc = main.db.Access();
+    auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
     ASSERT_TRUE(v.AddLabel(main.db.storage()->NameToLabel(vertex_label)).has_value());
@@ -210,7 +210,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
 
   {
-    auto acc = replica.db.Access();
+    auto acc = replica.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     const auto labels = v->Labels(View::OLD);
@@ -228,7 +228,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
 
   // vertex remove label
   {
-    auto acc = main.db.Access();
+    auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_TRUE(v->RemoveLabel(main.db.storage()->NameToLabel(vertex_label)).has_value());
@@ -236,7 +236,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
 
   {
-    auto acc = replica.db.Access();
+    auto acc = replica.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     const auto labels = v->Labels(View::OLD);
@@ -247,7 +247,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
 
   // vertex delete
   {
-    auto acc = main.db.Access();
+    auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_TRUE(acc->DeleteVertex(&*v).has_value());
@@ -255,7 +255,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
 
   {
-    auto acc = replica.db.Access();
+    auto acc = replica.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_FALSE(v);
     vertex_gid.reset();
@@ -269,7 +269,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   const auto *edge_property_value = "edge_property_value";
   std::optional<Gid> edge_gid;
   {
-    auto acc = main.db.Access();
+    auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
     auto edgeRes = acc->CreateEdge(&v, &v, main.db.storage()->NameToEdgeType(edge_type));
@@ -291,7 +291,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   };
 
   {
-    auto acc = replica.db.Access();
+    auto acc = replica.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     const auto out_edges = v->OutEdges(View::OLD);
@@ -308,7 +308,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
 
   // delete edge
   {
-    auto acc = main.db.Access();
+    auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     auto out_edges = v->OutEdges(View::OLD);
@@ -319,7 +319,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
 
   {
-    auto acc = replica.db.Access();
+    auto acc = replica.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     const auto out_edges = v->OutEdges(View::OLD);
@@ -420,7 +420,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
 
   {
-    const auto indices = replica.db.Access()->ListAllIndices();
+    const auto indices = replica.db.Access(memgraph::storage::WRITE)->ListAllIndices();
     ASSERT_THAT(indices.label, UnorderedElementsAre(replica.db.storage()->NameToLabel(label)));
     ASSERT_THAT(
         indices.label_properties,
@@ -437,13 +437,16 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
                 std::vector{memgraph::storage::PropertyPath{main.db.storage()->NameToProperty(nested_property1),
                                                             main.db.storage()->NameToProperty(nested_property2),
                                                             main.db.storage()->NameToProperty(nested_property3)}})));
-    const auto &l_stats_rep = replica.db.Access()->GetIndexStats(replica.db.storage()->NameToLabel(label));
+    const auto &l_stats_rep =
+        replica.db.Access(memgraph::storage::WRITE)->GetIndexStats(replica.db.storage()->NameToLabel(label));
     ASSERT_TRUE(l_stats_rep);
     ASSERT_EQ(l_stats_rep->count, l_stats.count);
     ASSERT_EQ(l_stats_rep->avg_degree, l_stats.avg_degree);
-    const auto &lp_stats_rep = replica.db.Access()->GetIndexStats(
-        replica.db.storage()->NameToLabel(label),
-        std::array{memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property)}});
+    const auto &lp_stats_rep =
+        replica.db.Access(memgraph::storage::WRITE)
+            ->GetIndexStats(
+                replica.db.storage()->NameToLabel(label),
+                std::array{memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property)}});
     ASSERT_TRUE(lp_stats_rep);
     ASSERT_EQ(lp_stats_rep->count, lp_stats.count);
     ASSERT_EQ(lp_stats_rep->distinct_values_count, lp_stats.distinct_values_count);
@@ -451,12 +454,13 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_EQ(lp_stats_rep->avg_group_size, lp_stats.avg_group_size);
     ASSERT_EQ(lp_stats_rep->avg_degree, lp_stats.avg_degree);
 
-    const auto &lps_stats_rep = replica.db.Access()->GetIndexStats(
-        replica.db.storage()->NameToLabel(label),
-        std::array{
-            memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property)},
-            memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property_extra)},
-        });
+    const auto &lps_stats_rep =
+        replica.db.Access(memgraph::storage::WRITE)
+            ->GetIndexStats(replica.db.storage()->NameToLabel(label),
+                            std::array{
+                                memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property)},
+                                memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property_extra)},
+                            });
     ASSERT_TRUE(lps_stats_rep);
     ASSERT_EQ(lps_stats_rep->count, lp_stats.count);
     ASSERT_EQ(lps_stats_rep->distinct_values_count, lp_stats.distinct_values_count);
@@ -464,11 +468,13 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_EQ(lps_stats_rep->avg_group_size, lp_stats.avg_group_size);
     ASSERT_EQ(lps_stats_rep->avg_degree, lp_stats.avg_degree);
 
-    const auto &nested_lps_stats_rep = replica.db.Access()->GetIndexStats(
-        replica.db.storage()->NameToLabel(label),
-        std::array{memgraph::storage::PropertyPath{main.db.storage()->NameToProperty(nested_property1),
-                                                   main.db.storage()->NameToProperty(nested_property2),
-                                                   main.db.storage()->NameToProperty(nested_property3)}});
+    const auto &nested_lps_stats_rep =
+        replica.db.Access(memgraph::storage::WRITE)
+            ->GetIndexStats(
+                replica.db.storage()->NameToLabel(label),
+                std::array{memgraph::storage::PropertyPath{main.db.storage()->NameToProperty(nested_property1),
+                                                           main.db.storage()->NameToProperty(nested_property2),
+                                                           main.db.storage()->NameToProperty(nested_property3)}});
     ASSERT_TRUE(nested_lps_stats_rep);
     ASSERT_EQ(nested_lps_stats_rep->count, lp_stats.count);
     ASSERT_EQ(nested_lps_stats_rep->distinct_values_count, lp_stats.distinct_values_count);
@@ -476,7 +482,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_EQ(nested_lps_stats_rep->avg_group_size, lp_stats.avg_group_size);
     ASSERT_EQ(nested_lps_stats_rep->avg_degree, lp_stats.avg_degree);
 
-    const auto constraints = replica.db.Access()->ListAllConstraints();
+    const auto constraints = replica.db.Access(memgraph::storage::WRITE)->ListAllConstraints();
     ASSERT_THAT(constraints.existence,
                 UnorderedElementsAre(std::make_pair(replica.db.storage()->NameToLabel(label),
                                                     replica.db.storage()->NameToProperty(property))));
@@ -554,18 +560,21 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
 
   {
-    const auto indices = replica.db.Access()->ListAllIndices();
+    const auto indices = replica.db.Access(memgraph::storage::WRITE)->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
     ASSERT_EQ(indices.label_properties.size(), 0);
 
-    const auto &l_stats_rep = replica.db.Access()->GetIndexStats(replica.db.storage()->NameToLabel(label));
+    const auto &l_stats_rep =
+        replica.db.Access(memgraph::storage::WRITE)->GetIndexStats(replica.db.storage()->NameToLabel(label));
     ASSERT_FALSE(l_stats_rep);
-    const auto &lp_stats_rep = replica.db.Access()->GetIndexStats(
-        replica.db.storage()->NameToLabel(label),
-        std::array{memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property)}});
+    const auto &lp_stats_rep =
+        replica.db.Access(memgraph::storage::WRITE)
+            ->GetIndexStats(
+                replica.db.storage()->NameToLabel(label),
+                std::array{memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property)}});
     ASSERT_FALSE(lp_stats_rep);
 
-    const auto constraints = replica.db.Access()->ListAllConstraints();
+    const auto constraints = replica.db.Access(memgraph::storage::WRITE)->ListAllConstraints();
     ASSERT_EQ(constraints.existence.size(), 0);
     ASSERT_EQ(constraints.unique.size(), 0);
   }
@@ -603,7 +612,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   const auto *vertex_property_value = "property_value";
   std::optional<Gid> vertex_gid;
   {
-    auto acc = main.db.Access();
+    auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.AddLabel(main.db.storage()->NameToLabel(vertex_label)).has_value());
     ASSERT_TRUE(v.SetProperty(main.db.storage()->NameToProperty(vertex_property), PropertyValue(vertex_property_value))
@@ -613,7 +622,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   }
 
   const auto check_replica = [&](memgraph::dbms::Database &replica_database) {
-    auto acc = replica_database.Access();
+    auto acc = replica_database.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     const auto labels = v->Labels(View::OLD);
@@ -628,7 +637,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   auto handler = main.repl_handler;
   handler.UnregisterReplica(replicas[1]);
   {
-    auto acc = main.db.Access();
+    auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
@@ -636,7 +645,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
 
   // REPLICA1 should contain the new vertex
   {
-    auto acc = replica1.db.Access();
+    auto acc = replica1.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -644,7 +653,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
 
   // REPLICA2 should not contain the new vertex
   {
-    auto acc = replica2.db.Access();
+    auto acc = replica2.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_FALSE(v);
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -666,7 +675,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     MinMemgraph main(conf);
 
     {
-      auto acc = main.db.Access();
+      auto acc = main.db.Access(memgraph::storage::WRITE);
       // Create the vertex before registering a replica
       auto v = acc->CreateVertex();
       vertex_gids.emplace_back(v.Gid());
@@ -684,13 +693,13 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     MinMemgraph main(conf);
     // Create vertices in 2 different transactions
     {
-      auto acc = main.db.Access();
+      auto acc = main.db.Access(memgraph::storage::WRITE);
       auto v = acc->CreateVertex();
       vertex_gids.emplace_back(v.Gid());
       ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
     }
     {
-      auto acc = main.db.Access();
+      auto acc = main.db.Access(memgraph::storage::WRITE);
       auto v = acc->CreateVertex();
       vertex_gids.emplace_back(v.Gid());
       ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
@@ -711,7 +720,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   static constexpr const auto property_value = 1;
   {
     // Force the creation of current WAL file
-    auto acc = main.db.Access();
+    auto acc = main.db.Access(memgraph::storage::WRITE);
     for (const auto &vertex_gid : vertex_gids) {
       auto v = acc->FindVertex(vertex_gid, View::OLD);
       ASSERT_TRUE(v);
@@ -742,7 +751,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     }
 
     {
-      auto acc = main.db.Access();
+      auto acc = main.db.Access(memgraph::storage::WRITE);
       for (const auto &vertex_gid : vertex_gids) {
         auto v = acc->FindVertex(vertex_gid, View::OLD);
         ASSERT_TRUE(v);
@@ -751,7 +760,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
     }
     {
-      auto acc = replica.db.Access();
+      auto acc = replica.db.Access(memgraph::storage::WRITE);
       for (const auto &vertex_gid : vertex_gids) {
         auto v = acc->FindVertex(vertex_gid, View::OLD);
         ASSERT_TRUE(v);
@@ -775,7 +784,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     UpdatePaths(repl_conf, repl_storage_directory);
     MinMemgraph replica(repl_conf);
     {
-      auto acc = replica.db.Access();
+      auto acc = replica.db.Access(memgraph::storage::WRITE);
       for (const auto &vertex_gid : vertex_gids) {
         auto v = acc->FindVertex(vertex_gid, View::OLD);
         ASSERT_TRUE(v);
@@ -815,7 +824,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   static constexpr size_t vertices_create_num = 10;
   std::vector<Gid> created_vertices;
   for (size_t i = 0; i < vertices_create_num; ++i) {
-    auto acc = main.db.Access();
+    auto acc = main.db.Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     created_vertices.push_back(v.Gid());
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
@@ -833,7 +842,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   }
 
   ASSERT_TRUE(std::ranges::all_of(created_vertices, [&](const auto vertex_gid) {
-    auto acc = replica_async.db.Access();
+    auto acc = replica_async.db.Access(memgraph::storage::WRITE);
     auto v = acc->FindVertex(vertex_gid, View::OLD);
     const bool exists = v.has_value();
     EXPECT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -872,19 +881,19 @@ TEST_F(ReplicationTest, EpochTest) {
 
   std::optional<Gid> vertex_gid;
   {
-    auto acc = main.db.Access();
+    auto acc = main.db.Access(memgraph::storage::WRITE);
     const auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
-    auto acc = replica1.db.Access();
+    auto acc = replica1.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
-    auto acc = replica2.db.Access();
+    auto acc = replica2.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -904,19 +913,19 @@ TEST_F(ReplicationTest, EpochTest) {
                   .has_value());
 
   {
-    auto acc = main.db.Access();
+    auto acc = main.db.Access(memgraph::storage::WRITE);
     acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
-    auto acc = replica1.db.Access();
+    auto acc = replica1.db.Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(replica1.db_acc)).has_value());
   }
   // Replica1 should forward it's vertex to Replica2
   {
-    auto acc = replica2.db.Access();
+    auto acc = replica2.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -934,7 +943,7 @@ TEST_F(ReplicationTest, EpochTest) {
                    .has_value());
 
   {
-    auto acc = main.db.Access();
+    auto acc = main.db.Access(memgraph::storage::WRITE);
     const auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
@@ -942,7 +951,7 @@ TEST_F(ReplicationTest, EpochTest) {
   // Replica1 is not compatible with the main so it shouldn't contain
   // it's newest vertex
   {
-    auto acc = replica1.db.Access();
+    auto acc = replica1.db.Access(memgraph::storage::WRITE);
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_FALSE(v);
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1226,14 +1235,14 @@ TEST_F(ReplicationTest, RecoverySteps) {
   auto file_locker = file_retainer.AddLocker();
 
   auto large_write_to_finalize_wal = [&]() {
-    auto acc = in_mem->Access();
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.SetProperty(p, large_property).has_value());
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   };
 
   auto create_vertex_and_commit = [&]() {
-    auto acc = in_mem->Access();
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
     acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   };
@@ -1314,7 +1323,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
 
   // Snapshot + Current
   {
-    auto acc = in_mem->Access();
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
     acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
@@ -1334,7 +1343,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
 
   // Snapshot + WALs + Current
   {
-    auto acc = in_mem->Access();
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
     acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
@@ -1388,7 +1397,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   }
   {
     // Add current wal
-    auto acc = in_mem->Access();
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
     acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
@@ -1406,7 +1415,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   }
   {
     // Add both
-    auto acc = in_mem->Access();
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
     acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
@@ -1451,7 +1460,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   }
   // + Current
   {
-    auto acc = in_mem->Access();
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
     acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
@@ -1512,14 +1521,14 @@ TEST_F(ReplicationTest, SchemaReplication) {
 
   // Check current delta replication
   {
-    auto acc = main->db.Access();
+    auto acc = main->db.Access(memgraph::storage::WRITE);
     acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
     EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
   }
 
   {
-    auto acc = main->db.Access();
+    auto acc = main->db.Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.AddLabel(l1).has_value());
     ASSERT_TRUE(v.AddLabel(l2).has_value());
@@ -1529,7 +1538,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
   }
 
   {
-    auto acc = main->db.Access();
+    auto acc = main->db.Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.SetProperty(p1, PropertyValue{123}).has_value());
     ASSERT_TRUE(v.SetProperty(p1, PropertyValue{123.45}).has_value());
@@ -1538,7 +1547,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
   }
 
   {
-    auto acc = main->db.Access();
+    auto acc = main->db.Access(memgraph::storage::WRITE);
     auto v = acc->CreateVertex();
     ASSERT_TRUE(v.SetProperty(p1, PropertyValue{true}).has_value());
     ASSERT_TRUE(v.AddLabel(l3).has_value());
@@ -1547,7 +1556,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
   }
 
   {
-    auto acc = main->db.Access();
+    auto acc = main->db.Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     ASSERT_TRUE(acc->CreateEdge(&v1, &v2, e).has_value());
@@ -1556,7 +1565,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
   }
 
   {
-    auto acc = main->db.Access();
+    auto acc = main->db.Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     ASSERT_TRUE(v1.AddLabel(l1).has_value());
     ASSERT_TRUE(v1.AddLabel(l3).has_value());
@@ -1568,7 +1577,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
   }
 
   {
-    auto acc = main->db.Access();
+    auto acc = main->db.Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     auto edge = acc->CreateEdge(&v1, &v2, e);
@@ -1579,7 +1588,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
   }
 
   {
-    auto acc = main->db.Access();
+    auto acc = main->db.Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     auto edge = acc->CreateEdge(&v1, &v2, e);
@@ -1592,7 +1601,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
   }
 
   {
-    auto acc = main->db.Access();
+    auto acc = main->db.Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     auto edge = acc->CreateEdge(&v1, &v2, e);
@@ -1601,7 +1610,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
     const auto edge_gid = edge->Gid();
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
 
-    auto acc2 = main->db.Access();
+    auto acc2 = main->db.Access(memgraph::storage::WRITE);
     auto prev_v1 = acc2->FindVertex(v1_gid, View::NEW);
     auto prev_v2 = acc2->FindVertex(v2_gid, View::NEW);
     auto prev_edge = acc2->FindEdge(edge_gid, View::NEW);
