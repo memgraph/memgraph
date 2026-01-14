@@ -4,13 +4,19 @@ from enum import IntEnum
 from zoneinfo import ZoneInfo
 
 import mgp
-import pytz
 from mage.date.constants import Conversion, Epoch
 from mage.date.unit_conversion import to_int, to_timedelta
 
 
+def validate_timezone(timezone: str) -> None:
+    try:
+        ZoneInfo(timezone)
+    except (ValueError, KeyError):
+        raise Exception("Timezone doesn't exist. Check documentation to see available timezones.")
+
+
 def getOffset(timezone, date):
-    offset = pytz.timezone(timezone).utcoffset(date)
+    offset = ZoneInfo(timezone).utcoffset(date)
     if offset.days == 1:
         return (
             datetime.timedelta(
@@ -43,8 +49,7 @@ def parse(
     first_date = Epoch.UNIX_EPOCH
     input_date = datetime.datetime.strptime(time, format)
 
-    if timezone not in pytz.all_timezones:
-        raise Exception("Timezone doesn't exist. Check documentation to see available timezones.")
+    validate_timezone(timezone)
 
     offset, add = getOffset(timezone, input_date)
     tz_input = input_date + offset if add else input_date - offset
@@ -105,12 +110,12 @@ def format(
     else:
         raise Exception("Unit doesn't exist. Check documentation to see available units.")
 
-    if timezone not in pytz.all_timezones:
-        raise Exception("Timezone doesn't exist. Check documentation to see available timezones.")
+    validate_timezone(timezone)
     offset, subtract = getOffset(timezone, new_date)
     tz_new = new_date - offset if subtract else new_date + offset
 
-    return mgp.Record(formatted=pytz.timezone(timezone).localize(tz_new).strftime(format))
+    tz_aware = tz_new.replace(tzinfo=ZoneInfo(timezone))
+    return mgp.Record(formatted=tz_aware.strftime(format))
 
 
 @mgp.function
