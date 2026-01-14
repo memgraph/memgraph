@@ -30,6 +30,8 @@ file = "show_while_creating_invalid_state"
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
+    # Clean up before test in case previous run left stale data
+    interactive_mg_runner.kill_all(keep_directories=False)
     # Run the test
     yield
     # Stop + delete directories after running the test
