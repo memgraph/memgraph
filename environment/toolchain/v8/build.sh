@@ -38,7 +38,7 @@ if [[ "$TOOLCHAIN_STDCXX" != "libstdc++" && "$TOOLCHAIN_STDCXX" != "libc++" ]]; 
 fi
 # TODO(gitbuda): Make LLVM linker configurable -DLLVM_ENABLE_LLD=ON + -fuse-ld=lld (gold vs lld).
 # TODO(gitbuda): Add --skip-gpg and somehow make gpg check configurable per OS.
-TOOLCHAIN_VERSION=7
+TOOLCHAIN_VERSION=8
 # package versions used
 GCC_VERSION=15.2.0
 BINUTILS_VERSION=2.45
