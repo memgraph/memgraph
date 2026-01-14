@@ -32,6 +32,16 @@ services:
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_ubuntu-24.04-arm"
 
+  mgbuild_v7_ubuntu-26.04-arm:
+    image: "memgraph/mgbuild:v7_ubuntu-26.04-arm"
+    build:
+      context: ubuntu-26.04-arm
+      args:
+        TOOLCHAIN_VERSION: "v7"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v7_ubuntu-26.04-arm"
+
   mgbuild_v7_fedora-42-arm:
     image: "memgraph/mgbuild:v7_fedora-42-arm"
     build:
@@ -41,3 +51,13 @@ services:
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_fedora-42-arm"
+
+  mgbuild_v7_fedora-43-arm:
+    image: "memgraph/mgbuild:v7_fedora-43-arm"
+    build:
+      context: fedora-43-arm
+      args:
+        TOOLCHAIN_VERSION: "v7"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    container_name: "mgbuild_v7_fedora-43-arm"
