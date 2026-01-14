@@ -1257,9 +1257,16 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       }
     }
     case Type::VECTOR: {
-      auto vector_index_id = reader->ReadUint(payload_size);
-      if (!vector_index_id) return std::nullopt;
-      return std::optional<PropertyValue>{std::in_place, int8_t(*vector_index_id)};
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return std::nullopt;
+      utils::small_vector<uint64_t> vector_index_ids;
+      vector_index_ids.reserve(*size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto id = reader->ReadUint(Size::INT64);
+        if (!id) return std::nullopt;
+        vector_index_ids.emplace_back(*id);
+      }
+      return std::optional<PropertyValue>{std::in_place, std::move(vector_index_ids), utils::small_vector<float>{}};
     }
   }
 }

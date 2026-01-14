@@ -444,6 +444,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
       // TODO: defer until once all properties have been set, to make fewer entries ?
       storage->indices_.vector_index_.UpdateIndex(new_value, vertex, std::nullopt, storage->name_id_mapper_.get());
+      storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
       transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {

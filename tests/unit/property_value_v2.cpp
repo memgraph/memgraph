@@ -997,7 +997,8 @@ TEST(PropertyValue, PropertyValueToExternalPropertyValue) {
 TEST(PropertyValue, ExternalPropertyValueToPropertyValue) {
   memgraph::storage::NameIdMapper name_id_mapper;
   auto property_id = PropertyId::FromUint(name_id_mapper.NameToId("id"));
-  auto data = MakeTestPropertyValues<PropertyValue>(property_id, 1UL);
+  auto index_id = name_id_mapper.NameToId("test_index");
+  auto data = MakeTestPropertyValues<PropertyValue>(property_id, index_id);
 
   for (const auto &val : data) {
     auto pv = ToExternalPropertyValue(val, &name_id_mapper);
