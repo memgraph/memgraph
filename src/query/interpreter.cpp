@@ -5508,6 +5508,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   MG_ASSERT(current_db.db_acc_, "Database info query expects a current DB");
   MG_ASSERT(current_db.db_transactional_accessor_, "Database info query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
+  auto *storage_acc = current_db.db_transactional_accessor_.get();
 
   auto *info_query = utils::Downcast<DatabaseInfoQuery>(parsed_query.query);
   std::vector<std::string> header;
@@ -5516,7 +5517,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   switch (info_query->info_type_) {
     case DatabaseInfoQuery::InfoType::INDEX: {
       header = {"index type", "label", "property", "count"};
-      handler = [database, dba] {
+      handler = [database, dba, storage_acc] {
         auto *storage = database->storage();
         const std::string_view label_index_mark{"label"};
         const std::string_view label_property_index_mark{"label+property"};
@@ -5529,7 +5530,6 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view vector_label_property_index_mark{"label+property_vector"};
         const std::string_view vector_edge_property_index_mark{"edge-type+property_vector"};
         auto info = dba->ListAllIndices();
-        auto storage_acc = database->Access();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.label.size() + info.label_properties.size() + info.text_indices.size());
         for (const auto &item : info.label) {
@@ -5746,7 +5746,6 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         auto *storage = database->storage();
         auto vector_indices = dba->ListAllVectorIndices();
         auto vector_edge_indices = dba->ListAllVectorEdgeIndices();
-        auto storage_acc = database->Access();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(vector_indices.size());
 
@@ -8030,7 +8029,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     QueryAllocator execution_memory{};
 
     // create a new transaction for each trigger
-    auto tx_acc = db_acc->Access();
+    auto tx_acc = db_acc->Access(memgraph::storage::WRITE);
     DbAccessor db_accessor{tx_acc.get()};
 
     // On-disk storage removes all Vertex/Edge Accessors because previous trigger tx finished.

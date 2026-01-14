@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -167,7 +167,7 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
 
     // Add data to graphs
     {
-      auto storage_dba = db1.value()->Access();
+      auto storage_dba = db1.value()->Access(memgraph::storage::WRITE);
       memgraph::query::DbAccessor dba{storage_dba.get()};
       memgraph::query::VertexAccessor v1{dba.InsertVertex()};
       memgraph::query::VertexAccessor v2{dba.InsertVertex()};
@@ -176,7 +176,7 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
       ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
-      auto storage_dba = db3.value()->Access();
+      auto storage_dba = db3.value()->Access(memgraph::storage::WRITE);
       memgraph::query::DbAccessor dba{storage_dba.get()};
       memgraph::query::VertexAccessor v1{dba.InsertVertex()};
       memgraph::query::VertexAccessor v2{dba.InsertVertex()};
@@ -211,19 +211,19 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
     // Check content
     {
       // Empty
-      auto storage_dba = db1.value()->Access();
+      auto storage_dba = db1.value()->Access(memgraph::storage::WRITE);
       memgraph::query::DbAccessor dba{storage_dba.get()};
       ASSERT_EQ(dba.VerticesCount(), 0);
     }
     {
       // Empty
-      auto storage_dba = db2.value()->Access();
+      auto storage_dba = db2.value()->Access(memgraph::storage::WRITE);
       memgraph::query::DbAccessor dba{storage_dba.get()};
       ASSERT_EQ(dba.VerticesCount(), 0);
     }
     {
       // Full
-      auto storage_dba = db3.value()->Access();
+      auto storage_dba = db3.value()->Access(memgraph::storage::WRITE);
       memgraph::query::DbAccessor dba{storage_dba.get()};
       ASSERT_EQ(dba.VerticesCount(), 3);
     }

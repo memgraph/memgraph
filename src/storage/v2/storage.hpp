@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -722,11 +722,7 @@ class Storage {
   virtual std::unique_ptr<Accessor> Access(StorageAccessType rw_type,
                                            std::optional<IsolationLevel> override_isolation_level,
                                            std::optional<std::chrono::milliseconds> timeout) = 0;
-  std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) {
-    return Access(StorageAccessType::WRITE, override_isolation_level, std::nullopt);
-  }
   std::unique_ptr<Accessor> Access(StorageAccessType rw_type) { return Access(rw_type, std::nullopt, std::nullopt); }
-  std::unique_ptr<Accessor> Access() { return Access(StorageAccessType::WRITE, {}, std::nullopt); }
 
   virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                  std::optional<std::chrono::milliseconds> timeout) = 0;
