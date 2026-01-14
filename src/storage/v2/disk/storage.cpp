@@ -2220,8 +2220,7 @@ std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAcces
 
 utils::small_vector<uint64_t> DiskStorage::DiskAccessor::GetVectorIndexIdsForVertex(Vertex *vertex,
                                                                                     PropertyId property) {
-  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
-                                 kErrorMessage);
+  return {};
 }
 
 utils::small_vector<float> DiskStorage::DiskAccessor::GetVectorFromVectorIndex(Vertex *vertex,
