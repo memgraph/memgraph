@@ -475,12 +475,15 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
-void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage *const storage) {
+void InMemoryReplicationHandlers::DestroyReplAccessor() {
   if (two_pc_cache_.commit_accessor_) {
     two_pc_cache_.commit_accessor_->AbortAndResetCommitTs();
     two_pc_cache_.commit_accessor_.reset();
   }
+}
 
+void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage *const storage) {
+  DestroyReplAccessor();
   if (storage->wal_file_) {
     storage->wal_file_->FinalizeWal();
     storage->wal_file_.reset();

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -200,10 +200,21 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
     // Need to take read-only access to all databases so that write txns could finish before demoting
     // to replica.
     std::vector<std::unique_ptr<storage::Storage::Accessor>> accs;
-    dbms_handler_.ForEach([&accs](dbms::DatabaseAccess db_acc) {
+    auto const res = dbms_handler_.ForEachUntil([&accs](dbms::DatabaseAccess db_acc) -> bool {
+      // Timeout on read only access for the DB
+      constexpr auto read_only_timeout = 2s;
       auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
-      accs.emplace_back(storage->ReadOnlyAccess());
+      try {
+        accs.emplace_back(storage->ReadOnlyAccess(std::nullopt, read_only_timeout));
+      } catch (std::exception const &e) {
+        return false;
+      }
+      return true;
     });
+
+    if (!res) {
+      return false;
+    }
 
     auto locked_repl_state = repl_state_.TryLock();
 
@@ -243,14 +254,18 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       locked_repl_state->GetReplicaRole().server->Shutdown();
     }
 
-    // STEP 1) bring down all REPLICA servers
+    // Step 1) Destroy repl accessor. It is safe to do this from another thread
+    // because server has already been stopped
+    dbms::InMemoryReplicationHandlers::DestroyReplAccessor();
+
+    // STEP 2) bring down all REPLICA servers
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
       // Remember old epoch + storage timestamp association
       storage->PrepareForNewEpoch();
     });
 
-    // STEP 2) Change to MAIN
+    // STEP 3) Change to MAIN
     // TODO: restore replication servers if false?
     if (!locked_repl_state->SetReplicationRoleMain(main_uuid)) {
       // TODO: Handle recovery on failure???
@@ -261,7 +276,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
     auto const new_epoch = ReplicationEpoch();
     spdlog::trace("Generated new epoch {}", new_epoch.id());
 
-    // STEP 3) We are now MAIN, update storage local epoch
+    // STEP 4) We are now MAIN, update storage local epoch
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
       storage->repl_storage_state_.epoch_ = new_epoch;
@@ -282,7 +297,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       spdlog::trace("New timestamp is {} for the database {}.", storage->timestamp_, db_acc->name());
     });
 
-    // STEP 4) Resume TTL
+    // STEP 5) Resume TTL
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
       auto &ttl = db_acc->ttl();
       ttl.Resume();
