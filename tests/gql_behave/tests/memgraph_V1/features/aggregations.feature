@@ -787,3 +787,48 @@ Feature: Aggregations
         Then the result should be:
             | is_empty |
             | true     |
+
+    Scenario: Sum with distinct:
+        Given an empty graph
+        And having executed
+            """
+            CREATE ({p: 1}), ({p: 2}), ({p: 2}), ({p: 3}), ({p: null})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN sum(DISTINCT n.p) AS result
+            """
+        Then the result should be:
+            | result |
+            | 6      |
+
+    Scenario: Avg with distinct:
+        Given an empty graph
+        And having executed
+            """
+            CREATE ({p: 2}), ({p: 4}), ({p: 4}), ({p: 6}), ({p: null})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN avg(DISTINCT n.p) AS result
+            """
+        Then the result should be:
+            | result |
+            | 4.0    |
+
+    Scenario: Sum and Avg with distinct and order by/limit:
+        Given an empty graph
+        And having executed
+            """
+            CREATE ({p: 1, g: 1}), ({p: 2, g: 1}), ({p: 2, g: 1}), ({p: 10, g: 2})
+            """
+        When executing query:
+            """
+            MATCH (n)
+            RETURN n.g as g, sum(DISTINCT n.p) AS s, avg(DISTINCT n.p) AS a
+            ORDER BY g ASC
+            LIMIT 1
+            """
+        Then the result should be:
+            | g | s  | a    |
+            | 1 | 3  | 1.5  |
