@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -71,6 +71,8 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "AddCoordinatorInstance"sv;
     case NotificationCode::REMOVE_COORDINATOR_INSTANCE:
       return "RemoveCoordinatorInstance"sv;
+    case NotificationCode::UPDATE_CONFIG:
+      return "UpdateConfig"sv;
     case NotificationCode::UNREGISTER_INSTANCE:
       return "UnregisterInstance"sv;
     case NotificationCode::DEMOTE_INSTANCE_TO_REPLICA:

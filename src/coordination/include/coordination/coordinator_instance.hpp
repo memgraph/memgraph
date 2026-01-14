@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,6 @@
 #include "coordination/coordinator_instance_connector.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
 #include "coordination/coordinator_ops_status.hpp"
-#include "coordination/data_instance_management_server.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/replication_instance_client.hpp"
@@ -95,6 +94,9 @@ class CoordinatorInstance {
 
   auto RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus;
 
+  auto UpdateConfig(std::variant<int32_t, std::string> const &instance, io::network::Endpoint const &bolt_endpoint)
+      -> UpdateConfigStatus;
+
   auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
       -> SetCoordinatorSettingStatus;
 
@@ -127,8 +129,6 @@ class CoordinatorInstance {
   auto GetTelemetryJson() const -> nlohmann::json;
 
  private:
-  auto FindReplicationInstance(std::string_view replication_instance_name)
-      -> std::optional<std::reference_wrapper<ReplicationInstanceConnector>>;
   auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
   auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <thread>
@@ -21,6 +22,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "utils/logging.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
@@ -46,24 +48,42 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     bool operator==(const std::vector<PropertyValue> &rhs) const;
   };
 
-  static std::optional<ConstraintViolation> DoValidate(const Vertex &vertex,
-                                                       utils::SkipList<Entry>::Accessor &constraint_accessor,
-                                                       const LabelId &label, const std::set<PropertyId> &properties);
+  static std::expected<void, ConstraintViolation> DoValidate(const Vertex &vertex,
+                                                             utils::SkipList<Entry>::Accessor &constraint_accessor,
+                                                             const LabelId &label,
+                                                             const std::set<PropertyId> &properties);
 
  public:
   struct MultipleThreadsConstraintValidation {
-    bool operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
+    auto operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
                     const std::set<PropertyId> &properties,
-                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
+        -> std::expected<void, ConstraintViolation>;
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
   struct SingleThreadConstraintValidation {
-    bool operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
+    auto operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
                     const std::set<PropertyId> &properties,
-                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
+        -> std::expected<void, ConstraintViolation>;
+  };
+
+  enum class ValidationStatus : bool { VALIDATING, READY };
+
+  // constraints are created and dropped with read only access
+  // a status is needed to not drop the constraint before it gets validated
+  // new writes can't happen during this time due to read only access
+  struct IndividualConstraint {
+    utils::SkipList<Entry> skiplist;
+    ValidationStatus status{ValidationStatus::VALIDATING};
+  };
+
+  struct Container {
+    std::map<std::pair<LabelId, std::set<PropertyId>>, IndividualConstraint> constraints_;
+    std::map<LabelId, std::map<std::set<PropertyId>, IndividualConstraint *>> constraints_by_label_;
   };
 
   /// Indexes the given vertex for relevant labels and properties.
@@ -83,10 +103,11 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// exceeds the maximum allowed number of properties, and
   /// `CreationStatus::SUCCESS` on success.
   /// @throw std::bad_alloc
-  std::expected<CreationStatus, ConstraintViolation> CreateConstraint(
-      LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
-      const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
-      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+  auto CreateConstraint(LabelId label, const std::set<PropertyId> &properties,
+                        const utils::SkipList<Vertex>::Accessor &vertex_accessor,
+                        const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
+                        std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt)
+      -> std::expected<CreationStatus, ConstraintViolation>;
 
   /// Deletes the specified constraint. Returns `DeletionStatus::NOT_FOUND` if
   /// there is not such constraint in the storage,
@@ -108,8 +129,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// This method should be called while commit lock is active with
   /// `commit_timestamp` being a potential commit timestamp of the transaction.
   /// @throw std::bad_alloc
-  std::optional<ConstraintViolation> Validate(const Vertex &vertex, const Transaction &tx,
-                                              uint64_t commit_timestamp) const;
+  auto Validate(const std::unordered_set<Vertex const *> &vertices, const Transaction &tx,
+                uint64_t commit_timestamp) const -> std::expected<void, ConstraintViolation>;
 
   std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const override;
 
@@ -126,8 +147,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   void RunGC();
 
  private:
-  std::map<std::pair<LabelId, std::set<PropertyId>>, utils::SkipList<Entry>> constraints_;
-  std::map<LabelId, std::map<std::set<PropertyId>, utils::SkipList<Entry> *>> constraints_by_label_;
+  utils::Synchronized<Container, utils::WritePrioritizedRWLock> container_;
 };
 
 }  // namespace memgraph::storage

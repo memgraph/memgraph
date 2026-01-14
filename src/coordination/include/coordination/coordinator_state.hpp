@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,6 +56,9 @@ class CoordinatorState {
   auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> AddCoordinatorInstanceStatus;
 
   auto RemoveCoordinatorInstance(int32_t coordinator_id) const -> RemoveCoordinatorInstanceStatus;
+
+  auto UpdateConfig(std::variant<int32_t, std::string> const &instance, io::network::Endpoint const &bolt_endpoint)
+      -> coordination::UpdateConfigStatus;
 
   auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
       -> SetCoordinatorSettingStatus;

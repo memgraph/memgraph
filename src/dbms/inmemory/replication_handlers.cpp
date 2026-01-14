@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -448,6 +448,9 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     // On replica, we start the explicit txn with BEGIN; and keep executing match (n) return n
     // After receiving FinalizeCommitRpc, replica will show there is a vertex, in that way
     // manifesting non-repeatable reads phenomenon.
+    // This has another consequence. A WAL file will contain deltas with commit ts e.g 100 although the last durable
+    // timestamp for the transaction which commits these deltas will be different because of the fact that we are
+    // taking here another commit timestamp.
     auto &commit_ts = two_pc_cache_.commit_accessor_->GetCommitTimestamp();
     DMG_ASSERT(commit_ts.has_value(), "Commit ts without a value");
     auto guard = std::lock_guard{mem_storage->engine_lock_};
@@ -706,9 +709,6 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
   for (auto i = 0; i < wal_file_number; ++i) {
     const auto [success, current_batch_counter, num_txns_committed] =
         LoadWal(active_files[i], storage, res_builder, local_batch_counter);
-    // Failure to delete the received WAL file isn't fatal since it is saved in the tmp directory so it will eventually
-    // get deleted
-    utils::DeleteFile(active_files[i]);
 
     if (!success) {
       spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files for db {}.",
@@ -836,10 +836,6 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
     MoveDurabilityFiles(old_snapshot_files, backup_snapshot_dir, old_wal_files, backup_wal_dir,
                         &(storage->file_retainer_));
   }
-
-  // Failure to delete the received WAL file isn't fatal since it is saved in the tmp directory so it will eventually
-  // get deleted
-  utils::DeleteFile(active_files[0]);
 }
 
 // The method will return false and hence signal the failure of completely loading the WAL file if:

@@ -160,8 +160,9 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   storage_->UpdateLabelCount(label, 1);
 
   if (storage_->constraints_.HasTypeConstraints()) {
-    if (auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, label)) {
-      HandleTypeConstraintViolation(storage_, *maybe_violation);
+    if (auto validation_result = storage_->constraints_.type_constraints_->Validate(*vertex_, label);
+        !validation_result.has_value()) {
+      HandleTypeConstraintViolation(storage_, validation_result.error());
     }
   }
 
@@ -392,8 +393,9 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
     }
 
     if (storage_->constraints_.HasTypeConstraints()) {
-      if (auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, property, new_value)) {
-        HandleTypeConstraintViolation(storage_, *maybe_violation);
+      if (auto validation_result = storage_->constraints_.type_constraints_->Validate(*vertex_, property, new_value);
+          !validation_result.has_value()) {
+        HandleTypeConstraintViolation(storage_, validation_result.error());
       }
     }
 
@@ -462,9 +464,10 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
     // TODO If not performant enough there is also InitProperty()
     if (storage->constraints_.HasTypeConstraints()) {
       for (auto const &[property_id, property_value] : properties) {
-        if (auto maybe_violation =
-                storage->constraints_.type_constraints_->Validate(*vertex, property_id, property_value)) {
-          HandleTypeConstraintViolation(storage, *maybe_violation);
+        if (auto validation_result =
+                storage->constraints_.type_constraints_->Validate(*vertex, property_id, property_value);
+            !validation_result.has_value()) {
+          HandleTypeConstraintViolation(storage, validation_result.error());
         }
       }
     }
@@ -530,8 +533,10 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
       }
     }
     if (storage->constraints_.HasTypeConstraints()) {
-      if (auto maybe_violation = storage->constraints_.type_constraints_->Validate(*vertex)) {
-        HandleTypeConstraintViolation(storage, *maybe_violation);
+      if (auto validation_result =
+              TypeConstraints::Validate(*vertex, storage->constraints_.type_constraints_->ReadLock());
+          !validation_result.has_value()) {
+        HandleTypeConstraintViolation(storage, validation_result.error());
       }
     }
   });

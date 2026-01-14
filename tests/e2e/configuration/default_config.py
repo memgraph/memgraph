@@ -306,9 +306,9 @@ startup_config_dict = {
         "Enable RocksDB thread status tracking. Default is false for reduced syscall overhead. Enable when debugging disk storage performance issues (provides GetThreadList API).",
     ),
     "storage_rocksdb_info_log_level": (
-        "ERROR_LEVEL",
-        "ERROR_LEVEL",
-        "RocksDB info log level. Options: DEBUG_LEVEL, INFO_LEVEL, WARN_LEVEL, ERROR_LEVEL, FATAL_LEVEL, HEADER_LEVEL. Default is ERROR_LEVEL for reduced syscall overhead. Use INFO_LEVEL or DEBUG_LEVEL when debugging disk storage issues.",
+        "INFO_LEVEL",
+        "INFO_LEVEL",
+        "RocksDB info log level. Options: DEBUG_LEVEL, INFO_LEVEL, WARN_LEVEL, ERROR_LEVEL, FATAL_LEVEL, HEADER_LEVEL. Default is INFO_LEVEL.",
     ),
     "debug_query_plans": ("false", "false", "Enable DEBUG logging of potential query plans."),
 }

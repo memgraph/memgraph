@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,8 +19,9 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/observer.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
@@ -37,28 +38,50 @@ class TypeConstraints {
                                                   const LabelId &label, const PropertyId &property);
   };
 
-  [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
+  enum class ValidationStatus : bool { VALIDATING, READY };
+
+  struct IndividualConstraint {
+    TypeConstraintKind type;
+    ValidationStatus status{ValidationStatus::VALIDATING};
+  };
+
+  struct Container {
+    absl::flat_hash_map<std::pair<LabelId, PropertyId>, IndividualConstraint> constraints_;
+    absl::flat_hash_map<LabelId, absl::flat_hash_map<PropertyId, TypeConstraintKind>> l2p_constraints_;
+  };
+
+  using ReadLockedPtr = utils::Synchronized<Container, utils::WritePrioritizedRWLock>::ReadLockedPtr;
+
+  [[nodiscard]] static std::expected<void, ConstraintViolation> ValidateVerticesOnConstraint(
       utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintKind type);
 
-  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex) const;
-  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, LabelId label) const;
-  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, PropertyId property_id,
-                                                            const PropertyValue &property_value) const;
-  [[nodiscard]] std::optional<ConstraintViolation> ValidateVertices(
+  [[nodiscard]] static std::expected<void, ConstraintViolation> Validate(const Vertex &vertex,
+                                                                         ReadLockedPtr const &container);
+  [[nodiscard]] std::expected<void, ConstraintViolation> Validate(const Vertex &vertex, LabelId label) const;
+  [[nodiscard]] std::expected<void, ConstraintViolation> Validate(const Vertex &vertex, PropertyId property_id,
+                                                                  const PropertyValue &property_value) const;
+  [[nodiscard]] std::expected<void, ConstraintViolation> ValidateVertices(
       utils::SkipList<Vertex>::Accessor vertices,
       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const;
 
   bool empty() const;
+
   bool ConstraintExists(LabelId label, PropertyId property) const;
-  bool InsertConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
+
+  [[nodiscard]] bool RegisterConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
+  void PublishConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
   bool DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
+
+  ReadLockedPtr ReadLock() const { return container_.ReadLock(); }
 
   std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> ListConstraints() const;
   void DropGraphClearConstraints();
 
+  /// Returns constraints for a specific label, used for registration in property store
+  absl::flat_hash_map<PropertyId, TypeConstraintKind> GetTypeConstraintsForLabel(LabelId label) const;
+
  private:
-  absl::flat_hash_map<std::pair<LabelId, PropertyId>, TypeConstraintKind> constraints_;
-  absl::flat_hash_map<LabelId, absl::flat_hash_map<PropertyId, TypeConstraintKind>> l2p_constraints_;  // TODO: maintain
+  utils::Synchronized<Container, utils::WritePrioritizedRWLock> container_;
 };
 
 }  // namespace memgraph::storage

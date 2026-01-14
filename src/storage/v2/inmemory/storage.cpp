@@ -20,9 +20,12 @@
 #include <optional>
 #include <system_error>
 
+#include "ctre.hpp"
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "memory/global_memory_control.hpp"
+#include "requests/requests.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -60,6 +63,8 @@
 #include "utils/stat.hpp"
 #include "utils/temporal.hpp"
 #include "utils/variant_helpers.hpp"
+
+import memgraph.utils.aws;
 
 namespace r = ranges;
 namespace rv = r::views;
@@ -703,26 +708,21 @@ void InMemoryStorage::UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from
   edge_to_modify->from_vertex = from_vertex;
 }
 
-std::optional<ConstraintViolation> InMemoryStorage::InMemoryAccessor::ExistenceConstraintsViolation() const {
+std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::ExistenceConstraintsViolation() const {
   // ExistenceConstraints validation block
   auto const has_any_existence_constraints = !storage_->constraints_.existence_constraints_->empty();
   if (has_any_existence_constraints && transaction_.constraint_verification_info &&
       transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
-    const auto vertices_to_update =
-        transaction_.constraint_verification_info->GetVerticesForExistenceConstraintChecking();
-    for (auto const *vertex : vertices_to_update) {
-      // No need to take any locks here because we modified this vertex and no
-      // one else can touch it until we commit.
-      if (auto validation_result = storage_->constraints_.existence_constraints_->Validate(*vertex);
-          validation_result.has_value()) {
-        return validation_result;
-      }
+    auto validation_result = storage_->constraints_.existence_constraints_->Validate(
+        transaction_.constraint_verification_info->GetVerticesForExistenceConstraintChecking());
+    if (!validation_result.has_value()) {
+      return std::unexpected{validation_result.error()};
     }
   }
-  return std::nullopt;
+  return {};
 }
 
-std::optional<ConstraintViolation> InMemoryStorage::InMemoryAccessor::UniqueConstraintsViolation() const {
+std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::UniqueConstraintsViolation() const {
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
 
@@ -744,17 +744,12 @@ std::optional<ConstraintViolation> InMemoryStorage::InMemoryAccessor::UniqueCons
     // aborted txn could delete one of vertices being deleted.
     auto acc = mem_storage->vertices_.access();
 
-    for (auto const *vertex : vertices_to_update) {
-      // No need to take any locks here because we modified this vertex and no
-      // one else can touch it until we commit.
-      if (auto const maybe_unique_constraint_violation =
-              mem_unique_constraints->Validate(*vertex, transaction_, *commit_timestamp_);
-          maybe_unique_constraint_violation.has_value()) {
-        return maybe_unique_constraint_violation;
-      }
+    auto validation_result = mem_unique_constraints->Validate(vertices_to_update, transaction_, *commit_timestamp_);
+    if (!validation_result.has_value()) {
+      return std::unexpected{validation_result.error()};
     }
   }
-  return std::nullopt;
+  return {};
 }
 
 void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
@@ -810,23 +805,22 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     return std::unexpected{ReplicaShouldNotWriteError{}};
   }
 
-  if (auto const maybe_violation = ExistenceConstraintsViolation(); maybe_violation.has_value()) {
+  if (auto const validation_result = ExistenceConstraintsViolation(); !validation_result.has_value()) {
     Abort();
     // We have not started a commit timestamp no cleanup needed for that
     DMG_ASSERT(!commit_timestamp_.has_value());
-    return std::unexpected{*maybe_violation};
+    return std::unexpected{validation_result.error()};
   }
 
   auto engine_guard = std::unique_lock{storage_->engine_lock_};
   commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
   // Unique constraints violated
-  if (auto const maybe_unique_constraint_violation = UniqueConstraintsViolation();
-      maybe_unique_constraint_violation.has_value()) {
+  if (auto const validation_result = UniqueConstraintsViolation(); !validation_result.has_value()) {
     // Release engine lock because we don't have to hold it anymore
     engine_guard.unlock();
     AbortAndResetCommitTs();
-    return std::unexpected{*maybe_unique_constraint_violation};
+    return std::unexpected{validation_result.error()};
   }
   // Currently there are queries that write to some subsystem that are allowed on a replica
   // ex. analyze graph stats
@@ -1441,7 +1435,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateIndex(
     LabelId label, CheckCancelFunction cancel_check) {
-  // UNIQUE access is also required by schema.assert
+  // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Creating label index requires a unique or read only access to the storage!");
 
@@ -1472,6 +1466,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPaths properties,
                                                     CheckCancelFunction cancel_check)
     -> std::expected<void, StorageIndexDefinitionError> {
+  // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Creating label-property index requires a unique or read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1506,8 +1501,9 @@ void InMemoryStorage::InMemoryAccessor::DowngradeToReadIfValid() {
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateIndex(
     EdgeTypeId edge_type, CheckCancelFunction cancel_check) {
+  // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
-            "Create index requires a unique or readonly access to the storage!");
+            "Create index requires a unique or read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   if (!mem_edge_type_index->RegisterIndex(edge_type)) {
@@ -1531,7 +1527,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateIndex(
     EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check) {
-  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY, "Create index requires a unique access to the storage!");
+  // UNIQUE access will be done only through schema.assert
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
+            "Create edge-type property index requires unique or read only access to the storage!");
 
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
@@ -1562,8 +1560,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateGlobalEdgeIndex(
     PropertyId property, CheckCancelFunction cancel_check) {
+  // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
-            "Create index requires a unique or read-only access to the storage!");
+            "Creating global edge property index requires unique or read-only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to create the index, no properties on edges
@@ -1591,6 +1590,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
+  // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping label index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1609,7 +1609,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(
     LabelId label, std::vector<storage::PropertyPath> &&properties) {
-  // Because of replication we still use UNIQUE ATM
+  // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping label-property index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1630,7 +1630,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type) {
-  // Because of replication we still use UNIQUE ATM
+  // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping edge-type index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1646,7 +1646,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type,
                                                                                               PropertyId property) {
-  // Because of replication we still use UNIQUE ATM
+  // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping edge-type property index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1668,7 +1668,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropGlobalEdgeIndex(
     PropertyId property) {
-  MG_ASSERT(type() == UNIQUE || type() == READ, "Drop index requires a unique access to the storage!");
+  // UNIQUE access will be done only through schema.assert
+  MG_ASSERT(type() == UNIQUE || type() == READ,
+            "Dropping global edge property index requires unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to create the index, no properties on edges
@@ -1784,25 +1786,30 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
 std::expected<void, StorageExistenceConstraintDefinitionError>
 InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
-  MG_ASSERT(type() == UNIQUE, "Creating existence requires a unique access to the storage!");
+  // UNIQUE access will be done only through schema.assert
+  MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
+            "Creating existence requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
-  if (existence_constraints->ConstraintExists(label, property)) {
+  if (!existence_constraints->RegisterConstraint(label, property)) {
     return std::unexpected{StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
-  if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label,
-                                                                          property, std::nullopt, std::nullopt);
-      violation.has_value()) {
-    return std::unexpected{StorageExistenceConstraintDefinitionError{violation.value()}};
+  if (auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label,
+                                                                                  property, std::nullopt, std::nullopt);
+      !validation_result.has_value()) {
+    existence_constraints->DropConstraint(label, property);
+    return std::unexpected{StorageExistenceConstraintDefinitionError{validation_result.error()}};
   }
-  existence_constraints->InsertConstraint(label, property);
+  existence_constraints->PublishConstraint(label, property);
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
 
 std::expected<void, StorageExistenceConstraintDroppingError> InMemoryStorage::InMemoryAccessor::DropExistenceConstraint(
     LabelId label, PropertyId property) {
-  MG_ASSERT(type() == UNIQUE, "Dropping existence constraint requires a unique access to the storage!");
+  // UNIQUE access will be done only through schema.assert
+  MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
+            "Dropping existence constraint requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
   if (!existence_constraints->DropConstraint(label, property)) {
@@ -1814,7 +1821,9 @@ std::expected<void, StorageExistenceConstraintDroppingError> InMemoryStorage::In
 
 std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
 InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(type() == UNIQUE, "Creating unique constraint requires a unique access to the storage!");
+  // UNIQUE access will be done only through schema.assert
+  MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
+            "Creating unique constraint requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
@@ -1831,7 +1840,9 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
 
 UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueConstraint(
     LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(type() == UNIQUE, "Dropping unique constraint requires a unique access to the storage!");
+  // UNIQUE access will be done only through schema.assert
+  MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
+            "Dropping unique constraint requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
@@ -1845,25 +1856,30 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
 
 std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(
     LabelId label, PropertyId property, TypeConstraintKind kind) {
-  MG_ASSERT(type() == UNIQUE, "Creating IS TYPED constraint requires a unique access to the storage!");
+  // UNIQUE access will be done only through schema.assert
+  MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
+            "Creating IS TYPED constraint requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
-  if (type_constraints->ConstraintExists(label, property)) {
+  if (!type_constraints->RegisterConstraint(label, property, kind)) {
     return std::unexpected{StorageTypeConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
-  if (auto violation =
+  if (auto validation_result =
           TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, kind);
-      violation.has_value()) {
-    return std::unexpected{StorageTypeConstraintDefinitionError{violation.value()}};
+      !validation_result.has_value()) {
+    type_constraints->DropConstraint(label, property, kind);
+    return std::unexpected{StorageTypeConstraintDefinitionError{validation_result.error()}};
   }
-  type_constraints->InsertConstraint(label, property, kind);
+  type_constraints->PublishConstraint(label, property, kind);
   transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, kind);
   return {};
 }
 
 std::expected<void, StorageTypeConstraintDroppingError> InMemoryStorage::InMemoryAccessor::DropTypeConstraint(
     LabelId label, PropertyId property, TypeConstraintKind kind) {
-  MG_ASSERT(type() == UNIQUE, "Dropping IS TYPED constraint requires a unique access to the storage!");
+  // UNIQUE access will be done only through schema.assert
+  MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
+            "Dropping IS TYPED constraint requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
   auto deleted_constraint = type_constraints->DropConstraint(label, property, kind);
@@ -3038,31 +3054,60 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
 
 // NOTE: Make sure this function is called while exclusively holding on to the main lock
 std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::RecoverSnapshot(
-    std::filesystem::path path, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+    std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role,
+    std::optional<utils::S3Config> s3_config) {
   using memgraph::replication_coordination_glue::ReplicationRole;
   if (replication_role == ReplicationRole::REPLICA) {
     return std::unexpected{InMemoryStorage::RecoverSnapshotError::DisabledForReplica};
   }
-  if (!std::filesystem::exists(path) || std::filesystem::is_directory(path)) {
-    return std::unexpected{InMemoryStorage::RecoverSnapshotError::MissingFile};
-  }
 
-  // Copy to local snapshot dir
-  std::error_code ec{};
-  const auto local_path = recovery_.snapshot_directory_ / path.filename();
-  const bool file_in_local_dir = local_path == path;
-  if (!file_in_local_dir) {
-    std::filesystem::copy_file(path, local_path, std::filesystem::copy_options::overwrite_existing, ec);
-    if (ec) {
-      spdlog::warn("Failed to copy snapshot into local snapshots directory. Err: {}", ec.message());
-      return std::unexpected{InMemoryStorage::RecoverSnapshotError::CopyFailure};
-    }
-  }
+  auto const uri_str = uri.string();
+  const auto local_path = recovery_.snapshot_directory_ / uri.filename();
+  const bool file_in_local_dir = local_path == uri;
 
   auto handler_error = [&]() {
     // If file was copied over, delete...
     if (!file_in_local_dir) file_retainer_.DeleteFile(local_path);
   };
+
+  constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
+  constexpr auto s3_matcher = ctre::starts_with<"s3://">;
+
+  if (url_matcher(uri_str)) {
+    constexpr auto file_mode = "wbx";
+    utils::FileUniquePtr file(std::fopen(local_path.string().data(), file_mode), &std::fclose);
+
+    if (!requests::CreateAndDownloadFile(uri_str, std::move(file),
+                                         memgraph::flags::run_time::GetFileDownloadConnTimeoutSec())) {
+      // Delete the empty or partially written file
+      handler_error();
+      return std::unexpected{InMemoryStorage::RecoverSnapshotError::DownloadFailure};
+    }
+
+    spdlog::trace("Downloaded snapshot file from {} to {}", uri_str, local_path.string());
+
+  } else if (s3_matcher(uri_str)) {
+    DMG_ASSERT(s3_config.has_value(), "S3Config doesn't have a value");
+    if (!utils::GetS3Object(uri, *s3_config, local_path.string())) {
+      spdlog::error("Failed to download file {}", uri.string());
+      return std::unexpected{InMemoryStorage::RecoverSnapshotError::S3GetFailure};
+    }
+
+  } else {  // local filesystem path
+    if (!std::filesystem::exists(uri) || std::filesystem::is_directory(uri)) {
+      return std::unexpected{InMemoryStorage::RecoverSnapshotError::MissingFile};
+    }
+
+    // Copy to local snapshot dir
+    std::error_code ec{};
+    if (!file_in_local_dir) {
+      std::filesystem::copy_file(uri, local_path, std::filesystem::copy_options::overwrite_existing, ec);
+      if (ec) {
+        spdlog::warn("Failed to copy snapshot into local snapshots directory. Err: {}", ec.message());
+        return std::unexpected{InMemoryStorage::RecoverSnapshotError::CopyFailure};
+      }
+    }
+  }
 
   auto file_locker = file_retainer_.AddLocker();
   (void)file_locker.Access().AddPath(local_path);

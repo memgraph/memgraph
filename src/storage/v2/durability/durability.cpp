@@ -146,7 +146,7 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
         spdlog::warn("Skipping snapshot file '{}' because UUIDs does not match!", item.path());
       }
     } catch (const RecoveryFailure &e) {
-      spdlog::error("Couldn't read snapshot info in GetSnapshotFiles: {}", e.what());
+      spdlog::error("Couldn't read snapshot info in GetSnapshotFiles for file {}: {}", e.what(), item.path());
     }
   }
   MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
@@ -386,13 +386,13 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
       throw RecoveryFailure("The existence constraint already exists!");
     }
 
-    if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property,
-                                                                            parallel_exec_info, snapshot_info);
-        violation.has_value()) {
+    if (auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property,
+                                                                                    parallel_exec_info, snapshot_info);
+        !validation_result.has_value()) [[unlikely]] {
       throw RecoveryFailure("The existence constraint failed because it couldn't be validated!");
     }
 
-    constraints->existence_constraints_->InsertConstraint(label, property);
+    constraints->existence_constraints_->PublishConstraint(label, property);
     spdlog::info("Existence constraint on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
                  name_id_mapper->IdToName(property.AsUint()));
   }
@@ -432,16 +432,20 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
   // TODO: parallel recovery
   spdlog::info("Recreating {} type constraints from metadata.", constraints_metadata.type.size());
   for (const auto &[label, property, type] : constraints_metadata.type) {
-    if (!constraints->type_constraints_->InsertConstraint(label, property, type)) {
-      throw RecoveryFailure("The type constraint already exists!");
+    if (!constraints->type_constraints_->RegisterConstraint(label, property, type)) {
+      throw RecoveryFailure("Failed to register type constraint!");
     }
   }
 
   if (constraints->HasTypeConstraints()) {
-    if (auto violation = constraints->type_constraints_->ValidateVertices(vertices->access(), snapshot_info);
-        violation.has_value()) {
+    if (auto validation_result = constraints->type_constraints_->ValidateVertices(vertices->access(), snapshot_info);
+        !validation_result.has_value()) {
       throw RecoveryFailure("Type constraint recovery failed because they couldn't be validated!");
     }
+  }
+
+  for (const auto &[label, property, type] : constraints_metadata.type) {
+    constraints->type_constraints_->PublishConstraint(label, property, type);
   }
 
   spdlog::info("Type constraints are recreated from metadata.");

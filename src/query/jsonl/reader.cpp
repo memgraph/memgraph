@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -155,6 +155,7 @@ struct JsonlReader::impl {
       if (!requests::CreateAndDownloadFile(uri_, std::move(file),
                                            memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
                                            std::move(abort_check))) {
+        utils::DeleteFile(new_path);
         throw utils::BasicException("Failed to download file {}", uri_);
       }
       // .value() can throw ac exception hence and we don't want to leak new_path
@@ -165,7 +166,9 @@ struct JsonlReader::impl {
       auto const new_path = utils::CreateUniqueDownloadFile(build_base_path()).first;
       // .value() can throw ac exception hence and we don't want to leak new_path
       auto const on_exit = utils::OnScopeExit([&new_path]() { utils::DeleteFile(new_path); });
-      utils::GetS3Object(uri_, *s3_cfg, new_path.string());
+      if (!utils::GetS3Object(uri_, *s3_cfg, new_path.string())) {
+        throw utils::BasicException("Failed to download JSONL file");
+      }
       content_ = simdjson::padded_string::load(new_path.string()).value();
     } else {
       content_ = simdjson::padded_string::load(uri_).value();

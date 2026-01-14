@@ -326,6 +326,7 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | setCoordinatorSetting
                  | showCoordinatorSettings
                  | showReplicationLag
+                 | updateConfig
                  ;
 
 triggerQuery : createTrigger
@@ -595,6 +596,8 @@ addCoordinatorInstance : ADD COORDINATOR coordinatorServerId WITH CONFIG configs
 
 removeCoordinatorInstance : REMOVE COORDINATOR coordinatorServerId ;
 
+updateConfig : UPDATE CONFIG FOR ( INSTANCE instanceName | COORDINATOR coordinatorServerId ) configsMap=configMap ;
+
 dropReplica : DROP REPLICA instanceName ;
 
 showReplicas : SHOW REPLICAS ;
@@ -630,7 +633,7 @@ storageModeQuery : STORAGE MODE storageMode ;
 
 createSnapshotQuery : CREATE SNAPSHOT ;
 
-recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( FORCE )? ;
+recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( WITH CONFIG configsMap=configMap ) ? ( FORCE )? ;
 
 showSnapshotsQuery : SHOW SNAPSHOTS ;
 

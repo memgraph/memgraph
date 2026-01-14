@@ -1,21 +1,35 @@
 #!/bin/bash
 
-MEMGRAPH_BINARY="../../build/memgraph"
+# Get absolute path to script directory and build directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUILD_DIR="$(cd "$SCRIPT_DIR/../../../../build" 2>/dev/null && pwd)"
+
+if [[ -z "$BUILD_DIR" || ! -d "$BUILD_DIR" ]]; then
+    echo "ERROR: Build directory not found. Expected at: $SCRIPT_DIR/../../../../build"
+    echo "Please build Memgraph first."
+    exit 1
+fi
+
+MEMGRAPH_BINARY="$BUILD_DIR/memgraph"
+
+if [[ ! -x "$MEMGRAPH_BINARY" ]]; then
+    echo "ERROR: Memgraph binary not found at: $MEMGRAPH_BINARY"
+    exit 1
+fi
 DATA_DIR="stress_data"
 
 # Default flags for Memgraph
 DEFAULT_FLAGS=(
-    "--telemetry-enabled=false"
-    "--bolt-server-name-for-init=Neo4j/"
-    "--storage-properties-on-edges=true"
-    "--storage-snapshot-on-exit=false"
-    "--storage-snapshot-interval-sec=600"
-    "--storage-snapshot-retention-count=1"
-    "--storage-wal-enabled=true"
-    "--query-execution-timeout-sec=1200"
-    "--log-level=TRACE"
     "--also-log-to-stderr=true"
+    "--bolt-server-name-for-init=Neo4j/"
     "--data-directory=$DATA_DIR"
+    "--log-file="
+    "--log-level=TRACE"
+    "--query-execution-timeout-sec=1200"
+    "--storage-snapshot-interval-sec=300"
+    "--storage-properties-on-edges=true"
+    "--storage-wal-enabled=true"
+    "--telemetry-enabled=false"
 )
 
 clean_data_directory() {

@@ -569,7 +569,7 @@ class DiskStorage final : public Storage {
 
   uint64_t GetDiskSpaceUsage() const;
 
-  [[nodiscard]] std::optional<ConstraintViolation> CheckExistingVerticesBeforeCreatingExistenceConstraint(
+  [[nodiscard]] std::expected<void, ConstraintViolation> CheckExistingVerticesBeforeCreatingExistenceConstraint(
       LabelId label, PropertyId property) const;
 
   [[nodiscard]] std::expected<std::vector<std::pair<std::string, std::string>>, ConstraintViolation>

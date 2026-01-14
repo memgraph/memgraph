@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -603,6 +603,8 @@ ParquetReader::ParquetReader(utils::pmr::string const &uri, utils::S3Config s3_c
         return LoadFileFromDisk(local_file_path);
       }
       spdlog::error("Couldn't download file {}", uri);
+      utils::DeleteFile(local_file_path);
+
       return nullptr;
     }
 

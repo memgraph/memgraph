@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -168,6 +168,9 @@ class CoordinatorQueryHandler {
                                       std::string_view coordinator_server, std::string_view management_server) = 0;
 
   virtual void RemoveCoordinatorInstance(int32_t coordinator_id) = 0;
+
+  virtual void UpdateConfig(std::variant<int32_t, std::string> instance,
+                            io::network::Endpoint const &bolt_endpoint) = 0;
 
   virtual void DemoteInstanceToReplica(std::string_view instance_name) = 0;
 
