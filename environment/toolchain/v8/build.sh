@@ -658,7 +658,7 @@ env_error="You already have an active virtual environment!"
 
 # zsh does not recognize the option -t of the command type
 # therefore we use the alternative whence -w
-if [[ "\$ZSH_NAME" == "zsh" ]]; then
+if [[ "\$current_shell" == "zsh" ]]; then
     # check for active virtual environments
     if [ "\$( whence -w deactivate )" != "deactivate: none" ]; then
         echo \$env_error
@@ -674,24 +674,24 @@ else
 fi
 
 # check that we aren't root
-if [[ "\$USER" == "root" ]]; then
+if [[ "\${USER:-}" == "root" ]]; then
     echo "You shouldn't use the toolchain as root!"
     return 0
 fi
 
 # save original environment
-export ORIG_PATH=\$PATH
-export ORIG_PS1=\$PS1
-export ORIG_LD_LIBRARY_PATH=\$LD_LIBRARY_PATH
-export ORIG_CXXFLAGS=\$CXXFLAGS
-export ORIG_CFLAGS=\$CFLAGS
+export ORIG_PATH=\${PATH:-}
+export ORIG_PS1=\${PS1:-}
+export ORIG_LD_LIBRARY_PATH=\${LD_LIBRARY_PATH:-}
+export ORIG_CXXFLAGS=\${CXXFLAGS:-}
+export ORIG_CFLAGS=\${CFLAGS:-}
 
 # activate new environment
-export PATH=\$PREFIX:\$PREFIX/bin:\$PATH
-export PS1="($NAME) \$PS1"
+export PATH=\$PREFIX:\$PREFIX/bin:\${PATH:-}
+export PS1="($NAME) \${PS1:-}"
 export LD_LIBRARY_PATH=\$PREFIX/lib:\$PREFIX/lib64
-export CXXFLAGS=-isystem\ \$PREFIX/include\ \$CXXFLAGS
-export CFLAGS=-isystem\ \$PREFIX/include\ \$CFLAGS
+export CXXFLAGS=-isystem\ \$PREFIX/include\ \${CXXFLAGS:-}
+export CFLAGS=-isystem\ \$PREFIX/include\ \${CFLAGS:-}
 export MG_TOOLCHAIN_ROOT=\$PREFIX
 export MG_TOOLCHAIN_VERSION=$TOOLCHAIN_VERSION
 
@@ -707,13 +707,13 @@ function sudo () {
 
 # create deactivation function
 function deactivate() {
-    export PATH=\$ORIG_PATH
-    export PS1=\$ORIG_PS1
-    export LD_LIBRARY_PATH=\$ORIG_LD_LIBRARY_PATH
-    export CXXFLAGS=\$ORIG_CXXFLAGS
-    export CFLAGS=\$ORIG_CFLAGS
-    unset ORIG_PATH ORIG_PS1 ORIG_LD_LIBRARY_PATH ORIG_CXXFLAGS ORIG_CFLAGS
-    unset MG_TOOLCHAIN_ROOT MG_TOOLCHAIN_VERSION
+    export PATH=\${ORIG_PATH:-}
+    export PS1=\${ORIG_PS1:-}
+    export LD_LIBRARY_PATH=\${ORIG_LD_LIBRARY_PATH:-}
+    export CXXFLAGS=\${ORIG_CXXFLAGS:-}
+    export CFLAGS=\${ORIG_CFLAGS:-}
+    unset ORIG_PATH ORIG_PS1 ORIG_LD_LIBRARY_PATH ORIG_CXXFLAGS ORIG_CFLAGS 2>/dev/null || true
+    unset MG_TOOLCHAIN_ROOT MG_TOOLCHAIN_VERSION 2>/dev/null || true
     unset -f su sudo deactivate
 }
 EOF
@@ -734,7 +734,7 @@ fi
 #   * extreme 2 -> build a granular package manager, each lib (for all variable) separated
 
 # Don't remove boost until pulsar can come from conan!
-BOOST_SHA256=913ca43d49e93d1b158c9862009add1518a4c665e7853b349a6492d158b036d4
+BOOST_SHA256=5e93d582aff26868d581a52ae78c7d8edf3f3064742c6e77901a1f18a437eea9
 BOOST_VERSION=1.90.0
 BOOST_VERSION_UNDERSCORES=`echo "${BOOST_VERSION//./_}"`
 # Also, check that `asio` references in pulsar are fixed before going past this version of boost
@@ -828,8 +828,8 @@ $GPG --verify libsodium-$LIBSODIUM_VERSION.tar.gz.sig libsodium-$LIBSODIUM_VERSI
 if [[ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz.asc ]]; then
     wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz.asc
 fi
-$GPG --keyserver $KEYSERVER --recv-keys 0x75D2CFC56CC2E935A4143297015A268A17D55FA4
-$GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.sig libunwind-$LIBUNWIND_VERSION.tar.gz
+$GPG --keyserver $KEYSERVER --recv-keys 0x75D2CFC56CC2E935A4143297015A268A17D55FA4 0x42FA3D4C00D0AA116C3F45DAA4CCF616E0FF69D2
+$GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.asc libunwind-$LIBUNWIND_VERSION.tar.gz
 
 # verify snappy
 echo "$SNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
@@ -861,11 +861,11 @@ source $PREFIX/activate
 
 export CC=$PREFIX/bin/clang
 export CXX=$PREFIX/bin/clang++
-export CFLAGS="$CFLAGS -fPIC"
+export CFLAGS="${CFLAGS:-} -fPIC"
 if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
-    export CXXFLAGS="$CXXFLAGS -fPIC"
+    export CXXFLAGS="${CXXFLAGS:-} -fPIC"
 else
-    export CXXFLAGS="$CXXFLAGS -fPIC -stdlib=libc++"
+    export CXXFLAGS="${CXXFLAGS:-} -fPIC -stdlib=libc++"
 fi
 
 # possible fix for debian 13 arm
@@ -875,8 +875,8 @@ else
     export EXTRA_CLANG_TOOLCHAIN_FLAGS="--gcc-toolchain=$PREFIX --target=x86_64-linux-gnu"
 fi
 
-export CXXFLAGS="$CXXFLAGS $EXTRA_CLANG_TOOLCHAIN_FLAGS"
-export LDFLAGS="$LDFLAGS $EXTRA_CLANG_TOOLCHAIN_FLAGS"
+export CXXFLAGS="${CXXFLAGS:-} $EXTRA_CLANG_TOOLCHAIN_FLAGS"
+export LDFLAGS="${LDFLAGS:-} $EXTRA_CLANG_TOOLCHAIN_FLAGS"
 
 COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX
                     -DCMAKE_PREFIX_PATH=$PREFIX
@@ -1171,7 +1171,7 @@ if [[ ! -f "$PREFIX/lib/libnuraft.a" ]]; then
     popd
 fi
 
-PROTOBUF_TAG="v6.34.0"
+PROTOBUF_TAG="v6.31.1"
 log_tool_name "protobuf $PROTOBUF_TAG"
 if [[ ! -f "$PREFIX/lib/libprotobuf.a" ]]; then
     if [[ -d protobuf ]]; then
@@ -1180,9 +1180,14 @@ if [[ ! -f "$PREFIX/lib/libprotobuf.a" ]]; then
     git clone https://github.com/protocolbuffers/protobuf.git protobuf
     pushd protobuf
     git checkout $PROTOBUF_TAG
-    ./autogen.sh && ./configure CC=clang CXX=clang++ --prefix=$PREFIX
-    make -j$CPUS install
-    popd
+    git submodule update --init --recursive
+    mkdir -p build && pushd build
+    cmake .. $COMMON_CMAKE_FLAGS \
+        -Dprotobuf_BUILD_TESTS=OFF \
+        -Dprotobuf_ABSL_PROVIDER=package
+    cmake --build . -j$CPUS
+    cmake --install .
+    popd && popd
 fi
 
 # Build OpenSSL and curl from source for RPM distributions
