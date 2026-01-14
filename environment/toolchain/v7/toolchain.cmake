@@ -29,36 +29,51 @@ set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
 
 set(MG_TOOLCHAIN_VERSION 7)
 
+# EXPERIMENTAL: Override to use system LLVM-21 instead of toolchain LLVM
+# This allows testing with a different LLVM version while still using toolchain libraries
+set(LLVM21_ROOT "/usr/lib/llvm-21")
+if(EXISTS "${LLVM21_ROOT}/bin/clang")
+    message(STATUS "Using system LLVM-21 from ${LLVM21_ROOT}")
+    set(LLVM_BIN_DIR "${LLVM21_ROOT}/bin")
+else()
+    message(STATUS "System LLVM-21 not found, falling back to toolchain LLVM")
+    set(LLVM_BIN_DIR "${MG_TOOLCHAIN_ROOT}/bin")
+endif()
+
 # Set compiler
-set(CMAKE_C_COMPILER   "${MG_TOOLCHAIN_ROOT}/bin/clang"   CACHE STRING "" FORCE)
-set(CMAKE_CXX_COMPILER "${MG_TOOLCHAIN_ROOT}/bin/clang++" CACHE STRING "" FORCE)
+set(CMAKE_C_COMPILER   "${LLVM_BIN_DIR}/clang"   CACHE STRING "" FORCE)
+set(CMAKE_CXX_COMPILER "${LLVM_BIN_DIR}/clang++" CACHE STRING "" FORCE)
 
 # Set archiver and ranlib
-set(CMAKE_CXX_COMPILER_AR "${MG_TOOLCHAIN_ROOT}/bin/llvm-ar" CACHE FILEPATH "C++ compiler archiver" FORCE)
-set(CMAKE_CXX_COMPILER_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/llvm-ranlib" CACHE FILEPATH "C++ compiler ranlib" FORCE)
-set(CMAKE_C_COMPILER_AR "${MG_TOOLCHAIN_ROOT}/bin/llvm-ar" CACHE FILEPATH "C compiler archiver" FORCE)
-set(CMAKE_C_COMPILER_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/llvm-ranlib" CACHE FILEPATH "C compiler ranlib" FORCE)
-set(CMAKE_AR "${MG_TOOLCHAIN_ROOT}/bin/llvm-ar" CACHE FILEPATH "Archiver" FORCE)
-set(CMAKE_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/llvm-ranlib" CACHE FILEPATH "Ranlib" FORCE)
+set(CMAKE_CXX_COMPILER_AR "${LLVM_BIN_DIR}/llvm-ar" CACHE FILEPATH "C++ compiler archiver" FORCE)
+set(CMAKE_CXX_COMPILER_RANLIB "${LLVM_BIN_DIR}/llvm-ranlib" CACHE FILEPATH "C++ compiler ranlib" FORCE)
+set(CMAKE_C_COMPILER_AR "${LLVM_BIN_DIR}/llvm-ar" CACHE FILEPATH "C compiler archiver" FORCE)
+set(CMAKE_C_COMPILER_RANLIB "${LLVM_BIN_DIR}/llvm-ranlib" CACHE FILEPATH "C compiler ranlib" FORCE)
+set(CMAKE_AR "${LLVM_BIN_DIR}/llvm-ar" CACHE FILEPATH "Archiver" FORCE)
+set(CMAKE_RANLIB "${LLVM_BIN_DIR}/llvm-ranlib" CACHE FILEPATH "Ranlib" FORCE)
 
 # Linker
 set(CMAKE_LINKER_TYPE LLD)
-set(CMAKE_LINKER "${MG_TOOLCHAIN_ROOT}/bin/lld")
+set(CMAKE_LINKER "${LLVM_BIN_DIR}/lld")
 
 # NM (symbol listing)
-set(CMAKE_NM "${MG_TOOLCHAIN_ROOT}/bin/llvm-nm")
+set(CMAKE_NM "${LLVM_BIN_DIR}/llvm-nm")
 
 # Objcopy
-set(CMAKE_OBJCOPY "${MG_TOOLCHAIN_ROOT}/bin/llvm-objcopy")
+set(CMAKE_OBJCOPY "${LLVM_BIN_DIR}/llvm-objcopy")
 
 # Objdump
-set(CMAKE_OBJDUMP "${MG_TOOLCHAIN_ROOT}/bin/llvm-objdump")
+set(CMAKE_OBJDUMP "${LLVM_BIN_DIR}/llvm-objdump")
 
 # Strip
-set(CMAKE_STRIP "${MG_TOOLCHAIN_ROOT}/bin/llvm-strip")
+set(CMAKE_STRIP "${LLVM_BIN_DIR}/llvm-strip")
 
 # clang-scan-deps
-set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${MG_TOOLCHAIN_ROOT}/bin/clang-scan-deps" CACHE STRING "" FORCE)
+if(EXISTS "${LLVM_BIN_DIR}/clang-scan-deps")
+    set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${LLVM_BIN_DIR}/clang-scan-deps" CACHE STRING "" FORCE)
+else()
+    set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${MG_TOOLCHAIN_ROOT}/bin/clang-scan-deps" CACHE STRING "" FORCE)
+endif()
 
 # Add toolchain to prefix path
 list(APPEND CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
@@ -66,4 +81,3 @@ list(APPEND CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
 # Exclude OpenSSL from toolchain search paths to force use of Conan-provided OpenSSL
 list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_ROOT}/lib/cmake/OpenSSL")
 list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_ROOT}/lib64/cmake/OpenSSL")
-
