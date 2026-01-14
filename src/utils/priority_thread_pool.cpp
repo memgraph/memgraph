@@ -306,7 +306,7 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
     // Phase 3 - spin for a while waiting on work (available only if TSC is available)
     const auto freq = utils::GetTSCFrequency();
     if (freq) {
-      utils::TSCTimer timer{freq};
+      const utils::TSCTimer timer{freq};
       yielder y;                         // NOLINT (misc-const-correctness)
       while (timer.Elapsed() < 0.001) {  // 1ms
         if (y([this] { return has_pending_work_.load(std::memory_order_acquire); }, 1024U, 0U)) break;
