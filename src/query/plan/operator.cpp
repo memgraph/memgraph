@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10138,10 +10138,21 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
         // If 'other' is empty, everything was unique.
         // If 'other' still has items, those are the duplicates we must skip.
 
-        if (other_unique_values.size() == other_unique_values_size) continue;
+        if (other_unique_values.size() == other_unique_values_size) continue;  // all duplicates
+
+        // Skip Nulls (except for COUNT)
+        if (other_value.IsNull() && agg_op != Aggregation::Op::COUNT) {
+          continue;
+        }
 
         // Update count based on the new set size
         main_count = main_unique_values.size();
+
+        // If main is null, simply take the other value
+        if (main_value.IsNull()) {
+          main_value = std::move(other_value);  // Move instead of copy
+          continue;
+        }
 
         switch (agg_op) {
           case Aggregation::Op::COUNT: {
@@ -10166,7 +10177,11 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
               // Assuming standard update logic from previous step:
               const TypedValue other_sum = other_value * TypedValue(other_count);
               const TypedValue main_sum = main_value * TypedValue(old_main_count);
-              main_value = (main_sum + other_sum - left_sum) / TypedValue(main_count);
+              if (main_count != 0) {
+                main_value = (main_sum + other_sum - left_sum) / TypedValue(main_count);
+              } else {
+                main_value = TypedValue();
+              }
             }
             break;
           }
@@ -10228,7 +10243,7 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
 
       main_count += other_count;
 
-      // Logic: If main is null, simply take the other value
+      // If main is null, simply take the other value
       if (main_value.IsNull()) {
         main_value = std::move(other_value);  // Move instead of copy
         continue;
