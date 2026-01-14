@@ -11,7 +11,11 @@ set(CMAKE_SYSTEM_PROCESSOR "${uname_result}")
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(MG_TOOLCHAIN_ROOT "${CMAKE_CURRENT_LIST_DIR}")
+if (DEFINED ENV{MG_TOOLCHAIN_ROOT})
+    set(MG_TOOLCHAIN_ROOT "$ENV{MG_TOOLCHAIN_ROOT}")
+else()
+    set(MG_TOOLCHAIN_ROOT "/opt/toolchain-v8")
+endif()
 message(STATUS "Toolchain directory: ${MG_TOOLCHAIN_ROOT}")
 
 # Paths for find_package(), find_library(), etc.
@@ -23,7 +27,7 @@ set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY BOTH)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
 
-set(MG_TOOLCHAIN_VERSION 7)
+set(MG_TOOLCHAIN_VERSION 8)
 
 # Set compiler
 set(CMAKE_C_COMPILER   "${MG_TOOLCHAIN_ROOT}/bin/clang"   CACHE STRING "" FORCE)
@@ -58,3 +62,7 @@ set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${MG_TOOLCHAIN_ROOT}/bin/clang-scan-deps
 
 # Add toolchain to prefix path
 list(APPEND CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
+
+# Exclude OpenSSL from toolchain search paths to force use of Conan-provided OpenSSL
+list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_ROOT}/lib/cmake/OpenSSL")
+list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_ROOT}/lib64/cmake/OpenSSL")
