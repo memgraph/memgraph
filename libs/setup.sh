@@ -11,7 +11,7 @@ WGET_OR_CLONE_TIMEOUT=60
 #  if the toolchain hasn't been activated, activate it
 if [[ -z "$MG_TOOLCHAIN_VERSION" ]]; then
   echo "Activating toolchain"
-  source /opt/toolchain-v7/activate
+  source /opt/toolchain-v8/activate
 
   # Set up trap to deactivate toolchain on script exit
   trap 'echo "Deactivating toolchain"; deactivate' EXIT
