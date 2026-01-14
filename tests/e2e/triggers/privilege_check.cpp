@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -163,6 +163,7 @@ std::unique_ptr<mg::Client> PrivilegeCheckTest::admin_client_ = nullptr;
 
 TEST_P(PrivilegeCheckTest, Default) {
   const std::string &phase = GetParam();
+  const bool is_after = (phase == "AFTER");
 
   auto definer_client = ConnectWithUser(kDefinerUser);
   auto invoker_client = ConnectWithUser(kInvokerUser);
@@ -173,19 +174,28 @@ TEST_P(PrivilegeCheckTest, Default) {
 
   // any invoker can trigger successfully
   CreateVertex(*invoker_client, kVertexId);
-  EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_client) == 1; }))
-      << "Vertex count should be 1";
-  EXPECT_TRUE(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty))
-      << "Vertex should have trigger property set (definer's permissions)";
+  CheckNumberOfAllVertices(*invoker_client, 1);
+  if (is_after) {
+    EXPECT_TRUE(PollUntilTrue([&]() { return VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty); }))
+        << "After commit trigger should set property within timeout";
+  } else {
+    EXPECT_TRUE(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty))
+        << "Vertex should have trigger property set (definer's permissions)";
+  }
 
   CleanupVertices(*admin_client_);
 
   // any invoker can trigger successfully
   CreateVertex(*invoker_without_set_client, kVertexId);
-  EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_without_set_client) == 1; }))
-      << "Vertex count should be 1";
-  EXPECT_TRUE(VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty))
-      << "Vertex should have trigger property set (definer's permissions)";
+  CheckNumberOfAllVertices(*invoker_without_set_client, 1);
+  if (is_after) {
+    EXPECT_TRUE(PollUntilTrue([&]() {
+      return VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty);
+    })) << "After commit trigger should set property within timeout";
+  } else {
+    EXPECT_TRUE(VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty))
+        << "Vertex should have trigger property set (definer's permissions)";
+  }
 
   CleanupVertices(*admin_client_);
   DropTrigger(*admin_client_, "DefaultDefiner");
@@ -203,10 +213,14 @@ TEST_P(PrivilegeCheckTest, ExplicitInvoker) {
 
   // invoker with SET can trigger successfully
   CreateVertex(*invoker_client, kVertexId);
-  EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_client) == 1; }))
-      << "Vertex count should be 1";
-  EXPECT_TRUE(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty))
-      << "Vertex should have trigger property set";
+  CheckNumberOfAllVertices(*invoker_client, 1);
+  if (is_after) {
+    EXPECT_TRUE(PollUntilTrue([&]() { return VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty); }))
+        << "After commit trigger should set property within timeout";
+  } else {
+    EXPECT_TRUE(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty))
+        << "Vertex should have trigger property set";
+  }
 
   CleanupVertices(*admin_client_);
 
@@ -220,10 +234,9 @@ TEST_P(PrivilegeCheckTest, ExplicitInvoker) {
   } else {
     // AFTER COMMIT: transaction succeeds but trigger fails, property not set
     CreateVertex(*invoker_without_set_client, kVertexId);
-    EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_without_set_client) == 1; }))
-        << "Vertex count should be 1";
+    CheckNumberOfAllVertices(*invoker_without_set_client, 1);
     EXPECT_FALSE(VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty))
-        << "Vertex should not have trigger property set when invoker lacks SET privilege";
+        << "After commit trigger should not set property when invoker lacks SET privilege";
   }
 
   CleanupVertices(*admin_client_);
@@ -232,6 +245,7 @@ TEST_P(PrivilegeCheckTest, ExplicitInvoker) {
 
 TEST_P(PrivilegeCheckTest, Definer) {
   const std::string &phase = GetParam();
+  const bool is_after = (phase == "AFTER");
   auto definer_client = ConnectWithUser(kDefinerUser);
   auto invoker_client = ConnectWithUser(kInvokerUser);
   auto invoker_without_set_client = ConnectWithUser(kInvokerWithoutSet);
@@ -240,19 +254,28 @@ TEST_P(PrivilegeCheckTest, Definer) {
 
   // any invoker can trigger successfully
   CreateVertex(*invoker_client, kVertexId);
-  EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_client) == 1; }))
-      << "Vertex count should be 1";
-  EXPECT_TRUE(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty))
-      << "Vertex should have trigger property set (definer's permissions)";
+  CheckNumberOfAllVertices(*invoker_client, 1);
+  if (is_after) {
+    EXPECT_TRUE(PollUntilTrue([&]() { return VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty); }))
+        << "After commit trigger should set property within timeout";
+  } else {
+    EXPECT_TRUE(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty))
+        << "Vertex should have trigger property set (definer's permissions)";
+  }
 
   CleanupVertices(*admin_client_);
 
   // any invoker can trigger successfully
   CreateVertex(*invoker_without_set_client, kVertexId);
-  EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_without_set_client) == 1; }))
-      << "Vertex count should be 1";
-  EXPECT_TRUE(VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty))
-      << "Vertex should have trigger property set (definer's permissions)";
+  CheckNumberOfAllVertices(*invoker_without_set_client, 1);
+  if (is_after) {
+    EXPECT_TRUE(PollUntilTrue([&]() {
+      return VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty);
+    })) << "After commit trigger should set property within timeout";
+  } else {
+    EXPECT_TRUE(VertexHasProperty(*invoker_without_set_client, kVertexId, kTriggerProperty))
+        << "Vertex should have trigger property set (definer's permissions)";
+  }
 
   CleanupVertices(*admin_client_);
   DropTrigger(*admin_client_, "Definer");
@@ -269,6 +292,7 @@ TEST_P(PrivilegeCheckTest, DefinerCreationFails) {
 
 TEST_P(PrivilegeCheckTest, InvokerFineGrainedSet) {
   const std::string &phase = GetParam();
+  const bool is_after = (phase == "AFTER");
 
   auto definer_client = ConnectWithUser(kDefinerUser);
   auto invoker_fg_set_client = ConnectWithUser(kInvokerWithFineGrainedSet);
@@ -277,10 +301,14 @@ TEST_P(PrivilegeCheckTest, InvokerFineGrainedSet) {
 
   // invoker with SET on label can trigger successfully
   CreateVertex(*invoker_fg_set_client, kVertexId);
-  EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_fg_set_client) == 1; }))
-      << "Vertex count should be 1";
-  EXPECT_TRUE(VertexHasProperty(*invoker_fg_set_client, kVertexId, kTriggerProperty))
-      << "Vertex should have trigger property set when invoker has SET on VERTEX label";
+  CheckNumberOfAllVertices(*invoker_fg_set_client, 1);
+  if (is_after) {
+    EXPECT_TRUE(PollUntilTrue([&]() { return VertexHasProperty(*invoker_fg_set_client, kVertexId, kTriggerProperty); }))
+        << "After commit trigger should set property within timeout";
+  } else {
+    EXPECT_TRUE(VertexHasProperty(*invoker_fg_set_client, kVertexId, kTriggerProperty))
+        << "Vertex should have trigger property set when invoker has SET on VERTEX label";
+  }
 
   CleanupVertices(*admin_client_);
   DropTrigger(*admin_client_, "InvokerFGSet");
@@ -305,10 +333,9 @@ TEST_P(PrivilegeCheckTest, InvokerFineGrainedNoSet) {
   } else {
     // AFTER COMMIT: transaction succeeds but trigger fails, property not set
     CreateVertex(*invoker_fg_no_set_client, kVertexId);
-    EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_fg_no_set_client) == 1; }))
-        << "Vertex count should be 1";
+    CheckNumberOfAllVertices(*invoker_fg_no_set_client, 1);
     EXPECT_FALSE(VertexHasProperty(*invoker_fg_no_set_client, kVertexId, kTriggerProperty))
-        << "Vertex should not have trigger property set when invoker lacks SET on VERTEX label";
+        << "After commit trigger should not set property when invoker lacks SET on VERTEX label";
   }
 
   CleanupVertices(*admin_client_);
@@ -317,6 +344,7 @@ TEST_P(PrivilegeCheckTest, InvokerFineGrainedNoSet) {
 
 TEST_P(PrivilegeCheckTest, DefinerFineGrainedSet) {
   const std::string &phase = GetParam();
+  const bool is_after = (phase == "AFTER");
 
   auto definer_fg_set_client = ConnectWithUser(kDefinerWithFineGrainedSet);
   auto invoker_fg_no_set_client = ConnectWithUser(kInvokerWithoutFineGrainedSet);
@@ -326,10 +354,15 @@ TEST_P(PrivilegeCheckTest, DefinerFineGrainedSet) {
 
   // any invoker can trigger successfully
   CreateVertex(*invoker_fg_no_set_client, kVertexId);
-  EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_fg_no_set_client) == 1; }))
-      << "Vertex count should be 1";
-  EXPECT_TRUE(VertexHasProperty(*invoker_fg_no_set_client, kVertexId, kTriggerProperty))
-      << "Vertex should have trigger property set (definer's fine-grained SET permissions)";
+  CheckNumberOfAllVertices(*invoker_fg_no_set_client, 1);
+  if (is_after) {
+    EXPECT_TRUE(PollUntilTrue([&]() {
+      return VertexHasProperty(*invoker_fg_no_set_client, kVertexId, kTriggerProperty);
+    })) << "After commit trigger should set property within timeout";
+  } else {
+    EXPECT_TRUE(VertexHasProperty(*invoker_fg_no_set_client, kVertexId, kTriggerProperty))
+        << "Vertex should have trigger property set (definer's fine-grained SET permissions)";
+  }
 
   CleanupVertices(*admin_client_);
   DropTrigger(*admin_client_, "DefinerFGSet");
@@ -355,10 +388,9 @@ TEST_P(PrivilegeCheckTest, DefinerFineGrainedNoSet) {
   } else {
     // AFTER COMMIT: transaction succeeds but trigger fails, property not set
     CreateVertex(*invoker_client, kVertexId);
-    EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_client) == 1; }))
-        << "Vertex count should be 1";
+    CheckNumberOfAllVertices(*invoker_client, 1);
     EXPECT_FALSE(VertexHasProperty(*invoker_client, kVertexId, kTriggerProperty))
-        << "Vertex should not have trigger property set when definer lacks SET on VERTEX label";
+        << "After commit trigger should not set property when definer lacks SET on VERTEX label";
   }
 
   CleanupVertices(*admin_client_);
