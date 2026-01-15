@@ -769,6 +769,12 @@ class Storage {
     };
   }
 
+  auto GetActiveConstraints() const -> ActiveConstraints {
+    return ActiveConstraints{constraints_.existence_constraints_->GetActiveConstraints(),
+                             constraints_.unique_constraints_->GetActiveConstraints(),
+                             constraints_.type_constraints_->GetActiveConstraints()};
+  }
+
   /// Check if async indexer is idle (no pending work)
   /// @return true if async indexer is idle, false if actively processing or has pending work
   /// @note For storage types without async indexing, this always returns true

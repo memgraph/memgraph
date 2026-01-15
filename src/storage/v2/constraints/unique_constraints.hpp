@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,10 +11,15 @@
 
 #pragma once
 
+#include <memory>
 #include <set>
 
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/vertex.hpp"
+
+namespace memgraph::storage {
+struct UniqueActiveConstraints;
+}  // namespace memgraph::storage
 
 namespace memgraph::storage {
 
@@ -46,7 +51,8 @@ class UniqueConstraints {
 
   virtual DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties) = 0;
 
-  virtual bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const = 0;
+  /// Returns true if constraint is registered (even if still populating).
+  virtual bool ConstraintRegistered(LabelId label, const std::set<PropertyId> &properties) const = 0;
 
   virtual void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
                                    uint64_t transaction_start_timestamp) = 0;
@@ -59,6 +65,9 @@ class UniqueConstraints {
   virtual void Clear() = 0;
 
   virtual bool empty() const = 0;
+
+  /// Creates an ActiveConstraints snapshot for transaction use.
+  virtual auto GetActiveConstraints() const -> std::unique_ptr<UniqueActiveConstraints> = 0;
 
  protected:
   static DeletionStatus CheckPropertiesBeforeDeletion(const std::set<PropertyId> &properties) {

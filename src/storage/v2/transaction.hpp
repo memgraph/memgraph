@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,6 +25,7 @@
 #include "delta_container.hpp"
 #include "storage/v2/async_indexer.hpp"
 #include "storage/v2/constraint_verification_info.hpp"
+#include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/indices/point_index.hpp"
@@ -97,8 +98,8 @@ struct AsyncIndexHelper {
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
               StorageMode storage_mode, bool edge_import_mode_active, bool has_constraints,
-              PointIndexContext point_index_ctx, ActiveIndices active_indices, AsyncIndexHelper async_index_helper = {},
-              std::optional<uint64_t> last_durable_ts = std::nullopt)
+              PointIndexContext point_index_ctx, ActiveIndices active_indices, ActiveConstraints active_constraints,
+              AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
@@ -119,6 +120,7 @@ struct Transaction {
         point_index_change_collector_{point_index_ctx_},
         last_durable_ts_{last_durable_ts},
         active_indices_{std::move(active_indices)},
+        active_constraints_{std::move(active_constraints)},
         async_index_helper_(std::move(async_index_helper)) {}
 
   Transaction(Transaction &&other) noexcept = default;
@@ -220,6 +222,9 @@ struct Transaction {
   /// Concurrent safe indices that existed at the beginning of the transaction
   /// Used to insert new entries, and during planning to speed up scans
   ActiveIndices active_indices_;
+  /// Concurrent safe constraints that existed at the beginning of the transaction
+  /// Used for constraint validation during commit
+  ActiveConstraints active_constraints_;
   CommitCallbacks commit_callbacks_;
 
   /// Auto indexing infomation gathering
