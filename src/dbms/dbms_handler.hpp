@@ -458,7 +458,7 @@ class DbmsHandler {
 
   // Iterates over all DBs, applies the function on it but stops after
   // the result of applying a function on some DB is false
-  auto ForEachUntil(std::predicate<DatabaseAccess> auto f) -> bool {
+  auto AllOf(std::predicate<DatabaseAccess> auto f) -> bool {
 #ifdef MG_ENTERPRISE
     auto rd = std::shared_lock{lock_};
     for (auto &[_, db_gk] : db_handler_) {

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -308,7 +308,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   bool SetReplicationRoleReplica_(auto &locked_repl_state, const ReplicationServerConfig &config,
                                   std::optional<utils::UUID> const &maybe_main_uuid = std::nullopt) {
     if (locked_repl_state->IsReplica()) {
-      if (!AllowIdempotency) {
+      if constexpr (!AllowIdempotency) {
         return false;
       }
       // We don't want to restart the server if we're already a REPLICA with correct config
@@ -317,6 +317,12 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
         return true;
       }
       locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid);
+      // Destroy repl accessor. It is safe to do this from another thread
+      // because old server has already been stopped.
+      // We destroy repl accessor only if replica's config changed because in that case
+      // here we have a guranteee that the old server is stopped and there can't be two threads
+      // reading the same unique ptr.
+      dbms::InMemoryReplicationHandlers::DestroyReplAccessor();
 #ifdef MG_ENTERPRISE
       return StartRpcServer(dbms_handler_, replica_data, auth_, system_);
 #else
