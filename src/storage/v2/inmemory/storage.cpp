@@ -3163,7 +3163,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
   auto gc_lock = std::unique_lock{gc_lock_};
   auto engine_lock = std::unique_lock{engine_lock_};
 
-  utils::UUID loaded_snapshot_uuid;
+  std::string loaded_snapshot_uuid;
 
   try {
     spdlog::debug("Recovering from a snapshot {}", local_path);
@@ -3181,6 +3181,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     vertex_id_.store(recovery_info.next_vertex_id, std::memory_order_release);
     edge_id_.store(recovery_info.next_edge_id, std::memory_order_release);
     timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
+    loaded_snapshot_uuid = recovered_snapshot.snapshot_info.uuid;
 
     auto const update_func =
         [new_ldt = recovered_snapshot.snapshot_info.durable_timestamp](CommitTsInfo const &old_info) -> CommitTsInfo {
