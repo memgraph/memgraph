@@ -40,11 +40,11 @@ PROFILE="${PROFILE:-minikube}"  # can be overridden via env
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
 
 # --- temporary bad code to be replaced with good code ---
-# save each image as tar archive in the current directory
+# save each image as tar.gz archive in the current directory
 echo -e "${GREEN}Saving ${LAST_TAG}"
-docker save -o memgraph-${LAST_TAG}.tar memgraph/memgraph:${LAST_TAG}
+docker save memgraph/memgraph:${LAST_TAG} | gzip > memgraph-${LAST_TAG}.tar.gz
 echo -e "${GREEN}Saving ${NEXT_TAG}"
-docker save -o memgraph-${NEXT_TAG}.tar memgraph/memgraph:${NEXT_TAG}
+docker save memgraph/memgraph:${NEXT_TAG} | gzip > memgraph-${NEXT_TAG}.tar.gz
 echo -e "${GREEN}Saved ${LAST_TAG} and ${NEXT_TAG}"
 
 # Defaults for flags/env overrides
