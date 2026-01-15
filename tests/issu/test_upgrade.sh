@@ -280,6 +280,18 @@ minikube_has_image() {
   fi
 }
 
+minikube_image_load_safe() {
+  local image="$1"
+  local attempts=${2:-3}
+  for attempt in $(seq 1 $attempts); do
+    if minikube -p "$PROFILE" image load "$image"; then
+      return 0
+    fi
+    echo "minikube image load failed (attempt $attempt) — purging cache and retrying..."
+    rm -rf "${HOME}/.minikube/cache/images/${ARCH}/$(cut -d/ -f1 <<<"$image")"
+  done
+  return 1
+}
 
 load_into_minikube_if_missing() {
   local image="$1"
@@ -293,7 +305,7 @@ load_into_minikube_if_missing() {
   if docker image inspect "${image}" >/dev/null 2>&1; then
     df -h
     echo -e "${GREEN}Loading ${image} into Minikube...${NC}"
-    minikube image load "${image}"
+    minikube_image_load_safe "${image}"
     if minikube_has_image "${image}"; then
       echo "✅ Loaded ${image} into Minikube."
     else
