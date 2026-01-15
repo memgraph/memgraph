@@ -1401,9 +1401,12 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return true;
     }
     case Type::VECTOR: {
-      auto bytes_size = SizeToByteSize(payload_size);
-      if (!reader->SkipBytes(bytes_size)) return false;
-      property_size += bytes_size;
+      auto count_bytes_size = SizeToByteSize(payload_size);
+      auto count = reader->ReadUint(payload_size);
+      if (!count) return false;
+      auto ids_bytes_size = *count * SizeToByteSize(Size::INT64);
+      if (!reader->SkipBytes(ids_bytes_size)) return false;
+      property_size += count_bytes_size + ids_bytes_size;
       return true;
     }
   }
@@ -1470,8 +1473,9 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return reader->SkipBytes(bytes_to_skip);
     }
     case Type::VECTOR: {
-      auto bytes_size = SizeToByteSize(payload_size);
-      return reader->SkipBytes(bytes_size);
+      auto count = reader->ReadUint(payload_size);
+      if (!count) return false;
+      return reader->SkipBytes(*count * SizeToByteSize(Size::INT64));
     }
   }
 }
@@ -1602,8 +1606,15 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return false;
     }
     case Type::VECTOR: {
-      auto bytes_size = SizeToByteSize(payload_size);
-      return reader->SkipBytes(bytes_size);
+      if (!value.IsVectorIndexId()) return false;
+      const auto &vector_index_ids = value.ValueVectorIndexIds();
+      auto count = reader->ReadUint(payload_size);
+      if (!count || *count != vector_index_ids.size()) return false;
+      for (uint64_t i = 0; i < *count; ++i) {
+        auto id = reader->ReadUint(Size::INT64);
+        if (!id || *id != vector_index_ids[i]) return false;
+      }
+      return true;
     }
   }
 }

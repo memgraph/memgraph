@@ -230,7 +230,7 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
   if (!maybe_properties) return std::unexpected{maybe_properties.error()};
   bolt_map_t properties;
   for (const auto &prop : *maybe_properties) {
-    if (prop.second.IsVectorIndexId()) continue;
+    if (prop.second.IsVectorIndexId() && prop.second.ValueVectorIndexList().empty()) continue;
     properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
   }
   // Introduced in Bolt v5 (for now just send the ID)

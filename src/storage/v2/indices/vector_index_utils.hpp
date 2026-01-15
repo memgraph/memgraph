@@ -375,12 +375,7 @@ PropertyValue GetVectorAsPropertyValue(const std::shared_ptr<utils::Synchronized
   if (retrieved_count == 0) {
     return {};
   }
-  std::vector<PropertyValue> double_values;
-  double_values.reserve(dimension);
-  for (const auto &value : vector) {
-    double_values.emplace_back(static_cast<double>(value));
-  }
-  return PropertyValue(std::move(double_values));
+  return PropertyValue(std::move(vector));
 }
 
 /// @brief Retrieves a vector from a USearch index using the get method and returns it as a list of float values.
@@ -395,7 +390,7 @@ utils::small_vector<float> GetVector(const std::shared_ptr<utils::Synchronized<I
                                      KeyType key) {
   auto locked_index = index->ReadLock();
   const auto dimension = locked_index->dimensions();
-  utils::small_vector<unum::usearch::f32_t> vector(dimension);
+  utils::small_vector<float> vector(dimension);
   const auto retrieved_count = locked_index->get(key, &*vector.begin(), 1);
   if (retrieved_count == 0) {
     return {};

@@ -592,7 +592,6 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
   bool exists = true;
   bool deleted = false;
-  bool is_in_vector_index = false;
   Delta *delta = nullptr;
 
   auto value = std::invoke([&]() -> PropertyValue {
@@ -602,8 +601,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
 
     auto prop_value = vertex_->properties.GetProperty(property);
     if (prop_value.IsVectorIndexId()) {
-      is_in_vector_index = true;
-      return storage_->indices_.vector_index_.GetPropertyValue(
+      prop_value.ValueVectorIndexList() = storage_->indices_.vector_index_.GetVectorProperty(
           vertex_, storage_->name_id_mapper_->IdToName(prop_value.ValueVectorIndexIds()[0]));
     }
     return prop_value;
@@ -612,7 +610,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
   // Vector index works in read uncommitted mode so we don't need to check for it
-  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED && !is_in_vector_index) [[unlikely]] {
+  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) [[unlikely]] {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;

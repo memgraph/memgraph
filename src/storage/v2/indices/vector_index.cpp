@@ -299,7 +299,8 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, NameIdMappe
       auto &ids = old_vertex_property_value.ValueVectorIndexIds();
       auto [erase_begin, erase_end] = std::ranges::remove(ids, name_id_mapper->NameToId(index_name->second));
       ids.erase(erase_begin, erase_end);
-      auto old_vector_property_value = GetPropertyValue(vertex, index_name->second);
+      auto old_vector_property_value =
+          GetVectorAsPropertyValue(pimpl->index_.at(LabelPropKey{label, property_id}).mg_index, vertex);
       UpdateIndex(PropertyValue(), vertex, index_name->second,
                   name_id_mapper);  // we are removing property from index
       vertex->properties.SetProperty(property_id,
@@ -361,15 +362,6 @@ void VectorIndex::UpdateIndex(const PropertyValue &value, Vertex *vertex, std::o
     }
     UpdateSingleVectorIndex(index_item, vertex, vector_property);
   }
-}
-
-PropertyValue VectorIndex::GetPropertyValue(Vertex *vertex, std::string_view index_name) const {
-  auto it = pimpl->index_name_to_label_prop_.find(index_name);
-  if (it == pimpl->index_name_to_label_prop_.end()) {
-    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
-  }
-  auto &[mg_index, spec] = pimpl->index_.at(it->second);
-  return GetVectorAsPropertyValue(mg_index, vertex);
 }
 
 utils::small_vector<float> VectorIndex::GetVectorProperty(Vertex *vertex, std::string_view index_name) const {
@@ -729,8 +721,15 @@ void VectorIndexRecovery::UpdateOnPropertyChange(PropertyId property, PropertyVa
   // Property has to be in the index because it was stored as VectorIndexId
   for (auto &recovery_info : recovery_info_vec) {
     if (recovery_info.spec.property == property && r::contains(vertex->labels, recovery_info.spec.label_id)) {
-      DMG_ASSERT(value.IsVectorIndexId(), "Property value must be a vector index id");
-      recovery_info.index_entries[vertex->gid] = value.ValueVectorIndexList();
+      if (value.IsVectorIndexId()) {
+        recovery_info.index_entries[vertex->gid] = value.ValueVectorIndexList();
+      } else if (value.IsAnyList()) {
+        recovery_info.index_entries[vertex->gid] = ListToVector(value);
+      } else if (value.IsNull()) {
+        recovery_info.index_entries[vertex->gid] = {};
+      } else {
+        throw query::VectorSearchException("Property value must be a vector index id, a list of floats, or null.");
+      }
     }
   }
 }

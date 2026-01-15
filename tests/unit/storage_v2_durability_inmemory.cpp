@@ -130,9 +130,6 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     // Pre-create commonly used PropertyValue objects to reduce allocation overhead
     const auto text_property_value = memgraph::storage::PropertyValue("text_value");
     // Note: enum_property_value will be created after the enum is registered
-    // Pre-create vector property for edge optimization
-    const auto vector_property_value = memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-        memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
 
     const auto property_vector = store->NameToProperty("vector");
     const auto vector_index_name = "vector_index"s;
@@ -141,10 +138,15 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_capacity = 100;
     const auto vector_index_resize_coefficient = 2;
     const auto vector_index_scalar_kind = unum::usearch::scalar_kind_t::f32_k;
-    const auto vector_index_spec = memgraph::storage::VectorIndexSpec{
-        vector_index_name,     label_indexed,           property_vector,
-        vector_index_metric,   vector_index_dim,        vector_index_resize_coefficient,
-        vector_index_capacity, vector_index_scalar_kind};
+    const auto vector_index_spec =
+        memgraph::storage::VectorIndexSpec{.index_name = vector_index_name,
+                                           .label_id = label_indexed,
+                                           .property = property_vector,
+                                           .metric_kind = vector_index_metric,
+                                           .dimension = vector_index_dim,
+                                           .resize_coefficient = vector_index_resize_coefficient,
+                                           .capacity = vector_index_capacity,
+                                           .scalar_kind = vector_index_scalar_kind};
 
     {
       // Create enum.
@@ -240,6 +242,16 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
+    // Create vector property value with VectorIndexId type for vertices (after index exists so we have the ID)
+    const auto vector_index_id = store->name_id_mapper_->NameToId(vector_index_name);
+    const auto vertex_vector_property_value = memgraph::storage::PropertyValue(
+        memgraph::utils::small_vector<uint64_t>{vector_index_id}, memgraph::utils::small_vector<float>{1.0F, 1.0F});
+
+    // Edge vector index still uses regular list property (to be updated in future)
+    const auto edge_vector_property_value =
+        memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
+            memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
+
     {
       // Create text index.
       auto unique_acc = store->UniqueAccess();
@@ -312,7 +324,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
       // first 5 have vector values
       if (i < 5) {
-        ASSERT_TRUE(vertex.SetProperty(property_vector, vector_property_value).has_value());
+        ASSERT_TRUE(vertex.SetProperty(property_vector, vertex_vector_property_value).has_value());
       }
 
       // lower 1/3 and top 1/2 have ids
@@ -365,7 +377,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             edge.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).has_value());
         // For the first 5 edges of et1, set a vector property for the vector edge index
         if (i < 5) {
-          ASSERT_TRUE(edge.SetProperty(property_vector, vector_property_value).has_value());
+          ASSERT_TRUE(edge.SetProperty(property_vector, edge_vector_property_value).has_value());
         }
         if (i == 5) {
           // one edge will have property text
@@ -503,14 +515,15 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_resize_coefficient = 2;
     const auto vector_index_capacity = 100;
     const auto vector_index_scalar_kind = unum::usearch::scalar_kind_t::f32_k;
-    const auto vector_edge_index_spec = memgraph::storage::VectorEdgeIndexSpec{vector_edge_index_name,
-                                                                               edge_type,
-                                                                               prop,
-                                                                               vector_index_metric,
-                                                                               vector_index_dim,
-                                                                               vector_index_resize_coefficient,
-                                                                               vector_index_capacity,
-                                                                               vector_index_scalar_kind};
+    const auto vector_edge_index_spec =
+        memgraph::storage::VectorEdgeIndexSpec{.index_name = vector_edge_index_name,
+                                               .edge_type_id = edge_type,
+                                               .property = prop,
+                                               .metric_kind = vector_index_metric,
+                                               .dimension = vector_index_dim,
+                                               .resize_coefficient = vector_index_resize_coefficient,
+                                               .capacity = vector_index_capacity,
+                                               .scalar_kind = vector_index_scalar_kind};
     {
       // Create edge-type vector index.
       auto unique_acc = store->UniqueAccess();
@@ -557,10 +570,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     const auto text_index_name = "text_index"s;
     const auto text_edge_index_name = "text_edge_index"s;
-    const auto text_index_spec =
-        memgraph::storage::TextIndexSpec{text_index_name, base_label_indexed, std::vector{property_text}};
-    const auto text_edge_index_spec =
-        memgraph::storage::TextEdgeIndexSpec{text_edge_index_name, et1, std::vector{property_text}};
+    const auto text_index_spec = memgraph::storage::TextIndexSpec{
+        .index_name = text_index_name, .label = base_label_indexed, .properties = std::vector{property_text}};
+    const auto text_edge_index_spec = memgraph::storage::TextEdgeIndexSpec{
+        .index_name = text_edge_index_name, .edge_type = et1, .properties = std::vector{property_text}};
 
     const auto property_vector = store->NameToProperty("vector");
     const auto vector_index_name = "vector_index"s;
@@ -570,15 +583,28 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_capacity = 100;
     const auto vector_index_resize_coefficient = 2;
     const auto vector_index_scalar_kind = unum::usearch::scalar_kind_t::f32_k;
-    const auto vector_index_spec = memgraph::storage::VectorIndexSpec{
-        vector_index_name,     base_label_indexed,      property_vector,
-        vector_index_metric,   vector_index_dim,        vector_index_resize_coefficient,
-        vector_index_capacity, vector_index_scalar_kind};
+    const auto vector_index_spec =
+        memgraph::storage::VectorIndexSpec{.index_name = vector_index_name,
+                                           .label_id = base_label_indexed,
+                                           .property = property_vector,
+                                           .metric_kind = vector_index_metric,
+                                           .dimension = vector_index_dim,
+                                           .resize_coefficient = vector_index_resize_coefficient,
+                                           .capacity = vector_index_capacity,
+                                           .scalar_kind = vector_index_scalar_kind};
     const auto vector_edge_index_spec =
-        memgraph::storage::VectorEdgeIndexSpec{vector_edge_index_name, et1,
-                                               property_vector,        vector_index_metric,
-                                               vector_index_dim,       vector_index_resize_coefficient,
-                                               vector_index_capacity,  vector_index_scalar_kind};
+        memgraph::storage::VectorEdgeIndexSpec{.index_name = vector_edge_index_name,
+                                               .edge_type_id = et1,
+                                               .property = property_vector,
+                                               .metric_kind = vector_index_metric,
+                                               .dimension = vector_index_dim,
+                                               .resize_coefficient = vector_index_resize_coefficient,
+                                               .capacity = vector_index_capacity,
+                                               .scalar_kind = vector_index_scalar_kind};
+
+    const auto vector_index_id = store->Access()->GetNameIdMapper()->NameToId(vector_index_name);
+    const auto vertex_vector_property_value = memgraph::storage::PropertyValue(
+        memgraph::utils::small_vector<uint64_t>{vector_index_id}, memgraph::utils::small_vector<float>{1.0F, 1.0F});
 
     ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v1").has_value());
     ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v2").has_value());
@@ -860,9 +886,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
         const auto has_property_vector = i < 5;
         if (has_property_vector) {
-          memgraph::storage::PropertyValue property_value(std::vector<memgraph::storage::PropertyValue>{
-              memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
-          ASSERT_EQ((*properties)[property_vector], property_value);
+          // Vector properties are stored in the vector index, use GetProperty which handles VectorIndexId
+          auto property_result = vertex->GetProperty(property_vector, memgraph::storage::View::OLD);
+          ASSERT_TRUE(property_result.has_value());
+          ASSERT_EQ(*property_result, vertex_vector_property_value);
         }
 
         auto has_property_nested = i < 10;
@@ -1266,6 +1293,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           if (properties_on_edges) {
             static const auto expected_schema = nlohmann::json::parse(
                 R"({"edges":[{"count":300,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":250,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et3"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":150,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":100,"end_node_labels":[],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":200,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1,"filling_factor":0.06666666666666667,"key":"text","types":[{"count":1,"type":"String"}]},{"count":5,"filling_factor":0.3333333333333333,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":50,"labels":["extended_indexed"],"properties":[{"count":33,"filling_factor":66.0,"key":"count","types":[{"count":33,"type":"String"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":50,"labels":[],"properties":[{"count":50,"filling_factor":100.0,"key":"count","types":[{"count":50,"type":"String"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":1,"filling_factor":0.2,"key":"text","types":[{"count":1,"type":"String"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
+            std::cout << schema_json.dump() << std::endl;
+            std::cout << expected_schema.dump() << std::endl;
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           } else {
             static const auto expected_schema = nlohmann::json::parse(

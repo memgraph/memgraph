@@ -1642,7 +1642,7 @@ struct ExtendedPropertyType {
       : type{PropertyValueType::TemporalData}, temporal_type{temporal_type} {}
   explicit ExtendedPropertyType(EnumTypeId enum_type) : type{PropertyValueType::Enum}, enum_type{enum_type} {}
   explicit ExtendedPropertyType(const PropertyValue &val) {
-    if (val.IsAnyList()) {
+    if (val.IsAnyList() || val.IsVectorIndexId()) {
       // It's not important for user to know the list type, so we set it to List
       type = PropertyValueType::List;
     } else {
