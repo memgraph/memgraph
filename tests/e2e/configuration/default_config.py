@@ -193,6 +193,11 @@ startup_config_dict = {
         "true",
         "Controls whether updating a property with the same value should create a delta object.",
     ),
+    "storage_enable_backup_dir": (
+        "true",
+        "true",
+        "Controls whether .old dir will be used to store latest snapshot and WAL files.",
+    ),
     "storage_access_timeout_sec": ("1", "1", "Query's storage level access timeout in seconds."),
     "storage_gc_aggressive": ("false", "false", "Enable aggressive garbage collection."),
     "storage_gc_cycle_sec": ("30", "30", "Storage garbage collector interval (in seconds)."),

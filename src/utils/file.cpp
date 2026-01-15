@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,9 @@
 #include <cstring>
 #include <fstream>
 #include <mutex>
+#include <ranges>
 #include <type_traits>
+#include <vector>
 
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -99,6 +101,16 @@ bool DeleteDir(const std::filesystem::path &dir) noexcept {
   std::error_code error_code;  // For exception suppression.
   if (!std::filesystem::is_directory(dir, error_code)) return false;
   return std::filesystem::remove_all(dir, error_code) > 0;
+}
+
+auto GetFilesFromDir(std::filesystem::path const &dir) -> std::vector<std::filesystem::path> {
+  if (!utils::DirExists(dir)) {
+    spdlog::error("Directory {} doesn't exist", dir);
+    return {};
+  }
+  std::error_code error_code;
+  return std::filesystem::directory_iterator(dir, error_code) |
+         std::views::transform([](auto const &dir_entry) { return dir_entry.path(); }) | std::ranges::to<std::vector>();
 }
 
 bool DeleteFile(const std::filesystem::path &file) noexcept {

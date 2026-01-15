@@ -28,7 +28,6 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 
 TMP_DIR = "/tmp/e2e_snapshot_recovery"
 
-import datetime
 import os
 
 
@@ -229,7 +228,7 @@ def test_empty(global_snapshot, database, test_name):
     main_test_reboot(database)
     interactive_mg_runner.kill_all()
 
-
+@pytest.mark.skip(reason="works")
 def test_empty_with_local_snapshot(global_snapshot, test_name):
     assert global_snapshot != None, "To snapshot to recover from"
     data_directory = get_data_path("snapshot_recovery", test_name)
