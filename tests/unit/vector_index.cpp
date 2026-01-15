@@ -118,7 +118,7 @@ TEST_F(VectorIndexTest, ConcurrencyTest) {
   threads.reserve(index_size);
   for (int i = 0; i < index_size; i++) {
     threads.emplace_back([this, i]() {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       auto properties = MakeVectorIndexProperty(
           acc.get(), memgraph::utils::small_vector<float>{static_cast<float>(i), static_cast<float>(i + 1)});
 
@@ -321,7 +321,7 @@ TEST_F(VectorIndexTest, IndexResizeTest) {
   auto capacity = 1;
 
   while (size <= capacity) {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto properties = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 1.0F});
     [[maybe_unused]] const auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));

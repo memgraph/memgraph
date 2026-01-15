@@ -34,6 +34,7 @@
 #include "flags/general.hpp"
 #include "license/license.hpp"
 #include "replication/state.hpp"
+#include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/constraints/existence_constraints.hpp"
@@ -602,7 +603,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
                                                .capacity = vector_index_capacity,
                                                .scalar_kind = vector_index_scalar_kind};
 
-    const auto vector_index_id = store->Access()->GetNameIdMapper()->NameToId(vector_index_name);
+    const auto vector_index_id = store->Access(memgraph::storage::READ)->GetNameIdMapper()->NameToId(vector_index_name);
     const auto vertex_vector_property_value = memgraph::storage::PropertyValue(
         memgraph::utils::small_vector<uint64_t>{vector_index_id}, memgraph::utils::small_vector<float>{1.0F, 1.0F});
 
