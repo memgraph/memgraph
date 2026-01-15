@@ -20,31 +20,11 @@ on:
         description: Image architecture (amd/arm)
         required: true
         default: amd
-      multiple_attempts:
-        type: boolean
-        description: Whether to retry the test multiple times if it fails
-        required: false
-        default: false
 
 jobs:
   single_test:
-    if: ${{ inputs.multiple_attempts == false }}
     name: ISSU Test
     uses: ./.github/workflows/reusable_issu_test.yaml
-    with:
-      last_image: ${{ inputs.prev_image }}
-      next_image: ${{ inputs.next_image }}
-      arch: ${{ inputs.arch }}
-    secrets: inherit
-
-  multiple_test:
-    if: ${{ inputs.multiple_attempts == true }}
-    name: ISSU Test
-    uses: ./.github/workflows/reusable_issu_test.yaml
-    strategy:
-      fail-fast: false
-      matrix:
-        attempt: [1, 2, 3, 4, 5]
     with:
       last_image: ${{ inputs.prev_image }}
       next_image: ${{ inputs.next_image }}
