@@ -1,7 +1,6 @@
 name: Stress Tests
 
 on:
-  push:
   workflow_dispatch:
     inputs:
       deployment:
@@ -58,32 +57,4 @@ jobs:
       deployment: ${{ inputs.deployment }}
       memgraph_image: ${{ inputs.memgraph_image }}
       arch: ${{ inputs.arch }}
-    secrets: inherit
-
-  push_stress_tests_native_standalone:
-    name: "Push Stress Tests Native Standalone"
-    if: ${{ github.event_name == 'push' }}
-    uses: ./.github/workflows/reusable_stress_tests.yaml
-    with:
-      deployment: native_standalone
-      arch: amd
-    secrets: inherit
-
-  push_stress_tests_native_ha:
-    name: "Push Stress Tests Native HA"
-    if: ${{ github.event_name == 'push' }}
-    uses: ./.github/workflows/reusable_stress_tests.yaml
-    with:
-      deployment: native_ha
-      arch: amd
-    secrets: inherit
-
-  push_stress_tests_docker_ha:
-    name: "Push Stress Tests Docker HA"
-    if: ${{ github.event_name == 'push' }}
-    uses: ./.github/workflows/reusable_stress_tests.yaml
-    with:
-      deployment: docker_ha
-      arch: amd
-      memgraph_image: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph/20260114/docker/memgraph-3.7.2_pr3574_c939849a3714-docker.tar.gz"
     secrets: inherit
