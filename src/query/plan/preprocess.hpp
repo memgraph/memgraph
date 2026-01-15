@@ -220,8 +220,8 @@ class PatternComprehensionCollector : public HierarchicalTreeVisitor {
   explicit PatternComprehensionCollector(SymbolTable &symbol_table, AstStorage &storage);
   PatternComprehensionCollector(const PatternComprehensionCollector &) = delete;
   PatternComprehensionCollector &operator=(const PatternComprehensionCollector &) = delete;
-  PatternComprehensionCollector(PatternComprehensionCollector &&) noexcept;
-  PatternComprehensionCollector &operator=(PatternComprehensionCollector &&) noexcept = delete;
+  PatternComprehensionCollector(PatternComprehensionCollector &&) = delete;
+  PatternComprehensionCollector &operator=(PatternComprehensionCollector &&) = delete;
   ~PatternComprehensionCollector() override;
 
   using HierarchicalTreeVisitor::PostVisit;

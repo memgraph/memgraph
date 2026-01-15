@@ -4195,4 +4195,128 @@ TYPED_TEST(TestPlanner, PatternComprehensionInForeachBodyWithExternalReference) 
   ASSERT_NE(once, nullptr) << "Foreach input should be Once";
 }
 
+TYPED_TEST(TestPlanner, PatternComprehensionInsideCountAggregate) {
+  // Test MATCH (n) RETURN count([(n)-[e]->(m) | m]) AS c
+  // The pattern comprehension is inside count(), so RollUpApply must come BEFORE Aggregate.
+  //
+  // Expected plan structure (bottom-up):
+  //   Produce {c}
+  //   Aggregate {COUNT-1} {}  -- no group-by
+  //   RollUpApply
+  //   |\
+  //   | Produce {anon_result}
+  //   | Expand (n)-[e]->(m)
+  //   | Once
+  //   ScanAll (n)
+  //   Once
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("e", EdgeAtom::Direction::OUT), NODE("m")), nullptr, IDENT("m"));
+
+  auto *count_expr = COUNT(pattern_comp, false);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(count_expr, AS("c"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Verify plan structure: Produce -> Aggregate -> RollUpApply -> ScanAll
+  auto &plan = planner.plan();
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+
+  auto *aggregate = dynamic_cast<Aggregate *>(produce->input_.get());
+  ASSERT_NE(aggregate, nullptr) << "Should have Aggregate operator";
+
+  auto *rollup = dynamic_cast<RollUpApply *>(aggregate->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply should come BEFORE Aggregate when PC is inside aggregate expression";
+
+  auto *scan = dynamic_cast<ScanAll *>(rollup->input_.get());
+  ASSERT_NE(scan, nullptr) << "Input to RollUpApply should be ScanAll";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInsideSumSizeAggregate) {
+  // Test MATCH (n) RETURN sum(size([(n)-[e]->(m) | 1])) AS total
+  // The pattern comprehension is inside sum(size(...)), so RollUpApply must come BEFORE Aggregate.
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("e", EdgeAtom::Direction::OUT), NODE("m")), nullptr, LITERAL(1));
+
+  auto *size_expr = FN("size", pattern_comp);
+  auto *sum_expr = SUM(size_expr, false);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(sum_expr, AS("total"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Verify plan structure: Produce -> Aggregate -> RollUpApply -> ScanAll
+  auto &plan = planner.plan();
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+
+  auto *aggregate = dynamic_cast<Aggregate *>(produce->input_.get());
+  ASSERT_NE(aggregate, nullptr) << "Should have Aggregate operator";
+
+  auto *rollup = dynamic_cast<RollUpApply *>(aggregate->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply should come BEFORE Aggregate when PC is inside aggregate expression";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionNotInsideAggregate) {
+  // Test MATCH (n) RETURN [(n)-[e]->(m) | m] AS items, count(*) AS c
+  // The pattern comprehension is NOT inside an aggregate, but there is an aggregation.
+  // RollUpApply should still come BEFORE Aggregate because PC references 'n' which
+  // won't exist after aggregation.
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("e", EdgeAtom::Direction::OUT), NODE("m")), nullptr, IDENT("m"));
+
+  auto *count_star = COUNT(nullptr, false);  // COUNT(*)
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(pattern_comp, AS("items"), count_star, AS("c"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Verify plan structure: Produce -> Aggregate -> RollUpApply -> ScanAll
+  auto &plan = planner.plan();
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+
+  auto *aggregate = dynamic_cast<Aggregate *>(produce->input_.get());
+  ASSERT_NE(aggregate, nullptr) << "Should have Aggregate operator";
+
+  auto *rollup = dynamic_cast<RollUpApply *>(aggregate->input_.get());
+  ASSERT_NE(rollup, nullptr)
+      << "RollUpApply should come BEFORE Aggregate when PC references symbols consumed by aggregation";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionNoExternalRefsStillGoesBeforeAggregate) {
+  // Test MATCH (n) RETURN count(*) AS c, [()--() | 1] AS edges
+  // Even though the pattern comprehension has no external references,
+  // it still goes BEFORE Aggregate for correctness (all PCs go before aggregate).
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("anon1"), EDGE("anon2", EdgeAtom::Direction::BOTH), NODE("anon3")), nullptr, LITERAL(1));
+
+  auto *count_star = COUNT(nullptr, false);  // COUNT(*)
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(count_star, AS("c"), pattern_comp, AS("edges"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Verify plan structure: Produce -> Aggregate -> RollUpApply -> ScanAll
+  // RollUpApply comes BEFORE Aggregate (all PCs go before aggregate when aggregations exist)
+  auto &plan = planner.plan();
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+
+  auto *aggregate = dynamic_cast<Aggregate *>(produce->input_.get());
+  ASSERT_NE(aggregate, nullptr) << "Aggregate should be directly under Produce";
+
+  auto *rollup = dynamic_cast<RollUpApply *>(aggregate->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply should come BEFORE Aggregate";
+}
+
 }  // namespace

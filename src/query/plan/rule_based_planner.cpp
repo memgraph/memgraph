@@ -35,6 +35,34 @@ bool IsConstantLiteral(const Expression *expression) {
   return utils::Downcast<const PrimitiveLiteral>(expression) || utils::Downcast<const ParameterLookup>(expression);
 }
 
+/// Visitor to collect pattern comprehension symbols from expressions.
+/// Used to track which pattern comprehensions appear inside aggregate expressions.
+class PCSymbolCollector : public HierarchicalTreeVisitor {
+ public:
+  PCSymbolCollector(const SymbolTable &symbol_table, std::unordered_set<Symbol> &pc_symbols)
+      : symbol_table_(symbol_table), pc_symbols_(pc_symbols) {}
+
+  using HierarchicalTreeVisitor::PostVisit;
+  using HierarchicalTreeVisitor::PreVisit;
+  using HierarchicalTreeVisitor::Visit;
+
+  bool Visit(Identifier & /*unused*/) override { return true; }
+  bool Visit(PrimitiveLiteral & /*unused*/) override { return true; }
+  bool Visit(ParameterLookup & /*unused*/) override { return true; }
+  bool Visit(EnumValueAccess & /*unused*/) override { return true; }
+
+  bool PostVisit(PatternComprehension &pc) override {
+    pc_symbols_.insert(symbol_table_.at(pc));
+    return true;
+  }
+
+ private:
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
+  const SymbolTable &symbol_table_;
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
+  std::unordered_set<Symbol> &pc_symbols_;
+};
+
 // Ast tree visitor which collects the context for a return body.
 // The return body of WITH and RETURN clauses consists of:
 //
@@ -418,6 +446,17 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     // Possible optimization is to skip remembering symbols inside aggregation.
     // If and when implementing this, don't forget that Accumulate needs *all*
     // the symbols, including those inside aggregation.
+
+    // Collect pattern comprehension symbols used in this aggregation's expressions.
+    // These PCs must be planned BEFORE the Aggregate operator.
+    PCSymbolCollector collector(symbol_table_, pattern_comprehensions_in_aggregations_);
+    if (aggr.expression1_) {
+      aggr.expression1_->Accept(collector);
+    }
+    if (aggr.expression2_) {
+      aggr.expression2_->Accept(collector);
+    }
+
     return true;
   }
 
@@ -475,7 +514,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       auto &pending = pc_ctx_->pending_comprehensions;
       if (auto it = pending.find(result_sym); it != pending.end()) {
         auto op = pc_ctx_->planner->Plan(it->second, pc_ctx_->view);
-        pattern_comprehension_datas_[result_sym] = PatternComprehensionData(std::move(op), result_sym);
+        pattern_comprehension_datas_[result_sym] =
+            PatternComprehensionData(std::move(op), result_sym, it->second.expansion_symbols);
         pending.erase(it);
       }
     }
@@ -542,7 +582,14 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return pattern_comprehension_datas_;
   }
 
+  // Symbols that were bound before this RETURN/WITH clause (from MATCH, CREATE, etc.)
+  const auto &bound_symbols() const { return bound_symbols_; }
+
   const SymbolTable &symbol_table() const { return symbol_table_; }
+
+  // Pattern comprehension symbols that appear inside aggregate expressions.
+  // These must be planned BEFORE the Aggregate operator so their values are available.
+  const auto &pattern_comprehensions_in_aggregations() const { return pattern_comprehensions_in_aggregations_; }
 
  private:
   const ReturnBody &body_;
@@ -566,6 +613,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   std::list<bool> has_aggregation_;
   std::vector<NamedExpression *> named_expressions_;
   std::unordered_map<Symbol, PatternComprehensionData> pattern_comprehension_datas_;
+  // Pattern comprehension symbols that appear inside aggregate expressions.
+  // These must be planned BEFORE the Aggregate operator so their values are available.
+  std::unordered_set<Symbol> pattern_comprehensions_in_aggregations_;
   // Stack of aggregation start indices for nested pattern comprehensions
   std::vector<size_t> aggregations_start_index_stack_;
   // Context for on-demand planning of pattern comprehensions.
@@ -586,14 +636,75 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     // accumulation after updates, without advancing the command.
     last_op = std::make_unique<Accumulate>(std::move(last_op), used_symbols, advance_command);
   }
-  if (!body.aggregations().empty()) {
-    // When we have aggregation, SKIP/LIMIT should always come after it.
-    std::vector<Symbol> remember(body.group_by_used_symbols().begin(), body.group_by_used_symbols().end());
+  // When there are aggregations, ALL pattern comprehensions are planned BEFORE the
+  // Aggregate operator. This ensures correct evaluation per input row rather than per group.
+  const bool has_aggregations = !body.aggregations().empty();
+  auto pc_data = body.pattern_comprehension_data();
+
+  // Track PC result symbols that go BEFORE Aggregate but are NOT inside aggregates.
+  // These need to be in the Aggregate's remember set.
+  std::vector<Symbol> pc_results_to_remember;
+
+  if (has_aggregations && !pc_data.empty()) {
+    // Get PCs that are used inside aggregate expressions
+    const auto &pcs_in_aggregations = body.pattern_comprehensions_in_aggregations();
+
+    for (auto &[result_symbol, list_collection_data] : pc_data) {
+      if (!list_collection_data.op) continue;
+
+      const bool in_aggregation = pcs_in_aggregations.contains(result_symbol);
+
+      // When there are aggregations, ALL pattern comprehensions must go BEFORE the Aggregate
+      // operator. This is because:
+      // 1. PCs inside aggregates need their results for the aggregation
+      // 2. PCs with external refs need those symbols before they're consumed by Aggregate
+      // 3. PCs without external refs still need to be evaluated per-input-row, not per-group
+      // The optimization to place PCs without external refs after Aggregate was removed
+      // because it caused runtime issues with symbol resolution.
+      auto list_collection_symbols = list_collection_data.op->ModifiedSymbols(body.symbol_table());
+      last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(list_collection_data.op),
+                                              list_collection_symbols, result_symbol);
+
+      // If this PC is NOT inside an aggregate, its result needs to survive through Aggregate
+      if (!in_aggregation) {
+        pc_results_to_remember.push_back(result_symbol);
+      }
+    }
+  }
+
+  if (has_aggregations) {
+    // Build remember set: symbols used in GROUP BY that should be preserved through aggregation.
+    // IMPORTANT: Exclude symbols that are internal to pattern comprehensions (declared in PC patterns),
+    // as these are not available after RollUpApply - only the PC result symbol is.
+    std::unordered_set<Symbol> pc_internal_symbols;
+    for (const auto &[sym, pc_dat] : pc_data) {
+      // expansion_symbols contains all symbols from the PC pattern.
+      // Internal symbols are those that are NOT in pre_return_symbols (not bound before RETURN).
+      for (const auto &exp_sym : pc_dat.expansion_symbols) {
+        if (!body.bound_symbols().contains(exp_sym)) {
+          pc_internal_symbols.insert(exp_sym);
+        }
+      }
+    }
+
+    std::vector<Symbol> remember;
+    for (const auto &sym : body.group_by_used_symbols()) {
+      if (!pc_internal_symbols.contains(sym)) {
+        remember.push_back(sym);
+      }
+    }
+
+    // Add PC result symbols that go BEFORE Aggregate but are NOT inside aggregates
+    for (const auto &sym : pc_results_to_remember) {
+      remember.push_back(sym);
+    }
+
     last_op = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);
   }
 
-  if (body.has_pattern_comprehension()) {
-    for (auto &[result_symbol, list_collection_data] : body.pattern_comprehension_data()) {
+  // Plan remaining pattern comprehensions AFTER Aggregate (or when no aggregations)
+  for (auto &[result_symbol, list_collection_data] : pc_data) {
+    if (list_collection_data.op) {
       auto list_collection_symbols = list_collection_data.op->ModifiedSymbols(body.symbol_table());
       last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(list_collection_data.op),
                                               list_collection_symbols, result_symbol);

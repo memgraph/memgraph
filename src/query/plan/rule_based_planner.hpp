@@ -31,11 +31,15 @@ namespace memgraph::query::plan {
 struct PatternComprehensionData {
   PatternComprehensionData() = default;
 
-  PatternComprehensionData(std::shared_ptr<LogicalOperator> lop, Symbol res_symbol)
-      : op(std::move(lop)), result_symbol(res_symbol) {}
+  PatternComprehensionData(std::shared_ptr<LogicalOperator> lop, Symbol res_symbol,
+                           std::unordered_set<Symbol> exp_syms = {})
+      : op(std::move(lop)), result_symbol(res_symbol), expansion_symbols(std::move(exp_syms)) {}
 
   std::shared_ptr<LogicalOperator> op;
   Symbol result_symbol;
+  /// Symbols from the PC pattern (nodes, edges, path).
+  /// Used to detect if the PC references outer symbols that won't exist after Aggregate.
+  std::unordered_set<Symbol> expansion_symbols;
 };
 
 /// Interface for planning pattern comprehensions, avoiding std::function overhead.

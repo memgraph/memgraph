@@ -495,7 +495,7 @@ TYPED_TEST(TestVariableStartPlanner, TestSubqueryWithTripleUnion) {
 // Graph: (a {id:1})-[:R]->(b {id:2})-[:R]->(c {id:3})
 // Expected: [[3]] (one row with outer list containing inner list [3])
 TYPED_TEST(TestVariableStartPlanner, NestedPatternComprehensionChainedExpansion) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto id = dba.NameToProperty("id");
 
@@ -551,7 +551,7 @@ TYPED_TEST(TestVariableStartPlanner, NestedPatternComprehensionChainedExpansion)
 // Query: CREATE (a)-[:R]->(b)-[:R]->(c) WITH a RETURN [(a)-[*1..2]->(x) | x.id] AS reachable
 // Expected: [[2, 3]] (sees both b and c through the VLE)
 TYPED_TEST(TestVariableStartPlanner, PatternComprehensionVLEAfterCreate) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto id = dba.NameToProperty("id");
 

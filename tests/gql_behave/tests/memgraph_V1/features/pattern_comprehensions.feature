@@ -342,3 +342,82 @@ Feature: Pattern comprehensions
         Then the result should be:
             | reachable      |
             | ['b', 'c']     |
+
+   Scenario: Pattern comprehension inside count aggregate
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (p:Person {id: 1})-[:OWNS]->(i:Item {name: 'DVD'})
+            CREATE (q:Person {id: 2})-[:OWNS]->(j:Item {name: 'Book'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person) RETURN count([(p)-[:OWNS]->(i) | i.name]) AS c
+            """
+        Then the result should be:
+            | c |
+            | 2 |
+
+   Scenario: Pattern comprehension inside sum with size
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (p:Person {id: 1})-[:OWNS]->(i:Item {name: 'DVD'})
+            CREATE (q:Person {id: 2})-[:OWNS]->(j:Item {name: 'Book'}), (q)-[:OWNS]->(k:Item {name: 'Phone'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person) RETURN sum(size([(p)-[:OWNS]->(i) | i.name])) AS total
+            """
+        Then the result should be:
+            | total |
+            | 3     |
+
+   Scenario: Pattern comprehension inside collect aggregate
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (p:Person {id: 1})-[:OWNS]->(i:Item {name: 'DVD'})
+            CREATE (q:Person {id: 2})-[:OWNS]->(j:Item {name: 'Book'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person) RETURN collect([(p)-[:OWNS]->(i) | i.name]) AS items
+            """
+        Then the result should be:
+            | items               |
+            | [['DVD'], ['Book']] |
+
+   Scenario: Pattern comprehension both inside and outside aggregate
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (p:Person {id: 1})-[:OWNS]->(i:Item {name: 'DVD'})
+            CREATE (q:Person {id: 2})-[:OWNS]->(j:Item {name: 'Book'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            RETURN p.id AS id, count([(p)-[:OWNS]->(i) | i.name]) AS cnt, [(p)-[:OWNS]->(x) | x.name] AS items
+            ORDER BY id
+            """
+        Then the result should be:
+            | id | cnt | items    |
+            | 1  | 1   | ['DVD']  |
+            | 2  | 1   | ['Book'] |
+
+    Scenario: Pattern comprehension with no external references combined with aggregate
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {id: 1})-[:KNOWS]->(:Person {id: 2})
+            CREATE (:Person {id: 3})-[:KNOWS]->(:Person {id: 4})
+            """
+        When executing query:
+            """
+            MATCH (p:Person) WHERE p.id IN [1, 3]
+            RETURN count(*) AS cnt, [()-[:KNOWS]->() | 1] AS edges
+            """
+        Then the result should be:
+            | cnt | edges  |
+            | 2   | [1, 1] |

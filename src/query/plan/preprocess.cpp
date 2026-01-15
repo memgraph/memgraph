@@ -1104,7 +1104,6 @@ void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &stor
 // PatternComprehensionCollector implementation
 PatternComprehensionCollector::PatternComprehensionCollector(SymbolTable &symbol_table, AstStorage &storage)
     : symbol_table_(symbol_table), storage_(storage) {}
-PatternComprehensionCollector::PatternComprehensionCollector(PatternComprehensionCollector &&) noexcept = default;
 PatternComprehensionCollector::~PatternComprehensionCollector() = default;
 
 bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
