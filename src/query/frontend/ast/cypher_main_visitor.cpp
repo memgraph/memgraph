@@ -428,7 +428,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
   std::vector<PropertyIxPath> sorted_properties = index_query->properties_;
   std::ranges::sort(sorted_properties);
   auto cmp = [](PropertyIxPath const &lhs, PropertyIxPath const &rhs) {
-    auto min_length = std::min(lhs.path.size(), rhs.path.size());
+    auto const min_length = static_cast<std::ptrdiff_t>(std::min(lhs.path.size(), rhs.path.size()));
     return std::ranges::equal(
         lhs.path.cbegin(), lhs.path.cbegin() + min_length, rhs.path.cbegin(), rhs.path.cbegin() + min_length);
   };
@@ -1159,10 +1159,9 @@ std::vector<std::string> TopicNamesFromSymbols(
   MG_ASSERT(!topic_name_symbols.empty());
   std::vector<std::string> topic_names;
   topic_names.reserve(topic_name_symbols.size());
-  std::transform(topic_name_symbols.begin(),
-                 topic_name_symbols.end(),
-                 std::back_inserter(topic_names),
-                 [&visitor](auto *topic_name) { return JoinSymbolicNamesWithDotsAndMinus(visitor, *topic_name); });
+  std::ranges::transform(topic_name_symbols, std::back_inserter(topic_names), [&visitor](auto *topic_name) {
+    return JoinSymbolicNamesWithDotsAndMinus(visitor, *topic_name);
+  });
   return topic_names;
 }
 
