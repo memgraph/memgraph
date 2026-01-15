@@ -3206,7 +3206,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     constexpr std::string_view old_dir = ".old";
 
     // Move all previous snapshots and WAL files to .old dir
-    if (FLAGS_storage_enable_backup_dir) {
+    if (use_old_dir) {
       spdlog::trace("Moving old snapshots and WALs to {}", old_dir);
       std::error_code ec{};
       auto const snapshot_old_dir = recovery_.snapshot_directory_ / old_dir;
