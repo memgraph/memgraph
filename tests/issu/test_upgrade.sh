@@ -44,7 +44,7 @@ TEST_ROUTING=${TEST_ROUTING:-false}
 DEBUG=${DEBUG:-false}
 
 # clear the minikube image cache
-if [[ "$(arch)" == "arm64" ]]; then
+if [[ "$(arch)" == "aarch64" ]]; then
   ARCH="arm64"
 else
   ARCH="amd64"
