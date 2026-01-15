@@ -649,7 +649,7 @@ build_memgraph () {
       docker exec -u mg "$build_container" bash -c "$CMD_START && conan install --requires $build_dependency --lockfile="" --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
     fi
 
-    if [[ -n "$conan_remote" ]]; then
+    if [[ -n "$conan_remote" && -n "$conan_username" && -n "$conan_password" ]]; then
       echo "Uploading Conan cache to $conan_remote"
       upload_conan_cache $conan_username $conan_password
     fi
@@ -713,7 +713,7 @@ build_memgraph () {
   fi
 
   # upload conan cache if remote is set
-  if [[ -n "$conan_remote" ]]; then
+  if [[ -n "$conan_remote" && -n "$conan_username" && -n "$conan_password" ]]; then
     echo "Uploading Conan cache to $conan_remote"
     upload_conan_cache $conan_username $conan_password
   fi
