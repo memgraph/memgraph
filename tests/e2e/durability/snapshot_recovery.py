@@ -13,11 +13,13 @@ import os
 import shutil
 import sys
 import time
+from functools import partial
 from pathlib import Path
 
 import interactive_mg_runner
 import pytest
 from common import connect, execute_and_fetch_all, get_data_path
+from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -208,6 +210,38 @@ def mt_cursor(connection, database):
 @pytest.fixture
 def test_name(request):
     return request.node.name
+
+
+def test_disk_files_startup_vacuum(test_name):
+    data_directory = get_data_path("snapshot_recovery", test_name)
+    full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
+    os.makedirs(f"{full_data_directory}/tmp", exist_ok=True)
+    os.makedirs(f"{full_data_directory}/snapshots/.old", exist_ok=True)
+    os.makedirs(f"{full_data_directory}/wal/.old", exist_ok=True)
+
+    instances = {
+        "default": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--storage-snapshot-interval-sec=1000",
+                "--storage-wal-enabled=true",
+                "--storage-snapshot-on-exit=false",
+                "--storage-wal-file-size-kib=1",
+                "--storage-enable-backup-dir=false",
+            ],
+            "log_file": "snapshot_recovery_default.log",
+            "data_directory": data_directory,
+        }
+    }
+
+    interactive_mg_runner.start(instances, "default")
+
+    assert os.path.exists(f"{full_data_directory}/tmp") is False
+    assert os.path.exists(f"{full_data_directory}/snapshots/.old") is False
+    assert os.path.exists(f"{full_data_directory}/wal/.old") is False
+
+    interactive_mg_runner.kill_all()
 
 
 def test_disable_old_dir(test_name, global_snapshot):
