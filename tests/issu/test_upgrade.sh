@@ -271,6 +271,14 @@ minikube_has_image() {
   fi
 }
 
+# clear the minikube image cache
+if [[ "$(arch)" == "arm64" ]]; then
+  ARCH="arm64"
+else
+  ARCH="amd64"
+fi
+rm -rf "${HOME}/.minikube/cache/images/${ARCH}/memgraph"
+
 load_into_minikube_if_missing() {
   local image="$1"
 
@@ -281,6 +289,7 @@ load_into_minikube_if_missing() {
 
   # Not in Minikube; try to load from local Docker
   if docker image inspect "${image}" >/dev/null 2>&1; then
+    df -h
     echo -e "${GREEN}Loading ${image} into Minikube...${NC}"
     minikube image load "${image}"
     if minikube_has_image "${image}"; then
