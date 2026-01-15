@@ -49,7 +49,7 @@ if [[ "$(arch)" == "arm64" ]]; then
 else
   ARCH="amd64"
 fi
-echo "Clearing minikube image cache for ${ARCH}"
+echo "Clearing minikube image cache for ${ARCH} in ${HOME}/.minikube/cache/images/${ARCH}/memgraph"
 rm -rfv "${HOME}/.minikube/cache/images/${ARCH}/memgraph"
 
 # --- Parse flags ---
