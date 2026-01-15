@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -256,7 +256,16 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PostVisit(ScanParallel &) override {
+  bool PostVisit(ScanChunkByEdge &op) override {
+    // ScanChunk has the output symbol, so we need to save the stats here
+    if (last_index_stats_) {
+      std::visit([&](auto index_stats) { SaveStatsFor(op.output_symbol_, std::move(index_stats)); },
+                 std::move(*last_index_stats_));
+    }
+    return true;
+  }
+
+  bool PostVisit(ScanParallel & /* op */) override {
     cardinality_ *= db_accessor_->VerticesCount();
     IncrementCost(CostParam::kScanAll);
     num_threads_ = 1;  // End of parallel section
@@ -351,7 +360,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PostVisit(ScanParallelByEdge &op) override {
+  bool PostVisit(ScanParallelByEdge & /* op */) override {
     // ScanParallelByEdge is not yet implemented (throws NotYetImplemented)
     // For cost estimation, we'll use a placeholder cost
     IncrementCost(CostParam::kScanAllByEdgeType);
