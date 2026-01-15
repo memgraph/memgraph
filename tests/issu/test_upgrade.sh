@@ -326,8 +326,8 @@ load_into_minikube_if_missing() {
 }
 
 echo -e "${GREEN}Ensuring images exist in Minikube...${NC}"
-load_into_minikube_if_missing "memgraph/memgraph:${LAST_TAG}" "memgraph-${LAST_TAG}.tar"
-load_into_minikube_if_missing "memgraph/memgraph:${NEXT_TAG}" "memgraph-${NEXT_TAG}.tar"
+load_into_minikube_if_missing "memgraph/memgraph:${LAST_TAG}" "memgraph-${LAST_TAG}.tar.gz"
+load_into_minikube_if_missing "memgraph/memgraph:${NEXT_TAG}" "memgraph-${NEXT_TAG}.tar.gz"
 
 kubectl apply -f sc.yaml
 echo "Created $SC_NAME storage class"
