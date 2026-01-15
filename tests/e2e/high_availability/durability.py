@@ -17,17 +17,17 @@ import interactive_mg_runner
 import mgclient
 import pytest
 from common import (
-  connect,
-  count_files,
-  execute_and_fetch_all,
-  execute_and_ignore_dead_replica,
-  get_data_path,
-  get_logs_path,
-  get_vertex_count,
-  list_directory_contents,
-  show_instances,
+    connect,
+    count_files,
+    execute_and_fetch_all,
+    execute_and_ignore_dead_replica,
+    get_data_path,
+    get_logs_path,
+    get_vertex_count,
+    list_directory_contents,
+    show_instances,
 )
-from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_eval_function
+from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_eval_function, mg_sleep_and_assert_until_role_change
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -128,7 +128,7 @@ def get_instances_description_no_setup_snapshot_recovery(test_name: str, snapsho
     }
 
 
-def get_instances_description_no_setup_wal_files_recovery(test_name: str):
+def get_instances_description_no_setup_wal_files_recovery(test_name: str, storage_enable_backup_dir):
     return {
         "instance_1": {
             "args": [
@@ -144,6 +144,7 @@ def get_instances_description_no_setup_wal_files_recovery(test_name: str):
                 "false",
                 "--storage-wal-file-size-kib",
                 "1",
+                f"--storage-enable-backup-dir={storage_enable_backup_dir}",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_1",
@@ -163,6 +164,7 @@ def get_instances_description_no_setup_wal_files_recovery(test_name: str):
                 "false",
                 "--storage-wal-file-size-kib",
                 "1",
+                f"--storage-enable-backup-dir={storage_enable_backup_dir}",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_2.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_2",
@@ -361,8 +363,11 @@ def test_branching_point_snapshot_recovery(test_name):
 # 3. Kill main, restart replica. Replica will become new main.
 # 4. When old main gets back, it should get WalFiles. Old main should move his old WAL files to the .old directory and
 # keep only new main's WAL file
-def test_branching_point_wal_files_recovery(test_name):
-    instances_description = get_instances_description_no_setup_wal_files_recovery(test_name=test_name)
+@pytest.mark.parametrize("enable_backup_dir", ["true", "false"])
+def test_branching_point_wal_files_recovery(test_name, enable_backup_dir):
+    instances_description = get_instances_description_no_setup_wal_files_recovery(
+        test_name=test_name, storage_enable_backup_dir=enable_backup_dir
+    )
     interactive_mg_runner.start_all(instances_description, keep_directories=False)
 
     build_dir = os.path.join(interactive_mg_runner.PROJECT_DIR, "build", "e2e", "data")
@@ -410,14 +415,11 @@ def test_branching_point_wal_files_recovery(test_name):
     # 3.
     interactive_mg_runner.kill(instances_description, "instance_1")
     interactive_mg_runner.start(instances_description, "instance_2")
-    data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
-    ]
-    mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
+    instance2_cursor = connect(host="localhost", port=7688).cursor()
+
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance2_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
 
     # 4.
     interactive_mg_runner.start(instances_description, "instance_1")
@@ -429,22 +431,20 @@ def test_branching_point_wal_files_recovery(test_name):
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
     ]
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
-
-    # 6.
     instance1_cursor = connect(host="localhost", port=7687).cursor()
     mg_sleep_and_assert(1, partial(get_vertex_count, instance1_cursor))
 
     assert count_files(wal_dir_instance_1) == 1
-    instance1_wal_entries = list_directory_contents(wal_dir_instance_1)
 
-    contains_wal_old_dir = False
-    for entry in instance1_wal_entries:
-        full_path = os.path.join(wal_dir_instance_1, entry)
-        if os.path.isdir(full_path) and "old" in entry.lower():
-            # There should be 3 WAL files in the old directory
-            assert count_files(full_path) == 3
-            contains_wal_old_dir = True
-    assert contains_wal_old_dir is True
+    old_wal_dir_instance_1 = f"{data_dir_instance_1}/wal/.old"
+    old_snapshot_dir_instance_1 = f"{data_dir_instance_1}/snapshots/.old"
+
+    if enable_backup_dir == "true":
+        assert len(os.listdir(old_wal_dir_instance_1)) == 3
+        assert os.path.exists(old_snapshot_dir_instance_1) is False
+    else:
+        assert os.path.exists(old_snapshot_dir_instance_1) is False
+        assert os.path.exists(old_wal_dir_instance_1) is False
 
 
 if __name__ == "__main__":

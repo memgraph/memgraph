@@ -102,10 +102,6 @@ def generate_tmp_snapshot():
     interactive_mg_runner.stop_all()
 
 
-def fixture_snapshot_in_mg_data():
-    pass
-
-
 def data_check(cursor, max):
     index = 0
     step = 1
@@ -121,8 +117,6 @@ def main_test(data_directory, snapshot, database, clean):
     # 2) check data
     # 3) add data
     # 4) check data
-    # 5) restart
-    # 6) check data
 
     data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
     connection = connect(host="localhost", port=7687)
@@ -216,6 +210,55 @@ def test_name(request):
     return request.node.name
 
 
+def test_disable_old_dir(test_name, global_snapshot):
+    data_directory = get_data_path("snapshot_recovery", test_name)
+
+    instances = {
+        "default": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--storage-snapshot-interval-sec=1000",
+                "--storage-wal-enabled=true",
+                "--storage-snapshot-on-exit=false",
+                "--storage-wal-file-size-kib=1",
+                "--storage-enable-backup-dir=false",
+            ],
+            "log_file": "snapshot_recovery_default.log",
+            "data_directory": data_directory,
+        }
+    }
+
+    interactive_mg_runner.start(instances, "default")
+
+    cursor = connect(host="localhost", port=7687).cursor()
+    execute_and_fetch_all(cursor, "create ()")
+    execute_and_fetch_all(cursor, "create snapshot")
+    execute_and_fetch_all(cursor, "create ()")
+    execute_and_fetch_all(cursor, "create snapshot")
+
+    try:
+        execute_and_fetch_all(cursor, f"RECOVER SNAPSHOT '{global_snapshot}' FORCE;")
+    except:
+        assert False, "Failed to recover from snapshot even though force is not required"
+
+    full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
+    old_snapshots_dir = full_data_directory + "/snapshots/.old"
+    print(f"Old snapshots dir: {old_snapshots_dir}")
+    assert os.path.exists(old_snapshots_dir) is False
+    old_wal_dir = full_data_directory + "/wal/.old"
+    print(f"Old wal dir: {old_wal_dir}")
+    assert os.path.exists(old_wal_dir) is False
+
+    snapshots_dir = full_data_directory + "/snapshots"
+    assert len(os.listdir(snapshots_dir)) == 1  # Only the newest snapshot
+
+    wal_dir = full_data_directory + "/wal"
+    assert len(os.listdir(wal_dir)) == 0
+
+    interactive_mg_runner.kill_all()
+
+
 @pytest.mark.parametrize("database", ["memgraph", "other_db"])
 def test_empty(global_snapshot, database, test_name):
     assert global_snapshot is not None, "To snapshot to recover from"
@@ -228,7 +271,7 @@ def test_empty(global_snapshot, database, test_name):
     main_test_reboot(database)
     interactive_mg_runner.kill_all()
 
-@pytest.mark.skip(reason="works")
+
 def test_empty_with_local_snapshot(global_snapshot, test_name):
     assert global_snapshot != None, "To snapshot to recover from"
     data_directory = get_data_path("snapshot_recovery", test_name)
