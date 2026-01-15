@@ -144,6 +144,29 @@ auto CreateBackupDirectories(std::filesystem::path const &current_snapshot_dir,
                            .backup_wal_dir = std::move(backup_wal_dir)};
 }
 
+void ProcessOldDurableFiles(bool const reset_needed, std::filesystem::path const &current_snapshot_dir,
+                            std::filesystem::path const &current_wal_dir,
+                            std::vector<std::filesystem::path> const &old_wal_files,
+                            utils::FileRetainer *file_retainer) {
+  if (reset_needed) {
+    auto const old_snapshot_files = utils::GetFilesFromDir(current_snapshot_dir);
+
+    if (FLAGS_storage_enable_backup_dir) {
+      auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_dir);
+      if (!maybe_backup_dirs) {
+        spdlog::error("Couldn't create backup directories. Old durable files won't be moved to .old directory.");
+        return;
+      }
+      auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
+
+      MoveDurabilityFiles(old_snapshot_files, backup_snapshot_dir, old_wal_files, backup_wal_dir, file_retainer);
+    } else {
+      DeleteFiles(old_snapshot_files, file_retainer);
+      DeleteFiles(old_wal_files, file_retainer);
+    }
+  }
+}
+
 constexpr uint32_t kDeltasBatchProgressSize = 100'000;
 
 std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder, const uint64_t version) {
@@ -732,28 +755,8 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
       storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_, num_committed_txns};
 
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
-
-  if (req.reset_needed) {
-    auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
-    auto const old_snapshot_files = utils::GetFilesFromDir(current_snapshot_dir);
-
-    if (FLAGS_storage_enable_backup_dir) {
-      auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
-      if (!maybe_backup_dirs) {
-        spdlog::error("Couldn't create backup directories. Replica won't be recovered.");
-        rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder,
-                               storage->name());
-        return;
-      }
-      auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
-
-      MoveDurabilityFiles(old_snapshot_files, backup_snapshot_dir, old_wal_files, backup_wal_dir,
-                          &(storage->file_retainer_));
-    } else {
-      DeleteFiles(old_snapshot_files, &storage->file_retainer_);
-      DeleteFiles(old_wal_files, &storage->file_retainer_);
-    }
-  }
+  ProcessOldDurableFiles(req.reset_needed, storage->recovery_.snapshot_directory_, current_wal_directory, old_wal_files,
+                         &storage->file_retainer_);
 }
 
 // Commit timestamp on MAIN's side shouldn't be updated if:
@@ -838,26 +841,8 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
       load_wal_res.num_txns_committed};
 
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
-
-  if (req.reset_needed) {
-    auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
-    auto const old_snapshot_files = utils::GetFilesFromDir(current_snapshot_dir);
-
-    if (FLAGS_storage_enable_backup_dir) {
-      auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
-      if (!maybe_backup_dirs) {
-        spdlog::error("Couldn't create backup directories. Replica won't be recovered for db {}.", storage->name());
-        rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
-        return;
-      }
-      auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
-      MoveDurabilityFiles(old_snapshot_files, backup_snapshot_dir, old_wal_files, backup_wal_dir,
-                          &(storage->file_retainer_));
-    } else {
-      DeleteFiles(old_snapshot_files, &storage->file_retainer_);
-      DeleteFiles(old_wal_files, &storage->file_retainer_);
-    }
-  }
+  ProcessOldDurableFiles(req.reset_needed, storage->recovery_.snapshot_directory_, current_wal_directory, old_wal_files,
+                         &storage->file_retainer_);
 }
 
 // The method will return false and hence signal the failure of completely loading the WAL file if:
