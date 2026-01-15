@@ -39,13 +39,16 @@ PROFILE="${PROFILE:-minikube}"  # can be overridden via env
 
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
 
-# --- temporary bad code to be replaced with good code ---
-# save each image as tar.gz archive in the current directory
-echo -e "${GREEN}Saving ${LAST_TAG}"
-docker save memgraph/memgraph:${LAST_TAG} | gzip > memgraph-${LAST_TAG}.tar.gz
-echo -e "${GREEN}Saving ${NEXT_TAG}"
-docker save memgraph/memgraph:${NEXT_TAG} | gzip > memgraph-${NEXT_TAG}.tar.gz
-echo -e "${GREEN}Saved ${LAST_TAG} and ${NEXT_TAG}"
+# --- save images as tarballs ---
+# save each image as tarball in the current directory because
+# `minikube load image` is very flaky with loading images directly from Docker.
+LAST_TARBALL="memgraph-${LAST_TAG}.tar"
+NEXT_TARBALL="memgraph-${NEXT_TAG}.tar"
+echo -e "${GREEN}Saving ${LAST_TAG} as ${LAST_TARBALL}"
+docker save memgraph/memgraph:${LAST_TAG} -o ${LAST_TARBALL}
+echo -e "${GREEN}Saving ${NEXT_TAG} as ${NEXT_TARBALL}"
+docker save memgraph/memgraph:${NEXT_TAG} -o ${NEXT_TARBALL}
+echo -e "${GREEN}Saved ${LAST_TAG} as ${LAST_TARBALL} and ${NEXT_TAG} as ${NEXT_TARBALL}"
 
 # Defaults for flags/env overrides
 TEST_ROUTING=${TEST_ROUTING:-false}
@@ -216,6 +219,9 @@ cleanup() {
     echo -e "${YELLOW}--debug=false → leaving StorageClass & Minikube cluster running${NC}"
   fi
 
+  # remove the tar.gz files
+  rm -vf ${LAST_TARBALL} ${NEXT_TARBALL} || true
+
   echo -e "${GREEN}Cleanup finished.${NC}"
 }
 
@@ -326,8 +332,8 @@ load_into_minikube_if_missing() {
 }
 
 echo -e "${GREEN}Ensuring images exist in Minikube...${NC}"
-load_into_minikube_if_missing "memgraph/memgraph:${LAST_TAG}" "memgraph-${LAST_TAG}.tar.gz"
-load_into_minikube_if_missing "memgraph/memgraph:${NEXT_TAG}" "memgraph-${NEXT_TAG}.tar.gz"
+load_into_minikube_if_missing "memgraph/memgraph:${LAST_TAG}" "${LAST_TARBALL}"
+load_into_minikube_if_missing "memgraph/memgraph:${NEXT_TAG}" "${NEXT_TARBALL}"
 
 kubectl apply -f sc.yaml
 echo "Created $SC_NAME storage class"
